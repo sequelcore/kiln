@@ -12,6 +12,7 @@ export type ErrorOutcomeMapper = (error: unknown) => CredentialOutcome;
 
 export interface PooledProviderAdapterConfig<TAuth, TAdapter extends ProviderAdapter = ProviderAdapter> {
   readonly name: string;
+  readonly deliberationTransport?: ProviderAdapter["deliberationTransport"];
   readonly pool: CredentialPool<TAuth>;
   readonly createAdapter: (auth: TAuth) => TAdapter;
   readonly mapError: ErrorOutcomeMapper;
@@ -24,6 +25,7 @@ export class PooledProviderAdapter<
   TAdapter extends ProviderAdapter = ProviderAdapter,
 > implements ProviderAdapter {
   readonly name: string;
+  readonly deliberationTransport: ProviderAdapter["deliberationTransport"];
 
   private readonly pool: CredentialPool<TAuth>;
   private readonly createAdapter: (auth: TAuth) => TAdapter;
@@ -33,6 +35,7 @@ export class PooledProviderAdapter<
 
   constructor(config: PooledProviderAdapterConfig<TAuth, TAdapter>) {
     this.name = config.name;
+    this.deliberationTransport = config.deliberationTransport ?? "none";
     this.pool = config.pool;
     this.createAdapter = config.createAdapter;
     this.mapError = config.mapError;

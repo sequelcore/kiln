@@ -202,6 +202,26 @@ describe("OpenAIAdapter", () => {
     }]);
   });
 
+  it("projects an admitted deliberation level to reasoning_effort", async () => {
+    const mockFetch = mockFetchResponse(makeOpenAIResponse());
+    vi.stubGlobal("fetch", mockFetch);
+
+    await adapter.createMessage(makeOptions({
+      deliberationResolution: {
+        status: "exact",
+        selectedLevel: "high" as never,
+        source: "route",
+        capabilityEvidence: {
+          sourceIdentity: "openai:test",
+          sourceRevision: "revision-1",
+          observedAt: "2026-08-02T00:00:00.000Z",
+        },
+      },
+    }));
+
+    expect(JSON.parse(mockFetch.mock.calls[0]![1].body)).toMatchObject({ reasoning_effort: "high" });
+  });
+
   it("serializes an explicit no-tool finalization choice without tool definitions", async () => {
     const mockFetch = mockFetchResponse(makeOpenAIResponse());
     vi.stubGlobal("fetch", mockFetch);

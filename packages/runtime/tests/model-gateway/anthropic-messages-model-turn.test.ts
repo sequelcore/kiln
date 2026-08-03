@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { defineDeliberationLevelId, type ModelDeliberationCapabilities } from "@kilnai/core";
 import {
   ANTHROPIC_MESSAGES_PROTOCOL_LIMITS,
   AnthropicMessagesProtocolError,
@@ -28,6 +29,19 @@ function request(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const deliberationCapabilities: ModelDeliberationCapabilities = {
+  provider: "codex-oauth",
+  model: "gpt-test",
+  levels: ["low", "medium", "high", "xhigh"].map((level) => ({ id: defineDeliberationLevelId(level) })),
+  defaultLevel: defineDeliberationLevelId("medium"),
+  supportsAdaptive: false,
+  evidence: {
+    sourceIdentity: "model-gateway:claude-kiln",
+    sourceRevision: "test-r1",
+    observedAt: "2026-05-12T00:00:00.000Z",
+  },
+};
+
 describe("Anthropic Messages model-turn boundary", () => {
   it("maps lossless text, tools, tool results, images, and output limits", () => {
     const parsed = parseAnthropicMessagesRequest(request());
@@ -55,14 +69,21 @@ describe("Anthropic Messages model-turn boundary", () => {
     expect(mapAnthropicMessagesRequestToModelTurn(serial).parallelToolCalls).toBe(false);
   });
 
-  it("preserves supported effort controls as explicit governed capabilities", () => {
+  it("resolves native effort controls through explicit governed capabilities", () => {
     const high = parseAnthropicMessagesRequest(request({ output_config: { effort: "high" } }));
     expect(inspectAnthropicMessagesCapabilities(high)).toContain("reasoning-controls");
-    expect(mapAnthropicMessagesRequestToModelTurn(high).reasoning).toEqual({ effort: "high" });
+    expect(mapAnthropicMessagesRequestToModelTurn(high, deliberationCapabilities).deliberationResolution)
+      .toMatchObject({ status: "exact", selectedLevel: "high" });
 
     const medium = parseAnthropicMessagesRequest(request({ output_config: { effort: "medium" } }));
     expect(inspectAnthropicMessagesCapabilities(medium)).toContain("reasoning-controls");
-    expect(mapAnthropicMessagesRequestToModelTurn(medium).reasoning).toEqual({ effort: "medium" });
+    expect(mapAnthropicMessagesRequestToModelTurn(medium, deliberationCapabilities).deliberationResolution)
+      .toMatchObject({ status: "exact", selectedLevel: "medium" });
+  });
+
+  it("fails closed when native effort lacks revisioned route capabilities", () => {
+    const parsed = parseAnthropicMessagesRequest(request({ output_config: { effort: "high" } }));
+    expect(() => mapAnthropicMessagesRequestToModelTurn(parsed)).toThrow("capability-unknown");
   });
 
   it.each([

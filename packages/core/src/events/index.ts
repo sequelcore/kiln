@@ -642,7 +642,7 @@ export interface ModelRoutedEvent extends KilnEvent {
   readonly complexityScore?: number;
   readonly reason: string;
   readonly selectionMode?: "automatic" | "explicit-operator-only";
-  readonly reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  readonly deliberationResolution?: import("../agents/deliberation-policy.js").DeliberationResolution;
   readonly rationale?: import("../engine/domain/model-router.js").ModelRoutingRationale;
 }
 

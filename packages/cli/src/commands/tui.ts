@@ -532,7 +532,7 @@ export async function makeMultiProviderSessionFactory(
           continuationSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
           sessionLedgerOwner: "host",
           model: modelForTurn,
-          reasoningEffort: options.reasoningEffort,
+          deliberationResolution: options.deliberationResolution,
           ...(context?.requestedAuthority ? { requestedAuthority: context.requestedAuthority } : {}),
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,

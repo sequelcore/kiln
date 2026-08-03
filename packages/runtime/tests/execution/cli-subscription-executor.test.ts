@@ -128,7 +128,7 @@ describe("CliSubscriptionExecutor", () => {
     });
   });
 
-  it("passes requested reasoning effort through to the subscription session", async () => {
+  it("passes admitted deliberation through to the subscription session", async () => {
     const dispose = vi.fn().mockResolvedValue(undefined);
     const run = vi.fn().mockImplementation(() =>
       eventStream([
@@ -141,10 +141,22 @@ describe("CliSubscriptionExecutor", () => {
     await executor.createMessage({
       system: "sys",
       messages: [],
-      reasoningEffort: "high",
+      deliberationResolution: {
+        status: "exact",
+        selectedLevel: "high",
+        source: "operator",
+        capabilityEvidence: {
+          sourceIdentity: "codex/gpt-test",
+          sourceRevision: "test-r1",
+          observedAt: "2026-05-12T00:00:00.000Z",
+        },
+      },
     });
 
-    expect(run.mock.calls[0]?.[0]?.reasoningEffort).toBe("high");
+    expect(run.mock.calls[0]?.[0]?.deliberationResolution).toMatchObject({
+      status: "exact",
+      selectedLevel: "high",
+    });
   });
 
   it("builds a single-message prompt without labels", async () => {

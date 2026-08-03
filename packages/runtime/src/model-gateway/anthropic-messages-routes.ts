@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ModelGatewayRoute } from "@kilnai/core";
+import type { ModelDeliberationCapabilities, ModelGatewayRoute } from "@kilnai/core";
 import { Hono } from "hono";
 import {
   GovernedOneRoundCommittedError,
@@ -20,6 +20,7 @@ export interface AnthropicMessagesTrustedPrincipal {
 export interface AnthropicMessagesResolvedVirtualModel {
   readonly route: ModelGatewayRoute;
   readonly capabilities: ReadonlySet<AnthropicMessagesModelTurnCapability>;
+  readonly deliberation?: ModelDeliberationCapabilities;
   readonly affinity: { readonly continuity: "none" } | { readonly continuity: "prefer" | "require"; readonly scope: "session" | "turn"; readonly allowRebind?: boolean };
 }
 export interface AnthropicMessagesObservedCorrelation {
@@ -76,7 +77,7 @@ export function createAnthropicMessagesRoutes(config: AnthropicMessagesIngressCo
         throw new MessagesIngressError(422, "invalid_request_error", "The requested Messages capability is unavailable.");
       }
       let turn: import("@kilnai/core").ModelTurn;
-      try { turn = mapAnthropicMessagesRequestToModelTurn(request); }
+      try { turn = mapAnthropicMessagesRequestToModelTurn(request, resolved.deliberation); }
       catch (error) { if (error instanceof TypeError) throw new MessagesIngressError(400, "invalid_request_error", "The Messages request is invalid."); throw error; }
       const observed = correlation(context.req.raw.headers, bounded.sha256);
       const namespaced = await config.namespaceCorrelation({ principal, observed });

@@ -631,7 +631,13 @@ export async function sendMessage(
       prompt: text,
       executionMode: ctx.state.planMode ? "plan" : "execute",
       requestedAuthority: ctx.state.currentRequestedAuthority,
-      reasoningEffort: ctx.state.currentReasoningEffort,
+      ...(ctx.state.currentDeliberationLevel ? {
+        deliberationIntent: {
+          mode: "fixed",
+          preferredLevel: ctx.state.currentDeliberationLevel,
+          onUnsupported: "deny",
+        },
+      } : {}),
     })) {
       switch (event.type) {
         case "text_delta":

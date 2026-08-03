@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import {
   HarnessIngressContentPartSchema,
+  HARNESS_INGRESS_PROTOCOL_VERSION,
   parseHarnessIngressClientFrame,
   type HarnessIngressContentPart,
   type HarnessIngressServerFrame,
@@ -10,6 +11,7 @@ import {
 import type { ContentPart } from "@kilnai/core";
 import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
+import { toCoreDeliberationIntent } from "./deliberation-projection.js";
 
 export interface HarnessIngressRoutesConfig {
   /** Required because this route is deliberately opt-in and WebSocket-only. */
@@ -99,11 +101,11 @@ async function handleMessage(input: {
   if (frame.type === "turn_cancel") {
     const active = input.activeTurns.get(activityKey);
     if (!active || active.turnId !== frame.turnId) {
-      send(input.ws, { protocolVersion: "1", type: "turn_cancel_result", requestId: frame.requestId, turnId: frame.turnId, status: "not_active" });
+      send(input.ws, { protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION, type: "turn_cancel_result", requestId: frame.requestId, turnId: frame.turnId, status: "not_active" });
       return;
     }
     active.controller.abort();
-    send(input.ws, { protocolVersion: "1", type: "turn_cancel_result", requestId: frame.requestId, turnId: frame.turnId, status: "accepted" });
+    send(input.ws, { protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION, type: "turn_cancel_result", requestId: frame.requestId, turnId: frame.turnId, status: "accepted" });
     return;
   }
 
@@ -115,7 +117,7 @@ async function handleMessage(input: {
   const active: ActiveTurn = { turnId: frame.requestId, controller };
   input.activeTurns.set(activityKey, active);
   send(input.ws, {
-    protocolVersion: "1",
+    protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION,
     type: "turn_accepted",
     requestId: frame.requestId,
     turnId: frame.requestId,
@@ -136,6 +138,7 @@ async function completeTurn(input: {
   readonly runAdmittedTurn: typeof processAdmittedTurn;
 }): Promise<void> {
   try {
+    const deliberationIntent = toCoreDeliberationIntent(input.frame.deliberationIntent);
     const result = await input.runAdmittedTurn({
       orchestrator: input.runtime.orchestrator,
       sessionRegistry: input.runtime.sessionRegistry,
@@ -160,8 +163,8 @@ async function completeTurn(input: {
       groundingDeps: input.runtime.groundingDeps,
       contextArtifactCache: input.runtime.contextArtifactCache,
       coordinationContextProvider: input.runtime.coordinationContextProvider,
-      ...(input.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: input.runtime.toolAllowlist, turnId: input.frame.requestId, reasoningEffort: input.frame.reasoningEffort, abortSignal: input.active.controller.signal } }
-        : { perCallConfig: { turnId: input.frame.requestId, reasoningEffort: input.frame.reasoningEffort, abortSignal: input.active.controller.signal } }),
+      ...(input.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: input.runtime.toolAllowlist, turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), abortSignal: input.active.controller.signal } }
+        : { perCallConfig: { turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), abortSignal: input.active.controller.signal } }),
     });
     if (!result.ok) {
       send(input.ws, errorFrame(input.frame.requestId, "unavailable"));
@@ -169,7 +172,7 @@ async function completeTurn(input: {
     }
     const output = projectCompletionOutput(result.result.parts);
     send(input.ws, {
-      protocolVersion: "1",
+      protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION,
       type: "turn_completed",
       requestId: input.frame.requestId,
       turnId: input.frame.requestId,
@@ -214,7 +217,7 @@ function requestIdFromPayload(payload: unknown): string {
 }
 
 function errorFrame(requestId: string, code: "invalid_request" | "unauthorized" | "unsupported" | "unavailable" | "internal"): HarnessIngressServerFrame {
-  return { protocolVersion: "1", type: "error", requestId, code, redacted: true };
+  return { protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION, type: "error", requestId, code, redacted: true };
 }
 
 function projectCompletionOutput(parts: readonly ContentPart[]): Pick<Extract<HarnessIngressServerFrame, { type: "turn_completed" }>, "content" | "parts"> {

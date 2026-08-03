@@ -1,7 +1,7 @@
 import type {
   GuiAppDescriptor,
   GuiAuthorityStatus,
-  GuiProviderReasoningEffort,
+  GuiDeliberationLevelId,
   OperatorTurnRequestedAuthority,
   OperatorWorkspaceGatewayTargetSummary,
 } from "@kilnai/gateway-contracts";
@@ -17,14 +17,6 @@ import {
 } from "@/components/ui/select";
 
 export type RequestableTurnAuthority = OperatorTurnRequestedAuthority;
-
-const REASONING_EFFORT_LABELS: Record<GuiProviderReasoningEffort, string> = {
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "XHigh",
-};
 
 export const TURN_AUTHORITY_OPTIONS: readonly RequestableTurnAuthority[] = [
   "auto",
@@ -103,29 +95,31 @@ export function RuntimeBootstrapGate(props: {
   );
 }
 
-export function ReasoningEffortControl(props: {
-  readonly value: GuiProviderReasoningEffort;
-  readonly options: readonly GuiProviderReasoningEffort[];
-  readonly onChange: (value: GuiProviderReasoningEffort) => void;
+export function DeliberationControl(props: {
+  readonly value: GuiDeliberationLevelId | null;
+  readonly options: readonly GuiDeliberationLevelId[];
+  readonly onChange: (value: GuiDeliberationLevelId | null) => void;
 }) {
   if (props.options.length === 0) return null;
+  const providerDefaultValue = "__kiln_provider_default__";
   return (
     <Select
-      value={props.value}
+      value={props.value ?? providerDefaultValue}
       onValueChange={(value) => {
         if (value) {
-          props.onChange(value);
+          props.onChange(value === providerDefaultValue ? null : value);
         }
       }}
     >
-      <SelectTrigger size="sm" aria-label="Reasoning effort" className="w-auto min-w-20">
-        <span className="truncate">{REASONING_EFFORT_LABELS[props.value]}</span>
+      <SelectTrigger size="sm" aria-label="Deliberation" className="w-auto min-w-24">
+        <span className="truncate">{props.value ?? "Provider default"}</span>
       </SelectTrigger>
       <SelectContent align="end">
         <SelectGroup>
-          {props.options.map((effort) => (
-            <SelectItem key={effort} value={effort}>
-              {REASONING_EFFORT_LABELS[effort]}
+          <SelectItem value={providerDefaultValue}>Provider default</SelectItem>
+          {props.options.map((level) => (
+            <SelectItem key={level} value={level}>
+              {level}
             </SelectItem>
           ))}
         </SelectGroup>

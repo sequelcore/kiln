@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  resolveNormalizedReasoningEffort,
+  KNOWN_DELIBERATION_LEVEL_IDS,
   PhaseAwareModelRouter,
   selectPhaseAwareRoute,
   type PhaseAwareRouteCandidate,
 } from "../../src/index.js";
+
+const LEVEL = KNOWN_DELIBERATION_LEVEL_IDS;
+
+const capabilityEvidence = {
+  sourceIdentity: "phase-router-fixture",
+  sourceRevision: "1",
+  observedAt: "2026-08-02T00:00:00.000Z",
+} as const;
 
 const CHEAP: PhaseAwareRouteCandidate = {
   provider: "local",
@@ -17,8 +25,14 @@ const CHEAP: PhaseAwareRouteCandidate = {
   supportsTools: true,
   preferredPhases: ["orient", "execute"],
   verificationContractId: "verified-change-v1",
-  supportedReasoningEfforts: ["minimal", "low", "medium"],
-  defaultReasoningEffort: "low",
+  deliberationCapabilities: {
+    provider: "local",
+    model: "fast",
+    levels: [LEVEL.minimal, LEVEL.low, LEVEL.medium].map((id) => ({ id })),
+    defaultLevel: LEVEL.low,
+    supportsAdaptive: true,
+    evidence: capabilityEvidence,
+  },
   estimatedCostUsd: 0.01,
   retryRisk: 0.1,
   cacheInvalidationCostUsd: 0,
@@ -33,8 +47,14 @@ const CAPABLE: PhaseAwareRouteCandidate = {
   suitability: 0.9,
   quality: 1,
   preferredPhases: ["plan", "verify"],
-  supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
-  defaultReasoningEffort: "high",
+  deliberationCapabilities: {
+    provider: "remote",
+    model: "capable",
+    levels: [LEVEL.low, LEVEL.medium, LEVEL.high, LEVEL.xhigh].map((id) => ({ id })),
+    defaultLevel: LEVEL.high,
+    supportsAdaptive: true,
+    evidence: capabilityEvidence,
+  },
   estimatedCostUsd: 0.08,
   retryRisk: 0.05,
   verifierCostUsd: 0.02,
@@ -52,7 +72,10 @@ describe("phase-aware route policy", () => {
         verificationNeed: 0.1,
       },
       requiredVerificationContractId: "verified-change-v1",
-      effort: { unsupportedPolicy: "fail" },
+      deliberation: {
+        intent: { mode: "provider-default", onUnsupported: "deny" },
+        source: "project",
+      },
     });
     expect(orient).toMatchObject({
       policyId: "phase-aware-route-v1",
@@ -72,13 +95,19 @@ describe("phase-aware route policy", () => {
         verificationNeed: 1,
       },
       requiredVerificationContractId: "verified-change-v1",
-      requestedReasoningEffort: "high",
-      effort: { unsupportedPolicy: "omit" },
+      deliberation: {
+        intent: { mode: "fixed", preferredLevel: LEVEL.high, onUnsupported: "omit" },
+        source: "operator",
+      },
     });
     expect(verify.selected).toMatchObject({
       provider: "remote",
       model: "capable",
-      effortResolution: { status: "resolved", requested: "high", resolved: "high", source: "explicit" },
+      deliberationResolution: {
+        status: "exact",
+        selectedLevel: LEVEL.high,
+        source: "operator",
+      },
     });
     expect(verify.escalationRoutes[0]).toMatchObject({ provider: "local", model: "fast" });
   });
@@ -109,7 +138,10 @@ describe("phase-aware route policy", () => {
     const candidate = new PhaseAwareModelRouter({
       candidates: [CHEAP, CAPABLE],
       requiredVerificationContractId: "verified-change-v1",
-      effort: { unsupportedPolicy: "omit" },
+      deliberation: {
+        intent: { mode: "provider-default", onUnsupported: "omit" },
+        source: "project",
+      },
     }).route(request);
     expect(candidate).toMatchObject({
       provider: "remote",
@@ -120,7 +152,10 @@ describe("phase-aware route policy", () => {
     const rollback = new PhaseAwareModelRouter({
       candidates: [CHEAP, CAPABLE],
       requiredVerificationContractId: "verified-change-v1",
-      effort: { unsupportedPolicy: "omit" },
+      deliberation: {
+        intent: { mode: "provider-default", onUnsupported: "omit" },
+        source: "project",
+      },
       mode: "static-rollback",
     }).route(request);
     expect(rollback).toMatchObject({
@@ -135,8 +170,28 @@ describe("phase-aware route policy", () => {
       candidates: [
         { ...CHEAP, health: "cooldown" },
         { ...CAPABLE, supportsTools: false },
-        { ...CAPABLE, provider: "other", model: "wrong-verifier", verificationContractId: "weaker-v1" },
-        { ...CAPABLE, provider: "expensive", model: "over-budget", estimatedCostUsd: 2 },
+        {
+          ...CAPABLE,
+          provider: "other",
+          model: "wrong-verifier",
+          verificationContractId: "weaker-v1",
+          deliberationCapabilities: {
+            ...CAPABLE.deliberationCapabilities!,
+            provider: "other",
+            model: "wrong-verifier",
+          },
+        },
+        {
+          ...CAPABLE,
+          provider: "expensive",
+          model: "over-budget",
+          estimatedCostUsd: 2,
+          deliberationCapabilities: {
+            ...CAPABLE.deliberationCapabilities!,
+            provider: "expensive",
+            model: "over-budget",
+          },
+        },
       ],
       signals: {
         taskClass: "tool-verification",
@@ -147,7 +202,10 @@ describe("phase-aware route policy", () => {
         budgetUsd: 0.5,
       },
       requiredVerificationContractId: "verified-change-v1",
-      effort: { unsupportedPolicy: "omit" },
+      deliberation: {
+        intent: { mode: "provider-default", onUnsupported: "omit" },
+        source: "project",
+      },
     });
 
     expect(decision.selected).toBeUndefined();
@@ -163,8 +221,29 @@ describe("phase-aware route policy", () => {
     const decision = selectPhaseAwareRoute({
       candidates: [
         { ...CHEAP, health: "unknown" },
-        { ...CHEAP, provider: "degraded", model: "degraded", health: "degraded", configuredRank: 0 },
-        { ...CHEAP, provider: "healthy", model: "healthy", configuredRank: 1 },
+        {
+          ...CHEAP,
+          provider: "degraded",
+          model: "degraded",
+          health: "degraded",
+          configuredRank: 0,
+          deliberationCapabilities: {
+            ...CHEAP.deliberationCapabilities!,
+            provider: "degraded",
+            model: "degraded",
+          },
+        },
+        {
+          ...CHEAP,
+          provider: "healthy",
+          model: "healthy",
+          configuredRank: 1,
+          deliberationCapabilities: {
+            ...CHEAP.deliberationCapabilities!,
+            provider: "healthy",
+            model: "healthy",
+          },
+        },
       ],
       signals: {
         taskClass: "repository-orientation",
@@ -174,7 +253,10 @@ describe("phase-aware route policy", () => {
         verificationNeed: 0.1,
       },
       requiredVerificationContractId: "verified-change-v1",
-      effort: { unsupportedPolicy: "fail" },
+      deliberation: {
+        intent: { mode: "provider-default", onUnsupported: "deny" },
+        source: "project",
+      },
     });
 
     expect(decision.selected).toMatchObject({ provider: "healthy", model: "healthy" });
@@ -184,71 +266,32 @@ describe("phase-aware route policy", () => {
       model: "fast",
     }));
   });
-});
 
-describe("normalized reasoning effort", () => {
-  it("records truthful omission and gates xhigh on capability, budget, and promotion evidence", () => {
-    expect(resolveNormalizedReasoningEffort({
-      requested: "high",
-      supportEvidence: "unknown",
-      unsupportedPolicy: "omit",
-    })).toEqual({ status: "omitted", requested: "high", reason: "capability-unknown" });
-
-    expect(resolveNormalizedReasoningEffort({
-      requested: "xhigh",
-      supportEvidence: "known",
-      supported: ["high", "xhigh"],
-      unsupportedPolicy: "omit",
-      allowExperimentalXhigh: true,
-      xhighPromotionEligible: false,
-      budgetUsd: 1,
-      estimatedEffortCostUsd: 0.2,
-    })).toEqual({ status: "omitted", requested: "xhigh", reason: "xhigh-not-promoted" });
-
-    expect(resolveNormalizedReasoningEffort({
-      requested: "xhigh",
-      supportEvidence: "known",
-      supported: ["xhigh"],
-      unsupportedPolicy: "omit",
-      allowExperimentalXhigh: true,
-      xhighPromotionEligible: true,
-      budgetUsd: 0.1,
-      estimatedEffortCostUsd: 0.2,
-    })).toEqual({ status: "omitted", requested: "xhigh", reason: "budget-exceeded" });
-
-    expect(() => resolveNormalizedReasoningEffort({
-      requested: "high",
-      supportEvidence: "known",
-      supported: ["low"],
-      unsupportedPolicy: "fail",
-    })).toThrow("Requested reasoning effort 'high' is unsupported");
-  });
-
-  it("allows xhigh only for budgeted benchmark evidence before promotion", () => {
-    expect(resolveNormalizedReasoningEffort({
-      requested: "xhigh",
-      supportEvidence: "known",
-      supported: ["xhigh"],
-      unsupportedPolicy: "omit",
-      allowExperimentalXhigh: true,
-      purpose: "benchmark",
-      estimatedEffortCostUsd: 0.2,
-    })).toEqual({ status: "omitted", requested: "xhigh", reason: "budget-required" });
-
-    expect(resolveNormalizedReasoningEffort({
-      requested: "xhigh",
-      supportEvidence: "known",
-      supported: ["xhigh"],
-      unsupportedPolicy: "fail",
-      allowExperimentalXhigh: true,
-      purpose: "benchmark",
-      budgetUsd: 0.3,
-      estimatedEffortCostUsd: 0.2,
-    })).toEqual({
-      status: "resolved",
-      requested: "xhigh",
-      resolved: "xhigh",
-      source: "explicit",
+  it("excludes routes denied by deliberation while preserving denial evidence", () => {
+    const decision = selectPhaseAwareRoute({
+      candidates: [CHEAP],
+      signals: {
+        taskClass: "deep-verification",
+        phase: "verify",
+        uncertainty: 1,
+        toolNeed: 0,
+        verificationNeed: 1,
+      },
+      requiredVerificationContractId: "verified-change-v1",
+      deliberation: {
+        intent: { mode: "fixed", preferredLevel: LEVEL.high, onUnsupported: "deny" },
+        source: "operator",
+      },
     });
+
+    expect(decision.selected).toBeUndefined();
+    expect(decision.diagnostics).toContainEqual(expect.objectContaining({
+      code: "deliberation-unresolved",
+      deliberationResolution: expect.objectContaining({
+        status: "denied",
+        reason: "preferred-level-unsupported",
+        source: "operator",
+      }),
+    }));
   });
 });

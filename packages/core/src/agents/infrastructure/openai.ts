@@ -6,6 +6,8 @@ export const O3 = "o3";
 export const O3_MINI = "o3-mini";
 
 export class OpenAIAdapter extends OpenAICompatAdapter {
+  override readonly deliberationTransport = "native-level" as const;
+
   constructor(config: { apiKey: string; defaultModel?: string; internalRetry?: boolean }) {
     super({
       apiKey: config.apiKey,
@@ -14,5 +16,9 @@ export class OpenAIAdapter extends OpenAICompatAdapter {
       providerName: "openai",
       internalRetry: config.internalRetry,
     });
+  }
+
+  protected override projectDeliberationLevel(body: { reasoning_effort?: string }, level: string): void {
+    body.reasoning_effort = level;
   }
 }

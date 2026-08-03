@@ -17,7 +17,7 @@ import type {
   ExecutionSessionEvent,
   MemoryLayerKind,
   MemoryScopeKind,
-  ReasoningEffort,
+  DeliberationResolution,
 } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
@@ -160,7 +160,7 @@ export interface SessionRunOptions {
   readonly cwd?: string;
   /** Runtime tool sandbox context. Used only by Kiln-executable direct-provider sessions. */
   readonly toolSandbox?: unknown;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly env?: Record<string, string>;
   readonly abortSignal?: AbortSignal;

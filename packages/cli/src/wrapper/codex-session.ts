@@ -3,10 +3,11 @@ import { spawn } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import {
   CODEX_DEFAULT_MODEL,
+  admitDeliberationForExecution,
   appendExecutionIdentity,
   resolveExecutionIdentity,
   type ExecutionSessionEvent,
-  type ReasoningEffort,
+  type DeliberationResolution,
 } from "@kilnai/core";
 import type {
   SessionCapabilities,
@@ -31,7 +32,7 @@ export interface CodexSessionConfig {
   readonly runtimeSessionId?: string;
   readonly task: string;
   readonly model?: string;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
@@ -245,9 +246,11 @@ export class CodexSession implements IKilnSession {
     if (this.config.model) {
       args.push("-m", this.config.model);
     }
-    const reasoningEffort = options.reasoningEffort ?? this.config.reasoningEffort;
-    if (reasoningEffort) {
-      args.push("-c", `model_reasoning_effort=${reasoningEffort}`);
+    const deliberationLevel = admitDeliberationForExecution(
+      options.deliberationResolution ?? this.config.deliberationResolution,
+    );
+    if (deliberationLevel) {
+      args.push("-c", `model_reasoning_effort=${deliberationLevel}`);
     }
     if (this.config.profile) {
       args.push("--profile", this.config.profile);

@@ -408,6 +408,13 @@ export class RuntimeSessionOrchestrator {
         session.conversationHistory,
         executionEnvelope?.conversation?.toolResults,
       );
+      if ((routing.deliberationResolution?.status === "exact"
+        || routing.deliberationResolution?.status === "clamped")
+        && routing.effectiveProvider.deliberationTransport !== "native-level") {
+        throw new Error(
+          `Provider adapter '${routing.effectiveProvider.name}' cannot transport the resolved deliberation level.`,
+        );
+      }
       const response = await routing.effectiveProvider.createMessage({
         sessionId: session.id,
         system: invocationPromptManifest.finalPrompt,
@@ -417,7 +424,9 @@ export class RuntimeSessionOrchestrator {
           ? { toolChoice: perCallConfig.initialToolChoice }
           : {}),
         maxTokens: this.deps.maxTokens,
-        reasoningEffort: perCallConfig?.reasoningEffort,
+        ...(routing.deliberationResolution
+          ? { deliberationResolution: routing.deliberationResolution }
+          : {}),
         signal: perCallConfig?.abortSignal,
         ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
       });
@@ -1746,7 +1755,7 @@ function buildRuntimeProviderRequestCachePartition(
       ?? routing.executionIdentity?.model,
     canonicalModel: routing.routingDecision?.canonicalModel
       ?? routing.executionIdentity?.canonicalModel,
-    reasoningEffort: perCallConfig?.reasoningEffort,
+    deliberationResolution: routing.deliberationResolution,
     policyIdentity: {
       executionEnvelope,
       modelRoutingPolicy: projectModelRoutingPolicy(perCallConfig?.modelRoutingPolicy),
@@ -1774,7 +1783,7 @@ function projectModelRoutingPolicy(
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([route, capabilities]) => ({
           route,
-          supportedReasoningEfforts: capabilities.supportedReasoningEfforts,
+          deliberation: capabilities.deliberation,
         }))
       : undefined,
   };
@@ -1789,7 +1798,7 @@ function toPublicRoutingDecision(
     readonly routingTier: string;
     readonly reasoning: string;
     readonly selectionMode?: "automatic" | "explicit-operator-only";
-    readonly reasoningEffort?: import("@kilnai/core").ReasoningEffort;
+    readonly deliberationResolution?: import("@kilnai/core").DeliberationResolution;
     readonly rationale?: import("@kilnai/core").ModelRoutingRationale;
   } | undefined,
 ): OrchestrateResult["routingDecision"] {
@@ -1804,7 +1813,7 @@ function toPublicRoutingDecision(
     routingTier: routingDecision.routingTier,
     reasoning: routingDecision.reasoning,
     selectionMode: routingDecision.selectionMode,
-    reasoningEffort: routingDecision.reasoningEffort,
+    deliberationResolution: routingDecision.deliberationResolution,
     rationale: routingDecision.rationale,
   };
 }

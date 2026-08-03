@@ -2,10 +2,11 @@ import type {
   AgentResponse,
   AgentStreamEvent,
   CreateMessageOptions,
+  DeliberationLevelId,
   ProviderAdapter,
-  ReasoningEffort,
   ToolCall,
 } from "../index.js";
+import { admitDeliberationForExecution } from "../index.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
@@ -60,7 +61,7 @@ interface ResponsesRequestBody {
   readonly stream: true;
   readonly temperature?: number;
   readonly reasoning?: {
-    readonly effort: ReasoningEffort;
+    readonly effort: DeliberationLevelId;
   };
   readonly tools?: readonly ResponsesTool[];
 }
@@ -124,6 +125,7 @@ interface FunctionCallArgumentsDoneEnvelope {
 
 export class CodexOAuthAdapter implements ProviderAdapter {
   readonly name = "codex-oauth";
+  readonly deliberationTransport = "native-level" as const;
 
   private readonly auth: AccessTokenProvider;
   private readonly model: string;
@@ -471,6 +473,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
   private buildRequest(
     options: CreateMessageOptions,
   ): ResponsesRequest {
+    const deliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
     const input: ResponsesInputItem[] = [];
     const toolNames = createProviderToolNameCodec(collectCanonicalToolNames(options));
 
@@ -501,7 +504,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         input,
         store: false,
         stream: true,
-        ...(options.reasoningEffort ? { reasoning: { effort: options.reasoningEffort } } : {}),
+        ...(deliberationLevel ? { reasoning: { effort: deliberationLevel } } : {}),
         ...(tools ? { tools } : {}),
       },
       toolNames,

@@ -10,9 +10,9 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellCommandE
     setPaletteQuery: vi.fn(),
     setPaletteOpen: vi.fn(),
     setProviderPickerOpen: vi.fn(),
-    reasoningEffortOptions: ["low", "medium", "high"] as const,
-    resolvedReasoningEffort: "medium" as const,
-    setReasoningEffort: vi.fn(),
+    deliberationLevelOptions: ["low", "medium", "high"] as const,
+    selectedDeliberationLevel: "medium" as const,
+    setDeliberationLevel: vi.fn(),
     requestedAuthority: "auto" as const,
     setRequestedAuthority: vi.fn(),
     setSessionPopoverOpen: vi.fn(),
@@ -49,14 +49,14 @@ describe("createAppShellCommandExecutor", () => {
     expect(input.closePalette).not.toHaveBeenCalled();
   });
 
-  it("cycles reasoning effort and requested authority", () => {
+  it("cycles deliberation level and requested authority", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "effort", label: "Reasoning" });
+    execute({ id: "deliberation", label: "Deliberation" });
     execute({ id: "authority", label: "Authority" });
 
-    expect(input.setReasoningEffort).toHaveBeenCalledWith("high");
+    expect(input.setDeliberationLevel).toHaveBeenCalledWith("high");
     expect(input.setRequestedAuthority).toHaveBeenCalledWith("read_only");
     expect(input.closePalette).toHaveBeenCalledTimes(2);
   });

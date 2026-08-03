@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from "@kilnai/core";
+import type { DeliberationResolution } from "@kilnai/core";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
   ProviderId,
@@ -62,7 +62,7 @@ export interface RunSessionRouteCandidate {
   readonly provider: ProviderId;
   readonly model?: string;
   readonly accountBinding?: DirectProviderAccountBinding;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
 }
 
 export interface RunSessionAttemptResult {
@@ -151,12 +151,12 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     const candidate = candidates[candidateIndex]!;
     const providerId = candidate.provider;
     providersUsed.add(providerId);
-    const candidateReasoningEffort = candidate.reasoningEffort ?? options.sessionConfig.reasoningEffort;
+    const candidateDeliberation = candidate.deliberationResolution ?? options.sessionConfig.deliberationResolution;
     const effectiveSessionConfig = {
       ...options.sessionConfig,
       ...(candidate.model ? { model: candidate.model } : {}),
       ...(candidate.accountBinding ? { accountBinding: candidate.accountBinding } : {}),
-      ...(candidateReasoningEffort ? { reasoningEffort: candidateReasoningEffort } : {}),
+      ...(candidateDeliberation ? { deliberationResolution: candidateDeliberation } : {}),
       ...(scopedMcpToolAllowlist ? { mcpToolAllowlist: scopedMcpToolAllowlist } : {}),
     };
     let isPreflightCrash = false;
@@ -183,7 +183,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         toolSandbox: options.toolSandbox,
         env: options.env,
         abortSignal: options.abortSignal,
-        reasoningEffort: candidateReasoningEffort,
+        deliberationResolution: candidateDeliberation,
         requestedAuthority: options.sessionConfig.requestedAuthority,
         requestApproval: options.requestApproval,
       })) {

@@ -6312,7 +6312,7 @@ describe("discoverCodexCliModelDiscovery", () => {
 
     await expect(probeCodexCliModelReadiness({
       model: "gpt-5.5",
-      reasoningEffort: "medium",
+      deliberationLevel: "medium",
       cwd: "C:/repo",
       env: { KILN_TEST: "1" },
     })).resolves.toMatchObject({
@@ -7250,8 +7250,18 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
           supportsParallelToolCalls: true,
           contextWindow: 272000,
           supportsVision: true,
-          defaultReasoningEffort: "medium",
-          supportedReasoningEfforts: ["low", "medium", "high"],
+          deliberation: {
+            provider: "codex-oauth",
+            model: "gpt-5.4",
+            levels: [{ id: "low" }, { id: "medium" }, { id: "high" }],
+            defaultLevel: "medium",
+            supportsAdaptive: true,
+            evidence: {
+              sourceIdentity: "codex-oauth-model-catalog",
+              sourceRevision: "gpt-5.4",
+              observedAt: expect.any(String),
+            },
+          },
         },
         "gpt-5.4-mini": {
           supportsNativeShellTools: false,

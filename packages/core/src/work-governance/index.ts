@@ -114,7 +114,6 @@ export type {
   WorkItemPendingPauseRequirement,
   WorkItemResolvedPauseRequirement,
   WorkItemSupersededPauseRequirement,
-  WorkItemRecommendedReasoningEffort,
   WorkItemCompletionResult,
   WorkItemFinishExecutionAttemptInput,
   WorkItemFinishExecutionAttemptResult,

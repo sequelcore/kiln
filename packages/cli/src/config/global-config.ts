@@ -18,8 +18,8 @@ import { readMcpConfigurationSource } from "./mcp-config.js";
 import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
+  KilnDeliberationPolicyConfig,
   KilnModelTaskSuitabilityOverride,
-  KilnReasoningPolicyConfig,
   KilnYamlWebExtractProvider,
   KilnYamlWebSearchProvider,
   KilnYamlMcp,
@@ -98,7 +98,7 @@ export interface KilnGlobalConfig {
   readonly models?: KilnGlobalModelsConfig;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
-  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
+  readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
   readonly web?: KilnGlobalWebConfig;
   readonly ui?: KilnGlobalUiConfig;
   readonly skills?: KilnYamlSkillsConfig;
@@ -120,7 +120,7 @@ const ROOT_FIELDS = new Set([
   "models",
   "managedAgents",
   "modelTaskSuitability",
-  "reasoningPolicy",
+  "deliberationPolicy",
   "web",
   "ui",
   "skills",
@@ -254,7 +254,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "hooks");
   validateRecordField(config, "models");
   validateRecordField(config, "managedAgents");
-  validateRecordField(config, "reasoningPolicy");
+  validateRecordField(config, "deliberationPolicy");
   validateRecordField(config, "web");
   validateRecordField(config, "ui");
   validateRecordField(config, "skills");
@@ -270,7 +270,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateOperatorVoice(config.operatorVoice);
   validateManagedAgents(config.managedAgents, config.operatorVoice as VoiceConfig | undefined);
   validateModelTaskSuitability(config.modelTaskSuitability);
-  validateReasoningPolicy(config.reasoningPolicy);
+  validateDeliberationPolicy(config.deliberationPolicy);
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
   validateGlobalUi(config.ui);
@@ -1330,39 +1330,112 @@ function validateModelTaskSuitability(value: unknown): void {
   }
 }
 
-function validateReasoningPolicy(value: unknown): void {
+function validateDeliberationPolicy(value: unknown): void {
   if (value === undefined) {
     return;
   }
   if (!isRecord(value)) {
-    throw new KilnYamlError("reasoningPolicy must be an object");
+    throw new KilnYamlError("deliberationPolicy must be an object");
   }
   for (const key of Object.keys(value)) {
-    if (key !== "default" && key !== "unsupported" && key !== "byTask") {
-      throw new KilnYamlError(`Unknown reasoningPolicy field: ${key}`);
+    if (key !== "default" && key !== "byTask" && key !== "byRoute") {
+      throw new KilnYamlError(`Unknown deliberationPolicy field: ${key}`);
     }
   }
-  validateOptionalReasoningEffort(value.default, "reasoningPolicy.default");
-  if (value.unsupported !== undefined && value.unsupported !== "omit" && value.unsupported !== "fail") {
-    throw new KilnYamlError('reasoningPolicy.unsupported must be "omit" or "fail"');
+  if (value.default !== undefined) {
+    validateDeliberationRule(value.default, "deliberationPolicy.default", false);
   }
-  if (value.byTask === undefined) {
-    return;
-  }
-  if (!isRecord(value.byTask)) {
-    throw new KilnYamlError("reasoningPolicy.byTask must be an object");
-  }
-  for (const [task, effort] of Object.entries(value.byTask)) {
-    if (!isModelTaskSuitabilityTask(task)) {
-      throw new KilnYamlError(`reasoningPolicy.byTask.${task} is not a supported task`);
+  if (value.byTask !== undefined) {
+    if (!isRecord(value.byTask)) {
+      throw new KilnYamlError("deliberationPolicy.byTask must be an object");
     }
-    validateOptionalReasoningEffort(effort, `reasoningPolicy.byTask.${task}`);
+    for (const [task, rule] of Object.entries(value.byTask)) {
+      if (!isModelTaskSuitabilityTask(task)) {
+        throw new KilnYamlError(`deliberationPolicy.byTask.${task} is not a supported task`);
+      }
+      validateDeliberationRule(rule, `deliberationPolicy.byTask.${task}`, false);
+    }
+  }
+  if (value.byRoute !== undefined) {
+    if (!Array.isArray(value.byRoute)) {
+      throw new KilnYamlError("deliberationPolicy.byRoute must be an array");
+    }
+    const identities = new Set<string>();
+    for (let index = 0; index < value.byRoute.length; index += 1) {
+      const path = `deliberationPolicy.byRoute[${index}]`;
+      const rule = value.byRoute[index];
+      validateDeliberationRule(rule, path, true);
+      const route = rule as Record<string, unknown>;
+      validateRequiredNonEmptyString(route, "provider", `${path}.provider`);
+      validateRequiredNonEmptyString(route, "model", `${path}.model`);
+      const identity = `${route.provider}/${route.model}`;
+      if (identities.has(identity)) {
+        throw new KilnYamlError(`${path} duplicates route ${identity}`);
+      }
+      identities.add(identity);
+    }
   }
 }
 
-function validateOptionalReasoningEffort(value: unknown, path: string): void {
-  if (value !== undefined && !isReasoningEffort(value)) {
-    throw new KilnYamlError(`${path} must be a supported reasoning effort`);
+function validateDeliberationRule(value: unknown, path: string, route: boolean): void {
+  if (!isRecord(value)) {
+    throw new KilnYamlError(`${path} must be an object`);
+  }
+  const allowed = new Set(["mode", "target", "preferredLevel", "bounds", "onUnsupported"]);
+  if (route) {
+    allowed.add("provider");
+    allowed.add("model");
+  }
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new KilnYamlError(`Unknown ${path} field: ${key}`);
+    }
+  }
+  if (value.mode !== "provider-default" && value.mode !== "fixed" && value.mode !== "adaptive") {
+    throw new KilnYamlError(`${path}.mode must be "provider-default", "fixed", or "adaptive"`);
+  }
+  if (value.onUnsupported !== undefined
+    && value.onUnsupported !== "deny"
+    && value.onUnsupported !== "omit"
+    && value.onUnsupported !== "allow-clamp") {
+    throw new KilnYamlError(`${path}.onUnsupported must be "deny", "omit", or "allow-clamp"`);
+  }
+  if (value.mode === "provider-default") {
+    if (value.target !== undefined || value.preferredLevel !== undefined || value.bounds !== undefined) {
+      throw new KilnYamlError(`${path} provider-default mode cannot set target, preferredLevel, or bounds`);
+    }
+    return;
+  }
+  if (value.mode === "fixed") {
+    if (!isDeliberationLevelId(value.preferredLevel)) {
+      throw new KilnYamlError(`${path}.preferredLevel is required when mode is fixed`);
+    }
+    if (value.target !== undefined) {
+      throw new KilnYamlError(`${path} fixed mode cannot set target`);
+    }
+  } else {
+    if (value.target !== "latency-first" && value.target !== "balanced" && value.target !== "quality-first") {
+      throw new KilnYamlError(`${path}.target must be "latency-first", "balanced", or "quality-first"`);
+    }
+    if (value.preferredLevel !== undefined) {
+      throw new KilnYamlError(`${path} adaptive mode cannot set preferredLevel`);
+    }
+  }
+  if (value.bounds !== undefined) {
+    if (!isRecord(value.bounds)) {
+      throw new KilnYamlError(`${path}.bounds must be an object`);
+    }
+    for (const key of Object.keys(value.bounds)) {
+      if (key !== "min" && key !== "max") {
+        throw new KilnYamlError(`Unknown ${path}.bounds field: ${key}`);
+      }
+    }
+    if (value.bounds.min !== undefined && !isDeliberationLevelId(value.bounds.min)) {
+      throw new KilnYamlError(`${path}.bounds.min must be a portable deliberation level identifier`);
+    }
+    if (value.bounds.max !== undefined && !isDeliberationLevelId(value.bounds.max)) {
+      throw new KilnYamlError(`${path}.bounds.max must be a portable deliberation level identifier`);
+    }
   }
 }
 
@@ -1432,12 +1505,8 @@ function isModelTaskSuitabilityTask(value: unknown): boolean {
     || value === "test-writing";
 }
 
-function isReasoningEffort(value: unknown): boolean {
-  return value === "minimal"
-    || value === "low"
-    || value === "medium"
-    || value === "high"
-    || value === "xhigh";
+function isDeliberationLevelId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9][a-z0-9._:-]{0,63}$/.test(value);
 }
 
 function isModelTaskSuitabilityLevel(value: unknown): boolean {

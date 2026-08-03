@@ -110,7 +110,7 @@ export function ComposerFrame(props: {
   readonly activity?: ComposerActivity;
   readonly activeGoal?: ReactNode;
   readonly providerControl?: ReactNode;
-  readonly reasoningControl?: ReactNode;
+  readonly deliberationControl?: ReactNode;
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly leadingActions: ReactNode;
@@ -120,7 +120,7 @@ export function ComposerFrame(props: {
   readonly onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
-  const hasRuntimeControls = Boolean(props.providerControl || props.reasoningControl || props.authorityControl);
+  const hasRuntimeControls = Boolean(props.providerControl || props.deliberationControl || props.authorityControl);
   const kilnTheme = useUiStore((state) => state.theme);
   const beamTheme = resolveBorderBeamTheme(kilnTheme);
   const phase = props.activity?.phase ?? "idle";
@@ -207,8 +207,8 @@ export function ComposerFrame(props: {
                       {props.providerControl ? (
                         <div className="min-w-32 max-w-64 flex-1 md:flex-none">{props.providerControl}</div>
                       ) : null}
-                      {props.reasoningControl ? (
-                        <div className="shrink-0">{props.reasoningControl}</div>
+                      {props.deliberationControl ? (
+                        <div className="shrink-0">{props.deliberationControl}</div>
                       ) : null}
                     </>
                   ) : null}

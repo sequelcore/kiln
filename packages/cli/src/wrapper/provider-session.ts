@@ -21,7 +21,7 @@ import {
   type ResolvedDirectProviderExecutionProfile,
   type ToolDefinition,
   type ToolResultEvent,
-  type ReasoningEffort,
+  type DeliberationResolution,
   type SessionTurnOutcome,
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
@@ -65,7 +65,7 @@ export interface ProviderSessionConfig {
   readonly runtimeSessionId?: string;
   readonly model?: string;
   readonly accountBinding?: DirectProviderAccountBinding;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly task: string;
   readonly systemPrompt?: string;
@@ -483,7 +483,7 @@ export class ProviderSession implements IKilnSession {
     for await (const event of adapter.streamMessage({
       system: systemPrompt,
       messages,
-      reasoningEffort: options.reasoningEffort ?? this.config.reasoningEffort,
+      deliberationResolution: options.deliberationResolution ?? this.config.deliberationResolution,
       ...(options.abortSignal ? { signal: options.abortSignal } : {}),
     })) {
       if (options.abortSignal?.aborted) {
@@ -550,7 +550,7 @@ export class ProviderSession implements IKilnSession {
   }
 
   private buildPerCallConfig(
-    reasoningEffort: ReasoningEffort | undefined,
+    deliberationResolution: DeliberationResolution | undefined,
     requestedAuthority: OperatorTurnRequestedAuthority | undefined,
     abortSignal: AbortSignal | undefined,
     turnId: string | undefined,
@@ -572,7 +572,7 @@ export class ProviderSession implements IKilnSession {
       }
       return {
         ...(turnId ? { turnId } : {}),
-        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(deliberationResolution ? { deliberationResolution } : {}),
         ...(abortSignal ? { abortSignal } : {}),
         ...(workingDirectory ? { workingDirectory } : {}),
         ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
@@ -644,7 +644,7 @@ export class ProviderSession implements IKilnSession {
     const admittedAuthority = admittedToolNames.size === 0 ? "fail_closed" : effectiveRequestedAuthority;
     return {
       ...(turnId ? { turnId } : {}),
-      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(deliberationResolution ? { deliberationResolution } : {}),
       ...(abortSignal ? { abortSignal } : {}),
       ...(workingDirectory ? { workingDirectory } : {}),
       ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
@@ -686,7 +686,7 @@ export class ProviderSession implements IKilnSession {
     const externalCapabilityMap = new Map(mcpCapabilities.map((capability) => [capability.name, capability]));
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
     const perCallConfig = this.buildPerCallConfig(
-      options.reasoningEffort ?? this.config.reasoningEffort,
+      options.deliberationResolution ?? this.config.deliberationResolution,
       requestedAuthority,
       options.abortSignal,
       options.turnId,

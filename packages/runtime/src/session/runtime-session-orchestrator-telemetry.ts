@@ -181,7 +181,7 @@ export interface ProviderRequestCachePartitionInput {
   readonly provider?: string;
   readonly model?: string;
   readonly canonicalModel?: string;
-  readonly reasoningEffort?: string;
+  readonly deliberationResolution?: unknown;
   readonly policyIdentity?: unknown;
   readonly authority?: {
     readonly effectiveTurnAuthority?: unknown;
@@ -271,7 +271,7 @@ export class RuntimeSessionExecutionTelemetry {
       routingTier: decision.routingTier,
       reason: decision.reasoning,
       selectionMode: decision.selectionMode,
-      reasoningEffort: decision.reasoningEffort,
+      deliberationResolution: decision.deliberationResolution,
       rationale: decision.rationale,
       timestamp: new Date(),
       sessionId,
@@ -449,7 +449,7 @@ function buildCachePartitionEvidence(
     provider: input?.provider ?? "unknown",
     model: input?.model ?? "unknown",
     canonicalModel: input?.canonicalModel ?? "unknown",
-    reasoningEffort: input?.reasoningEffort ?? "default",
+    deliberationResolution: input?.deliberationResolution ?? { status: "not-requested" },
   };
   const policyValue = input?.policyIdentity ?? { policy: "default" };
   const authorityValue = input?.authority ?? { authority: "unknown" };

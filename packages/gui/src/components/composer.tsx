@@ -33,7 +33,7 @@ interface ComposerProps {
   }) => boolean;
   readonly pendingGoalAction?: "pause" | "resume" | "update_objective" | "cancel";
   readonly providerControl?: ReactNode;
-  readonly reasoningControl?: ReactNode;
+  readonly deliberationControl?: ReactNode;
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly onSubmit: (text: string) => void;
@@ -281,7 +281,7 @@ export function Composer(props: ComposerProps) {
         />
       ) : null}
       providerControl={props.providerControl}
-      reasoningControl={props.reasoningControl}
+      deliberationControl={props.deliberationControl}
       authorityControl={props.authorityControl}
       commandMenu={props.commandMenu}
       onSubmit={handleSubmit}

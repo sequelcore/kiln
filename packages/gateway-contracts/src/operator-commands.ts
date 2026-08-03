@@ -4,7 +4,7 @@ export type OperatorCommandId =
   | "clear"
   | "theme"
   | "provider"
-  | "effort"
+  | "deliberation"
   | "authority"
   | "continue"
   | "plan"
@@ -48,11 +48,11 @@ export const OPERATOR_COMMANDS: readonly OperatorCommandDefinition[] = [
     surfaces: ["gui", "tui"],
   },
   {
-    id: "effort",
-    trigger: "effort",
-    title: "Reasoning effort",
-    description: "Cycle or open reasoning effort controls.",
-    keywords: ["reasoning", "effort", "model"],
+    id: "deliberation",
+    trigger: "deliberation",
+    title: "Deliberation",
+    description: "Cycle or open model deliberation controls.",
+    keywords: ["deliberation", "reasoning", "model"],
     surfaces: ["gui", "tui"],
   },
   {

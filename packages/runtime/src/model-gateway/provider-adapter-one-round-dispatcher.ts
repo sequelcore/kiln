@@ -63,6 +63,14 @@ export class ProviderAdapterOneRoundDispatcher implements ModelGatewayOneRoundDi
     if (input.route.providerId !== this.#providerId || input.route.providerModelId.length === 0) {
       throw new ProviderAdapterOneRoundError("route-mismatch", "The dispatcher is bound to a different provider route.");
     }
+    if ((input.turn.deliberationResolution?.status === "exact"
+      || input.turn.deliberationResolution?.status === "clamped")
+      && this.#adapter.deliberationTransport !== "native-level") {
+      throw new ProviderAdapterOneRoundError(
+        "unsupported-capability",
+        `Provider adapter '${this.#adapter.name}' cannot transport the resolved deliberation level.`,
+      );
+    }
 
     const projection = buildFunctionToolProjection(input.turn.tools ?? []);
     const response = await this.#adapter.createMessage(toCreateMessageOptions(input, projection));
@@ -102,6 +110,9 @@ function toCreateMessageOptions(input: ModelGatewayOneRoundDispatchInput, projec
     ...(tools === undefined ? {} : { tools }),
     ...(input.turn.toolChoice === undefined ? {} : { toolChoice: toToolChoice(input.turn.toolChoice, projection) }),
     ...(input.turn.maxOutputTokens === undefined ? {} : { maxTokens: input.turn.maxOutputTokens }),
+    ...(input.turn.deliberationResolution === undefined
+      ? {}
+      : { deliberationResolution: input.turn.deliberationResolution }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   };
 }
@@ -109,7 +120,7 @@ function toCreateMessageOptions(input: ModelGatewayOneRoundDispatchInput, projec
 function assertSupportedTurn(turn: ModelTurn): void {
   if (turn.parallelToolCalls === true) unsupported("parallel tool calls");
   if (turn.responseFormat !== undefined) unsupported("JSON-schema response formats");
-  if (turn.reasoning !== undefined) unsupported("reasoning controls");
+  if (turn.reasoningSummary !== undefined) unsupported("reasoning summaries");
   if (turn.textVerbosity !== undefined) unsupported("text verbosity");
   if (turn.tools?.some((tool) => tool.kind !== "function")) unsupported("custom tools");
   for (const message of turn.history) {

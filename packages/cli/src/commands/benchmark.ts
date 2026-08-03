@@ -20,7 +20,7 @@ import {
   type BenchmarkEvidenceArtifact,
   type BenchmarkEvidenceArtifactKind,
   type BenchmarkItemExecutor,
-  type ReasoningEffort,
+  defineDeliberationLevelId,
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import {
@@ -108,7 +108,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--provider <id> --model <id>] [--reasoning-effort <level> | --reasoning-effort-sweep <levels>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--provider <id> --model <id>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
@@ -334,11 +334,11 @@ async function runInternalBenchmark(
   const k = parsePositiveInteger(readFlag(args, "--k") ?? String(profile.minimumK), "--k");
   const outputPath = readFlag(args, "--output") ?? defaultOutputPath(profile.id, dependencies.now?.() ?? new Date());
   const artifactRoot = resolve(`${outputPath}.artifacts`);
-  const effortMembers = readReasoningEffortMembers(args);
+  const deliberationMembers = readDeliberationLevelMembers(args);
   const artifactStore = new FileArtifactResourceStore({ rootDir: artifactRoot });
   const runs = [];
-  for (const effort of effortMembers) {
-    const executorFlags = readExecutorFlags(args, effort);
+  for (const deliberationLevel of deliberationMembers) {
+    const executorFlags = readExecutorFlags(args, deliberationLevel);
     const executor = dependencies.createExecuteItem?.(executorFlags)
       ?? dependencies.executeItem
       ?? createBenchmarkSessionExecutor({ appConfig: config, flags: executorFlags });
@@ -391,22 +391,21 @@ async function runInternalBenchmark(
         } : {}),
         provider: readFlag(args, "--provider"),
         model: readFlag(args, "--model"),
-        reasoningEffort: effort ?? "provider-default",
-        reasoningEffortMode: effortMembers.length > 1 ? "sweep" : effort ? "fixed" : "provider-default",
-        allowExperimentalXhigh: executorFlags.allowExperimentalXhigh ?? false,
-        effortBudgetUsd: executorFlags.effortBudgetUsd,
-        estimatedEffortCostUsd: executorFlags.estimatedEffortCostUsd,
+        deliberationLevel: deliberationLevel ?? "provider-default",
+        deliberationMode: deliberationMembers.length > 1
+          ? "sweep"
+          : deliberationLevel ? "fixed" : "provider-default",
         scorerNames: profile.requiredScorers,
       }),
       scorers: createBenchmarkProfileScorers(profile),
       artifactStore,
       executeItem: requireWorkspaceFixtureEvidence(
-        requireEffortEvidence(executor, effort),
+        requireDeliberationEvidence(executor, deliberationLevel),
         workspaceFixtureHashes,
       ),
     });
     const result = await runner.run();
-    runs.push({ reasoningEffort: effort ?? null, ...result });
+    runs.push({ deliberationLevel: deliberationLevel ?? null, ...result });
   }
   const baselines = runs.map((run) => run.baseline);
   const singleRun = runs.length === 1 ? runs[0] : undefined;
@@ -533,18 +532,18 @@ function requireWorkspaceFixtureEvidence(
   };
 }
 
-function requireEffortEvidence(
+function requireDeliberationEvidence(
   executor: BenchmarkItemExecutor,
-  effort: ReasoningEffort | undefined,
+  deliberationLevel: string | undefined,
 ): BenchmarkItemExecutor {
-  if (!effort) return executor;
+  if (!deliberationLevel) return executor;
   return async (input, context) => {
     const result = await executor(input, context);
-    const resolution = result.metadata?.reasoningEffortResolution;
+    const resolution = result.metadata?.deliberationResolution;
     if (!resolution || typeof resolution !== "object"
-      || (resolution as { readonly status?: unknown }).status !== "resolved"
-      || (resolution as { readonly resolved?: unknown }).resolved !== effort) {
-      throw new Error(`Benchmark executor did not prove resolution of reasoning effort '${effort}'.`);
+      || (resolution as { readonly status?: unknown }).status !== "exact"
+      || (resolution as { readonly selectedLevel?: unknown }).selectedLevel !== deliberationLevel) {
+      throw new Error(`Benchmark executor did not prove resolution of deliberation level '${deliberationLevel}'.`);
     }
     return result;
   };
@@ -649,69 +648,40 @@ function readFlag(args: readonly string[], flag: string): string | undefined {
 
 function readExecutorFlags(
   args: readonly string[],
-  reasoningEffort?: ReasoningEffort,
+  deliberationLevel?: string,
 ): BenchmarkSessionExecutorFlags {
   return {
     provider: readFlag(args, "--provider"),
     model: readFlag(args, "--model"),
     apiKey: readFlag(args, "--api-key"),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
-    reasoningEffort,
-    allowExperimentalXhigh: args.includes("--allow-experimental-xhigh"),
-    effortBudgetUsd: parseOptionalNonNegativeNumber(readFlag(args, "--effort-budget-usd"), "--effort-budget-usd"),
-    estimatedEffortCostUsd: parseOptionalNonNegativeNumber(
-      readFlag(args, "--estimated-effort-cost-usd"),
-      "--estimated-effort-cost-usd",
-    ),
+    deliberationLevel,
   };
 }
 
-const REASONING_EFFORTS: readonly ReasoningEffort[] = ["minimal", "low", "medium", "high", "xhigh"];
-
-function readReasoningEffortMembers(args: readonly string[]): readonly (ReasoningEffort | undefined)[] {
-  const fixed = readFlag(args, "--reasoning-effort");
-  const sweep = readFlag(args, "--reasoning-effort-sweep");
+function readDeliberationLevelMembers(args: readonly string[]): readonly (string | undefined)[] {
+  const fixed = readFlag(args, "--deliberation-level");
+  const sweep = readFlag(args, "--deliberation-level-sweep");
   if (fixed && sweep) {
-    throw new Error("benchmark run-internal accepts either --reasoning-effort or --reasoning-effort-sweep, not both.");
+    throw new Error("benchmark run-internal accepts either --deliberation-level or --deliberation-level-sweep, not both.");
   }
-  const requested: readonly (ReasoningEffort | undefined)[] = fixed ? [parseReasoningEffort(fixed)] : sweep
-    ? sweep.split(",").map((entry) => parseReasoningEffort(entry.trim()))
+  const requested: readonly (string | undefined)[] = fixed ? [parseDeliberationLevel(fixed)] : sweep
+    ? sweep.split(",").map((entry) => parseDeliberationLevel(entry.trim()))
     : [undefined];
   if (sweep && requested.length < 2) {
-    throw new Error("--reasoning-effort-sweep requires at least two comma-separated effort levels.");
+    throw new Error("--deliberation-level-sweep requires at least two comma-separated levels.");
   }
   if (new Set(requested).size !== requested.length) {
-    throw new Error("--reasoning-effort-sweep must not contain duplicate effort levels.");
+    throw new Error("--deliberation-level-sweep must not contain duplicate levels.");
   }
   if (requested[0] !== undefined && (!readFlag(args, "--provider") || !readFlag(args, "--model"))) {
-    throw new Error("reasoning-effort benchmarks require explicit --provider and --model route identity.");
-  }
-  if (requested.includes("xhigh")) {
-    if (!args.includes("--allow-experimental-xhigh")) {
-      throw new Error("xhigh benchmark execution requires --allow-experimental-xhigh.");
-    }
-    if (readFlag(args, "--effort-budget-usd") === undefined
-      || readFlag(args, "--estimated-effort-cost-usd") === undefined) {
-      throw new Error("xhigh benchmark execution requires --effort-budget-usd and --estimated-effort-cost-usd.");
-    }
+    throw new Error("deliberation-level benchmarks require explicit --provider and --model route identity.");
   }
   return requested;
 }
 
-function parseReasoningEffort(value: string): ReasoningEffort {
-  if (!REASONING_EFFORTS.includes(value as ReasoningEffort)) {
-    throw new Error(`Unsupported reasoning effort '${value}'.`);
-  }
-  return value as ReasoningEffort;
-}
-
-function parseOptionalNonNegativeNumber(value: string | undefined, flag: string): number | undefined {
-  if (value === undefined) return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${flag} must be a non-negative finite number.`);
-  }
-  return parsed;
+function parseDeliberationLevel(value: string): string {
+  return defineDeliberationLevelId(value);
 }
 
 function parsePositiveInteger(value: string, flag: string): number {

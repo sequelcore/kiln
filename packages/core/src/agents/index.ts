@@ -1,6 +1,6 @@
 import type { ContentPart } from "../engine/domain/content.js";
 import type { ContextUsageRawEvidence } from "../events/context-usage-projection.js";
-import type { ReasoningEffort } from "./phase-aware-route-policy.js";
+import type { DeliberationResolution } from "./deliberation-policy.js";
 
 /**
  * Agent role in the orchestration.
@@ -23,30 +23,45 @@ export interface AgentStreamEvent {
 
 export {
   PhaseAwareModelRouter,
-  resolveNormalizedReasoningEffort,
   selectPhaseAwareRoute,
 } from "./phase-aware-route-policy.js";
 export type {
   ModelRoutingPhase,
-  NormalizedReasoningEffortResolution,
   PhaseAwareRouteCandidate,
   PhaseAwareRouteDecision,
   PhaseAwareRouteDiagnostic,
   PhaseAwareRouteProjection,
   PhaseAwareRoutingSignals,
   PhaseAwareModelRouterOptions,
-  ReasoningEffortOmissionReason,
-  ReasoningEffort,
-  ReasoningEffortSupportEvidence,
-  ResolveNormalizedReasoningEffortInput,
   RouteHealthState,
   SelectPhaseAwareRouteInput,
-  UnsupportedReasoningEffortPolicy,
 } from "./phase-aware-route-policy.js";
+export {
+  KNOWN_DELIBERATION_LEVEL_IDS,
+  admitDeliberationForExecution,
+  defineDeliberationLevelId,
+  resolveDeliberation,
+} from "./deliberation-policy.js";
+export type {
+  DeliberationBounds,
+  DeliberationCapabilityEvidence,
+  DeliberationIntent,
+  DeliberationLevelId,
+  DeliberationResolution,
+  DeliberationResolutionReason,
+  DeliberationSource,
+  DeliberationTarget,
+  ModelDeliberationCapabilities,
+  ModelDeliberationLevel,
+  ResolveDeliberationInput,
+  UnsupportedDeliberationPolicy,
+} from "./deliberation-policy.js";
 
 /** Provider adapter interface -- all LLM providers implement this */
 export interface ProviderAdapter {
   readonly name: string;
+  /** Whether executable deliberation levels are projected to this provider's native request. */
+  readonly deliberationTransport?: "native-level" | "none";
   createMessage(options: CreateMessageOptions): Promise<AgentResponse>;
   streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent>;
 }
@@ -77,7 +92,7 @@ export interface CreateMessageOptions {
   readonly toolChoice?: ToolChoiceOption;
   readonly outputSchema?: Record<string, unknown>;
   readonly maxTokens?: number;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly signal?: AbortSignal;
   readonly executionContext?: ProviderExecutionContext;
 }

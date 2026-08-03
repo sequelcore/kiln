@@ -45,7 +45,71 @@ export type GuiProviderAuthState =
 
 export type GuiProviderCatalogStatus = "pending" | "refreshing" | "ready" | "error";
 
-export type GuiProviderReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type GuiDeliberationLevelId = string;
+export type GuiDeliberationTarget = "latency-first" | "balanced" | "quality-first";
+export type GuiUnsupportedDeliberationPolicy = "deny" | "omit" | "allow-clamp";
+export type GuiDeliberationSource =
+  | "operator"
+  | "work-item"
+  | "agent-profile"
+  | "route"
+  | "task"
+  | "project"
+  | "provider-default";
+
+export interface GuiDeliberationCapabilityEvidence {
+  readonly sourceIdentity: string;
+  readonly sourceRevision: string;
+  readonly observedAt: string;
+}
+
+export type GuiDeliberationIntent =
+  | { readonly mode: "provider-default"; readonly onUnsupported: GuiUnsupportedDeliberationPolicy }
+  | {
+      readonly mode: "fixed";
+      readonly preferredLevel: GuiDeliberationLevelId;
+      readonly bounds?: { readonly min?: GuiDeliberationLevelId; readonly max?: GuiDeliberationLevelId };
+      readonly onUnsupported: GuiUnsupportedDeliberationPolicy;
+    }
+  | {
+      readonly mode: "adaptive";
+      readonly target: GuiDeliberationTarget;
+      readonly bounds?: { readonly min?: GuiDeliberationLevelId; readonly max?: GuiDeliberationLevelId };
+      readonly onUnsupported: GuiUnsupportedDeliberationPolicy;
+    };
+
+export interface GuiModelDeliberationCapabilities {
+  readonly provider: string;
+  readonly model: string;
+  readonly levels: readonly { readonly id: GuiDeliberationLevelId; readonly nativeId?: string }[];
+  readonly defaultLevel?: GuiDeliberationLevelId;
+  readonly supportsAdaptive: boolean;
+  readonly evidence: GuiDeliberationCapabilityEvidence;
+}
+
+export type GuiDeliberationResolution =
+  | {
+      readonly status: "exact" | "defaulted";
+      readonly requested?: GuiDeliberationIntent;
+      readonly selectedLevel: GuiDeliberationLevelId;
+      readonly source: GuiDeliberationSource;
+      readonly capabilityEvidence?: GuiDeliberationCapabilityEvidence;
+    }
+  | {
+      readonly status: "clamped";
+      readonly requested?: GuiDeliberationIntent;
+      readonly selectedLevel: GuiDeliberationLevelId;
+      readonly source: GuiDeliberationSource;
+      readonly reason: string;
+      readonly capabilityEvidence?: GuiDeliberationCapabilityEvidence;
+    }
+  | {
+      readonly status: "omitted" | "denied";
+      readonly requested?: GuiDeliberationIntent;
+      readonly source: GuiDeliberationSource;
+      readonly reason: string;
+      readonly capabilityEvidence?: GuiDeliberationCapabilityEvidence;
+    };
 
 export type OperatorExecutionMode = "execute" | "plan";
 export type OperatorTurnRequestedAuthority = "auto" | "read_only" | "audited" | "destructive";
@@ -104,8 +168,7 @@ export interface GuiProviderModelCapabilities {
   readonly supportsVision?: boolean;
   readonly supportsParallelToolCalls?: boolean;
   readonly contextWindow?: number;
-  readonly defaultReasoningEffort?: GuiProviderReasoningEffort;
-  readonly supportedReasoningEfforts?: readonly GuiProviderReasoningEffort[];
+  readonly deliberation?: GuiModelDeliberationCapabilities;
 }
 
 export interface GuiProviderModelRouteHealth {
@@ -138,7 +201,7 @@ export interface GuiModelRoutingRationale {
   readonly selectedModel: string;
   readonly canonicalModel?: string;
   readonly selectionMode: "automatic" | "explicit-operator-only";
-  readonly reasoningEffort?: GuiProviderReasoningEffort;
+  readonly deliberationResolution?: GuiDeliberationResolution;
   readonly routingReason: string;
   readonly confidence: number;
   readonly routingTier: "rule" | "complexity" | "cascade" | "default";
@@ -149,7 +212,7 @@ export interface GuiModelRoutingRationale {
     readonly hasTools: boolean;
     readonly toolCount: number;
     readonly requiresStreaming: boolean;
-    readonly requestedReasoningEffort?: GuiProviderReasoningEffort;
+    readonly deliberationIntent?: GuiDeliberationIntent;
     readonly task?: string;
   };
   readonly rankingEvidence: readonly GuiModelRoutingRankingEvidence[];
@@ -514,7 +577,7 @@ export interface OperatorManagedAgentProviderRoute {
   readonly providerId: string;
   readonly surface: string;
   readonly model?: string;
-  readonly reasoningEffort?: string;
+  readonly deliberationIntent?: GuiDeliberationIntent;
 }
 
 export interface OperatorManagedAgentRouteHealthSnapshot {
@@ -1004,7 +1067,7 @@ export type GuiOutboundFrame =
       governedWorkRequirement?: OperatorGoalMaterializationRequirement;
       sessionIntent?: "fresh";
       continuationSessionId?: string;
-      reasoningEffort?: GuiProviderReasoningEffort;
+      deliberationIntent?: GuiDeliberationIntent;
       gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;

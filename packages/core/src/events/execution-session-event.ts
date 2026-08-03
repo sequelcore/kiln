@@ -1,5 +1,5 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
-import type { AgentMessage, ReasoningEffort } from "../agents/index.js";
+import type { AgentMessage, DeliberationResolution } from "../agents/index.js";
 import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { SessionToolUsageSnapshot } from "./session-event.js";
 import type { ContextUsageRawEvidence } from "./context-usage-projection.js";
@@ -20,7 +20,7 @@ export interface ExecutionSessionRunOptions {
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly env?: Readonly<Record<string, string>>;
   readonly abortSignal?: AbortSignal;
   readonly executionScope?: SessionExecutionScope;

@@ -1346,7 +1346,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly activeProvider?: string;
   readonly activeModel?: string;
   readonly activeModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
-  readonly reasoningEffort?: PerCallToolConfig["reasoningEffort"];
+  readonly deliberationIntent?: PerCallToolConfig["deliberationIntent"];
   readonly builtinToolSurface?: AttachedRuntimeBuiltinToolSurface;
   readonly executionMode?: OperatorExecutionMode;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
@@ -1374,15 +1374,17 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ...(input.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
     ...(input.governedWorkRequirement ? { governedWorkRequirement: input.governedWorkRequirement } : {}),
     ...(modelOverride ? { modelOverride } : {}),
-    ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+    ...(input.deliberationIntent
+      ? { deliberationIntent: input.deliberationIntent, deliberationSource: "operator" }
+      : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
     ...(input.temporalContext ? { temporalContext: input.temporalContext } : {}),
-    ...(profile && input.activeModelCapabilities?.supportedReasoningEfforts
+    ...(profile && input.activeModelCapabilities?.deliberation
       ? {
           modelRoutingPolicy: {
             routeCapabilities: new Map([
               [`${profile.provider}/${profile.model}`, {
-                supportedReasoningEfforts: input.activeModelCapabilities.supportedReasoningEfforts,
+                deliberation: input.activeModelCapabilities.deliberation,
               }],
             ]),
           },

@@ -285,8 +285,8 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(secondRequest.complexity.signals.turnDepth).toBe(4);
   });
 
-  it("passes requested reasoning effort into routing policy inputs", async () => {
-    const routedProvider = makeProvider("routed");
+  it("passes deliberation intent into routing policy inputs and reports its resolution", async () => {
+    const routedProvider = { ...makeProvider("routed"), deliberationTransport: "native-level" as const };
     const router = makeRouter({
       provider: "routed",
       model: "routed-model",
@@ -305,15 +305,28 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     const result = await orchestrator.processMessage(session, textParts("analyze the boundary\n```ts\nclass Boundary {}\n```"), undefined, undefined, {
-      reasoningEffort: "high",
+      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      deliberationSource: "operator",
+      modelRoutingPolicy: {
+        routeCapabilities: new Map([["routed/routed-model", {
+          deliberation: {
+            provider: "routed",
+            model: "routed-model",
+            levels: [{ id: "low" }, { id: "medium" }, { id: "high" }],
+            defaultLevel: "medium",
+            supportsAdaptive: false,
+            evidence: { sourceIdentity: "routed/models", sourceRevision: "test-r1", observedAt: "2026-05-12T00:00:00.000Z" },
+          },
+        }]]),
+      },
     });
 
     expect(router.route).toHaveBeenCalledWith(expect.objectContaining({
-      requestedReasoningEffort: "high",
+      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
     }));
-    expect(result.routingDecision?.reasoningEffort).toBe("high");
+    expect(result.routingDecision?.deliberationResolution).toMatchObject({ status: "exact", selectedLevel: "high" });
     expect(result.routingDecision?.rationale.inputsUsed).toMatchObject({
-      requestedReasoningEffort: "high",
+      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
       hasTools: false,
       toolCount: 0,
       tenantId: "default",
@@ -322,7 +335,45 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     expect(result.routingDecision?.rationale.inputsUsed.complexityScore).toBeGreaterThan(0.2);
   });
 
-  it("fails closed before provider execution when selected route does not support requested reasoning effort", async () => {
+  it("rejects undeclared deliberation transport before direct provider I/O", async () => {
+    const routedProvider = makeProvider("routed");
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "configured-model",
+      modelRouter: makeRouter({
+        provider: "routed",
+        model: "routed-model",
+        reasoning: "Deliberation route",
+        confidence: 1,
+        routingTier: "rule",
+      }),
+      providerPool: new Map([["routed", routedProvider]]),
+    });
+
+    await expect(orchestrator.processMessage(makeSession(), textParts("analyze"), undefined, undefined, {
+      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      deliberationSource: "operator",
+      modelRoutingPolicy: {
+        routeCapabilities: new Map([["routed/routed-model", {
+          deliberation: {
+            provider: "routed",
+            model: "routed-model",
+            levels: [{ id: "high" }],
+            defaultLevel: "high",
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "routed/models",
+              sourceRevision: "test-r1",
+              observedAt: "2026-05-12T00:00:00.000Z",
+            },
+          },
+        }]]),
+      },
+    })).rejects.toThrow("cannot transport the resolved deliberation level");
+    expect(routedProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before provider execution when selected route cannot preserve deliberation intent", async () => {
     const routedProvider = makeProvider("routed");
     const router = makeRouter({
       provider: "routed",
@@ -341,15 +392,23 @@ describe("RuntimeSessionOrchestrator model routing", () => {
     const session = makeSession();
 
     await expect(orchestrator.processMessage(session, textParts("do hard work"), undefined, undefined, {
-      reasoningEffort: "xhigh",
+      deliberationIntent: { mode: "fixed", preferredLevel: "xhigh", onUnsupported: "deny" },
+      deliberationSource: "operator",
       modelRoutingPolicy: {
         routeCapabilities: new Map([
           ["routed/routed-model", {
-            supportedReasoningEfforts: ["low", "medium", "high"],
+            deliberation: {
+              provider: "routed",
+              model: "routed-model",
+              levels: [{ id: "low" }, { id: "medium" }, { id: "high" }],
+              defaultLevel: "medium",
+              supportsAdaptive: false,
+              evidence: { sourceIdentity: "routed/models", sourceRevision: "test-r1", observedAt: "2026-05-12T00:00:00.000Z" },
+            },
           }],
         ]),
       },
-    })).rejects.toThrow("Reasoning effort 'xhigh' is not supported by routed/routed-model");
+    })).rejects.toThrow("preferred-level-unsupported");
 
     expect(routedProvider.createMessage).not.toHaveBeenCalled();
     expect(defaultProvider.createMessage).not.toHaveBeenCalled();

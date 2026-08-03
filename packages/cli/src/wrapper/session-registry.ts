@@ -13,7 +13,7 @@ import {
   isDirectProviderId,
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
-  type ReasoningEffort,
+  type DeliberationResolution,
 } from "@kilnai/core";
 import {
   HarnessCredentialPoolService,
@@ -158,7 +158,7 @@ export interface ProviderCreateConfig {
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
   readonly accountBinding?: DirectProviderAccountBinding;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";

@@ -1,4 +1,6 @@
 import {
+  defineDeliberationLevelId,
+  resolveDeliberation,
   validateModelTurn,
   validateModelTurnResult,
   type ModelImagePart,
@@ -7,6 +9,7 @@ import {
   type ModelTurn,
   type ModelTurnMessage,
   type ModelTurnResult,
+  type ModelDeliberationCapabilities,
 } from "@kilnai/core";
 import type { AnthropicMessagesRequest, AnthropicMessagesSseEvent } from "./anthropic-messages-protocol.js";
 
@@ -67,7 +70,10 @@ function mapMessage(value: WireRecord): ModelTurnMessage {
   return { role: value.role as "user" | "assistant", parts };
 }
 
-export function mapAnthropicMessagesRequestToModelTurn(request: AnthropicMessagesRequest): ModelTurn {
+export function mapAnthropicMessagesRequestToModelTurn(
+  request: AnthropicMessagesRequest,
+  deliberationCapabilities?: ModelDeliberationCapabilities,
+): ModelTurn {
   const system = request.system;
   const instructions = typeof system === "string" ? system : system?.map((block) => block.text as string).join("");
   const tools = request.tools?.map((raw) => ({
@@ -90,7 +96,19 @@ export function mapAnthropicMessagesRequestToModelTurn(request: AnthropicMessage
       ? {}
       : { parallelToolCalls: choice?.disable_parallel_tool_use !== true }),
     maxOutputTokens: request.max_tokens,
-    ...(request.output_config === undefined ? {} : { reasoning: { effort: request.output_config.effort } }),
+    ...(request.output_config === undefined
+      ? {}
+      : {
+          deliberationResolution: resolveDeliberation({
+            intent: {
+              mode: "fixed",
+              preferredLevel: defineDeliberationLevelId(request.output_config.effort),
+              onUnsupported: "deny",
+            },
+            source: "operator",
+            capabilities: deliberationCapabilities,
+          }),
+        }),
   };
   validateModelTurn(turn);
   return structuredClone(turn);

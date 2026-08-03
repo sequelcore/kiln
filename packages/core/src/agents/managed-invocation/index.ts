@@ -2,6 +2,8 @@ import { defineMemoryScope } from "../../memory/domain/scope.js";
 import type { MemoryScope } from "../../memory/domain/scope.js";
 import { defineWorkClassification } from "../work-classification.js";
 import type { WorkClassification } from "../work-classification.js";
+import { admitDeliberationForExecution, defineDeliberationLevelId } from "../deliberation-policy.js";
+import type { DeliberationIntent, DeliberationResolution, UnsupportedDeliberationPolicy } from "../deliberation-policy.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 import { defineManagedAgentReadAuthority } from "./read-authority.js";
 import type { ManagedAgentReadAuthority } from "./read-authority.js";
@@ -108,7 +110,8 @@ export interface ManagedAgentProviderRoute {
   readonly providerId: string;
   readonly surface: string;
   readonly model?: string;
-  readonly reasoningEffort?: string;
+  readonly deliberationIntent?: DeliberationIntent;
+  readonly deliberationResolution?: DeliberationResolution;
 }
 
 export interface ManagedAgentToolAuthority {
@@ -2075,8 +2078,57 @@ function requireProviderRoute(input: ManagedAgentProviderRoute): ManagedAgentPro
     providerId: requireText(input.providerId, "Managed invocation provider id is required"),
     surface: requireText(input.surface, "Managed invocation provider surface is required"),
     ...(input.model !== undefined ? { model: requireText(input.model, "Managed invocation model is required") } : {}),
-    ...(input.reasoningEffort !== undefined ? { reasoningEffort: requireText(input.reasoningEffort, "Managed invocation reasoning effort is required") } : {}),
+    ...(input.deliberationIntent !== undefined ? { deliberationIntent: requireDeliberationIntent(input.deliberationIntent) } : {}),
+    ...(input.deliberationResolution !== undefined
+      ? { deliberationResolution: requireDeliberationResolution(input.deliberationResolution) }
+      : {}),
   };
+}
+
+function requireDeliberationResolution(input: DeliberationResolution): DeliberationResolution {
+  if (input.status === "denied") {
+    throw new Error("Denied deliberation cannot enter a managed invocation request.");
+  }
+  admitDeliberationForExecution(input);
+  return input;
+}
+
+function requireDeliberationIntent(input: DeliberationIntent): DeliberationIntent {
+  const onUnsupported = requireUnsupportedDeliberationPolicy(input.onUnsupported);
+  if (input.mode === "provider-default") {
+    return { mode: "provider-default", onUnsupported };
+  }
+  const bounds = input.bounds
+    ? {
+        ...(input.bounds.min ? { min: defineDeliberationLevelId(input.bounds.min) } : {}),
+        ...(input.bounds.max ? { max: defineDeliberationLevelId(input.bounds.max) } : {}),
+      }
+    : undefined;
+  if (input.mode === "fixed") {
+    return {
+      mode: "fixed",
+      preferredLevel: defineDeliberationLevelId(input.preferredLevel),
+      ...(bounds ? { bounds } : {}),
+      onUnsupported,
+    };
+  }
+  if (input.mode === "adaptive") {
+    if (input.target !== "latency-first" && input.target !== "balanced" && input.target !== "quality-first") {
+      throw new Error(`Unsupported managed invocation deliberation target: ${String(input.target)}`);
+    }
+    return {
+      mode: "adaptive",
+      target: input.target,
+      ...(bounds ? { bounds } : {}),
+      onUnsupported,
+    };
+  }
+  throw new Error(`Unsupported managed invocation deliberation mode: ${String((input as { mode?: unknown }).mode)}`);
+}
+
+function requireUnsupportedDeliberationPolicy(value: UnsupportedDeliberationPolicy): UnsupportedDeliberationPolicy {
+  if (value === "deny" || value === "omit" || value === "allow-clamp") return value;
+  throw new Error(`Unsupported managed invocation deliberation policy: ${String(value)}`);
 }
 
 function requireInvocationContext(input: ManagedAgentInvocationContextSelection): ManagedAgentInvocationContextSelection {
@@ -2184,7 +2236,8 @@ function requireInvocationRecordProviderRoute(
     providerRoute.providerId !== admitted.providerId
     || providerRoute.surface !== admitted.surface
     || providerRoute.model !== admitted.model
-    || providerRoute.reasoningEffort !== admitted.reasoningEffort
+    || JSON.stringify(providerRoute.deliberationIntent) !== JSON.stringify(admitted.deliberationIntent)
+    || JSON.stringify(providerRoute.deliberationResolution) !== JSON.stringify(admitted.deliberationResolution)
   ) {
     throw new Error("Managed invocation usage route must match the admitted capability snapshot");
   }

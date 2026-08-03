@@ -142,7 +142,18 @@ describe("createModelGatewayIngress", () => {
       ...config,
       surfaces: { anthropicMessages: { maxBodyBytes: 4096, maxConcurrentRequests: 1 } },
       principals: [{ tokenEnv: "ANTHROPIC_TOKEN", ingress: "anthropic-messages", tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["claude-kiln"] }],
-      virtualModels: [{ ...config.virtualModels[0]!, id: "claude-kiln", displayName: "Claude Kiln", capabilities: ["text", "reasoning-controls"] }],
+      virtualModels: [{
+        ...config.virtualModels[0]!,
+        id: "claude-kiln",
+        displayName: "Claude Kiln",
+        capabilities: ["text", "reasoning-controls"],
+        deliberation: {
+          levels: ["low", "medium", "high", "xhigh"],
+          defaultLevel: "medium",
+          supportsAdaptive: false,
+          evidenceRevision: "test-r1",
+        },
+      }],
     };
     const providerFetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

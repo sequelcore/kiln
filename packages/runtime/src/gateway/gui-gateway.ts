@@ -10,7 +10,6 @@ import {
   type ContentPart,
   type KilnEvent,
   type ModelRoutedEvent,
-  type ReasoningEffort,
   type ToolAuthorizedEvent,
   type DefaultBuiltinToolRegistryOptions,
   defineTurnTemporalContext,
@@ -93,7 +92,6 @@ import {
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
   type GuiProviderModelRouteHealth,
-  type GuiProviderReasoningEffort,
   type GuiAuthorityStatus,
   type KilnConfigSetupAction,
   type KilnConfigSetupActionResult,
@@ -106,6 +104,7 @@ import {
   type OperatorWorkspaceErrorCode,
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
+import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
 
 export type {
   GuiDashboardSnapshot,
@@ -1770,10 +1769,7 @@ function wireOperatorTransport(
                 activeProvider,
                 activeModel,
               );
-              const reasoningEffort = resolveRequestedReasoningEffort(
-                activeModelCapabilities,
-                messageFrame.reasoningEffort,
-              );
+              const deliberationIntent = toCoreDeliberationIntent(messageFrame.deliberationIntent);
               const executionMode = resolveExecutionMode(messageFrame.executionMode);
               const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
               const governedWorkRequirement = resolveGuiGovernedWorkRequirement(messageFrame.governedWorkRequirement);
@@ -1798,7 +1794,7 @@ function wireOperatorTransport(
                 activeModel,
                 turnBuiltinToolSurface,
                 activeModelCapabilities,
-                reasoningEffort,
+                deliberationIntent,
                 executionMode,
                 requestedAuthority,
                 input.transport.workingDirectory,
@@ -1959,7 +1955,7 @@ export function buildGuiTurnPerCallConfig(
   activeModel: string | undefined,
   builtinToolSurface: AttachedRuntimeBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface(),
   activeModelCapabilities?: GuiProviderModelCapabilities,
-  reasoningEffort?: ReasoningEffort,
+  deliberationIntent?: PerCallToolConfig["deliberationIntent"],
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
   workingDirectory?: string,
@@ -1972,8 +1968,8 @@ export function buildGuiTurnPerCallConfig(
     governedWorkRequirement,
     activeProvider,
     activeModel,
-    ...(activeModelCapabilities ? { activeModelCapabilities } : {}),
-    reasoningEffort,
+    ...(activeModelCapabilities ? { activeModelCapabilities: toCoreModelCapabilities(activeModelCapabilities) } : {}),
+    ...(deliberationIntent ? { deliberationIntent } : {}),
     builtinToolSurface,
     executionMode,
     requestedAuthority,
@@ -2010,27 +2006,6 @@ export function resolveGuiRequestedAuthority(value: unknown): OperatorTurnReques
     return value;
   }
   throw new Error(`Unknown requested authority '${String(value)}'.`);
-}
-
-function resolveRequestedReasoningEffort(
-  activeModelCapabilities: GuiProviderModelCapabilities | undefined,
-  requested: unknown,
-): ReasoningEffort | undefined {
-  if (typeof requested !== "string") return undefined;
-  if (
-    requested !== "minimal"
-    && requested !== "low"
-    && requested !== "medium"
-    && requested !== "high"
-    && requested !== "xhigh"
-  ) {
-    throw new Error(`Unknown reasoning effort '${requested}'.`);
-  }
-  const supported = activeModelCapabilities?.supportedReasoningEfforts;
-  if (supported && !supported.includes(requested as GuiProviderReasoningEffort)) {
-    throw new Error(`Reasoning effort '${requested}' is not supported by the selected model.`);
-  }
-  return requested as ReasoningEffort;
 }
 
 function findProviderModelCapabilities(

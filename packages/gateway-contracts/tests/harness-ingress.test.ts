@@ -22,7 +22,11 @@ const turnStart = {
   content: "Summarize the fixture.",
   sessionId: "session:requested-1",
   requestedAuthority: "read_only",
-  reasoningEffort: "medium",
+  deliberationIntent: {
+    mode: "fixed",
+    preferredLevel: "medium",
+    onUnsupported: "deny",
+  },
 } as const;
 
 describe("harness-neutral ingress contract", () => {
@@ -80,10 +84,10 @@ describe("harness-neutral ingress contract", () => {
   });
 
   it("parses lifecycle frames and permits only closed redacted errors", () => {
-    expect(parseHarnessIngressServerFrame({ protocolVersion: "1", type: "turn_accepted", requestId: "request:turn-1", turnId: "turn:1" })).toMatchObject({ type: "turn_accepted" });
-    expect(parseHarnessIngressServerFrame({ protocolVersion: "1", type: "turn_cancel_result", requestId: "request:cancel-1", turnId: "turn:1", status: "accepted" })).toMatchObject({ type: "turn_cancel_result" });
-    expect(parseHarnessIngressServerFrame({ protocolVersion: "1", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", sessionId: "session:canonical-1", outcome: "completed", content: "Synthetic response." })).toMatchObject({ type: "turn_completed", sessionId: "session:canonical-1" });
-    expect(parseHarnessIngressServerFrame({ protocolVersion: "1", type: "error", requestId: "request:turn-1", code: "internal", redacted: true })).toEqual({ protocolVersion: "1", type: "error", requestId: "request:turn-1", code: "internal", redacted: true });
+    expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "turn_accepted", requestId: "request:turn-1", turnId: "turn:1" })).toMatchObject({ type: "turn_accepted" });
+    expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "turn_cancel_result", requestId: "request:cancel-1", turnId: "turn:1", status: "accepted" })).toMatchObject({ type: "turn_cancel_result" });
+    expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", sessionId: "session:canonical-1", outcome: "completed", content: "Synthetic response." })).toMatchObject({ type: "turn_completed", sessionId: "session:canonical-1" });
+    expect(parseHarnessIngressServerFrame({ protocolVersion: "2", type: "error", requestId: "request:turn-1", code: "internal", redacted: true })).toEqual({ protocolVersion: "2", type: "error", requestId: "request:turn-1", code: "internal", redacted: true });
   });
 
   it.each([
@@ -122,10 +126,10 @@ describe("harness-neutral ingress contract", () => {
   });
 
   it.each([
-    { protocolVersion: "1", type: "error", requestId: "request:turn-1", code: "internal", message: "raw provider error", redacted: true },
-    { protocolVersion: "1", type: "error", requestId: "request:turn-1", code: "provider_failure", redacted: true },
-    { protocolVersion: "1", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", outcome: "completed", content: "missing canonical session" },
-    { protocolVersion: "1", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", outcome: "completed", content: "text", parts: [{ type: "text", text: "part" }] },
+    { protocolVersion: "2", type: "error", requestId: "request:turn-1", code: "internal", message: "raw provider error", redacted: true },
+    { protocolVersion: "2", type: "error", requestId: "request:turn-1", code: "provider_failure", redacted: true },
+    { protocolVersion: "2", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", outcome: "completed", content: "missing canonical session" },
+    { protocolVersion: "2", type: "turn_completed", requestId: "request:turn-1", turnId: "turn:1", outcome: "completed", content: "text", parts: [{ type: "text", text: "part" }] },
   ])("rejects raw errors and ambiguous server completion content", (payload) => {
     expect(() => parseHarnessIngressServerFrame(payload)).toThrow();
   });

@@ -645,39 +645,77 @@ describe("global-config", () => {
     );
   });
 
-  it("readGlobalConfig() validates reasoning policy separately from model suitability", () => {
+  it("readGlobalConfig() validates provider-neutral deliberation policy", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
         "version: \"1\"",
-        "reasoningPolicy:",
-        "  default: medium",
-        "  unsupported: omit",
+        "deliberationPolicy:",
+        "  default:",
+        "    mode: adaptive",
+        "    target: balanced",
+        "    onUnsupported: deny",
         "  byTask:",
-        "    architecture-review: xhigh",
-        "    mechanical-edit: low",
+        "    architecture-review:",
+        "      mode: adaptive",
+        "      target: quality-first",
+        "      bounds:",
+        "        min: medium",
+        "        max: xhigh",
+        "  byRoute:",
+        "    - provider: codex-oauth",
+        "      model: gpt-test",
+        "      mode: fixed",
+        "      preferredLevel: xhigh",
+        "      onUnsupported: allow-clamp",
       ].join("\n"),
     );
 
-    expect(readGlobalConfig()?.reasoningPolicy).toEqual({
-      default: "medium",
-      unsupported: "omit",
-      byTask: {
-        "architecture-review": "xhigh",
-        "mechanical-edit": "low",
+    expect(readGlobalConfig()?.deliberationPolicy).toEqual({
+      default: {
+        mode: "adaptive",
+        target: "balanced",
+        onUnsupported: "deny",
       },
+      byTask: {
+        "architecture-review": {
+          mode: "adaptive",
+          target: "quality-first",
+          bounds: { min: "medium", max: "xhigh" },
+        },
+      },
+      byRoute: [{
+        provider: "codex-oauth",
+        model: "gpt-test",
+        mode: "fixed",
+        preferredLevel: "xhigh",
+        onUnsupported: "allow-clamp",
+      }],
     });
 
     readFileSyncMock.mockReturnValue(
       [
         "version: \"1\"",
-        "reasoningPolicy:",
+        "deliberationPolicy:",
         "  byTask:",
-        "    frontend-design: intense",
+        "    frontend-design:",
+        "      mode: fixed",
       ].join("\n"),
     );
 
-    expect(() => readGlobalConfig()).toThrow("reasoningPolicy.byTask.frontend-design must be a supported reasoning effort");
+    expect(() => readGlobalConfig()).toThrow(
+      "deliberationPolicy.byTask.frontend-design.preferredLevel is required when mode is fixed",
+    );
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"1\"",
+        "reasoningPolicy:",
+        "  default: medium",
+      ].join("\n"),
+    );
+
+    expect(() => readGlobalConfig()).toThrow("Unknown global config field: reasoningPolicy");
   });
 
   it("readGlobalConfig() validates managed route write authority shape", () => {

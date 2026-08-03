@@ -207,7 +207,7 @@ describe("ToolResourceRegistry", () => {
       routingRecommendation: {
         routeId: "codex-worker",
         agentProfile: "coder",
-        reasoningEffort: "high",
+        deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
         modelTaskSuitability: "verification-heavy:high",
         rationale: "Derived from approved plan.",
       },
@@ -319,7 +319,7 @@ describe("ToolResourceRegistry", () => {
       ],
       routingRecommendation: {
         routeId: "codex-worker",
-        reasoningEffort: "high",
+        deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
       },
     });
   });

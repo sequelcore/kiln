@@ -12,6 +12,7 @@ import { KilnError } from "../../engine/errors.js";
 import { withRetry } from "./retry.js";
 import type { RetryOptions } from "./retry.js";
 import { assertValidToolCallIds, normalizeToolInput } from "../tool-call-input.js";
+import { admitDeliberationForExecution } from "../deliberation-policy.js";
 
 export const CLAUDE_OPUS = "claude-opus-4-6";
 export const CLAUDE_SONNET = "claude-sonnet-4-6";
@@ -30,6 +31,7 @@ interface AnthropicAdapterConfig {
 
 export class AnthropicAdapter implements ProviderAdapter {
   readonly name = "anthropic";
+  readonly deliberationTransport = "native-level" as const;
 
   private readonly client: Anthropic;
   private readonly model: string;
@@ -164,14 +166,15 @@ export class AnthropicAdapter implements ProviderAdapter {
       }
     }
 
-    if (options.outputSchema) {
-      assertAdditionalPropertiesFalse(options.outputSchema);
+    const deliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
+    if (options.outputSchema || deliberationLevel) {
+      if (options.outputSchema) assertAdditionalPropertiesFalse(options.outputSchema);
       params.output_config = {
-        format: {
-          type: "json_schema",
-          schema: options.outputSchema,
-        },
-      };
+        ...(options.outputSchema
+          ? { format: { type: "json_schema" as const, schema: options.outputSchema } }
+          : {}),
+        ...(deliberationLevel ? { effort: deliberationLevel } : {}),
+      } as Anthropic.Messages.MessageCreateParamsNonStreaming["output_config"];
     }
 
     // Tool caching: mark last tool for prompt cache reuse across turns

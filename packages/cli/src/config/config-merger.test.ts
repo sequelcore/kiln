@@ -87,10 +87,17 @@ describe("config-merger", () => {
         level: "limited",
         reason: "Prefer a visual route when available.",
       }],
-      reasoningPolicy: {
-        default: "medium",
+      deliberationPolicy: {
+        default: {
+          mode: "adaptive",
+          target: "balanced",
+          onUnsupported: "deny",
+        },
         byTask: {
-          "mechanical-edit": "low",
+          "mechanical-edit": {
+            mode: "adaptive",
+            target: "latency-first",
+          },
         },
       },
     };
@@ -133,10 +140,17 @@ describe("config-merger", () => {
         level: "limited",
         reason: "Prefer a visual route when available.",
       }],
-      reasoningPolicy: {
-        default: "medium",
+      deliberationPolicy: {
+        default: {
+          mode: "adaptive",
+          target: "balanced",
+          onUnsupported: "deny",
+        },
         byTask: {
-          "mechanical-edit": "low",
+          "mechanical-edit": {
+            mode: "adaptive",
+            target: "latency-first",
+          },
         },
       },
     });

@@ -2695,7 +2695,7 @@ describe("session-store", () => {
     const accepted = useSessionStore.getState().sendMessage("hello", {
       appName: "support",
       tenantId: "acme",
-      reasoningEffort: "medium",
+      deliberationIntent: { mode: "fixed", preferredLevel: "medium", onUnsupported: "deny" },
     });
 
     expect(accepted).toBe(true);
@@ -2707,7 +2707,7 @@ describe("session-store", () => {
       sessionIntent: "fresh",
       appName: "support",
       tenantId: "acme",
-      reasoningEffort: "medium",
+      deliberationIntent: { mode: "fixed", preferredLevel: "medium", onUnsupported: "deny" },
     });
   });
 

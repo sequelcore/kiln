@@ -4,12 +4,14 @@ import { homedir } from "node:os";
 import { parse } from "yaml";
 import {
   defineWorkClassification,
+  defineDeliberationLevelId,
   MANAGED_AGENT_ADMISSION_PROFILES,
   type AgentTier,
   type ManagedAgentAdmissionProfile,
   type ModelTaskSuitabilityTask,
   type WorkClassification,
   type WorkClassificationInput,
+  type DeliberationIntent,
 } from "@kilnai/core";
 import { KILN_FIRST_PARTY_AGENT_DEFAULTS } from "./first-party-agent-defaults.js";
 
@@ -46,7 +48,7 @@ export type KilnAgentMode = "primary" | "subagent" | "managed-child" | "all";
 export interface KilnAgentProviderRoute {
   readonly providerId: string;
   readonly model?: string;
-  readonly reasoningEffort?: string;
+  readonly deliberationIntent?: DeliberationIntent;
 }
 
 interface ParsedFrontmatter {
@@ -132,11 +134,17 @@ function asProviderRoute(value: unknown): KilnAgentProviderRoute | undefined {
     return undefined;
   }
   const model = asNonEmptyString(record.model);
-  const reasoningEffort = asNonEmptyString(record.reasoningEffort);
+  const deliberationLevel = asNonEmptyString(record.deliberationLevel);
   return {
     providerId,
     ...(model ? { model } : {}),
-    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(deliberationLevel ? {
+      deliberationIntent: {
+        mode: "fixed",
+        preferredLevel: defineDeliberationLevelId(deliberationLevel),
+        onUnsupported: "deny",
+      },
+    } : {}),
   };
 }
 

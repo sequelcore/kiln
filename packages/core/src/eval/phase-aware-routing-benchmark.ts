@@ -76,20 +76,20 @@ export function evaluatePhaseAwareRoutePromotion(
   };
 }
 
-export type ReasoningEffortBenchmarkLevel = "high" | "xhigh";
+export type DeliberationBenchmarkLevel = "high" | "xhigh";
 
-export interface ReasoningEffortObservation {
+export interface DeliberationObservation {
   readonly taskId: string;
   readonly taskClass: string;
-  readonly effort: ReasoningEffortBenchmarkLevel;
+  readonly level: DeliberationBenchmarkLevel;
   readonly verifiedSuccess: boolean;
   readonly modelFacingTokens: number;
   readonly costUsd: number;
   readonly budgetUsd: number;
-  readonly effortEvidenceId: string;
+  readonly deliberationEvidenceId: string;
 }
 
-export interface ReasoningEffortTaskClassComparison {
+export interface DeliberationTaskClassComparison {
   readonly taskClass: string;
   readonly taskCount: number;
   readonly highSuccessRate: number;
@@ -100,28 +100,28 @@ export interface ReasoningEffortTaskClassComparison {
   readonly xhighCostUsd: number;
 }
 
-export interface ReasoningEffortPromotionReport {
-  readonly policyId: "reasoning-effort-promotion-v1";
+export interface DeliberationPromotionReport {
+  readonly policyId: "deliberation-promotion-v1";
   readonly comparisonHash: string;
   readonly taskCount: number;
   readonly promotionEligible: boolean;
   readonly issues: readonly string[];
-  readonly taskClasses: readonly ReasoningEffortTaskClassComparison[];
+  readonly taskClasses: readonly DeliberationTaskClassComparison[];
 }
 
-interface EffortPair {
+interface DeliberationPair {
   readonly taskId: string;
   readonly taskClass: string;
-  readonly high: ReasoningEffortObservation;
-  readonly xhigh: ReasoningEffortObservation;
+  readonly high: DeliberationObservation;
+  readonly xhigh: DeliberationObservation;
 }
 
-export function evaluateReasoningEffortPromotion(
-  observations: readonly ReasoningEffortObservation[],
+export function evaluateDeliberationPromotion(
+  observations: readonly DeliberationObservation[],
   minimumTaskCount = 5,
-): ReasoningEffortPromotionReport {
-  const { pairs, issues: pairingIssues } = pairEffortObservations(observations);
-  const taskClasses = compareEffortTaskClasses(pairs);
+): DeliberationPromotionReport {
+  const { pairs, issues: pairingIssues } = pairDeliberationObservations(observations);
+  const taskClasses = compareDeliberationTaskClasses(pairs);
   const issues = [
     ...pairingIssues,
     ...(pairs.length >= minimumTaskCount
@@ -137,11 +137,11 @@ export function evaluateReasoningEffortPromotion(
       .filter((pair) => pair.xhigh.costUsd > pair.xhigh.budgetUsd)
       .map((pair) => `xhigh exceeded budget for task ${pair.taskId}`),
     ...pairs.flatMap((pair) => [pair.high, pair.xhigh]
-      .filter((observation) => observation.effortEvidenceId.trim().length === 0)
-      .map((observation) => `missing effort evidence for task ${pair.taskId} at ${observation.effort}`)),
+      .filter((observation) => observation.deliberationEvidenceId.trim().length === 0)
+      .map((observation) => `missing deliberation evidence for task ${pair.taskId} at ${observation.level}`)),
   ];
   return {
-    policyId: "reasoning-effort-promotion-v1",
+    policyId: "deliberation-promotion-v1",
     comparisonHash: comparisonHash(pairs),
     taskCount: pairs.length,
     promotionEligible: issues.length === 0,
@@ -184,31 +184,31 @@ function pairRouteObservations(observations: readonly PhaseAwareRouteObservation
   return { pairs, issues };
 }
 
-function pairEffortObservations(observations: readonly ReasoningEffortObservation[]): {
-  readonly pairs: readonly EffortPair[];
+function pairDeliberationObservations(observations: readonly DeliberationObservation[]): {
+  readonly pairs: readonly DeliberationPair[];
   readonly issues: readonly string[];
 } {
-  const byTask = new Map<string, Map<ReasoningEffortBenchmarkLevel, ReasoningEffortObservation>>();
+  const byTask = new Map<string, Map<DeliberationBenchmarkLevel, DeliberationObservation>>();
   const issues: string[] = [];
   for (const observation of observations) {
     validateCommonObservation(observation);
-    validateNonNegative(observation.budgetUsd, "Reasoning effort budgetUsd");
+    validateNonNegative(observation.budgetUsd, "Deliberation budgetUsd");
     const taskId = observation.taskId.trim();
-    const efforts = byTask.get(taskId) ?? new Map();
-    if (efforts.has(observation.effort)) issues.push(`duplicate ${observation.effort} observation for task ${taskId}`);
-    else efforts.set(observation.effort, normalizeObservation(observation));
-    byTask.set(taskId, efforts);
+    const levels = byTask.get(taskId) ?? new Map();
+    if (levels.has(observation.level)) issues.push(`duplicate ${observation.level} observation for task ${taskId}`);
+    else levels.set(observation.level, normalizeObservation(observation));
+    byTask.set(taskId, levels);
   }
-  const pairs: EffortPair[] = [];
-  for (const [taskId, efforts] of sortedEntries(byTask)) {
-    const high = efforts.get("high");
-    const xhigh = efforts.get("xhigh");
+  const pairs: DeliberationPair[] = [];
+  for (const [taskId, levels] of sortedEntries(byTask)) {
+    const high = levels.get("high");
+    const xhigh = levels.get("xhigh");
     if (!high || !xhigh) {
       issues.push(`task ${taskId} is missing its ${high ? "xhigh" : "high"} observation`);
       continue;
     }
     if (high.taskClass !== xhigh.taskClass) {
-      issues.push(`task ${taskId} changes task class between effort levels`);
+      issues.push(`task ${taskId} changes task class between deliberation levels`);
       continue;
     }
     pairs.push({ taskId, taskClass: high.taskClass, high, xhigh });
@@ -248,7 +248,7 @@ function compareRouteTaskClasses(pairs: readonly RoutePair[]): readonly PhaseAwa
   });
 }
 
-function compareEffortTaskClasses(pairs: readonly EffortPair[]): readonly ReasoningEffortTaskClassComparison[] {
+function compareDeliberationTaskClasses(pairs: readonly DeliberationPair[]): readonly DeliberationTaskClassComparison[] {
   return taskClasses(pairs).map((taskClass) => {
     const cohort = pairs.filter((pair) => pair.taskClass === taskClass);
     const highSuccesses = cohort.filter((pair) => pair.high.verifiedSuccess).length;

@@ -908,7 +908,7 @@ export interface AdmittedTurnResult {
     readonly routingTier: string;
     readonly reasoning?: string;
     readonly selectionMode?: "automatic" | "explicit-operator-only";
-    readonly reasoningEffort?: import("@kilnai/core").ReasoningEffort;
+    readonly deliberationResolution?: import("@kilnai/core").DeliberationResolution;
     readonly rationale?: import("@kilnai/core").ModelRoutingRationale;
   };
   readonly limitReached?: { type: "tokens" | "turns" | "abuse"; value: number; max?: number };
@@ -2645,7 +2645,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         selectedModel: result.routingDecision.model,
         routingTier: result.routingDecision.routingTier,
         selectionMode: result.routingDecision.selectionMode,
-        reasoningEffort: result.routingDecision.reasoningEffort,
+        deliberationResolution: result.routingDecision.deliberationResolution,
         routingRationale: result.routingDecision.rationale,
         sessionId: session.id,
         schemaVersion: "1",
@@ -2699,7 +2699,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
             routingTier: result.routingDecision.routingTier,
             reasoning: result.routingDecision.reasoning,
             selectionMode: result.routingDecision.selectionMode,
-            reasoningEffort: result.routingDecision.reasoningEffort,
+            deliberationResolution: result.routingDecision.deliberationResolution,
             rationale: result.routingDecision.rationale,
           }
         : undefined,

@@ -64,6 +64,12 @@ export interface ModelGatewayVirtualModelConfig {
   readonly providerModelId: string;
   readonly accountIds: readonly string[];
   readonly capabilities: readonly ModelGatewayCapabilityId[];
+  readonly deliberation?: {
+    readonly levels: readonly string[];
+    readonly defaultLevel?: string;
+    readonly supportsAdaptive: boolean;
+    readonly evidenceRevision: string;
+  };
   readonly affinity: {
     readonly continuity: "none" | "prefer" | "require";
     readonly scope?: "session" | "turn";
@@ -398,6 +404,23 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
           || (capability === "input-image-base64" && (!modality.inputModalities.includes("image") || !modality.constraints.supportsBase64)));
         if (unsupportedByModel) errors.push({ field: `${path}.capabilities`, message: `model '${model.providerModelId}' lacks capability '${unsupportedByModel}' evidence for provider '${model.providerId}'` });
       }
+    }
+    if (model.capabilities.includes("reasoning-controls")) {
+      const deliberation = model.deliberation;
+      const portable = /^[a-z0-9][a-z0-9._:-]{0,63}$/u;
+      if (!deliberation
+        || !Array.isArray(deliberation.levels)
+        || deliberation.levels.length === 0
+        || new Set(deliberation.levels).size !== deliberation.levels.length
+        || deliberation.levels.some((level) => !portable.test(level))) {
+        errors.push({ field: `${path}.deliberation.levels`, message: "must contain unique ordered portable ids when reasoning-controls is enabled" });
+      } else if (deliberation.defaultLevel !== undefined && !deliberation.levels.includes(deliberation.defaultLevel)) {
+        errors.push({ field: `${path}.deliberation.defaultLevel`, message: "must be one of the advertised levels" });
+      }
+      if (typeof deliberation?.supportsAdaptive !== "boolean") errors.push({ field: `${path}.deliberation.supportsAdaptive`, message: "must be a boolean" });
+      if (!ID.test(deliberation?.evidenceRevision ?? "")) errors.push({ field: `${path}.deliberation.evidenceRevision`, message: "must be a canonical id" });
+    } else if (model.deliberation !== undefined) {
+      errors.push({ field: `${path}.deliberation`, message: "requires the reasoning-controls capability" });
     }
     const affinity = model.affinity;
     if (!affinity || !["none", "prefer", "require"].includes(affinity.continuity)) errors.push({ field: `${path}.affinity.continuity`, message: "is invalid" });

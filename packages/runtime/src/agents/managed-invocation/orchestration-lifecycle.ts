@@ -15,6 +15,7 @@ import {
   type ManagedAgentOrchestrationResultEvidence,
   type ManagedAgentRequestedAuthority,
   type ManagedAgentWorkingDirectory,
+  type DeliberationResolution,
 } from "@kilnai/core";
 import {
   collectManagedEconomicCandidates,
@@ -83,6 +84,8 @@ export class ManagedEconomicCommitmentUnavailableError extends Error {
 interface PreparedOrchestrationChild {
   readonly child: ManagedAgentOrchestrationRequest["childRequests"][number];
   readonly agentProfile?: string;
+  readonly deliberationIntent?: ManagedAgentInvocationRequest["providerRoute"]["deliberationIntent"];
+  readonly deliberationResolution?: DeliberationResolution;
   readonly route: ManagedInvocationToolRoute;
   readonly profile: ManagedInvocationRouteProfile;
   readonly economicCandidateSet?: ManagedEconomicCandidateSet;
@@ -121,18 +124,24 @@ export async function runManagedAgentOrchestrationLifecycle(
           ...(child.routeId ?? input.routeSelector?.routeId
             ? { routeId: child.routeId ?? input.routeSelector?.routeId }
             : {}),
-          ...(input.routeSelector?.providerId
+          ...(input.routeSelector?.providerId || agent?.providerRoute?.providerId
             ? {
                 providerRoute: {
-                  providerId: input.routeSelector.providerId,
+                  providerId: input.routeSelector?.providerId ?? agent?.providerRoute?.providerId ?? "",
                   surface: "configured",
-                  ...(input.routeSelector.model
-                    ? { model: input.routeSelector.model }
+                  ...(input.routeSelector?.model ?? agent?.providerRoute?.model
+                    ? { model: input.routeSelector?.model ?? agent?.providerRoute?.model }
+                    : {}),
+                  ...(agent?.providerRoute?.deliberationIntent
+                    ? { deliberationIntent: agent.providerRoute.deliberationIntent }
                     : {}),
                 },
               }
             : {}),
         }, input.managedInvocation.routes, input.managedInvocation.unavailableRoutes);
+      if (economicCandidateSet.candidates.length === 0) {
+        throw new ManagedEconomicCommitmentUnavailableError(economicCandidateSet);
+      }
       if (!input.managedInvocation.economicDispatch) {
         throw new ManagedEconomicCommitmentUnavailableError(economicCandidateSet);
       }
@@ -152,6 +161,9 @@ export async function runManagedAgentOrchestrationLifecycle(
     return {
       child,
       ...(agent ? { agentProfile: agent.name } : {}),
+      ...(agent?.providerRoute?.deliberationIntent
+        ? { deliberationIntent: agent.providerRoute.deliberationIntent }
+        : {}),
       route,
       ...(economicCandidateSet ? { economicCandidateSet } : {}),
       profile: requireOrchestrationProfile(
@@ -201,6 +213,10 @@ export async function runManagedAgentOrchestrationLifecycle(
               task: entry.child.task,
               roleIntent: entry.child.roleIntent,
               ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
+              ...(entry.deliberationIntent ? { deliberationIntent: entry.deliberationIntent } : {}),
+              ...(dispatched.deliberationResolution
+                ? { deliberationResolution: dispatched.deliberationResolution }
+                : {}),
               dependencyRecords,
               route: dispatched.route,
               profile: dispatched.profile,
@@ -286,6 +302,9 @@ async function prepareOrchestrationEconomicDispatch(
   readonly abortSignal?: AbortSignal;
 }> {
   if (!entry.economicCandidateSet) return entry;
+  if (entry.economicCandidateSet.candidates.length === 0) {
+    throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
+  }
   const economicDispatch = input.managedInvocation.economicDispatch;
   if (!economicDispatch || !input.economicAdoptedDecisionAt) {
     throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
@@ -297,6 +316,7 @@ async function prepareOrchestrationEconomicDispatch(
     task: entry.child.task,
     roleIntent: entry.child.roleIntent,
     agentProfile: entry.agentProfile,
+    deliberationIntent: entry.deliberationIntent ?? null,
     admissionProfileId: input.profile,
     candidateSet: entry.economicCandidateSet,
   }).slice("sha256:".length);
@@ -317,7 +337,12 @@ async function prepareOrchestrationEconomicDispatch(
     throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
   }
   const selected = preparation.commitment.reservation.selectedIdentity.route;
-  if (selected.routeId !== entry.route.routeId
+  const selectedCandidate = entry.economicCandidateSet.candidates.find((candidate) =>
+    candidate.routeId === selected.routeId
+    && candidate.providerId === selected.providerId
+    && candidate.model === selected.modelId);
+  if (!selectedCandidate
+    || selected.routeId !== entry.route.routeId
     || selected.providerId !== entry.route.providerId
     || selected.modelId !== entry.route.model) {
     preparation.recordExecutionSettlementPending("committed-route-mismatch");
@@ -325,6 +350,9 @@ async function prepareOrchestrationEconomicDispatch(
   }
   return {
     ...entry,
+    ...(selectedCandidate.deliberationResolution
+      ? { deliberationResolution: selectedCandidate.deliberationResolution }
+      : {}),
     route: { ...entry.route, adapter: preparation.adapter },
     abortSignal: preparation.abortSignal,
     economicDispatch: {
@@ -589,6 +617,8 @@ function buildOrchestrationChildInvocationRequest(input: {
   readonly task: string;
   readonly roleIntent: string;
   readonly agentProfile?: string;
+  readonly deliberationIntent?: ManagedAgentInvocationRequest["providerRoute"]["deliberationIntent"];
+  readonly deliberationResolution?: DeliberationResolution;
   readonly dependencyRecords: readonly ManagedAgentInvocationRecord[];
   readonly route: ManagedInvocationToolRoute;
   readonly profile: ManagedInvocationRouteProfile;
@@ -653,6 +683,8 @@ function buildOrchestrationChildInvocationRequest(input: {
       providerId: input.route.providerId,
       surface: input.route.surface ?? adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
       ...(input.route.model ? { model: input.route.model } : {}),
+      ...(input.deliberationIntent ? { deliberationIntent: input.deliberationIntent } : {}),
+      ...(input.deliberationResolution ? { deliberationResolution: input.deliberationResolution } : {}),
     },
     adapterKind: adapter.descriptor.adapterKind,
     executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",

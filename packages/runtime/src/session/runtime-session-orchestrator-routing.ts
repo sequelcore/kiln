@@ -8,7 +8,8 @@ import type {
   ModelRoutingRankingEvidence,
   Capability,
   ExecutionIdentity,
-  ReasoningEffort,
+  DeliberationResolution,
+  ModelDeliberationCapabilities,
   MultimodalArtifact,
   MultimodalCapability,
   MultimodalTransportModality,
@@ -22,6 +23,7 @@ import {
   KilnError,
   ModelCapabilityRegistry,
   planMultimodalRoute,
+  resolveDeliberation,
   resolveExecutionIdentity,
   scoreComplexity,
   textParts,
@@ -48,6 +50,7 @@ export interface RuntimeSessionRoutingResolution {
   readonly invocationSystem: string;
   readonly executionIdentity?: ExecutionIdentity;
   readonly routingDecision?: RoutingDecision;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly delegatedMultimodalResult?: RuntimeMultimodalDelegationExecutionResult;
   readonly transformedUserParts?: readonly ContentPart[];
   readonly preModelToolExecutions?: readonly ToolExecutionSummary[];
@@ -165,7 +168,12 @@ export async function resolveRuntimeSessionRouting(
         hasTools: hasToolSurface,
         toolCount: mergedTools?.length ?? 0,
         requiresStreaming: false,
-        ...(perCallConfig?.reasoningEffort ? { requestedReasoningEffort: perCallConfig.reasoningEffort } : {}),
+        ...(perCallConfig?.deliberationIntent
+          ? {
+              deliberationIntent: perCallConfig.deliberationIntent,
+              deliberationSource: perCallConfig.deliberationSource ?? "operator",
+            }
+          : {}),
         ...(perCallConfig?.modelRoutingPolicy?.task ? { task: perCallConfig.modelRoutingPolicy.task } : {}),
         ...phaseAwareSignals,
         ...(perCallConfig?.modelRoutingPolicy?.rankingEvidence
@@ -183,8 +191,11 @@ export async function resolveRuntimeSessionRouting(
         routedProviderIdentity = decision.provider;
         routedModelIdentity = decision.model;
       }
-    } catch {
-      // Fail-open: use default provider if routing fails.
+    } catch (error) {
+      if (perCallConfig?.deliberationIntent) {
+        throw error;
+      }
+      // With no deliberation authority at risk, preserve the configured default route.
     }
   }
 
@@ -197,8 +208,21 @@ export async function resolveRuntimeSessionRouting(
     routedBillingMode: routingDecision?.billingMode,
   });
 
+  let deliberationResolution = perCallConfig?.deliberationResolution ?? routingDecision?.deliberationResolution;
+  if (perCallConfig?.deliberationIntent && !deliberationResolution) {
+    const provider = routingDecision?.provider ?? executionIdentity?.provider ?? deps.provider.name;
+    const model = routingDecision?.model ?? executionIdentity?.model ?? deps.model;
+    deliberationResolution = resolveDeliberation({
+      intent: perCallConfig.deliberationIntent,
+      source: perCallConfig.deliberationSource ?? "operator",
+      capabilities: deliberationCapabilitiesFor(provider, model ?? "", perCallConfig.modelRoutingPolicy),
+    });
+  }
+  if (deliberationResolution?.status === "denied") {
+    throw new Error(`Deliberation denied for the selected route: ${deliberationResolution.reason}`);
+  }
+
   if (routingDecision) {
-    validateRequestedReasoningEffort(routingDecision, perCallConfig?.reasoningEffort, perCallConfig?.modelRoutingPolicy);
     const routingTargetIdentity = resolveExecutionIdentity({
       configuredProvider: routingDecision.provider,
       configuredModel: routingDecision.model,
@@ -212,7 +236,7 @@ export async function resolveRuntimeSessionRouting(
     };
     routingDecision = {
       ...routingDecision,
-      reasoningEffort: perCallConfig?.reasoningEffort,
+      ...(deliberationResolution ? { deliberationResolution } : {}),
       rationale: buildModelRoutingRationale(
         routingDecision,
         hasToolSurface,
@@ -255,6 +279,7 @@ export async function resolveRuntimeSessionRouting(
     invocationSystem,
     executionIdentity,
     routingDecision,
+    ...(deliberationResolution ? { deliberationResolution } : {}),
     ...(delegatedMultimodalResult ? { delegatedMultimodalResult } : {}),
     ...(multimodalEffect?.transformedUserParts ? { transformedUserParts: multimodalEffect.transformedUserParts } : {}),
     ...(multimodalEffect?.transformToolExecution ? { preModelToolExecutions: [multimodalEffect.transformToolExecution] } : {}),
@@ -852,7 +877,9 @@ function buildModelRoutingRationale(
     selectedModel: decision.model,
     canonicalModel: decision.canonicalModel,
     selectionMode: decision.selectionMode ?? "automatic",
-    reasoningEffort: perCallConfig?.reasoningEffort,
+    ...(decision.deliberationResolution
+      ? { deliberationResolution: decision.deliberationResolution }
+      : {}),
     routingReason: decision.reasoning,
     confidence: decision.confidence,
     routingTier: decision.routingTier,
@@ -863,14 +890,14 @@ function buildModelRoutingRationale(
       hasTools,
       toolCount,
       requiresStreaming: false,
-      ...(perCallConfig?.reasoningEffort ? { requestedReasoningEffort: perCallConfig.reasoningEffort } : {}),
+      ...(perCallConfig?.deliberationIntent ? { deliberationIntent: perCallConfig.deliberationIntent } : {}),
       ...(perCallConfig?.modelRoutingPolicy?.task ? { task: perCallConfig.modelRoutingPolicy.task } : {}),
       ...resolvePhaseAwareRoutingSignals(perCallConfig?.modelRoutingPolicy),
     },
     rankingEvidence: ranking.current,
     diagnostics: [
       ...ranking.diagnostics,
-      ...reasoningEffortDiagnostics(decision, perCallConfig?.reasoningEffort, perCallConfig?.modelRoutingPolicy),
+      ...deliberationDiagnostics(decision),
     ],
     ...(decision.selectionMode === "explicit-operator-only"
       ? { overrideSource: perCallConfig?.modelOverride?.source ?? "operator" }
@@ -912,54 +939,29 @@ function resolvePhaseAwareRoutingSignals(
   };
 }
 
-function validateRequestedReasoningEffort(
+function deliberationDiagnostics(
   decision: RoutingDecision,
-  requested: ReasoningEffort | undefined,
-  policy: ModelRoutingPolicyConfig | undefined,
-): void {
-  if (!requested) {
-    return;
-  }
-  const supported = supportedReasoningEffortsFor(decision, policy);
-  if (!supported || supported.includes(requested)) {
-    return;
-  }
-  throw new Error(`Reasoning effort '${requested}' is not supported by ${decision.provider}/${decision.model}`);
-}
-
-function reasoningEffortDiagnostics(
-  decision: RoutingDecision,
-  requested: ReasoningEffort | undefined,
-  policy: ModelRoutingPolicyConfig | undefined,
 ): NonNullable<RoutingDecision["rationale"]>["diagnostics"] {
-  if (!requested) {
+  const resolution = decision.deliberationResolution;
+  if (!resolution) {
     return [];
   }
-  const supported = supportedReasoningEffortsFor(decision, policy);
-  if (!supported) {
-    return [{
-      code: "reasoning_effort_unadvertised",
-      severity: "warning",
-      message: `Route ${decision.provider}/${decision.model} did not advertise reasoning effort support.`,
-      provider: decision.provider,
-      model: decision.model,
-    }];
-  }
   return [{
-    code: "reasoning_effort_supported",
-    severity: "info",
-    message: `Route ${decision.provider}/${decision.model} supports requested reasoning effort '${requested}'.`,
+    code: `deliberation_${resolution.status}`,
+    severity: resolution.status === "omitted" ? "warning" : "info",
+    message: `Route ${decision.provider}/${decision.model} resolved deliberation as ${resolution.status}.`,
     provider: decision.provider,
     model: decision.model,
   }];
 }
 
-function supportedReasoningEffortsFor(
-  decision: RoutingDecision,
+function deliberationCapabilitiesFor(
+  provider: string,
+  model: string,
   policy: ModelRoutingPolicyConfig | undefined,
-): readonly ReasoningEffort[] | undefined {
-  return policy?.routeCapabilities?.get(`${decision.provider}/${decision.model}`)?.supportedReasoningEfforts
-    ?? policy?.routeCapabilities?.get(decision.model)?.supportedReasoningEfforts;
+): ModelDeliberationCapabilities | undefined {
+  return policy?.routeCapabilities?.get(`${provider}/${model}`)?.deliberation
+    ?? policy?.routeCapabilities?.get(model)?.deliberation;
 }
 
 function filterRankingEvidence(

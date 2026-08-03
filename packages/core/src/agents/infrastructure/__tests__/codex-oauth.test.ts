@@ -4,6 +4,7 @@ import type {
   AgentStreamEvent,
   CreateMessageOptions,
 } from "../../index.js";
+import { KNOWN_DELIBERATION_LEVEL_IDS } from "../../index.js";
 import { getInvalidToolInputDetails } from "../../tool-call-input.js";
 
 const mockFetch = vi.fn();
@@ -301,7 +302,7 @@ describe("CodexOAuthAdapter", () => {
       });
     });
 
-    it("sends requested reasoning effort to the Codex Responses endpoint", async () => {
+    it("sends an admitted exact deliberation level to the Codex Responses endpoint", async () => {
       mockFetch.mockResolvedValueOnce(sseResponse([
         {
           event: "response.completed",
@@ -317,11 +318,77 @@ describe("CodexOAuthAdapter", () => {
       ]));
 
       const { adapter } = await createAdapter("gpt-5.4");
-      await adapter.createMessage(createOptions({ reasoningEffort: "high" }));
+      await adapter.createMessage(createOptions({
+        deliberationResolution: {
+          status: "exact",
+          requested: {
+            mode: "fixed",
+            preferredLevel: KNOWN_DELIBERATION_LEVEL_IDS.high,
+            onUnsupported: "deny",
+          },
+          selectedLevel: KNOWN_DELIBERATION_LEVEL_IDS.high,
+          source: "operator",
+          capabilityEvidence: {
+            sourceIdentity: "codex-model-catalog",
+            sourceRevision: "7",
+            observedAt: "2026-08-02T00:00:00.000Z",
+          },
+        },
+      }));
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(String(init.body)) as { reasoning?: { effort?: string } };
       expect(body.reasoning).toEqual({ effort: "high" });
+    });
+
+    it("does not send an override for provider-default deliberation", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([{
+        event: "response.completed",
+        data: {
+          response: {
+            id: "resp_default",
+            status: "completed",
+            output: [],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        },
+      }]));
+
+      const { adapter } = await createAdapter("gpt-5.4");
+      await adapter.createMessage(createOptions({
+        deliberationResolution: {
+          status: "defaulted",
+          requested: { mode: "provider-default", onUnsupported: "omit" },
+          selectedLevel: KNOWN_DELIBERATION_LEVEL_IDS.medium,
+          source: "provider-default",
+          capabilityEvidence: {
+            sourceIdentity: "codex-model-catalog",
+            sourceRevision: "7",
+            observedAt: "2026-08-02T00:00:00.000Z",
+          },
+        },
+      }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as { reasoning?: unknown };
+      expect(body.reasoning).toBeUndefined();
+    });
+
+    it("rejects denied deliberation before provider I/O", async () => {
+      const { adapter } = await createAdapter("gpt-5.4");
+      await expect(adapter.createMessage(createOptions({
+        deliberationResolution: {
+          status: "denied",
+          requested: {
+            mode: "fixed",
+            preferredLevel: KNOWN_DELIBERATION_LEVEL_IDS.max,
+            onUnsupported: "deny",
+          },
+          source: "operator",
+          reason: "preferred-level-unsupported",
+        },
+      }))).rejects.toThrow("Denied deliberation cannot execute");
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("maps provider-safe tool names back to canonical tool names", async () => {

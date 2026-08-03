@@ -491,7 +491,6 @@ export type {
   ModelRoutingPolicyInputsUsed,
   ModelRoutingRankingEvidence,
   ModelRoutingRationale,
-  ModelRoutingReasoningEffort,
   ModelSelectionMode,
   RoutingTier,
   RoutingRule,

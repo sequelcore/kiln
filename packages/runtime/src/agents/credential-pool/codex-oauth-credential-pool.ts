@@ -420,6 +420,7 @@ export class CodexOAuthCredentialPoolService {
     this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
     return new PooledProviderAdapter<CodexOAuthPoolCredential>({
       name: CODEX_OAUTH_POOL_PROVIDER_ID,
+      deliberationTransport: "native-level",
       pool,
       createAdapter: options.createAdapter ?? ((credential) => new CodexOAuthAdapter({
         auth: new CodexOAuthAuth({ tokenPath: credential.tokenPath }),
@@ -442,6 +443,7 @@ export class CodexOAuthCredentialPoolService {
     };
     return {
       name: delegate.name,
+      deliberationTransport: delegate.deliberationTransport,
       createMessage: async (messageOptions: CreateMessageOptions) => {
         try {
           const response = await delegate.createMessage(messageOptions);

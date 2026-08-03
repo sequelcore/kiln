@@ -130,6 +130,25 @@ describe("AnthropicAdapter", () => {
   });
 
   describe("createMessage", () => {
+    it("projects an admitted deliberation level to output_config.effort", async () => {
+      mockCreate.mockResolvedValueOnce(makeMessageResponse());
+
+      await adapter.createMessage(makeOptions({
+        deliberationResolution: {
+          status: "exact",
+          selectedLevel: "high" as never,
+          source: "route",
+          capabilityEvidence: {
+            sourceIdentity: "anthropic:test",
+            sourceRevision: "revision-1",
+            observedAt: "2026-08-02T00:00:00.000Z",
+          },
+        },
+      }));
+
+      expect(mockCreate.mock.calls[0]![0]).toMatchObject({ output_config: { effort: "high" } });
+    });
+
     it("maps messages correctly", async () => {
       mockCreate.mockResolvedValueOnce(makeMessageResponse());
 

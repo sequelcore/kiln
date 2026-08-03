@@ -11,7 +11,10 @@ import type {
   ContentPart,
   ToolDefinition,
   ToolChoiceOption,
-  ReasoningEffort,
+  DeliberationIntent,
+  DeliberationResolution,
+  DeliberationSource,
+  ModelDeliberationCapabilities,
   ToolCall,
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityProfile,
@@ -205,7 +208,7 @@ export interface OrchestrateResult {
     readonly routingTier: string;
     readonly reasoning: string;
     readonly selectionMode?: "automatic" | "explicit-operator-only";
-    readonly reasoningEffort?: ReasoningEffort;
+    readonly deliberationResolution?: DeliberationResolution;
     readonly rationale?: ModelRoutingRationale;
   };
 }
@@ -300,7 +303,7 @@ export interface EffectiveTurnAuthorityAdmissionContext {
 }
 
 export interface ModelRoutingRouteCapabilities {
-  readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
+  readonly deliberation?: ModelDeliberationCapabilities;
 }
 
 export interface ModelRoutingPolicyConfig {
@@ -344,7 +347,9 @@ export interface PerCallToolConfig {
     readonly billingMode?: ExecutionBillingMode;
     readonly source?: "operator";
   };
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationIntent?: DeliberationIntent;
+  readonly deliberationSource?: Exclude<DeliberationSource, "provider-default">;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;

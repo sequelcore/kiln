@@ -197,14 +197,42 @@ export interface KilnModelTaskSuitabilityOverride {
   readonly reason: string;
 }
 
-export type KilnReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type KilnDeliberationMode = "provider-default" | "fixed" | "adaptive";
+export type KilnDeliberationTarget = "latency-first" | "balanced" | "quality-first";
+export type KilnUnsupportedDeliberationPolicy = "deny" | "omit" | "allow-clamp";
 
-export type KilnReasoningPolicyUnsupported = "omit" | "fail";
+export interface KilnDeliberationBoundsConfig {
+  readonly min?: string;
+  readonly max?: string;
+}
 
-export interface KilnReasoningPolicyConfig {
-  readonly default?: KilnReasoningEffort;
-  readonly unsupported?: KilnReasoningPolicyUnsupported;
-  readonly byTask?: Partial<Record<KilnModelTaskSuitabilityTask, KilnReasoningEffort>>;
+export type KilnDeliberationRuleConfig =
+  | {
+    readonly mode: "provider-default";
+    readonly onUnsupported?: KilnUnsupportedDeliberationPolicy;
+  }
+  | {
+    readonly mode: "fixed";
+    readonly preferredLevel: string;
+    readonly bounds?: KilnDeliberationBoundsConfig;
+    readonly onUnsupported?: KilnUnsupportedDeliberationPolicy;
+  }
+  | {
+    readonly mode: "adaptive";
+    readonly target: KilnDeliberationTarget;
+    readonly bounds?: KilnDeliberationBoundsConfig;
+    readonly onUnsupported?: KilnUnsupportedDeliberationPolicy;
+  };
+
+export type KilnDeliberationRouteRuleConfig = KilnDeliberationRuleConfig & {
+  readonly provider: string;
+  readonly model: string;
+};
+
+export interface KilnDeliberationPolicyConfig {
+  readonly default?: KilnDeliberationRuleConfig;
+  readonly byTask?: Partial<Record<KilnModelTaskSuitabilityTask, KilnDeliberationRuleConfig>>;
+  readonly byRoute?: readonly KilnDeliberationRouteRuleConfig[];
 }
 
 export type KilnYamlWebNetPolicy = "none" | "documentation" | "package-managers" | "full";
@@ -613,7 +641,7 @@ export interface KilnYaml {
   readonly providers?: Record<string, KilnYamlProvider>;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
-  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
+  readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
   readonly web?: KilnYamlWebConfig;
   readonly interactiveUse?: KilnYamlInteractiveUseConfig;
   readonly skills?: KilnYamlSkillsConfig;

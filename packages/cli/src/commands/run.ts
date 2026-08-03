@@ -33,7 +33,7 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import type { KilnModelTaskSuitabilityTask, KilnReasoningPolicyConfig } from "../kiln-yaml-types.js";
+import type { KilnDeliberationPolicyConfig, KilnModelTaskSuitabilityTask } from "../kiln-yaml-types.js";
 import {
   computeEvalScore,
   printContextGovernancePreview,
@@ -65,7 +65,7 @@ import { resolveEffectiveModel } from "../config/env-config.js";
 import { readGlobalConfig, resolveGlobalDefaultModel, type KilnGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { inferRouteTask, resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
-import { resolveConfiguredReasoningEffort } from "../config/reasoning-policy.js";
+import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -95,8 +95,9 @@ import {
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
   createSessionBuiltinToolOptions,
+  defineDeliberationLevelId,
   type ManagedAgentOrchestrationAdmissionLimits,
-  type ReasoningEffort,
+  type ModelDeliberationCapabilities,
   VerificationResult,
   formatProviderModelRouteCooldown,
   mapProviderModelRouteErrorToOutcome,
@@ -125,13 +126,13 @@ import type {
   ManagedInvocationToolOptions,
   RuntimeBudgetUsageReader,
 } from "@kilnai/runtime";
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export interface RunFlags {
   readonly apiKey?: string;
   readonly provider?: string;
   readonly model?: string;
-  readonly reasoningEffort?: ReasoningEffort;
+  readonly deliberationLevel?: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly agent?: string;
   readonly permissionPolicy?: KilnPermissionPolicy;
@@ -277,6 +278,7 @@ interface RunProviderModelDiscovery {
   readonly status: string;
   readonly reason: string;
   readonly modelReadinessFailures?: Readonly<Record<string, string>>;
+  readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
 }
 
 export type RunProviderModelAdmission =
@@ -367,7 +369,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
 }): Promise<{
   readonly candidates: readonly AdmittedRunRouteCandidate[];
   readonly rejectedReasons: readonly string[];
-  readonly routeCapabilities: ReadonlyMap<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>;
+  readonly routeCapabilities: ReadonlyMap<string, ModelDeliberationCapabilities>;
 }> {
   const rejectedReasons: string[] = [];
   const directCandidates = input.candidates.filter((candidate) => isDirectApiProvider(candidate.provider));
@@ -407,7 +409,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
   };
 
   const admitted: AdmittedRunRouteCandidate[] = [];
-  const routeCapabilities = new Map<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>();
+  const routeCapabilities = new Map<string, ModelDeliberationCapabilities>();
   for (const candidate of input.candidates) {
     const admission = resolveRunProviderModelAdmission({
       provider: candidate.provider,
@@ -427,11 +429,23 @@ async function resolveAdmittedRunRouteCandidates(input: {
       }
     }
 
-    const supportedReasoningEfforts = candidate.model
-      ? directDiscovery[candidate.provider]?.modelCapabilities?.[candidate.model]?.supportedReasoningEfforts
+    const discoveredDeliberation = candidate.model
+      ? providerDiscovery[candidate.provider]?.modelCapabilities?.[candidate.model]?.deliberation
       : undefined;
-    if (candidate.model && supportedReasoningEfforts) {
-      routeCapabilities.set(routeKey(candidate.provider, candidate.model), { supportedReasoningEfforts });
+    if (candidate.model && discoveredDeliberation) {
+      routeCapabilities.set(routeKey(candidate.provider, candidate.model), {
+        provider: candidate.provider,
+        model: candidate.model,
+        levels: discoveredDeliberation.levels.map((level) => ({
+          ...level,
+          id: defineDeliberationLevelId(level.id),
+        })),
+        ...(discoveredDeliberation.defaultLevel
+          ? { defaultLevel: defineDeliberationLevelId(discoveredDeliberation.defaultLevel) }
+          : {}),
+        supportsAdaptive: discoveredDeliberation.supportsAdaptive,
+        evidence: discoveredDeliberation.evidence,
+      });
     }
 
     admitted.push(candidate as AdmittedRunRouteCandidate);
@@ -454,7 +468,6 @@ async function extendCodexDiscoveryWithReadinessProbes(input: {
     }
     const readiness = await probeCodexCliModelReadiness({
       model,
-      reasoningEffort: candidate.reasoningEffort,
       cwd: input.cwd,
       env: input.env,
     });
@@ -482,27 +495,43 @@ function routeKey(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
-function applyReasoningPolicyToRouteCandidates(input: {
+function applyDeliberationPolicyToRouteCandidates(input: {
   readonly candidates: readonly AdmittedRunRouteCandidate[];
-  readonly reasoningPolicy?: KilnReasoningPolicyConfig;
-  readonly explicitReasoningEffort?: ReasoningEffort;
+  readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
+  readonly explicitDeliberationLevel?: string;
   readonly task?: KilnModelTaskSuitabilityTask;
-  readonly routeCapabilities: ReadonlyMap<string, { readonly supportedReasoningEfforts?: readonly ReasoningEffort[] }>;
-}): readonly AdmittedRunRouteCandidate[] {
-  return input.candidates.map((candidate) => {
-    const supportedReasoningEfforts = candidate.model
-      ? input.routeCapabilities.get(routeKey(candidate.provider, candidate.model))?.supportedReasoningEfforts
+  readonly routeCapabilities: ReadonlyMap<string, ModelDeliberationCapabilities>;
+}): {
+  readonly candidates: readonly AdmittedRunRouteCandidate[];
+  readonly rejectedReasons: readonly string[];
+} {
+  const candidates: AdmittedRunRouteCandidate[] = [];
+  const rejectedReasons: string[] = [];
+  for (const candidate of input.candidates) {
+    const capabilities = candidate.model
+      ? input.routeCapabilities.get(routeKey(candidate.provider, candidate.model))
       : undefined;
-    const reasoningEffort = resolveConfiguredReasoningEffort({
-      explicitReasoningEffort: input.explicitReasoningEffort,
-      policy: input.reasoningPolicy,
+    const deliberationResolution = resolveConfiguredDeliberation({
+      explicitLevel: input.explicitDeliberationLevel,
+      policy: input.deliberationPolicy,
       task: input.task,
       provider: candidate.provider,
       model: candidate.model,
-      supportedReasoningEfforts,
+      capabilities,
     });
-    return reasoningEffort ? { ...candidate, reasoningEffort } : candidate;
-  });
+    if (deliberationResolution.status === "denied") {
+      rejectedReasons.push(
+        `${formatRouteCandidate(candidate)}: deliberation request denied (${deliberationResolution.reason})`,
+      );
+      continue;
+    }
+    candidates.push(
+      deliberationResolution.status === "exact" || deliberationResolution.status === "clamped"
+        ? { ...candidate, deliberationResolution }
+        : candidate,
+    );
+  }
+  return { candidates, rejectedReasons };
 }
 
 function formatRouteCandidate(candidate: RunSessionRouteCandidate): string {
@@ -886,6 +915,9 @@ export async function runCommand(
     agentTaskAffinity: resolvedAgent?.taskAffinity,
     }),
   ];
+  if (flags.deliberationLevel && configuredRouteCandidates.length === 0) {
+    throw new Error("--deliberation-level requires a configured provider/model route with capability evidence.");
+  }
   const preferredProvider = configuredRouteCandidates[0]?.provider;
   if (
     flags.requestedAuthority
@@ -1084,13 +1116,38 @@ export async function runCommand(
     });
     exitRunCommand(1, executionOptions);
   }
-  const admittedRouteCandidates = applyReasoningPolicyToRouteCandidates({
+  const deliberationRoutes = applyDeliberationPolicyToRouteCandidates({
     candidates: admittedRoutes.candidates,
-    reasoningPolicy: resolvedKilnConfig?.reasoningPolicy,
-    explicitReasoningEffort: flags.reasoningEffort,
+    deliberationPolicy: resolvedKilnConfig?.deliberationPolicy,
+    explicitDeliberationLevel: flags.deliberationLevel,
     task: routeTask,
     routeCapabilities: admittedRoutes.routeCapabilities,
   });
+  const admittedRouteCandidates = deliberationRoutes.candidates;
+  if (configuredRouteCandidates.length > 0 && admittedRouteCandidates.length === 0) {
+    const errorMessage = "No configured provider routes satisfy the requested deliberation policy.";
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    for (const reason of [...admittedRoutes.rejectedReasons, ...deliberationRoutes.rejectedReasons]) {
+      runOutput.writeErrorLine(`- ${reason}`);
+    }
+    const cleanupErrorMessage = await cleanupWorktreeForExit();
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: context.domain.displayName,
+      provider: preferredProvider,
+      model: effectiveModel,
+      startedAt,
+      startedAtMs,
+      contextGovernance: previewContextGovernance,
+      lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
+      exactArtifacts: context.projectedContext.blocks
+        .filter((block) => block.kind === "artifact")
+        .map((block) => block.content),
+    });
+    exitRunCommand(1, executionOptions);
+  }
 
   const requirements = buildRunSessionRequirements(preferredProvider);
 
@@ -1345,7 +1402,6 @@ export async function runCommand(
     runtimeExecutionMode: flags.plan ? "plan" as const : "execute" as const,
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
-    reasoningEffort: flags.reasoningEffort,
     requestedAuthority: flags.requestedAuthority,
     ...(admittedMcpServers.length > 0 ? { canonicalMcpServers: admittedMcpServers } : {}),
   };

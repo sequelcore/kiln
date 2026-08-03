@@ -4,6 +4,7 @@
  */
 import type {
   GuiProviderModelDiscoveryProjection,
+  GuiProviderModelCapabilities,
   OperatorActivityPhaseFrame,
   OperatorExecutionMode,
   OperatorSessionEvent,
@@ -14,20 +15,7 @@ import type {
 /**
  * Inbound frames the TUI gateway sends.
  */
-export interface TuiProviderModelCapabilities {
-  readonly supportsFunctionTools?: boolean;
-  readonly supportsRuntimeTools?: boolean;
-  readonly supportsNativeShellTools?: boolean;
-  readonly supportsNativePatchTools?: boolean;
-  readonly supportsTools?: boolean;
-  readonly supportsStreaming?: boolean;
-  readonly supportsStructuredOutput?: boolean;
-  readonly supportsVision?: boolean;
-  readonly supportsParallelToolCalls?: boolean;
-  readonly contextWindow?: number;
-  readonly defaultReasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
-  readonly supportedReasoningEfforts?: ("minimal" | "low" | "medium" | "high" | "xhigh")[];
-}
+export type TuiProviderModelCapabilities = GuiProviderModelCapabilities;
 
 export interface TuiProviderDiscoveryFrame {
   readonly provider: string;
@@ -155,7 +143,7 @@ export type TuiOutboundFrame =
       content: string;
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
-      reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+      deliberationIntent?: import("@kilnai/gateway-contracts").GuiDeliberationIntent;
     }
   | { type: "voice_synthesis_request"; requestId: string; sourceMessageId: string }
   | { type: "clear" }

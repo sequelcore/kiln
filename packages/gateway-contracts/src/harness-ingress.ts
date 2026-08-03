@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** The first stable, harness-neutral ingress wire contract. */
-export const HARNESS_INGRESS_PROTOCOL_VERSION = "1" as const;
+export const HARNESS_INGRESS_PROTOCOL_VERSION = "2" as const;
 
 /** Maximum UTF-16 code units allowed in any public text field. */
 export const HARNESS_INGRESS_MAX_TEXT_LENGTH = 16_384;
@@ -20,17 +20,25 @@ export const HARNESS_INGRESS_REQUESTED_AUTHORITIES = [
   "destructive",
 ] as const;
 
-export const HARNESS_INGRESS_REASONING_EFFORTS = [
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
+export const HARNESS_INGRESS_DELIBERATION_TARGETS = [
+  "latency-first",
+  "balanced",
+  "quality-first",
+] as const;
+
+export const HARNESS_INGRESS_UNSUPPORTED_DELIBERATION_POLICIES = [
+  "deny",
+  "omit",
+  "allow-clamp",
 ] as const;
 
 const identifier = z.string().regex(
   /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/,
   "must be a non-empty portable identifier",
+);
+const deliberationLevelId = z.string().regex(
+  /^[a-z0-9][a-z0-9._:-]{0,63}$/,
+  "must be a portable deliberation level identifier",
 );
 const nonEmptyText = z.string().trim().min(1).max(HARNESS_INGRESS_MAX_TEXT_LENGTH);
 const mimeType = z.string().regex(/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/);
@@ -39,6 +47,32 @@ const canonicalBase64 = z.string()
   .min(1)
   .max(HARNESS_INGRESS_MAX_INLINE_DATA_LENGTH)
   .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
+
+const DeliberationBoundsSchema = z.object({
+  min: deliberationLevelId.optional(),
+  max: deliberationLevelId.optional(),
+}).strict();
+
+export const HarnessIngressDeliberationIntentSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("provider-default"),
+    onUnsupported: z.enum(HARNESS_INGRESS_UNSUPPORTED_DELIBERATION_POLICIES),
+  }).strict(),
+  z.object({
+    mode: z.literal("fixed"),
+    preferredLevel: deliberationLevelId,
+    bounds: DeliberationBoundsSchema.optional(),
+    onUnsupported: z.enum(HARNESS_INGRESS_UNSUPPORTED_DELIBERATION_POLICIES),
+  }).strict(),
+  z.object({
+    mode: z.literal("adaptive"),
+    target: z.enum(HARNESS_INGRESS_DELIBERATION_TARGETS),
+    bounds: DeliberationBoundsSchema.optional(),
+    onUnsupported: z.enum(HARNESS_INGRESS_UNSUPPORTED_DELIBERATION_POLICIES),
+  }).strict(),
+]);
+
+export type HarnessIngressDeliberationIntent = z.infer<typeof HarnessIngressDeliberationIntentSchema>;
 
 const HarnessIngressTextPartSchema = z.object({
   type: z.literal("text"),
@@ -85,7 +119,7 @@ export const HarnessIngressTurnStartSchema = z.object({
   content: nonEmptyText.optional(),
   parts: z.array(HarnessIngressContentPartSchema).min(1).max(HARNESS_INGRESS_MAX_PARTS).optional(),
   requestedAuthority: z.enum(HARNESS_INGRESS_REQUESTED_AUTHORITIES).optional(),
-  reasoningEffort: z.enum(HARNESS_INGRESS_REASONING_EFFORTS).optional(),
+  deliberationIntent: HarnessIngressDeliberationIntentSchema.optional(),
 }).strict().superRefine((frame, context) => {
   if ((frame.content === undefined) === (frame.parts === undefined)) {
     context.addIssue({

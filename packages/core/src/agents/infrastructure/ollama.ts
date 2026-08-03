@@ -10,6 +10,7 @@ import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
 import { assertValidToolCallIds, buildSyntheticToolCallId } from "../tool-call-input.js";
+import { admitDeliberationForExecution } from "../deliberation-policy.js";
 
 export const LLAMA3 = "llama3.1";
 export const CODELLAMA = "codellama";
@@ -50,6 +51,7 @@ interface OllamaTool {
 
 export class OllamaAdapter implements ProviderAdapter {
   readonly name = "ollama";
+  readonly deliberationTransport = "none" as const;
 
   private readonly baseUrl: string;
   private readonly model: string;
@@ -60,6 +62,7 @@ export class OllamaAdapter implements ProviderAdapter {
   }
 
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
+    rejectExecutableDeliberation(options);
     const body = this.buildRequest(options, false);
 
     const response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -103,6 +106,7 @@ export class OllamaAdapter implements ProviderAdapter {
   async *streamMessage(
     options: CreateMessageOptions,
   ): AsyncGenerator<AgentStreamEvent> {
+    rejectExecutableDeliberation(options);
     const body = this.buildRequest(options, true);
 
     const response = await fetch(`${this.baseUrl}/api/chat`, {
@@ -227,6 +231,11 @@ export class OllamaAdapter implements ProviderAdapter {
 
     return request;
   }
+}
+
+function rejectExecutableDeliberation(options: CreateMessageOptions): void {
+  const level = admitDeliberationForExecution(options.deliberationResolution);
+  if (level) throw new Error(`ollama does not declare native deliberation transport for level '${level}'.`);
 }
 
 function unsupportedModality(modality: string, reason: string): KilnError {

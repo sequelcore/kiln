@@ -10,10 +10,12 @@ import {
   WORK_CLASSIFICATION_INTENTS,
   WORK_CLASSIFICATION_MODES,
   defineManagedAgentInvocationRequest,
+  defineDeliberationLevelId,
   defineWorkClassification,
   digestManagedEconomicValue,
   isKilnWorkGovernanceEvidence,
   projectStructuredExecutionResult,
+  resolveDeliberation,
   resolveEvidenceRealization,
 } from "@kilnai/core";
 import { runManagedAgentOrchestrationLifecycle } from "./orchestration-lifecycle.js";
@@ -51,6 +53,9 @@ import type {
   ToolDefinition,
   KilnWorkGovernanceEvidence,
   WorkItemPauseRequirement,
+  DeliberationIntent,
+  DeliberationResolution,
+  ModelDeliberationCapabilities,
 } from "@kilnai/core";
 import { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
@@ -155,6 +160,7 @@ export interface ManagedInvocationToolRoute {
   readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
+  readonly deliberationCapabilities?: ModelDeliberationCapabilities;
   readonly voiceProfile?: string;
   /**
    * Fixed-route execution only. Economic policy candidates must not carry an
@@ -275,7 +281,7 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly providerRoute?: {
     readonly providerId: string;
     readonly model?: string;
-    readonly reasoningEffort?: string;
+    readonly deliberationIntent?: DeliberationIntent;
   };
   readonly voiceProfile?: string;
 }
@@ -364,7 +370,8 @@ export type ManagedEconomicCandidateRejectionReason =
   | "not-in-policy"
   | "caller-constraint-excluded"
   | "non-economic-admission-failed"
-  | "economic-capability-unverified";
+  | "economic-capability-unverified"
+  | "deliberation-denied";
 
 export interface ManagedEconomicCandidateRejection {
   readonly stage: "managed-candidate-admission";
@@ -381,6 +388,7 @@ export interface ManagedEconomicCandidateDescriptor {
   readonly surface?: string;
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
+  readonly deliberationResolution?: DeliberationResolution;
 }
 
 export interface ManagedEconomicCandidateSet {
@@ -497,6 +505,21 @@ export function collectManagedEconomicCandidates(
       });
       continue;
     }
+    const deliberationResolution = command.providerRoute?.deliberationIntent
+      ? resolveDeliberation({
+          intent: command.providerRoute.deliberationIntent,
+          source: "route",
+          capabilities: route.deliberationCapabilities,
+        })
+      : undefined;
+    if (deliberationResolution?.status === "denied") {
+      rejections.push({
+        stage: "managed-candidate-admission",
+        routeId: route.routeId,
+        reason: "deliberation-denied",
+      });
+      continue;
+    }
     candidates.push({
       routeId: route.routeId,
       routeSource: route.routeSource,
@@ -506,6 +529,7 @@ export function collectManagedEconomicCandidates(
       ...(route.surface ? { surface: route.surface } : {}),
       adapterCapabilityId: economicCapability.adapterCapabilityId,
       adapterCapabilityVersion: economicCapability.adapterCapabilityVersion,
+      ...(deliberationResolution ? { deliberationResolution } : {}),
     });
   }
 
@@ -639,9 +663,25 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
             type: "string",
             description: "Optional configured model selector. When supplied, it must match the selected managed route.",
           },
-          reasoningEffort: {
-            type: "string",
-            description: "Optional provider reasoning effort.",
+          deliberationIntent: {
+            type: "object",
+            description: "Optional provider-neutral deliberation intent resolved against the selected model before commitment.",
+            properties: {
+              mode: { type: "string", enum: ["provider-default", "fixed", "adaptive"] },
+              target: { type: "string", enum: ["latency-first", "balanced", "quality-first"] },
+              preferredLevel: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]{0,63}$" },
+              bounds: {
+                type: "object",
+                properties: {
+                  min: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]{0,63}$" },
+                  max: { type: "string", pattern: "^[a-z0-9][a-z0-9._:-]{0,63}$" },
+                },
+                additionalProperties: false,
+              },
+              onUnsupported: { type: "string", enum: ["deny", "omit", "allow-clamp"] },
+            },
+            required: ["mode", "onUnsupported"],
+            additionalProperties: false,
           },
         },
         required: ["providerId"],
@@ -1376,7 +1416,7 @@ export function createManagedInvocationToolCallMetadataResolver(
         providerId: route.providerId,
         surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
         ...(parsed.input.providerRoute.model ?? route.model ? { model: parsed.input.providerRoute.model ?? route.model } : {}),
-        ...(parsed.input.providerRoute.reasoningEffort ? { reasoningEffort: parsed.input.providerRoute.reasoningEffort } : {}),
+        ...(parsed.input.providerRoute.deliberationIntent ? { deliberationIntent: parsed.input.providerRoute.deliberationIntent } : {}),
       },
       adapterKind: route.adapter.descriptor.adapterKind,
       executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
@@ -1488,6 +1528,7 @@ async function prepareManagedInvocationRequest(
   attachment: ManagedInvocationToolAttachment,
   toolName: string,
   scopeAdmission: "required" | "already-admitted" = "required",
+  admittedDeliberationResolution?: DeliberationResolution,
 ): Promise<
   | { readonly ok: true; readonly prepared: PreparedManagedInvocationRequest }
   | { readonly ok: false; readonly result: ManagedInvocationToolResult }
@@ -1543,6 +1584,18 @@ async function prepareManagedInvocationRequest(
 
   const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.input.agentProfile);
   if (agentProfile?.economicPolicyId && agentProfile.economicPolicyRevision) {
+    const economicProviderRoute: ManagedAgentProviderRoute = {
+      ...parsed.input.providerRoute,
+      ...(agentProfile.providerRoute?.providerId && !parsed.input.providerRoute.providerId
+        ? { providerId: agentProfile.providerRoute.providerId }
+        : {}),
+      ...(agentProfile.providerRoute?.model && !parsed.input.providerRoute.model
+        ? { model: agentProfile.providerRoute.model }
+        : {}),
+      ...(agentProfile.providerRoute?.deliberationIntent && !parsed.input.providerRoute.deliberationIntent
+        ? { deliberationIntent: agentProfile.providerRoute.deliberationIntent }
+        : {}),
+    };
     const authorityAdmission = validateManagedInvocationRequestedAuthority(
       requestedAuthority,
       parsed.input.profile,
@@ -1596,8 +1649,8 @@ async function prepareManagedInvocationRequest(
       configuredAgentProfileId: agentProfile.name,
       admissionProfileId: parsed.input.profile,
       ...(parsed.input.routeId ? { routeId: parsed.input.routeId } : {}),
-        ...(parsed.input.providerRoute.providerId
-          ? { providerRoute: parsed.input.providerRoute }
+        ...(economicProviderRoute.providerId
+          ? { providerRoute: economicProviderRoute }
           : {}),
       callerIdentity,
       ...(parsed.input.requiredToolNames
@@ -1610,6 +1663,16 @@ async function prepareManagedInvocationRequest(
       requiresNetwork: (parsed.input.requiredToolNames ?? []).some(requiresNetworkCapability),
       requiresWrite: parsed.input.profile !== "foundation-readonly-plan",
     }, options.routes, options.unavailableRoutes);
+    if (candidateSet.candidates.length === 0) {
+      return {
+        ok: false,
+        result: errorResult(
+          "Managed economic authority denied every admitted candidate before commitment.",
+          { errorCode: "economic_commitment_unavailable", status: "denied", candidateSet },
+          toolName,
+        ),
+      };
+    }
     if (!options.economicDispatch) {
       return {
         ok: false,
@@ -1628,6 +1691,7 @@ async function prepareManagedInvocationRequest(
       profile: parsed.input.profile,
       task: parsed.input.task,
       summary: parsed.input.summary,
+      deliberationIntent: economicProviderRoute.deliberationIntent ?? null,
       candidateSet,
     }).slice("sha256:".length);
     const economicPreparation = await options.economicDispatch.prepare({
@@ -1659,6 +1723,18 @@ async function prepareManagedInvocationRequest(
       };
     }
     const selected = economicPreparation.commitment.reservation.selectedIdentity.route;
+    const selectedCandidate = candidateSet.candidates.find((candidate) =>
+      candidate.routeId === selected.routeId
+      && candidate.providerId === selected.providerId
+      && candidate.model === selected.modelId);
+    if (!selectedCandidate) {
+      economicPreparation.recordExecutionSettlementPending("committed-candidate-unavailable");
+      throw new ManagedCommittedRouteMismatchError({
+        code: "committed-route-mismatch",
+        expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+        committed: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+      });
+    }
     const committedRoute = options.routes.find((route) =>
       route.routeId === selected.routeId
       && route.providerId === selected.providerId
@@ -1682,7 +1758,13 @@ async function prepareManagedInvocationRequest(
       return {
         ...fixed,
         routeId: selected.routeId,
-        providerRoute: { providerId: selected.providerId, model: selected.modelId },
+        providerRoute: {
+          providerId: selected.providerId,
+          model: selected.modelId,
+          ...(economicProviderRoute.deliberationIntent
+            ? { deliberationIntent: economicProviderRoute.deliberationIntent }
+            : {}),
+        },
       };
     });
     let recursivelyPrepared: Awaited<ReturnType<typeof prepareManagedInvocationRequest>>;
@@ -1691,7 +1773,7 @@ async function prepareManagedInvocationRequest(
         ...rawInput,
         routeId: selected.routeId,
         providerRoute: {
-          ...parsed.input.providerRoute,
+          ...economicProviderRoute,
           providerId: selected.providerId,
           model: selected.modelId,
         },
@@ -1704,7 +1786,7 @@ async function prepareManagedInvocationRequest(
             : route),
           ...(fixedAgentCatalog ? { agentCatalog: fixedAgentCatalog } : {}),
         },
-      }, toolName, "already-admitted");
+      }, toolName, "already-admitted", selectedCandidate.deliberationResolution);
     } catch (error) {
       economicPreparation.recordExecutionSettlementPending("postcommit-request-realization-failed");
       throw error;
@@ -2109,7 +2191,8 @@ async function prepareManagedInvocationRequest(
       providerId: route.providerId,
       surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
       ...(parsed.input.providerRoute.model ?? route.model ? { model: parsed.input.providerRoute.model ?? route.model } : {}),
-      ...(parsed.input.providerRoute.reasoningEffort ? { reasoningEffort: parsed.input.providerRoute.reasoningEffort } : {}),
+      ...(parsed.input.providerRoute.deliberationIntent ? { deliberationIntent: parsed.input.providerRoute.deliberationIntent } : {}),
+      ...(admittedDeliberationResolution ? { deliberationResolution: admittedDeliberationResolution } : {}),
     },
     adapterKind: route.adapter.descriptor.adapterKind,
     executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
@@ -3876,7 +3959,7 @@ function buildManagedInvocationRetryInputTemplate(
     providerRoute: {
       providerId: input.providerRoute.providerId,
       ...(input.providerRoute.model ? { model: input.providerRoute.model } : {}),
-      ...(input.providerRoute.reasoningEffort ? { reasoningEffort: input.providerRoute.reasoningEffort } : {}),
+      ...(input.providerRoute.deliberationIntent ? { deliberationIntent: input.providerRoute.deliberationIntent } : {}),
     },
     ...(input.requestedAuthority ? { requestedAuthority: input.requestedAuthority } : {}),
     task: input.task,
@@ -4154,6 +4237,63 @@ function resolveUnavailableRoute(
   );
 }
 
+function parseManagedDeliberationIntent(value: unknown, toolName: string): DeliberationIntent {
+  const input = readRecord(value);
+  if (!input) throw new Error(`${toolName} providerRoute.deliberationIntent must be an object.`);
+  const mode = readText(input.mode);
+  const onUnsupported = readText(input.onUnsupported);
+  if (onUnsupported !== "deny" && onUnsupported !== "omit" && onUnsupported !== "allow-clamp") {
+    throw new Error(`${toolName} providerRoute.deliberationIntent.onUnsupported is invalid.`);
+  }
+  if (mode === "provider-default") {
+    assertManagedDeliberationKeys(input, ["mode", "onUnsupported"], toolName);
+    return { mode, onUnsupported };
+  }
+  const boundsRecord = input.bounds === undefined ? undefined : readRecord(input.bounds);
+  if (input.bounds !== undefined && !boundsRecord) {
+    throw new Error(`${toolName} providerRoute.deliberationIntent.bounds must be an object.`);
+  }
+  if (boundsRecord) assertManagedDeliberationKeys(boundsRecord, ["min", "max"], toolName);
+  const min = boundsRecord ? readText(boundsRecord.min) : undefined;
+  const max = boundsRecord ? readText(boundsRecord.max) : undefined;
+  const bounds = boundsRecord
+    ? {
+        ...(min ? { min: defineDeliberationLevelId(min) } : {}),
+        ...(max ? { max: defineDeliberationLevelId(max) } : {}),
+      }
+    : undefined;
+  if (mode === "fixed") {
+    assertManagedDeliberationKeys(input, ["mode", "preferredLevel", "bounds", "onUnsupported"], toolName);
+    const preferredLevel = readText(input.preferredLevel);
+    if (!preferredLevel) throw new Error(`${toolName} fixed deliberation requires preferredLevel.`);
+    return {
+      mode,
+      preferredLevel: defineDeliberationLevelId(preferredLevel),
+      ...(bounds ? { bounds } : {}),
+      onUnsupported,
+    };
+  }
+  if (mode === "adaptive") {
+    assertManagedDeliberationKeys(input, ["mode", "target", "bounds", "onUnsupported"], toolName);
+    const target = readText(input.target);
+    if (target !== "latency-first" && target !== "balanced" && target !== "quality-first") {
+      throw new Error(`${toolName} adaptive deliberation target is invalid.`);
+    }
+    return { mode, target, ...(bounds ? { bounds } : {}), onUnsupported };
+  }
+  throw new Error(`${toolName} providerRoute.deliberationIntent.mode is invalid.`);
+}
+
+function assertManagedDeliberationKeys(
+  input: Record<string, unknown>,
+  allowed: readonly string[],
+  toolName: string,
+): void {
+  const admitted = new Set(allowed);
+  const unknown = Object.keys(input).find((key) => !admitted.has(key));
+  if (unknown) throw new Error(`${toolName} providerRoute.deliberationIntent has unknown field '${unknown}'.`);
+}
+
 function parseInput(
   input: Record<string, unknown>,
   toolName = MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -4229,7 +4369,9 @@ function parseInput(
         providerId,
         surface: "configured",
         ...(readText(providerRoute?.model) ? { model: readText(providerRoute?.model) } : {}),
-        ...(readText(providerRoute?.reasoningEffort) ? { reasoningEffort: readText(providerRoute?.reasoningEffort) } : {}),
+        ...(providerRoute?.deliberationIntent !== undefined
+          ? { deliberationIntent: parseManagedDeliberationIntent(providerRoute.deliberationIntent, toolName) }
+          : {}),
       },
       ...(externalRuntimeAttachment.value ? { externalRuntimeAttachment: externalRuntimeAttachment.value } : {}),
       ...(requestedAuthority.value ? { requestedAuthority: requestedAuthority.value } : {}),

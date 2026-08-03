@@ -1,44 +1,13 @@
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+import {
+  resolveDeliberation,
+  type DeliberationIntent,
+  type DeliberationResolution,
+  type DeliberationSource,
+  type ModelDeliberationCapabilities,
+} from "./deliberation-policy.js";
+
 export type ModelRoutingPhase = "orient" | "plan" | "execute" | "verify" | "handoff";
 export type RouteHealthState = "healthy" | "degraded" | "cooldown" | "unknown";
-export type ReasoningEffortSupportEvidence = "known" | "unknown";
-export type UnsupportedReasoningEffortPolicy = "fail" | "omit";
-
-export type ReasoningEffortOmissionReason =
-  | "not-requested"
-  | "capability-unknown"
-  | "unsupported"
-  | "xhigh-disabled"
-  | "xhigh-not-promoted"
-  | "budget-required"
-  | "budget-exceeded";
-
-export type NormalizedReasoningEffortResolution =
-  | {
-    readonly status: "resolved";
-    readonly requested?: ReasoningEffort;
-    readonly resolved: ReasoningEffort;
-    readonly source: "explicit" | "policy" | "provider-default";
-  }
-  | {
-    readonly status: "omitted";
-    readonly requested?: ReasoningEffort;
-    readonly reason: ReasoningEffortOmissionReason;
-  };
-
-export interface ResolveNormalizedReasoningEffortInput {
-  readonly requested?: ReasoningEffort;
-  readonly requestedSource?: "explicit" | "policy";
-  readonly providerDefault?: ReasoningEffort;
-  readonly supportEvidence: ReasoningEffortSupportEvidence;
-  readonly supported?: readonly ReasoningEffort[];
-  readonly unsupportedPolicy: UnsupportedReasoningEffortPolicy;
-  readonly allowExperimentalXhigh?: boolean;
-  readonly xhighPromotionEligible?: boolean;
-  readonly purpose?: "production" | "benchmark";
-  readonly budgetUsd?: number;
-  readonly estimatedEffortCostUsd?: number;
-}
 
 export interface PhaseAwareRouteCandidate {
   readonly provider: string;
@@ -51,10 +20,9 @@ export interface PhaseAwareRouteCandidate {
   readonly supportsTools: boolean;
   readonly preferredPhases: readonly ModelRoutingPhase[];
   readonly verificationContractId: string;
-  readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
-  readonly defaultReasoningEffort?: ReasoningEffort;
+  readonly deliberationCapabilities?: ModelDeliberationCapabilities;
   readonly estimatedCostUsd: number;
-  readonly estimatedEffortCostUsd?: number;
+  readonly estimatedDeliberationCostUsd?: number;
   readonly retryRisk: number;
   readonly cacheInvalidationCostUsd: number;
   readonly verifierCostUsd: number;
@@ -76,10 +44,11 @@ export interface PhaseAwareRouteDiagnostic {
     | "tools-unsupported"
     | "verification-contract-mismatch"
     | "route-over-budget"
-    | "reasoning-effort-omitted";
+    | "deliberation-unresolved";
   readonly provider: string;
   readonly model: string;
   readonly message: string;
+  readonly deliberationResolution?: DeliberationResolution;
 }
 
 export interface PhaseAwareRouteProjection {
@@ -88,7 +57,7 @@ export interface PhaseAwareRouteProjection {
   readonly score: number;
   readonly totalEstimatedCostUsd: number;
   readonly verificationContractId: string;
-  readonly effortResolution: NormalizedReasoningEffortResolution;
+  readonly deliberationResolution: DeliberationResolution;
 }
 
 export interface PhaseAwareRouteDecision {
@@ -106,18 +75,16 @@ export interface SelectPhaseAwareRouteInput {
   readonly candidates: readonly PhaseAwareRouteCandidate[];
   readonly signals: PhaseAwareRoutingSignals;
   readonly requiredVerificationContractId: string;
-  readonly requestedReasoningEffort?: ReasoningEffort;
-  readonly effort: {
-    readonly unsupportedPolicy: UnsupportedReasoningEffortPolicy;
-    readonly allowExperimentalXhigh?: boolean;
-    readonly xhighPromotionEligible?: boolean;
+  readonly deliberation?: {
+    readonly intent: DeliberationIntent;
+    readonly source: Exclude<DeliberationSource, "provider-default">;
   };
 }
 
 export interface PhaseAwareModelRouterOptions {
   readonly candidates: readonly PhaseAwareRouteCandidate[];
   readonly requiredVerificationContractId: string;
-  readonly effort: SelectPhaseAwareRouteInput["effort"];
+  readonly deliberation?: SelectPhaseAwareRouteInput["deliberation"];
   readonly mode?: "candidate" | "static-rollback";
 }
 
@@ -142,8 +109,12 @@ export class PhaseAwareModelRouter implements ModelRouter {
           : {}),
       },
       requiredVerificationContractId: this.options.requiredVerificationContractId,
-      requestedReasoningEffort: request.requestedReasoningEffort,
-      effort: this.options.effort,
+      deliberation: request.deliberationIntent
+        ? {
+            intent: request.deliberationIntent,
+            source: request.deliberationSource ?? "operator",
+          }
+        : this.options.deliberation,
     });
     const rollback = this.options.mode === "static-rollback";
     const selected = rollback ? decision.rollbackRoute : decision.selected;
@@ -159,44 +130,9 @@ export class PhaseAwareModelRouter implements ModelRouter {
       confidence: normalizedConfidence(selected.score),
       routingTier: rollback ? "default" : "cascade",
       estimatedCostUsd: selected.totalEstimatedCostUsd,
-      ...(selected.effortResolution.status === "resolved"
-        ? { reasoningEffort: selected.effortResolution.resolved }
-        : {}),
+      deliberationResolution: selected.deliberationResolution,
     };
   }
-}
-
-export function resolveNormalizedReasoningEffort(
-  input: ResolveNormalizedReasoningEffortInput,
-): NormalizedReasoningEffortResolution {
-  const desired = input.requested ?? input.providerDefault;
-  if (!desired) return { status: "omitted", reason: "not-requested" };
-  const requested = input.requested;
-  if (input.supportEvidence === "unknown") {
-    return omitted(requested, "capability-unknown", input.unsupportedPolicy, desired);
-  }
-  if (!input.supported?.includes(desired)) {
-    return omitted(requested, "unsupported", input.unsupportedPolicy, desired);
-  }
-  if (desired === "xhigh") {
-    if (!input.allowExperimentalXhigh) return omitted(requested, "xhigh-disabled", input.unsupportedPolicy, desired);
-    if ((input.purpose ?? "production") === "production" && !input.xhighPromotionEligible) {
-      return omitted(requested, "xhigh-not-promoted", input.unsupportedPolicy, desired);
-    }
-    if (input.purpose === "benchmark" && input.budgetUsd === undefined) {
-      return omitted(requested, "budget-required", input.unsupportedPolicy, desired);
-    }
-  }
-  if (input.budgetUsd !== undefined
-    && (input.estimatedEffortCostUsd ?? 0) > input.budgetUsd) {
-    return omitted(requested, "budget-exceeded", input.unsupportedPolicy, desired);
-  }
-  return {
-    status: "resolved",
-    ...(requested ? { requested } : {}),
-    resolved: desired,
-    source: requested ? input.requestedSource ?? "explicit" : "provider-default",
-  };
 }
 
 export function selectPhaseAwareRoute(input: SelectPhaseAwareRouteInput): PhaseAwareRouteDecision {
@@ -211,23 +147,29 @@ export function selectPhaseAwareRoute(input: SelectPhaseAwareRouteInput): PhaseA
       diagnostics.push(diagnostic);
       continue;
     }
-    const effortResolution = resolveNormalizedReasoningEffort({
-      requested: input.requestedReasoningEffort,
-      providerDefault: candidate.defaultReasoningEffort,
-      supportEvidence: candidate.supportedReasoningEfforts ? "known" : "unknown",
-      supported: candidate.supportedReasoningEfforts,
-      unsupportedPolicy: input.effort.unsupportedPolicy,
-      allowExperimentalXhigh: input.effort.allowExperimentalXhigh,
-      xhighPromotionEligible: input.effort.xhighPromotionEligible,
-      budgetUsd: input.signals.budgetUsd,
-      estimatedEffortCostUsd: candidate.estimatedEffortCostUsd,
-    });
-    if (effortResolution.status === "omitted" && effortResolution.reason !== "not-requested") {
+    const deliberationResolution = input.deliberation
+      ? resolveDeliberation({
+          ...input.deliberation,
+          capabilities: candidate.deliberationCapabilities,
+        })
+      : resolveDeliberation({});
+    if (deliberationResolution.status === "denied") {
       diagnostics.push({
-        code: "reasoning-effort-omitted",
+        code: "deliberation-unresolved",
         provider: candidate.provider,
         model: candidate.model,
-        message: `Reasoning effort omitted: ${effortResolution.reason}`,
+        message: `Deliberation denied: ${deliberationResolution.reason}`,
+        deliberationResolution,
+      });
+      continue;
+    }
+    if (deliberationResolution.status === "omitted" && deliberationResolution.reason !== "not-requested") {
+      diagnostics.push({
+        code: "deliberation-unresolved",
+        provider: candidate.provider,
+        model: candidate.model,
+        message: `Deliberation omitted: ${deliberationResolution.reason}`,
+        deliberationResolution,
       });
     }
     const totalEstimatedCostUsd = routeCost(candidate);
@@ -239,7 +181,7 @@ export function selectPhaseAwareRoute(input: SelectPhaseAwareRouteInput): PhaseA
         score: routeScore(candidate, input.signals, totalEstimatedCostUsd),
         totalEstimatedCostUsd,
         verificationContractId: candidate.verificationContractId,
-        effortResolution,
+        deliberationResolution,
       },
     });
   }
@@ -262,18 +204,6 @@ export function selectPhaseAwareRoute(input: SelectPhaseAwareRouteInput): PhaseA
     ...(rollbackRoute ? { rollbackRoute } : {}),
     diagnostics,
   };
-}
-
-function omitted(
-  requested: ReasoningEffort | undefined,
-  reason: ReasoningEffortOmissionReason,
-  policy: UnsupportedReasoningEffortPolicy,
-  desired: ReasoningEffort,
-): NormalizedReasoningEffortResolution {
-  if (policy === "fail") {
-    throw new Error(`Requested reasoning effort '${desired}' is unsupported or unavailable: ${reason}`);
-  }
-  return { status: "omitted", ...(requested ? { requested } : {}), reason };
 }
 
 function exclusionDiagnostic(
@@ -320,7 +250,7 @@ function routeScore(
 
 function routeCost(candidate: PhaseAwareRouteCandidate): number {
   return candidate.estimatedCostUsd
-    + (candidate.estimatedEffortCostUsd ?? 0)
+    + (candidate.estimatedDeliberationCostUsd ?? 0)
     + candidate.cacheInvalidationCostUsd
     + candidate.verifierCostUsd;
 }
@@ -346,9 +276,14 @@ function validateCandidate(candidate: PhaseAwareRouteCandidate): void {
       throw new Error("Phase-aware route candidate scores must be finite values between 0 and 1.");
     }
   }
+  if (candidate.deliberationCapabilities
+    && (candidate.deliberationCapabilities.provider !== candidate.provider
+      || candidate.deliberationCapabilities.model !== candidate.model)) {
+    throw new Error("Phase-aware route deliberation capabilities must match the candidate provider and model.");
+  }
   for (const value of [
     candidate.estimatedCostUsd,
-    candidate.estimatedEffortCostUsd ?? 0,
+    candidate.estimatedDeliberationCostUsd ?? 0,
     candidate.cacheInvalidationCostUsd,
     candidate.verifierCostUsd,
   ]) {

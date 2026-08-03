@@ -13,7 +13,7 @@ import type {
   GuiProviderCatalogStatus,
   GuiProviderDiscoveryResult,
   GuiProviderModelDiscoveryProjection,
-  GuiProviderReasoningEffort,
+  GuiDeliberationIntent,
   OperatorTurnRequestedAuthority,
   OperatorGoalMaterializationRequirement,
   GuiSessionDetail,
@@ -1754,7 +1754,7 @@ interface SessionStoreActions {
     options?: {
       parts?: readonly unknown[];
       displayContent?: string;
-      reasoningEffort?: GuiProviderReasoningEffort;
+      deliberationIntent?: GuiDeliberationIntent;
       requestedAuthority?: OperatorTurnRequestedAuthority;
       governedWorkRequirement?: OperatorGoalMaterializationRequirement;
       gatewayTargetId?: string;
@@ -3473,7 +3473,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       executionMode: state.planMode ? "plan" : "execute",
       continuationSessionId: continuity.outboundContinuationSessionId,
       ...(continuity.outboundSessionIntent ? { sessionIntent: continuity.outboundSessionIntent } : {}),
-      ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
+      ...(options?.deliberationIntent ? { deliberationIntent: options.deliberationIntent } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
       ...(options?.governedWorkRequirement ? { governedWorkRequirement: options.governedWorkRequirement } : {}),
       ...(options?.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),

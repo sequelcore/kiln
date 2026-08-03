@@ -24,7 +24,7 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
       prominence: "routine",
     },
     providerControl: <button type="button">Claude Sonnet 4</button>,
-    reasoningControl: <select aria-label="Reasoning effort" defaultValue="medium"><option value="medium">Medium</option></select>,
+    deliberationControl: <select aria-label="Deliberation level" defaultValue="medium"><option value="medium">Medium</option></select>,
     authorityControl: <select aria-label="Turn authority" defaultValue="auto"><option value="auto">Auto</option></select>,
     commandMenu: {
       open: false,
@@ -345,7 +345,7 @@ describe("Composer", () => {
 
     const options = screen.getByRole("group", { name: "Message options" });
     expect(within(options).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
-    expect(within(options).getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(within(options).getByLabelText("Deliberation level")).toBeInTheDocument();
     expect(within(options).getByLabelText(/Turn authority/)).toBeInTheDocument();
   });
 
@@ -459,7 +459,7 @@ describe("Composer", () => {
     expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Context usage unavailable" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByLabelText("Deliberation level")).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Record voice" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Send message" })).toBeInTheDocument();
   });
@@ -485,7 +485,7 @@ describe("Composer", () => {
       within(options).getByLabelText(/Turn authority/),
       within(options).getByRole("button", { name: "Context usage unavailable" }),
       within(options).getByRole("button", { name: "Claude Sonnet 4" }),
-      within(options).getByLabelText("Reasoning effort"),
+      within(options).getByLabelText("Deliberation level"),
       within(options).getByRole("button", { name: "Record voice" }),
       within(options).getByRole("button", { name: "Send message" }),
     ];
@@ -719,10 +719,10 @@ describe("Composer", () => {
     expect(pasteEvent.defaultPrevented).toBe(true);
   });
 
-  it("renders reasoning effort as part of the composer model controls", () => {
+  it("renders deliberation as part of the composer model controls", () => {
     renderComposer();
 
-    expect(screen.getByLabelText("Reasoning effort")).toBeInTheDocument();
+    expect(screen.getByLabelText("Deliberation level")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
   });
 

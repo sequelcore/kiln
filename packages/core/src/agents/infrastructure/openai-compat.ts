@@ -17,6 +17,7 @@ import {
   type ProviderToolNameCodec,
 } from "./tool-name-codec.js";
 import { toStrictToolSchema } from "./strict-tool-schema.js";
+import { admitDeliberationForExecution } from "../deliberation-policy.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -70,6 +71,7 @@ interface OpenAIRequestBody {
   tools?: OpenAIToolFunction[];
   tool_choice?: string | { type: string; function?: { name: string } };
   stream?: boolean;
+  reasoning_effort?: string;
 }
 
 interface OpenAIRequest {
@@ -140,6 +142,7 @@ interface StreamedToolCallBuffer {
 
 export abstract class OpenAICompatAdapter implements ProviderAdapter {
   readonly name: string;
+  readonly deliberationTransport: "native-level" | "none" = "none";
 
   protected readonly apiKey: string;
   protected readonly baseUrl: string;
@@ -418,6 +421,10 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       messages,
       max_tokens: options.maxTokens ?? 4096,
     };
+    const deliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
+    if (deliberationLevel) {
+      this.projectDeliberationLevel(body, deliberationLevel);
+    }
 
     if (options.tools && options.tools.length > 0) {
       body.tools = options.tools.map((tool) => ({
@@ -452,6 +459,10 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     }
 
     return { body, toolNames };
+  }
+
+  protected projectDeliberationLevel(_body: OpenAIRequestBody, level: string): void {
+    throw new Error(`${this.name} does not declare native deliberation transport for level '${level}'.`);
   }
 
   /** HTTP headers for API requests. Override in subclasses to add provider-specific headers. */

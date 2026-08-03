@@ -1,5 +1,6 @@
 import type {
   ActionEffectEnvelope,
+  DeliberationIntent,
   DevTool,
   ManagedInvocationExecutionProof,
   ManagedAgentResultField,
@@ -38,6 +39,7 @@ import {
   WORK_ITEM_PAUSE_REQUIREMENT_STATUSES,
   WorkItemStore,
   workItemToolMetadata,
+  defineDeliberationLevelId,
 } from "@kilnai/core";
 import type {
   GoalExecutionStep,
@@ -1192,9 +1194,22 @@ export class WorkItemExecutionStartTool implements DevTool {
         type: "string",
         description: "Optional configured managed model to include in the suggested managed_agent.invoke request.",
       },
-      managedReasoningEffort: {
-        type: "string",
-        description: "Optional reasoning effort to include in the suggested managed_agent.invoke request.",
+      managedDeliberationIntent: {
+        type: "object",
+        description: "Optional provider-neutral deliberation intent for the suggested managed_agent.invoke request.",
+        properties: {
+          mode: { type: "string", enum: ["provider-default", "fixed", "adaptive"] },
+          preferredLevel: { type: "string", minLength: 1 },
+          target: { type: "string", enum: ["latency-first", "balanced", "quality-first"] },
+          bounds: {
+            type: "object",
+            properties: { min: { type: "string", minLength: 1 }, max: { type: "string", minLength: 1 } },
+            additionalProperties: false,
+          },
+          onUnsupported: { type: "string", enum: ["deny", "omit", "allow-clamp"] },
+        },
+        required: ["mode", "onUnsupported"],
+        additionalProperties: false,
       },
       managedResourceUris: {
         type: "array",
@@ -1806,8 +1821,9 @@ function buildManagedInvocationRequest(
   const model = phaseRequiresReadOnlyVisualResearch && routeId
     ? undefined
     : readText(input.managedModel);
-  const reasoningEffort = readText(input.managedReasoningEffort)
-    ?? step.workItem.routingRecommendation?.reasoningEffort;
+  const deliberationIntent = input.managedDeliberationIntent === undefined
+    ? step.workItem.routingRecommendation?.deliberationIntent
+    : readDeliberationIntent(input.managedDeliberationIntent);
   const resourceUris = uniqueText([
     ...readTextArray(input.managedResourceUris),
     ...step.workItem.verificationGateResults
@@ -1836,7 +1852,7 @@ function buildManagedInvocationRequest(
         providerRoute: {
           providerId,
           ...(model ? { model } : {}),
-          ...(reasoningEffort ? { reasoningEffort } : {}),
+          ...(deliberationIntent ? { deliberationIntent } : {}),
         },
       }
       : {}),
@@ -2688,6 +2704,56 @@ function readText(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readDeliberationIntent(value: unknown): DeliberationIntent {
+  const record = requireInputRecord(value, "managedDeliberationIntent");
+  const allowed = new Set(["mode", "preferredLevel", "target", "bounds", "onUnsupported"]);
+  const unknown = Object.keys(record).find((key) => !allowed.has(key));
+  if (unknown) throw new Error(`Invalid input: managedDeliberationIntent contains unsupported field ${unknown}.`);
+  const onUnsupported = readText(record.onUnsupported);
+  if (onUnsupported !== "deny" && onUnsupported !== "omit" && onUnsupported !== "allow-clamp") {
+    throw new Error("Invalid input: managedDeliberationIntent.onUnsupported is invalid.");
+  }
+  if (record.mode === "provider-default") {
+    if (record.preferredLevel !== undefined || record.target !== undefined || record.bounds !== undefined) {
+      throw new Error("Invalid input: provider-default deliberation cannot declare a level, target, or bounds.");
+    }
+    return { mode: "provider-default", onUnsupported };
+  }
+  const boundsRecord = record.bounds === undefined ? undefined : requireInputRecord(record.bounds, "managedDeliberationIntent.bounds");
+  if (boundsRecord) {
+    const unknownBound = Object.keys(boundsRecord).find((key) => key !== "min" && key !== "max");
+    if (unknownBound) throw new Error(`Invalid input: managedDeliberationIntent.bounds contains unsupported field ${unknownBound}.`);
+  }
+  const min = readText(boundsRecord?.min);
+  const max = readText(boundsRecord?.max);
+  const bounds = boundsRecord
+    ? {
+        ...(min ? { min: defineDeliberationLevelId(min) } : {}),
+        ...(max ? { max: defineDeliberationLevelId(max) } : {}),
+      }
+    : undefined;
+  if (record.mode === "fixed") {
+    const preferredLevel = readText(record.preferredLevel);
+    if (!preferredLevel || record.target !== undefined) {
+      throw new Error("Invalid input: fixed deliberation requires preferredLevel and cannot declare target.");
+    }
+    return {
+      mode: "fixed",
+      preferredLevel: defineDeliberationLevelId(preferredLevel),
+      ...(bounds ? { bounds } : {}),
+      onUnsupported,
+    };
+  }
+  if (record.mode === "adaptive") {
+    const target = readText(record.target);
+    if (record.preferredLevel !== undefined || (target !== "latency-first" && target !== "balanced" && target !== "quality-first")) {
+      throw new Error("Invalid input: adaptive deliberation requires a valid target and cannot declare preferredLevel.");
+    }
+    return { mode: "adaptive", target, ...(bounds ? { bounds } : {}), onUnsupported };
+  }
+  throw new Error("Invalid input: managedDeliberationIntent.mode is invalid.");
 }
 
 function uniqueEvidence(values: readonly KilnWorkGovernanceEvidence[]): readonly KilnWorkGovernanceEvidence[] {

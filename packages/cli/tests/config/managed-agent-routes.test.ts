@@ -264,7 +264,13 @@ const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]
     providerId: "openai",
     providerModelId: "gpt-5.4-mini",
     accountIds: ["managed-openai-account"],
-    capabilities: ["text"],
+    capabilities: ["text", "reasoning-controls"],
+    deliberation: {
+      levels: ["low", "high"],
+      defaultLevel: "low",
+      supportsAdaptive: false,
+      evidenceRevision: "revision-1",
+    },
     affinity: { continuity: "none" },
   }],
 };
@@ -722,6 +728,15 @@ describe("resolveManagedInvocationToolOptions", () => {
       mode: "account-leased",
       routeId: "credential-route:openai:primary",
       accountPolicyId: "managed-openai",
+    });
+    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toMatchObject({
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      levels: [{ id: "low" }, { id: "high" }],
+      evidence: {
+        sourceIdentity: "model-gateway:managed-openai",
+        sourceRevision: "revision-1",
+      },
     });
     expect(result.managedInvocation?.invocationService).toBeDefined();
     expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:openai:primary");

@@ -342,7 +342,7 @@ export class GatewaySession implements SessionLike {
     cwd?: string;
     executionMode?: "execute" | "plan";
     requestedAuthority?: OperatorTurnRequestedAuthority;
-    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    deliberationIntent?: import("@kilnai/gateway-contracts").GuiDeliberationIntent;
   }): AsyncGenerator<SessionEventInternal> {
     // Wait for connection to be established
     await this.waitForConnection();
@@ -360,7 +360,7 @@ export class GatewaySession implements SessionLike {
       content: opts.prompt,
       executionMode: opts.executionMode ?? (this._planMode ? "plan" : "execute"),
       ...(opts.requestedAuthority ? { requestedAuthority: opts.requestedAuthority } : {}),
-      ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+      ...(opts.deliberationIntent ? { deliberationIntent: opts.deliberationIntent } : {}),
     });
 
     yield* this.drainQueue();

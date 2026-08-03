@@ -1,4 +1,5 @@
 import {
+  admitDeliberationForExecution,
   validateModelTurn,
   validateModelTurnResult,
   type AccountRef,
@@ -98,13 +99,20 @@ export function encodeCodexOAuthResponsesRequest(input: ModelGatewayOneRoundDisp
     if (!selected) unsupported("Selected tool is unavailable.");
     toolChoice = { type: selected.kind === "function" ? "function" : "custom", ...(selected.kind === "function" && selected.namespace !== undefined ? { namespace: selected.namespace } : {}), name: selected.name };
   }
+  const deliberationLevel = admitDeliberationForExecution(input.turn.deliberationResolution);
+  const reasoning = deliberationLevel !== undefined || input.turn.reasoningSummary !== undefined
+    ? {
+        ...(deliberationLevel !== undefined ? { effort: deliberationLevel } : {}),
+        ...(input.turn.reasoningSummary !== undefined ? { summary: input.turn.reasoningSummary } : {}),
+      }
+    : undefined;
   const body: WireRecord = {
     model: input.route.providerModelId,
     ...(input.turn.instructions === undefined ? {} : { instructions: input.turn.instructions }),
     input: wireInput,
     ...(tools === undefined ? {} : { tools }), tool_choice: toolChoice,
     parallel_tool_calls: input.turn.parallelToolCalls ?? false,
-    ...(input.turn.reasoning === undefined ? {} : { reasoning: structuredClone(input.turn.reasoning) }),
+    ...(reasoning === undefined ? {} : { reasoning }),
     store: false, stream: true, stream_options: { reasoning_summary_delivery: "sequential_cutoff" },
     include: ["reasoning.encrypted_content"], prompt_cache_key: input.sessionId,
   };

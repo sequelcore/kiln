@@ -182,7 +182,7 @@ export class BenchmarkBaselineRunner {
           canonicalModel: readMetadata(result, "canonicalModel"),
           activeAgentId: readMetadata(result, "activeAgentId"),
           routeEvidence: readMetadata(result, "routeEvidence"),
-          reasoningEffortResolution: readMetadata(result, "reasoningEffortResolution"),
+          deliberationResolution: readMetadata(result, "deliberationResolution"),
         })),
       },
       {

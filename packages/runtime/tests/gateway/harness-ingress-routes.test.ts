@@ -31,7 +31,7 @@ function makeUpgrade() {
 }
 
 function frame(overrides: Record<string, unknown> = {}) {
-  return JSON.stringify({ protocolVersion: "1", type: "turn_start", requestId: "request-1", content: "hello", ...overrides });
+  return JSON.stringify({ protocolVersion: "2", type: "turn_start", requestId: "request-1", content: "hello", ...overrides });
 }
 
 function makeRuntime() {
@@ -99,7 +99,7 @@ describe("createHarnessIngressRoutes", () => {
     await message(handlers, ws, "not json");
     expect(fixture.resolveTarget).not.toHaveBeenCalled();
     expect(fixture.processAdmittedTurn).not.toHaveBeenCalled();
-    expect(sent(ws)).toEqual([{ protocolVersion: "1", type: "error", requestId: "invalid", code: "invalid_request", redacted: true }]);
+    expect(sent(ws)).toEqual([{ protocolVersion: "2", type: "error", requestId: "invalid", code: "invalid_request", redacted: true }]);
   });
 
   it("rejects an unknown target before session or provider work", async () => {
@@ -124,14 +124,14 @@ describe("createHarnessIngressRoutes", () => {
     const fixture = createFixture();
     const { handlers, ws } = fixture.upgrade.connect();
     await open(handlers, ws);
-    await message(handlers, ws, frame({ sessionId: "session-requested", requestedAuthority: "audited", reasoningEffort: "high" }));
+    await message(handlers, ws, frame({ sessionId: "session-requested", requestedAuthority: "audited", deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" } }));
     expect(fixture.processAdmittedTurn).toHaveBeenCalledWith(expect.objectContaining({
       appName: "app-one", tenantId: "tenant-1", userId: "user-1", sessionId: "session-requested", channel: "harness", requestedAuthority: "audited",
-      perCallConfig: expect.objectContaining({ turnId: "request-1", reasoningEffort: "high", abortSignal: expect.any(AbortSignal) }),
+      perCallConfig: expect.objectContaining({ turnId: "request-1", deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" }, abortSignal: expect.any(AbortSignal) }),
     }));
     expect(sent(ws)).toEqual([
-      { protocolVersion: "1", type: "turn_accepted", requestId: "request-1", turnId: "request-1", sessionId: "session-requested" },
-      { protocolVersion: "1", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed", content: "safe reply" },
+      { protocolVersion: "2", type: "turn_accepted", requestId: "request-1", turnId: "request-1", sessionId: "session-requested" },
+      { protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed", content: "safe reply" },
     ]);
   });
 
@@ -145,10 +145,10 @@ describe("createHarnessIngressRoutes", () => {
     await message(handlers, ws, frame());
     await Promise.resolve();
     await message(handlers, ws, frame({ requestId: "request-2" }));
-    await message(handlers, ws, JSON.stringify({ protocolVersion: "1", type: "turn_cancel", requestId: "cancel-1", turnId: "request-1" }));
+    await message(handlers, ws, JSON.stringify({ protocolVersion: "2", type: "turn_cancel", requestId: "cancel-1", turnId: "request-1" }));
     const frames = sent(ws);
     expect(frames).toContainEqual(expect.objectContaining({ type: "error", requestId: "request-2", code: "unsupported" }));
-    expect(frames).toContainEqual({ protocolVersion: "1", type: "turn_cancel_result", requestId: "cancel-1", turnId: "request-1", status: "accepted" });
+    expect(frames).toContainEqual({ protocolVersion: "2", type: "turn_cancel_result", requestId: "cancel-1", turnId: "request-1", status: "accepted" });
     const call = processAdmittedTurn.mock.calls[0]![0] as { perCallConfig: { abortSignal: AbortSignal } };
     expect(call.perCallConfig.abortSignal.aborted).toBe(true);
     finish({ ok: true, result: { sessionId: "session-canonical", parts: [] } });
@@ -161,7 +161,7 @@ describe("createHarnessIngressRoutes", () => {
     await message(handlers, ws, frame());
     const frames = sent(ws);
     expect(JSON.stringify(frames)).not.toContain("provider secret detail");
-    expect(frames.at(-1)).toEqual({ protocolVersion: "1", type: "error", requestId: "request-1", code: "internal", redacted: true });
+    expect(frames.at(-1)).toEqual({ protocolVersion: "2", type: "error", requestId: "request-1", code: "internal", redacted: true });
   });
 
   it("projects only validated safe completion parts and never forwards provider/internal parts", async () => {
@@ -185,7 +185,7 @@ describe("createHarnessIngressRoutes", () => {
     await Promise.resolve();
     const completion = sent(ws).at(-1);
     expect(completion).toEqual({
-      protocolVersion: "1", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed",
+      protocolVersion: "2", type: "turn_completed", requestId: "request-1", turnId: "request-1", sessionId: "session-canonical", outcome: "completed",
       parts: [
         { type: "text", text: "safe response" },
         { type: "image", mimeType: "image/png", data: "aGVsbG8=" },
@@ -202,7 +202,7 @@ describe("createHarnessIngressRoutes", () => {
     await open(handlers, ws);
     await message(handlers, ws, frame());
     await Promise.resolve();
-    expect(sent(ws).at(-1)).toEqual({ protocolVersion: "1", type: "error", requestId: "request-1", code: "unavailable", redacted: true });
+    expect(sent(ws).at(-1)).toEqual({ protocolVersion: "2", type: "error", requestId: "request-1", code: "unavailable", redacted: true });
   });
 
   it("keeps admitted work alive when the initiating socket closes before completion", async () => {
@@ -227,8 +227,8 @@ describe("createHarnessIngressRoutes", () => {
     await open(second.handlers, second.ws);
     await message(first.handlers, first.ws, frame({ sessionId: "shared-session" }));
     await Promise.resolve();
-    await message(second.handlers, second.ws, JSON.stringify({ protocolVersion: "1", type: "turn_cancel", requestId: "cancel-other", sessionId: "shared-session", turnId: "request-1" }));
-    expect(sent(second.ws).at(-1)).toEqual({ protocolVersion: "1", type: "turn_cancel_result", requestId: "cancel-other", turnId: "request-1", status: "not_active" });
+    await message(second.handlers, second.ws, JSON.stringify({ protocolVersion: "2", type: "turn_cancel", requestId: "cancel-other", sessionId: "shared-session", turnId: "request-1" }));
+    expect(sent(second.ws).at(-1)).toEqual({ protocolVersion: "2", type: "turn_cancel_result", requestId: "cancel-other", turnId: "request-1", status: "not_active" });
     const call = processAdmittedTurn.mock.calls[0]![0] as { perCallConfig: { abortSignal: AbortSignal } };
     expect(call.perCallConfig.abortSignal.aborted).toBe(false);
     finish({ ok: true, result: { sessionId: "shared-session", parts: [] } });

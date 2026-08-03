@@ -12,6 +12,56 @@ import { ContextUsageProjectionSchema } from "@kilnai/gateway-contracts";
 
 // --- Zod Schemas for frame validation ---
 
+const DeliberationLevelIdSchema = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,63}$/);
+const DeliberationBoundsSchema = z.object({
+  min: DeliberationLevelIdSchema.optional(),
+  max: DeliberationLevelIdSchema.optional(),
+}).strict();
+const DeliberationIntentSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("provider-default"), onUnsupported: z.enum(["deny", "omit", "allow-clamp"]) }).strict(),
+  z.object({
+    mode: z.literal("fixed"),
+    preferredLevel: DeliberationLevelIdSchema,
+    bounds: DeliberationBoundsSchema.optional(),
+    onUnsupported: z.enum(["deny", "omit", "allow-clamp"]),
+  }).strict(),
+  z.object({
+    mode: z.literal("adaptive"),
+    target: z.enum(["latency-first", "balanced", "quality-first"]),
+    bounds: DeliberationBoundsSchema.optional(),
+    onUnsupported: z.enum(["deny", "omit", "allow-clamp"]),
+  }).strict(),
+]);
+const DeliberationCapabilityEvidenceSchema = z.object({
+  sourceIdentity: z.string(),
+  sourceRevision: z.string(),
+  observedAt: z.string(),
+});
+const DeliberationResolutionSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.enum(["exact", "defaulted"]),
+    requested: DeliberationIntentSchema.optional(),
+    selectedLevel: DeliberationLevelIdSchema,
+    source: z.enum(["operator", "work-item", "agent-profile", "route", "task", "project", "provider-default"]),
+    capabilityEvidence: DeliberationCapabilityEvidenceSchema.optional(),
+  }),
+  z.object({
+    status: z.literal("clamped"),
+    requested: DeliberationIntentSchema.optional(),
+    selectedLevel: DeliberationLevelIdSchema,
+    source: z.enum(["operator", "work-item", "agent-profile", "route", "task", "project", "provider-default"]),
+    reason: z.string(),
+    capabilityEvidence: DeliberationCapabilityEvidenceSchema.optional(),
+  }),
+  z.object({
+    status: z.enum(["omitted", "denied"]),
+    requested: DeliberationIntentSchema.optional(),
+    source: z.enum(["operator", "work-item", "agent-profile", "route", "task", "project", "provider-default"]),
+    reason: z.string(),
+    capabilityEvidence: DeliberationCapabilityEvidenceSchema.optional(),
+  }),
+]);
+
 /** Schema for GuiOutboundFrame validation. */
 const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
   z.object({
@@ -22,7 +72,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     requestedAuthority: z.enum(["auto", "read_only", "audited", "destructive"]).optional(),
     continuationSessionId: z.string().optional(),
     sessionIntent: z.literal("fresh").optional(),
-    reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+    deliberationIntent: DeliberationIntentSchema.optional(),
     gatewayTargetId: z.string().optional(),
     appName: z.string().optional(),
     tenantId: z.string().optional(),
@@ -207,8 +257,14 @@ const GuiProviderModelCapabilitiesSchema = z.object({
   supportsVision: z.boolean().optional(),
   supportsParallelToolCalls: z.boolean().optional(),
   contextWindow: z.number().optional(),
-  defaultReasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
-  supportedReasoningEfforts: z.array(z.enum(["minimal", "low", "medium", "high", "xhigh"])).optional(),
+  deliberation: z.object({
+    provider: z.string(),
+    model: z.string(),
+    levels: z.array(z.object({ id: DeliberationLevelIdSchema, nativeId: z.string().optional() })),
+    defaultLevel: DeliberationLevelIdSchema.optional(),
+    supportsAdaptive: z.boolean(),
+    evidence: DeliberationCapabilityEvidenceSchema,
+  }).optional(),
 });
 
 const GuiProviderModelRouteHealthSchema = z.object({
@@ -350,7 +406,7 @@ const GuiModelRoutingRationaleSchema = z.object({
   selectedModel: z.string(),
   canonicalModel: z.string().optional(),
   selectionMode: z.enum(["automatic", "explicit-operator-only"]),
-  reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+  deliberationResolution: DeliberationResolutionSchema.optional(),
   routingReason: z.string(),
   confidence: z.number(),
   routingTier: z.enum(["rule", "complexity", "cascade", "default"]),
@@ -361,7 +417,7 @@ const GuiModelRoutingRationaleSchema = z.object({
     hasTools: z.boolean(),
     toolCount: z.number(),
     requiresStreaming: z.boolean(),
-    requestedReasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh"]).optional(),
+    deliberationIntent: DeliberationIntentSchema.optional(),
     task: z.string().optional(),
   }),
   rankingEvidence: z.array(GuiModelRoutingRankingEvidenceSchema),

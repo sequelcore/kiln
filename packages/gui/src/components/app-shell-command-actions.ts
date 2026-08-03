@@ -1,6 +1,6 @@
 import {
   OPERATOR_THEME_NAMES,
-  type GuiProviderReasoningEffort,
+  type GuiDeliberationLevelId,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
 import type { CommandPaletteItem } from "./command-palette.js";
@@ -16,9 +16,9 @@ interface AppShellCommandExecutorInput {
   readonly setPaletteQuery: (query: string) => void;
   readonly setPaletteOpen: (open: boolean) => void;
   readonly setProviderPickerOpen: (open: boolean) => void;
-  readonly reasoningEffortOptions: readonly GuiProviderReasoningEffort[];
-  readonly resolvedReasoningEffort: GuiProviderReasoningEffort | null;
-  readonly setReasoningEffort: (effort: GuiProviderReasoningEffort) => void;
+  readonly deliberationLevelOptions: readonly GuiDeliberationLevelId[];
+  readonly selectedDeliberationLevel: GuiDeliberationLevelId | null;
+  readonly setDeliberationLevel: (level: GuiDeliberationLevelId) => void;
   readonly requestedAuthority: RequestableTurnAuthority;
   readonly setRequestedAuthority: (authority: RequestableTurnAuthority) => void;
   readonly setSessionPopoverOpen: (open: boolean) => void;
@@ -62,10 +62,10 @@ export function createAppShellCommandExecutor(input: AppShellCommandExecutorInpu
         input.setProviderPickerOpen(true);
         input.closePalette();
         return;
-      case "effort": {
-        const next = nextFromCycle(input.reasoningEffortOptions, input.resolvedReasoningEffort);
+      case "deliberation": {
+        const next = nextFromCycle(input.deliberationLevelOptions, input.selectedDeliberationLevel);
         if (next) {
-          input.setReasoningEffort(next);
+          input.setDeliberationLevel(next);
         }
         input.closePalette();
         return;

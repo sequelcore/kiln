@@ -77,7 +77,7 @@ export interface SessionLike {
     kilnSessionId?: string;
     executionMode?: OperatorExecutionMode;
     requestedAuthority?: OperatorTurnRequestedAuthority;
-    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    deliberationIntent?: import("@kilnai/gateway-contracts").GuiDeliberationIntent;
   }): AsyncIterable<SessionEventInternal>;
   dispose(): Promise<void>;
 }

@@ -26,7 +26,7 @@ import {
   type GuiProviderModelEligibility,
   type GuiProviderModelRouteEntry,
   type GuiProviderModelRouteHealth,
-  type GuiProviderReasoningEffort,
+  type GuiDeliberationLevelId,
 } from "@kilnai/gateway-contracts";
 import { normalizeRuntimeProviderDiscoveryCatalog } from "./provider-model-adapters/runtime-discovery-catalogs.js";
 
@@ -890,7 +890,7 @@ function countCodexOauthModelCapabilityEntries(entries: readonly unknown[]): num
   let count = 0;
   for (const entry of entries) {
     const record = asRecord(entry);
-    if (record && Object.keys(readCodexOauthModelCapabilities(record)).length > 0) {
+    if (record && Object.keys(readCodexOauthModelCapabilities(record, readCodexOauthModelId(record))).length > 0) {
       count += 1;
     }
   }
@@ -908,7 +908,7 @@ function extractCodexOauthModelCapabilities(
     if (!record) continue;
     const model = readCodexOauthModelId(record);
     if (!model || !discoveredModels.has(model)) continue;
-    const capability = readCodexOauthModelCapabilities(record);
+    const capability = readCodexOauthModelCapabilities(record, model);
     if (Object.keys(capability).length > 0) {
       capabilities[model] = capability;
     }
@@ -924,6 +924,7 @@ function readCodexOauthModelId(entry: unknown): string | undefined {
 
 function readCodexOauthModelCapabilities(
   record: Readonly<Record<string, unknown>>,
+  model: string | undefined,
 ): GuiProviderModelCapabilities {
   const supportsFunctionTools = readCodexOauthModelSupportsFunctionTools(record);
   const supportsRuntimeTools = supportsFunctionTools;
@@ -939,16 +940,30 @@ function readCodexOauthModelCapabilities(
     readStringArray(record.input_modalities)
     ?? readStringArray(record.inputModalities);
   const supportsVision = inputModalities?.some((modality) => modality.toLowerCase() === "image");
-  const defaultReasoningEffort =
-    readReasoningEffort(record.default_reasoning_effort)
-    ?? readReasoningEffort(record.defaultReasoningEffort)
-    ?? readReasoningEffort(record.default_reasoning_level)
-    ?? readReasoningEffort(record.defaultReasoningLevel);
-  const supportedReasoningEfforts =
-    readReasoningEffortArray(record.supported_reasoning_efforts)
-    ?? readReasoningEffortArray(record.supportedReasoningEfforts)
-    ?? readReasoningEffortArray(record.supported_reasoning_levels)
-    ?? readReasoningEffortArray(record.supportedReasoningLevels);
+  const defaultLevel =
+    readDeliberationLevelId(record.default_reasoning_effort)
+    ?? readDeliberationLevelId(record.defaultReasoningEffort)
+    ?? readDeliberationLevelId(record.default_reasoning_level)
+    ?? readDeliberationLevelId(record.defaultReasoningLevel);
+  const levels =
+    readDeliberationLevelArray(record.supported_reasoning_efforts)
+    ?? readDeliberationLevelArray(record.supportedReasoningEfforts)
+    ?? readDeliberationLevelArray(record.supported_reasoning_levels)
+    ?? readDeliberationLevelArray(record.supportedReasoningLevels);
+  const deliberation = model && levels
+    ? {
+        provider: "codex-oauth",
+        model,
+        levels: levels.map((id) => ({ id })),
+        ...(defaultLevel && levels.includes(defaultLevel) ? { defaultLevel } : {}),
+        supportsAdaptive: true,
+        evidence: {
+          sourceIdentity: "codex-oauth-model-catalog",
+          sourceRevision: readString(record.version)?.trim() || model,
+          observedAt: new Date().toISOString(),
+        },
+      }
+    : undefined;
 
   return {
     ...(supportsFunctionTools !== undefined ? { supportsFunctionTools } : {}),
@@ -959,44 +974,31 @@ function readCodexOauthModelCapabilities(
     ...(supportsParallelToolCalls !== undefined ? { supportsParallelToolCalls } : {}),
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(supportsVision !== undefined ? { supportsVision } : {}),
-    ...(defaultReasoningEffort !== undefined ? { defaultReasoningEffort } : {}),
-    ...(supportedReasoningEfforts !== undefined ? { supportedReasoningEfforts } : {}),
+    ...(deliberation !== undefined ? { deliberation } : {}),
   };
 }
 
-function readReasoningEffort(value: unknown): GuiProviderReasoningEffort | undefined {
+function readDeliberationLevelId(value: unknown): GuiDeliberationLevelId | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "minimal"
-    || normalized === "low"
-    || normalized === "medium"
-    || normalized === "high"
-    || normalized === "xhigh"
-  ) {
-    return normalized;
-  }
-  if (normalized === "extra_high" || normalized === "extra-high") {
-    return "xhigh";
-  }
-  return undefined;
+  return /^[a-z0-9][a-z0-9._:-]{0,63}$/.test(normalized) ? normalized : undefined;
 }
 
-function readReasoningEffortArray(value: unknown): readonly GuiProviderReasoningEffort[] | undefined {
+function readDeliberationLevelArray(value: unknown): readonly GuiDeliberationLevelId[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const efforts: GuiProviderReasoningEffort[] = [];
-  const seen = new Set<GuiProviderReasoningEffort>();
+  const levels: GuiDeliberationLevelId[] = [];
+  const seen = new Set<GuiDeliberationLevelId>();
   for (const entry of value) {
     const record = asRecord(entry);
-    const effort = readReasoningEffort(entry)
-      ?? readReasoningEffort(record?.effort)
-      ?? readReasoningEffort(record?.value)
-      ?? readReasoningEffort(record?.id);
-    if (!effort || seen.has(effort)) continue;
-    seen.add(effort);
-    efforts.push(effort);
+    const level = readDeliberationLevelId(entry)
+      ?? readDeliberationLevelId(record?.effort)
+      ?? readDeliberationLevelId(record?.value)
+      ?? readDeliberationLevelId(record?.id);
+    if (!level || seen.has(level)) continue;
+    seen.add(level);
+    levels.push(level);
   }
-  return efforts.length > 0 ? efforts : undefined;
+  return levels.length > 0 ? levels : undefined;
 }
 
 function readCodexOauthModelSupportsFunctionTools(record: Readonly<Record<string, unknown>>): boolean | undefined {
@@ -2119,7 +2121,7 @@ export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderMo
 
 export async function probeCodexCliModelReadiness(input: {
   readonly model: string;
-  readonly reasoningEffort?: GuiProviderReasoningEffort;
+  readonly deliberationLevel?: GuiDeliberationLevelId;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly timeoutMs?: number;
@@ -2152,8 +2154,9 @@ export async function probeCodexCliModelReadiness(input: {
         "--json",
         "-m",
         model,
-        "-c",
-        `model_reasoning_effort=${input.reasoningEffort ?? "low"}`,
+        ...(input.deliberationLevel
+          ? ["-c", `model_reasoning_effort=${input.deliberationLevel}`]
+          : []),
         "--ephemeral",
         "--skip-git-repo-check",
         "-",

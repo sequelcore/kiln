@@ -179,7 +179,7 @@ function createCodexLiveSessionFactory(options: {
     skipGitRepoCheck: true,
     ephemeral: true,
     sessionLedgerOwner: "host",
-    reasoningEffort: "low",
+    deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
   });
 }
 

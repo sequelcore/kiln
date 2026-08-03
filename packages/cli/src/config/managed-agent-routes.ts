@@ -22,6 +22,7 @@ import type {
   ModelGatewayConfig,
   ManagedEconomicAdoptedSnapshotExpectation,
   ManagedEconomicPriceEvidence,
+  ModelDeliberationCapabilities,
 } from "@kilnai/core";
 import {
   adoptManagedEconomicSnapshot,
@@ -34,6 +35,7 @@ import {
   defineManagedAgentWriteScope,
   deriveProviderModelEligibility,
   digestManagedEconomicValue,
+  defineDeliberationLevelId,
   isDirectProviderId,
 } from "@kilnai/core";
 import {
@@ -504,6 +506,10 @@ export async function resolveManagedInvocationToolOptions(
     routeConfigs.map((projection) => projection.routeConfig),
     economicPolicyIdsByRoute,
   );
+  const deliberationCapabilitiesByRoute = managedDeliberationCapabilitiesByRoute(
+    config,
+    routeConfigs.map((projection) => projection.routeConfig),
+  );
   for (const routeConfig of routeConfigs) {
     routeIndex += 1;
     mark("managed-route-resolve-started", { routeIndex, routeId: routeConfig.routeConfig.id });
@@ -520,6 +526,9 @@ export async function resolveManagedInvocationToolOptions(
       const economics = economicCapabilityByRoute.get(routeConfig.routeConfig.id);
       routes.push({
         ...resolved.route,
+        ...(deliberationCapabilitiesByRoute.get(routeConfig.routeConfig.id)
+          ? { deliberationCapabilities: deliberationCapabilitiesByRoute.get(routeConfig.routeConfig.id) }
+          : {}),
         ...(policyIds.length > 0 ? { economicPolicyIds: policyIds } : {}),
         ...(economics ? { economicCapability: economics } : {}),
       });
@@ -946,7 +955,7 @@ function routeHint(
     providerRoute: {
       providerId: route.providerId,
       ...(route.model ? { model: route.model } : {}),
-      ...(agent.providerRoute?.reasoningEffort ? { reasoningEffort: agent.providerRoute.reasoningEffort } : {}),
+      ...(agent.providerRoute?.deliberationIntent ? { deliberationIntent: agent.providerRoute.deliberationIntent } : {}),
     },
   };
 }
@@ -1727,6 +1736,41 @@ async function resolveDirectRouteConfig(
     },
     route,
   };
+}
+
+function managedDeliberationCapabilitiesByRoute(
+  config: ManagedAgentRouteConfigSource,
+  routes: readonly KilnManagedAgentRouteConfig[],
+): ReadonlyMap<string, ModelDeliberationCapabilities> {
+  const capabilities = new Map<string, ModelDeliberationCapabilities>();
+  const observedAt = new Date().toISOString();
+  for (const route of routes) {
+    if (!route.model || !route.credentials) continue;
+    const gatewayRouteId = route.credentials.mode === "runtime-selected"
+      ? route.credentials.accountPolicyId
+      : route.credentials.economicsRouteId;
+    const gatewayRoute = config.modelGateway?.virtualModels.find((candidate) =>
+      candidate.id === gatewayRouteId
+      && candidate.providerId === route.provider
+      && candidate.providerModelId === route.model,
+    );
+    if (!gatewayRoute?.deliberation) continue;
+    capabilities.set(route.id, {
+      provider: route.provider,
+      model: route.model,
+      levels: gatewayRoute.deliberation.levels.map((id) => ({ id: defineDeliberationLevelId(id) })),
+      ...(gatewayRoute.deliberation.defaultLevel
+        ? { defaultLevel: defineDeliberationLevelId(gatewayRoute.deliberation.defaultLevel) }
+        : {}),
+      supportsAdaptive: gatewayRoute.deliberation.supportsAdaptive,
+      evidence: {
+        sourceIdentity: `model-gateway:${gatewayRoute.id}`,
+        sourceRevision: gatewayRoute.deliberation.evidenceRevision,
+        observedAt,
+      },
+    });
+  }
+  return capabilities;
 }
 
 function throwIfManagedRoutePreparationAborted(signal: AbortSignal | undefined): void {

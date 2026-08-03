@@ -42,6 +42,7 @@ export type {
  */
 export class CliSubscriptionExecutor implements ProviderAdapter {
   readonly name: string;
+  readonly deliberationTransport = "native-level" as const;
 
   constructor(
     private readonly factory: CliSessionFactory,
@@ -73,7 +74,7 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
         kilnSessionId: options.sessionId,
         system: options.system,
         messages: options.messages,
-        reasoningEffort: options.reasoningEffort,
+        deliberationResolution: options.deliberationResolution,
         ...(options.signal ? { abortSignal: options.signal } : {}),
         ...(options.executionContext?.executionScope ? { executionScope: options.executionContext.executionScope } : {}),
       })) {

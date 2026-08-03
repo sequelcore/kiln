@@ -3,9 +3,9 @@
 
 import type {
   ModelRoutingRationale,
-  ModelRoutingReasoningEffort,
   ModelSelectionMode,
 } from "../domain/model-router.js";
+import type { DeliberationResolution } from "../../agents/deliberation-policy.js";
 
 export type ConversationEventType =
   | "MESSAGE_RECEIVED"
@@ -110,8 +110,8 @@ export interface ConversationEvent {
   readonly selectedModel?: string;
   /** Model selection mode -- present for MODEL_ROUTED */
   readonly selectionMode?: ModelSelectionMode;
-  /** Reasoning effort used for the routed model -- present for MODEL_ROUTED when requested */
-  readonly reasoningEffort?: ModelRoutingReasoningEffort;
+  /** Provider-neutral deliberation decision used for the routed model. */
+  readonly deliberationResolution?: DeliberationResolution;
   /** Auditable routing rationale -- present for MODEL_ROUTED when available */
   readonly routingRationale?: ModelRoutingRationale;
   /** Model routing complexity score -- present for MODEL_ROUTED */

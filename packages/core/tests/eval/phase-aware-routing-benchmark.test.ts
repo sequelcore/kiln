@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluatePhaseAwareRoutePromotion,
-  evaluateReasoningEffortPromotion,
+  evaluateDeliberationPromotion,
   type PhaseAwareRouteObservation,
-  type ReasoningEffortObservation,
+  type DeliberationObservation,
 } from "../../src/index.js";
 
 function routeObservations(candidateOverrides: Partial<PhaseAwareRouteObservation> = {}): PhaseAwareRouteObservation[] {
@@ -73,37 +73,37 @@ describe("phase-aware routing promotion", () => {
   });
 });
 
-function effortObservations(xhighOverrides: Partial<ReasoningEffortObservation> = {}): ReasoningEffortObservation[] {
+function deliberationObservations(xhighOverrides: Partial<DeliberationObservation> = {}): DeliberationObservation[] {
   return Array.from({ length: 5 }, (_, index) => [
     {
       taskId: `task-${index}`,
       taskClass: "formal-proof",
-      effort: "high" as const,
+      level: "high" as const,
       verifiedSuccess: true,
       modelFacingTokens: 1_000,
       costUsd: 0.1,
       budgetUsd: 0.2,
-      effortEvidenceId: `high-${index}`,
+      deliberationEvidenceId: `high-${index}`,
     },
     {
       taskId: `task-${index}`,
       taskClass: "formal-proof",
-      effort: "xhigh" as const,
+      level: "xhigh" as const,
       verifiedSuccess: true,
       modelFacingTokens: 900,
       costUsd: 0.12,
       budgetUsd: 0.2,
-      effortEvidenceId: `xhigh-${index}`,
+      deliberationEvidenceId: `xhigh-${index}`,
       ...xhighOverrides,
     },
   ]).flat();
 }
 
-describe("reasoning effort promotion", () => {
+describe("deliberation promotion", () => {
   it("promotes budgeted xhigh only when value per token is non-inferior to high", () => {
-    const report = evaluateReasoningEffortPromotion(effortObservations());
+    const report = evaluateDeliberationPromotion(deliberationObservations());
     expect(report).toMatchObject({
-      policyId: "reasoning-effort-promotion-v1",
+      policyId: "deliberation-promotion-v1",
       taskCount: 5,
       promotionEligible: true,
       issues: [],
@@ -119,16 +119,16 @@ describe("reasoning effort promotion", () => {
   });
 
   it("blocks xhigh on regression, budget breach, or missing resolution evidence", () => {
-    const report = evaluateReasoningEffortPromotion(effortObservations({
+    const report = evaluateDeliberationPromotion(deliberationObservations({
       verifiedSuccess: false,
       costUsd: 0.3,
-      effortEvidenceId: "",
+      deliberationEvidenceId: "",
     }));
     expect(report.promotionEligible).toBe(false);
     expect(report.issues).toEqual(expect.arrayContaining([
       expect.stringContaining("xhigh verified success regressed"),
       expect.stringContaining("exceeded budget"),
-      expect.stringContaining("missing effort evidence"),
+      expect.stringContaining("missing deliberation evidence"),
     ]));
   });
 });

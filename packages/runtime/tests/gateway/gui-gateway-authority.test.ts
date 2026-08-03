@@ -493,18 +493,28 @@ describe("GUI authority forwarding", () => {
     expect(getReinjectedToolResultFromSecondCall(provider)).toContain("should not run");
   });
 
-  it("keeps requested reasoning effort in GUI per-call config", async () => {
+  it("keeps the provider-neutral deliberation intent in GUI per-call config", async () => {
     const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
 
     const cfg = buildGuiTurnPerCallConfig(
       "codex-oauth",
       "gpt-5.4",
       undefined,
-      { supportsTools: true, supportedReasoningEfforts: ["low", "medium", "high"] },
-      "high",
+      {
+        supportsTools: true,
+        deliberation: {
+          provider: "codex-oauth",
+          model: "gpt-5.4",
+          levels: [{ id: "low" }, { id: "medium" }, { id: "high" }],
+          defaultLevel: "medium",
+          supportsAdaptive: false,
+          evidence: { sourceIdentity: "codex/models", sourceRevision: "test-r1", observedAt: "2026-05-12T00:00:00.000Z" },
+        },
+      },
+      { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
     );
 
-    expect(cfg.reasoningEffort).toBe("high");
+    expect(cfg.deliberationIntent).toEqual({ mode: "fixed", preferredLevel: "high", onUnsupported: "deny" });
   });
 
   it("treats GUI Full Access as attended Kiln runtime authority", async () => {

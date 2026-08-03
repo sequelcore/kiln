@@ -30,7 +30,7 @@ export interface Message {
 
 /** Possible TUI status values. */
 export type TuiStatus = "idle" | "running" | "error";
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type DeliberationLevelId = string;
 export type TuiRequestedAuthority = OperatorTurnRequestedAuthority;
 
 /**
@@ -54,9 +54,9 @@ export interface ReactiveState {
   providerPickerIndex: number;
   currentProvider: string;
   currentModel: string;
-  currentReasoningEffort?: ReasoningEffort;
+  currentDeliberationLevel?: DeliberationLevelId;
   currentRequestedAuthority: TuiRequestedAuthority;
-  supportedReasoningEfforts: ReasoningEffort[];
+  supportedDeliberationLevels: DeliberationLevelId[];
   respondingProvider?: string;
   respondingModel?: string;
   currentSessionId?: string;
@@ -200,9 +200,9 @@ export function createReactiveState(): ReactiveState {
     providerPickerIndex: 0,
     currentProvider: "claude",
     currentModel: "",
-    currentReasoningEffort: undefined,
+    currentDeliberationLevel: undefined,
     currentRequestedAuthority: "auto",
-    supportedReasoningEfforts: [],
+    supportedDeliberationLevels: [],
     respondingProvider: undefined,
     respondingModel: undefined,
     currentSessionId: undefined,

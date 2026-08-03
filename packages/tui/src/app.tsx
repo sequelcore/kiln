@@ -20,7 +20,7 @@ import {
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { Message, ReasoningEffort, ContinuationSidebarInfo, SessionListItem, SlashCommand } from "./state.js";
+import type { Message, DeliberationLevelId, ContinuationSidebarInfo, SessionListItem, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
@@ -157,30 +157,23 @@ export async function startTui(
   let providerCatalogStatus: GuiProviderCatalogStatus = "ready";
   let providerCatalogError: string | null = null;
 
-  const isReasoningEffort = (value: unknown): value is ReasoningEffort => (
-    value === "minimal"
-    || value === "low"
-    || value === "medium"
-    || value === "high"
-    || value === "xhigh"
+  const isDeliberationLevel = (value: unknown): value is DeliberationLevelId => (
+    typeof value === "string" && /^[a-z0-9][a-z0-9._:-]{0,63}$/.test(value)
   );
-  const syncReasoningEffort = () => {
+  const syncDeliberationLevel = () => {
     const capabilities = providerDiscovery
       .find((entry) => entry.provider === state.currentProvider)
       ?.modelCapabilities?.[state.currentModel];
-    const supported = (capabilities?.supportedReasoningEfforts ?? []).filter(isReasoningEffort);
-    update(state, "supportedReasoningEfforts", supported);
+    const supported = (capabilities?.deliberation?.levels.map((level) => level.id) ?? []).filter(isDeliberationLevel);
+    update(state, "supportedDeliberationLevels", supported);
     if (supported.length === 0) {
-      if (state.currentReasoningEffort !== undefined) {
-        update(state, "currentReasoningEffort", undefined);
+      if (state.currentDeliberationLevel !== undefined) {
+        update(state, "currentDeliberationLevel", undefined);
       }
       return;
     }
-    const defaultEffort = isReasoningEffort(capabilities?.defaultReasoningEffort)
-      ? capabilities.defaultReasoningEffort
-      : supported[0]!;
-    if (!state.currentReasoningEffort || !supported.includes(state.currentReasoningEffort)) {
-      update(state, "currentReasoningEffort", defaultEffort);
+    if (state.currentDeliberationLevel && !supported.includes(state.currentDeliberationLevel)) {
+      update(state, "currentDeliberationLevel", undefined);
     }
   };
   update(state, "currentProvider", provider);
@@ -193,7 +186,7 @@ export async function startTui(
       update(state, "currentModel", initialModel);
     }
   }
-  syncReasoningEffort();
+  syncDeliberationLevel();
 
   const SLASH_COMMANDS = listOperatorCommands("tui").map(operatorCommandToSlashCommand);
 
@@ -220,7 +213,7 @@ export async function startTui(
         );
         providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
         providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
-        syncReasoningEffort();
+        syncDeliberationLevel();
         if (providerPicker) {
           renderProviderPicker();
         }
@@ -321,8 +314,8 @@ export async function startTui(
         return;
       }
 
-      if (text === "/effort") {
-        cycleReasoningEffort();
+      if (text === "/deliberation") {
+        cycleDeliberationLevel();
         return;
       }
 
@@ -402,21 +395,17 @@ export async function startTui(
     return { ok: true, appliedTheme: themeName };
   });
 
-  function cycleReasoningEffort(): void {
-    if (state.supportedReasoningEfforts.length === 0) {
-      ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No reasoning effort options for this model")}`;
+  function cycleDeliberationLevel(): void {
+    if (state.supportedDeliberationLevels.length === 0) {
+      ui.commandBarStatus.content = t`${fg(currentTheme.textMuted)("No deliberation levels are advertised for this model")}`;
       return;
     }
-    const currentIndex = state.currentReasoningEffort
-      ? state.supportedReasoningEfforts.indexOf(state.currentReasoningEffort)
-      : -1;
-    const nextEffort = state.supportedReasoningEfforts[
-      (currentIndex + 1) % state.supportedReasoningEfforts.length
-    ];
-    if (!nextEffort) return;
-    update(state, "currentReasoningEffort", nextEffort);
+    const levels: Array<DeliberationLevelId | undefined> = [undefined, ...state.supportedDeliberationLevels];
+    const currentIndex = levels.indexOf(state.currentDeliberationLevel);
+    const nextLevel = levels[(currentIndex + 1) % levels.length];
+    update(state, "currentDeliberationLevel", nextLevel);
     renderSidebarProvider(state, currentTheme, ui, domain);
-    ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Reasoning effort: ${nextEffort}`)}`;
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Deliberation: ${nextLevel ?? "provider default"}`)}`;
   }
 
   function cycleRequestedAuthority(): void {
@@ -952,7 +941,7 @@ export async function startTui(
 
       update(state, "currentProvider", selectedProvider);
       update(state, "currentModel", selectedModel);
-      syncReasoningEffort();
+      syncDeliberationLevel();
       update(state, "routeMode", "user");
       update(state, "providerPickerIndex", providerPickerState.providerIndex);
       renderSidebarProvider(state, currentTheme, ui, domain);
@@ -1518,7 +1507,7 @@ export async function startTui(
     }
 
     if (key.ctrl && key.name === "e") {
-      cycleReasoningEffort();
+      cycleDeliberationLevel();
       return;
     }
 
@@ -1657,7 +1646,7 @@ export async function startTui(
         return;
       }
 
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/effort" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1699,8 +1688,8 @@ export async function startTui(
             return;
           }
 
-          if (inputText === "/effort") {
-            cycleReasoningEffort();
+          if (inputText === "/deliberation") {
+            cycleDeliberationLevel();
             return;
           }
 
@@ -1815,8 +1804,8 @@ export async function startTui(
             openProviderPicker();
             return;
           }
-          if (cmd.id === "effort") {
-            cycleReasoningEffort();
+          if (cmd.id === "deliberation") {
+            cycleDeliberationLevel();
             return;
           }
           if (cmd.id === "authority") {

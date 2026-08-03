@@ -57,6 +57,25 @@ function adapter(response?: Partial<AgentResponse>): ProviderAdapter & { createM
 }
 
 describe("ProviderAdapterOneRoundDispatcher", () => {
+  it("rejects an executable deliberation level before provider I/O when transport is undeclared", async () => {
+    const provider = adapter();
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
+
+    await expect(dispatcher.dispatchOneRound(input(turn({
+      deliberationResolution: {
+        status: "exact",
+        selectedLevel: "high" as never,
+        source: "route",
+        capabilityEvidence: {
+          sourceIdentity: "test:anthropic",
+          sourceRevision: "revision-1",
+          observedAt: "2026-08-02T00:00:00.000Z",
+        },
+      },
+    })))).rejects.toMatchObject({ code: "unsupported-capability" });
+    expect(provider.createMessage).not.toHaveBeenCalled();
+  });
+
   it("maps the supported provider-adapter intersection and dispatches exactly once", async () => {
     const provider = adapter();
     const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
@@ -122,7 +141,7 @@ describe("ProviderAdapterOneRoundDispatcher", () => {
     ["custom tools", { tools: [{ kind: "custom", name: "shell", grammar: { syntax: "lark", source: "start: /x/" } }] }],
     ["parallel tool calls", { parallelToolCalls: true }],
     ["response formats", { responseFormat: { kind: "json-schema", name: "out", schema: { type: "object" } } }],
-    ["reasoning controls", { reasoning: { effort: "high" } }],
+    ["reasoning summaries", { reasoningSummary: "concise" }],
     ["text verbosity", { textVerbosity: "high" }],
   ])("fails closed before dispatch for unsupported %s", async (_label, overrides) => {
     const provider = adapter();

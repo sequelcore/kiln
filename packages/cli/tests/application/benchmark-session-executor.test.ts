@@ -236,7 +236,18 @@ describe("createBenchmarkSessionExecutor", () => {
     benchmarkExecutorMocks.discoverCodexCliModelDiscovery.mockResolvedValue({
       models: ["benchmark-model"],
       modelCapabilities: {
-        "benchmark-model": { supportedReasoningEfforts: ["low", "medium", "high"] },
+        "benchmark-model": {
+          deliberation: {
+            levels: ["low", "medium", "high"].map((id) => ({ id })),
+            defaultLevel: "medium",
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "synthetic-codex-catalog",
+              sourceRevision: "revision-1",
+              observedAt: "2026-08-02T00:00:00.000Z",
+            },
+          },
+        },
       },
       status: "available",
       reason: "test",
@@ -535,7 +546,7 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
-  it("resolves supported reasoning effort and records the exact route evidence", async () => {
+  it("resolves a supported deliberation level and records exact route evidence", async () => {
     benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
       { provider: "codex", model: "benchmark-model" },
     ]);
@@ -544,28 +555,38 @@ describe("createBenchmarkSessionExecutor", () => {
       flags: {
         provider: "codex",
         model: "benchmark-model",
-        reasoningEffort: "high",
+        deliberationLevel: "high",
       },
     });
 
     const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
-      id: "reasoning-effort",
+      id: "deliberation-level",
       input: "Return exactly one sentence.",
     }));
 
-    expect(result.metadata?.reasoningEffortResolution).toEqual({
-      status: "resolved",
-      requested: "high",
-      resolved: "high",
-      source: "explicit",
-    });
+    const expectedResolution = {
+      status: "exact",
+      requested: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      selectedLevel: "high",
+      source: "operator",
+      capabilityEvidence: {
+        sourceIdentity: "synthetic-codex-catalog",
+        sourceRevision: "revision-1",
+        observedAt: "2026-08-02T00:00:00.000Z",
+      },
+    };
+    expect(result.metadata?.deliberationResolution).toEqual(expectedResolution);
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
-      routeCandidates: [{ provider: "codex", model: "benchmark-model", reasoningEffort: "high" }],
-      sessionConfig: expect.objectContaining({ reasoningEffort: "high" }),
+      routeCandidates: [{
+        provider: "codex",
+        model: "benchmark-model",
+        deliberationResolution: expectedResolution,
+      }],
+      sessionConfig: expect.objectContaining({ deliberationResolution: expectedResolution }),
     }));
   });
 
-  it("fails closed when requested effort lacks provider capability evidence", async () => {
+  it("fails closed when a requested deliberation level lacks capability evidence", async () => {
     const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
     benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
       { provider: "codex", model: "unknown-model" },
@@ -575,12 +596,12 @@ describe("createBenchmarkSessionExecutor", () => {
       flags: {
         provider: "codex",
         model: "unknown-model",
-        reasoningEffort: "high",
+        deliberationLevel: "high",
       },
     });
 
     await expect(executor("Return exactly one sentence.", makeBenchmarkContext({
-      id: "unsupported-effort",
+      id: "unsupported-deliberation",
       input: "Return exactly one sentence.",
     }))).rejects.toThrow("capability-unknown");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);

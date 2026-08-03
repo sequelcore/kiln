@@ -117,7 +117,7 @@ function sentMessageFrame(ws: MockWebSocket): {
   content: string;
   executionMode?: "execute" | "plan";
   requestedAuthority?: "auto" | "read_only" | "audited";
-  reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+  deliberationIntent?: { mode: "fixed"; preferredLevel: string; onUnsupported: "deny" };
 } {
   const messageCall = ws.send.mock.calls.find(([payload]) => {
     if (typeof payload !== "string" || payload === "ping") return false;
@@ -129,7 +129,7 @@ function sentMessageFrame(ws: MockWebSocket): {
     content: string;
     executionMode?: "execute" | "plan";
     requestedAuthority?: "auto" | "read_only" | "audited";
-    reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+    deliberationIntent?: { mode: "fixed"; preferredLevel: string; onUnsupported: "deny" };
   };
 }
 

@@ -226,6 +226,7 @@ export class OpenCodeCredentialPoolService {
     this.observability?.register(options.tier === "zen" ? "opencode-zen" : "opencode-go", pool);
     return new PooledProviderAdapter<OpenCodeAuthFile>({
       name: options.tier === "zen" ? "opencode-zen" : "opencode-go",
+      deliberationTransport: "none",
       pool,
       createAdapter: options.createAdapter ?? ((auth) => new OpenCodeAdapter({
         apiKey: auth.api_key,
@@ -251,6 +252,7 @@ export class OpenCodeCredentialPoolService {
     };
     return {
       name: delegate.name,
+      deliberationTransport: delegate.deliberationTransport,
       createMessage: async (messageOptions: CreateMessageOptions) => {
         try {
           const response = await delegate.createMessage(messageOptions);

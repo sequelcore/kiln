@@ -3,10 +3,12 @@ import { EventEmitter } from "node:events";
 import { CodexSession } from "../../src/wrapper/codex-session.js";
 import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import type { ExecutionSessionEvent } from "@kilnai/core";
+import { defineDeliberationLevelId, type ExecutionSessionEvent } from "@kilnai/core";
 
 vi.mock("@kilnai/core", () => ({
   CODEX_DEFAULT_MODEL: "gpt-5.4",
+  defineDeliberationLevelId: (value: string) => value,
+  admitDeliberationForExecution: (resolution: { selectedLevel?: string } | undefined) => resolution?.selectedLevel,
   resolveExecutionIdentity: ({
     configuredProvider,
     configuredModel,
@@ -288,11 +290,17 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(prompt).toContain("Execute the task above in this turn.");
   });
 
-  it("run() passes reasoning effort as a Codex config override", async () => {
+  it("run() passes an admitted deliberation level as a Codex config override", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
 
-    const session = new CodexSession(baseConfig({ reasoningEffort: "high" }));
+    const session = new CodexSession(baseConfig({
+      deliberationResolution: {
+        status: "exact",
+        source: "operator",
+        selectedLevel: defineDeliberationLevelId("high"),
+      },
+    }));
     const collectPromise = collectEvents(session.run({ prompt: "Implement feature X" }));
 
     emitLine({ type: "thread.started", thread_id: "t1" });

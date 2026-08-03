@@ -5,6 +5,7 @@ import type {
   SessionTokenUsage,
 } from "./session-event.js";
 import type { ManagedAgentCoordinationUsageReport } from "../agents/managed-invocation/index.js";
+import type { DeliberationResolution } from "../agents/deliberation-policy.js";
 import type { VerificationUsageReport } from "../efficiency/output-verification-allocation.js";
 
 export type SessionLifecycleSourceKind =
@@ -51,7 +52,7 @@ export interface SessionLifecycleExecutionContext {
   readonly phase?: string;
   readonly policyVersion?: string;
   readonly route?: string;
-  readonly reasoningEffort?: string;
+  readonly deliberationResolution?: DeliberationResolution;
 }
 
 export interface SessionLifecycleAttributedCost {

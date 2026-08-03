@@ -16,8 +16,8 @@ import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
-  KilnReasoningEffort,
-  KilnReasoningPolicyConfig,
+  KilnDeliberationPolicyConfig,
+  KilnDeliberationRouteRuleConfig,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -47,8 +47,13 @@ export type {
   KilnWorkGovernanceRisk,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
-  KilnReasoningEffort,
-  KilnReasoningPolicyConfig,
+  KilnDeliberationMode,
+  KilnDeliberationTarget,
+  KilnUnsupportedDeliberationPolicy,
+  KilnDeliberationBoundsConfig,
+  KilnDeliberationRuleConfig,
+  KilnDeliberationRouteRuleConfig,
+  KilnDeliberationPolicyConfig,
   KilnModelTaskSuitabilityOverride,
   KilnModelTaskSuitabilityLevel,
   KilnModelTaskSuitabilityTask,
@@ -112,7 +117,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     providers: override.providers ?? base.providers,
     managedAgents: override.managedAgents ?? base.managedAgents,
     modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
-    reasoningPolicy: mergeReasoningPolicy(base.reasoningPolicy, override.reasoningPolicy),
+    deliberationPolicy: mergeDeliberationPolicy(base.deliberationPolicy, override.deliberationPolicy),
     web: mergeWeb(base.web, override.web),
     interactiveUse: mergeInteractiveUse(base.interactiveUse, override.interactiveUse),
     skills: mergeSkills(base.skills, override.skills),
@@ -143,19 +148,23 @@ function mergeWorkGovernance(
   };
 }
 
-function mergeReasoningPolicy(
-  base: KilnReasoningPolicyConfig | undefined,
-  override: KilnReasoningPolicyConfig | undefined,
-): KilnReasoningPolicyConfig | undefined {
+function mergeDeliberationPolicy(
+  base: KilnDeliberationPolicyConfig | undefined,
+  override: KilnDeliberationPolicyConfig | undefined,
+): KilnDeliberationPolicyConfig | undefined {
   if (!base && !override) return undefined;
+  const routes = new Map<string, KilnDeliberationRouteRuleConfig>();
+  for (const entry of [...(base?.byRoute ?? []), ...(override?.byRoute ?? [])]) {
+    routes.set(`${entry.provider}/${entry.model}`, entry);
+  }
   return {
     default: override?.default ?? base?.default,
-    unsupported: override?.unsupported ?? base?.unsupported,
     byTask: {
       ...(base?.byTask ?? {}),
       ...(override?.byTask ?? {}),
-    } as Partial<Record<string, KilnReasoningEffort>>,
-  } as KilnReasoningPolicyConfig;
+    },
+    byRoute: [...routes.values()],
+  };
 }
 
 function mergeModelTaskSuitability(

@@ -23,7 +23,7 @@ import {
   type GuiMemoryLatticeGraphRequest,
   type GuiOutboundFrame,
   type GuiInboundFrame,
-  type GuiProviderReasoningEffort,
+  type GuiDeliberationLevelId,
   type KilnConfigSetupAction,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
@@ -64,7 +64,7 @@ import {
 } from "./app-shell-runtime.js";
 import {
   AppGatewayTargetSelector,
-  ReasoningEffortControl,
+  DeliberationControl,
   RuntimeBootstrapGate,
   TurnAuthorityControl,
   type RequestableTurnAuthority,
@@ -102,7 +102,7 @@ const OperatorTerminalDock = lazy(async () => {
 
 const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
-const EMPTY_REASONING_EFFORTS: readonly GuiProviderReasoningEffort[] = [];
+const EMPTY_DELIBERATION_LEVELS: readonly GuiDeliberationLevelId[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
 
 const GUI_COCKPIT_INSTANCE_ID = "local-gui";
@@ -235,7 +235,7 @@ function useAppShellRuntimeView() {
   const [workbenchSurface, setWorkbenchSurface] = useState<WorkbenchSurface>("chat");
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("workspace");
   const [inspectorOpen, setInspectorOpen] = useState(true);
-  const [reasoningEffort, setReasoningEffort] = useState<GuiProviderReasoningEffort | null>(null);
+  const [deliberationLevel, setDeliberationLevel] = useState<GuiDeliberationLevelId | null>(null);
   const [requestedAuthority, setRequestedAuthority] = useState<RequestableTurnAuthority>("auto");
   const [selectedGatewayTargetId, setSelectedGatewayTargetId] = useState<string | null>(null);
   const [activeSurface, setActiveSurface] = useState<OperatorSurfaceKind>("chat");
@@ -440,13 +440,10 @@ function useAppShellRuntimeView() {
   const activeModelCapabilities = activeProvider && activeModel
     ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
     : undefined;
-  const reasoningEffortOptions = activeModelCapabilities?.supportedReasoningEfforts ?? EMPTY_REASONING_EFFORTS;
-  const resolvedReasoningEffort = reasoningEffortOptions.length > 0
-    ? (
-      reasoningEffort && reasoningEffortOptions.includes(reasoningEffort)
-        ? reasoningEffort
-        : (activeModelCapabilities?.defaultReasoningEffort ?? reasoningEffortOptions[0]!)
-    )
+  const deliberationLevelOptions = activeModelCapabilities?.deliberation?.levels.map((level) => level.id)
+    ?? EMPTY_DELIBERATION_LEVELS;
+  const selectedDeliberationLevel = deliberationLevelOptions.includes(deliberationLevel ?? "")
+    ? deliberationLevel
     : null;
 
   const openWorkspaceFile = async (entry: OperatorWorkspaceTreeEntry) => {
@@ -468,16 +465,16 @@ function useAppShellRuntimeView() {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    if (reasoningEffortOptions.length === 0) {
-      if (reasoningEffort !== null) {
-        setReasoningEffort(null);
+    if (deliberationLevelOptions.length === 0) {
+      if (deliberationLevel !== null) {
+        setDeliberationLevel(null);
       }
       return;
     }
-    if (!reasoningEffort || !reasoningEffortOptions.includes(reasoningEffort)) {
-      setReasoningEffort(activeModelCapabilities?.defaultReasoningEffort ?? reasoningEffortOptions[0]!);
+    if (deliberationLevel && !deliberationLevelOptions.includes(deliberationLevel)) {
+      setDeliberationLevel(null);
     }
-  }, [activeModelCapabilities?.defaultReasoningEffort, reasoningEffort, reasoningEffortOptions]);
+  }, [deliberationLevel, deliberationLevelOptions]);
 
   const closePalette = () => {
     dispatchCommandSurface({ type: "close-palette" });
@@ -931,9 +928,9 @@ function useAppShellRuntimeView() {
     setPaletteQuery,
     setPaletteOpen,
     setProviderPickerOpen: setIsProviderPickerOpen,
-    reasoningEffortOptions,
-    resolvedReasoningEffort,
-    setReasoningEffort,
+    deliberationLevelOptions,
+    selectedDeliberationLevel,
+    setDeliberationLevel,
     requestedAuthority,
     setRequestedAuthority,
     setSessionPopoverOpen,
@@ -1225,11 +1222,11 @@ function useAppShellRuntimeView() {
                   workingDirectory={workingDirectory}
                 />
               ),
-              reasoningControl: resolvedReasoningEffort ? (
-                <ReasoningEffortControl
-                  value={resolvedReasoningEffort}
-                  options={reasoningEffortOptions}
-                  onChange={setReasoningEffort}
+              deliberationControl: deliberationLevelOptions.length > 0 ? (
+                <DeliberationControl
+                  value={selectedDeliberationLevel}
+                  options={deliberationLevelOptions}
+                  onChange={setDeliberationLevel}
                 />
               ) : null,
               authorityControl: (
@@ -1241,7 +1238,13 @@ function useAppShellRuntimeView() {
               ),
               onSubmit: (text) => {
                 const sent = sendMessage(text, {
-                  ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                  ...(selectedDeliberationLevel ? {
+                    deliberationIntent: {
+                      mode: "fixed",
+                      preferredLevel: selectedDeliberationLevel,
+                      onUnsupported: "deny",
+                    },
+                  } : {}),
                   requestedAuthority,
                   ...(governedWorkItemCount !== null ? {
                     governedWorkRequirement: {
@@ -1261,7 +1264,13 @@ function useAppShellRuntimeView() {
                 const sent = sendMessage("", {
                   parts,
                   displayContent,
-                  ...(resolvedReasoningEffort ? { reasoningEffort: resolvedReasoningEffort } : {}),
+                  ...(selectedDeliberationLevel ? {
+                    deliberationIntent: {
+                      mode: "fixed",
+                      preferredLevel: selectedDeliberationLevel,
+                      onUnsupported: "deny",
+                    },
+                  } : {}),
                   requestedAuthority,
                   ...(governedWorkItemCount !== null ? {
                     governedWorkRequirement: {

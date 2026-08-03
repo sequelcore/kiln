@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from "./phase-aware-route-policy.js";
+import type { ModelDeliberationCapabilities } from "./deliberation-policy.js";
 import { ModelCapabilityRegistry } from "./model-capability-registry.js";
 
 export type ExecutionBillingMode =
@@ -46,8 +46,7 @@ export interface DiscoveredDirectProviderModelCapabilities {
   readonly supportsNativeShellTools?: boolean;
   readonly supportsNativePatchTools?: boolean;
   readonly supportsTools?: boolean;
-  readonly defaultReasoningEffort?: ReasoningEffort;
-  readonly supportedReasoningEfforts?: readonly ReasoningEffort[];
+  readonly deliberation?: ModelDeliberationCapabilities;
 }
 
 const DIRECT_PROVIDER_EXECUTION_PROFILES: ReadonlyMap<DirectProviderId, DirectProviderExecutionProfile> = new Map([

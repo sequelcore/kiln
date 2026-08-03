@@ -12,6 +12,7 @@ import type {
   ProviderAdapter,
   ManagedEconomicExecutionIdentity,
   ManagedEconomicExecutionReport,
+  ModelDeliberationCapabilities,
   SandboxConfig,
   StructuredExecutionResult,
   ToolDefinition,
@@ -76,6 +77,7 @@ export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly writeAuthority?: ManagedAgentAdapterWriteAuthorityDescriptor;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly economicIdentity?: ManagedEconomicExecutionIdentity;
+  readonly deliberationCapabilities?: ModelDeliberationCapabilities;
   readonly now?: () => Date;
 }
 
@@ -419,7 +421,23 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         additionalTools: tools,
         ...(capabilityMap.size > 0 ? { perCallCapabilities: capabilityMap } : {}),
         ...(toolAuthority.size > 0 ? { toolAuthority } : {}),
-        ...(request.providerRoute.reasoningEffort ? { reasoningEffort: request.providerRoute.reasoningEffort as PerCallToolConfig["reasoningEffort"] } : {}),
+        ...(request.providerRoute.deliberationResolution
+          ? { deliberationResolution: request.providerRoute.deliberationResolution }
+          : {}),
+        ...(request.providerRoute.deliberationIntent && !request.providerRoute.deliberationResolution
+          ? {
+              deliberationIntent: request.providerRoute.deliberationIntent,
+              deliberationSource: "route",
+              ...(this.config.deliberationCapabilities
+                ? { modelRoutingPolicy: {
+                    routeCapabilities: new Map([[
+                      `${request.providerRoute.providerId}/${request.providerRoute.model ?? this.model ?? ""}`,
+                      { deliberation: this.config.deliberationCapabilities },
+                    ]]),
+                  } }
+                : {}),
+            }
+          : {}),
       };
       const governedResourceContext = await buildManagedInvocationResourceContext({
         resourceUris: request.input.resourceUris,
@@ -602,7 +620,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       providerId: this.providerId,
       surface: "direct-provider",
       ...(route.model ?? this.model ? { model: route.model ?? this.model } : {}),
-      ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
+      ...(route.deliberationIntent !== undefined ? { deliberationIntent: route.deliberationIntent } : {}),
     };
   }
 }
@@ -1123,7 +1141,7 @@ function formatDirectProviderFailure(
   const route = [
     `provider ${providerRoute.providerId}`,
     providerRoute.model ? `model ${providerRoute.model}` : undefined,
-    providerRoute.reasoningEffort ? `reasoning ${providerRoute.reasoningEffort}` : undefined,
+    providerRoute.deliberationIntent ? `deliberation ${providerRoute.deliberationIntent.mode}` : undefined,
   ].filter((part): part is string => part !== undefined).join(", ");
   return `Direct provider managed invocation failed for ${route}. ${formatManagedProviderError(error)}`;
 }

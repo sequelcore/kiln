@@ -236,6 +236,73 @@ describe("managed economic candidate admission", () => {
     expect(invokeProvider).not.toHaveBeenCalled();
   });
 
+  it("denies unsupported deliberation before economic commitment", async () => {
+    const prepare = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService();
+    const attachment: ManagedInvocationToolAttachment = {
+      options: {
+        routes: [route({
+          routeId: "codex-primary",
+          providerId: "codex-oauth",
+          model: "gpt-test",
+          policy: true,
+          capability: "verified",
+        })],
+        agentCatalog: [{
+          name: "scout",
+          role: "Scout",
+          goal: "Inspect bounded work.",
+          tier: "reasoning",
+          economicPolicyId: "economy-policy",
+          economicPolicyRevision: "revision-001",
+          economicPolicyCandidateRouteIds: ["codex-primary"],
+          providerRoute: {
+            providerId: "codex-oauth",
+            model: "gpt-test",
+            surface: "configured",
+            deliberationIntent: {
+              mode: "fixed",
+              preferredLevel: "high" as never,
+              onUnsupported: "deny",
+            },
+          },
+        }],
+        contextResolver: async () => ({ admittedAgentProfile: "scout" }),
+        invocationService: service,
+        economicDispatch: { prepare },
+      },
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "test",
+        attachmentId: "attachment:test",
+      },
+    };
+    const executor = createManagedInvocationLifecycleToolExecutors(attachment).get("managed_agent.invoke");
+    if (!executor) throw new Error("managed_agent.invoke was not registered");
+
+    const result = await executor({
+      profile: "foundation-readonly-plan",
+      agentProfile: "scout",
+      task: "Inspect the deliberation boundary.",
+    }, {
+      session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
+      turnId: "turn-test",
+      toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
+    }) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(result).toMatchObject({
+      isError: true,
+      metadata: {
+        errorCode: "economic_commitment_unavailable",
+        candidateSet: {
+          candidates: [],
+          rejections: [{ routeId: "codex-primary", reason: "deliberation-denied" }],
+        },
+      },
+    });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it("fails a provider-free policy invocation at commitment without starting Runtime", async () => {
     const service = new RuntimeManagedAgentInvocationService();
     const start = vi.spyOn(service, "start");

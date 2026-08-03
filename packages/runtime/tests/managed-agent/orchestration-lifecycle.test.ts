@@ -5,6 +5,7 @@ import {
   buildManagedAgentReviewSwarmOrchestrationRequest,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineDeliberationLevelId,
 } from "@kilnai/core";
 import type { ManagedAgentAdmissionDecision } from "@kilnai/core";
 import {
@@ -568,6 +569,37 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     expect(managedInvocation.invoked).not.toHaveBeenCalled();
   });
 
+  it("binds the agent deliberation envelope into the economic commitment fingerprint", async () => {
+    const low = createEconomicManagedInvocation({ deliberationLevel: "low" });
+    const high = createEconomicManagedInvocation({ deliberationLevel: "high" });
+    const run = async (managedInvocation: ReturnType<typeof createEconomicManagedInvocation>) =>
+      runManagedAgentOrchestrationLifecycle({
+        orchestrationRequest: economicRequest(2),
+        managedInvocation: managedInvocation.options,
+        profile: "foundation-apply-approved-writes",
+        economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
+      });
+
+    await run(low);
+    await run(high);
+
+    const lowInput = low.prepare.mock.calls[0]?.[0];
+    const highInput = high.prepare.mock.calls[0]?.[0];
+    expect(lowInput?.intentFingerprint).not.toBe(highInput?.intentFingerprint);
+    expect(low.invoked.mock.calls[0]?.[0]?.providerRoute.deliberationIntent).toMatchObject({
+      mode: "fixed",
+      preferredLevel: "low",
+    });
+    expect(low.invoked.mock.calls[0]?.[0]?.providerRoute.deliberationResolution).toMatchObject({
+      status: "exact",
+      selectedLevel: "low",
+      capabilityEvidence: {
+        sourceIdentity: "test:economic-route",
+        sourceRevision: "revision-1",
+      },
+    });
+  });
+
   it("marks every fenced commitment pending when a later child cannot be prepared", async () => {
     const managedInvocation = createEconomicManagedInvocation();
     const successfulPreparation = managedInvocation.prepare.getMockImplementation();
@@ -781,6 +813,7 @@ function economicRequest(childCount: number) {
 function createEconomicManagedInvocation(input: {
   readonly status?: "prepared" | "already-dispatched" | "denied";
   readonly failOrdinals?: ReadonlySet<number>;
+  readonly deliberationLevel?: "low" | "high";
 } = {}) {
   const base = createManagedInvocation({
     ...(input.failOrdinals ? { failOrdinals: input.failOrdinals } : {}),
@@ -790,7 +823,7 @@ function createEconomicManagedInvocation(input: {
   const adapter = {
     ...route.adapter!,
     invoke: async (invocation: ManagedAgentRuntimeInvocationInput) => {
-      invoked(invocation.request.invocationId);
+      invoked(invocation.request);
       invocation.registerEconomicSettlement?.(Promise.resolve({} as never));
       return await route.adapter!.invoke(invocation);
     },
@@ -825,6 +858,20 @@ function createEconomicManagedInvocation(input: {
       routes: [{
         ...route,
         adapter: undefined,
+        ...(input.deliberationLevel ? {
+          deliberationCapabilities: {
+            provider: route.providerId,
+            model: route.model,
+            levels: ["low", "high"].map((level) => ({ id: defineDeliberationLevelId(level) })),
+            defaultLevel: defineDeliberationLevelId("low"),
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "test:economic-route",
+              sourceRevision: "revision-1",
+              observedAt: "2026-08-02T00:00:00.000Z",
+            },
+          },
+        } : {}),
         economicPolicyIds: ["economy-policy"],
         economicCapability: {
           status: "verified" as const,
@@ -841,6 +888,17 @@ function createEconomicManagedInvocation(input: {
         economicPolicyId: "economy-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: [route.routeId],
+        ...(input.deliberationLevel ? {
+          providerRoute: {
+            providerId: route.providerId,
+            model: route.model,
+            deliberationIntent: {
+              mode: "fixed" as const,
+              preferredLevel: input.deliberationLevel,
+              onUnsupported: "deny" as const,
+            },
+          },
+        } : {}),
       }],
       economicDispatch: { prepare },
     } satisfies ManagedInvocationToolOptions,

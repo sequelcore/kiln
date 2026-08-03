@@ -74,7 +74,11 @@ describe("materializeApprovedPlanWorkItems", () => {
         routingRecommendation: {
           routeId: "codex-worker",
           agentProfile: "coder",
-          reasoningEffort: "high",
+          deliberationIntent: {
+            mode: "fixed",
+            preferredLevel: "high",
+            onUnsupported: "deny",
+          },
           modelTaskSuitability: "architecture-change:high",
           rationale: "Derived from plan workflow profile architecture-change and risk high.",
         },

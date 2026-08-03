@@ -1,4 +1,5 @@
-import type { ReasoningEffort } from "../phase-aware-route-policy.js";
+import { admitDeliberationForExecution } from "../deliberation-policy.js";
+import type { DeliberationResolution } from "../deliberation-policy.js";
 import type { AccountRef, ModelGatewayRoute } from "./index.js";
 
 export type ModelJsonValue = string | number | boolean | null | ModelJsonObject | readonly ModelJsonValue[];
@@ -82,7 +83,8 @@ export interface ModelTurn {
     readonly schema: ModelJsonObject;
     readonly strict?: boolean;
   };
-  readonly reasoning?: { readonly effort?: ReasoningEffort; readonly summary?: "auto" | "concise" | "detailed" };
+  readonly deliberationResolution?: DeliberationResolution;
+  readonly reasoningSummary?: "auto" | "concise" | "detailed";
   readonly textVerbosity?: "low" | "medium" | "high";
   readonly maxOutputTokens?: number;
 }
@@ -167,7 +169,10 @@ export function validateModelTurn(turn: ModelTurn): void {
       throw new TypeError("responseFormat.strict must be a boolean.");
     }
   }
-  validateReasoning(turn.reasoning);
+  admitDeliberationForExecution(turn.deliberationResolution);
+  if (turn.reasoningSummary !== undefined && !["auto", "concise", "detailed"].includes(turn.reasoningSummary)) {
+    throw new TypeError("reasoningSummary is invalid.");
+  }
   if (turn.textVerbosity !== undefined && !["low", "medium", "high"].includes(turn.textVerbosity as string)) {
     throw new TypeError("textVerbosity is invalid.");
   }
@@ -333,17 +338,6 @@ function validateImage(part: ModelImagePart, path: string): void {
 function validateJsonObject(value: unknown, path: string): asserts value is ModelJsonObject {
   if (!isObject(value) || Array.isArray(value)) throw new TypeError(`${path} must be a JSON object.`);
   validateJson(value, path, new Set<object>());
-}
-
-function validateReasoning(reasoning: ModelTurn["reasoning"]): void {
-  if (reasoning === undefined) return;
-  if (!isObject(reasoning)) throw new TypeError("reasoning must be an object.");
-  if (reasoning.effort !== undefined && !["minimal", "low", "medium", "high", "xhigh"].includes(reasoning.effort as string)) {
-    throw new TypeError("reasoning.effort is invalid.");
-  }
-  if (reasoning.summary !== undefined && !["auto", "concise", "detailed"].includes(reasoning.summary as string)) {
-    throw new TypeError("reasoning.summary is invalid.");
-  }
 }
 
 function validateJson(value: unknown, path: string, ancestors: Set<object>): void {

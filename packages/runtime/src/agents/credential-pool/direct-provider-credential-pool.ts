@@ -251,6 +251,9 @@ export class DirectProviderCredentialPoolService {
     this.observability?.register(options.provider, pool);
     return new PooledProviderAdapter<DirectProviderAuth>({
       name: options.provider,
+      deliberationTransport: options.provider === "anthropic" || options.provider === "openai"
+        ? "native-level"
+        : "none",
       pool,
       createAdapter: options.createAdapter ?? ((auth) => this.createAdapter(options, auth)),
       mapError: mapDirectProviderError,

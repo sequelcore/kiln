@@ -27,7 +27,17 @@ function richTurn(): ModelTurn {
       { kind: "custom", name: "apply_patch", description: "Patch", grammar: { syntax: "lark", source: "start: PATCH" } },
     ],
     toolChoice: { kind: "tool", name: "apply_patch" }, parallelToolCalls: true,
-    reasoning: { effort: "high", summary: "concise" }, textVerbosity: "low",
+    deliberationResolution: {
+      status: "exact",
+      selectedLevel: "high",
+      source: "operator",
+      capabilityEvidence: {
+        sourceIdentity: "codex-model-catalog",
+        sourceRevision: "test-r1",
+        observedAt: "2026-05-12T00:00:00.000Z",
+      },
+    },
+    reasoningSummary: "concise", textVerbosity: "low",
     responseFormat: { kind: "json-schema", name: "answer", schema: { type: "object" }, strict: true },
   };
 }

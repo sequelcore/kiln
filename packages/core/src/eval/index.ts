@@ -74,17 +74,17 @@ export type {
 } from "./context-allocation-benchmark.js";
 export {
   evaluatePhaseAwareRoutePromotion,
-  evaluateReasoningEffortPromotion,
+  evaluateDeliberationPromotion,
 } from "./phase-aware-routing-benchmark.js";
 export type {
   PhaseAwareRouteBenchmarkPolicy,
   PhaseAwareRouteObservation,
   PhaseAwareRoutePromotionReport,
   PhaseAwareRouteTaskClassComparison,
-  ReasoningEffortBenchmarkLevel,
-  ReasoningEffortObservation,
-  ReasoningEffortPromotionReport,
-  ReasoningEffortTaskClassComparison,
+  DeliberationBenchmarkLevel,
+  DeliberationObservation,
+  DeliberationPromotionReport,
+  DeliberationTaskClassComparison,
 } from "./phase-aware-routing-benchmark.js";
 export { createBenchmarkProfileScorers } from "./benchmark-scorers.js";
 export { projectBfclDataset } from "./adapters/bfcl-adapter.js";

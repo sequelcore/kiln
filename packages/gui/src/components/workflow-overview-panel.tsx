@@ -45,7 +45,7 @@ interface WorkflowRoutePreview {
   readonly routingTier?: string;
   readonly authority?: string;
   readonly authorityCompleteness?: string;
-  readonly reasoningEffort?: string;
+  readonly deliberation?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -109,6 +109,7 @@ function latestWorkflowPreview(entries: readonly TimelineEntry[]): {
 
     if (entry.eventKind === "turn_completed") {
       const routingRationale = readRecord(details.routingRationale);
+      const deliberationResolution = readRecord(routingRationale.deliberationResolution);
       const authorityStatus = readRecord(details.authorityStatus);
       route = {
         provider: readString(details.routedProvider) ?? readString(routingRationale.selectedProvider) ?? route?.provider,
@@ -118,9 +119,9 @@ function latestWorkflowPreview(entries: readonly TimelineEntry[]): {
         routingTier: readString(routingRationale.routingTier) ?? route?.routingTier,
         authority: readString(authorityStatus.effective) ?? route?.authority,
         authorityCompleteness: readString(authorityStatus.completeness) ?? route?.authorityCompleteness,
-        reasoningEffort: readString(routingRationale.requestedReasoningEffort)
-          ?? readString(routingRationale.reasoningEffort)
-          ?? route?.reasoningEffort,
+        deliberation: readString(deliberationResolution.selectedLevel)
+          ?? readString(deliberationResolution.status)
+          ?? route?.deliberation,
       };
       continue;
     }
@@ -347,7 +348,7 @@ export function WorkflowOverviewPanel(props: WorkflowOverviewPanelProps) {
             <div className="mt-3">
               <MetricRow label="Provider" value={route.provider} />
               <MetricRow label="Model" value={route.model} />
-              <MetricRow label="Reasoning" value={route.reasoningEffort} />
+              <MetricRow label="Deliberation" value={route.deliberation} />
             </div>
           </article>
         ) : null}

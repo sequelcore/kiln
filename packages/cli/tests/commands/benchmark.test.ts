@@ -692,16 +692,16 @@ describe("benchmarkCommand", () => {
     expect(printed).not.toContain("Session Complete");
   });
 
-  it("runs fixed-route reasoning-effort sweeps with distinct reproducible baselines", async () => {
+  it("runs fixed-route deliberation sweeps with distinct reproducible baselines", async () => {
     const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
-    const outputPath = join(root, "effort-sweep.json");
+    const outputPath = join(root, "deliberation-sweep.json");
     writeFileSync(datasetPath, JSON.stringify({
-      id: "effort-sweep",
+      id: "deliberation-sweep",
       input: "Call status.",
       expected: "status",
       metadata: { expectedToolCalls: [{ name: "status" }] },
     }) + "\n", "utf-8");
-    const observedEfforts: Array<string | undefined> = [];
+    const observedLevels: Array<string | undefined> = [];
 
     await benchmarkCommand(
       MOCK_APP_CONFIG,
@@ -713,11 +713,11 @@ describe("benchmarkCommand", () => {
         "--output", outputPath,
         "--provider", "codex",
         "--model", "benchmark-model",
-        "--reasoning-effort-sweep", "low,high",
+        "--deliberation-level-sweep", "low,luna-max",
       ],
       {
         createExecuteItem: (flags) => {
-          observedEfforts.push(flags.reasoningEffort);
+          observedLevels.push(flags.deliberationLevel);
           return async () => ({
             output: "status",
             durationMs: 10,
@@ -727,11 +727,15 @@ describe("benchmarkCommand", () => {
             metadata: {
               activeAgentId: "kiln-tool-agent",
               toolCalls: [{ name: "status" }],
-              reasoningEffortResolution: {
-                status: "resolved",
-                requested: flags.reasoningEffort,
-                resolved: flags.reasoningEffort,
-                source: "explicit",
+              deliberationResolution: {
+                status: "exact",
+                requested: {
+                  mode: "fixed",
+                  preferredLevel: flags.deliberationLevel,
+                  onUnsupported: "deny",
+                },
+                selectedLevel: flags.deliberationLevel,
+                source: "operator",
               },
               ...CACHE_TOPOLOGY_METADATA,
             },
@@ -743,19 +747,19 @@ describe("benchmarkCommand", () => {
     const written = JSON.parse(readFileSync(outputPath, "utf-8")) as {
       readonly baseline?: unknown;
       readonly baselines: readonly { readonly configHash: string }[];
-      readonly runs: readonly { readonly reasoningEffort: string }[];
+      readonly runs: readonly { readonly deliberationLevel: string }[];
     };
-    expect(observedEfforts).toEqual(["low", "high"]);
+    expect(observedLevels).toEqual(["low", "luna-max"]);
     expect(written.baseline).toBeUndefined();
-    expect(written.runs.map((run) => run.reasoningEffort)).toEqual(["low", "high"]);
+    expect(written.runs.map((run) => run.deliberationLevel)).toEqual(["low", "luna-max"]);
     expect(written.baselines).toHaveLength(2);
     expect(written.baselines[0]?.configHash).not.toBe(written.baselines[1]?.configHash);
   });
 
-  it("fails closed on ambiguous, unbound, and unbudgeted reasoning-effort benchmarks", async () => {
+  it("fails closed on ambiguous and unbound deliberation benchmarks", async () => {
     const datasetPath = join(root, "kiln-tool-agent-v1.jsonl");
     writeFileSync(datasetPath, JSON.stringify({
-      id: "effort-policy",
+      id: "deliberation-policy",
       input: "Call status.",
       expected: "status",
     }) + "\n", "utf-8");
@@ -763,20 +767,13 @@ describe("benchmarkCommand", () => {
 
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
       ...base,
-      "--reasoning-effort", "low",
-      "--reasoning-effort-sweep", "low,high",
-    ])).rejects.toThrow("either --reasoning-effort or --reasoning-effort-sweep");
+      "--deliberation-level", "low",
+      "--deliberation-level-sweep", "low,high",
+    ])).rejects.toThrow("either --deliberation-level or --deliberation-level-sweep");
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
       ...base,
-      "--reasoning-effort", "high",
+      "--deliberation-level", "high",
     ])).rejects.toThrow("require explicit --provider and --model");
-    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
-      ...base,
-      "--provider", "codex",
-      "--model", "benchmark-model",
-      "--reasoning-effort", "xhigh",
-      "--allow-experimental-xhigh",
-    ])).rejects.toThrow("requires --effort-budget-usd and --estimated-effort-cost-usd");
   });
 
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {

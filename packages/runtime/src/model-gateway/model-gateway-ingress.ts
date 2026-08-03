@@ -10,6 +10,7 @@ import {
   OpenCodeAdapter,
   OpenRouterAdapter,
   createAccountRef,
+  defineDeliberationLevelId,
   type DirectProviderId,
   type ModelGatewayAccountConfig,
   type ModelGatewayConfig,
@@ -170,7 +171,23 @@ export async function createModelGatewayIngress(options: ModelGatewayIngressOpti
     const admitted = findPrincipal(ingress, principal); if (!admitted?.config.virtualModelIds.includes(requestedModel)) return undefined;
     const found = routes.get(requestedModel); if (!found) return undefined; const configured = found.model.affinity;
     const affinity = configured.continuity === "none" ? { continuity: "none" as const } : { continuity: configured.continuity, scope: configured.scope!, ...(configured.allowRebind === undefined ? {} : { allowRebind: configured.allowRebind }) };
-    return { route: found.route, capabilities: new Set(found.model.capabilities), affinity };
+    const deliberation = found.model.deliberation
+      ? {
+          provider: found.model.providerId,
+          model: found.model.providerModelId,
+          levels: found.model.deliberation.levels.map((id) => ({ id: defineDeliberationLevelId(id) })),
+          ...(found.model.deliberation.defaultLevel
+            ? { defaultLevel: defineDeliberationLevelId(found.model.deliberation.defaultLevel) }
+            : {}),
+          supportsAdaptive: found.model.deliberation.supportsAdaptive,
+          evidence: {
+            sourceIdentity: `model-gateway:${found.model.id}`,
+            sourceRevision: found.model.deliberation.evidenceRevision,
+            observedAt: new Date().toISOString(),
+          },
+        }
+      : undefined;
+    return { route: found.route, capabilities: new Set(found.model.capabilities), ...(deliberation ? { deliberation } : {}), affinity };
   }
 
   async function listExecutionAccounts(providerId: DirectProviderId): Promise<readonly ExecutionAccount[]> {

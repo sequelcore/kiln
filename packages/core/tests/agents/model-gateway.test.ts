@@ -17,6 +17,7 @@ import {
   type ModelTurnResult,
 } from "../../src/agents/model-gateway/index.js";
 import { isSameProviderModelRoute } from "../../src/agents/provider-model-evidence.js";
+import { KNOWN_DELIBERATION_LEVEL_IDS } from "../../src/agents/deliberation-policy.js";
 
 const route = (scope = "default"): ModelGatewayRoute => ({
   providerId: "fixture-provider",
@@ -314,6 +315,34 @@ describe("caller-owned one-round dispatcher", () => {
     expect(received.parts[0]).toMatchObject({ call: { input: { kind: "raw-text", value: "echo  one\r\n  two" } } });
   });
 
+  it("rejects denied deliberation before the one-round dispatcher", async () => {
+    let calls = 0;
+    await expect(dispatchModelGatewayOneRound({
+      dispatchOneRound: async () => {
+        calls += 1;
+        return result;
+      },
+    }, {
+      account: createAccountRef("account-a"),
+      route: route(),
+      sessionId: "session-denied",
+      turn: {
+        ...turn,
+        deliberationResolution: {
+          status: "denied",
+          requested: {
+            mode: "fixed",
+            preferredLevel: KNOWN_DELIBERATION_LEVEL_IDS.max,
+            onUnsupported: "deny",
+          },
+          source: "operator",
+          reason: "preferred-level-unsupported",
+        },
+      },
+    })).rejects.toThrow("Denied deliberation cannot execute");
+    expect(calls).toBe(0);
+  });
+
   it("rejects undeclared or wrong-kind provider tool calls after the single dispatch", async () => {
     const input: ModelGatewayOneRoundDispatchInput = {
       account: createAccountRef("account-a"), route: route(), sessionId: "session-1", turn,
@@ -433,13 +462,28 @@ describe("caller-owned one-round dispatcher", () => {
     expect(() => validateModelTurnResult({ ...result, usage: { inputTokens: 1 } as never })).toThrow("usage.outputTokens");
   });
 
-  it("validates protocol-neutral response, reasoning, and tool options", () => {
+  it("validates protocol-neutral response, deliberation, summary, and tool options", () => {
     expect(() => validateModelTurn({
       ...turn,
       instructions: "Stay concise.",
       parallelToolCalls: false,
       responseFormat: { kind: "json-schema", name: "answer", strict: true, schema: { type: "object" } },
-      reasoning: { effort: "high", summary: "concise" },
+      deliberationResolution: {
+        status: "exact",
+        requested: {
+          mode: "fixed",
+          preferredLevel: KNOWN_DELIBERATION_LEVEL_IDS.high,
+          onUnsupported: "deny",
+        },
+        selectedLevel: KNOWN_DELIBERATION_LEVEL_IDS.high,
+        source: "operator",
+        capabilityEvidence: {
+          sourceIdentity: "fixture-catalog",
+          sourceRevision: "1",
+          observedAt: "2026-08-02T00:00:00.000Z",
+        },
+      },
+      reasoningSummary: "concise",
       textVerbosity: "low",
     })).not.toThrow();
     expect(() => validateModelTurn({ ...turn, parallelToolCalls: "yes" as never })).toThrow("parallelToolCalls");

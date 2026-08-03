@@ -1,4 +1,9 @@
 import type { ExecutionBillingMode } from "../../agents/execution-identity.js";
+import type {
+  DeliberationIntent,
+  DeliberationResolution,
+  DeliberationSource,
+} from "../../agents/deliberation-policy.js";
 
 // Engine type: ModelRouter -- per-request model selection
 // Pure TypeScript, zero external dependencies.
@@ -19,7 +24,6 @@ export type RoutingTier = "rule" | "complexity" | "cascade" | "default";
  * explicit overrides may drive a non-automatic route.
  */
 export type ModelSelectionMode = "automatic" | "explicit-operator-only";
-export type ModelRoutingReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 export type ModelRoutingDiagnosticSeverity = "info" | "warning" | "error";
 
 export interface ModelRoutingDiagnostic {
@@ -48,7 +52,7 @@ export interface ModelRoutingPolicyInputsUsed {
   readonly hasTools: boolean;
   readonly toolCount: number;
   readonly requiresStreaming: boolean;
-  readonly requestedReasoningEffort?: ModelRoutingReasoningEffort;
+  readonly deliberationIntent?: DeliberationIntent;
   readonly task?: string;
   readonly phase?: "orient" | "plan" | "execute" | "verify" | "handoff";
   readonly uncertainty?: number;
@@ -63,8 +67,7 @@ export interface ModelRoutingRationale {
   readonly selectedModel: string;
   readonly canonicalModel?: string;
   readonly selectionMode: ModelSelectionMode;
-  readonly reasoningEffort?: ModelRoutingReasoningEffort;
-  readonly effortOmissionReason?: string;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly routingReason: string;
   readonly confidence: number;
   readonly routingTier: RoutingTier;
@@ -116,7 +119,8 @@ export interface RoutingRequest {
   readonly toolCount: number;
   readonly requiresStreaming: boolean;
   readonly budgetRemainingCents?: number;
-  readonly requestedReasoningEffort?: ModelRoutingReasoningEffort;
+  readonly deliberationIntent?: DeliberationIntent;
+  readonly deliberationSource?: Exclude<DeliberationSource, "provider-default">;
   readonly task?: string;
   readonly phase?: "orient" | "plan" | "execute" | "verify" | "handoff";
   readonly uncertainty?: number;
@@ -138,7 +142,7 @@ export interface RoutingDecision {
   readonly routingTier: RoutingTier;
   readonly estimatedCostUsd?: number;
   readonly selectionMode?: ModelSelectionMode;
-  readonly reasoningEffort?: ModelRoutingReasoningEffort;
+  readonly deliberationResolution?: DeliberationResolution;
   readonly rationale?: ModelRoutingRationale;
 }
 

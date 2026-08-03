@@ -110,7 +110,16 @@ describe("WorkflowOverviewPanel", () => {
             selectionMode: "automatic",
             routingReason: "Rule matched ui-change route",
             routingTier: "rule",
-            requestedReasoningEffort: "high",
+            deliberationResolution: {
+              status: "exact",
+              selectedLevel: "high",
+              source: "operator",
+              capabilityEvidence: {
+                sourceIdentity: "anthropic/claude-sonnet-4-6",
+                sourceRevision: "test-r1",
+                observedAt: "2026-05-12T21:00:00.000Z",
+              },
+            },
           },
           authorityStatus: {
             effective: "read_only",

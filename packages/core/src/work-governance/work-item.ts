@@ -9,15 +9,14 @@ import {
   type WorkClassificationProvenance,
   type WorkClassificationProvenanceInput,
 } from "../agents/work-classification.js";
+import type { DeliberationIntent } from "../agents/deliberation-policy.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
-
-export type WorkItemRecommendedReasoningEffort = "low" | "medium" | "high";
 
 export interface WorkItemRoutingRecommendation {
   readonly routeId?: string;
   readonly agentProfile?: string;
-  readonly reasoningEffort: WorkItemRecommendedReasoningEffort;
+  readonly deliberationIntent: DeliberationIntent;
   readonly modelTaskSuitability: string;
   readonly rationale: string;
 }

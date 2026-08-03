@@ -10,6 +10,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineStructuredExecutionResult,
+  resolveDeliberation,
   STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
 } from "@kilnai/core";
 import type {
@@ -21,6 +22,7 @@ import type {
   ManagedAgentResultHandoffProvenance,
   ManagedAgentWriteEvidence,
   ManagedAgentProviderRoute,
+  ModelDeliberationCapabilities,
   StructuredExecutionResult,
 } from "@kilnai/core";
 import type {
@@ -54,6 +56,7 @@ export interface ManagedCliHarnessAdapterConfig {
   readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
   readonly resourceReader?: ManagedInvocationResourceReader;
   readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  readonly deliberationCapabilities?: ModelDeliberationCapabilities;
 }
 
 export interface ManagedCliHarnessFilesystemBoundaryConfig {
@@ -99,6 +102,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   private readonly filesystemBoundary?: ManagedCliHarnessFilesystemBoundaryConfig;
   private readonly resourceReader?: ManagedInvocationResourceReader;
   private readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
+  private readonly deliberationCapabilities?: ModelDeliberationCapabilities;
 
   constructor(config: ManagedCliHarnessAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed CLI harness provider id is required");
@@ -110,6 +114,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     this.filesystemBoundary = config.filesystemBoundary;
     this.resourceReader = config.resourceReader;
     this.builtinToolsProvider = config.builtinToolsProvider;
+    this.deliberationCapabilities = config.deliberationCapabilities;
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -175,9 +180,20 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       request,
     );
     const filesystemSnapshot = await snapshotFilesystemBoundary(this.filesystemBoundary);
+    const deliberationResolution = request.providerRoute.deliberationResolution ?? (request.providerRoute.deliberationIntent
+      ? resolveDeliberation({
+          intent: request.providerRoute.deliberationIntent,
+          source: "route",
+          capabilities: this.deliberationCapabilities,
+        })
+      : undefined);
+    if (deliberationResolution?.status === "denied") {
+      throw new Error(`Managed CLI deliberation denied before provider execution: ${deliberationResolution.reason}`);
+    }
     const session = this.factory(system, cwd, {
       kilnSessionId: childSessionId,
       permissionPolicy: permissionPolicyFromAuthority(request, this.providerId),
+      ...(deliberationResolution ? { deliberationResolution } : {}),
       ...(request.input.handoff ? {
         structuredOutput: { schema: STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA },
       } : {}),
@@ -386,7 +402,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       providerId: this.providerId,
       surface: "cli-harness",
       model: route.model ?? this.model,
-      ...(route.reasoningEffort !== undefined ? { reasoningEffort: route.reasoningEffort } : {}),
+      ...(route.deliberationIntent !== undefined ? { deliberationIntent: route.deliberationIntent } : {}),
     };
   }
 

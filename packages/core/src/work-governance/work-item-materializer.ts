@@ -6,6 +6,10 @@ import {
   type ManagedAgentOrchestrationExpectedEvidence,
   type ManagedAgentOrchestrationRequest,
 } from "../agents/managed-invocation/orchestration.js";
+import {
+  defineDeliberationLevelId,
+  type DeliberationIntent,
+} from "../agents/deliberation-policy.js";
 import type { GoalRun } from "./goal-run.js";
 import {
   MANAGED_ORCHESTRATION_ADOPTION_GATE,
@@ -14,7 +18,6 @@ import {
   managedOrchestrationAdoptionReadinessContract,
   type WorkItem,
   type WorkItemManagedOrchestrationAdoptionReadiness,
-  type WorkItemRecommendedReasoningEffort,
   type WorkItemRoutingRecommendation,
   type WorkItemStore,
   type WorkItemUpsertInput,
@@ -333,13 +336,13 @@ function routingRecommendation(
       : plan.managedAgentDelegationCandidates[0]
         ? { agentProfile: plan.managedAgentDelegationCandidates[0] }
         : {}),
-    reasoningEffort: recommendedReasoningEffort(draft),
+    deliberationIntent: recommendedDeliberationIntent(draft),
     modelTaskSuitability: `${draft.workflowProfile}:${draft.risk}`,
     rationale: `Derived from plan workflow profile ${draft.workflowProfile} and risk ${draft.risk}.`,
   };
 }
 
-function recommendedReasoningEffort(draft: SessionPlanWorkItemDraft): WorkItemRecommendedReasoningEffort {
+function recommendedDeliberationIntent(draft: SessionPlanWorkItemDraft): DeliberationIntent {
   if (
     draft.risk === "high"
     || draft.risk === "critical"
@@ -348,12 +351,12 @@ function recommendedReasoningEffort(draft: SessionPlanWorkItemDraft): WorkItemRe
     || draft.workflowProfile === "verification-heavy"
     || draft.workflowProfile === "formal-proof-candidate"
   ) {
-    return "high";
+    return { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" };
   }
   if (draft.workflowProfile === "small-fix" && draft.risk === "low") {
-    return "low";
+    return { mode: "fixed", preferredLevel: defineDeliberationLevelId("low"), onUnsupported: "deny" };
   }
-  return "medium";
+  return { mode: "fixed", preferredLevel: defineDeliberationLevelId("medium"), onUnsupported: "deny" };
 }
 
 function assertExistingMatches(existing: WorkItem, input: WorkItemUpsertInput): void {
@@ -502,7 +505,7 @@ function sameRoutingRecommendation(
   }
   return left.routeId === right.routeId
     && left.agentProfile === right.agentProfile
-    && left.reasoningEffort === right.reasoningEffort
+    && JSON.stringify(left.deliberationIntent) === JSON.stringify(right.deliberationIntent)
     && left.modelTaskSuitability === right.modelTaskSuitability
     && left.rationale === right.rationale;
 }

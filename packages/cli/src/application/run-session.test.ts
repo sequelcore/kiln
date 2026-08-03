@@ -3,6 +3,13 @@ import { runSession, type RunSessionRouteCandidate } from "./run-session.js";
 import type { SessionRegistry } from "../wrapper/session-registry.js";
 import type { SessionContext } from "../wrapper/index.js";
 import type { SessionHooks } from "./session-hooks.js";
+import { defineDeliberationLevelId, type DeliberationResolution } from "@kilnai/core";
+
+const XHIGH_RESOLUTION: DeliberationResolution = {
+  status: "exact",
+  source: "operator",
+  selectedLevel: defineDeliberationLevelId("xhigh"),
+};
 
 describe("runSession", () => {
   it("records a failed terminal outcome on the provider attempt", async () => {
@@ -45,7 +52,7 @@ describe("runSession", () => {
     })]);
   });
 
-  it("passes per-route reasoning effort to the selected session attempt", async () => {
+  it("passes per-route deliberation resolution to the selected session attempt", async () => {
     const run = vi.fn(async function* () {
       yield {
         type: "cost_update",
@@ -66,7 +73,7 @@ describe("runSession", () => {
     const routeCandidates: readonly RunSessionRouteCandidate[] = [{
       provider: "codex-oauth",
       model: "gpt-5.5",
-      reasoningEffort: "xhigh",
+      deliberationResolution: XHIGH_RESOLUTION,
     }];
 
     const trackCostUpdate = vi.fn();
@@ -124,11 +131,11 @@ describe("runSession", () => {
 
     expect(createSession).toHaveBeenCalledWith("codex-oauth", expect.objectContaining({
       model: "gpt-5.5",
-      reasoningEffort: "xhigh",
+      deliberationResolution: XHIGH_RESOLUTION,
     }));
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       cwd: "/repo",
-      reasoningEffort: "xhigh",
+      deliberationResolution: XHIGH_RESOLUTION,
     }));
     expect(result.providerTokenUsage).toEqual([expect.objectContaining({
       provider: "codex-oauth",

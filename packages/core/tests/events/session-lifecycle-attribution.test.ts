@@ -8,6 +8,26 @@ import {
   type CanonicalCostUpdatedEvent,
   type SessionLifecycleAttributionLedger,
 } from "../../src/events/index.js";
+import {
+  KNOWN_DELIBERATION_LEVEL_IDS,
+  type DeliberationResolution,
+} from "../../src/agents/deliberation-policy.js";
+
+const HIGH_DELIBERATION: DeliberationResolution = {
+  status: "exact",
+  requested: {
+    mode: "fixed",
+    preferredLevel: KNOWN_DELIBERATION_LEVEL_IDS.high,
+    onUnsupported: "deny",
+  },
+  selectedLevel: KNOWN_DELIBERATION_LEVEL_IDS.high,
+  source: "task",
+  capabilityEvidence: {
+    sourceIdentity: "fixture-catalog",
+    sourceRevision: "1",
+    observedAt: "2026-08-02T00:00:00.000Z",
+  },
+};
 
 const COST_EVENT: CanonicalCostUpdatedEvent = {
   eventId: "event-1",
@@ -243,7 +263,7 @@ describe("session lifecycle attribution", () => {
         phase: "planning",
         policyVersion: "efficiency-v1",
         route: "codex-oauth/gpt-5.5",
-        reasoningEffort: "high",
+        deliberationResolution: HIGH_DELIBERATION,
       },
       allocations: [
         { source: "control_instructions", tokenClass: "admitted", tokens: 40, evidenceUris: ["kiln://artifact/policy"] },
@@ -264,7 +284,7 @@ describe("session lifecycle attribution", () => {
       phase: "planning",
       policyVersion: "efficiency-v1",
       route: "codex-oauth/gpt-5.5",
-      reasoningEffort: "high",
+      deliberationResolution: HIGH_DELIBERATION,
     });
     expect(ledger.records).toEqual([
       expect.objectContaining({
@@ -279,7 +299,7 @@ describe("session lifecycle attribution", () => {
         context: expect.objectContaining({
           workItemId: "work-1",
           route: "codex-oauth/gpt-5.5",
-          reasoningEffort: "high",
+          deliberationResolution: HIGH_DELIBERATION,
         }),
         evidenceUris: ["kiln://artifact/policy"],
       }),
