@@ -33,6 +33,21 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     this.defaultModel = defaultModel;
   }
 
+  protected override buildHeaders(
+    options?: { readonly sessionId?: string },
+  ): Record<string, string> {
+    const headers = super.buildHeaders(options);
+    headers["x-opencode-client"] = "kiln";
+    const sessionId = options?.sessionId?.trim();
+    if (sessionId) {
+      if (/\r|\n/.test(sessionId)) {
+        throw new KilnError("CONFIG_INVALID", "OpenCode session id contains invalid header characters");
+      }
+      headers["x-opencode-session"] = sessionId;
+    }
+    return headers;
+  }
+
   static async fromAuth(opts: {
     auth?: OpenCodeAuth;
     defaultModel: string;

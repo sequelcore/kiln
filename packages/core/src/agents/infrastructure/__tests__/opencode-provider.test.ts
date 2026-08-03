@@ -104,13 +104,19 @@ describe("OpenCodeAdapter", () => {
       });
 
       await adapter.createMessage({
+        sessionId: "session-123",
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
       });
 
       expect(fetchMock).toHaveBeenCalledWith(
         "https://opencode.ai/zen/go/v1/chat/completions",
-        expect.any(Object),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            "x-opencode-client": "kiln",
+            "x-opencode-session": "session-123",
+          }),
+        }),
       );
     });
 
@@ -137,6 +143,24 @@ describe("OpenCodeAdapter", () => {
         "https://opencode.ai/zen/v1/chat/completions",
         expect.any(Object),
       );
+    });
+
+    it("rejects invalid OpenCode session header characters before network I/O", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      const adapter = new OpenCodeAdapter({
+        apiKey: "sk-test",
+        tier: "go",
+        defaultModel: "glm-5.2",
+      });
+
+      await expect(adapter.createMessage({
+        sessionId: "session\r\ninjected",
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+      })).rejects.toThrow("invalid header characters");
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it("passes caller abort signals to OpenCode chat requests", async () => {

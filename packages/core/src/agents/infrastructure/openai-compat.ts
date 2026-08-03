@@ -160,7 +160,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
   async createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
     const request = this.buildRequest(options);
     const response = await withRetry(
-      () => this.sendRequest(request.body, options.signal),
+      () => this.sendRequest(request.body, options),
       this.retryOptions(),
       options.signal,
     );
@@ -176,7 +176,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     const response = await withRetry(
       () => fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
-        headers: this.buildHeaders(),
+        headers: this.buildHeaders(options),
         body: JSON.stringify(request.body),
         signal: options.signal,
       }),
@@ -466,19 +466,19 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
   }
 
   /** HTTP headers for API requests. Override in subclasses to add provider-specific headers. */
-  protected buildHeaders(): Record<string, string> {
+  protected buildHeaders(_options?: Pick<CreateMessageOptions, "sessionId">): Record<string, string> {
     return {
       Authorization: `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
     };
   }
 
-  private async sendRequest(body: OpenAIRequestBody, signal?: AbortSignal): Promise<OpenAIChatResponse> {
+  private async sendRequest(body: OpenAIRequestBody, options: CreateMessageOptions): Promise<OpenAIChatResponse> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: this.buildHeaders(),
+      headers: this.buildHeaders(options),
       body: JSON.stringify(body),
-      signal,
+      signal: options.signal,
     });
 
     if (!response.ok) {
