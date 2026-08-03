@@ -162,12 +162,9 @@ full. Result records validate version, job and invocation identity, route,
 configured agent, admission profile, terminal state, and timestamps before
 they are observable. Terminal results are immutable.
 
-Records written before result persistence remain valid historical job records:
-their terminal status is preserved and result reads return stable
-`result_unavailable`; the owner never mines transcripts or provider logs to
-backfill them. This bounded historical rule may be removed only after all
-supported persisted managed-job records have been migrated or expired under an
-explicit retention decision.
+Managed-job V7 is the only supported persisted record. The operator explicitly
+discarded the terminal pre-V7 local store in issue #43; Runtime rejects every
+other record version rather than retaining a migration or recovery reader.
 
 ### Codex App MCP projection
 
@@ -768,11 +765,10 @@ Recovery checkpoints reference the economic commitment and dispatch fence by
 immutable identifiers. They never duplicate the account lease held by the
 SQLite economic authority.
 
-Managed-job V7 is the sole writer contract and persists the objective plus the
-canonical terminal Runtime handoff. V5 and V6 are historical recovery readers,
-not compatibility writers. They can be removed once no durable `.kiln`
-managed-job record at those versions remains and recovery evidence confirms no
-active commitment refers to one.
+Managed-job V7 is the sole persisted contract and contains the objective plus
+the canonical terminal Runtime handoff. Pre-V7 records fail closed as corrupt
+state; the operator-approved reset in issue #43 removed the only local records
+that required the retired readers.
 The model-facing route catalog includes each healthy route's timeout budget.
 Parent agents should route broad repository review, long reasoning, or
 multi-file analysis to a child route with enough admitted time, or split work
@@ -845,8 +841,8 @@ job is persisted as V7 with policy/revision and constraints, a namespaced
 `economicAttemptId`, and pinned `adoptedDecisionAt`, but without a selected
 `routeId` or `providerId`. Core then adopts an immutable economic snapshot whose
 policy, candidate set, price/rate evidence, and full contents are bound by
-canonical sorted SHA-256 digests. V5 and V6 remain strict historical recovery
-readers; neither is used for a new submission or inferred into a V7 attempt.
+canonical sorted SHA-256 digests. Runtime accepts no pre-V7 managed-job record
+and never infers a new economic attempt from retired state.
 
 Runtime acquires the commitment synchronously from its single-owner SQLite
 authority in one immediate transaction. That transaction revalidates the

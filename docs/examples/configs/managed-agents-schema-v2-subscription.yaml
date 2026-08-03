@@ -1,0 +1,127 @@
+version: "1"
+
+managedAgents:
+  schemaVersion: 2
+  enabled: true
+  routes:
+    - id: codex-subscription-review
+      kind: direct
+      provider: codex-oauth
+      model: gpt-5.6-codex
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: sandbox
+      tools:
+        allowed:
+          - read
+          - rg
+        network: false
+        writes: false
+      memory:
+        access: read-only
+      credentials:
+        mode: runtime-selected
+        routeId: codex-subscription-review
+        accountPolicyId: codex-subscription
+  economicPolicies:
+    - id: bounded-subscription-review
+      revision: rev-2026-08
+      evidenceRequirements:
+        quota: required-for-account-bound
+        price: required
+      noRouteAction: deny
+      comparisonDomains:
+        - id: subscription-priority
+          rank: 0
+          unit: request
+          scheme:
+            kind: currency
+            currency: USD
+          rateCardBasis: provider-subscription
+          envelopeSemantics: configured-upper-bound
+      candidates:
+        - routeId: codex-subscription-review
+          comparisonDomainId: subscription-priority
+          priorityRank: 0
+          ceiling:
+            kind: none
+          worstCaseReservation:
+            kind: not-comparable
+            reason: subscription-basis
+
+modelGateway:
+  port: 4819
+  accounts:
+    - id: codex-operator
+      providerId: codex-oauth
+      credentialId: codex-operator-oauth
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics:
+        capacityIdentity: codex-operator-subscription
+        subscriptionClass: subscription
+        quotaClassId: codex-subscription-quota
+        creditPosture: disabled
+        overagePosture: disabled
+  replay:
+    ttlMs: 60000
+    maxEntries: 10
+    hmacKeyEnv: KILN_REPLAY_SECRET
+  surfaces:
+    openAIResponses:
+      maxBodyBytes: 1048576
+      maxConcurrentRequests: 1
+  principals:
+    - tokenEnv: KILN_RESPONSES_TOKEN
+      ingress: openai-responses
+      tenantId: operator
+      applicationId: managed-agent
+      callerId: kiln-runtime
+      capabilityId: model-invoke
+      scopes:
+        - model.invoke
+      budgetEvidenceId: operator-subscription-budget
+      virtualModelIds:
+        - codex-subscription
+  virtualModels:
+    - id: codex-subscription
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-codex
+      accountIds:
+        - codex-operator
+      capabilities:
+        - text
+      affinity:
+        continuity: none
+      economics:
+        adapterCapabilityId: codex-oauth-direct
+        adapterCapabilityVersion: "1"
+        authBillingChannel: oauth-subscription
+        executionMode: responses-api
+        serviceTier: standard
+        rateCardBasis: provider-subscription
+        envelopeSemantics: configured-upper-bound
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard-context
+        cacheClass: provider-cache
+        priceEvidence:
+          kind: subscription
+          rateCardId: codex-subscription
+          rateCardRevision: rev-2026-08
+          evidence:
+            sourceIdentity: provider-subscription-terms
+            sourceRevision: rev-2026-08
+            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            observedAt: 2026-08-01T00:00:00.000Z
+            validUntil: 2026-09-01T00:00:00.000Z
+            confidence: high
+            authority: provider-reported
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits:
+            - atoms: "200000"
+              scale: 0
+              unit: input-token
+              scheme:
+                kind: unit

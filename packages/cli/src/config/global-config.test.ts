@@ -158,7 +158,7 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("Invalid global modelGateway");
   });
 
-  it("binds runtime-selected managed routes to one matching direct account policy", () => {
+  it("rejects runtime-selected managed routes at the pre-v2 boundary", () => {
     existsSyncMock.mockReturnValue(true);
     const config = [
       'version: "1"',
@@ -180,29 +180,8 @@ describe("global-config", () => {
       "      credentials: { mode: runtime-selected, accountPolicyId: managed-codex }",
     ];
     readFileSyncMock.mockReturnValue(config.join("\n"));
-    expect(readGlobalConfig()?.managedAgents?.routes?.[0]?.credentials).toEqual({
-      mode: "runtime-selected",
-      accountPolicyId: "managed-codex",
-    });
-
-    readFileSyncMock.mockReturnValue(config.map((line) =>
-      line === "      kind: direct" ? "      kind: harness" : line).join("\n"));
     expect(() => readGlobalConfig()).toThrow(
-      "managedAgents.routes[0] runtime-selected credentials require a direct route",
-    );
-
-    readFileSyncMock.mockReturnValue(config.map((line) =>
-      line.includes("accountPolicyId: managed-codex")
-        ? "      credentials: { mode: runtime-selected, accountPolicyId: missing-policy }"
-        : line).join("\n"));
-    expect(() => readGlobalConfig()).toThrow(
-      "managedAgents.routes[0].credentials.accountPolicyId must reference modelGateway.virtualModels",
-    );
-
-    readFileSyncMock.mockReturnValue(config.map((line) =>
-      line === "      model: gpt-5.6-terra" ? "      model: gpt-5.6-mini" : line).join("\n"));
-    expect(() => readGlobalConfig()).toThrow(
-      "managedAgents.routes[0] provider and model must match its modelGateway account policy",
+      /retired pre-v2 schema.*re-authored as schemaVersion 2/,
     );
   });
 

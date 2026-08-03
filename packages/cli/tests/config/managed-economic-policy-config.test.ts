@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse } from "yaml";
 import { createAccountRef } from "@kilnai/core";
 import { SqliteManagedAccountLeaseAuthority } from "@kilnai/runtime";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
@@ -167,7 +168,6 @@ function accountlessEconomicConfig(): KilnGlobalConfig {
 
 function economicJob(jobId: string, economicAttemptId: string) {
   return {
-    version: 6,
     id: jobId,
     projectId: "project-a",
     callerId: "caller-a",
@@ -260,7 +260,6 @@ describe("managed economic policy config", () => {
       candidates: [],
     }));
     const adoption = await projectManagedEconomicJobAdoption(economicConfig(), {
-      version: 6,
       economicAttemptId: "economic-attempt:test-attempt-001",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
       economicPolicyId: "default-economic-policy",
@@ -315,7 +314,6 @@ describe("managed economic policy config", () => {
       candidates: [],
     }));
     const job = {
-      version: 6,
       id: "job-affinity",
       projectId: "project-a",
       callerId: "caller-a",
@@ -355,7 +353,6 @@ describe("managed economic policy config", () => {
     }));
 
     await expect(projectManagedEconomicJobAdoption(economicConfig(), {
-      version: 6,
       id: "job-affinity",
       projectId: "project-a",
       callerId: "caller-a",
@@ -376,7 +373,6 @@ describe("managed economic policy config", () => {
   it("maps exact persisted policy revision drift to identity-revision-conflict without capacity lookup", async () => {
     const resolve = vi.fn();
     await expect(projectManagedEconomicJobAdoption(economicConfig(), {
-      version: 6,
       economicPolicyId: "default-economic-policy",
       economicPolicyRevision: "older-revision",
       candidateSet: { candidates: [] },
@@ -390,7 +386,6 @@ describe("managed economic policy config", () => {
     const config = accountlessEconomicConfig();
     const resolve = vi.fn();
     const adoption = await projectManagedEconomicJobAdoption(config, {
-      version: 6,
       economicAttemptId: "economic-attempt:accountless-001",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
       economicPolicyId: "default-economic-policy",
@@ -512,7 +507,7 @@ describe("managed economic policy config", () => {
   it("requires the one-way schema version and rejects unknown policy fields", () => {
     const missingVersion = structuredClone(economicConfig()) as Record<string, any>;
     delete missingVersion.managedAgents.schemaVersion;
-    expect(() => validateGlobalConfig(missingVersion)).toThrow(/schemaVersion must be 2/);
+    expect(() => validateGlobalConfig(missingVersion)).toThrow(/schemaVersion 2/);
 
     const unknown = structuredClone(economicConfig()) as Record<string, any>;
     unknown.managedAgents.economicPolicies[0].estimatedCost = 0.25;
@@ -529,6 +524,26 @@ describe("managed economic policy config", () => {
     const missingPolicies = structuredClone(economicConfig()) as Record<string, any>;
     delete missingPolicies.managedAgents.economicPolicies;
     expect(() => validateGlobalConfig(missingPolicies)).toThrow(/schemaVersion 2 requires non-empty economicPolicies/);
+  });
+
+  it("diagnoses pre-v2 managed-agent routes as a re-authoring boundary", () => {
+    const legacy = structuredClone(economicConfig()) as Record<string, any>;
+    delete legacy.managedAgents.schemaVersion;
+    delete legacy.managedAgents.economicPolicies;
+    delete legacy.modelGateway;
+
+    expect(() => validateGlobalConfig(legacy)).toThrow(
+      /retired pre-v2 schema.*re-author.*global-config\.md#managed-economic-policy-schema-v2/i,
+    );
+  });
+
+  it("keeps the documented subscription schema-v2 example executable", () => {
+    const example = parse(readFileSync(
+      new URL("../../../../docs/examples/configs/managed-agents-schema-v2-subscription.yaml", import.meta.url),
+      "utf8",
+    ));
+
+    expect(() => validateGlobalConfig(example)).not.toThrow();
   });
 
   it("rejects broken candidate, route, virtual-model, and account cross-links", () => {

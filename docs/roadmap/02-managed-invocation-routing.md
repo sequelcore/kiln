@@ -135,8 +135,10 @@ reservations and ceilings without claiming free execution without evidence.
 
 Core now adopts one immutable economic snapshot with canonical sorted SHA-256
 digests over the policy, candidate set, price/rate evidence, and full decision
-basis. New managed jobs are V6 and durably pin a namespaced
-`economicAttemptId` plus `adoptedDecisionAt`; V5 is strict historical input.
+basis. Managed-job V7 is the sole persisted contract and durably pins a
+namespaced `economicAttemptId`, `adoptedDecisionAt`, objective, and canonical
+terminal handoff. The operator-approved reset in issue #43 retired every
+pre-V7 reader without a compatibility path.
 
 One project-runtime SQLite writer performs route capacity, account-backed or
 accountless selection, reservation, and commitment synchronously in one

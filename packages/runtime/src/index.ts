@@ -398,7 +398,6 @@ export type {
   ManagedJobProjectPort,
   ManagedJobLifecycleEntry,
   ManagedJobRecord,
-  ManagedJobRecordV6,
   ManagedJobReplayQuery,
   ManagedJobRoutePort,
   ManagedJobResult,

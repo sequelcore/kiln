@@ -125,8 +125,6 @@ describe("Codex App managed-job production composition", () => {
     const recoverInvocations = vi
       .spyOn(RuntimeManagedAgentInvocationService.prototype, "recoverPersistedInvocations")
       .mockResolvedValue({ recovered: [], accountLeases: [] });
-    const recordAccountLease = vi.spyOn(FilesystemManagedJobStore.prototype, "recordAccountLease")
-      .mockResolvedValue({ version: 4 } as never);
     const recoveryOrder: string[] = [];
     const recoverCommitments = vi
       .spyOn(SqliteManagedAccountLeaseAuthority.prototype, "recoverCommitments")
@@ -150,12 +148,10 @@ describe("Codex App managed-job production composition", () => {
       composition.close();
 
       expect(recoverInvocations).not.toHaveBeenCalled();
-      expect(recordAccountLease).not.toHaveBeenCalled();
       expect(recoverInterrupted).toHaveBeenCalledOnce();
       expect(recoveryOrder).toEqual(["authority", "jobs"]);
     } finally {
       recoverInvocations.mockRestore();
-      recordAccountLease.mockRestore();
       recoverInterrupted.mockRestore();
       recoverCommitments.mockRestore();
       rmSync(projectRoot, { recursive: true, force: true });

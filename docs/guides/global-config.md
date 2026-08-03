@@ -622,8 +622,12 @@ Economic governance uses one canonical, one-way configuration boundary:
 - each project or global agent with `mode: managed-child` or `mode: all`
   references exactly one policy through `economicPolicyId`.
 
-Declare `managedAgents.schemaVersion: 2` whenever `economicPolicies` is
-present. The loader rejects unknown keys, aliases, duplicate identities,
+Every `runtime-selected` route must declare `managedAgents.schemaVersion: 2`
+and complete economic policy authority. The loader rejects the retired pre-v2
+shape with a re-authoring diagnostic before validating individual route
+credentials. Credentialless and native-harness routes do not acquire account
+authority and are not forced into the economic schema. The loader also rejects
+unknown keys, aliases, duplicate identities,
 duplicate candidate routes, non-canonical decimals, incompatible ceiling
 units/schemes, unbounded route envelopes, unsupported providers, missing
 route/model/account economics, and fallback or overage that is not explicitly
@@ -652,6 +656,17 @@ policy. It cannot add a candidate, choose an account, or create a default.
 Malformed or widening bindings stop composition before adapter construction or
 credential resolution.
 
+There is intentionally no automatic pre-v2 migration: account ownership,
+tariff evidence, ceilings, and overage posture cannot be derived safely from a
+route topology. Before editing, preserve the original YAML outside the active
+config path. Run `kiln config read health` to inspect an invalid global config
+without accepting its `managedAgents` block as authority, then re-author it
+against the complete subscription example in
+[`managed-agents-schema-v2-subscription.yaml`](../examples/configs/managed-agents-schema-v2-subscription.yaml).
+Reuse route IDs, profiles, tool scopes, write authority, and approvals only
+after reviewing them; author all economic evidence from current provider and
+account facts.
+
 Native Codex, OpenCode, and Claude projections intentionally omit capacity,
 quota, tariff, and billing evidence. Native picker configuration is not a
 second economic authority. Runtime now admits a policy-owned candidate set
@@ -662,13 +677,13 @@ decision.
 Unconfigured builtin agents are therefore absent from the schema-v2 managed
 catalog. A project or global definition, including an override with the same
 name as a builtin, is admitted only with a valid `economicPolicyId`.
-Policy agents are exposed to native managed-job submission through the V6
-precommit record. V6 persists the policy id/revision, normalized narrowing
-constraints, governance evidence, admitted candidate set, `economicAttemptId`,
+Policy agents are exposed to native managed-job submission through the V7
+record. V7 persists the policy id/revision, normalized narrowing constraints,
+governance evidence, admitted candidate set, `economicAttemptId`, objective,
 and adopted decision time before the atomic commitment transaction. The
 selected route, reservation, optional account lease, and dispatch fence remain
-SQLite-authoritative rather than duplicated into the job projection. V5 is a
-strict historical reader only. #34 internal Slice 5 dispatches committed work
+SQLite-authoritative rather than duplicated into the job projection. Pre-V7
+records are unsupported. #34 internal Slice 5 dispatches committed work
 only after the durable fence, materializes the exact committed adapter and
 credential identity, and requires typed settlement. Unknown or incomplete
 provider outcomes remain capacity-consuming until authoritative settlement or

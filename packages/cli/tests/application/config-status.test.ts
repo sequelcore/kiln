@@ -130,6 +130,34 @@ describe("config-status", () => {
     });
   });
 
+  it("reports the pre-v2 managed-agent re-authoring boundary through config health", async () => {
+    writeProjectConfig(tempDir);
+    const globalDir = join(tempDir, "xdg", "kiln");
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(join(globalDir, "config.yaml"), [
+      'version: "1"',
+      "managedAgents:",
+      "  routes:",
+      "    - id: legacy-runtime-selected",
+      "      kind: direct",
+      "      provider: codex-oauth",
+      "      model: test-model",
+      "      credentials:",
+      "        mode: runtime-selected",
+      "        accountPolicyId: legacy-policy",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const health = await readConfigStatusView(snapshot, "health");
+
+    expect(snapshot.global).toMatchObject({ status: "invalid" });
+    expect(snapshot.errors).toEqual(expect.arrayContaining([
+      expect.stringMatching(/retired pre-v2 schema.*re-authored as schemaVersion 2/),
+    ]));
+    expect(JSON.stringify(health.value)).toMatch(/retired pre-v2 schema.*re-authored as schemaVersion 2/);
+  });
+
   it("publishes canonical MCP resolution in the shared status and bounded read view", async () => {
     mkdirSync(join(tempDir, ".kiln"), { recursive: true });
     writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [

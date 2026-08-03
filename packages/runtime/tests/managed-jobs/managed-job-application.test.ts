@@ -9,10 +9,6 @@ import {
   type ManagedJobApplicationOptions,
   type ManagedJobEconomicProfile,
   type ManagedJobEconomicAdoption,
-  type ManagedJobRecordV3,
-  type ManagedJobRecordV4,
-  type ManagedJobRecordV5,
-  type ManagedJobRecordV6,
 } from "../../src/managed-jobs/index.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import {
@@ -190,7 +186,7 @@ function sqliteAdoptedEconomicEvidence(): ManagedJobEconomicAdoption {
   };
 }
 
-describe("ManagedJobApplicationService V6 precommit", () => {
+describe("ManagedJobApplicationService V7 record", () => {
   it("persists policy identity and candidates without selecting an execution route", async () => {
     const service = new ManagedJobApplicationService(createOptions());
 
@@ -367,39 +363,6 @@ describe("ManagedJobApplicationService V6 precommit", () => {
     await vi.waitFor(() => expect(settleExecution).toHaveBeenCalledOnce());
   });
 
-  it("recovers a persisted V5 precommit crash as commitment unavailable", async () => {
-    const queued: ManagedJobRecordV5 = {
-      version: 5,
-      id: "job-precommit-001",
-      state: "queued",
-      projectId: "kiln",
-      callerId: "codex-app:caller-001",
-      configuredAgentProfileId: "scout",
-      admissionProfileId: "foundation-readonly-plan",
-      economicPolicyId: "economy-policy",
-      economicPolicyRevision: "revision-001",
-      constraints: {},
-      candidateSet: candidateSet(),
-      governanceSource: "kiln-work-governance",
-      admissionId: "admission-001",
-      requestFingerprint: "a".repeat(64),
-      idempotencyKeyHash: "b".repeat(64),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }],
-    };
-    const store = new InMemoryManagedJobStore([queued]);
-    const service = new ManagedJobApplicationService(createOptions({ store }));
-
-    await expect(service.recoverInterrupted()).resolves.toEqual([
-      expect.objectContaining({
-        version: 5,
-        state: "failed",
-        diagnostic: "economic_commitment_unavailable",
-      }),
-    ]);
-  });
-
   it("binds idempotency to policy revision and normalized constraints", async () => {
     let constraints: ManagedJobEconomicProfile["constraints"] = {
       providerId: "codex-oauth",
@@ -422,8 +385,8 @@ describe("ManagedJobApplicationService V6 precommit", () => {
     });
   });
 
-  it("preserves V6 fenced work during recovery", async () => {
-    const queued: ManagedJobRecordV6 = {
+  it("rejects pre-V7 managed-job records", () => {
+    const queued = {
       version: 6,
       id: "job-precommit-006",
       economicAttemptId: "economic-attempt:attempt-precommit-006",
@@ -445,26 +408,10 @@ describe("ManagedJobApplicationService V6 precommit", () => {
       updatedAt: now.toISOString(),
       lifecycle: [{ sequence: 1, state: "queued", observedAt: now.toISOString() }],
     };
-    const store = new InMemoryManagedJobStore([queued]);
-    const adopt = vi.fn(async () => adoptedEconomicEvidence());
-    const acquire = vi.fn();
-    const releasePreFence = vi.fn();
-    const productionWiredService = new ManagedJobApplicationService({
-      ...createOptions({ store, commitmentState: "dispatch-fenced" }),
-      economicAdoption: { adopt },
-      economicCommitment: {
-        query: () => "dispatch-fenced",
-        acquire,
-        releasePreFence,
-        recordReleaseFailure: vi.fn(),
-      },
-    });
-
-    await expect(productionWiredService.recoverInterrupted()).resolves.toEqual([queued]);
-    await expect(store.get(queued.id)).resolves.toEqual(queued);
-    expect(adopt).not.toHaveBeenCalled();
-    expect(acquire).not.toHaveBeenCalled();
-    expect(releasePreFence).not.toHaveBeenCalled();
+    expect(() => new InMemoryManagedJobStore([queued])).toThrowError(expect.objectContaining({
+      code: "job_persistence_corrupt",
+      operatorAction: "Reset the managed-job store; only canonical V7 records are supported.",
+    }));
   });
 
   it("returns the persisted V7 attempt identity and decision time on a later replay", async () => {
@@ -475,7 +422,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
       clock: () => currentTime,
     }));
 
-    const first = await service.submit(submission) as ManagedJobRecordV6;
+    const first = await service.submit(submission);
     currentTime = new Date("2026-07-29T18:00:30.000Z");
     const replay = await service.submit(submission);
 
@@ -548,7 +495,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
     }, job.id)).rejects.toMatchObject({ code: "unauthorized_job" });
   });
 
-  it("keeps terminal V5 records immutable and cancellation honest", async () => {
+  it("keeps terminal records immutable and cancellation honest", async () => {
     const store = new InMemoryManagedJobStore();
     const service = new ManagedJobApplicationService(createOptions({ store }));
     const job = await service.submit(submission);
@@ -562,7 +509,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
   });
 
   it("preserves V7 idempotency across a filesystem restart", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v6-"));
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v7-"));
     try {
       const first = new ManagedJobApplicationService(createOptions({
         store: new FilesystemManagedJobStore(root),
@@ -584,7 +531,7 @@ describe("ManagedJobApplicationService V6 precommit", () => {
     }
   });
 
-  it("fails closed for corrupt V6 candidate evidence", async () => {
+  it("fails closed for corrupt V7 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-corrupt-"));
     try {
       const service = new ManagedJobApplicationService(createOptions({
@@ -622,9 +569,6 @@ describe("ManagedJobApplicationService V6 precommit", () => {
         completeSuccess: async () => {
           throw new Error("unused");
         },
-        recordAccountLease: async () => {
-          throw new Error("unused");
-        },
         listNonterminal: async () => [],
       },
     }));
@@ -635,189 +579,5 @@ describe("ManagedJobApplicationService V6 precommit", () => {
         message: "job_persistence_unavailable",
       }),
     );
-  });
-});
-
-describe("Managed job historical readers", () => {
-  const historicalBase = {
-    id: "job-historical-001",
-    state: "failed" as const,
-    projectId: "kiln",
-    callerId: "codex-app:caller-001",
-    configuredAgentProfileId: "scout",
-    admissionProfileId: "foundation-readonly-plan",
-    routeId: "historical-route",
-    providerId: "opencode-go",
-    governanceSource: "kiln-config-status",
-    admissionId: "admission-historical",
-    timeoutSource: "explicit-route" as const,
-    requestFingerprint: "a".repeat(64),
-    idempotencyKeyHash: "b".repeat(64),
-    createdAt: "2026-07-29T17:00:00.000Z",
-    updatedAt: "2026-07-29T17:01:00.000Z",
-    diagnostic: "provider_rejected" as const,
-    lifecycle: [
-      {
-        sequence: 1,
-        state: "queued" as const,
-        observedAt: "2026-07-29T17:00:00.000Z",
-      },
-      {
-        sequence: 2,
-        state: "failed" as const,
-        observedAt: "2026-07-29T17:01:00.000Z",
-        diagnostic: "provider_rejected" as const,
-      },
-    ],
-  };
-
-  it.each([
-    { ...historicalBase, version: 3 as const } satisfies ManagedJobRecordV3,
-    {
-      ...historicalBase,
-      version: 4 as const,
-      accountLeaseHistory: [],
-    } satisfies ManagedJobRecordV4,
-  ])("reads V$version without rewriting it", async (fixture) => {
-    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-"));
-    const path = join(root, "managed-jobs.json");
-    const serialized = `${JSON.stringify([fixture])}\n`;
-    try {
-      await writeFile(path, serialized, "utf8");
-      const store = new FilesystemManagedJobStore(root);
-
-      await expect(store.get(fixture.id)).resolves.toEqual(fixture);
-      expect(await readFile(path, "utf8")).toBe(serialized);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it.each([
-    { executable: "<operator-harness>/claude", accepted: true },
-    { executable: "C:\\operator\\bin\\claude.exe", accepted: false },
-  ])("validates persisted harness executable evidence: $executable", async ({ executable, accepted }) => {
-    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-harness-evidence-"));
-    const completedAt = "2026-07-29T17:01:00.000Z";
-    const fixture: ManagedJobRecordV3 = {
-      ...historicalBase,
-      version: 3,
-      state: "succeeded",
-      diagnostic: undefined,
-      lifecycle: [
-        { sequence: 1, state: "queued", observedAt: "2026-07-29T17:00:00.000Z" },
-        { sequence: 2, state: "running", observedAt: "2026-07-29T17:00:30.000Z" },
-        { sequence: 3, state: "succeeded", observedAt: completedAt },
-      ],
-      result: {
-        version: 1,
-        jobId: historicalBase.id,
-        runtimeInvocationId: historicalBase.id,
-        configuredAgentProfileId: historicalBase.configuredAgentProfileId,
-        admissionProfileId: historicalBase.admissionProfileId,
-        routeId: historicalBase.routeId,
-        providerId: historicalBase.providerId,
-        terminalState: "completed",
-        completedAt,
-        provenance: {
-          source: "runtime-managed-invocation",
-          trust: "untrusted-child-output",
-        },
-        resultHandoff: {
-          provenance: {
-            delivery: "native-structured-output",
-            configuredModelId: "claude-live-exact",
-            primaryObservedModelId: "claude-live-exact",
-            observedModelIds: ["claude-live-exact"],
-            harness: { id: "claude-code", executable, version: "2.1.220" },
-          },
-          summary: "Managed Claude review completed.",
-          resourceUris: [],
-          memoryWriteProposalUris: [],
-        },
-      },
-    };
-    const path = join(root, "managed-jobs.json");
-    try {
-      await writeFile(path, `${JSON.stringify([fixture])}\n`, "utf8");
-      const read = new FilesystemManagedJobStore(root).get(fixture.id);
-      if (accepted) {
-        await expect(read).resolves.toEqual(fixture);
-      } else {
-        await expect(read).rejects.toMatchObject({ code: "job_persistence_corrupt" });
-      }
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("recovers historical nonterminal records through their original lifecycle", async () => {
-    const running: ManagedJobRecordV4 = {
-      ...historicalBase,
-      version: 4,
-      state: "running",
-      updatedAt: "2026-07-29T17:00:30.000Z",
-      diagnostic: undefined,
-      lifecycle: [
-        {
-          sequence: 1,
-          state: "queued",
-          observedAt: "2026-07-29T17:00:00.000Z",
-        },
-        {
-          sequence: 2,
-          state: "running",
-          observedAt: "2026-07-29T17:00:30.000Z",
-        },
-      ],
-      accountLeaseHistory: [],
-    };
-    const store = new InMemoryManagedJobStore([running]);
-    const service = new ManagedJobApplicationService(createOptions({ store }));
-
-    await expect(service.recoverInterrupted()).resolves.toEqual([
-      expect.objectContaining({
-        version: 4,
-        state: "interrupted",
-        diagnostic: "invocation_failed",
-      }),
-    ]);
-  });
-
-  it("reads a strict V5 fixture without rewriting it", async () => {
-    const fixture: ManagedJobRecordV5 = {
-      version: 5,
-      id: "job-historical-v5",
-      state: "failed",
-      projectId: "kiln",
-      callerId: "codex-app:caller-001",
-      configuredAgentProfileId: "scout",
-      admissionProfileId: "foundation-readonly-plan",
-      economicPolicyId: "economy-policy",
-      economicPolicyRevision: "revision-001",
-      constraints: {},
-      candidateSet: candidateSet(),
-      governanceSource: "kiln-work-governance",
-      admissionId: "admission-001",
-      requestFingerprint: "a".repeat(64),
-      idempotencyKeyHash: "b".repeat(64),
-      createdAt: "2026-07-29T17:00:00.000Z",
-      updatedAt: "2026-07-29T17:01:00.000Z",
-      diagnostic: "economic_commitment_unavailable",
-      lifecycle: [
-        { sequence: 1, state: "queued", observedAt: "2026-07-29T17:00:00.000Z" },
-        { sequence: 2, state: "failed", observedAt: "2026-07-29T17:01:00.000Z", diagnostic: "economic_commitment_unavailable" },
-      ],
-    };
-    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v5-reader-"));
-    const path = join(root, "managed-jobs.json");
-    const serialized = `${JSON.stringify([fixture])}\n`;
-    try {
-      await writeFile(path, serialized, "utf8");
-      await expect(new FilesystemManagedJobStore(root).get(fixture.id)).resolves.toEqual(fixture);
-      expect(await readFile(path, "utf8")).toBe(serialized);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 });

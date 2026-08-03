@@ -88,31 +88,29 @@ function createServer(
 }
 
 function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord {
-  return {
-    version: 1,
-    id: "managed-job-0001",
-    state: "succeeded",
-    projectId: "trusted-project",
-    configuredAgentProfileId: "scout",
-    admissionProfileId: "foundation-readonly-plan",
-    routeId: "route-go",
-    providerId: "opencode-go",
-    governanceSource: "kiln-governance",
-    admissionId: "admission-001",
-    timeoutSource: "default",
-    requestFingerprint: "a".repeat(64),
-    idempotencyKeyHash: "b".repeat(64),
-    createdAt: OBSERVED_AT,
-    updatedAt: OBSERVED_AT,
-    ...overrides,
+  const state = overrides.state ?? "succeeded";
+  const candidateSet = {
+    economicPolicyId: "economy-policy",
+    economicPolicyRevision: "revision-001",
+    admissionProfileId: "foundation-readonly-plan" as const,
+    constraints: {},
+    candidates: [{
+      routeId: "route-go",
+      routeSource: "explicit-managed-route" as const,
+      providerId: "opencode-go",
+      surface: "direct-provider" as const,
+      adapterCapabilityId: "opencode-go-direct",
+      adapterCapabilityVersion: "1",
+    }],
+    rejections: [],
   };
-}
-
-function managedEconomicJob(): ManagedJobRecord {
   return {
-    version: 5,
-    id: "managed-job-economic-0001",
-    state: "failed",
+    version: 7,
+    id: "managed-job-0001",
+    economicAttemptId: "economic-attempt:test-0001",
+    adoptedDecisionAt: OBSERVED_AT,
+    state,
+    objective: "Inspect bounded work.",
     projectId: "trusted-project",
     callerId: "trusted-codex-user",
     configuredAgentProfileId: "scout",
@@ -120,27 +118,48 @@ function managedEconomicJob(): ManagedJobRecord {
     economicPolicyId: "economy-policy",
     economicPolicyRevision: "revision-001",
     constraints: {},
-    candidateSet: {
-      economicPolicyId: "economy-policy",
-      economicPolicyRevision: "revision-001",
-      admissionProfileId: "foundation-readonly-plan",
-      constraints: {},
-      candidates: [{
-        routeId: "codex-primary",
-        routeSource: "explicit-managed-route",
-        providerId: "codex-oauth",
-        surface: "direct-provider",
-        adapterCapabilityId: "codex-oauth-direct",
-        adapterCapabilityVersion: "1",
-      }],
-      rejections: [],
-    },
+    candidateSet,
     governanceSource: "kiln-governance",
     admissionId: "admission-001",
-    requestFingerprint: "a".repeat(64),
-    idempotencyKeyHash: "b".repeat(64),
+    requestFingerprint: `sha256:${"a".repeat(64)}`,
+    idempotencyKeyHash: `sha256:${"b".repeat(64)}`,
     createdAt: OBSERVED_AT,
     updatedAt: OBSERVED_AT,
+    lifecycle: [{ sequence: 1, state, observedAt: OBSERVED_AT }],
+    ...(state === "succeeded" ? {
+      result: {
+        version: 1,
+        jobId: "managed-job-0001",
+        runtimeInvocationId: "runtime-invocation-0001",
+        configuredAgentProfileId: "scout",
+        admissionProfileId: "foundation-readonly-plan",
+        routeId: "route-go",
+        providerId: "opencode-go",
+        terminalState: "completed",
+        completedAt: OBSERVED_AT,
+        provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
+        resultHandoff: {
+          provenance: {
+            delivery: "native-structured-output",
+            configuredModelId: "test-model",
+            primaryObservedModelId: "test-model",
+            observedModelIds: ["test-model"],
+            harness: { id: "opencode", executable: "<operator-harness>/opencode", version: "1.0.0" },
+          },
+          summary: "Managed work completed.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+      },
+    } : {}),
+    ...overrides,
+  };
+}
+
+function managedEconomicJob(): ManagedJobRecord {
+  return managedJob({
+    id: "managed-job-economic-0001",
+    state: "failed",
     diagnostic: "economic_commitment_unavailable",
     lifecycle: [{
       sequence: 1,
@@ -148,7 +167,7 @@ function managedEconomicJob(): ManagedJobRecord {
       observedAt: OBSERVED_AT,
       diagnostic: "economic_commitment_unavailable",
     }],
-  };
+  });
 }
 
 describe("CodexAppMcpServer", () => {
@@ -244,7 +263,7 @@ describe("CodexAppMcpServer", () => {
     expect(JSON.stringify(result)).not.toContain("objective");
   });
 
-  it("projects an uncommitted V5 job without fabricating route or provider identity", async () => {
+  it("projects a failed V7 job without fabricating route or provider identity", async () => {
     const server = new CodexAppMcpServer({
       managedJobs: {
         submit: async () => managedEconomicJob(),
@@ -267,7 +286,6 @@ describe("CodexAppMcpServer", () => {
           lifecycle: [],
           resultAvailability: "failed",
           diagnostic: "replay_unavailable",
-          accountLeaseHistory: [],
         }),
       },
       requestIdentity: () => ({

@@ -642,6 +642,14 @@ function validateManagedAgents(value: unknown, operatorVoice: VoiceConfig | unde
     "routes",
     "economicPolicies",
   ], "managedAgents");
+  const hasRuntimeSelectedRoute = Array.isArray(value.routes) && value.routes.some(
+    (route) => isRecord(route) && isRecord(route.credentials) && route.credentials.mode === "runtime-selected",
+  );
+  if (hasRuntimeSelectedRoute && value.schemaVersion !== 2) {
+    throw new KilnYamlError(
+      "managedAgents runtime-selected routes use the retired pre-v2 schema and must be re-authored as schemaVersion 2; no automatic migration can infer economic authority. See docs/guides/global-config.md#managed-economic-policy-schema-v2.",
+    );
+  }
   if (value.economicPolicies !== undefined && value.schemaVersion !== 2) {
     throw new KilnYamlError("managedAgents.schemaVersion must be 2 when economicPolicies are declared");
   }

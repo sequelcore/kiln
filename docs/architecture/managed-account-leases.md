@@ -28,10 +28,10 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-Managed-job V7 is the only writer. It durably creates a namespaced
-`economicAttemptId` and `adoptedDecisionAt` before adoption or commitment. V5
-and V6 are strict historical reader/recovery formats only and are never
-upgraded into a new economic attempt by inference.
+Managed-job V7 is the only persisted representation. It durably creates a
+namespaced `economicAttemptId` and `adoptedDecisionAt` before adoption or
+commitment. Pre-V7 records fail closed and are never upgraded into a new
+economic attempt by inference.
 
 ## Atomic Commitment
 

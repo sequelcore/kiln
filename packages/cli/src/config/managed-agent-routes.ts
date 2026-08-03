@@ -61,7 +61,7 @@ import {
   type ManagedInvocationToolRoute,
   type ManagedEconomicCandidateSet,
   type ManagedJobEconomicAdoption,
-  type ManagedJobRecordV6,
+  type ManagedJobRecord,
 } from "@kilnai/runtime";
 import type {
   ManagedAgentProviderModelCatalogDiagnostic,
@@ -183,7 +183,7 @@ export interface ManagedAccountRuntimeComposition {
 }
 
 export type ManagedEconomicAdoptionSubject = Pick<
-  ManagedJobRecordV6,
+  ManagedJobRecord,
   | "economicPolicyId"
   | "economicPolicyRevision"
   | "candidateSet"
