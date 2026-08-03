@@ -103,6 +103,91 @@ describe("Codex provider usage adapter", () => {
     expect(JSON.stringify(snapshot)).not.toContain("operator@example.test");
   });
 
+  describe("request outcome classification", () => {
+    const credential = {
+      credentialId: "credential-opaque-http",
+      accessToken: "must-not-survive",
+      chatgptAccountId: "account-must-not-survive",
+    };
+
+    function reader(fetchImpl: typeof globalThis.fetch) {
+      return new CodexProviderUsageReader({
+        fetch: fetchImpl,
+        store: new InMemoryProviderUsageStore(),
+        now: () => new Date(OBSERVED_AT),
+      });
+    }
+
+    async function read(fetchImpl: typeof globalThis.fetch) {
+      return reader(fetchImpl).read({
+        provider: "codex-oauth",
+        credentialId: credential.credentialId,
+        resolveCredential: async () => credential,
+      });
+    }
+
+    it("classifies a rejected request status instead of reporting absent usage", async () => {
+      const snapshot = await read(async () => new Response("forbidden", { status: 403 }));
+
+      expect(snapshot).toMatchObject({
+        availability: "unknown",
+        source: "provider-request-failed",
+        confidence: "unknown",
+        httpStatus: 403,
+      });
+      expect(JSON.stringify(snapshot)).not.toContain("forbidden");
+      expect(JSON.stringify(snapshot)).not.toContain("must-not-survive");
+    });
+
+    it("distinguishes an empty successful response from a failed request", async () => {
+      const snapshot = await read(async () => new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+
+      expect(snapshot).toMatchObject({
+        availability: "unknown",
+        source: "unknown",
+        confidence: "unknown",
+      });
+      expect(snapshot.httpStatus).toBeUndefined();
+    });
+
+    it("separates an unusable credential from a failed request", async () => {
+      const snapshot = await reader(async () => new Response("{}", { status: 200 })).read({
+        provider: "codex-oauth",
+        credentialId: credential.credentialId,
+        resolveCredential: async () => { throw new Error("refresh rejected for operator@example.test"); },
+      });
+
+      expect(snapshot).toMatchObject({
+        availability: "unknown",
+        source: "credential-unavailable",
+        confidence: "unknown",
+      });
+      expect(snapshot.httpStatus).toBeUndefined();
+      expect(JSON.stringify(snapshot)).not.toContain("operator@example.test");
+    });
+
+    it("still reads rate-limit headers carried by a rejected response", async () => {
+      const snapshot = await read(async () => new Response("too many requests", {
+        status: 429,
+        headers: {
+          "x-codex-primary-used-percent": "100",
+          "x-codex-primary-reset-at": "1784725200",
+        },
+      }));
+
+      expect(snapshot).toMatchObject({
+        availability: "exhausted",
+        source: "provider-response-headers",
+        confidence: "authoritative",
+        primary: { bucketId: "primary", usedPercent: 100 },
+      });
+    });
+
+  });
+
   it("preserves provider exhaustion classification without raw payload details", () => {
     const snapshot = parseCodexProviderUsage({
       provider: "codex-oauth",
@@ -338,7 +423,7 @@ describe("Codex provider usage reader", () => {
     }
   });
 
-  it("fails soft to unknown and persists no transport error details", async () => {
+  it("classifies a transport failure and persists no transport error details", async () => {
     const store = new InMemoryProviderUsageStore();
     const reader = new CodexProviderUsageReader({
       fetch: async () => { throw new Error("secret transport failure"); },
@@ -350,7 +435,12 @@ describe("Codex provider usage reader", () => {
       credentialId: "credential-opaque-2",
       resolveCredential: async () => ({ credentialId: "credential-opaque-2", accessToken: "secret", chatgptAccountId: "account" }),
     });
-    expect(snapshot).toMatchObject({ availability: "unknown", source: "unknown", confidence: "unknown" });
+    expect(snapshot).toMatchObject({
+      availability: "unknown",
+      source: "provider-request-failed",
+      confidence: "unknown",
+    });
+    expect(snapshot.httpStatus).toBeUndefined();
     expect(JSON.stringify(snapshot)).not.toContain("secret transport failure");
   });
 });

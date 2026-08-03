@@ -7,7 +7,19 @@ import {
 } from "../cost/managed-route-economics.js";
 
 export type ProviderUsageAvailability = "available" | "exhausted" | "unknown";
-export type ProviderUsageSource = "provider-endpoint" | "provider-response-headers" | "unknown";
+/**
+ * `unknown` means the provider answered without usable usage evidence.
+ * `provider-request-failed` and `credential-unavailable` both mean Kiln never
+ * obtained an answer, so absent usage must not be read as absent consumption.
+ * They are distinct because they demand different operator action:
+ * re-authenticate the credential, or investigate reachability.
+ */
+export type ProviderUsageSource =
+  | "provider-endpoint"
+  | "provider-response-headers"
+  | "provider-request-failed"
+  | "credential-unavailable"
+  | "unknown";
 export type ProviderUsageConfidence = "authoritative" | "unknown";
 
 export type ProviderUsageExhaustionReason = ManagedEconomicQuotaExhaustionReason;
@@ -40,10 +52,18 @@ export interface ProviderUsageSnapshot extends ProviderUsageQuotaObservation {
   readonly validUntil: string;
   readonly source: ProviderUsageSource;
   readonly confidence: ProviderUsageConfidence;
+  /** Response status when one was received. Status only; never response bodies or headers. */
+  readonly httpStatus?: number;
 }
 
 const AVAILABILITIES: readonly ProviderUsageAvailability[] = ["available", "exhausted", "unknown"];
-const SOURCES: readonly ProviderUsageSource[] = ["provider-endpoint", "provider-response-headers", "unknown"];
+const SOURCES: readonly ProviderUsageSource[] = [
+  "provider-endpoint",
+  "provider-response-headers",
+  "provider-request-failed",
+  "credential-unavailable",
+  "unknown",
+];
 const CONFIDENCES: readonly ProviderUsageConfidence[] = ["authoritative", "unknown"];
 const EXHAUSTION_REASONS: readonly ProviderUsageExhaustionReason[] = [
   "rate-limit-reached",
@@ -65,6 +85,13 @@ function requireTimestamp(value: string, field: string): number {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) throw new TypeError(`${field} must be an ISO-compatible timestamp.`);
   return timestamp;
+}
+
+function requireHttpStatus(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 100 || value > 599) {
+    throw new TypeError("httpStatus must be an integer between 100 and 599.");
+  }
+  return value;
 }
 
 function requireMember<T extends string>(value: T, members: readonly T[], field: string): T {
@@ -178,5 +205,6 @@ export function createProviderUsageSnapshot(input: ProviderUsageSnapshot): Provi
     validUntil: input.validUntil,
     source: requireMember(input.source, SOURCES, "source"),
     confidence: requireMember(input.confidence, CONFIDENCES, "confidence"),
+    ...(input.httpStatus === undefined ? {} : { httpStatus: requireHttpStatus(input.httpStatus) }),
   });
 }

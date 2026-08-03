@@ -2,7 +2,13 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { CREDENTIAL_FILE_MODE, OpenCodeAuth, type CodexOAuthTokenFile, type OpenCodeTier } from "@kilnai/core";
+import {
+  CREDENTIAL_FILE_MODE,
+  OpenCodeAuth,
+  type CodexOAuthTokenFile,
+  type OpenCodeTier,
+  type ProviderUsageSnapshot,
+} from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
   OpenCodeCredentialPoolService,
@@ -132,13 +138,28 @@ async function runCodexStatus(rest: string[]): Promise<void> {
     }
     const entryUsage = usage.find((candidate) => candidate.credentialId === entry.id);
     if (entryUsage) {
-      console.log(`    Usage: ${entryUsage.availability}`);
+      console.log(`    Usage: ${entryUsage.availability}${describeUsageCause(entryUsage)}`);
       if (entryUsage.plan) console.log(`    Plan: ${entryUsage.plan}`);
       if (entryUsage.primary) console.log(`    Primary: ${entryUsage.primary.usedPercent}%${entryUsage.primary.resetsAt ? ` (resets ${entryUsage.primary.resetsAt})` : ""}`);
       if (entryUsage.secondary) console.log(`    Secondary: ${entryUsage.secondary.usedPercent}%${entryUsage.secondary.resetsAt ? ` (resets ${entryUsage.secondary.resetsAt})` : ""}`);
       console.log(`    Usage observed: ${entryUsage.observedAt}`);
     }
   }
+}
+
+/**
+ * Names why usage is unknown. Without this the operator cannot tell a provider
+ * that reports nothing from a request that never succeeded.
+ */
+function describeUsageCause(usage: ProviderUsageSnapshot): string {
+  if (usage.availability !== "unknown") return "";
+  if (usage.source === "credential-unavailable") return " (credential unusable: re-authenticate)";
+  if (usage.source === "provider-request-failed") {
+    return usage.httpStatus === undefined
+      ? " (usage request failed: no response)"
+      : ` (usage request failed: HTTP ${usage.httpStatus})`;
+  }
+  return " (provider reported no usage)";
 }
 
 type CodexActivateSelection =

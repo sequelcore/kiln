@@ -34,9 +34,20 @@ export class CodexProviderUsageReader {
     const observedAt = this.now();
     const validUntil = new Date(observedAt.getTime() + this.validForMs);
     let snapshot: ProviderUsageSnapshot;
+
+    // Resolved separately from the request so an unusable credential is not
+    // reported as a failed request; the two need different operator action.
+    let credential: ResolvedCodexUsageCredential;
     try {
-      const credential = await input.resolveCredential();
+      credential = await input.resolveCredential();
       if (credential.credentialId !== input.credentialId) throw new Error("credential mismatch");
+    } catch {
+      const unavailable = this.unobserved(input, observedAt, validUntil, "credential-unavailable");
+      await this.config.store.put(unavailable);
+      return unavailable;
+    }
+
+    try {
       const response = await (this.config.fetch ?? globalThis.fetch)("https://chatgpt.com/backend-api/wham/usage", {
         method: "GET",
         headers: {
@@ -56,20 +67,34 @@ export class CodexProviderUsageReader {
         validUntil: validUntil.toISOString(),
         body,
         headers: response.headers,
+        // A rejected response may still carry authoritative rate-limit headers,
+        // so this only classifies the terminal fallback.
+        ...(response.ok ? {} : { failure: { httpStatus: response.status } }),
       });
     } catch {
-      snapshot = createProviderUsageSnapshot({
-        provider: input.provider,
-        credentialId: input.credentialId,
-        exhaustionReason: null,
-        availability: "unknown",
-        observedAt: observedAt.toISOString(),
-        validUntil: validUntil.toISOString(),
-        source: "unknown",
-        confidence: "unknown",
-      });
+      // No response was received, so no status exists to report.
+      snapshot = this.unobserved(input, observedAt, validUntil, "provider-request-failed");
     }
     await this.config.store.put(snapshot);
     return snapshot;
+  }
+
+  /** Absent usage that was never observed, which never means unconsumed. */
+  private unobserved(
+    input: ReadCodexProviderUsageInput,
+    observedAt: Date,
+    validUntil: Date,
+    source: "provider-request-failed" | "credential-unavailable",
+  ): ProviderUsageSnapshot {
+    return createProviderUsageSnapshot({
+      provider: input.provider,
+      credentialId: input.credentialId,
+      exhaustionReason: null,
+      availability: "unknown",
+      observedAt: observedAt.toISOString(),
+      validUntil: validUntil.toISOString(),
+      source,
+      confidence: "unknown",
+    });
   }
 }

@@ -20,6 +20,17 @@ export interface ParseCodexProviderUsageInput {
   readonly validUntil: string;
   readonly body?: unknown;
   readonly headers?: CodexUsageHeaders;
+  /**
+   * Present when Kiln never obtained a usable answer. Body and header evidence
+   * still take precedence, because a rejected response may still carry
+   * authoritative rate-limit headers.
+   */
+  readonly failure?: CodexUsageRequestFailure;
+}
+
+export interface CodexUsageRequestFailure {
+  /** Absent for transport failures, where no response was received. */
+  readonly httpStatus?: number;
 }
 
 interface ParsedCodexUsage {
@@ -275,7 +286,8 @@ export function parseCodexProviderUsage(input: ParseCodexProviderUsageInput): Pr
     availability: "unknown",
     observedAt: input.observedAt,
     validUntil: input.validUntil,
-    source: "unknown",
+    source: input.failure === undefined ? "unknown" : "provider-request-failed",
     confidence: "unknown",
+    ...(input.failure?.httpStatus === undefined ? {} : { httpStatus: input.failure.httpStatus }),
   });
 }
