@@ -20,6 +20,7 @@ export interface KilnInstructionDoctrineDefinition {
   readonly qualityGates?: readonly string[];
   readonly reviewPosture?: readonly string[];
   readonly delegation?: readonly string[];
+  readonly executionDiscipline?: readonly string[];
 }
 
 interface ParsedFrontmatter {
@@ -69,12 +70,14 @@ function asDoctrine(value: unknown): KilnInstructionDoctrineDefinition | undefin
   const qualityGates = asStringArray(record.qualityGates);
   const reviewPosture = asStringArray(record.reviewPosture);
   const delegation = asStringArray(record.delegation);
+  const executionDiscipline = asStringArray(record.executionDiscipline);
   const doctrine: KilnInstructionDoctrineDefinition = {
     ...(principles ? { principles } : {}),
     ...(workflow ? { workflow } : {}),
     ...(qualityGates ? { qualityGates } : {}),
     ...(reviewPosture ? { reviewPosture } : {}),
     ...(delegation ? { delegation } : {}),
+    ...(executionDiscipline ? { executionDiscipline } : {}),
   };
 
   return Object.keys(doctrine).length > 0 ? doctrine : undefined;

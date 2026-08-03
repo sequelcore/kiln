@@ -110,6 +110,44 @@ describe("instruction profile loader", () => {
     expect(String(candidates[0]?.content)).toContain("TDD before implementation.");
   });
 
+  it("parses and renders execution discipline doctrine", () => {
+    const userHome = join(root, "home");
+    const projectPath = join(root, "project");
+    writeProfile(userHome, "sequel", profile(
+      [
+        "name: sequel-engineering",
+        "doctrine:",
+        "  delegation:",
+        "    - Give every delegated task explicit boundaries.",
+        "  executionDiscipline:",
+        "    - Scope each session to one bounded objective.",
+        "    - Mechanise enforcement whenever a tool can carry the rule.",
+      ].join("\n"),
+      "\nBounded sessions.\n",
+    ));
+
+    const loaded = loadInstructionProfiles(projectPath, userHome);
+
+    expect(findInstructionProfile(loaded, "sequel-engineering")?.doctrine?.executionDiscipline)
+      .toEqual([
+        "Scope each session to one bounded objective.",
+        "Mechanise enforcement whenever a tool can carry the rule.",
+      ]);
+
+    const candidates = resolveInstructionProfileContextCandidates({
+      projectPath,
+      userHome,
+      globalConfig: {
+        version: "1",
+        activeInstructionProfiles: ["sequel-engineering"],
+      },
+    });
+
+    expect(candidates[0]?.content).toContain(
+      "executionDiscipline:\n- Scope each session to one bounded objective.",
+    );
+  });
+
   it("fails closed when selected profiles are unavailable", () => {
     expect(() => resolveInstructionProfileContextCandidates({
       projectPath: join(root, "project"),

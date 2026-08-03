@@ -78,6 +78,7 @@ function formatDoctrine(doctrine: KilnInstructionDoctrineDefinition): string {
     ...formatDoctrineList("qualityGates", doctrine.qualityGates),
     ...formatDoctrineList("reviewPosture", doctrine.reviewPosture),
     ...formatDoctrineList("delegation", doctrine.delegation),
+    ...formatDoctrineList("executionDiscipline", doctrine.executionDiscipline),
   ].join("\n");
 }
 

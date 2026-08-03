@@ -819,6 +819,9 @@ function formatDoctrineSummary(doctrine: KilnInstructionDoctrineDefinition | und
     doctrine.qualityGates && doctrine.qualityGates.length > 0 ? "quality gates" : undefined,
     doctrine.reviewPosture && doctrine.reviewPosture.length > 0 ? "review posture" : undefined,
     doctrine.delegation && doctrine.delegation.length > 0 ? "delegation" : undefined,
+    doctrine.executionDiscipline && doctrine.executionDiscipline.length > 0
+      ? "execution discipline"
+      : undefined,
   ].filter((facet): facet is string => facet !== undefined);
 
   return facets.length > 0 ? ` - doctrine: ${facets.join(", ")}` : "";

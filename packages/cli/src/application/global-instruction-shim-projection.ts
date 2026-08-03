@@ -382,6 +382,7 @@ function renderDoctrine(doctrine: KilnInstructionDoctrineDefinition | undefined)
     ...renderDoctrineList("Quality gates", doctrine.qualityGates),
     ...renderDoctrineList("Review posture", doctrine.reviewPosture),
     ...renderDoctrineList("Delegation", doctrine.delegation),
+    ...renderDoctrineList("Execution discipline", doctrine.executionDiscipline),
   ];
 }
 

@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:52f9c778b68751f3ce758c1d460ee9fdddcac41b4ca078c481477608716bc7bc
+contentHash: sha256:d2b2f0e180f985d4b048359724b191dcde688ad9b62999003478a860056a7d65
 -->
 # Agents
 
@@ -76,7 +76,7 @@ section "Consumer Surface".
 
 Read these canonical Kiln instruction profiles before work. They are the source of durable operator/team doctrine; this file is only a projection.
 
-- sequel-engineering (global): ~/.kiln/instructions/sequel-engineering.md - doctrine: principles, workflow, quality gates, review posture, delegation
+- sequel-engineering (global): ~/.kiln/instructions/sequel-engineering.md - doctrine: principles, workflow, quality gates, review posture, delegation, execution discipline
 
 ## Work Governance
 
