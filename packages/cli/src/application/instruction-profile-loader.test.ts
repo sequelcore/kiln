@@ -158,4 +158,104 @@ describe("instruction profile loader", () => {
       },
     })).toThrow("Configured session references unavailable instruction profile(s): missing");
   });
+
+  it("rejects an unknown doctrine key with a legible error naming the file and key", () => {
+    const userHome = join(root, "home");
+    writeProfile(userHome, "sequel", profile(
+      [
+        "name: sequel-engineering",
+        "doctrine:",
+        "  principles:",
+        "    - No dead code.",
+        "  reviewPostur:", // misspelled `reviewPosture`
+        "    - Findings before summaries.",
+      ].join("\n"),
+      "\nBody.\n",
+    ));
+
+    expect(() => loadInstructionProfiles(join(root, "project"), userHome)).toThrow(
+      /sequel\.md declares unknown doctrine key\(s\): reviewPostur\b.*\bAccepted keys: principles, workflow, qualityGates, reviewPosture, delegation, executionDiscipline/s,
+    );
+  });
+
+  it("surfaces schema failures to the caller rather than swallowing them", () => {
+    const userHome = join(root, "home");
+    writeProfile(userHome, "sequel", profile(
+      [
+        "name: sequel-engineering",
+        "doctrine:",
+        "  principles:",
+        "    - No dead code.",
+        "  qualityGate:", // singular misspelling of `qualityGates`
+        "    - Verify before claiming complete.",
+      ].join("\n"),
+      "\nBody.\n",
+    ));
+
+    // The error must travel through loadInstructionProfiles (used by projection
+    // and context code). A bare catch in readProfilesFromDirectory would turn
+    // this into a silent total drop — see issue #44 S2.
+    expect(() => resolveInstructionProfileContextCandidates({
+      projectPath: join(root, "project"),
+      userHome,
+      globalConfig: {
+        version: "1",
+        activeInstructionProfiles: ["sequel-engineering"],
+      },
+    })).toThrow(/sequel\.md declares unknown doctrine key\(s\): qualityGate\b/s);
+  });
+
+  it("loads a profile declaring all six doctrine sections", () => {
+    const userHome = join(root, "home");
+    writeProfile(userHome, "sequel", profile(
+      [
+        "name: sequel-engineering",
+        "doctrine:",
+        "  principles:",
+        "    - No dead code.",
+        "  workflow:",
+        "    - Scout before broad changes.",
+        "  qualityGates:",
+        "    - Verify before claiming complete.",
+        "  reviewPosture:",
+        "    - Findings before summaries.",
+        "  delegation:",
+        "    - Delegate architecture-sensitive work.",
+        "  executionDiscipline:",
+        "    - Scope each session to one bounded objective.",
+      ].join("\n"),
+      "\nBounded sessions.\n",
+    ));
+
+    const loaded = loadInstructionProfiles(join(root, "project"), userHome);
+    const doctrine = findInstructionProfile(loaded, "sequel-engineering")?.doctrine;
+    expect(doctrine).toEqual({
+      principles: ["No dead code."],
+      workflow: ["Scout before broad changes."],
+      qualityGates: ["Verify before claiming complete."],
+      reviewPosture: ["Findings before summaries."],
+      delegation: ["Delegate architecture-sensitive work."],
+      executionDiscipline: ["Scope each session to one bounded objective."],
+    });
+  });
+
+  it("still tolerates unreadable files during the scan", () => {
+    const userHome = join(root, "home");
+    writeProfile(userHome, "good", profile(
+      [
+        "name: good-profile",
+        "doctrine:",
+        "  principles:",
+        "    - No dead code.",
+      ].join("\n"),
+      "\nBody.\n",
+    ));
+    // An entry ending in `.md` that is actually a directory causes readFileSync
+    // to throw EISDIR — an I/O failure that must be skipped, not treat as schema.
+    mkdirSync(join(userHome, ".kiln", "instructions", "broken.md"));
+
+    const loaded = loadInstructionProfiles(join(root, "project"), userHome);
+
+    expect(loaded.map((profile) => profile.name)).toEqual(["good-profile"]);
+  });
 });

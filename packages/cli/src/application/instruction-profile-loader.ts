@@ -14,13 +14,52 @@ export interface KilnInstructionProfileDefinition {
   readonly scope: "global" | "project";
 }
 
-export interface KilnInstructionDoctrineDefinition {
-  readonly principles?: readonly string[];
-  readonly workflow?: readonly string[];
-  readonly qualityGates?: readonly string[];
-  readonly reviewPosture?: readonly string[];
-  readonly delegation?: readonly string[];
-  readonly executionDiscipline?: readonly string[];
+/*
+ * The accepted doctrine key set is declared exactly once here and the doctrine
+ * definition type is derived from it. This closes the gap that allowed
+ * `executionDiscipline` to be silently dropped: adding a new doctrine section
+ * to the type now requires adding it to `DOCTRINE_KEYS`, which is also the set
+ * the parser validates against. See issue #44.
+ */
+export const DOCTRINE_KEYS = [
+  "principles",
+  "workflow",
+  "qualityGates",
+  "reviewPosture",
+  "delegation",
+  "executionDiscipline",
+] as const;
+
+export type KilnInstructionDoctrineKey = (typeof DOCTRINE_KEYS)[number];
+
+export type KilnInstructionDoctrineDefinition = Partial<
+  Record<KilnInstructionDoctrineKey, readonly string[]>
+>;
+
+/**
+ * Raised when an instruction profile declares a `doctrine` key the parser does
+ * not accept. Surfacing this through `loadInstructionProfiles` (rather than
+ * silently dropping the key) is the fail-closed behaviour required by issue
+ * #44. Callers — projection entry points and `resolveInstructionProfileContextCandidates`
+ * — already convert thrown errors into their existing failure surfaces, so the
+ * diagnostic reaches the operator without crashing the process.
+ */
+export class InstructionProfileSchemaError extends Error {
+  readonly filePath: string;
+  readonly unknownKeys: readonly string[];
+  readonly acceptedKeys: readonly string[];
+
+  constructor(filePath: string, unknownKeys: readonly string[], acceptedKeys: readonly string[]) {
+    super(
+      `Instruction profile ${filePath} declares unknown doctrine key(s): `
+        + `${unknownKeys.join(", ")}. `
+        + `Accepted keys: ${acceptedKeys.join(", ")}.`,
+    );
+    this.name = "InstructionProfileSchemaError";
+    this.filePath = filePath;
+    this.unknownKeys = unknownKeys;
+    this.acceptedKeys = acceptedKeys;
+  }
 }
 
 interface ParsedFrontmatter {
@@ -59,26 +98,29 @@ function asStringArray(value: unknown): readonly string[] | undefined {
   return values.length > 0 ? [...new Set(values)] : undefined;
 }
 
-function asDoctrine(value: unknown): KilnInstructionDoctrineDefinition | undefined {
+function asDoctrine(value: unknown, filePath: string): KilnInstructionDoctrineDefinition | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
 
   const record = value as Record<string, unknown>;
-  const principles = asStringArray(record.principles);
-  const workflow = asStringArray(record.workflow);
-  const qualityGates = asStringArray(record.qualityGates);
-  const reviewPosture = asStringArray(record.reviewPosture);
-  const delegation = asStringArray(record.delegation);
-  const executionDiscipline = asStringArray(record.executionDiscipline);
-  const doctrine: KilnInstructionDoctrineDefinition = {
-    ...(principles ? { principles } : {}),
-    ...(workflow ? { workflow } : {}),
-    ...(qualityGates ? { qualityGates } : {}),
-    ...(reviewPosture ? { reviewPosture } : {}),
-    ...(delegation ? { delegation } : {}),
-    ...(executionDiscipline ? { executionDiscipline } : {}),
-  };
+  const accepted = new Set<string>(DOCTRINE_KEYS);
+  const unknownKeys = Object.keys(record).filter((key) => !accepted.has(key));
+  if (unknownKeys.length > 0) {
+    throw new InstructionProfileSchemaError(
+      filePath,
+      [...unknownKeys].sort(),
+      [...DOCTRINE_KEYS],
+    );
+  }
+
+  const doctrine: KilnInstructionDoctrineDefinition = {};
+  for (const key of DOCTRINE_KEYS) {
+    const values = asStringArray(record[key]);
+    if (values) {
+      doctrine[key] = values;
+    }
+  }
 
   return Object.keys(doctrine).length > 0 ? doctrine : undefined;
 }
@@ -113,7 +155,7 @@ function parseInstructionProfile(
   const displayName = asNonEmptyString(record.displayName);
   const description = asNonEmptyString(record.description);
   const tags = asStringArray(record.tags);
-  const doctrine = asDoctrine(record.doctrine);
+  const doctrine = asDoctrine(record.doctrine, filePath);
 
   return {
     name,
@@ -144,13 +186,28 @@ function readProfilesFromDirectory(
       continue;
     }
     const filePath = join(directory, entry);
+    /*
+     * Distinguish unreadable (I/O) from invalid (schema) failures, as required
+     * by issue #44. A vanished file, permission error, or directory-in-place
+     * of a profile is an I/O condition the scan may legitimately skip. A parse
+     * failure — notably an unknown doctrine key thrown by asDoctrine — is an
+     * operator authoring error and must reach the caller. The previous bare
+     * catch converted a partial silent drop into a silent total drop (the S2
+     * trap), so schema errors are allowed to propagate: the projection entry
+     * points (`syncGlobalInstructionShimProjections`,
+     * `writeRepoShimProjections`) and `resolveInstructionProfileContextCandidates`
+     * already convert thrown errors into their existing failure surfaces, so
+     * the diagnostic reaches the operator without aborting unrelated work.
+     */
+    let raw: string;
     try {
-      const profile = parseInstructionProfile(readFileSync(filePath, "utf-8"), filePath, scope);
-      if (profile) {
-        profiles.push(profile);
-      }
+      raw = readFileSync(filePath, "utf-8");
     } catch {
-      // Skip unreadable profiles. Missing selected profiles fail closed later.
+      continue;
+    }
+    const profile = parseInstructionProfile(raw, filePath, scope);
+    if (profile) {
+      profiles.push(profile);
     }
   }
   return profiles;
