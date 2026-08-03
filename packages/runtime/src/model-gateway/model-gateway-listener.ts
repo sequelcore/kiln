@@ -181,10 +181,18 @@ function stableSerialize(value: unknown): string {
   return serialized;
 }
 
+/**
+ * Node reports a refused connection as `ECONNREFUSED`; Bun reports
+ * `ConnectionRefused`. Recognising only the Node spelling classifies a stopped
+ * gateway as a foreign listener, which blocks start.
+ */
+const CONNECTION_REFUSED_CODES: ReadonlySet<string> = new Set(["ECONNREFUSED", "ConnectionRefused"]);
+
 function isConnectionRefused(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
-    if ((current as { readonly code?: unknown }).code === "ECONNREFUSED") return true;
+    const code = (current as { readonly code?: unknown }).code;
+    if (typeof code === "string" && CONNECTION_REFUSED_CODES.has(code)) return true;
     current = (current as { readonly cause?: unknown }).cause;
   }
   return false;
