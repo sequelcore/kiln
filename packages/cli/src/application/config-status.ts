@@ -472,7 +472,10 @@ function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnPr
           [target.targetId]: target,
         },
       },
-      currentContent: readFileSync(target.filePath, "utf-8"),
+      // Read bytes, not text.  File projections are written and hashed as
+      // bytes by sync, so decoding here produces a different hash and reports
+      // drift for a file that is byte-identical to its projection.
+      currentContent: readFileSync(target.filePath),
     });
     return drift ? "drifted" : "managed";
   }

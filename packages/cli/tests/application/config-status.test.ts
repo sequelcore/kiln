@@ -9,6 +9,7 @@ import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/co
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 import {
+  createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
   emptyNativeProjectionInstallState,
   upsertNativeProjectionTargetState,
@@ -828,6 +829,50 @@ describe("config-status", () => {
           expect.objectContaining({ target: "codex", status: "drifted" }),
         ]),
       }),
+    ]));
+  });
+
+  it("reports an untouched projected skill file as managed, not drifted", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const skillRoot = join(userHome, ".kiln", "skills");
+    writeSkill(skillRoot, "untouched", "User skill.");
+
+    await syncNativeSkillProjections(tempDir, { userHome });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    // Skill projections are written and drift-checked as bytes.  A status
+    // reader that re-reads them as UTF-8 hashes a different value and reports
+    // every skill as drifted, burying real drift under false positives.
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "claude-skill:untouched/SKILL.md",
+        status: "managed",
+      }),
+    ]));
+  });
+
+  it("reports an unchanged string-written file projection as managed", async () => {
+    writeProjectConfig(tempDir);
+    const hookPath = join(tempDir, "home", ".claude", "hooks", "autoformat.sh");
+    const content = "#!/usr/bin/env bash\necho formatted\n";
+    mkdirSync(join(tempDir, "home", ".claude", "hooks"), { recursive: true });
+    writeFileSync(hookPath, content, "utf-8");
+    writeNativeProjectionInstallState(
+      join(tempDir, ".kiln"),
+      upsertNativeProjectionTargetState(
+        emptyNativeProjectionInstallState(),
+        // Hook, agent and shim projections hash their content as a string,
+        // unlike skills which hash bytes.  The status reader sees both through
+        // one code path, so it must accept either recorded hash.
+        createNativeProjectionFileSnapshot({ targetId: "claude-autoformat-hook", filePath: hookPath, content }),
+      ),
+    );
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "claude-autoformat-hook", status: "managed" }),
     ]));
   });
 
