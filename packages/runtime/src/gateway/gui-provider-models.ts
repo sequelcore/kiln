@@ -1873,31 +1873,29 @@ export interface ClaudeCodeExecutableResolution {
 }
 
 export function resolveClaudeCodeExecutable(): ClaudeCodeExecutableResolution | undefined {
-  for (const candidate of [
-    ...homeExecutableCandidates(process.platform === "win32"
-      ? [".local/bin/claude.exe", ".local/bin/claude"]
-      : [".local/bin/claude", ".local/bin/claude.exe"]),
-    "claude",
-    "claude.exe",
-  ]) {
-    try {
-      const output = execFileSync(candidate, ["--version"], { encoding: "utf8" });
-      const version = output.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/u)?.[0];
-      if (version !== undefined) {
-        const executableName = candidate.replaceAll("\\", "/").split("/").at(-1) ?? "claude";
-        return {
-          path: candidate,
-          evidence: {
-            executable: `<operator-harness>/${executableName}`,
-            version,
-          },
-        };
-      }
-    } catch {
-      // try next candidate
-    }
+  // A candidate that runs but reports no version cannot carry admission
+  // evidence, so it is skipped rather than ending resolution.
+  const probe = resolveExecutable(
+    [
+      ...homeExecutableCandidates(process.platform === "win32"
+        ? [".local/bin/claude.exe", ".local/bin/claude"]
+        : [".local/bin/claude", ".local/bin/claude.exe"]),
+      "claude",
+      "claude.exe",
+    ],
+    (candidate) => candidate.version !== undefined,
+  );
+  if (probe?.version === undefined) {
+    return undefined;
   }
-  return undefined;
+  const executableName = probe.path.replaceAll("\\", "/").split("/").at(-1) ?? "claude";
+  return {
+    path: probe.path,
+    evidence: {
+      executable: `<operator-harness>/${executableName}`,
+      version: probe.version,
+    },
+  };
 }
 
 /**
@@ -2362,16 +2360,45 @@ function homeExecutableCandidates(relativePaths: readonly string[]): string[] {
   return relativePaths.map((relativePath) => join(home, ...relativePath.split(/[\\/]+/u)));
 }
 
-function findExecutable(candidates: readonly string[]): string | undefined {
+const CLI_VERSION_PATTERN = /\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/u;
+
+interface ExecutableProbe {
+  readonly path: string;
+  readonly version: string | undefined;
+}
+
+/**
+ * The only place a candidate list is probed.  Callers differ in what they
+ * accept -- a bare path is enough to launch a CLI, while Claude admission also
+ * needs a reported version -- but they must not differ in resolution order, so
+ * every resolver expresses that difference as `accept` instead of its own loop.
+ */
+function resolveExecutable(
+  candidates: readonly string[],
+  accept: (probe: ExecutableProbe) => boolean,
+): ExecutableProbe | undefined {
   for (const candidate of candidates) {
     try {
-      execFileSync(candidate, ["--version"], { stdio: "ignore" });
-      return candidate;
+      // stdout is captured because a version is what distinguishes callers;
+      // stdin and stderr stay discarded so a chatty shim cannot make a probe
+      // fail on buffered output it was never asked to produce.
+      const output = execFileSync(candidate, ["--version"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      const probe: ExecutableProbe = { path: candidate, version: output.match(CLI_VERSION_PATTERN)?.[0] };
+      if (accept(probe)) {
+        return probe;
+      }
     } catch {
       // try next candidate
     }
   }
   return undefined;
+}
+
+function findExecutable(candidates: readonly string[]): string | undefined {
+  return resolveExecutable(candidates, () => true)?.path;
 }
 
 export type GuiProviderSwitchResolution =

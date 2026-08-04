@@ -1,13 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { execFileSync } = vi.hoisted(() => ({
-  execFileSync: vi.fn((executable: string, args: readonly string[]) => {
+const { execFileSync, installedClaudeOnly } = vi.hoisted(() => {
+  const installedClaudeOnly = (executable: string, args: readonly string[]) => {
     if (executable === "claude" && args[0] === "--version") {
       return "2.1.220 (Claude Code)\n";
     }
     throw new Error("executable unavailable");
-  }),
-}));
+  };
+  return { execFileSync: vi.fn(installedClaudeOnly), installedClaudeOnly };
+});
 const supportedModels = vi.fn(async () => [{
   value: "sonnet",
   resolvedModel: "claude-sonnet-5",
@@ -28,6 +29,10 @@ import {
 } from "../../src/gateway/gui-provider-models.js";
 
 describe("discoverClaudeCliModelDiscovery", () => {
+  beforeEach(() => {
+    execFileSync.mockImplementation(installedClaudeOnly);
+  });
+
   it("reads the SDK control catalog without consuming the response iterator", async () => {
     const discovery = await discoverClaudeCliModelDiscovery();
 
@@ -38,7 +43,10 @@ describe("discoverClaudeCliModelDiscovery", () => {
         pathToClaudeCodeExecutable: "claude",
       },
     });
-    expect(execFileSync).toHaveBeenCalledWith("claude", ["--version"], { encoding: "utf8" });
+    expect(execFileSync).toHaveBeenCalledWith("claude", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
     expect(supportedModels).toHaveBeenCalledOnce();
     expect(next).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledOnce();
@@ -57,5 +65,52 @@ describe("discoverClaudeCliModelDiscovery", () => {
         version: "2.1.220",
       },
     });
+  });
+
+  it("skips a candidate that runs but reports no version instead of ending resolution", () => {
+    execFileSync.mockImplementation((executable: string, args: readonly string[]) => {
+      if (args[0] !== "--version") {
+        throw new Error("unexpected invocation");
+      }
+      if (executable === "claude") {
+        return "(Claude Code)\n";
+      }
+      if (executable === "claude.exe") {
+        return "2.1.220 (Claude Code)\n";
+      }
+      throw new Error("executable unavailable");
+    });
+
+    expect(resolveClaudeCodeExecutable()).toEqual({
+      path: "claude.exe",
+      evidence: {
+        executable: "<operator-harness>/claude.exe",
+        version: "2.1.220",
+      },
+    });
+  });
+
+  it("fails closed when no candidate reports a version, never falling back to the SDK build", () => {
+    execFileSync.mockImplementation(() => "(Claude Code)\n");
+
+    expect(resolveClaudeCodeExecutable()).toBeUndefined();
+  });
+
+  it("prefers the operator's home install over a bare PATH lookup and keeps its path out of evidence", () => {
+    const home = process.platform === "win32" ? "C:\\synthetic-home" : "/synthetic-home";
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("USERPROFILE", home);
+    execFileSync.mockImplementation(() => "2.1.220 (Claude Code)\n");
+
+    const resolution = resolveClaudeCodeExecutable();
+
+    // Ordering: every candidate reports a version here, so the winner proves
+    // the home install is probed before the bare `claude` PATH lookup.
+    expect(resolution?.path).toContain("synthetic-home");
+    // Privacy: the operator-absolute path must never reach durable evidence.
+    expect(resolution?.evidence.executable).toMatch(/^<operator-harness>\//u);
+    expect(resolution?.evidence.executable).not.toContain("synthetic-home");
+
+    vi.unstubAllEnvs();
   });
 });
