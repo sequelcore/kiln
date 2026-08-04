@@ -1555,10 +1555,9 @@ export async function runCommand(
       managedInvocationAvailable: managedInvocation !== undefined,
     });
 
-  // Replace the pre-session gap with the unified post-session gap for all
-  // downstream emission paths. The pre-session gap only fires for absent-surface;
-  // the post-session gap covers both absent-surface and present-but-unused.
-  const unifiedCapabilityGap = postSessionCapabilityGap;
+  // The pre-session gap only fires for absent-surface; the post-session gap
+  // (postSessionCapabilityGap) covers both absent-surface and present-but-unused
+  // and is what downstream emission paths receive.
 
   // Harness sessions do not expose a compatible model-window contract. Keep
   // this single runtime-normalized projection explicit instead of deriving a
@@ -1841,7 +1840,7 @@ export async function runCommand(
         lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
         attempts,
         exactArtifacts,
-        capabilityGap: unifiedCapabilityGap,
+capabilityGap: postSessionCapabilityGap,
         managedInvocationAuthorityNotes,
       });
       exitRunCommand(1, executionOptions);
@@ -1981,7 +1980,7 @@ export async function runCommand(
       verificationResult,
       evalScore,
       exactArtifacts,
-      capabilityGap: unifiedCapabilityGap,
+capabilityGap: postSessionCapabilityGap,
       managedInvocationAuthorityNotes,
     });
     exitRunCommand(1, executionOptions);
@@ -2013,7 +2012,7 @@ export async function runCommand(
     verificationResult,
     evalScore,
     exactArtifacts,
-    capabilityGap: unifiedCapabilityGap,
+    capabilityGap: postSessionCapabilityGap,
     managedInvocationAuthorityNotes,
   };
 
