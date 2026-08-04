@@ -2268,4 +2268,191 @@ describe("ProviderSession.run()", () => {
     }).contextTracker;
     expect(tracker.totalTokens).toBe(200);
   });
+
+  describe("managed invocation surface admission", () => {
+    const OBSERVE_ENVELOPE = {
+      operation: "observe" as const,
+      boundaries: ["process"] as const,
+      reversibility: "reversible" as const,
+      dataEgress: "metadata" as const,
+      identityUse: "none" as const,
+      consequences: [] as const,
+      idempotency: "idempotent" as const,
+    };
+
+    const DESTRUCTIVE_ENVELOPE = {
+      operation: "mutate" as const,
+      boundaries: ["process", "workspace", "network"] as const,
+      reversibility: "irreversible" as const,
+      dataEgress: "unknown" as const,
+      identityUse: "authenticated" as const,
+      consequences: ["local-state", "external-state"] as const,
+      idempotency: "non-idempotent" as const,
+    };
+
+    const CONTROL_ENVELOPE = {
+      operation: "mutate" as const,
+      boundaries: ["process"] as const,
+      reversibility: "compensatable" as const,
+      dataEgress: "metadata" as const,
+      identityUse: "none" as const,
+      consequences: ["local-state"] as const,
+      idempotency: "conditionally-idempotent" as const,
+    };
+
+    function makeManagedTool(
+      name: string,
+      description: string,
+      envelope: typeof OBSERVE_ENVELOPE | typeof DESTRUCTIVE_ENVELOPE | typeof CONTROL_ENVELOPE,
+    ) {
+      const tool = {
+        name,
+        description,
+        inputSchema: { type: "object" as const, properties: {}, required: [] },
+        tags: new Set<string>(["managed-invocation"]),
+      };
+      const capability = {
+        name,
+        description,
+        schema: { type: "object" as const, properties: {}, required: [] },
+        tags: ["managed-invocation"],
+        effectEnvelope: envelope,
+      };
+      return { tool, capability };
+    }
+
+    const invoke = makeManagedTool("managed_agent.invoke", "Invoke a managed agent", DESTRUCTIVE_ENVELOPE);
+    const start = makeManagedTool("managed_agent.start", "Start a managed agent", DESTRUCTIVE_ENVELOPE);
+    const orchestrate = makeManagedTool("managed_agent.orchestrate", "Orchestrate managed agents", DESTRUCTIVE_ENVELOPE);
+    const status = makeManagedTool("managed_agent.status", "Check managed agent status", OBSERVE_ENVELOPE);
+    const list = makeManagedTool("managed_agent.list", "List managed agents", OBSERVE_ENVELOPE);
+    const join = makeManagedTool("managed_agent.join", "Join a managed agent session", OBSERVE_ENVELOPE);
+    const cancel = makeManagedTool("managed_agent.cancel", "Cancel a managed agent", CONTROL_ENVELOPE);
+
+    const allManagedTools = [invoke, start, orchestrate, status, list, join, cancel];
+
+    function makeManagedSurface() {
+      const tools = allManagedTools.map((t) => t.tool);
+      const capabilityEntries = allManagedTools.map((t) => [t.tool.name, t.capability] as const);
+      const capabilities = new Map(capabilityEntries);
+      const materializableTools = new Map(tools.map((t) => [t.name, t] as const));
+      const materializableCapabilities = new Map(capabilities);
+      return {
+        callBuiltinTools: new Map(),
+        toolDefinitions: tools,
+        capabilities,
+        materializableTools,
+        materializableCapabilities,
+        toolAuthority: new Map(),
+        dispose: vi.fn(async () => undefined),
+      };
+    }
+
+    function setupManagedSurface(managedSurface: ReturnType<typeof makeManagedSurface>) {
+      runtimeMocks.attachedToolSurfaceOverride = managedSurface;
+    }
+
+    afterEach(() => {
+      runtimeMocks.attachedToolSurfaceOverride = undefined;
+    });
+
+    it("admits managed delegation tools (invoke/start/orchestrate) under read_only authority", async () => {
+      setupManagedSurface(makeManagedSurface());
+      runtimeMocks.processMessage.mockResolvedValueOnce({
+        parts: [{ type: "text", text: "done" }],
+        toolExecutions: [],
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        outcome: "completed",
+      });
+
+      const session = new ProviderSession(baseConfig({
+        provider: "openai",
+        model: "gpt-4o",
+        env: { OPENAI_API_KEY: "cfg-key" },
+        requestedAuthority: "read_only",
+      }));
+      await collectEvents(session.run({ prompt: "orchestrate work" }));
+
+      const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+        toolAllowlist: Set<string>;
+      };
+      expect(perCallConfig.toolAllowlist.has("managed_agent.invoke")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.start")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.orchestrate")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.status")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.list")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.join")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.cancel")).toBe(false);
+    });
+
+    it("admits all managed tools under auto authority (materializable F2 fix)", async () => {
+      setupManagedSurface(makeManagedSurface());
+      runtimeMocks.processMessage.mockResolvedValueOnce({
+        parts: [{ type: "text", text: "done" }],
+        toolExecutions: [],
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        outcome: "completed",
+      });
+
+      const session = new ProviderSession(baseConfig({
+        provider: "openai",
+        model: "gpt-4o",
+        env: { OPENAI_API_KEY: "cfg-key" },
+        requestedAuthority: "auto",
+      }));
+      await collectEvents(session.run({ prompt: "orchestrate work" }));
+
+      const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+        toolAllowlist: Set<string>;
+      };
+      expect(perCallConfig.toolAllowlist.has("managed_agent.invoke")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.start")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.orchestrate")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.status")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.list")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.join")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.cancel")).toBe(true);
+    });
+
+    it("admits all managed tools under destructive authority", async () => {
+      setupManagedSurface(makeManagedSurface());
+      runtimeMocks.processMessage.mockResolvedValueOnce({
+        parts: [{ type: "text", text: "done" }],
+        toolExecutions: [],
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        outcome: "completed",
+      });
+
+      const session = new ProviderSession(baseConfig({
+        provider: "openai",
+        model: "gpt-4o",
+        env: { OPENAI_API_KEY: "cfg-key" },
+        requestedAuthority: "destructive",
+      }));
+      await collectEvents(session.run({ prompt: "orchestrate work" }));
+
+      const perCallConfig = runtimeMocks.processMessage.mock.calls[0]?.[4] as {
+        toolAllowlist: Set<string>;
+      };
+      expect(perCallConfig.toolAllowlist.has("managed_agent.invoke")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.start")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.orchestrate")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.status")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.list")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.join")).toBe(true);
+      expect(perCallConfig.toolAllowlist.has("managed_agent.cancel")).toBe(true);
+    });
+  });
 });

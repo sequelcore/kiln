@@ -7594,4 +7594,25 @@ describe("managed invocation runtime tool", () => {
       expect(invokeAttachmentSchema).toBeDefined();
     });
   });
+
+  describe("attached runtime builtin tool surface materializable registration", () => {
+    it("registers managed invocation tool definitions in materializableTools and materializableCapabilities", () => {
+      const surface = makeSurface(makeAdapter());
+
+      const toolNames = [
+        "managed_agent.invoke",
+        "managed_agent.start",
+        "managed_agent.orchestrate",
+        "managed_agent.status",
+        "managed_agent.list",
+        "managed_agent.join",
+        "managed_agent.cancel",
+      ];
+
+      for (const name of toolNames) {
+        expect(surface.materializableTools.has(name)).toBe(true);
+        expect(surface.materializableCapabilities.has(name)).toBe(true);
+      }
+    });
+  });
 });

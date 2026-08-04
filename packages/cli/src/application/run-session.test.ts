@@ -240,4 +240,98 @@ describe("runSession", () => {
       consoleLog.mockRestore();
     }
   });
+
+  it("sets managedChildDispatched to true when managed_agent.invoke is called", async () => {
+    const run = vi.fn(async function* () {
+      yield {
+        type: "tool_use",
+        toolCallId: "call-managed-invoke",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "managed_agent.invoke",
+        input: { providerRoute: { providerId: "opencode-go" } },
+      };
+      yield {
+        type: "tool_result",
+        toolCallId: "call-managed-invoke",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "managed_agent.invoke",
+        output: "ok",
+      };
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+    });
+    const result = await runSession({
+      registry: {
+        createSession: vi.fn(() => ({ run, dispose: vi.fn(async () => undefined) })),
+        selectBest: vi.fn(),
+        reportSuccess: vi.fn(),
+        reportFailure: vi.fn(),
+      } as unknown as SessionRegistry,
+      cleanupRegistry: { register: vi.fn() } as never,
+      manager: {} as never,
+      context: {
+        mode: "cli-wrapper",
+        domain: { name: "test", displayName: "Test", toolTags: new Set(), qualityGates: [], detectPatterns: [], multishotExamples: "", phaseExamples: "" },
+        systemPrompt: "system",
+        projectedContext: { blocks: [], totalTokens: 0, omitted: [] },
+        mcpServerEntryPath: "",
+        workingDirectory: "/repo",
+        task: "test",
+        resumeStrategy: "none",
+      } as unknown as SessionContext,
+      requirements: {},
+      routeCandidates: [{ provider: "codex-oauth" }],
+      sessionConfig: { task: "test", permissionPolicy: { approval: "never", sandbox: "read-only" } },
+      permissionPolicy: { approval: "never", sandbox: "read-only" },
+      env: {},
+      sessionHooks: { userPromptSubmit: vi.fn(), preToolUse: vi.fn(), postToolUse: vi.fn() } as unknown as SessionHooks,
+    });
+    expect(result.managedChildDispatched).toBe(true);
+  });
+
+  it("sets managedChildDispatched to false when no managed invocation tool is used", async () => {
+    const run = vi.fn(async function* () {
+      yield {
+        type: "tool_use",
+        toolCallId: "call-read",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "read",
+        input: { filePath: "foo.ts" },
+      };
+      yield {
+        type: "tool_result",
+        toolCallId: "call-read",
+        toolCallScopeId: "turn-1:response:1",
+        toolName: "read",
+        output: "content",
+      };
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+    });
+    const result = await runSession({
+      registry: {
+        createSession: vi.fn(() => ({ run, dispose: vi.fn(async () => undefined) })),
+        selectBest: vi.fn(),
+        reportSuccess: vi.fn(),
+        reportFailure: vi.fn(),
+      } as unknown as SessionRegistry,
+      cleanupRegistry: { register: vi.fn() } as never,
+      manager: {} as never,
+      context: {
+        mode: "cli-wrapper",
+        domain: { name: "test", displayName: "Test", toolTags: new Set(), qualityGates: [], detectPatterns: [], multishotExamples: "", phaseExamples: "" },
+        systemPrompt: "system",
+        projectedContext: { blocks: [], totalTokens: 0, omitted: [] },
+        mcpServerEntryPath: "",
+        workingDirectory: "/repo",
+        task: "test",
+        resumeStrategy: "none",
+      } as unknown as SessionContext,
+      requirements: {},
+      routeCandidates: [{ provider: "codex-oauth" }],
+      sessionConfig: { task: "test", permissionPolicy: { approval: "never", sandbox: "read-only" } },
+      permissionPolicy: { approval: "never", sandbox: "read-only" },
+      env: {},
+      sessionHooks: { userPromptSubmit: vi.fn(), preToolUse: vi.fn(), postToolUse: vi.fn() } as unknown as SessionHooks,
+    });
+    expect(result.managedChildDispatched).toBe(false);
+  });
 });

@@ -1887,6 +1887,7 @@ async function prepareManagedInvocationRequest(
     callerIdentity,
     providerId: route.providerId,
     ...(route.model ? { model: route.model } : {}),
+    ...(parsed.input.requestedAuthority ? { childRequestedAuthority: parsed.input.requestedAuthority } : {}),
     adapterEvidence: {
       adapterDescriptorId: route.adapter.descriptor.adapterDescriptorId,
       adapterId: "kiln-managed-invocation",

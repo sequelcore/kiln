@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildRunJsonOutputEnvelope } from "./run-output.js";
+import {
+  buildRunJsonOutputEnvelope,
+  computeDelegationCapabilityGap,
+  extractModelClassifiedTriggers,
+  computeManagedInvocationAuthorityNotes,
+} from "./run-output.js";
+import type { RunSessionTranscriptEvent } from "./run-session.js";
 
 const base = {
   answer: "done",
@@ -50,6 +56,330 @@ describe("buildRunJsonOutputEnvelope", () => {
     expect(buildRunJsonOutputEnvelope({ ...base, efficiencyEvidence }).telemetry.efficiencyEvidence).toEqual(
       efficiencyEvidence,
     );
+  });
+
+  it("includes a capabilityGap record in diagnostics when supplied", () => {
+    const gap = {
+      kind: "capability_pause" as const,
+      reason: "delegation-surface-unavailable" as const,
+      matchedTriggers: ["architecture", "multi-file"],
+      posture: "orchestrate" as const,
+      message: "Work governance requires delegation.",
+    };
+    const envelope = buildRunJsonOutputEnvelope({ ...base, capabilityGap: gap });
+    expect(envelope.diagnostics.capabilityGap).toEqual(gap);
+    // sessionSucceeded is unchanged — the gap records governance status, not session status
+    expect(envelope.telemetry.sessionSucceeded).toBe(true);
+  });
+
+  it("omits capabilityGap from diagnostics when not supplied (backward-compat)", () => {
+    const envelope = buildRunJsonOutputEnvelope(base);
+    expect(envelope.diagnostics).not.toHaveProperty("capabilityGap");
+    expect(envelope.diagnostics).toEqual({
+      lastError: null,
+      attempts: [],
+    });
+  });
+});
+
+describe("computeDelegationCapabilityGap", () => {
+  it("returns a gap record when posture is orchestrate, triggers are non-empty, and surface is unavailable", () => {
+    const gap = computeDelegationCapabilityGap({
+      defaultPosture: "orchestrate",
+      requireDelegationFor: ["architecture"],
+      managedInvocationAvailable: false,
+    });
+    expect(gap).toBeDefined();
+    expect(gap!.kind).toBe("capability_pause");
+    expect(gap!.reason).toBe("delegation-surface-unavailable");
+    expect(gap!.matchedTriggers).toEqual(["architecture"]);
+    expect(gap!.posture).toBe("orchestrate");
+    expect(gap!.message).toContain("architecture");
+    expect(gap!.message).toContain("managed invocation surface");
+  });
+
+  it("returns a gap record with all configured triggers when multiple are present (absent surface)", () => {
+    const gap = computeDelegationCapabilityGap({
+      defaultPosture: "orchestrate",
+      requireDelegationFor: ["architecture", "multi-file", "cross-surface"],
+      managedInvocationAvailable: false,
+    });
+    expect(gap).toBeDefined();
+    expect(gap!.matchedTriggers).toEqual(["architecture", "multi-file", "cross-surface"]);
+  });
+
+  it("returns undefined when posture is direct regardless of triggers or surface", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "direct",
+        requireDelegationFor: ["architecture"],
+        managedInvocationAvailable: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when posture is direct even with classified triggers and child not dispatched", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "direct",
+        requireDelegationFor: ["architecture"],
+        managedInvocationAvailable: true,
+        classifiedTriggers: ["architecture"],
+        childDispatched: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when managed invocation is available and no classified triggers info (backward-compat)", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "orchestrate",
+        requireDelegationFor: ["architecture"],
+        managedInvocationAvailable: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns a gap with reason delegation-required-but-not-dispatched when surface present, triggers intersect, no child dispatched", () => {
+    const gap = computeDelegationCapabilityGap({
+      defaultPosture: "orchestrate",
+      requireDelegationFor: ["architecture", "ui"],
+      managedInvocationAvailable: true,
+      classifiedTriggers: ["architecture"],
+      childDispatched: false,
+    });
+    expect(gap).toBeDefined();
+    expect(gap!.reason).toBe("delegation-required-but-not-dispatched");
+    expect(gap!.matchedTriggers).toEqual(["architecture"]);
+    expect(gap!.message).toContain("no managed child was dispatched");
+  });
+
+  it("returns undefined when surface present, triggers intersect, and child WAS dispatched", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "orchestrate",
+        requireDelegationFor: ["architecture"],
+        managedInvocationAvailable: true,
+        classifiedTriggers: ["architecture"],
+        childDispatched: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when model classified NO delegation triggers (no false-positive on typo fix)", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "orchestrate",
+        requireDelegationFor: ["architecture", "ui"],
+        managedInvocationAvailable: true,
+        classifiedTriggers: [],
+        childDispatched: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when model classified only non-matching triggers (e.g. documentation not in requireDelegationFor)", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "orchestrate",
+        requireDelegationFor: ["architecture"],
+        managedInvocationAvailable: true,
+        classifiedTriggers: ["security", "documentation"],
+        childDispatched: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("matchedTriggers is the INTERSECTION, not the full configured list", () => {
+    const gap = computeDelegationCapabilityGap({
+      defaultPosture: "orchestrate",
+      requireDelegationFor: ["architecture", "ui"],
+      managedInvocationAvailable: true,
+      classifiedTriggers: ["architecture", "documentation"],
+      childDispatched: false,
+    });
+    expect(gap).toBeDefined();
+    // Only "architecture" intersects; "documentation" is model-classified but not configured;
+    // "ui" is configured but not model-classified
+    expect(gap!.matchedTriggers).toEqual(["architecture"]);
+  });
+
+  it("absent-surface gap still uses full configured list as matchedTriggers (no classification available)", () => {
+    const gap = computeDelegationCapabilityGap({
+      defaultPosture: "orchestrate",
+      requireDelegationFor: ["architecture", "ui"],
+      managedInvocationAvailable: false,
+    });
+    expect(gap).toBeDefined();
+    expect(gap!.reason).toBe("delegation-surface-unavailable");
+    expect(gap!.matchedTriggers).toEqual(["architecture", "ui"]);
+  });
+
+  it("returns undefined when requireDelegationFor is empty", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "orchestrate",
+        requireDelegationFor: [],
+        managedInvocationAvailable: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when requireDelegationFor is undefined", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: "orchestrate",
+        requireDelegationFor: undefined,
+        managedInvocationAvailable: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when defaultPosture is undefined (treats as direct)", () => {
+    expect(
+      computeDelegationCapabilityGap({
+        defaultPosture: undefined,
+        requireDelegationFor: ["architecture"],
+        managedInvocationAvailable: false,
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("extractModelClassifiedTriggers", () => {
+  const toolUseEvent = (toolName: string, input: unknown): RunSessionTranscriptEvent => ({
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      type: "tool_use",
+      toolName,
+      toolCallId: "call-1",
+      toolCallScopeId: "turn-1:response:1",
+      input,
+    },
+  });
+
+  it("extracts triggers from a work_governance.assess tool_use input", () => {
+    const events: RunSessionTranscriptEvent[] = [
+      toolUseEvent("bash", { command: "ls" }),
+      toolUseEvent("work_governance.assess", {
+        summary: "architecture review",
+        triggers: ["architecture", "multi-file"],
+      }),
+      toolUseEvent("read", { filePath: "foo.ts" }),
+    ];
+    expect(extractModelClassifiedTriggers(events)).toEqual(["architecture", "multi-file"]);
+  });
+
+  it("returns an empty array when no work_governance.assess call exists in the transcript", () => {
+    const events: RunSessionTranscriptEvent[] = [
+      toolUseEvent("bash", { command: "ls" }),
+      toolUseEvent("read", { filePath: "foo.ts" }),
+    ];
+    expect(extractModelClassifiedTriggers(events)).toEqual([]);
+  });
+
+  it("returns empty array for empty transcript", () => {
+    expect(extractModelClassifiedTriggers([])).toEqual([]);
+  });
+
+  it("returns the last work_governance.assess call's triggers when multiple exist", () => {
+    const events: RunSessionTranscriptEvent[] = [
+      toolUseEvent("work_governance.assess", {
+        summary: "first assessment",
+        triggers: ["architecture"],
+      }),
+      toolUseEvent("work_governance.assess", {
+        summary: "second assessment",
+        triggers: ["security", "runtime"],
+      }),
+    ];
+    expect(extractModelClassifiedTriggers(events)).toEqual(["security", "runtime"]);
+  });
+
+  it("filters non-string entries from the triggers array", () => {
+    const events: RunSessionTranscriptEvent[] = [
+      toolUseEvent("work_governance.assess", {
+        summary: "test",
+        triggers: ["architecture", null, 42, "ui"],
+      }),
+    ];
+    expect(extractModelClassifiedTriggers(events)).toEqual(["architecture", "ui"]);
+  });
+
+  it("returns empty array when triggers is not an array", () => {
+    const events: RunSessionTranscriptEvent[] = [
+      toolUseEvent("work_governance.assess", {
+        summary: "test",
+        triggers: "not-an-array",
+      }),
+    ];
+    expect(extractModelClassifiedTriggers(events)).toEqual([]);
+  });
+
+  it("returns empty array when input is null", () => {
+    const events: RunSessionTranscriptEvent[] = [
+      toolUseEvent("work_governance.assess", null),
+    ];
+    expect(extractModelClassifiedTriggers(events)).toEqual([]);
+  });
+
+  it("returns empty array when tool_use has no input property", () => {
+    const events: RunSessionTranscriptEvent[] = [{
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: {
+        type: "tool_use",
+        toolName: "work_governance.assess",
+        toolCallId: "call-1",
+        toolCallScopeId: "turn-1:response:1",
+      },
+    }];
+    expect(extractModelClassifiedTriggers(events)).toEqual([]);
+  });
+});
+
+describe("computeManagedInvocationAuthorityNotes", () => {
+  it("emits a diagnostic note when run is read_only and managed invocation surface is attached", () => {
+    const notes = computeManagedInvocationAuthorityNotes({
+      requestedAuthority: "read_only",
+      managedInvocationAvailable: true,
+    });
+    expect(notes).toBeDefined();
+    expect(notes!.managedAgentCancelNote).toContain("managed_agent.cancel");
+    expect(notes!.managedAgentCancelNote).toContain("read_only");
+    expect(notes!.managedAgentCancelNote).toContain("destructive");
+  });
+
+  it("returns undefined when run is not read_only", () => {
+    expect(computeManagedInvocationAuthorityNotes({
+      requestedAuthority: "audited",
+      managedInvocationAvailable: true,
+    })).toBeUndefined();
+
+    expect(computeManagedInvocationAuthorityNotes({
+      requestedAuthority: "destructive",
+      managedInvocationAvailable: true,
+    })).toBeUndefined();
+
+    expect(computeManagedInvocationAuthorityNotes({
+      requestedAuthority: "auto",
+      managedInvocationAvailable: true,
+    })).toBeUndefined();
+  });
+
+  it("returns undefined when managed invocation surface is not attached (no diagnostic needed)", () => {
+    expect(computeManagedInvocationAuthorityNotes({
+      requestedAuthority: "read_only",
+      managedInvocationAvailable: false,
+    })).toBeUndefined();
+  });
+
+  it("returns undefined when requestedAuthority is undefined", () => {
+    expect(computeManagedInvocationAuthorityNotes({
+      requestedAuthority: undefined,
+      managedInvocationAvailable: true,
+    })).toBeUndefined();
   });
 });
 

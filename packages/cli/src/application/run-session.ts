@@ -97,6 +97,9 @@ export interface RunSessionResult {
   readonly executionBindings: readonly ExecutionSessionBindingEvidence[];
   readonly exactArtifacts: readonly string[];
   readonly submittedPlan?: string;
+  /** True when at least one managed_agent.invoke or managed_agent.start was dispatched
+   *  during the session. Set from the session event loop. */
+  readonly managedChildDispatched: boolean;
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
@@ -143,6 +146,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   const transcript: RunSessionTranscriptEvent[] = [];
   const exactArtifacts = new Set<string>();
   let submittedPlan: string | undefined;
+  let managedChildDispatched = false;
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
@@ -397,6 +401,11 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
             if (managedProvider !== undefined) {
               providersUsed.add(managedProvider);
             }
+            if (
+              event.toolName === "managed_agent.invoke" || event.toolName === "managed_agent.start"
+            ) {
+              managedChildDispatched = true;
+            }
             if (options.output) {
               options.output.writeToolUse(event.toolName);
             } else {
@@ -586,6 +595,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     executionBindings: [...executionBindings.values()],
     exactArtifacts: [...exactArtifacts],
     submittedPlan,
+    managedChildDispatched,
   };
 }
 

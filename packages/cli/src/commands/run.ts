@@ -50,7 +50,12 @@ import { runSession } from "../application/run-session.js";
 import type { RunSessionAttemptResult, RunSessionRouteCandidate } from "../application/run-session.js";
 import {
   buildRunJsonOutputEnvelope,
+  computeDelegationCapabilityGap,
   createRunOutputController,
+  extractModelClassifiedTriggers,
+  computeManagedInvocationAuthorityNotes,
+  type CapabilityGapRecord,
+  type ManagedInvocationAuthorityNote,
   type RunOutputController,
   type RunOutputMode,
 } from "../application/run-output.js";
@@ -1202,7 +1207,7 @@ export async function runCommand(
     : undefined;
   managedInvocationProofs.bind(managedInvocationWithService);
   const managedInvocationAttachment = managedInvocationWithService
-    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService)
+    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService, flags.requestedAuthority)
     : undefined;
   const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocationAttachment, {
     publish: async (events) => {
@@ -1216,6 +1221,15 @@ export async function runCommand(
       parentSessionId: sessionId,
     } : undefined,
   );
+
+  // Compute once: is the parent session missing a delegation surface that
+  // work-governance posture requires? Threaded into every emission path
+  // so both success and failure outputs carry the governance gap signal.
+  const capabilityGap: CapabilityGapRecord | undefined = computeDelegationCapabilityGap({
+    defaultPosture: resolvedKilnConfig?.workGovernance?.defaultPosture,
+    requireDelegationFor: resolvedKilnConfig?.workGovernance?.requireDelegationFor,
+    managedInvocationAvailable: managedInvocation !== undefined,
+  });
 
   const initialMetadata = deriveSessionMetadata({
     task,
@@ -1487,6 +1501,7 @@ export async function runCommand(
       exactArtifacts: context.projectedContext.blocks
         .filter((block) => block.kind === "artifact")
         .map((block) => block.content),
+      capabilityGap,
     });
     exitRunCommand(1, executionOptions);
   } finally {
@@ -1513,7 +1528,33 @@ export async function runCommand(
     executionBindings = [],
     exactArtifacts,
     submittedPlan: submittedPlanFromSession,
+    managedChildDispatched,
   } = runResult;
+
+  // Unify the delegation capability gap post-session. The pre-session gap
+  // (line ~1225) handles the surface-absent case. Post-session, we can also
+  // detect the present-but-unused case using the model's task classification
+  // from the transcript and the child-dispatched flag from the event loop.
+  const postSessionCapabilityGap: CapabilityGapRecord | undefined = capabilityGap ?? computeDelegationCapabilityGap({
+    defaultPosture: resolvedKilnConfig?.workGovernance?.defaultPosture,
+    requireDelegationFor: resolvedKilnConfig?.workGovernance?.requireDelegationFor,
+    managedInvocationAvailable: managedInvocation !== undefined,
+    classifiedTriggers: extractModelClassifiedTriggers(transcript),
+    childDispatched: managedChildDispatched,
+  });
+
+  // Risk C: emit operator diagnostic when read_only run has managed invocation
+  // surface attached (managed_agent.cancel is denied by read_only authority).
+  const managedInvocationAuthorityNotes: ManagedInvocationAuthorityNote | undefined =
+    computeManagedInvocationAuthorityNotes({
+      requestedAuthority: flags.requestedAuthority,
+      managedInvocationAvailable: managedInvocation !== undefined,
+    });
+
+  // Replace the pre-session gap with the unified post-session gap for all
+  // downstream emission paths. The pre-session gap only fires for absent-surface;
+  // the post-session gap covers both absent-surface and present-but-unused.
+  const unifiedCapabilityGap = postSessionCapabilityGap;
 
   // Harness sessions do not expose a compatible model-window contract. Keep
   // this single runtime-normalized projection explicit instead of deriving a
@@ -1796,6 +1837,8 @@ export async function runCommand(
         lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
         attempts,
         exactArtifacts,
+        capabilityGap: unifiedCapabilityGap,
+        managedInvocationAuthorityNotes,
       });
       exitRunCommand(1, executionOptions);
     }
@@ -1934,6 +1977,8 @@ export async function runCommand(
       verificationResult,
       evalScore,
       exactArtifacts,
+      capabilityGap: unifiedCapabilityGap,
+      managedInvocationAuthorityNotes,
     });
     exitRunCommand(1, executionOptions);
   }
@@ -1964,6 +2009,8 @@ export async function runCommand(
     verificationResult,
     evalScore,
     exactArtifacts,
+    capabilityGap: unifiedCapabilityGap,
+    managedInvocationAuthorityNotes,
   };
 
   if (verificationResult && !verificationResult.passed) {
@@ -2033,6 +2080,8 @@ interface RunOutputEmissionInput {
   readonly verificationResult?: VerificationResult;
   readonly evalScore?: ReturnType<typeof computeEvalScore>;
   readonly exactArtifacts: readonly string[];
+  readonly capabilityGap?: CapabilityGapRecord;
+  readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
 }
 
 interface RunFailureOutputInput {
@@ -2058,6 +2107,8 @@ interface RunFailureOutputInput {
   readonly verificationResult?: VerificationResult;
   readonly evalScore?: ReturnType<typeof computeEvalScore>;
   readonly exactArtifacts?: readonly string[];
+  readonly capabilityGap?: CapabilityGapRecord;
+  readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
 }
 
 function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureOutputInput): void {
@@ -2088,6 +2139,8 @@ function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureO
     verificationResult: input.verificationResult,
     evalScore: input.evalScore,
     exactArtifacts: input.exactArtifacts ?? [],
+    capabilityGap: input.capabilityGap,
+    managedInvocationAuthorityNotes: input.managedInvocationAuthorityNotes,
   });
 }
 

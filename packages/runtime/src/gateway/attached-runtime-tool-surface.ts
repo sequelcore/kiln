@@ -498,6 +498,12 @@ export function createAttachedRuntimeBuiltinToolSurface(
     toolAuthority.set(tool.name, authorityFromCapability(tool.name, capability));
   };
 
+  const registerMaterializableRuntimeTool = (tool: ToolDefinition, capability: Capability): void => {
+    registerRuntimeTool(tool, capability);
+    materializableTools.set(tool.name, tool);
+    materializableCapabilities.set(tool.name, capability);
+  };
+
   if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor) {
     return baseSurface;
   }
@@ -599,7 +605,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     for (const [index, tool] of managedToolDefinitions.entries()) {
       const capability = managedCapabilities[index];
       if (capability) {
-        registerRuntimeTool(tool, capability);
+        registerMaterializableRuntimeTool(tool, capability);
       }
     }
     if (

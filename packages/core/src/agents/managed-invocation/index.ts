@@ -341,6 +341,8 @@ export type ManagedAgentCallerAttachmentIdentity =
     readonly kind: "kiln-runtime";
     readonly surface: string;
     readonly attachmentId: string;
+    /** The parent turn's effective requested authority, used to bound child delegation. */
+    readonly parentEffectiveRequestedAuthority?: ManagedAgentRequestedAuthority;
   }
   | {
     readonly kind: "external-harness";

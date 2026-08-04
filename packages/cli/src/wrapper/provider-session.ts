@@ -123,6 +123,25 @@ function isReadOnlyCapability(toolName: string, capability: Capability | undefin
   return effect.operation !== "mutate";
 }
 
+/**
+ * Managed invocation delegation tools whose destructiveness is in the child,
+ * not the parent. These are admitted under read_only authority because the
+ * child's authority is bounded by the caller-capability policy and the
+ * executor's resolveManagedInvocationRequestedAuthority.
+ *
+ * managed_agent.cancel is NOT in this set — cancel modifies local state
+ * directly (stops a running agent) and is not a delegation tool.
+ */
+const MANAGED_DELEGATION_TOOL_NAMES = new Set([
+  "managed_agent.invoke",
+  "managed_agent.start",
+  "managed_agent.orchestrate",
+]);
+
+function isDelegatableManagedInvocationTool(toolName: string): boolean {
+  return MANAGED_DELEGATION_TOOL_NAMES.has(toolName);
+}
+
 function resolveExecutionMode(config: ProviderSessionConfig): DirectProviderExecutionMode {
   const profile = resolveProfile(config);
   return profile?.executionMode ?? "text-only";
@@ -616,7 +635,15 @@ export class ProviderSession implements IKilnSession {
         continue;
       }
       if (effectiveRequestedAuthority === "read_only") {
-        if (authority.allowed && !authority.requiresApproval && isReadOnlyCapability(tool.name, capability) && authority.level <= 1) {
+        // Managed delegation tools (invoke/start/orchestrate) are admitted
+        // under read_only even though their effect envelope is destructive,
+        // because the actual mutating work is delegated to the child agent.
+        // The child's authority is bounded against the parent's by the
+        // caller-capability policy at execution time.
+        // managed_agent.cancel is NOT a delegation tool — it modifies local
+        // state directly (stops a running agent) and is denied under read_only.
+        if ((authority.allowed && !authority.requiresApproval && isReadOnlyCapability(tool.name, capability) && authority.level <= 1)
+          || isDelegatableManagedInvocationTool(tool.name)) {
           admittedToolNames.add(tool.name);
           toolAuthority.set(tool.name, authority);
         }
