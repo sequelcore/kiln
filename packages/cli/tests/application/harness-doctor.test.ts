@@ -159,9 +159,78 @@ describe("harness doctor", () => {
       version: "kiln 0.1.0",
     });
     expect(report.kilnCli.repairActions).toEqual([]);
-    expect(report.kilnCli.warnings).toContain(
-      "Global kiln may not include local source changes until a release installs a new build.",
-    );
+  });
+
+  describe("kiln CLI source linkage", () => {
+    const npmDir = "C:\\Users\\ExampleUser\\.bun\\bin";
+    const checkout = "C:\\workspace\\kiln";
+
+    async function reportFor(overrides: {
+      readonly projectRoot?: string;
+      readonly runningModulePath: string;
+      readonly readPackageName?: (manifestPath: string) => string | undefined;
+    }) {
+      return buildHarnessDoctorReport({
+        env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: npmDir },
+        platform: "win32",
+        projectRoot: overrides.projectRoot,
+        runningModulePath: overrides.runningModulePath,
+        readPackageName: overrides.readPackageName
+          ?? ((manifestPath) =>
+            manifestPath === join(checkout, "packages", "cli", "package.json")
+              ? "@kilnai/cli"
+              : undefined),
+        fileExists: (path) => path === join(npmDir, "kiln.exe"),
+        runVersion: vi.fn(async () => "kiln 3.0.0"),
+        discoverModels: vi.fn(async () => createDiscovery()),
+        readConfigProjections: vi.fn(async () => []),
+      });
+    }
+
+    it("reports a detached build when the running entrypoint is outside the checkout", async () => {
+      const entrypoint = "C:\\Users\\ExampleUser\\.bun\\install\\global\\node_modules\\@kilnai\\cli\\dist\\index.js";
+      const report = await reportFor({ projectRoot: checkout, runningModulePath: entrypoint });
+
+      expect(report.kilnCli.sourceLinkage).toBe("detached-from-checkout");
+      expect(report.kilnCli.runningModulePath).toBe(entrypoint);
+      expect(report.kilnCli.warnings).toContainEqual(expect.stringContaining("outside this kiln checkout"));
+      expect(report.kilnCli.repairActions).toContainEqual(
+        expect.stringContaining(join(checkout, "packages", "cli")),
+      );
+    });
+
+    it("reports a linked build when the running entrypoint is inside the checkout", async () => {
+      const report = await reportFor({
+        projectRoot: checkout,
+        runningModulePath: join(checkout, "packages", "cli", "dist", "index.js"),
+      });
+
+      expect(report.kilnCli.sourceLinkage).toBe("linked-to-checkout");
+      expect(report.kilnCli.warnings).toEqual([]);
+      expect(report.kilnCli.repairActions).toEqual([]);
+    });
+
+    it("stays silent outside a kiln checkout, where an installed build is correct", async () => {
+      const report = await reportFor({
+        projectRoot: "C:\\workspace\\unrelated-app",
+        runningModulePath: "C:\\Users\\ExampleUser\\.bun\\install\\global\\node_modules\\@kilnai\\cli\\dist\\index.js",
+      });
+
+      expect(report.kilnCli.sourceLinkage).toBe("not-a-kiln-checkout");
+      expect(report.kilnCli.warnings).toEqual([]);
+      expect(report.kilnCli.repairActions).toEqual([]);
+    });
+
+    it("identifies a checkout by its CLI manifest, not by folder name", async () => {
+      const report = await reportFor({
+        projectRoot: checkout,
+        runningModulePath: "C:\\elsewhere\\dist\\index.js",
+        readPackageName: () => "some-other-package",
+      });
+
+      expect(report.kilnCli.sourceLinkage).toBe("not-a-kiln-checkout");
+      expect(report.kilnCli.warnings).toEqual([]);
+    });
   });
 
   it("renders a read-only human report", async () => {

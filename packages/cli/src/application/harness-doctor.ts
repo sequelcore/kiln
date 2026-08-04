@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { posix, win32 } from "node:path";
+import { resolveRunningCliModulePath } from "../build-identity.js";
 import {
   discoverClaudeCliModelDiscovery,
   discoverGuiCliOperatorModels,
@@ -35,6 +36,26 @@ export interface HarnessDoctorExecutableReport {
   readonly repairActions: readonly string[];
 }
 
+/**
+ * Whether the kiln that actually runs is the kiln being edited.
+ *
+ * `not-a-kiln-checkout` is the ordinary case: the inspected project is not the
+ * kiln repository, so an installed build is correct and nothing is compared.
+ * Inside a kiln checkout the distinction matters, because a globally installed
+ * copy keeps serving its own compiled schema no matter what the working tree
+ * says, and every diagnostic it emits describes that copy instead.
+ */
+export type KilnCliSourceLinkage =
+  | "linked-to-checkout"
+  | "detached-from-checkout"
+  | "not-a-kiln-checkout";
+
+export interface HarnessDoctorKilnReport extends HarnessDoctorExecutableReport {
+  readonly harnessId: "kiln";
+  readonly runningModulePath: string;
+  readonly sourceLinkage: KilnCliSourceLinkage;
+}
+
 export interface HarnessDoctorHarnessReport extends HarnessDoctorExecutableReport {
   readonly harnessId: "claude" | "codex" | "opencode";
   readonly discoveryStatus: string;
@@ -47,7 +68,7 @@ export interface HarnessDoctorReport {
   readonly mode: "read-only";
   readonly generatedAt: string;
   readonly projectRoot?: string;
-  readonly kilnCli: HarnessDoctorExecutableReport;
+  readonly kilnCli: HarnessDoctorKilnReport;
   readonly configProjections: readonly HarnessDoctorProjectionReport[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
   readonly skills?: KilnSkillCatalogSnapshot;
@@ -76,6 +97,8 @@ export interface HarnessDoctorOptions {
   readonly discoverModels?: () => Promise<HarnessDoctorModelDiscovery>;
   readonly readConfigProjections?: (projectRoot: string | undefined) => Promise<readonly HarnessDoctorProjectionReport[]>;
   readonly readConfigStatus?: (projectRoot: string | undefined) => Promise<Pick<KilnConfigStatusSnapshot, "projections" | "skills">>;
+  readonly runningModulePath?: string;
+  readonly readPackageName?: (manifestPath: string) => string | undefined;
 }
 
 interface HarnessDefinition {
@@ -89,7 +112,6 @@ interface HarnessDefinition {
     env: Readonly<Record<string, string | undefined>>,
     platform: NodeJS.Platform,
   ) => readonly string[];
-  readonly releaseWarning?: string;
 }
 
 const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = [
@@ -97,7 +119,6 @@ const HARNESS_DEFINITIONS: readonly HarnessDefinition[] = [
     harnessId: "kiln",
     commandNames: ["kiln.exe", "kiln.cmd", "kiln"],
     preferredCandidates: () => [],
-    releaseWarning: "Global kiln may not include local source changes until a release installs a new build.",
   },
   {
     harnessId: "claude",
@@ -149,13 +170,12 @@ export async function buildHarnessDoctorReport(options: HarnessDoctorOptions = {
   const configProjections = configDiagnostics.projections;
   const generatedAt = (options.now ?? (() => new Date()))().toISOString();
 
-  const kilnCli = await resolveExecutableReport(
-    definitionFor("kiln"),
-    env,
-    fileExists,
-    runVersion,
-    platform,
+  const kilnCli = buildKilnCliReport(
+    await resolveExecutableReport(definitionFor("kiln"), env, fileExists, runVersion, platform),
     options.projectRoot,
+    options.runningModulePath ?? resolveRunningCliModulePath(),
+    options.readPackageName ?? defaultReadPackageName,
+    platform,
   );
   const claude = await resolveHarnessReport(
     definitionFor("claude"),
@@ -210,7 +230,10 @@ export function renderHarnessDoctorText(report: HarnessDoctorReport): string {
     lines.push(`  Project:   ${report.projectRoot}`);
   }
   lines.push("");
-  appendExecutable(lines, "Kiln CLI", report.kilnCli);
+  appendExecutable(lines, "Kiln CLI", report.kilnCli, [
+    `    Running from: ${report.kilnCli.runningModulePath}`,
+    `    Source linkage: ${report.kilnCli.sourceLinkage}`,
+  ]);
   appendConfigProjections(lines, report.configProjections);
   appendPermissionIntegrity(lines, report.permissionIntegrity);
   appendSkillCatalog(lines, report.skills);
@@ -331,7 +354,6 @@ async function resolveExecutableReport(
   fileExists: (path: string) => boolean,
   runVersion: (path: string) => Promise<string | undefined>,
   platform: NodeJS.Platform,
-  projectRoot?: string,
 ): Promise<HarnessDoctorExecutableReport> {
   const pathExecutables = findPathExecutables(definition.commandNames, env, fileExists, platform);
   const candidates = dedupePaths([
@@ -353,7 +375,7 @@ async function resolveExecutableReport(
   const competingExecutables = canonicalExecutable
     ? pathExecutables.filter((path) => normalizePath(path) !== normalizePath(canonicalExecutable))
     : pathExecutables;
-  const warnings = buildWarnings(definition, canonicalExecutable, competingExecutables, projectRoot);
+  const warnings = buildWarnings(definition, competingExecutables);
 
   return {
     harnessId: definition.harnessId,
@@ -371,6 +393,7 @@ function appendExecutable(
   lines: string[],
   title: string,
   executable: HarnessDoctorExecutableReport,
+  extraLines: readonly string[] = [],
 ): void {
   lines.push(`  ${title}:`);
   lines.push(`    ID: ${executable.harnessId}`);
@@ -378,11 +401,15 @@ function appendExecutable(
   lines.push(`    Executable: ${executable.canonicalExecutable ?? "-"}`);
   lines.push(`    Version: ${executable.version ?? "-"}`);
   lines.push(`    PATH entries: ${executable.pathExecutables.length > 0 ? executable.pathExecutables.join(", ") : "-"}`);
+  lines.push(...extraLines);
   if (executable.competingExecutables.length > 0) {
     lines.push(`    Competing entries: ${executable.competingExecutables.join(", ")}`);
   }
   for (const warning of executable.warnings) {
     lines.push(`    Warning: ${warning}`);
+  }
+  for (const repairAction of executable.repairActions) {
+    lines.push(`    Repair: ${repairAction}`);
   }
   lines.push("");
 }
@@ -421,22 +448,86 @@ function appendConfigProjections(
 
 function buildWarnings(
   definition: HarnessDefinition,
-  canonicalExecutable: string | undefined,
   competingExecutables: readonly string[],
-  projectRoot?: string,
 ): string[] {
-  const warnings = competingExecutables.map((path) =>
+  return competingExecutables.map((path) =>
     `Competing ${definition.harnessId} executable on PATH: ${path}`
   );
-  if (
-    definition.releaseWarning
-    && canonicalExecutable
-    && projectRoot
-    && !normalizePath(canonicalExecutable).startsWith(normalizePath(projectRoot))
-  ) {
-    warnings.push(definition.releaseWarning);
+}
+
+/**
+ * A kiln checkout is identified by its own CLI manifest rather than by folder
+ * name, so the check cannot be fooled by a directory that merely looks like the
+ * repository.
+ */
+function isKilnCheckout(
+  projectRoot: string | undefined,
+  readPackageName: (manifestPath: string) => string | undefined,
+  platform: NodeJS.Platform,
+): boolean {
+  if (!projectRoot) {
+    return false;
   }
-  return warnings;
+  const manifest = pathApi(platform).join(projectRoot, "packages", "cli", "package.json");
+  return readPackageName(manifest) === "@kilnai/cli";
+}
+
+function resolveSourceLinkage(
+  projectRoot: string | undefined,
+  runningModulePath: string,
+  readPackageName: (manifestPath: string) => string | undefined,
+  platform: NodeJS.Platform,
+): KilnCliSourceLinkage {
+  if (!projectRoot || !isKilnCheckout(projectRoot, readPackageName, platform)) {
+    return "not-a-kiln-checkout";
+  }
+  return normalizePath(runningModulePath).startsWith(normalizePath(projectRoot))
+    ? "linked-to-checkout"
+    : "detached-from-checkout";
+}
+
+function buildKilnCliReport(
+  executable: HarnessDoctorExecutableReport,
+  projectRoot: string | undefined,
+  runningModulePath: string,
+  readPackageName: (manifestPath: string) => string | undefined,
+  platform: NodeJS.Platform,
+): HarnessDoctorKilnReport {
+  const sourceLinkage = resolveSourceLinkage(projectRoot, runningModulePath, readPackageName, platform);
+  const detached = sourceLinkage === "detached-from-checkout";
+  return {
+    ...executable,
+    harnessId: "kiln",
+    runningModulePath,
+    sourceLinkage,
+    warnings: detached
+      ? [
+          ...executable.warnings,
+          `Running kiln resolves to ${runningModulePath}, outside this kiln checkout.`
+          + ` Commands run a build that is not the source in ${projectRoot}.`,
+        ]
+      : executable.warnings,
+    repairActions: detached
+      ? [
+          ...executable.repairActions,
+          `Run "bun link" in ${pathApi(platform).join(projectRoot ?? "", "packages", "cli")}`
+          + " so the global kiln resolves to this checkout.",
+        ]
+      : executable.repairActions,
+  };
+}
+
+function defaultReadPackageName(manifestPath: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    if (typeof parsed === "object" && parsed !== null && "name" in parsed) {
+      const name = (parsed as { name?: unknown }).name;
+      return typeof name === "string" ? name : undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function findPathExecutables(

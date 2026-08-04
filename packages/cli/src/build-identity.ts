@@ -13,7 +13,13 @@ import pkg from "../package.json" with { type: "json" };
  */
 export const RUNNING_CLI_VERSION: string = pkg.version;
 
-export function resolveRunningCliEntrypoint(): string {
+/**
+ * Filesystem location of this module in the build that is executing. It is a
+ * module path rather than the CLI entrypoint, because the question it answers
+ * is "which installation is running", and any module inside that installation
+ * answers it.
+ */
+export function resolveRunningCliModulePath(): string {
   try {
     return fileURLToPath(import.meta.url);
   } catch {
@@ -22,5 +28,5 @@ export function resolveRunningCliEntrypoint(): string {
 }
 
 export function describeRunningCliBuild(): string {
-  return `kiln ${RUNNING_CLI_VERSION} at ${resolveRunningCliEntrypoint()}`;
+  return `kiln ${RUNNING_CLI_VERSION} at ${resolveRunningCliModulePath()}`;
 }

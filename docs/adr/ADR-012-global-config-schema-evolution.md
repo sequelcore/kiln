@@ -49,13 +49,27 @@ rejection. The reverse — an allowlist entry with no interface field — is an
 excess-property error.
 
 Unknown-field rejection has one emission point, and every such diagnostic names
-the build that produced it: version and resolved entrypoint. Because the
+the build that produced it: version and resolved module path. Because the
 staleness signal cannot come from the document, it comes from the validator.
 
 The operator's global `kiln` resolves to the working tree by link, not by
 copied package. Dogfooding a control plane against a months-old snapshot of
 itself is not a supported configuration; a published copy in the global tree is
 treated as a defect.
+
+`kiln doctor` enforces that rule rather than restating it. Inside a kiln
+checkout — identified by its own `packages/cli` manifest, not by folder name —
+the doctor compares the running build's module path against the checkout and
+reports `linked-to-checkout`, `detached-from-checkout`, or
+`not-a-kiln-checkout`, carrying a repair action on the detached verdict.
+Outside a checkout it stays silent, because an installed build is correct there.
+
+That replaces a warning which compared the *launcher* path with the project
+root. A launcher shim always lives outside the checkout, so the comparison was
+true on every run regardless of linkage: it fired continuously, carried no
+information, and was firing throughout the incident that produced this ADR. A
+diagnostic that cannot distinguish the healthy case from the broken one is
+worse than none, because it trains the reader to ignore it.
 
 ## Consequences
 
