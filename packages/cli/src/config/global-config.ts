@@ -12,6 +12,7 @@ import {
   type ModelGatewayConfig,
   type VoiceConfig,
 } from "@kilnai/core";
+import { describeRunningCliBuild } from "../build-identity.js";
 import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./mcp-config.js";
@@ -107,38 +108,47 @@ export interface KilnGlobalConfig {
   readonly modelGateway?: ModelGatewayConfig;
 }
 
-const ROOT_FIELDS = new Set([
-  "version",
-  "identity",
-  "activeInstructionProfiles",
-  "workGovernance",
-  "engines",
-  "routing",
-  "permissions",
-  "mcp",
-  "hooks",
-  "models",
-  "managedAgents",
-  "modelTaskSuitability",
-  "deliberationPolicy",
-  "web",
-  "ui",
-  "skills",
-  "components",
-  "operatorVoice",
-  "modelGateway",
-]);
+/**
+ * Field allowlists are derived from the interfaces they guard: a field added to
+ * an interface without a matching entry here fails typecheck instead of being
+ * rejected at runtime as an unknown field.
+ */
+function fieldNamesOf<T>(fields: Record<keyof T, true>): readonly string[] {
+  return Object.keys(fields);
+}
 
-const IDENTITY_FIELDS = new Set([
-  "name",
-  "timezone",
-]);
+const ROOT_FIELDS = fieldNamesOf<KilnGlobalConfig>({
+  version: true,
+  identity: true,
+  activeInstructionProfiles: true,
+  workGovernance: true,
+  engines: true,
+  routing: true,
+  permissions: true,
+  mcp: true,
+  hooks: true,
+  models: true,
+  managedAgents: true,
+  modelTaskSuitability: true,
+  deliberationPolicy: true,
+  web: true,
+  ui: true,
+  skills: true,
+  components: true,
+  operatorVoice: true,
+  modelGateway: true,
+});
 
-const GLOBAL_WEB_FIELDS = new Set([
-  "searchProvider",
-  "searchFallbackProviders",
-  "extractProvider",
-]);
+const IDENTITY_FIELDS = fieldNamesOf<KilnGlobalIdentity>({
+  name: true,
+  timezone: true,
+});
+
+const GLOBAL_WEB_FIELDS = fieldNamesOf<KilnGlobalWebConfig>({
+  searchProvider: true,
+  searchFallbackProviders: true,
+  extractProvider: true,
+});
 
 export function resolveGlobalConfigPath(): string {
   const xdgConfigHome = process.env.XDG_CONFIG_HOME;
@@ -240,11 +250,7 @@ export function validateGlobalConfig(config: unknown): void {
       `Global config version must be "${CANONICAL_GLOBAL_CONFIG_VERSION}". Recreate the canonical config through an explicit adoption flow.`,
     );
   }
-  for (const key of Object.keys(config)) {
-    if (!ROOT_FIELDS.has(key)) {
-      throw new KilnYamlError(`Unknown global config field: ${key}`);
-    }
-  }
+  rejectUnknownFields(config, ROOT_FIELDS, "global config");
   validateRecordField(config, "identity");
   validateRecordField(config, "workGovernance");
   validateRecordField(config, "engines");
@@ -306,11 +312,7 @@ function validateIdentity(value: unknown): void {
   if (!isRecord(value)) {
     throw new KilnYamlError("identity must be an object");
   }
-  for (const key of Object.keys(value)) {
-    if (!IDENTITY_FIELDS.has(key)) {
-      throw new KilnYamlError(`Unknown identity field: ${key}`);
-    }
-  }
+  rejectUnknownFields(value, IDENTITY_FIELDS, "identity");
   validateOptionalNonEmptyString(value, "name", "identity.name");
   validateOptionalNonEmptyString(value, "timezone", "identity.timezone");
   if (typeof value.timezone === "string") {
@@ -348,13 +350,12 @@ function validateGlobalWeb(value: unknown): void {
   if (!isRecord(value)) {
     throw new KilnYamlError("web must be an object");
   }
-  for (const key of Object.keys(value)) {
-    if (!GLOBAL_WEB_FIELDS.has(key)) {
-      throw new KilnYamlError(
-        `Unknown global web field: ${key}. Put web authority in project .kiln/kiln.yaml.`,
-      );
-    }
-  }
+  rejectUnknownFields(
+    value,
+    GLOBAL_WEB_FIELDS,
+    "global web",
+    "Put web authority in project .kiln/kiln.yaml.",
+  );
   validateOptionalRecord(value, "searchProvider", "web.searchProvider");
   if (value.searchFallbackProviders !== undefined && !Array.isArray(value.searchFallbackProviders)) {
     throw new KilnYamlError("web.searchFallbackProviders must be an array");
@@ -539,10 +540,10 @@ function validateComponents(value: unknown): void {
   }
 }
 
-const GLOBAL_UI_FIELDS = new Set([
-  "theme",
-  "providerSelection",
-]);
+const GLOBAL_UI_FIELDS = fieldNamesOf<KilnGlobalUiConfig>({
+  theme: true,
+  providerSelection: true,
+});
 
 function validateGlobalUi(value: unknown): void {
   if (value === undefined) {
@@ -551,11 +552,7 @@ function validateGlobalUi(value: unknown): void {
   if (!isRecord(value)) {
     throw new KilnYamlError("ui must be an object");
   }
-  for (const key of Object.keys(value)) {
-    if (!GLOBAL_UI_FIELDS.has(key)) {
-      throw new KilnYamlError(`Unknown global ui field: ${key}`);
-    }
-  }
+  rejectUnknownFields(value, GLOBAL_UI_FIELDS, "global ui");
   if (value.theme !== undefined && typeof value.theme !== "string") {
     throw new KilnYamlError("ui.theme must be a string");
   }
@@ -1546,13 +1543,28 @@ function isWorkGovernanceEvidence(value: unknown): boolean {
     || value === "residual-risk";
 }
 
+/**
+ * Single emission point for unknown-field rejections.
+ *
+ * The diagnostic names the build that produced it because an unknown field is
+ * ambiguous on its own: it means either the operator wrote a field that does
+ * not exist, or the running build predates a field that does.
+ */
 function rejectUnknownFields(
   value: Readonly<Record<string, unknown>>,
   allowed: readonly string[],
   path: string,
+  hint?: string,
 ): void {
   for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) throw new KilnYamlError(`Unknown ${path} field: ${key}`);
+    if (allowed.includes(key)) {
+      continue;
+    }
+    throw new KilnYamlError(
+      `Unknown ${path} field: ${key}.${hint === undefined ? "" : ` ${hint}`}`
+      + ` Validated by ${describeRunningCliBuild()};`
+      + " if this field exists at HEAD, the running build predates it.",
+    );
   }
 }
 

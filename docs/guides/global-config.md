@@ -42,7 +42,7 @@ kiln config set --global skills.selection.mode auto
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | `string` | Canonical global config schema guard. Current version is `"1"`. |
+| `version` | `string` | Breaking schema generation marker. Current version is `"1"`. Additive optional fields do not bump it, so a matching `version` is not evidence that the running build understands every field in the document. See [ADR-012](../adr/ADR-012-global-config-schema-evolution.md). |
 | `engines` | `Record<string, KilnGlobalEngineConfig>` | Engine availability and billing metadata. |
 | `routing.defaultWorker` | `string` | Default engine/provider route for operator sessions. |
 | `routing.fallback` | `string` | Optional fallback route for budget-aware routing. |
