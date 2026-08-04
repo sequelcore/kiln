@@ -7615,4 +7615,59 @@ describe("managed invocation runtime tool", () => {
       }
     });
   });
+
+  describe("composed caller-capability wiring (executor + policy)", () => {
+    it("denies kiln-runtime caller with parentEffectiveRequestedAuthority=read_only + childRequestedAuthority=destructive at the executor level", async () => {
+      // This test proves that the composed wiring — from attachment identity
+      // through the executor into evaluateManagedInvocationCallerCapability —
+      // denies a destructive child dispatched from a read_only parent.
+      // The pure-policy unit tests cover the policy function; this test
+      // proves the executor/attachment composition does not bypass it.
+      const adapter = makeAdapter();
+      const surface = createAttachedRuntimeBuiltinToolSurface({
+        managedInvocation: {
+          callerIdentity: {
+            kind: "kiln-runtime",
+            surface: "run",
+            attachmentId: "attachment:run:plan-mode",
+            parentEffectiveRequestedAuthority: "read_only",
+          },
+          routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+        },
+      });
+      const session = makeSession();
+
+      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        routeId: "opencode-readonly",
+        profile: "foundation-readonly-plan",
+        providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+        task: "Delete production data.",
+        requestedAuthority: "destructive",
+      }, {
+        session,
+        toolCall: { id: "tool-call-caller-bounding", name: "managed_agent.invoke", input: {} },
+      }) as {
+        readonly output: string;
+        readonly isError: boolean;
+        readonly metadata: Record<string, unknown>;
+      };
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain("Managed invocation denied");
+      expect(result.output).toContain("authority-narrowing-required");
+      expect(result.metadata).toMatchObject({
+        status: "denied",
+        callerIdentity: expect.objectContaining({
+          kind: "kiln-runtime",
+          parentEffectiveRequestedAuthority: "read_only",
+        }),
+        invocationCapabilityEvidence: {
+          decision: "denied",
+          reason: "authority-narrowing-required",
+        },
+      });
+      expect(adapter.invoke).not.toHaveBeenCalled();
+    });
+
+  });
 });

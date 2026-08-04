@@ -1206,8 +1206,12 @@ export async function runCommand(
     ? withManagedInvocationService(managedInvocation)
     : undefined;
   managedInvocationProofs.bind(managedInvocationWithService);
+  // Resolve the effective parent authority the same way provider-session.ts:582 does:
+  // plan mode forces read_only admission, so the caller-capability policy must
+  // receive that resolved value — not the raw flag — to bound child authority.
+  const effectiveParentAuthority = flags.plan ? "read_only" : flags.requestedAuthority;
   const managedInvocationAttachment = managedInvocationWithService
-    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService, flags.requestedAuthority)
+    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService, effectiveParentAuthority)
     : undefined;
   const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocationAttachment, {
     publish: async (events) => {
