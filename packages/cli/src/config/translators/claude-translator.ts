@@ -1,4 +1,4 @@
-import { translatePermission } from "../../wrapper/session-registry.js";
+import { translatePermission, type ClaudeNativeRules } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
   asRecord,
@@ -30,6 +30,14 @@ export function translateClaudePermissionProjection(input: {
     deny.push("Write", "Edit", "Bash", "NotebookEdit", "WebFetch");
   }
 
+  // The coarse mode sets the baseline; the rules the policy states explicitly
+  // are layered on top. Without this the granular rules Kiln classifies as
+  // natively representable are computed and then dropped.
+  const nativeRules = translated.nativeRules as ClaudeNativeRules;
+  const ask = [...nativeRules.ask];
+  allow.push(...nativeRules.allow.filter((rule) => !allow.includes(rule)));
+  deny.push(...nativeRules.deny.filter((rule) => !deny.includes(rule)));
+
   const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) => field === "model" || field.startsWith("env."));
   const existingDocument = stripManagedFields({
     currentDocument: input.existingDocument,
@@ -37,7 +45,7 @@ export function translateClaudePermissionProjection(input: {
   });
   const document: Record<string, unknown> = {
     ...existingDocument,
-    permissions: { allow, deny },
+    permissions: { allow, deny, ask, defaultMode: cfg.permissionMode },
     kiln: {
       ...asRecord(existingDocument.kiln),
       permissionSync: toPermissionSyncMetadata(translated),

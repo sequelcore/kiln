@@ -626,17 +626,32 @@ function collectTranslationRules(
   return rules;
 }
 
+/** `collectTranslationRules` encodes a command rule as `<shell>:<pattern>`. */
+function commandPattern(selector: string): string {
+  return selector.slice(selector.indexOf(":") + 1);
+}
+
+/**
+ * Neither Claude nor OpenCode models shell selection in a permission rule, so a
+ * rule scoped to one shell cannot be lowered without widening it to every
+ * shell. Those stay unsupported and reach the agent as a stated constraint.
+ */
+function isShellAgnosticCommand(rule: PermissionTranslationRule): boolean {
+  return rule.selector.startsWith("any:");
+}
+
 function isRepresentableByBackend(
   rule: PermissionTranslationRule,
   backend: ProviderId,
 ): boolean {
   if (backend === "codex") return false;
-  if (backend === "claude") {
-    return rule.category === "tool" || rule.category === "command";
+  if (rule.category === "command") {
+    return isShellAgnosticCommand(rule);
   }
-  return rule.category === "tool"
-    || rule.category === "command"
-    || rule.category === "file-governance";
+  if (backend === "claude") {
+    return rule.category === "tool";
+  }
+  return rule.category === "tool" || rule.category === "file-governance";
 }
 
 function buildConstraintInstructions(
@@ -662,7 +677,7 @@ function buildClaudeNativeRules(
 
   for (const rule of representableRules) {
     const target = rule.category === "command"
-      ? `Bash(${rule.selector})`
+      ? `Bash(${commandPattern(rule.selector)})`
       : rule.selector;
     if (rule.action === "allow") {
       allow.push(target);
@@ -686,11 +701,16 @@ function buildOpenCodeNativeRules(
     action: rule.action,
   }));
 
-  const commands = policy.commands.map((rule) => ({
-    pattern: rule.pattern,
-    shell: rule.shell ?? "any",
-    action: rule.action,
-  }));
+  // Shell-scoped rules are excluded for the same reason as Claude: OpenCode
+  // matches a bash pattern with no shell dimension, so lowering one would widen
+  // it to every shell.
+  const commands = policy.commands
+    .filter((rule) => (rule.shell ?? "any") === "any")
+    .map((rule) => ({
+      pattern: rule.pattern,
+      shell: "any" as const,
+      action: rule.action,
+    }));
 
   return {
     tools,

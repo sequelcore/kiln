@@ -166,7 +166,12 @@ describe("syncNativePermissionProjections", () => {
     const settings = readJson(claudeSettingsPath);
     expect(settings.mcpServers).toEqual({ kiln: { command: "node", args: ["entry.js"] } });
     expect(settings.uiTheme).toBe("dark");
-    expect(settings.permissions).toEqual({ allow: ["Read", "WebFetch"], deny: [] });
+    expect(settings.permissions).toEqual({
+      allow: ["Read", "WebFetch", "Bash(git status*)"],
+      deny: [],
+      ask: [],
+      defaultMode: "default",
+    });
 
     const kiln = asRecord(settings.kiln);
     expect(kiln.existingKey).toBe("keep-me");

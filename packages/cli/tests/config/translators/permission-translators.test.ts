@@ -49,12 +49,29 @@ describe("permission projection translators", () => {
       document: {
         mcpServers: { kiln: { command: "node", args: ["entry.js"] } },
         uiTheme: "dark",
-        permissions: { allow: ["Read", "WebFetch"], deny: [] },
+        // Claude settings carry defaultMode and an ask list. Kiln computes both
+        // and previously wrote neither, so the granular rules it classified as
+        // natively representable never reached the harness.
+        permissions: {
+          allow: ["Read", "WebFetch", "Bash(git status*)"],
+          deny: [],
+          ask: [],
+          defaultMode: "default",
+        },
       },
     });
     const kiln = asRecord(projection.document.kiln);
     expect(kiln.existingKey).toBe("keep-me");
     expect(asRecord(kiln.permissionSync).backend).toBe("claude");
+  });
+
+  it("writes the Claude permission mode the policy resolves to", () => {
+    const projection = translateClaudePermissionProjection({
+      policy: fullAccessPolicy,
+      existingDocument: {},
+    });
+
+    expect(asRecord(projection.document.permissions).defaultMode).toBe("bypassPermissions");
   });
 
   it("reports Claude full-access projection as lossy trusted evidence rather than Codex-equivalent sandboxing", () => {
