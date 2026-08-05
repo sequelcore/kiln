@@ -154,15 +154,35 @@ describe("permission projection translators", () => {
       },
     });
 
+    // OpenCode keys permission rules by tool action and normalizes a bare
+    // action to `"*"`. A `default` key is read as a rule for a tool named
+    // "default", which matches nothing, so the whole projection is inert.
     expect(projection).toMatchObject({
       targetId: "opencode-config",
       managedFields: ["permission"],
       document: {
         theme: "ocean",
-        permission: { default: "ask" },
+        permission: {
+          "*": "ask",
+          Read: "allow",
+          bash: { "git status*": "allow" },
+          read: { "**/.env": "deny" },
+          edit: { "**/.env": "deny" },
+        },
       },
     });
     expect(projection.document.kiln).toBeUndefined();
+  });
+
+  it("orders the OpenCode wildcard rule first so specific rules win", () => {
+    const projection = translateOpenCodePermissionProjection({
+      policy: granularPolicy,
+      existingDocument: {},
+    });
+
+    // OpenCode resolves a rule with findLast, so the broad rule must be
+    // written before the specific ones or it overrides all of them.
+    expect(Object.keys(asRecord(projection.document.permission))[0]).toBe("*");
   });
 
   it("reports OpenCode allow as permission-rule resolution without sandbox enforcement", () => {
@@ -171,7 +191,7 @@ describe("permission projection translators", () => {
       existingDocument: {},
     });
 
-    expect(projection.document.permission).toEqual({ default: "allow" });
+    expect(projection.document.permission).toEqual({ "*": "allow" });
     expect(projection.integrity).toMatchObject({
       harness: "opencode",
       desired: {

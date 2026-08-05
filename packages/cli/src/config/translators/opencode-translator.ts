@@ -1,4 +1,4 @@
-import { translatePermission } from "../../wrapper/session-registry.js";
+import { translatePermission, type OpenCodeNativeRules } from "../../wrapper/session-registry.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import {
   createPermissionProjection,
@@ -9,6 +9,57 @@ import { resolveNativeDefaultRouteProjection } from "../native-route-integrity.j
 import type { KilnYaml } from "../../kiln-yaml-types.js";
 import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
 import type { OpenCodeResponsesProjection } from "../model-gateway-native-projection.js";
+
+type OpenCodePermissionRule = string | Record<string, string>;
+
+/**
+ * OpenCode keys permission rules by tool action, resolves them with `findLast`,
+ * and normalizes a bare action to the `"*"` key.  Two consequences shape this
+ * projection: the broad rule must be written first so specific rules override
+ * it, and there is no `default` key -- writing one produces a rule for a tool
+ * named "default" that matches nothing.
+ */
+function buildOpenCodePermissionDocument(
+  defaultAction: string,
+  rules: OpenCodeNativeRules,
+): Record<string, OpenCodePermissionRule> {
+  const permission: Record<string, OpenCodePermissionRule> = { "*": defaultAction };
+
+  const scope = (action: string, resource: string, effect: string): void => {
+    const existing = permission[action];
+    permission[action] = typeof existing === "object"
+      ? { ...existing, [resource]: effect }
+      : { ...(typeof existing === "string" ? { "*": existing } : {}), [resource]: effect };
+  };
+
+  for (const rule of rules.tools) {
+    const existing = permission[rule.tool];
+    // A tool already scoped by resource keeps its patterns; the bare action
+    // becomes that tool's own wildcard rather than discarding them.
+    if (typeof existing === "object") {
+      permission[rule.tool] = { "*": rule.action, ...existing };
+      continue;
+    }
+    permission[rule.tool] = rule.action;
+  }
+  for (const rule of rules.commands) {
+    scope("bash", rule.pattern, rule.action);
+  }
+  for (const [effect, globs] of [
+    ["deny", rules.fileGovernance.denyGlobs],
+    ["ask", rules.fileGovernance.askGlobs],
+    ["allow", rules.fileGovernance.allowGlobs],
+  ] as const) {
+    for (const glob of globs) {
+      // A file-governance glob governs reaching the file at all, so it binds
+      // both the read and the edit action.
+      scope("read", glob, effect);
+      scope("edit", glob, effect);
+    }
+  }
+
+  return permission;
+}
 
 export function translateOpenCodePermissionProjection(input: {
   readonly policy: KilnPermissionPolicy;
@@ -33,7 +84,7 @@ export function translateOpenCodePermissionProjection(input: {
   ];
   const document: Record<string, unknown> = {
     ...existingDocument,
-    permission: { default: cfg.permissionDefault },
+    permission: buildOpenCodePermissionDocument(cfg.permissionDefault, translated.nativeRules as OpenCodeNativeRules),
   };
   if (input.gatewayProjection) {
     if (!input.gatewayProjection.managedFields.includes("model") && input.ownsManagedDefault) delete document.model;

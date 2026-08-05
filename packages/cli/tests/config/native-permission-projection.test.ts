@@ -266,7 +266,13 @@ describe("syncNativePermissionProjections", () => {
     expect(result.opencode).toBe(true);
     const config = readJson(opencodeConfigPath);
     expect(config.theme).toBe("ocean");
-    expect(config.permission).toEqual({ default: "ask" });
+    expect(config.permission).toEqual({
+      "*": "ask",
+      Read: "allow",
+      bash: { "git status*": "allow" },
+      read: { "**/.env": "deny" },
+      edit: { "**/.env": "deny" },
+    });
     expect(config.kiln).toBeUndefined();
   });
 
@@ -290,7 +296,15 @@ describe("syncNativePermissionProjections", () => {
     expect((codexMetadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
 
     const opencodeConfig = readJson(opencodeConfigPath);
-    expect(opencodeConfig.permission).toEqual({ default: "ask" });
+    // Unlike codex, OpenCode can carry Kiln's granular rules natively, so they
+    // reach the config instead of degrading to prompt-only constraints.
+    expect(opencodeConfig.permission).toEqual({
+      "*": "ask",
+      Read: "allow",
+      bash: { "git status*": "allow" },
+      read: { "**/.env": "deny" },
+      edit: { "**/.env": "deny" },
+    });
     expect(opencodeConfig.kiln).toBeUndefined();
   });
 
