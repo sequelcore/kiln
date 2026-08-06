@@ -76,7 +76,7 @@ import {
   processAdmittedTurn,
   projectAdmittedTurnContext,
   resolveCoordinationContextCandidates,
-} from "./message-pipeline.js";
+} from "./message-pipeline/index.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { verifySignedArtifactMediaRequest } from "./public-media-delivery.js";
 import type { RuntimeSession } from "../session/runtime-session.js";

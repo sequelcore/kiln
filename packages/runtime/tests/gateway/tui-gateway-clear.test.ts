@@ -691,7 +691,7 @@ describe("TUI gateway message fail-closed behavior", () => {
         ...makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }),
       ]);
     const processSpy = vi
-      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .spyOn(await import("../../src/gateway/message-pipeline/index.js"), "processAdmittedTurn")
       .mockResolvedValue(undefined as never);
     const sessionManager = {
       ...makeSessionManager(),
@@ -743,7 +743,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ opencode: ["openai/gpt-5"] }));
     const processSpy = vi
-      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .spyOn(await import("../../src/gateway/message-pipeline/index.js"), "processAdmittedTurn")
       .mockResolvedValue(undefined as never);
     const sessionManager = {
       ...makeSessionManager(),
@@ -795,7 +795,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockImplementation(async () => makeTuiOperatorDiscoveryFromModels({ opencode: opencodeModels }));
     const processSpy = vi
-      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .spyOn(await import("../../src/gateway/message-pipeline/index.js"), "processAdmittedTurn")
       .mockResolvedValue(undefined as never);
     const sessionManager = {
       ...makeSessionManager(),
@@ -844,7 +844,7 @@ describe("TUI gateway message fail-closed behavior", () => {
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeTuiOperatorDiscoveryFromModels({ claude: [] }));
     const processSpy = vi
-      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .spyOn(await import("../../src/gateway/message-pipeline/index.js"), "processAdmittedTurn")
       .mockResolvedValue({
       ok: true,
       result: {
@@ -1046,7 +1046,7 @@ describe("TUI gateway message fail-closed behavior", () => {
         lastCheckedAt: "2026-05-06T12:00:00.000Z",
       }]);
     const processSpy = vi
-      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .spyOn(await import("../../src/gateway/message-pipeline/index.js"), "processAdmittedTurn")
       .mockImplementation(async (input) => {
       const session = new RuntimeSession({
         sessionId: "tui-parent-session",
@@ -1207,7 +1207,7 @@ describe("TUI gateway message fail-closed behavior", () => {
     let turn = 0;
     let invocationId = "";
     const processSpy = vi
-      .spyOn(await import("../../src/gateway/message-pipeline.js"), "processAdmittedTurn")
+      .spyOn(await import("../../src/gateway/message-pipeline/index.js"), "processAdmittedTurn")
       .mockImplementation(async (input) => {
         turn += 1;
         const session = new RuntimeSession({
@@ -1309,3 +1309,4 @@ describe("TUI gateway message fail-closed behavior", () => {
     }
   });
 });
+

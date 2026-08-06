@@ -10,7 +10,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import type { ContentPart } from "@kilnai/core";
 import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
-import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
+import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
 import { toCoreDeliberationIntent } from "./deliberation-projection.js";
 
 export interface HarnessIngressRoutesConfig {

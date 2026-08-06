@@ -22,7 +22,7 @@ import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestra
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
+import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import type {
   RuntimeTurnApprovalTransition,

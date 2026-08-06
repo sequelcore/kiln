@@ -303,7 +303,7 @@ describe("createTenantRoutes", () => {
         },
       });
 
-      vi.doMock("../../src/gateway/message-pipeline.js", () => ({
+      vi.doMock("../../src/gateway/message-pipeline/index.js", () => ({
         processAdmittedTurn: processAdmittedTurnMock,
       }));
 
@@ -330,7 +330,7 @@ describe("createTenantRoutes", () => {
       expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set(["mcp:tenant-tools:tool:read"]));
       expect(forwarded.requestedAuthority).toBe("audited");
 
-      vi.doUnmock("../../src/gateway/message-pipeline.js");
+      vi.doUnmock("../../src/gateway/message-pipeline/index.js");
       vi.resetModules();
     });
 
@@ -437,3 +437,4 @@ describe("createTenantRoutes", () => {
     });
   });
 });
+

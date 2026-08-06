@@ -591,7 +591,7 @@ Channels participate in the human handoff workflow. When a session is in `queued
 
 **Email.** `email-webhook-routes.ts` handles handoff for email. Queued messages are stored and `HANDOFF_MESSAGE_QUEUED` events are emitted. Operator messages are delivered as email replies with proper threading headers.
 
-**REST API.** The shared `message-pipeline.ts` handles handoff for API channel requests. The response includes `{ queued: true }` when a message is queued for human review.
+**REST API.** The shared `message-pipeline/` module (entrypoint: `process-admitted-turn.ts`) handles handoff for API channel requests. The response includes `{ queued: true }` when a message is queued for human review.
 
 All channels call `SessionRegistry.save()` after processing to persist session mutations (critical for Redis-backed stores).
 

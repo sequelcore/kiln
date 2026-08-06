@@ -10,7 +10,7 @@ import type { SessionRegistry } from "../session/persistence/session-registry.js
 import { checkTier } from "./budget-middleware.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
-import { processAdmittedTurn } from "./message-pipeline.js";
+import { processAdmittedTurn } from "./message-pipeline/index.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
 
@@ -30,9 +30,9 @@ export interface ProviderAdapterAppRuntime {
   readonly tenant?: TenantConfig;
   readonly handoffSummarizer?: AgentHandoffSummarizer;
   readonly eventBus?: EventBus;
-  readonly groundingDeps?: import("./message-pipeline.js").AdmittedTurnContext["groundingDeps"];
+  readonly groundingDeps?: import("./message-pipeline/index.js").AdmittedTurnContext["groundingDeps"];
   readonly contextArtifactCache?: ContextArtifactCache;
-  readonly coordinationContextProvider?: import("./message-pipeline.js").AdmittedTurnContext["coordinationContextProvider"];
+  readonly coordinationContextProvider?: import("./message-pipeline/index.js").AdmittedTurnContext["coordinationContextProvider"];
   readonly toolAllowlist?: ReadonlySet<string>;
 }
 

@@ -261,7 +261,7 @@ describe("createProviderAdapterRoutes", () => {
         body: JSON.stringify({ message: "hello", userId: "user-ctx-persist", context: { role: "admin" } }),
       });
 
-      // Second turn omits context — session must still have it
+      // Second turn omits context â€” session must still have it
       await app.request("/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -291,7 +291,7 @@ describe("createProviderAdapterRoutes", () => {
         },
       });
 
-      vi.doMock("../../src/gateway/message-pipeline.js", () => ({
+      vi.doMock("../../src/gateway/message-pipeline/index.js", () => ({
         processAdmittedTurn: processAdmittedTurnMock,
       }));
 
@@ -318,7 +318,7 @@ describe("createProviderAdapterRoutes", () => {
       expect(body.content).toContain('Tier "fast" is not available');
       expect(processAdmittedTurnMock).not.toHaveBeenCalled();
 
-      vi.doUnmock("../../src/gateway/message-pipeline.js");
+      vi.doUnmock("../../src/gateway/message-pipeline/index.js");
       vi.resetModules();
     });
 
@@ -340,7 +340,7 @@ describe("createProviderAdapterRoutes", () => {
         },
       });
 
-      vi.doMock("../../src/gateway/message-pipeline.js", () => ({
+      vi.doMock("../../src/gateway/message-pipeline/index.js", () => ({
         processAdmittedTurn: processAdmittedTurnMock,
       }));
 
@@ -376,7 +376,7 @@ describe("createProviderAdapterRoutes", () => {
       expect(forwarded.callBuiltinTools).toBeUndefined();
       expect(forwarded.perCallConfig?.toolAllowlist).toEqual(new Set(["mcp:docs:tool:search"]));
 
-      vi.doUnmock("../../src/gateway/message-pipeline.js");
+      vi.doUnmock("../../src/gateway/message-pipeline/index.js");
       vi.resetModules();
     });
   });
@@ -423,3 +423,4 @@ describe("createProviderAdapterRoutes", () => {
     });
   });
 });
+

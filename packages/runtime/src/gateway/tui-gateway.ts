@@ -42,8 +42,8 @@ import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberatio
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
 import type { CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
-import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline.js";
-import type { RuntimeSessionHydrator } from "./message-pipeline.js";
+import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
+import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
   buildAttachedRuntimePerCallToolConfig,

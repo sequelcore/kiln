@@ -25,7 +25,7 @@ import {
 import { Hono } from "hono";
 import type { UpgradeWebSocket } from "hono/ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { processAdmittedTurn } from "../../src/gateway/message-pipeline.js";
+import { processAdmittedTurn } from "../../src/gateway/message-pipeline/index.js";
 import { mountGuiStaticAssets, resolveGuiDistPath } from "../../src/gateway/gui-static-assets.js";
 import {
   buildGuiOperatorDiscoveryResults,
@@ -108,8 +108,8 @@ vi.mock("hono/bun", () => ({
   }),
 }));
 
-vi.mock("../../src/gateway/message-pipeline.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/gateway/message-pipeline.js")>();
+vi.mock("../../src/gateway/message-pipeline/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/gateway/message-pipeline/index.js")>();
   return {
     ...actual,
     processAdmittedTurn: vi.fn(),
@@ -2485,8 +2485,8 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>(
-      "../../src/gateway/message-pipeline.js",
+    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>(
+      "../../src/gateway/message-pipeline/index.js",
     );
     const unavailableReason = "Direct provider route 'openrouter-readonly' requires a tool-call-capable model.";
     const toolInput = {
@@ -2802,8 +2802,8 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>(
-      "../../src/gateway/message-pipeline.js",
+    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>(
+      "../../src/gateway/message-pipeline/index.js",
     );
     const managedInvocation = createManagedInvocation();
     const toolCallId = `tool-call-managed-start-${expectedMetadata.routeId}`;
@@ -3216,8 +3216,8 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>(
-      "../../src/gateway/message-pipeline.js",
+    const actualMessagePipeline = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>(
+      "../../src/gateway/message-pipeline/index.js",
     );
     const { invocationService, managedInvocation, releaseActive, startInput } = makeManagedWriteConflictFixture();
     const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
@@ -8056,3 +8056,4 @@ describe("resolveGuiProviderSwitch", () => {
     }
   });
 });
+

@@ -29,7 +29,7 @@ import {
   transformAudioParts,
 } from "./audio-preprocessor.js";
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
-import { projectAdmittedTurnContext } from "./message-pipeline.js";
+import { projectAdmittedTurnContext } from "./message-pipeline/index.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import { resolveOutboundAudioMedia } from "./public-media-delivery.js";
 import type { OutboundMediaPublisher } from "./public-media-delivery.js";

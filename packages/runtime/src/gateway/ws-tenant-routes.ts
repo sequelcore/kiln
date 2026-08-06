@@ -38,8 +38,8 @@ import {
   appendCoordinationProviderFailureAudit,
   projectAdmittedTurnContext,
   resolveCoordinationContextCandidates,
-} from "./message-pipeline.js";
-import type { AdmittedTurnContext } from "./message-pipeline.js";
+} from "./message-pipeline/index.js";
+import type { AdmittedTurnContext } from "./message-pipeline/index.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 import { sanitizeVisitorInfo, formatVisitorContext } from "./visitor-sanitizer.js";
 import type { SanitizedVisitorInfo } from "./visitor-sanitizer.js";

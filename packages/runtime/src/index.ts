@@ -610,7 +610,7 @@ export { DevTokenStore } from "./gateway/dev-token-store.js";
 export type { DevToken } from "./gateway/dev-token-store.js";
 
 // Message Pipeline
-export { processAdmittedTurn } from "./gateway/message-pipeline.js";
+export { processAdmittedTurn } from "./gateway/message-pipeline/index.js";
 export type {
   AdmittedTurnContext,
   AdmittedTurnResult,
@@ -618,7 +618,7 @@ export type {
   ProcessResult,
   RuntimeSessionHydrationResult,
   RuntimeSessionHydrator,
-} from "./gateway/message-pipeline.js";
+} from "./gateway/message-pipeline/index.js";
 
 // Trace
 export { TraceContext } from "./gateway/trace-context.js";

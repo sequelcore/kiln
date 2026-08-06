@@ -294,8 +294,8 @@ describe("App Gateway GUI routes", () => {
         },
       },
     });
-    vi.doMock("../../src/gateway/message-pipeline.js", async () => {
-      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>("../../src/gateway/message-pipeline.js");
+    vi.doMock("../../src/gateway/message-pipeline/index.js", async () => {
+      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>("../../src/gateway/message-pipeline/index.js");
       return {
         ...actual,
         processAdmittedTurn: processAdmittedTurnMock,
@@ -360,7 +360,7 @@ describe("App Gateway GUI routes", () => {
       }),
     ]));
 
-    vi.doUnmock("../../src/gateway/message-pipeline.js");
+    vi.doUnmock("../../src/gateway/message-pipeline/index.js");
     vi.resetModules();
   });
 
@@ -444,8 +444,8 @@ describe("App Gateway GUI routes", () => {
         },
       },
     });
-    vi.doMock("../../src/gateway/message-pipeline.js", async () => {
-      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>("../../src/gateway/message-pipeline.js");
+    vi.doMock("../../src/gateway/message-pipeline/index.js", async () => {
+      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>("../../src/gateway/message-pipeline/index.js");
       return {
         ...actual,
         processAdmittedTurn: processAdmittedTurnMock,
@@ -509,7 +509,7 @@ describe("App Gateway GUI routes", () => {
       tenantId: "acme",
     });
 
-    vi.doUnmock("../../src/gateway/message-pipeline.js");
+    vi.doUnmock("../../src/gateway/message-pipeline/index.js");
     vi.resetModules();
   });
 
@@ -593,8 +593,8 @@ describe("App Gateway GUI routes", () => {
         },
       },
     });
-    vi.doMock("../../src/gateway/message-pipeline.js", async () => {
-      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline.js")>("../../src/gateway/message-pipeline.js");
+    vi.doMock("../../src/gateway/message-pipeline/index.js", async () => {
+      const actual = await vi.importActual<typeof import("../../src/gateway/message-pipeline/index.js")>("../../src/gateway/message-pipeline/index.js");
       return {
         ...actual,
         processAdmittedTurn: processAdmittedTurnMock,
@@ -648,7 +648,8 @@ describe("App Gateway GUI routes", () => {
       }),
     ]));
 
-    vi.doUnmock("../../src/gateway/message-pipeline.js");
+    vi.doUnmock("../../src/gateway/message-pipeline/index.js");
     vi.resetModules();
   });
 });
+

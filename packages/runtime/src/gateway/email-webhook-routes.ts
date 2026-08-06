@@ -17,7 +17,7 @@ import { requireWebhookSignature } from "./auth-middleware.js";
 import { TraceContext } from "./trace-context.js";
 import type { RetrievalPipeline, ContactMemoryService } from "@kilnai/core";
 import { formatKnowledgeContext, formatContactContext } from "./context-formatter.js";
-import { projectAdmittedTurnContext } from "./message-pipeline.js";
+import { projectAdmittedTurnContext } from "./message-pipeline/index.js";
 import { shouldRejectEmail } from "./email-loop-guard.js";
 import type { EmailThreadStore, EmailThread } from "./email-thread-store.js";
 import { InMemoryEmailThreadStore } from "./email-thread-store.js";

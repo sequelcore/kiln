@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RuntimeContextAudit } from "../../src/gateway/message-pipeline.js";
+import type { RuntimeContextAudit } from "../../src/gateway/message-pipeline/index.js";
 import { projectRuntimeLifecycleAttributionAllocations } from "../../src/session/runtime-lifecycle-attribution-allocations.js";
 
 const ROUTE = "codex-oauth/gpt-5.5";
@@ -231,3 +231,4 @@ describe("runtime lifecycle attribution allocation projection", () => {
     })]);
   });
 });
+

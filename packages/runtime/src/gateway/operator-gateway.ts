@@ -1,5 +1,5 @@
 import { startTuiGateway, type OnProviderSwitch, type TuiGateway, type TuiGatewayOptions } from "./tui-gateway.js";
-import type { RuntimeSessionHydrator } from "./message-pipeline.js";
+import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
 
 export interface OperatorGateway extends TuiGateway {}
 

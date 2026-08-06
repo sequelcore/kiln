@@ -8,7 +8,7 @@ doctrine and control-plane ownership, start with:
 
 Sources: `packages/core/src/safety/`,
 `packages/runtime/src/gateway/safety-middleware.ts`,
-`packages/runtime/src/gateway/message-pipeline.ts`
+`packages/runtime/src/gateway/message-pipeline/`
 
 ## Pipeline Shape
 
