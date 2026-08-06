@@ -39,14 +39,8 @@ export function markLeaseStageAcquired(
   }
 }
 
-export function shouldCompensateAcquireFailure(error: unknown, entry: ManagedAgentRuntimeInvocationEntry): boolean {
-  if (entry.acquiredLeaseStages.length > 0) {
-    return true;
-  }
-  if (error instanceof ManagedAgentRuntimeAdmissionError) {
-    return false;
-  }
-  return false;
+export function shouldCompensateAcquireFailure(entry: ManagedAgentRuntimeInvocationEntry): boolean {
+  return entry.acquiredLeaseStages.length > 0;
 }
 
 export async function saveRuntimeRecoveryCheckpoint(

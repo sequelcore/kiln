@@ -538,7 +538,7 @@ export class RuntimeManagedAgentInvocationService {
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
       const runtimeError = toError(error);
-      if (!shouldCompensateAcquireFailure(error, entry)) {
+      if (!shouldCompensateAcquireFailure(entry)) {
         this.invocations.delete(request.invocationId);
         terminal.reject(runtimeError);
         throw runtimeError;
