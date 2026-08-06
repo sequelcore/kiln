@@ -65,9 +65,9 @@ export function createManagedDirectProviderAdapterFactory(
   options: ManagedDirectProviderAdapterFactoryOptions = {},
 ): (
   route: KilnManagedAgentRouteConfig,
-  accountBinding?: DirectProviderAccountBinding,
-  abortSignal?: AbortSignal,
-  committedRequest?: ManagedCommittedInvocationRequest,
+  accountBinding: DirectProviderAccountBinding | undefined,
+  abortSignal: AbortSignal | undefined,
+  committedRequest: ManagedCommittedInvocationRequest,
 ) => Promise<ManagedAgentRuntimeAdapter | undefined> {
   const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
@@ -157,9 +157,7 @@ export function createManagedDirectProviderAdapterFactory(
       capabilityMap: runtimeCapabilities,
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(executionEnvelope ? { executionEnvelope } : {}),
-      ...(committedRequest
-        ? { economicIdentity: committedRequest.commitment.reservation.selectedIdentity }
-        : {}),
+      economicIdentity: committedRequest.commitment.reservation.selectedIdentity,
       ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
@@ -169,9 +167,8 @@ function assertCommittedEconomicRoute(
   routeId: string,
   providerId: string,
   modelId: string,
-  committedRequest: ManagedCommittedInvocationRequest | undefined,
+  committedRequest: ManagedCommittedInvocationRequest,
 ): void {
-  if (committedRequest === undefined) return;
   const committedRoute = committedRequest.commitment.reservation.selectedIdentity.route;
   if (
     committedRoute.routeId !== routeId

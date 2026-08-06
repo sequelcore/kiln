@@ -9,6 +9,54 @@ import {
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 import type { DirectProviderAdapterOptions } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
+function committedRequestFor(
+  routeId: string,
+  providerId: string,
+  modelId: string,
+): ManagedCommittedInvocationRequest {
+  return {
+    commitment: {
+      reservation: {
+        selectedIdentity: {
+          route: { routeId, providerId, modelId, accountPolicyId: null },
+          account: { kind: "accountless" },
+        },
+      },
+    },
+    dispatchFenceId: "dispatch-fence-test",
+    abortSignal: new AbortController().signal,
+  } as ManagedCommittedInvocationRequest;
+}
+
+function economicDispatchFor(routeId: string, providerId: string, modelId: string) {
+  const selectedIdentity = {
+    route: { routeId, providerId, modelId, accountPolicyId: null },
+    account: { kind: "accountless" as const },
+  } as never;
+  return {
+    commitment: {
+      commitmentId: "commitment-cli-direct-test",
+      reservation: {
+        reservationId: "reservation-cli-direct-test",
+        jobId: "job-cli-direct-test",
+        economicAttemptId: "economic-attempt-cli-direct-test",
+        policy: {} as never,
+        selectedIdentity,
+        priceIdentity: null,
+        envelope: { kind: "bounded", digest: `sha256:${"a".repeat(64)}`, limits: [] },
+        amounts: [],
+        authorityRevision: `sha256:${"b".repeat(64)}`,
+      },
+      rejected: [],
+      notSelected: [],
+    } as never,
+    dispatchFenceId: "dispatch-fence-cli-direct-test",
+    recordExecutionSettlementPending: () => undefined,
+    createExecutionSettlement: () => ({} as never),
+    registerEconomicSettlement: () => undefined,
+  };
+}
+
 function provider(): ProviderAdapter {
   const response: AgentResponse = {
     parts: textParts("child result"),
@@ -41,7 +89,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
         mode: "runtime-selected",
         accountPolicyId: "managed-openai",
       },
-    });
+    }, undefined, undefined, committedRequestFor("openai-managed", "openai", "gpt-5.4-mini"));
 
     expect(adapter).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
     expect(createProviderAdapter).not.toHaveBeenCalled();
@@ -63,7 +111,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       model: "gpt-5.4",
       profiles: ["foundation-readonly-plan"],
       credentials: { mode: "runtime-selected", accountPolicyId: "managed-codex" },
-    }, accountBinding)).resolves.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
+    }, accountBinding, undefined, committedRequestFor("codex-managed", "codex-oauth", "gpt-5.4")))
+      .resolves.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
     expect(createProviderAdapter).toHaveBeenCalledWith(expect.objectContaining({
       provider: "codex-oauth",
       model: "gpt-5.4",
@@ -119,7 +168,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       provider: "openai",
       model: "gpt-5.4-mini",
       profiles: ["foundation-readonly-plan"],
-    });
+    }, undefined, undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"));
 
     expect(adapter).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
     expect(adapter?.descriptor).toMatchObject({
@@ -167,7 +216,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     const adapter = await factory({
       id: "openai-mcp", kind: "direct", provider: "openai", model: "gpt-5.4-mini",
       profiles: ["foundation-readonly-plan"], tools: { allowed: [selector] },
-    });
+    }, undefined, undefined, committedRequestFor("openai-mcp", "openai", "gpt-5.4-mini"));
     const internals = adapter as unknown as {
       readonly tools: readonly { readonly name: string }[];
       readonly builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -180,7 +229,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     const withoutSelector = await factory({
       id: "openai-no-mcp", kind: "direct", provider: "openai", model: "gpt-5.4-mini",
       profiles: ["foundation-readonly-plan"], tools: { allowed: ["read"] },
-    });
+    }, undefined, undefined, committedRequestFor("openai-no-mcp", "openai", "gpt-5.4-mini"));
     expect((withoutSelector as unknown as { tools: readonly { name: string }[] }).tools.some((tool) => tool.name.startsWith("mcp:"))).toBe(false);
     expect(createMcpClient).toHaveBeenCalledTimes(1);
   });
@@ -211,7 +260,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
           mode: "required-before-apply",
         },
       },
-    });
+    }, undefined, undefined, committedRequestFor("codex-oauth-approved-write", "codex-oauth", "gpt-5.5"));
 
     expect(adapter?.descriptor).toMatchObject({
       supportedProfiles: [
@@ -245,7 +294,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       provider: "openai",
       model: "gpt-5.4-mini",
       profiles: ["foundation-readonly-plan"],
-    });
+    }, undefined, undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"));
 
     const resourceProvider: ToolResourceProvider = {
       listResources: () => [],
@@ -311,6 +360,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     }), adapter!, {
       routeId: "openai-readonly",
       routeSource: "explicit-managed-route",
+    }, {
+      economicDispatch: economicDispatchFor("openai-readonly", "openai", "gpt-5.4-mini"),
     });
 
     expect(result.status).toBe("completed");
@@ -332,7 +383,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       provider: "codex",
       model: "gpt-5.3-codex-spark",
       profiles: ["foundation-readonly-plan"],
-    })).resolves.toBeUndefined();
+    }, undefined, undefined, committedRequestFor("codex-readonly", "codex", "gpt-5.3-codex-spark")))
+      .resolves.toBeUndefined();
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
 
@@ -347,7 +399,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       provider: "codex",
       model: "gpt-5.3-codex-spark",
       profiles: ["foundation-readonly-plan"],
-    })).rejects.toThrow("Provider 'codex' is not a direct provider.");
+    }, undefined, undefined, committedRequestFor("codex-direct", "codex", "gpt-5.3-codex-spark")))
+      .rejects.toThrow("Provider 'codex' is not a direct provider.");
   });
 
   it("rejects direct models that cannot execute Kiln runtime tools", async () => {
@@ -360,7 +413,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       provider: "ollama",
       model: "ollama-local",
       profiles: ["foundation-readonly-plan"],
-    })).rejects.toThrow("requires a tool-call-capable model");
+    }, undefined, undefined, committedRequestFor("ollama-readonly", "ollama", "ollama-local")))
+      .rejects.toThrow("requires a tool-call-capable model");
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
 
@@ -373,7 +427,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       kind: "direct",
       provider: "openai",
       profiles: ["foundation-readonly-plan"],
-    })).rejects.toThrow("Direct managed invocation route 'openai-readonly' requires a model.");
+    }, undefined, undefined, committedRequestFor("openai-readonly", "openai", "unused")))
+      .rejects.toThrow("Direct managed invocation route 'openai-readonly' requires a model.");
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
 });

@@ -180,6 +180,38 @@ describe("statusCommand", () => {
     expect(output).toContain("provider consumption is not bounded by Kiln's managed economic ceiling");
   });
 
+  // H1/H2 closure (issue #34): `kiln status` composes routes purely to
+  // display them. A direct route with no covering economic policy must
+  // degrade to "admission-unavailable" with the named reason - never throw,
+  // and never perform credential or MCP work to get there.
+  it("shows a policy-uncovered direct route as unavailable without throwing or resolving credentials", async () => {
+    const kilnDir = join(tempDir, ".kiln");
+    mkdirSync(kilnDir, { recursive: true });
+    writeKilnYaml(kilnDir, {
+      ...defaultKilnYaml("python"),
+      managedAgents: {
+        enabled: true,
+        defaultProvider: "codex",
+        defaultProfile: "foundation-readonly-plan",
+        requireApproval: true,
+        routes: [{
+          id: "openai-uncovered",
+          kind: "direct",
+          provider: "openai",
+          model: "gpt-5.4-mini",
+          profiles: ["foundation-readonly-plan"],
+          credentials: { mode: "credentialless" },
+        }],
+      },
+    });
+
+    await expect(statusCommand(MOCK_APP_CONFIG, tempDir)).resolves.toBeUndefined();
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Managed agent routes:");
+    expect(output).toMatch(/openai-uncovered:.*admission-unavailable/);
+  });
+
   it("shows configured engine route health", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });

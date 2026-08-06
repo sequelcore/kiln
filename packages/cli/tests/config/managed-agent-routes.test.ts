@@ -247,6 +247,38 @@ function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}):
   };
 }
 
+// Minimal economic-policy coverage for a direct route under test. Direct
+// routes now fail route health unconditionally without at least one
+// covering policy (H1/H2 closure); this fixture exists purely to keep
+// unrelated route-composition tests exercising their own concern instead of
+// tripping the policy-coverage gate.
+function economicPolicyCovering(
+  routeIds: readonly string[],
+  policyId = "test-coverage-policy",
+): NonNullable<KilnGlobalConfig["managedAgents"]>["economicPolicies"] {
+  return [{
+    id: policyId,
+    revision: "rev-1",
+    evidenceRequirements: { quota: "optional", price: "optional" },
+    noRouteAction: "deny",
+    comparisonDomains: [{
+      id: "priority-only",
+      rank: 0,
+      unit: "request",
+      scheme: { kind: "unit" },
+      rateCardBasis: "configured",
+      envelopeSemantics: "bounded",
+    }],
+    candidates: routeIds.map((routeId, priorityRank) => ({
+      routeId,
+      comparisonDomainId: "priority-only",
+      priorityRank,
+      ceiling: { kind: "none" as const },
+      worstCaseReservation: { kind: "not-comparable" as const, reason: "economic-basis-unavailable" as const },
+    })),
+  }];
+}
+
 const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]> = {
   port: 4819,
   accounts: [{
@@ -474,6 +506,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("creates a managed invocation service for runtime-selected credential routes without worktree leases", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
+        economicPolicies: economicPolicyCovering(["openai-readonly"]),
         routes: [{
         id: "openai-readonly",
         kind: "direct",
@@ -701,6 +734,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("normalizes explicit runtime-selected credential route ids for profiles and service keys", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
+        economicPolicies: economicPolicyCovering(["openai-readonly"]),
         routes: [{
         id: "openai-readonly",
         kind: "direct",
@@ -779,6 +813,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }));
 
     const result = await resolveManagedInvocationToolOptions(baseConfig({
+      economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
       routes: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
@@ -1372,6 +1407,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "Collect bounded evidence without modifying files.",
       ].join("\n"));
       const result = await resolveManagedInvocationToolOptions(baseConfig({
+        economicPolicies: economicPolicyCovering(["codex-oauth-reasoning-readonly", "codex-oauth-bounded-readonly"]),
         routes: [{
           id: "codex-oauth-reasoning-readonly",
           kind: "direct",
@@ -1455,6 +1491,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
         managedAgents: {
           enabled: true,
+          economicPolicies: economicPolicyCovering(["opencode-go-kimi-k2-6-readonly"]),
           routes: [{
             id: "opencode-go-kimi-k2-6-readonly",
             kind: "direct",
@@ -1558,7 +1595,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }]);
   });
 
-  it("keeps direct routes unhealthy until the direct provider adapter slice exists", async () => {
+  it("keeps direct routes unhealthy without a covering economic policy, even when an adapter factory exists", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
         id: "openai-readonly",
@@ -1572,6 +1609,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: () => makeDirectAdapter(),
     });
 
     expect(result.managedInvocation).toBeUndefined();
@@ -1580,12 +1618,13 @@ describe("resolveManagedInvocationToolOptions", () => {
       kind: "direct",
       provider: "openai",
       available: false,
-      reason: "Direct managed invocation routes require the direct provider managed runtime adapter.",
+      reason: "Direct managed invocation route 'openai-readonly' has no covering economic policy; managed invocation requires a durable economic commitment before adapter construction.",
     });
   });
 
   it("resolves direct routes when the host supplies a direct runtime adapter factory", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
+      economicPolicies: economicPolicyCovering(["openai-readonly"]),
       routes: [{
         id: "openai-readonly",
         kind: "direct",
@@ -1610,15 +1649,13 @@ describe("resolveManagedInvocationToolOptions", () => {
       profiles: ["foundation-readonly-plan"],
       available: true,
     }]);
-    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
-      adapterKind: "direct",
-      providerId: "openai",
-    });
+    expect(result.managedInvocation?.routes[0]?.createCommittedAdapter).toBeInstanceOf(Function);
     expect(result.managedInvocation?.routes[0]?.surface).toBe("direct-provider");
   });
 
   it("resolves explicit Codex OAuth auto-review routes when direct discovery advertises the model", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
+      economicPolicies: economicPolicyCovering(["codex-oauth-auto-review-readonly"]),
       routes: [{
         id: "codex-oauth-auto-review-readonly",
         kind: "direct",
@@ -2011,6 +2048,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("resolves explicit live-proven direct provider routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
+      economicPolicies: economicPolicyCovering(["codex-oauth-approved-write"]),
       routes: [{
         id: "codex-oauth-approved-write",
         kind: "direct",
@@ -2048,16 +2086,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       profiles: ["foundation-apply-approved-writes"],
       available: true,
     }]);
-    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
-      adapterKind: "direct",
-      supportedProfiles: [
-        "foundation-readonly-plan",
-        "foundation-propose-writes",
-        "foundation-apply-approved-writes",
-        "foundation-memory-write-proposals",
-      ],
-      writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
-    });
+    expect(result.managedInvocation?.routes[0]?.createCommittedAdapter).toBeInstanceOf(Function);
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"]).toMatchObject({
       permissionProfile: "apply-approved-writes",
       writeAllowed: true,
@@ -2125,5 +2154,121 @@ describe("resolveManagedInvocationToolOptions", () => {
       profiles: ["foundation-apply-approved-writes"],
       reason: "foundation-apply-approved-writes routes cannot enable tools.network. Use a separate foundation-readonly-plan route for web, browser, computer-use, or visual-reference research phases.",
     }]);
+  });
+
+  // H1/H2 closure (issue #34): a configured direct route not covered by any
+  // economic policy must fail route health at composition, not silently
+  // dispatch. This must hold for a schema-v1 config that declares no
+  // economicPolicies at all.
+  it("fails direct route health with a named reason when no economic policy covers it (schema v1)", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "openai-uncovered",
+        kind: "direct",
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("openai"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth).toEqual([{
+      routeId: "openai-uncovered",
+      routeSource: "explicit-managed-route",
+      kind: "direct",
+      provider: "openai",
+      model: "gpt-5.4-mini",
+      profiles: ["foundation-readonly-plan"],
+      available: false,
+      reason: "Direct managed invocation route 'openai-uncovered' has no covering economic policy; managed invocation requires a durable economic commitment before adapter construction.",
+    }]);
+  });
+
+  // Same closure, schema v2: the route exists and economicPolicies are
+  // declared, but this specific route is simply never named as a candidate
+  // in any of them.
+  it("fails direct route health with a named reason when no economic policy covers it (schema v2, route not a candidate)", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      schemaVersion: 2,
+      economicPolicies: economicPolicyCovering(["openai-covered"]),
+      routes: [{
+        id: "openai-covered",
+        kind: "direct",
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+      }, {
+        id: "openai-uncovered",
+        kind: "direct",
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      userHome: "C:/repo",
+      registry: createRegistry("openai"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+    });
+
+    const uncovered = result.routeHealth.find((route) => route.routeId === "openai-uncovered");
+    expect(uncovered).toMatchObject({
+      available: false,
+      reason: "Direct managed invocation route 'openai-uncovered' has no covering economic policy; managed invocation requires a durable economic commitment before adapter construction.",
+    });
+    const covered = result.routeHealth.find((route) => route.routeId === "openai-covered");
+    expect(covered).toMatchObject({ available: true });
+  });
+
+  // H1/H2 closure (issue #34), binding decision 8: harness routes are
+  // rejection-only for economics and must never be named as economic-policy
+  // candidates - they never get a committed-adapter factory, so admitting
+  // them here would silently create a permanently undispatchable route.
+  // H2 closure: a policy-uncovered direct route must never trigger adapter
+  // construction at composition time - no credential resolution, no MCP
+  // connection. The directAdapterFactory spy standing in for both proves
+  // zero calls, which is the strongest evidence that neither ran.
+  it("never calls the direct adapter factory (zero credential/MCP work) for a policy-uncovered direct route", async () => {
+    const directAdapterFactory = vi.fn(async (route: { readonly provider: string }) => makeDirectAdapter(route.provider));
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "openai-uncovered",
+        kind: "direct",
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("openai"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      directAdapterFactory,
+    });
+
+    expect(directAdapterFactory).not.toHaveBeenCalled();
+    expect(result.routeHealth[0]?.available).toBe(false);
+  });
+
+  it("rejects a harness route named as an economic-policy candidate at config validation", () => {
+    expect(() => validateGlobalConfig(baseConfig({
+      schemaVersion: 2,
+      economicPolicies: economicPolicyCovering(["codex-harness-readonly"]),
+      routes: [{
+        id: "codex-harness-readonly",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.3-codex-spark",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    }))).toThrow(/must reference a supported direct economic route/u);
   });
 });

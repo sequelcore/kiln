@@ -204,6 +204,27 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
     },
     managedAgents: {
       enabled: true,
+      economicPolicies: [{
+        id: "research-policy",
+        revision: "rev-1",
+        evidenceRequirements: { quota: "optional", price: "optional" },
+        noRouteAction: "deny",
+        comparisonDomains: [{
+          id: "priority-only",
+          rank: 0,
+          unit: "request",
+          scheme: { kind: "unit" },
+          rateCardBasis: "configured",
+          envelopeSemantics: "bounded",
+        }],
+        candidates: [{
+          routeId: "opencode-go-research-readonly",
+          comparisonDomainId: "priority-only",
+          priorityRank: 0,
+          ceiling: { kind: "none" },
+          worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
+        }],
+      }],
       routes: [{
         id: "opencode-go-research-readonly",
         kind: "direct",
@@ -322,8 +343,14 @@ describe("managed agent route catalog", () => {
 
     await catalog.refreshNow();
 
-    expect(directAdapterFactory).toHaveBeenCalledTimes(1);
+    // H1/H2 closure (issue #34): direct-route adapter construction is always
+    // deferred to the committed factory now, so the route becomes available
+    // once discovery resolves without ever calling directAdapterFactory
+    // eagerly - it is only invoked later, through createCommittedAdapter,
+    // once a real economic commitment exists.
+    expect(directAdapterFactory).not.toHaveBeenCalled();
     expect(catalog.managedInvocation?.routes[0]?.routeId).toBe("opencode-go-research-readonly");
+    expect(catalog.managedInvocation?.routes[0]?.createCommittedAdapter).toBeInstanceOf(Function);
   });
 
   it("projects explicit read-only reference roots with default protected descendants", async () => {
@@ -331,6 +358,27 @@ describe("managed agent route catalog", () => {
     const resolution = await resolveManagedInvocationToolOptions({
       managedAgents: {
         enabled: true,
+        economicPolicies: [{
+          id: "frontend-reference-policy",
+          revision: "rev-1",
+          evidenceRequirements: { quota: "optional", price: "optional" },
+          noRouteAction: "deny",
+          comparisonDomains: [{
+            id: "priority-only",
+            rank: 0,
+            unit: "request",
+            scheme: { kind: "unit" },
+            rateCardBasis: "configured",
+            envelopeSemantics: "bounded",
+          }],
+          candidates: [{
+            routeId: "opencode-go-frontend-reference-readonly",
+            comparisonDomainId: "priority-only",
+            priorityRank: 0,
+            ceiling: { kind: "none" },
+            worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
+          }],
+        }],
         routes: [{
           id: "opencode-go-frontend-reference-readonly",
           kind: "direct",

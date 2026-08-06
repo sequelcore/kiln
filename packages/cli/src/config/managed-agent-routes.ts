@@ -136,9 +136,9 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (
     route: KilnManagedAgentRouteConfig,
-    accountBinding?: DirectProviderAccountBinding,
-    abortSignal?: AbortSignal,
-    committedRequest?: ManagedCommittedInvocationRequest,
+    accountBinding: DirectProviderAccountBinding | undefined,
+    abortSignal: AbortSignal | undefined,
+    committedRequest: ManagedCommittedInvocationRequest,
   ) => ManagedAgentRuntimeAdapter | Promise<ManagedAgentRuntimeAdapter | undefined> | undefined;
   readonly builtinToolOptions?: BuiltinToolOptionsSource;
   readonly artifactStore?: ArtifactResourceStore;
@@ -514,15 +514,26 @@ export async function resolveManagedInvocationToolOptions(
     routeIndex += 1;
     mark("managed-route-resolve-started", { routeIndex, routeId: routeConfig.routeConfig.id });
     const policyIds = economicPolicyIdsByRoute.get(routeConfig.routeConfig.id) ?? [];
+    const deferAdapterConstruction = routeConfig.routeConfig.kind === "direct"
+      ? true
+      : policyIds.length > 0 || context.compositionMode === "candidate-admission";
     const resolved = await resolveRouteConfig(
       routeConfig,
       context,
       config,
-      policyIds.length > 0 || context.compositionMode === "candidate-admission",
+      deferAdapterConstruction,
     );
     mark("managed-route-resolve-finished", { routeIndex, routeId: routeConfig.routeConfig.id });
-    routeHealth.push(resolved.health);
-    if (resolved.route) {
+    const policyUncovered = routeConfig.routeConfig.kind === "direct" && policyIds.length === 0;
+    const health = policyUncovered && resolved.health.available
+      ? {
+          ...resolved.health,
+          available: false,
+          reason: `Direct managed invocation route '${routeConfig.routeConfig.id}' has no covering economic policy; managed invocation requires a durable economic commitment before adapter construction.`,
+        }
+      : resolved.health;
+    routeHealth.push(health);
+    if (resolved.route && health.available) {
       const economics = economicCapabilityByRoute.get(routeConfig.routeConfig.id);
       routes.push({
         ...resolved.route,
@@ -1124,7 +1135,6 @@ async function resolveRouteConfig(
       config,
       baseHealth,
       writeRequired,
-      deferAdapterConstruction,
     );
   }
 
@@ -1610,7 +1620,6 @@ async function resolveDirectRouteConfig(
   config: ManagedAgentRouteConfigSource,
   baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
   writeRequired: boolean,
-  deferAdapterConstruction: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -1629,19 +1638,8 @@ async function resolveDirectRouteConfig(
   if (catalogEntry.status === "ineligible") {
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, undefined));
   }
-  let adapter: ManagedAgentRuntimeAdapter | undefined;
-  if (!deferAdapterConstruction) {
-    try {
-      adapter = await context.directAdapterFactory?.(routeConfig);
-    } catch (err) {
-      return unhealthy(baseHealth, err instanceof Error ? err.message : String(err));
-    }
-    if (!adapter) {
-      return unhealthy(baseHealth, "Direct managed invocation routes require the direct provider managed runtime adapter.");
-    }
-  }
-  if (writeRequired && adapter) {
-    const writeSupport = validateDirectAdapterWriteSupport(adapter, normalizeProfiles(routeConfig.profiles));
+  if (writeRequired) {
+    const writeSupport = validateDirectRouteWriteSupport(normalizeProfiles(routeConfig.profiles));
     if (!writeSupport.ok) {
       return unhealthy(baseHealth, writeSupport.reason);
     }
@@ -1665,59 +1663,54 @@ async function resolveDirectRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    ...(adapter ? { adapter } : {}),
-    ...(deferAdapterConstruction
-      ? {
-          createCommittedAdapter: async (request: ManagedCommittedInvocationRequest) => {
-            const committedRoute = request.commitment.reservation.selectedIdentity.route;
-            const committedAccount = request.commitment.reservation.selectedIdentity.account;
-            if (
-              committedRoute.routeId !== routeConfig.id
-              || committedRoute.providerId !== routeConfig.provider
-              || committedRoute.modelId !== model
-            ) {
-              throw new ManagedCommittedRouteMismatchError({
-                code: "committed-route-mismatch",
-                expected: { routeId: routeConfig.id, providerId: routeConfig.provider, modelId: model },
-                committed: {
-                  routeId: committedRoute.routeId,
-                  providerId: committedRoute.providerId,
-                  modelId: committedRoute.modelId,
-                },
-              });
-            }
-            let accountBinding: DirectProviderAccountBinding | undefined;
-            if (committedAccount.kind === "account-bound") {
-              const accountComposition = context.managedAccountComposition
-                ?? createManagedAccountRuntimeComposition(config, context.cwd);
-              if (
-                routeConfig.credentials?.mode !== "runtime-selected"
-                || !accountComposition
-                || !isDirectProviderId(routeConfig.provider)
-              ) {
-                throw new Error("Committed account-bound managed route has no process-owned account authority.");
-              }
-              accountBinding = await accountComposition.routing.resolveCommittedAccountBinding({
-                accountPolicyId: routeConfig.credentials.accountPolicyId,
-                providerId: routeConfig.provider,
-                model,
-                capacityIdentity: committedAccount.capacityIdentity,
-                accountRef: createAccountRef(committedAccount.accountRef),
-                credentialRevisionId: committedAccount.credentialRevision,
-              });
-              throwIfManagedRoutePreparationAborted(request.abortSignal);
-            } else if (routeConfig.credentials?.mode !== "credentialless") {
-              throw new Error("Accountless managed commitment does not match the configured credential route.");
-            }
-            return await context.directAdapterFactory?.(
-              routeConfig,
-              accountBinding,
-              request.abortSignal,
-              request,
-            );
+    createCommittedAdapter: async (request: ManagedCommittedInvocationRequest) => {
+      const committedRoute = request.commitment.reservation.selectedIdentity.route;
+      const committedAccount = request.commitment.reservation.selectedIdentity.account;
+      if (
+        committedRoute.routeId !== routeConfig.id
+        || committedRoute.providerId !== routeConfig.provider
+        || committedRoute.modelId !== model
+      ) {
+        throw new ManagedCommittedRouteMismatchError({
+          code: "committed-route-mismatch",
+          expected: { routeId: routeConfig.id, providerId: routeConfig.provider, modelId: model },
+          committed: {
+            routeId: committedRoute.routeId,
+            providerId: committedRoute.providerId,
+            modelId: committedRoute.modelId,
           },
+        });
+      }
+      let accountBinding: DirectProviderAccountBinding | undefined;
+      if (committedAccount.kind === "account-bound") {
+        const accountComposition = context.managedAccountComposition
+          ?? createManagedAccountRuntimeComposition(config, context.cwd);
+        if (
+          routeConfig.credentials?.mode !== "runtime-selected"
+          || !accountComposition
+          || !isDirectProviderId(routeConfig.provider)
+        ) {
+          throw new Error("Committed account-bound managed route has no process-owned account authority.");
         }
-      : {}),
+        accountBinding = await accountComposition.routing.resolveCommittedAccountBinding({
+          accountPolicyId: routeConfig.credentials.accountPolicyId,
+          providerId: routeConfig.provider,
+          model,
+          capacityIdentity: committedAccount.capacityIdentity,
+          accountRef: createAccountRef(committedAccount.accountRef),
+          credentialRevisionId: committedAccount.credentialRevision,
+        });
+        throwIfManagedRoutePreparationAborted(request.abortSignal);
+      } else if (routeConfig.credentials?.mode !== "credentialless") {
+        throw new Error("Accountless managed commitment does not match the configured credential route.");
+      }
+      return await context.directAdapterFactory?.(
+        routeConfig,
+        accountBinding,
+        request.abortSignal,
+        request,
+      );
+    },
     surface: "direct-provider",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     taskSuitability: resolveTaskSuitability(
@@ -1805,33 +1798,27 @@ function awaitManagedRoutePreparation<T>(promise: Promise<T>, signal: AbortSigna
   });
 }
 
-function validateDirectAdapterWriteSupport(
-  adapter: ManagedAgentRuntimeAdapter,
+const DIRECT_WRITE_CAPABLE_PROFILES: readonly ManagedAgentAdmissionProfile[] = [
+  "foundation-readonly-plan",
+  "foundation-propose-writes",
+  "foundation-apply-approved-writes",
+  "foundation-memory-write-proposals",
+];
+
+// Determines write capability from route/profile configuration alone, without
+// constructing the (now always-deferred) direct provider adapter. The direct
+// adapter factory grants LIVE_PROVEN_DIRECT_WRITE_AUTHORITY whenever
+// routeRequiresWriteAuthority(route) is true, so this mirrors that contract.
+function validateDirectRouteWriteSupport(
   profiles: readonly ManagedAgentAdmissionProfile[],
 ): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
-  const unsupportedProfile = profiles.find((profile) => !adapter.descriptor.supportedProfiles.includes(profile));
+  const unsupportedProfile = profiles.find((profile) => !DIRECT_WRITE_CAPABLE_PROFILES.includes(profile));
   if (unsupportedProfile !== undefined) {
     return {
       ok: false,
-      reason: `Direct managed invocation adapter does not support profile '${unsupportedProfile}'.`,
+      reason: `Direct managed invocation route does not support profile '${unsupportedProfile}'.`,
     };
   }
-
-  const writeAuthority = adapter.descriptor.writeAuthority;
-  if (
-    writeAuthority?.proposalSupported !== true
-    || writeAuthority.approvedApplySupported !== true
-    || writeAuthority.memoryProposalSupported !== true
-    || writeAuthority.rollbackEvidence !== true
-    || writeAuthority.cleanupEvidence !== true
-    || writeAuthority.scopeReduction !== true
-  ) {
-    return {
-      ok: false,
-      reason: "Direct managed invocation adapter does not have live-proven write evidence support.",
-    };
-  }
-
   return { ok: true };
 }
 
