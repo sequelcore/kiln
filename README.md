@@ -119,9 +119,9 @@ Core subsystems:
 | Native | Experimental/private | Electron-backed desktop capability and projection work |
 | Studio | Internal/private | Development inspection and topology views |
 
-See [Operator Surfaces](docs/guides/operator-surfaces.md) for when to use GUI,
+See [Operator Surfaces](docs/guides/ops/operator-surfaces.md) for when to use GUI,
 native, TUI, CLI, IDE, or gateway integrations. See
-[Gateway App Runtime](docs/guides/gateway-app-runtime.md) when Kiln should power
+[Gateway App Runtime](docs/guides/channels/gateway-app-runtime.md) when Kiln should power
 AI behavior inside an app.
 
 ## Documentation
@@ -139,21 +139,21 @@ Start here:
 
 Most important architecture documents:
 
-- [Identity](docs/architecture/identity.md)
-- [Control Model](docs/architecture/control-model.md)
-- [Invariants](docs/architecture/invariants.md)
-- [Subsystems](docs/architecture/subsystems.md)
-- [Flows](docs/architecture/flows.md)
-- [Safety](docs/architecture/safety.md)
-- [Coordination](docs/architecture/coordination.md)
-- [Model Gateway](docs/architecture/model-gateway.md)
-- [Memory](docs/architecture/memory.md)
-- [Context Governance](docs/architecture/context-governance.md)
-- [Adaptation](docs/architecture/adaptation.md)
+- [Identity](docs/architecture/core/identity.md)
+- [Control Model](docs/architecture/core/control-model.md)
+- [Invariants](docs/architecture/core/invariants.md)
+- [Subsystems](docs/architecture/core/subsystems.md)
+- [Flows](docs/architecture/core/flows.md)
+- [Safety](docs/architecture/safety/safety.md)
+- [Coordination](docs/architecture/coordination/coordination.md)
+- [Model Gateway](docs/architecture/providers/model-gateway.md)
+- [Memory](docs/architecture/context/memory.md)
+- [Context Governance](docs/architecture/context/context-governance.md)
+- [Adaptation](docs/architecture/core/adaptation.md)
 
 Operator guides:
 
-- [Governed External Engagement](docs/guides/external-engagement.md)
+- [Governed External Engagement](docs/guides/ops/external-engagement.md)
 
 Most important research documents:
 

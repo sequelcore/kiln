@@ -85,27 +85,27 @@ Choose the surface by workflow:
 | Gateway, channels, and remote attach patterns | Runtime and gateway contracts |
 | Desktop-specific capability experiments | Native, from source only in this release |
 
-See [Operator Surfaces](guides/operator-surfaces.md).
+See [Operator Surfaces](guides/ops/operator-surfaces.md).
 
 ## Read This First
 
 Read the doctrine in this order:
 
 1. [Architecture Index](architecture/README.md)
-2. [Identity](architecture/identity.md)
-3. [Control Model](architecture/control-model.md)
-4. [Invariants](architecture/invariants.md)
+2. [Identity](architecture/core/identity.md)
+3. [Control Model](architecture/core/control-model.md)
+4. [Invariants](architecture/core/invariants.md)
 5. [Research Synthesis](research/01-kiln-research-synthesis.md)
 
 Then continue with the subsystem and flow docs:
 
-- [Subsystems](architecture/subsystems.md)
-- [Flows](architecture/flows.md)
-- [Safety](architecture/safety.md)
-- [Coordination](architecture/coordination.md)
-- [Memory](architecture/memory.md)
-- [Context Governance](architecture/context-governance.md)
-- [Adaptation](architecture/adaptation.md)
+- [Subsystems](architecture/core/subsystems.md)
+- [Flows](architecture/core/flows.md)
+- [Safety](architecture/safety/safety.md)
+- [Coordination](architecture/coordination/coordination.md)
+- [Memory](architecture/context/memory.md)
+- [Context Governance](architecture/context/context-governance.md)
+- [Adaptation](architecture/core/adaptation.md)
 
 ## What To Understand First
 
@@ -133,9 +133,9 @@ published artifacts were experimental and are not the current public contract.
 ## Where To Go Next
 
 - If you need doctrine: [Architecture](architecture/README.md)
-- If you need operator/team standards setup: [Operator Doctrine](guides/operator-doctrine.md)
+- If you need operator/team standards setup: [Operator Doctrine](guides/ops/operator-doctrine.md)
 - If you need rationale: [Research](research/README.md)
 - If you need sequencing: [Roadmap](roadmap/README.md)
-- If you need surface selection: [Operator Surfaces](guides/operator-surfaces.md)
+- If you need surface selection: [Operator Surfaces](guides/ops/operator-surfaces.md)
 - If you need runtime configuration details: [Configuration](configuration/app-yaml.md)
 - If you need release status: [Changelog](changelog.md)

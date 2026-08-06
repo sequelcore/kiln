@@ -22,9 +22,9 @@ Start with [Getting Started](getting-started.md), run the source verification
 commands, then read the architecture index and operator surface guide:
 
 - [Architecture](architecture/README.md)
-- [Operator Surfaces](guides/operator-surfaces.md)
+- [Operator Surfaces](guides/ops/operator-surfaces.md)
 - [Roadmap](roadmap/README.md)
-- [Engineering Standards](architecture/engineering-standards.md)
+- [Engineering Standards](architecture/core/engineering-standards.md)
 - [Contributing](../CONTRIBUTING.md)
 
 ## What package manager does the repo use?
@@ -61,7 +61,7 @@ Use the surface that matches the operating context. GUI is best for rich local
 or remote browser supervision, native is best for desktop-specific capability,
 TUI is best for SSH and terminal-first operation, CLI is best for automation,
 and gateway integrations are best for Discord, Slack, webhooks, and product
-channels. See [Operator Surfaces](guides/operator-surfaces.md).
+channels. See [Operator Surfaces](guides/ops/operator-surfaces.md).
 
 ## How is roadmap work tracked?
 
@@ -80,7 +80,7 @@ Runtime app configuration is YAML-based. Use:
 
 - [App YAML](configuration/app-yaml.md)
 - [Gateway YAML](configuration/gateway-yaml.md)
-- [Global Config](guides/global-config.md)
+- [Global Config](guides/config/global-config.md)
 
 Repo shims such as `AGENTS.md` and `CLAUDE.md` are generated projections. Update
 the canonical Kiln config or project context, then regenerate the shims instead
@@ -92,4 +92,4 @@ Kiln stores memory as governed records with layer, provenance, revisions,
 relations, lifecycle evidence, and context-admission evidence. Reads use bounded
 `memory_search` and `kiln://memory/...` resources; writes go through governed
 mutation services or the `memory_save` tool subject to memory authority. See
-[Memory](guides/memory.md) and [Architecture: Memory](architecture/memory.md).
+[Memory](guides/knowledge/memory.md) and [Architecture: Memory](architecture/context/memory.md).

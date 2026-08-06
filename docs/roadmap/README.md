@@ -28,15 +28,15 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [02 - Managed Invocation Routing](./02-managed-invocation-routing.md) | Ready | Deliver issue #34 internal Slice 6: version and project the durable economic lifecycle through the canonical gateway and operator surfaces. |
-| 2 | [03 - Model Gateway Lifecycle](./03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
-| 3 | [04 - Cross-Harness Integration](./04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
-| 4 | [05 - Skill Capability Plane](./05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
-| 5 | [06 - Prompt Governance Plane](./06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
-| 6 | [07 - Stack Governance Plane](./07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
-| 7 | [08 - Remote Operator Pairing](./08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
-| 8 | [09 - Rust Optimization Guardrail](./09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 9 | [10 - Native Operator Surface](./10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
+| 1 | [02 - Managed Invocation Routing](02-managed-invocation-routing.md) | Ready | Deliver issue #34 internal Slice 6: version and project the durable economic lifecycle through the canonical gateway and operator surfaces. |
+| 2 | [03 - Model Gateway Lifecycle](03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
+| 3 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
+| 4 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
+| 5 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
+| 6 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
+| 7 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
+| 8 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
 
 ## Dependency Rules
 
@@ -52,7 +52,7 @@ roadmap reorganization.
 - `10` remains last; native surface promotion depends on stable release, gateway, and benchmark evidence.
 
 GUI execution presentation is canonical in
-[`docs/architecture/gui-execution-presentation.md`](../architecture/gui-execution-presentation.md).
+[`docs/architecture/gui-execution-presentation.md`](../architecture/surfaces/gui-execution-presentation.md).
 Routine UI improvements are product maintenance, not an active release-debt track.
 
 ## Delivery Gates

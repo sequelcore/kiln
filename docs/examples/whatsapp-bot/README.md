@@ -18,7 +18,7 @@ WhatsApp channel when a customer wants to book an appointment.
 
 - [Bun](https://bun.sh) 1.3+
 - Codex OAuth credentials (`kiln auth codex login`)
-- Meta Developer account with a WhatsApp Business app ([setup guide](../../guides/channels.md))
+- Meta Developer account with a WhatsApp Business app ([setup guide](../../guides/channels/channels.md))
 - [ngrok](https://ngrok.com) (for local development)
 
 ## Quick Start

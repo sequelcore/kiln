@@ -33,9 +33,9 @@ The foundation is implemented:
   it lacked representative model-specific evaluation.
 
 Stable boundaries are documented in
-[Context Governance](../architecture/context-governance.md),
-[Context Usage Projection](../architecture/context-usage-projection.md), and
-[Agent Context](../architecture/agent-context.md). The research and source
+[Context Governance](../architecture/context/context-governance.md),
+[Context Usage Projection](../architecture/context/context-usage-projection.md), and
+[Agent Context](../architecture/context/agent-context.md). The research and source
 basis lives in
 [Prompt Component And Response Governance](../research/23-prompt-component-governance.md).
 

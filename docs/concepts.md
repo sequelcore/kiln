@@ -38,7 +38,7 @@ downgraded according to policy and current operating conditions.
 
 Primary subsystem:
 
-- [IngressGovernor](architecture/subsystems.md)
+- [IngressGovernor](architecture/core/subsystems.md)
 
 ### Context
 
@@ -48,7 +48,7 @@ piercing safety boundaries.
 
 Primary subsystem:
 
-- [ContextGovernor](architecture/context-governance.md)
+- [ContextGovernor](architecture/context/context-governance.md)
 
 ### Coordination
 
@@ -58,9 +58,9 @@ magic.
 
 Primary subsystems:
 
-- [Managed coordination policy](architecture/coordination.md)
-- [Governed goals and work items](architecture/work-governance.md)
-- [Managed orchestration lifecycle](architecture/managed-agents.md)
+- [Managed coordination policy](architecture/coordination/coordination.md)
+- [Governed goals and work items](architecture/core/work-governance.md)
+- [Managed orchestration lifecycle](architecture/coordination/managed-agents.md)
 
 ### Safety
 
@@ -69,7 +69,7 @@ even when every other subsystem would prefer progress.
 
 Primary subsystem:
 
-- [SafetyKernel](architecture/safety.md)
+- [SafetyKernel](architecture/safety/safety.md)
 
 ### Memory
 
@@ -79,8 +79,8 @@ way.
 
 Primary docs:
 
-- [Memory](architecture/memory.md)
-- [Adaptation](architecture/adaptation.md)
+- [Memory](architecture/context/memory.md)
+- [Adaptation](architecture/core/adaptation.md)
 
 ### Modes
 
@@ -89,8 +89,8 @@ the same way when degraded, locked, or recovering.
 
 Primary docs:
 
-- [Control Model](architecture/control-model.md)
-- [Flows](architecture/flows.md)
+- [Control Model](architecture/core/control-model.md)
+- [Flows](architecture/core/flows.md)
 
 ## Biological Mechanisms
 

@@ -24,7 +24,7 @@ have all been verified.
   structured tool output, long-thread navigation, restored-session
   deduplication, and reduced-motion behavior.
 - Promoted the operator-validated GUI execution presentation invariants to
-  [`docs/architecture/gui-execution-presentation.md`](architecture/gui-execution-presentation.md);
+  [`docs/architecture/gui-execution-presentation.md`](architecture/surfaces/gui-execution-presentation.md);
   routine visual improvements no longer remain a release-debt roadmap track.
 - Added deterministic CLI output contracts and provider-neutral benchmark,
   efficiency, cost, and verification evidence.

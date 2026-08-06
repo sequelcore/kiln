@@ -55,15 +55,15 @@ When reading configuration, reinterpret it through the current architecture:
 
 Relevant architecture docs:
 
-- [Identity](../architecture/identity.md)
-- [Subsystems](../architecture/subsystems.md)
-- [Flows](../architecture/flows.md)
-- [Safety](../architecture/safety.md)
-- [Memory](../architecture/memory.md)
-- [Context Governance](../architecture/context-governance.md)
-- [Tool Execution](../architecture/tool-execution.md)
-- [Runtime Surfaces](../architecture/runtime-surfaces.md)
-- [Voice Capability](../architecture/voice-capability.md)
+- [Identity](../architecture/core/identity.md)
+- [Subsystems](../architecture/core/subsystems.md)
+- [Flows](../architecture/core/flows.md)
+- [Safety](../architecture/safety/safety.md)
+- [Memory](../architecture/context/memory.md)
+- [Context Governance](../architecture/context/context-governance.md)
+- [Tool Execution](../architecture/tooling/tool-execution.md)
+- [Runtime Surfaces](../architecture/surfaces/runtime-surfaces.md)
+- [Voice Capability](../architecture/providers/voice-capability.md)
 
 ## Canonical MCP References
 
@@ -77,7 +77,7 @@ mcp:
 
 App Gateway resolves these ids through Kiln configuration, discovers admitted
 capabilities, applies app/agent/tenant allowlists, and fails startup when a
-reference is missing or discovery fails. See [Canonical MCP](../guides/mcp.md).
+reference is missing or discovery fails. See [Canonical MCP](../guides/channels/mcp.md).
 
 ## Voice Provider Fields
 

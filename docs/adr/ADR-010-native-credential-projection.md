@@ -93,6 +93,6 @@ translation and the same invariants. It is deliberately not a generic
 
 ## Related
 
-- [Provider Credential Pools](../architecture/provider-credential-pools.md)
-- [Credential Governance](../architecture/credential-governance.md)
-- [Provider Credentials](../guides/provider-credentials.md)
+- [Provider Credential Pools](../architecture/safety/provider-credential-pools.md)
+- [Credential Governance](../architecture/safety/credential-governance.md)
+- [Provider Credentials](../guides/config/provider-credentials.md)

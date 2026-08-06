@@ -137,7 +137,7 @@ resolve to distinct provider/model identities. Implementation then proceeds as
 a separate governed write task through `frontend-coder`; read-only team members
 never acquire write authority by composition.
 
-See [Coordination Guide](../guides/coordination-intelligence.md) for lifecycle
+See [Coordination Guide](../guides/agents/coordination-intelligence.md) for lifecycle
 semantics and [Managed Invocation Routing Research](../research/21-managed-invocation-routing-2026.md)
 for the evidence and decision record behind this topology.
 

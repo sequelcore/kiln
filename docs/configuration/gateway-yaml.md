@@ -44,11 +44,11 @@ When reading `gateway.yaml`, map it into the current architecture:
 
 Relevant docs:
 
-- [Flows](../architecture/flows.md)
-- [Safety](../architecture/safety.md)
-- [Tool Execution](../architecture/tool-execution.md)
-- [Control Model](../architecture/control-model.md)
-- [Runtime Surfaces](../architecture/runtime-surfaces.md)
+- [Flows](../architecture/core/flows.md)
+- [Safety](../architecture/safety/safety.md)
+- [Tool Execution](../architecture/tooling/tool-execution.md)
+- [Control Model](../architecture/core/control-model.md)
+- [Runtime Surfaces](../architecture/surfaces/runtime-surfaces.md)
 
 ## Transitional Status
 
