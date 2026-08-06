@@ -135,6 +135,19 @@ describe("permission-evaluator", () => {
     expect(decision.scope.matchedScope).toBe(true);
   });
 
+  it("governs Kiln's own runtime tool names, not just harness casing", () => {
+    // Safe defaults are written in the legacy PascalCase vocabulary while the
+    // builtin registry executes `read`, `bash`, `web_fetch`. Matching exactly
+    // meant a denied tool fell through to the approval default.
+    const evaluator = createPermissionEvaluator({ safeDefaults: true }, {});
+
+    expect(evaluator.evaluateTool("read")).toMatchObject({ action: "allow", source: "tool-rule" });
+    expect(evaluator.evaluateTool("bash")).toMatchObject({ action: "ask", source: "tool-rule" });
+    expect(evaluator.evaluateTool("web_fetch")).toMatchObject({ action: "deny", source: "tool-rule" });
+    // The legacy vocabulary keeps resolving to the same canonical rule.
+    expect(evaluator.evaluateTool("WebFetch")).toMatchObject({ action: "deny", source: "tool-rule" });
+  });
+
   it("resolves effective policy for agent scopes with inherit=false", () => {
     const policy: KilnPermissionPolicy = {
       safeDefaults: true,

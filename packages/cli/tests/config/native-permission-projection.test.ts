@@ -42,7 +42,7 @@ interface TestPaths {
 const granularPermissions: NonNullable<KilnYaml["permissions"]> = {
   approval: "on-request",
   sandbox: "workspace-write",
-  tools: [{ tool: "Read", action: "allow" }],
+  tools: [{ tool: "read", action: "allow" }],
   commands: [{ pattern: "git status*", action: "allow" }],
   fileGovernance: { denyGlobs: ["**/.env"] },
   dataFirewall: [{ destination: "logs", action: "redact" }],
@@ -273,9 +273,8 @@ describe("syncNativePermissionProjections", () => {
     expect(config.theme).toBe("ocean");
     expect(config.permission).toEqual({
       "*": "ask",
-      Read: "allow",
       bash: { "git status*": "allow" },
-      read: { "**/.env": "deny" },
+      read: { "*": "allow", "**/.env": "deny" },
       edit: { "**/.env": "deny" },
     });
     expect(config.kiln).toBeUndefined();
@@ -305,9 +304,8 @@ describe("syncNativePermissionProjections", () => {
     // reach the config instead of degrading to prompt-only constraints.
     expect(opencodeConfig.permission).toEqual({
       "*": "ask",
-      Read: "allow",
       bash: { "git status*": "allow" },
-      read: { "**/.env": "deny" },
+      read: { "*": "allow", "**/.env": "deny" },
       edit: { "**/.env": "deny" },
     });
     expect(opencodeConfig.kiln).toBeUndefined();

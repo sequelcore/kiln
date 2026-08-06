@@ -1,4 +1,5 @@
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
+import { canonicalToolName } from "./tool-vocabulary.js";
 import type {
   KilnAgentPermissionScope,
   KilnCommandPermissionRule,
@@ -199,7 +200,10 @@ function evaluateToolRule(
   scope: PermissionScopeInfo,
   tool: string,
 ): PermissionDecision {
-  const matched = findLastMatch(policy.tools, (rule) => matchesPattern(tool, rule.tool));
+  const canonicalTool = canonicalToolName(tool);
+  const matched = findLastMatch(policy.tools, (rule) =>
+    matchesPattern(canonicalTool, canonicalToolName(rule.tool)),
+  );
   if (!matched) {
     return {
       action: defaultAction(policy.approval),

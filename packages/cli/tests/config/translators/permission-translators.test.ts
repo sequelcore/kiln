@@ -13,7 +13,7 @@ import type { KilnPermissionPolicy } from "../../../src/wrapper/session.js";
 const granularPolicy: KilnPermissionPolicy = {
   approval: "on-request",
   sandbox: "workspace-write",
-  tools: [{ tool: "Read", action: "allow" }],
+  tools: [{ tool: "read", action: "allow" }],
   commands: [{ pattern: "git status*", action: "allow" }],
   fileGovernance: { denyGlobs: ["**/.env"] },
   dataFirewall: [{ destination: "logs", action: "redact" }],
@@ -63,6 +63,36 @@ describe("permission projection translators", () => {
     const kiln = asRecord(projection.document.kiln);
     expect(kiln.existingKey).toBe("keep-me");
     expect(asRecord(kiln.permissionSync).backend).toBe("claude");
+  });
+
+  it("lowers a canonical tool name into each harness vocabulary", () => {
+    const policy: KilnPermissionPolicy = {
+      approval: "on-request",
+      sandbox: "workspace-write",
+      tools: [{ tool: "web_fetch", action: "deny" }],
+    };
+
+    const claude = translateClaudePermissionProjection({ policy, existingDocument: {} });
+    const opencode = translateOpenCodePermissionProjection({ policy, existingDocument: {} });
+
+    expect(asRecord(claude.document.permissions).deny).toContain("WebFetch");
+    expect(asRecord(opencode.document.permission).webfetch).toBe("deny");
+  });
+
+  it("refuses to lower a tool name outside the canonical vocabulary", () => {
+    const policy: KilnPermissionPolicy = {
+      approval: "on-request",
+      sandbox: "workspace-write",
+      // Claude's casing, not Kiln's vocabulary. Emitting it verbatim would
+      // produce a rule OpenCode never matches, so it must degrade to a stated
+      // constraint instead of a silently inert native rule.
+      tools: [{ tool: "Read", action: "allow" }],
+    };
+
+    const opencode = translateOpenCodePermissionProjection({ policy, existingDocument: {} });
+
+    expect(asRecord(opencode.document.permission).Read).toBeUndefined();
+    expect(opencode.integrity.semanticLoss.some((loss) => loss.includes("Read"))).toBe(true);
   });
 
   it("writes the Claude permission mode the policy resolves to", () => {
@@ -181,9 +211,11 @@ describe("permission projection translators", () => {
         theme: "ocean",
         permission: {
           "*": "ask",
-          Read: "allow",
+          // The canonical `read` rule and the file-governance glob address the
+          // same OpenCode action, so the tool-wide grant becomes that action's
+          // own wildcard and the narrower glob still overrides it.
+          read: { "*": "allow", "**/.env": "deny" },
           bash: { "git status*": "allow" },
-          read: { "**/.env": "deny" },
           edit: { "**/.env": "deny" },
         },
       },

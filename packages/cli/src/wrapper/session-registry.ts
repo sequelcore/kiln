@@ -31,6 +31,7 @@ import { PooledHarnessSession } from "./pooled-harness-session.js";
 import { ProviderSession } from "./provider-session.js";
 import { WorktreeManager } from "./worktree-manager.js";
 import { normalizePermissionPolicy } from "./permission-normalizer.js";
+import { nativeToolName } from "./tool-vocabulary.js";
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-projection.js";
@@ -648,10 +649,10 @@ function isRepresentableByBackend(
   if (rule.category === "command") {
     return isShellAgnosticCommand(rule);
   }
-  if (backend === "claude") {
-    return rule.category === "tool";
+  if (rule.category === "tool") {
+    return nativeToolName(rule.selector, backend) !== undefined;
   }
-  return rule.category === "tool" || rule.category === "file-governance";
+  return backend === "opencode" && rule.category === "file-governance";
 }
 
 function buildConstraintInstructions(
@@ -678,7 +679,10 @@ function buildClaudeNativeRules(
   for (const rule of representableRules) {
     const target = rule.category === "command"
       ? `Bash(${commandPattern(rule.selector)})`
-      : rule.selector;
+      : nativeToolName(rule.selector, "claude");
+    if (target === undefined) {
+      continue;
+    }
     if (rule.action === "allow") {
       allow.push(target);
       continue;
@@ -696,10 +700,10 @@ function buildClaudeNativeRules(
 function buildOpenCodeNativeRules(
   policy: ReturnType<typeof normalizePermissionPolicy>,
 ): OpenCodeNativeRules {
-  const tools = policy.tools.map((rule) => ({
-    tool: rule.tool,
-    action: rule.action,
-  }));
+  const tools = policy.tools.flatMap((rule) => {
+    const tool = nativeToolName(rule.tool, "opencode");
+    return tool === undefined ? [] : [{ tool, action: rule.action }];
+  });
 
   // Shell-scoped rules are excluded for the same reason as Claude: OpenCode
   // matches a bash pattern with no shell dimension, so lowering one would widen
