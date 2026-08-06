@@ -5,15 +5,24 @@ import {
   adoptManagedEconomicSnapshot,
   createAccountRef,
   digestManagedEconomicValue,
+  type CanonicalSessionEvent,
   type ManagedEconomicAmount,
   type ManagedEconomicClass,
   type ManagedEconomicEvidenceIdentity,
   type ManagedEconomicPriceEvidence,
   type ManagedEconomicQuotaEvidence,
 } from "@kilnai/core";
+import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
-import { ManagedEconomicDispatchCoordinator } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+import {
+  ManagedEconomicDispatchCoordinator,
+  type ManagedEconomicLifecycleEventPort,
+} from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+import { appendManagedEconomicLifecycleSessionEvent } from "../../src/agents/managed-invocation/session-events.js";
+import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import { deserializeSession, serializeSession } from "../../src/session/persistence/session-serializer.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const DECISION_AT = "2026-08-02T12:00:00.000Z";
 
@@ -35,31 +44,43 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
   });
   try {
     const adoption = createAdoption(input);
-    const events: string[] = [];
+    const session = new RuntimeSession({
+      appName: "economic-route-proof",
+      tenantId: "proof-tenant",
+      userId: "proof-user",
+      systemPrompt: "economic route lifecycle proof",
+      sessionId: `economic-route-proof-${input.providerId}`,
+    });
+    const jobId = `job-${input.providerId}`;
+    const economicAttemptId = `economic-attempt-${input.providerId}`;
+    const lifecycleEvents: ManagedEconomicLifecycleEventPort = {
+      record: (recordInput) => {
+        appendManagedEconomicLifecycleSessionEvent({
+          session,
+          workspaceRoot: root,
+          jobId,
+          economicAttemptId,
+          ...recordInput,
+        });
+      },
+    };
     let record: ReturnType<typeof authority.settleExecution> | undefined;
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: {
-        acquire: (request) => {
-          events.push("commitment");
-          return authority.acquireCommitment(request);
-        },
-        releasePreFence: (jobId, economicAttemptId) =>
-          authority.releaseCommitmentPreFence(jobId, economicAttemptId),
-        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) => {
-          events.push("dispatch-fence");
-          return authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId);
-        },
-        settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
-          events.push("settlement");
-          record = authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
+        acquire: (request) => authority.acquireCommitment(request),
+        releasePreFence: (jobId2, economicAttemptId2) =>
+          authority.releaseCommitmentPreFence(jobId2, economicAttemptId2),
+        fenceDispatch: (jobId2, economicAttemptId2, dispatchFenceId) =>
+          authority.fenceDispatch(jobId2, economicAttemptId2, dispatchFenceId),
+        settleExecution: (jobId2, economicAttemptId2, dispatchFenceId, settlement) => {
+          record = authority.settleExecution(jobId2, economicAttemptId2, dispatchFenceId, settlement);
           return record;
         },
-        recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
-          authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+        recordExecutionSettlementPending: (jobId2, economicAttemptId2, dispatchFenceId, reason) =>
+          authority.recordExecutionSettlementPending(jobId2, economicAttemptId2, dispatchFenceId, reason),
       },
       resolveLifecycleTimeoutMs: () => 5_000,
       createAdapter: async ({ commitment }) => {
-        events.push("adapter-binding");
         return new ManagedDirectProviderRuntimeAdapter({
           providerId: input.providerId,
           model: input.modelId,
@@ -72,11 +93,12 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
       },
     });
     const prepared = await coordinator.prepare({
-      jobId: `job-${input.providerId}`,
-      economicAttemptId: `economic-attempt-${input.providerId}`,
+      jobId,
+      economicAttemptId,
       intentFingerprint: digestManagedEconomicValue(input),
       adoption,
       admissionProfile: "foundation-readonly-plan",
+      lifecycleEvents,
     });
     if (prepared.status !== "prepared") {
       throw new Error(`Expected ${input.providerId} economic route to be prepared.`);
@@ -92,7 +114,12 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
     prepared.registerEconomicSettlement(Promise.resolve(settlement));
     await waitForSettlement();
     if (record === undefined) throw new Error("Expected durable economic commitment record.");
-    return { events, record, settlement };
+    const replayedSession = deserializeSession(serializeSession(session));
+    const replayedEvents: readonly CanonicalSessionEvent[] = replayedSession.sessionEvents;
+    const frames: readonly Extract<GuiInboundFrame, { type: "session_event" }>[] = replayedEvents.map(
+      (event, index) => toOperatorSessionEventFrame(event, { eventId: event.eventId, sequence: index + 1 }),
+    );
+    return { session, replayedEvents, frames, record, settlement };
   } finally {
     authority.close();
     rmSync(root, { recursive: true, force: true });

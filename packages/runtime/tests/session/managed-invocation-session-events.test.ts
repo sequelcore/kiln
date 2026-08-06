@@ -17,8 +17,10 @@ import {
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
+import type { ManagedEconomicCommitment, ManagedEconomicPolicyIdentity, ManagedEconomicSettlement } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
+  appendManagedEconomicLifecycleSessionEvent,
   appendManagedInvocationRuntimeFailureSessionEvent,
   appendManagedInvocationSessionEvents,
   appendManagedInvocationStartSessionEvents,
@@ -1220,5 +1222,133 @@ describe("appendManagedInvocationSessionEvents", () => {
     // terminal event in the replay order.
     expect(session.sessionEvents.indexOf(failedTerminal!))
       .toBeLessThan(session.sessionEvents.indexOf(recoveryTerminal!));
+  });
+});
+
+function makeEconomicPolicy(): ManagedEconomicPolicyIdentity {
+  return {
+    policyId: "policy-a",
+    schemaVersion: 1,
+    policyRevision: "revision-1",
+    policyDigest: `sha256:${"1".repeat(64)}`,
+    comparisonDomains: [],
+    noRouteAction: "deny",
+    evidenceRequirements: { quota: "optional", price: "required" },
+  };
+}
+
+function makeEconomicCommitment(): ManagedEconomicCommitment {
+  return {
+    commitmentId: "commitment-a",
+    reservation: {
+      reservationId: "reservation-a",
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      policy: makeEconomicPolicy(),
+      selectedIdentity: {
+        route: {
+          routeId: "route-a",
+          providerId: "codex-oauth",
+          modelId: "gpt-test",
+          adapterCapabilityId: "direct-runtime",
+          adapterCapabilityVersion: "1",
+        } as never,
+        account: {
+          kind: "account-bound",
+          capacityIdentity: "account-b",
+          accountRef: "configured:account-b" as never,
+          credentialRevision: "b".repeat(64),
+          creditPosture: "disabled",
+          overagePosture: "disabled",
+        },
+      },
+      priceIdentity: null,
+      envelope: { kind: "bounded", digest: `sha256:${"a".repeat(64)}`, limits: [] },
+      amounts: [],
+      authorityRevision: `sha256:${"c".repeat(64)}`,
+    },
+    rejected: [],
+    notSelected: [],
+  };
+}
+
+function makeEconomicSettlement(dispatchFenceId: string): ManagedEconomicSettlement {
+  return {
+    kind: "estimated",
+    reservationId: "reservation-a",
+    dispatchFenceId,
+    actualIdentity: makeEconomicCommitment().reservation.selectedIdentity,
+    units: [{ atoms: "20", scale: 0, unit: "input-token", scheme: { kind: "unit" } }],
+    estimate: { atoms: "1", scale: 2, unit: "currency", scheme: { kind: "currency", currency: "USD" } },
+    evidence: {
+      sourceIdentity: "provider-usage",
+      sourceRevision: "usage-1",
+      sourceDigest: `sha256:${"d".repeat(64)}`,
+      observedAt: "2026-08-01T00:00:00.000Z",
+      validUntil: "2026-08-01T01:00:00.000Z",
+      confidence: "medium",
+      authority: "calculated-estimate",
+    },
+  };
+}
+
+describe("appendManagedEconomicLifecycleSessionEvent", () => {
+  it.each([
+    { transition: "denied" as const },
+    { transition: "held" as const },
+    { transition: "dispatch-fenced" as const },
+    { transition: "settlement-pending" as const },
+    { transition: "release-failed" as const },
+    { transition: "leaked" as const },
+    { transition: "released" as const },
+  ])("appends a sanitized $transition transition without account internals or workspace paths", ({ transition }) => {
+    const session = makeSession("session-economic-lifecycle");
+    const commitment = transition === "denied" ? undefined : makeEconomicCommitment();
+    const settlement = transition === "released" || transition === "leaked"
+      ? makeEconomicSettlement("managed-economic-dispatch:fence-a")
+      : undefined;
+    const events = appendManagedEconomicLifecycleSessionEvent({
+      session,
+      workspaceRoot: "C:/workspace/kiln",
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      transition,
+      policy: makeEconomicPolicy(),
+      ...(commitment ? { commitment } : {}),
+      ...(commitment ? { dispatchFenceId: "managed-economic-dispatch:fence-a" } : {}),
+      ...(settlement ? { settlement } : {}),
+      ...(transition === "settlement-pending" ? { reason: "postcommit-request-realization-failed" } : {}),
+    });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    expect(event).toMatchObject({
+      kind: "managed_economic_lifecycle",
+      transition,
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      policyId: "policy-a",
+      policyRevision: "revision-1",
+    });
+    if (commitment) {
+      expect(event).toMatchObject({
+        selectedRoute: {
+          routeId: "route-a",
+          providerId: "codex-oauth",
+          modelId: "gpt-test",
+        },
+        selectedAccount: {
+          kind: "account-bound",
+          capacityIdentity: "account-b",
+          creditPosture: "disabled",
+          overagePosture: "disabled",
+        },
+      });
+    }
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain("accountRef");
+    expect(serialized).not.toContain("credentialRevision");
+    expect(serialized).not.toContain("C:/workspace/kiln");
+    expect(session.sessionEvents).toEqual(events);
   });
 });

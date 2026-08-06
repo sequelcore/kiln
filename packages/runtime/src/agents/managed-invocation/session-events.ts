@@ -17,8 +17,17 @@ import type {
   ManagedAgentInvocationRequest,
   ManagedAgentWriteAuthority,
   ManagedAgentWriteEvidence,
+  ManagedEconomicAccountIdentity,
+  ManagedEconomicCommitment,
+  ManagedEconomicEvidenceIdentity,
+  ManagedEconomicPolicyIdentity,
+  ManagedEconomicRouteIdentity,
+  ManagedEconomicSettlement,
   SessionAgentInvocationEvidence,
   SessionEventSource,
+  SessionManagedEconomicAccountIdentity,
+  SessionManagedEconomicLifecycleTransition,
+  SessionManagedEconomicRouteIdentity,
 } from "@kilnai/core";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
 import type { RuntimeSession } from "../../session/runtime-session.js";
@@ -200,6 +209,89 @@ export function appendManagedInvocationRuntimeFailureSessionEvent(
   }), input.request.authority.workingDirectory.path);
   input.session.appendSessionEvents([event]);
   return [event];
+}
+
+export interface AppendManagedEconomicLifecycleSessionEventInput {
+  readonly session: RuntimeSession;
+  readonly workspaceRoot: string;
+  readonly turnId?: string;
+  readonly transition: SessionManagedEconomicLifecycleTransition;
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly policy: ManagedEconomicPolicyIdentity;
+  readonly commitment?: ManagedEconomicCommitment;
+  readonly dispatchFenceId?: string;
+  readonly settlement?: ManagedEconomicSettlement;
+  readonly reason?: string;
+  readonly timestamp?: Date;
+}
+
+export function appendManagedEconomicLifecycleSessionEvent(
+  input: AppendManagedEconomicLifecycleSessionEventInput,
+): readonly CanonicalSessionEvent[] {
+  const selectedIdentity = input.commitment?.reservation.selectedIdentity;
+  const settlementAuthority = settlementAuthorityOf(input.settlement);
+  const event = projectDurableSessionEvent(createSessionEvent<"managed_economic_lifecycle">({
+    kilnSessionId: input.session.id,
+    sequence: input.session.nextSessionEventSequence(),
+    kind: "managed_economic_lifecycle",
+    ...(input.turnId !== undefined ? { turnId: input.turnId } : {}),
+    source: makeSource(),
+    timestamp: input.timestamp ?? new Date(),
+    jobId: input.jobId,
+    economicAttemptId: input.economicAttemptId,
+    transition: input.transition,
+    policyId: input.policy.policyId,
+    policyRevision: input.policy.policyRevision,
+    policyDigest: input.policy.policyDigest,
+    ...(input.commitment ? {
+      commitmentId: input.commitment.commitmentId,
+      reservationId: input.commitment.reservation.reservationId,
+    } : {}),
+    ...(input.dispatchFenceId !== undefined ? { dispatchFenceId: input.dispatchFenceId } : {}),
+    ...(selectedIdentity ? { selectedRoute: projectManagedEconomicRouteIdentity(selectedIdentity.route) } : {}),
+    ...(selectedIdentity ? { selectedAccount: projectManagedEconomicAccountIdentity(selectedIdentity.account) } : {}),
+    ...(input.settlement ? { settlementKind: input.settlement.kind } : {}),
+    ...(settlementAuthority !== undefined ? { settlementAuthority } : {}),
+    ...(input.reason !== undefined ? { reason: input.reason } : {}),
+  }), input.workspaceRoot);
+  input.session.appendSessionEvents([event]);
+  return [event];
+}
+
+function projectManagedEconomicRouteIdentity(
+  route: ManagedEconomicRouteIdentity,
+): SessionManagedEconomicRouteIdentity {
+  return {
+    routeId: route.routeId,
+    providerId: route.providerId,
+    modelId: route.modelId,
+    adapterCapabilityId: route.adapterCapabilityId,
+    adapterCapabilityVersion: route.adapterCapabilityVersion,
+  };
+}
+
+function projectManagedEconomicAccountIdentity(
+  account: ManagedEconomicAccountIdentity,
+): SessionManagedEconomicAccountIdentity {
+  if (account.kind === "accountless") {
+    return { kind: "accountless" };
+  }
+  return {
+    kind: "account-bound",
+    capacityIdentity: account.capacityIdentity,
+    creditPosture: account.creditPosture,
+    overagePosture: account.overagePosture,
+  };
+}
+
+function settlementAuthorityOf(
+  settlement: ManagedEconomicSettlement | undefined,
+): ManagedEconomicEvidenceIdentity["authority"] | undefined {
+  if (!settlement || !("evidence" in settlement) || !settlement.evidence) {
+    return undefined;
+  }
+  return settlement.evidence.authority;
 }
 
 function collectManagedInvocationStartEvents(

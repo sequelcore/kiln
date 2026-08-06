@@ -101,9 +101,11 @@ function deriveStructuredVerificationUsage(structuredResult: StructuredExecution
 
 export {
   appendManagedInvocationSessionEvents,
+  appendManagedEconomicLifecycleSessionEvent,
 } from "./session-events.js";
 export type {
   AppendManagedInvocationSessionEventsInput,
+  AppendManagedEconomicLifecycleSessionEventInput,
 } from "./session-events.js";
 export {
   appendManagedInvocationPromptAdmissionSessionEvent,
@@ -259,6 +261,7 @@ export type {
   ManagedEconomicDispatchCoordinatorOptions,
   ManagedEconomicDispatchPreparation,
   ManagedEconomicDispatchPrepareInput,
+  ManagedEconomicLifecycleEventPort,
 } from "./economic-dispatch-coordinator.js";
 export type { ManagedInvocationCallerCapabilityInput } from "./caller-capability-policy.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";

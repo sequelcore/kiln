@@ -1,9 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ManagedEconomicCommitment, ManagedEconomicSettlement } from "@kilnai/core";
+import type { ManagedEconomicCommitment, ManagedEconomicPolicyIdentity, ManagedEconomicSettlement } from "@kilnai/core";
 import {
   ManagedEconomicDispatchCoordinator,
   type ManagedEconomicDispatchAuthorityPort,
+  type ManagedEconomicLifecycleEventPort,
 } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+
+function policy(): ManagedEconomicPolicyIdentity {
+  return {
+    policyId: "policy-a",
+    schemaVersion: 1,
+    policyRevision: "revision-1",
+    policyDigest: `sha256:${"1".repeat(64)}`,
+    comparisonDomains: [],
+    noRouteAction: "deny",
+    evidenceRequirements: { quota: "optional", price: "required" },
+  };
+}
+
+function recordingLifecycleEvents(): { readonly port: ManagedEconomicLifecycleEventPort; readonly transitions: string[] } {
+  const transitions: string[] = [];
+  return {
+    port: { record: (input) => { transitions.push(input.transition); } },
+    transitions,
+  };
+}
 
 function commitment(): ManagedEconomicCommitment {
   return {
@@ -60,6 +81,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
   it("fences before constructing the exact committed adapter", async () => {
     const events: string[] = [];
     const economicAuthority = authority();
+    const lifecycleEvents = recordingLifecycleEvents();
     vi.mocked(economicAuthority.acquire).mockImplementation((input) => {
       events.push(`commit:${input.economicAttemptId}`);
       return {
@@ -85,11 +107,13 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: { snapshot: { policy: policy() } } as never,
       admissionProfile: "foundation-readonly-plan",
+      lifecycleEvents: lifecycleEvents.port,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
     expect(events).toEqual(["commit:economic-attempt-a", "fence", "adapter:account-bound"]);
+    expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced"]);
     events.push("provider-effect");
     expect(events).toEqual([
       "commit:economic-attempt-a",
@@ -106,6 +130,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       prepared.dispatchFenceId,
       economicSettlement,
     ));
+    await vi.waitFor(() => expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced", "released"]));
   });
 
   it("does not redispatch a replay whose durable commitment is already fenced", async () => {
@@ -171,6 +196,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
 
   it("releases the held commitment when the lifecycle is already aborted before dispatch fencing", async () => {
     const economicAuthority = authority();
+    const lifecycleEvents = recordingLifecycleEvents();
     const controller = new AbortController();
     controller.abort(new Error("synthetic pre-fence abort"));
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -183,13 +209,46 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: { snapshot: { policy: policy() } } as never,
       admissionProfile: "foundation-readonly-plan",
       abortSignal: controller.signal,
+      lifecycleEvents: lifecycleEvents.port,
     })).rejects.toThrow("synthetic pre-fence abort");
 
     expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
     expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
+    expect(lifecycleEvents.transitions).toEqual(["held"]);
+  });
+
+  it("emits denied and dispatches nothing further when acquire denies the commitment", async () => {
+    const lifecycleEvents = recordingLifecycleEvents();
+    const createAdapter = vi.fn();
+    const economicAuthority: ManagedEconomicDispatchAuthorityPort = {
+      acquire: vi.fn(() => ({ status: "denied", rejected: [] } as never)),
+      releasePreFence: vi.fn(),
+      fenceDispatch: vi.fn(),
+      settleExecution: vi.fn(),
+      recordExecutionSettlementPending: vi.fn(),
+    };
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter,
+    });
+
+    const prepared = await coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: { snapshot: { policy: policy() } } as never,
+      admissionProfile: "foundation-readonly-plan",
+      lifecycleEvents: lifecycleEvents.port,
+    });
+
+    expect(prepared).toMatchObject({ status: "denied" });
+    expect(lifecycleEvents.transitions).toEqual(["denied"]);
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(createAdapter).not.toHaveBeenCalled();
   });
 
   it("aborts bounded adapter materialization and keeps the fenced commitment pending", async () => {

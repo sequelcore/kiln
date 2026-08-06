@@ -618,7 +618,7 @@ export async function resolveManagedInvocationToolOptions(
         ...(context.artifactStore ? { artifactStore: context.artifactStore } : {}),
         ...(invocationService ? { invocationService } : {}),
         ...(invocationService && invocationServiceKey ? { invocationServiceKey } : {}),
-        ...(economicDispatch ? { economicDispatch } : {}),
+        ...(economicDispatch ? { economicDispatch, workspaceRoot: context.cwd } : {}),
         contextResolver: createManagedInvocationContextResolver(context.cwd, userHome, {
           skillConfig: config.skills,
           modelTaskSuitability: config.modelTaskSuitability,
@@ -689,6 +689,7 @@ export function createManagedEconomicDispatchComposition(
         adoption,
         admissionProfile: input.candidateSet.admissionProfileId,
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+        ...(input.lifecycleEvents ? { lifecycleEvents: input.lifecycleEvents } : {}),
       });
     },
   } };

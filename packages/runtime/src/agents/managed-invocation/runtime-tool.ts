@@ -78,6 +78,7 @@ import type {
   ManagedAgentRuntimeInvocationTerminalNotification,
 } from "./index.js";
 import {
+  appendManagedEconomicLifecycleSessionEvent,
   appendManagedInvocationRuntimeFailureSessionEvent,
   appendManagedInvocationStartSessionEvents,
   appendManagedInvocationTerminalSessionEvent,
@@ -88,7 +89,10 @@ import {
   buildManagedInvocationPhaseRecovery,
   managedInvocationFailureReasonFromStatus,
 } from "./phase-recovery.js";
-import type { ManagedEconomicDispatchPreparation } from "./economic-dispatch-coordinator.js";
+import type {
+  ManagedEconomicDispatchPreparation,
+  ManagedEconomicLifecycleEventPort,
+} from "./economic-dispatch-coordinator.js";
 import {
   projectManagedInvocationAuthorityResources,
   projectManagedInvocationCapabilitySnapshotResources,
@@ -214,6 +218,8 @@ export interface ManagedInvocationToolOptions {
   readonly pauseRequirementResolver?: ManagedInvocationPauseRequirementResolver;
   /** Unique in-process owner used to stop only children created by one attached surface. */
   readonly invocationOwner?: object;
+  /** Project root used to redact durable economic-lifecycle session events. */
+  readonly workspaceRoot?: string;
   readonly economicDispatch?: {
     prepare(input: {
       readonly candidateSet: ManagedEconomicCandidateSet;
@@ -224,6 +230,7 @@ export interface ManagedInvocationToolOptions {
       readonly parentSessionId: string;
       readonly parentTurnId: string;
       readonly abortSignal?: AbortSignal;
+      readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
     }): Promise<ManagedEconomicDispatchPreparation>;
   };
 }
@@ -1703,6 +1710,21 @@ async function prepareManagedInvocationRequest(
       parentSessionId: context.session.id,
       parentTurnId: context.turnId ?? context.toolCall.id,
       ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+      ...(options.workspaceRoot ? {
+        lifecycleEvents: {
+          record: (recordInput) => {
+            const events = appendManagedEconomicLifecycleSessionEvent({
+              session: context.session,
+              workspaceRoot: options.workspaceRoot!,
+              ...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
+              jobId: `managed-economic-job:${economicIdentity}`,
+              economicAttemptId: `economic-attempt:${economicIdentity}`,
+              ...recordInput,
+            });
+            void publishManagedInvocationSessionEvents(options, context, events);
+          },
+        },
+      } : {}),
     });
     if (economicPreparation.status !== "prepared") {
       return {

@@ -363,6 +363,7 @@ export type {
   ManagedEconomicDispatchCoordinatorOptions,
   ManagedEconomicDispatchPreparation,
   ManagedEconomicDispatchPrepareInput,
+  ManagedEconomicLifecycleEventPort,
   ManagedInvocationContextResolution,
   ManagedInvocationContextResolver,
   ManagedInvocationContextResolverInput,

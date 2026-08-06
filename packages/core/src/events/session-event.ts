@@ -2,6 +2,10 @@ import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { ExecutionSessionToolResultResourceLink } from "./execution-session-event.js";
 import type { ContextUsageProjection } from "./context-usage-projection.js";
 import type { VerifiedEfficiencyEvidenceProjection } from "../efficiency/verified-efficiency-evidence.js";
+import type {
+  ManagedEconomicEvidenceIdentity,
+  ManagedEconomicSettlement,
+} from "../cost/managed-route-economics.js";
 
 import type {
   ManagedAgentAdapterKind,
@@ -72,6 +76,7 @@ export type CanonicalSessionEventKind =
   | "agent_invocation_completed"
   | "agent_invocation_failed"
   | "agent_invocation_cancelled"
+  | "managed_economic_lifecycle"
   | "continuity_decided"
   | "error_recorded"
   | "turn_completed";
@@ -579,6 +584,43 @@ export interface CanonicalAgentInvocationCancelledEvent extends SessionEventEnve
   readonly managedInvocationEvidence?: SessionAgentInvocationEvidence;
 }
 
+export type SessionManagedEconomicLifecycleTransition =
+  | "denied" | "held" | "dispatch-fenced" | "settlement-pending"
+  | "release-failed" | "leaked" | "released";
+
+export interface SessionManagedEconomicRouteIdentity {
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly adapterCapabilityId: string;
+  readonly adapterCapabilityVersion: string;
+}
+
+export interface SessionManagedEconomicAccountIdentity {
+  readonly kind: "account-bound" | "accountless";
+  readonly capacityIdentity?: string;
+  readonly creditPosture?: "disabled" | "committed";
+  readonly overagePosture?: "disabled" | "committed";
+}
+
+export interface CanonicalManagedEconomicLifecycleEvent
+  extends SessionEventEnvelope<"managed_economic_lifecycle"> {
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly transition: SessionManagedEconomicLifecycleTransition;
+  readonly policyId: string;
+  readonly policyRevision: string;
+  readonly policyDigest: string;
+  readonly commitmentId?: string;
+  readonly reservationId?: string;
+  readonly dispatchFenceId?: string;
+  readonly selectedRoute?: SessionManagedEconomicRouteIdentity;
+  readonly selectedAccount?: SessionManagedEconomicAccountIdentity;
+  readonly settlementKind?: ManagedEconomicSettlement["kind"];
+  readonly settlementAuthority?: ManagedEconomicEvidenceIdentity["authority"];
+  readonly reason?: string;
+}
+
 export interface CanonicalContinuityDecidedEvent extends SessionEventEnvelope<"continuity_decided"> {
   readonly decision: SessionContinuityDecision;
   readonly reason: string;
@@ -639,6 +681,7 @@ export interface CanonicalSessionEventMap {
   agent_invocation_completed: CanonicalAgentInvocationCompletedEvent;
   agent_invocation_failed: CanonicalAgentInvocationFailedEvent;
   agent_invocation_cancelled: CanonicalAgentInvocationCancelledEvent;
+  managed_economic_lifecycle: CanonicalManagedEconomicLifecycleEvent;
   continuity_decided: CanonicalContinuityDecidedEvent;
   error_recorded: CanonicalErrorRecordedEvent;
   turn_completed: CanonicalTurnCompletedEvent;

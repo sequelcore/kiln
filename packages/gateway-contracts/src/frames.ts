@@ -535,6 +535,7 @@ export type OperatorSessionEventKind =
   | "agent_invocation_completed"
   | "agent_invocation_failed"
   | "agent_invocation_cancelled"
+  | "managed_economic_lifecycle"
   | "browser_operator_evidence"
   | "continuity_decided"
   | "error_recorded"

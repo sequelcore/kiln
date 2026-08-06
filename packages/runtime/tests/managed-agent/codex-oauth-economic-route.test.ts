@@ -34,12 +34,36 @@ describe("Codex OAuth economic route", () => {
       },
     });
 
-    expect(result.events).toEqual(["commitment", "dispatch-fence", "adapter-binding", "settlement"]);
     expect(result.settlement).toMatchObject({ kind: "estimated", evidence: { authority: "calculated-estimate" } });
     expect(result.record).toMatchObject({
       state: "released",
       decisionEvidence: { decision: { kind: "selected", selected: { identity: { route: { providerId: "codex-oauth" } } } } },
       settlement: { kind: "estimated" },
     });
+
+    const lifecycleEvents = result.replayedEvents.filter((event) => event.kind === "managed_economic_lifecycle");
+    expect(lifecycleEvents.map((event) => event.transition)).toEqual(["held", "dispatch-fenced", "released"]);
+    for (const event of lifecycleEvents) {
+      expect(event.selectedRoute).toMatchObject({
+        routeId: "codex-token-route",
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-codex",
+      });
+      expect(event.policyId).toBe("codex-oauth-policy");
+      expect(event.policyRevision).toBe("revision-1");
+    }
+    const dispatchFenced = lifecycleEvents.find((event) => event.transition === "dispatch-fenced");
+    expect(dispatchFenced?.dispatchFenceId).toBeTruthy();
+    const released = lifecycleEvents.find((event) => event.transition === "released");
+    expect(released?.dispatchFenceId).toBe(dispatchFenced?.dispatchFenceId);
+    expect(released?.settlementKind).toBe("estimated");
+
+    const lifecycleFrames = result.frames.filter((frame) => frame.event.kind === "managed_economic_lifecycle");
+    expect(lifecycleFrames.length).toBe(lifecycleEvents.length);
+    for (const frame of lifecycleFrames) {
+      const serialized = JSON.stringify(frame.event.payload);
+      expect(serialized).not.toContain("accountRef");
+      expect(serialized).not.toContain("credentialRevision");
+    }
   });
 });

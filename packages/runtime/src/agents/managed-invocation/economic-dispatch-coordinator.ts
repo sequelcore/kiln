@@ -4,9 +4,11 @@ import {
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicAdoptedSnapshotExpectation,
   type ManagedEconomicCommitment,
+  type ManagedEconomicPolicyIdentity,
   type ManagedEconomicSettlement,
   type ManagedEconomicExecutionReport,
   type ManagedAgentAdmissionProfile,
+  type SessionManagedEconomicLifecycleTransition,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeAdapter } from "./index.js";
 import type {
@@ -46,6 +48,17 @@ export interface ManagedEconomicDispatchAuthorityPort {
   ): unknown;
 }
 
+export interface ManagedEconomicLifecycleEventPort {
+  record(input: {
+    readonly transition: SessionManagedEconomicLifecycleTransition;
+    readonly policy: ManagedEconomicPolicyIdentity;
+    readonly commitment?: ManagedEconomicCommitment;
+    readonly dispatchFenceId?: string;
+    readonly settlement?: ManagedEconomicSettlement;
+    readonly reason?: string;
+  }): void;
+}
+
 export interface ManagedEconomicDispatchCoordinatorOptions {
   readonly authority: ManagedEconomicDispatchAuthorityPort;
   readonly resolveLifecycleTimeoutMs: (
@@ -66,6 +79,7 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly adoption: ManagedEconomicDispatchAdoption;
   readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly abortSignal?: AbortSignal;
+  readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
 }
 
 export type ManagedEconomicDispatchPreparation =
@@ -95,6 +109,7 @@ export class ManagedEconomicDispatchCoordinator {
   constructor(private readonly options: ManagedEconomicDispatchCoordinatorOptions) {}
 
   async prepare(input: ManagedEconomicDispatchPrepareInput): Promise<ManagedEconomicDispatchPreparation> {
+    const policy = () => input.adoption.snapshot.policy;
     const result = this.options.authority.acquire({
       jobId: input.jobId,
       economicAttemptId: input.economicAttemptId,
@@ -102,6 +117,7 @@ export class ManagedEconomicDispatchCoordinator {
       ...input.adoption,
     });
     if (result.status !== "committed") {
+      input.lifecycleEvents?.record({ transition: "denied", policy: policy() });
       return { status: "denied", result };
     }
     if (result.record.state !== "held") {
@@ -111,6 +127,11 @@ export class ManagedEconomicDispatchCoordinator {
     const dispatchFenceId = createManagedEconomicDispatchFenceId(result.record.commitment);
     let lifecycle: ReturnType<typeof createManagedEconomicLifecycleDeadline>;
     try {
+      input.lifecycleEvents?.record({
+        transition: "held",
+        policy: policy(),
+        commitment: result.record.commitment,
+      });
       lifecycle = createManagedEconomicLifecycleDeadline(
         this.options.resolveLifecycleTimeoutMs(result.record.commitment, input.admissionProfile),
         input.abortSignal,
@@ -122,6 +143,12 @@ export class ManagedEconomicDispatchCoordinator {
     try {
       throwManagedEconomicAbort(lifecycle.signal);
       this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
+      input.lifecycleEvents?.record({
+        transition: "dispatch-fenced",
+        policy: policy(),
+        commitment: result.record.commitment,
+        dispatchFenceId,
+      });
     } catch (error) {
       lifecycle.dispose();
       this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
@@ -139,6 +166,13 @@ export class ManagedEconomicDispatchCoordinator {
         reason,
       );
       settlementPendingRecorded = true;
+      input.lifecycleEvents?.record({
+        transition: "settlement-pending",
+        policy: policy(),
+        commitment: result.record.commitment,
+        dispatchFenceId,
+        reason,
+      });
     };
     const onAbort = () => {
       recordSettlementPending(settlementRegistered
@@ -195,6 +229,17 @@ export class ManagedEconomicDispatchCoordinator {
               dispatchFenceId,
               resolved,
             );
+            try {
+              input.lifecycleEvents?.record({
+                transition: managedEconomicSettlementTransition(resolved),
+                policy: policy(),
+                commitment: result.record.commitment,
+                dispatchFenceId,
+                settlement: resolved,
+              });
+            } catch {
+              recordSettlementPending("lifecycle-evidence-append-failed");
+            }
           },
           () => {
             recordSettlementPending("registered-execution-settlement-rejected");
@@ -268,6 +313,23 @@ function managedEconomicAbortError(signal: AbortSignal): Error {
     : new Error(typeof signal.reason === "string" && signal.reason.trim() !== ""
       ? signal.reason
       : "Managed economic pre-fence preparation was aborted.");
+}
+
+function managedEconomicSettlementTransition(
+  settlement: ManagedEconomicSettlement,
+): SessionManagedEconomicLifecycleTransition {
+  switch (settlement.kind) {
+    case "charged":
+    case "estimated":
+    case "subscription":
+    case "included":
+    case "free":
+      return "released";
+    case "leaked":
+      return "leaked";
+    default:
+      return "settlement-pending";
+  }
 }
 
 function createManagedEconomicDispatchFenceId(commitment: ManagedEconomicCommitment): string {
