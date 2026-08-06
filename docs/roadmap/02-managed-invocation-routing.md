@@ -1,7 +1,7 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slices 1, 2, 3, and 4 complete; issue #34 internal Slice 5 dispatch enforcement complete; Roadmap Slice 5 queued; Slice 6 research deferred behind Roadmap Slice 5.
+Execution: Slices 1, 2, 3, and 4 complete. Issue #34 internal Slice 5 dispatch enforcement delivered, then independently reviewed: two High findings (a profile-less `managed_agent_invoke` call bypassing economic commitment entirely; adapter/credential materialization before any commitment existed) plus five Medium/Low findings, all closed - see the internal-Slice-5 remediation note below. Issue #34 internal Slice 6 (durable lifecycle, replay, cross-surface projection) is not started, except for one bounded piece delivered as part of the Slice 5 remediation: real canonical economic session events exist in Runtime and cross the Gateway-contracts frame boundary; the full cross-surface fixture and CLI/GUI/TUI/Native/SDK/MCP projection parity remain outstanding. Roadmap Slice 5 (this doc's Slice 5, Cross-Path Account Authority Convergence, issue #39) is queued and unblocked now that dispatch proof exists, but not started.
 Created: 2026-07-23
 
 > Managed jobs dispatch only through an issue #34 economic commitment. Runtime
@@ -160,6 +160,42 @@ Issue #34 internal Slice 5 wires committed dispatch and typed settlement for
 managed jobs and policy-bearing managed runtime/orchestration calls. That
 internal sequence is separate from Roadmap 02 Slice 5 below, which converges
 the managed-job authority with Model Gateway ingress.
+
+**Internal Slice 5 remediation.** Delivery commit `1c4f0f19` shipped without a
+PR or independent review. A subsequent independent review found the managed
+dispatch surface was strictly weaker after that commit than before it: a
+`managed_agent_invoke` call omitting `agentProfile` - which the tool's own
+guidance recommends when no profile matches - skipped economic commitment
+entirely and dispatched through the legacy fixed-route branch whenever the
+target route's adapter was already constructed (H1, High), and for routes
+uncovered by any economic policy that adapter was built eagerly at
+config-composition time, materializing credentials and MCP connections before
+any commitment existed (H2, High). Five further Medium/Low findings covered a
+pre-fence-abort capacity leak, untested quota-rejection and ceiling-scope
+edges, dead authority methods, and the missing-review process gap itself.
+
+All seven findings are closed, each independently reviewed and verified before
+merge:
+
+- `0f070c1f` - H1/H2: direct-provider routes now require a durable economic
+  commitment unconditionally; adapter construction can no longer be eager for
+  any direct route regardless of profile or policy coverage.
+- `51a2f721` - M1: an already-aborted pre-fence dispatch now releases its held
+  commitment instead of leaking capacity.
+- `e238262f` - M3/L1/L2: the provider proof fixture now proves the actual
+  strict-quota rejection scenario through the real evidence producer instead
+  of an unreachable derived case; ceiling scope is documented and an
+  incompatible-unit comparison now fails as a typed rejection instead of an
+  untyped throw; three authority methods with no production consumer were
+  deleted.
+- `59e73ea5` - M2: real canonical `managed_economic_lifecycle` session events
+  are now emitted from production code in the dispatch coordinator and proven
+  across the Runtime persistence boundary and the Gateway-contracts frame
+  boundary - not the fixture-local instrumentation the three provider proof
+  tests previously asserted against. This is a deliberately bounded piece of
+  internal Slice 6 (Runtime + one representative consumer only); the full
+  cross-surface `managed-economic-lifecycle` fixture and CLI/GUI/TUI/Native/
+  SDK/MCP presentation parity remain unstarted.
 
 ### Slice 5 - Cross-Path Account Authority Convergence
 
