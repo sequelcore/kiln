@@ -7,6 +7,7 @@ import {
 } from "@kilnai/core";
 import { ConfiguredManagedAccountRuntime } from "../../src/managed-account-leases/configured-managed-account-runtime.js";
 import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/opencode-credential-pool.js";
+import { proveEconomicRouteLifecycle } from "../managed-agent/economic-route-proof-fixture.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -311,6 +312,16 @@ describe("ConfiguredManagedAccountRuntime", () => {
         reason: "provider-quota-missing",
       },
     });
+    const quotaEvidence = resolution.candidates[0]?.quotaEvidence;
+    if (quotaEvidence === undefined) throw new Error("fixture");
+    await expect(proveEconomicRouteLifecycle({
+      providerId: "opencode-go",
+      routeId: "opencode-go-strict-quota",
+      modelId: "glm-test",
+      priceKind: "subscription",
+      quotaRequirement: "required-for-account-bound",
+      quotaEvidence,
+    })).rejects.toThrow("Expected opencode-go economic route to be prepared.");
   });
 
   it("materializes only the exact committed account revision from a two-account policy", async () => {

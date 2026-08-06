@@ -8,6 +8,7 @@ describe("OpenCode Go economic route", () => {
       routeId: "opencode-go-subscription",
       modelId: "glm-test",
       priceKind: "subscription",
+      quotaRequirement: "optional",
       quotaEvidence: {
         kind: "unknown",
         capacityIdentity: "opencode-go-capacity",

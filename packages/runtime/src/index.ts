@@ -28,15 +28,12 @@ export type {
   ManagedEconomicAuthorityDecisionEvidence,
   ManagedEconomicAuthorityRejection,
   ManagedEconomicCommitmentRecord,
-  ManagedEconomicCommitmentReconciliationInput,
   ManagedEconomicCommitmentRecoveryInput,
   ManagedEconomicCommitmentRecoveryPort,
   ManagedEconomicCommitmentRecoveryState,
   ManagedEconomicCommitmentReleaseFailureInput,
   ManagedEconomicCommitmentState,
   ManagedEconomicRouteCapacity,
-  ManagedLegacyAccountLeaseReconciliationEvidence,
-  ManagedLegacyAccountLeaseReconciliationInput,
   SqliteManagedAccountLeaseAuthorityOptions,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 

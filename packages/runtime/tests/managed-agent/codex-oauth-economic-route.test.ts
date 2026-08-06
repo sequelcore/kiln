@@ -8,6 +8,7 @@ describe("Codex OAuth economic route", () => {
       routeId: "codex-token-route",
       modelId: "gpt-5.6-codex",
       priceKind: "metered",
+      quotaRequirement: "required-for-account-bound",
       quotaEvidence: {
         kind: "known",
         capacityIdentity: "codex-oauth-capacity",

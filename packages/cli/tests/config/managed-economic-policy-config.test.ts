@@ -455,8 +455,9 @@ describe("managed economic policy config", () => {
       closeManagedAccountRuntimeComposition(cwd);
 
       const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
-      expect(restarted.authority.queryCommitment("job-held", "economic-attempt:held-001"))
-        .toMatchObject({ state: "released" });
+      expect(restarted.authority.createManagedJobCommitmentRecoveryPort().query({
+        jobId: "job-held", economicAttemptId: "economic-attempt:held-001",
+      })).toBe("absent");
       await expect(acquireRecoveryFixture(restarted, "job-next", "economic-attempt:held-002"))
         .resolves.toMatchObject({ status: "committed" });
     } finally {
@@ -474,8 +475,9 @@ describe("managed economic policy config", () => {
       closeManagedAccountRuntimeComposition(cwd);
 
       const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
-      expect(restarted.authority.queryCommitment("job-fenced", "economic-attempt:fenced-001"))
-        .toMatchObject({ state: "settlement-pending" });
+      expect(restarted.authority.createManagedJobCommitmentRecoveryPort().query({
+        jobId: "job-fenced", economicAttemptId: "economic-attempt:fenced-001",
+      })).toBe("dispatch-fenced");
       await expect(acquireRecoveryFixture(restarted, "job-next", "economic-attempt:fenced-002"))
         .resolves.toMatchObject({ status: "denied" });
     } finally {

@@ -23,6 +23,7 @@ export interface EconomicRouteProofInput {
   readonly modelId: string;
   readonly priceKind: "metered" | "subscription";
   readonly quotaEvidence: ManagedEconomicQuotaEvidence;
+  readonly quotaRequirement: "optional" | "required-for-account-bound";
 }
 
 export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput) {
@@ -35,6 +36,7 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
   try {
     const adoption = createAdoption(input);
     const events: string[] = [];
+    let record: ReturnType<typeof authority.settleExecution> | undefined;
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: {
         acquire: (request) => {
@@ -49,7 +51,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
         },
         settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
           events.push("settlement");
-          return authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
+          record = authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
+          return record;
         },
         recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
           authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
@@ -88,11 +91,7 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
     });
     prepared.registerEconomicSettlement(Promise.resolve(settlement));
     await waitForSettlement();
-    const record = authority.queryCommitment(
-      `job-${input.providerId}`,
-      `economic-attempt-${input.providerId}`,
-    );
-    if (record === "absent") throw new Error("Expected durable economic commitment record.");
+    if (record === undefined) throw new Error("Expected durable economic commitment record.");
     return { events, record, settlement };
   } finally {
     authority.close();
@@ -174,7 +173,7 @@ function createAdoption(input: EconomicRouteProofInput) {
       comparisonDomains: [comparisonDomain],
       noRouteAction: "deny",
       evidenceRequirements: {
-        quota: input.quotaEvidence.kind === "known" ? "required-for-account-bound" : "optional",
+        quota: input.quotaRequirement,
         price: "required",
       },
     },

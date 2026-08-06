@@ -453,7 +453,7 @@ export class SqliteManagedAccountLeaseAuthority {
     routeId: string,
     ceiling: ManagedEconomicAmount,
     requested: readonly ManagedEconomicAmount[],
-  ): boolean {
+  ): "available" | "exhausted" | "comparison-domain-incompatible" {
     const rows = this.#db.query<{ reserved_amounts: string }, [string, ...string[]]>(`
       SELECT reserved_amounts FROM economic_commitments
       WHERE selected_route_id=? AND state IN (${ECONOMIC_CAPACITY_CONSUMING_STATES.map(() => "?").join(",")})
@@ -461,11 +461,17 @@ export class SqliteManagedAccountLeaseAuthority {
     let used = 0n;
     for (const row of rows) {
       for (const amount of parseEconomicAmounts(row.reserved_amounts)) {
-        used += amountInScale(amount, ceiling);
+        const scaled = amountInScale(amount, ceiling);
+        if (scaled === null) return "comparison-domain-incompatible";
+        used += scaled;
       }
     }
-    for (const amount of requested) used += amountInScale(amount, ceiling);
-    return used <= BigInt(ceiling.atoms);
+    for (const amount of requested) {
+      const scaled = amountInScale(amount, ceiling);
+      if (scaled === null) return "comparison-domain-incompatible";
+      used += scaled;
+    }
+    return used <= BigInt(ceiling.atoms) ? "available" : "exhausted";
   }
 
   #insertEconomicLease(
@@ -531,16 +537,6 @@ export class SqliteManagedAccountLeaseAuthority {
       this.#db.query("UPDATE managed_account_affinities SET capacity_identity=?,updated_at=? WHERE affinity_key=? AND capacity_identity=?")
         .run(row.affinity_expected_capacity_identity, new Date(this.#now()).toISOString(), row.affinity_key, row.capacity_identity);
     }
-  }
-
-  #releaseReconciledLease(leaseId: string, evidenceUri: string, rollbackAffinity: boolean): void {
-    const row = this.#requiredRow(leaseId);
-    if (row.lifecycle_state === "released") return;
-    if (rollbackAffinity) this.#rollbackWinningAffinity(row);
-    const diagnostics = uniqueStrings([...parseStringArray(row.diagnostic_uris), evidenceUri]);
-    this.#db.query(`UPDATE account_leases
-      SET lifecycle_state='released',released_at=?,diagnostic_uris=? WHERE lease_id=?`)
-      .run(new Date(this.#now()).toISOString(), JSON.stringify(diagnostics), leaseId);
   }
 
   #migrateLeaseSchema(): void {
@@ -635,11 +631,6 @@ export class SqliteManagedAccountLeaseAuthority {
         );
         CREATE INDEX IF NOT EXISTS economic_commitments_route_state
         ON economic_commitments(selected_route_id, state);
-        CREATE TABLE IF NOT EXISTS legacy_lease_reconciliations (
-          lease_id TEXT PRIMARY KEY, operator_identity TEXT NOT NULL,
-          reason TEXT NOT NULL, evidence_uri TEXT NOT NULL,
-          reconciled_at TEXT NOT NULL, previous_state TEXT NOT NULL
-        );
       `);
       this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
       }).immediate();
@@ -698,13 +689,13 @@ export class SqliteManagedAccountLeaseAuthority {
         const local = capacities.get(adopted.route.routeId);
         if (!local) throw new TypeError(`Missing local capacity for economic route ${adopted.route.routeId}.`);
         if (adopted.route.accountPolicyId === null) {
-          if (adopted.ceiling.kind === "finite" && !this.#hasEconomicCapacity(
-            adopted.route.routeId,
-            adopted.ceiling.amount,
-            reservationAmounts(adopted),
-          )) {
+          const capacity = adopted.ceiling.kind === "finite"
+            ? this.#hasEconomicCapacity(adopted.route.routeId, adopted.ceiling.amount, reservationAmounts(adopted))
+            : "available";
+          if (capacity !== "available") {
             authorityRejections.push({
-              stage: "local-capacity", routeId: adopted.route.routeId, reason: "route-capacity-exhausted",
+              stage: "local-capacity", routeId: adopted.route.routeId,
+              reason: capacity === "exhausted" ? "route-capacity-exhausted" : "comparison-domain-incompatible",
             });
             continue;
           }
@@ -733,13 +724,13 @@ export class SqliteManagedAccountLeaseAuthority {
         });
         authorityRejections.push({ stage: "account-selection", routeId: adopted.route.routeId, rejections: selection.rejections });
         if (!selection.selected) continue;
-        if (adopted.ceiling.kind === "finite" && !this.#hasEconomicCapacity(
-          adopted.route.routeId,
-          adopted.ceiling.amount,
-          reservationAmounts(adopted),
-        )) {
+        const capacity = adopted.ceiling.kind === "finite"
+          ? this.#hasEconomicCapacity(adopted.route.routeId, adopted.ceiling.amount, reservationAmounts(adopted))
+          : "available";
+        if (capacity !== "available") {
           authorityRejections.push({
-            stage: "local-capacity", routeId: adopted.route.routeId, reason: "route-capacity-exhausted",
+            stage: "local-capacity", routeId: adopted.route.routeId,
+            reason: capacity === "exhausted" ? "route-capacity-exhausted" : "comparison-domain-incompatible",
           });
           continue;
         }
@@ -787,12 +778,11 @@ export class SqliteManagedAccountLeaseAuthority {
       const amounts = selected.worstCaseReservation.kind === "exact"
         ? [selected.worstCaseReservation.amount]
         : [];
-      if (selected.ceiling.kind === "finite" && !this.#hasEconomicCapacity(
-        selected.identity.route.routeId,
-        selected.ceiling.amount,
-        amounts,
-      )) {
-        throw new Error("Managed economic route capacity changed inside one transaction.");
+      if (selected.ceiling.kind === "finite") {
+        const capacity = this.#hasEconomicCapacity(selected.identity.route.routeId, selected.ceiling.amount, amounts);
+        if (capacity !== "available") {
+          throw new Error("Managed economic route capacity changed inside one transaction.");
+        }
       }
       const commitmentId = randomUUID();
       const reservationId = randomUUID();
@@ -835,13 +825,6 @@ export class SqliteManagedAccountLeaseAuthority {
       );
       return resultFromCommitmentRow(this.#requiredCommitmentRow(input.jobId, input.economicAttemptId), this.#rowForOptionalLease(leaseId), false);
     });
-  }
-
-  queryCommitment(jobId: string, economicAttemptId: string): ManagedEconomicCommitmentRecord | "absent" {
-    this.#heartbeat();
-    const row = this.#commitmentRow(jobId, economicAttemptId);
-    if (row === null || row.state === "denied") return "absent";
-    return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
   }
 
   releaseCommitmentPreFence(jobId: string, economicAttemptId: string): ManagedEconomicCommitmentRecord {
@@ -1084,121 +1067,6 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
-  reconcileCommitment(
-    input: ManagedEconomicCommitmentReconciliationInput,
-  ): ManagedEconomicCommitmentRecord {
-    return this.#transaction(() => {
-      this.#heartbeat();
-      requireAuditIdentity(input.operatorIdentity);
-      requireAuditReason(input.reason, "Managed economic reconciliation reason is invalid.");
-      requireKilnEvidenceUri(input.evidenceUri);
-      const row = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
-      if (row.state === "released") return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
-      if (
-        row.state !== "release-failed"
-        && row.state !== "settlement-pending"
-        && row.state !== "leaked"
-      ) {
-        throw new Error(
-          "Only release-failed, settlement-pending, or leaked managed economic commitments may be reconciled.",
-        );
-      }
-      if (row.lease_id !== null) {
-        this.#releaseReconciledLease(row.lease_id, input.evidenceUri, row.state === "release-failed");
-      }
-      const reconciliation = {
-        operatorIdentity: input.operatorIdentity,
-        reason: input.reason,
-        evidenceUri: input.evidenceUri,
-        reconciledAt: new Date(this.#now()).toISOString(),
-        previousState: row.state,
-        commitmentId: row.commitment_id,
-      };
-      const changed = this.#db.query(`UPDATE economic_commitments
-        SET state='released',reconciliation_json=?
-        WHERE commitment_id=? AND state=? AND owner_generation=?`)
-        .run(JSON.stringify(reconciliation), row.commitment_id, row.state, this.#ownerGeneration);
-      if (changed.changes !== 1) throw new Error("Managed economic reconciliation lost its owner fence.");
-      const reconciled = this.#requiredCommitmentRow(input.jobId, input.economicAttemptId);
-      return recordFromCommitmentRow(reconciled, this.#rowForOptionalLease(reconciled.lease_id));
-    });
-  }
-
-  reconcileLegacyAccountLease(
-    input: ManagedLegacyAccountLeaseReconciliationInput,
-  ): ManagedLegacyAccountLeaseReconciliationEvidence {
-    return this.#transaction(() => {
-      this.#heartbeat();
-      requireCanonicalText(input.leaseId, "Historical managed account lease id is required.");
-      requireAuditIdentity(input.operatorIdentity);
-      requireAuditReason(input.reason, "Historical lease reconciliation reason is invalid.");
-      requireKilnEvidenceUri(input.evidenceUri);
-      const row = this.#requiredRow(input.leaseId);
-      if (row.lifecycle_state === "released") {
-        const existing = this.#db.query<{
-          lease_id: string;
-          operator_identity: string;
-          reason: string;
-          evidence_uri: string;
-          reconciled_at: string;
-          previous_state: "release-failed" | "leaked";
-        }, [string]>("SELECT * FROM legacy_lease_reconciliations WHERE lease_id=?").get(row.lease_id);
-        if (!existing) throw new Error("Historical lease was released without legacy reconciliation evidence.");
-        if (
-          existing.operator_identity !== input.operatorIdentity
-          || existing.reason !== input.reason
-          || existing.evidence_uri !== input.evidenceUri
-        ) {
-          throw new Error("Historical lease reconciliation evidence conflicts with the durable record.");
-        }
-        return {
-          leaseId: existing.lease_id,
-          previousState: existing.previous_state,
-          state: "released",
-          operatorIdentity: existing.operator_identity,
-          reason: existing.reason,
-          evidenceUri: existing.evidence_uri,
-          reconciledAt: existing.reconciled_at,
-        };
-      }
-      const referenced = this.#db.query<{ present: number }, [string]>(
-        "SELECT 1 present FROM economic_commitments WHERE lease_id=? LIMIT 1",
-      ).get(row.lease_id);
-      if (referenced) {
-        throw new Error("A commitment-owned lease must use economic commitment reconciliation.");
-      }
-      const historicalIdentity = row.runtime_invocation_id !== null
-        && row.economic_attempt_id === null && row.commitment_id === null;
-      const orphanedEconomicIdentity = row.runtime_invocation_id === null
-        && row.economic_attempt_id !== null && row.commitment_id !== null;
-      if (!historicalIdentity && !orphanedEconomicIdentity) {
-        throw new Error("Only a migrated or orphaned account lease may use legacy reconciliation.");
-      }
-      if (row.lifecycle_state !== "release-failed" && row.lifecycle_state !== "leaked") {
-        throw new Error("Only release-failed or leaked historical leases may be reconciled.");
-      }
-      const previousState = row.lifecycle_state;
-      const reconciledAt = new Date(this.#now()).toISOString();
-      this.#releaseReconciledLease(row.lease_id, input.evidenceUri, false);
-      const evidence: ManagedLegacyAccountLeaseReconciliationEvidence = {
-        leaseId: row.lease_id,
-        previousState,
-        state: "released",
-        operatorIdentity: input.operatorIdentity,
-        reason: input.reason,
-        evidenceUri: input.evidenceUri,
-        reconciledAt,
-      };
-      this.#db.query(`INSERT INTO legacy_lease_reconciliations(
-        lease_id,operator_identity,reason,evidence_uri,reconciled_at,previous_state
-      ) VALUES(?,?,?,?,?,?)`).run(
-        evidence.leaseId, evidence.operatorIdentity, evidence.reason,
-        evidence.evidenceUri, evidence.reconciledAt, evidence.previousState,
-      );
-      return evidence;
-    });
-  }
-
   #rebuildLeaseTable(): void {
     this.#db.exec(`
       CREATE TABLE account_leases_rebuilt (
@@ -1347,7 +1215,11 @@ export interface ManagedEconomicAccountLeaseEvidence {
 
 export type ManagedEconomicAuthorityRejection =
   | { readonly stage: "account-selection"; readonly routeId: string; readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"] }
-  | { readonly stage: "local-capacity"; readonly routeId: string; readonly reason: "route-capacity-exhausted" };
+  | {
+      readonly stage: "local-capacity";
+      readonly routeId: string;
+      readonly reason: "route-capacity-exhausted" | "comparison-domain-incompatible";
+    };
 
 export interface ManagedEconomicAuthorityDecisionEvidence {
   readonly decision: ManagedEconomicSelectionDecision;
@@ -1358,31 +1230,6 @@ export type ManagedEconomicCommitmentAcquireResult =
   | { readonly status: "committed"; readonly record: ManagedEconomicCommitmentRecord; readonly replay: boolean }
   | { readonly status: "denied"; readonly decision: Extract<ManagedEconomicSelectionDecision, { readonly kind: "denied" }>; readonly evidence: ManagedEconomicAuthorityDecisionEvidence; readonly replay: boolean }
   | { readonly status: "conflict"; readonly reason: "idempotency-conflict" | "identity-revision-conflict" };
-
-export interface ManagedEconomicCommitmentReconciliationInput {
-  readonly jobId: string;
-  readonly economicAttemptId: string;
-  readonly operatorIdentity: string;
-  readonly reason: string;
-  readonly evidenceUri: string;
-}
-
-export interface ManagedLegacyAccountLeaseReconciliationInput {
-  readonly leaseId: string;
-  readonly operatorIdentity: string;
-  readonly reason: string;
-  readonly evidenceUri: string;
-}
-
-export interface ManagedLegacyAccountLeaseReconciliationEvidence {
-  readonly leaseId: string;
-  readonly previousState: "release-failed" | "leaked";
-  readonly state: "released";
-  readonly operatorIdentity: string;
-  readonly reason: string;
-  readonly evidenceUri: string;
-  readonly reconciledAt: string;
-}
 
 export interface ManagedEconomicCommitmentRecoveryInput {
   readonly leaked?: readonly {
@@ -1427,9 +1274,9 @@ function parseEconomicAmounts(value: string): ManagedEconomicAmount[] {
   return parsed as ManagedEconomicAmount[];
 }
 
-function amountInScale(amount: ManagedEconomicAmount, target: ManagedEconomicAmount): bigint {
+function amountInScale(amount: ManagedEconomicAmount, target: ManagedEconomicAmount): bigint | null {
   if (amount.unit !== target.unit || !sameEconomicScheme(amount.scheme, target.scheme)) {
-    throw new Error("Managed economic route capacity units are incompatible.");
+    return null;
   }
   if (amount.scale > target.scale) {
     const divisor = 10n ** BigInt(amount.scale - target.scale);
@@ -1572,12 +1419,6 @@ function requireCanonicalText(value: string, message: string): string {
   return value;
 }
 
-function requireAuditIdentity(value: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/u.test(value)) {
-    throw new TypeError("Managed economic reconciliation operator identity is invalid.");
-  }
-  return value;
-}
 
 function requireAuditReason(value: string, message: string): string {
   if (!value || value !== value.trim() || value.length > 256 || /[\u0000-\u001f\u007f]/u.test(value)) {

@@ -108,9 +108,15 @@ second lease record or combine runtime-owned and economically owned authority.
 Release failure becomes `release-failed`; unknown fenced work becomes
 `settlement-pending`; unmatched work can become `leaked`. All remain
 capacity-consuming and carry sanitized settlement or reconciliation evidence.
-Runtime exposes an explicit operator-identity, reason, and evidence-bound
-reconciliation transaction for those states rather than a timer or terminal-job
-projection that fabricates settlement.
+They remain held until an authoritative settlement is recorded; startup recovery
+only classifies unresolved work conservatively and never fabricates a release.
+
+An economic monetary or credit ceiling is Kiln-local and applies to one
+configured route (`selected_route_id`). It does not pool or share capacity by
+account, credit scheme, or policy: two configured routes that resolve to the
+same account each hold their own independent ceiling. Operators who need a
+shared account-wide budget must configure that constraint outside these
+per-route ceilings.
 
 ## Recovery
 
@@ -128,11 +134,8 @@ Recovery queries the exact `(jobId, economicAttemptId)`:
 A crash between SQLite commit and job projection therefore recovers and
 releases the exact durable commitment instead of selecting again. Migrated
 account-only leases that were still capacity-consuming are conservatively
-classified `leaked`; a separate audited legacy-lease reconciliation releases
-them by lease ID without fabricating an economic attempt and durably retains
-the operator, reason, evidence URI, prior state, and idempotent replay. Reconciliation
-changes only authority state through an owner-fenced transaction; projections
-observe the resulting evidence without becoming authority.
+classified `leaked`; they remain capacity-consuming pending authoritative
+settlement rather than being released by recovery.
 
 ## Configuration Boundary
 

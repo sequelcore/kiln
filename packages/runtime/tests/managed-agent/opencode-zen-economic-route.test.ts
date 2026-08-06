@@ -8,6 +8,7 @@ describe("OpenCode Zen economic route", () => {
       routeId: "opencode-zen-metered",
       modelId: "anthropic/claude-sonnet-4-6",
       priceKind: "metered",
+      quotaRequirement: "optional",
       quotaEvidence: {
         kind: "unknown",
         capacityIdentity: "opencode-zen-capacity",

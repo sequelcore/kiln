@@ -190,7 +190,8 @@ describe("managed economic commitment authority", () => {
 
   it("releases accountless capacity only after a matching typed execution settlement", async () => {
     const authority = create();
-    authority.acquireCommitment(input());
+    const acquired = authority.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
     authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
 
     expect(authority.recordExecutionSettlementPending(
@@ -205,13 +206,11 @@ describe("managed economic commitment authority", () => {
       economicAttemptId: "economic-attempt-b",
     })).toMatchObject({ status: "denied" });
 
-    const pending = authority.queryCommitment("job-a", "economic-attempt-a");
-    if (pending === "absent") throw new Error("fixture");
     const settlement = {
       kind: "subscription" as const,
-      reservationId: pending.commitment.reservation.reservationId,
+      reservationId: acquired.record.commitment.reservation.reservationId,
       dispatchFenceId: "fence-a",
-      actualIdentity: pending.commitment.reservation.selectedIdentity,
+      actualIdentity: acquired.record.commitment.reservation.selectedIdentity,
       units: [{ atoms: "7", scale: 0, unit: "input-token", scheme: { kind: "unit" as const } }],
       evidence: snapshot().routes[0]!.priceEvidence.identity.evidence,
     };
@@ -248,50 +247,15 @@ describe("managed economic commitment authority", () => {
       }],
     });
     authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
-    authority.recordExecutionSettlementPending(
+    expect(authority.recordExecutionSettlementPending(
       "job-a",
       "economic-attempt-a",
       "fence-a",
       "execution settlement rejected",
-    );
-
-    expect(authority.queryCommitment("job-a", "economic-attempt-a")).toMatchObject({
+    )).toMatchObject({
       state: "settlement-pending",
       lease: { lifecycleState: "held" },
     });
-  });
-
-  it("requires audited operator evidence to reconcile settlement-pending capacity", () => {
-    const authority = create();
-    authority.acquireCommitment(input());
-    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
-    authority.recordExecutionSettlementPending(
-      "job-a",
-      "economic-attempt-a",
-      "fence-a",
-      "provider outcome is not authoritative",
-    );
-
-    expect(authority.reconcileCommitment({
-      jobId: "job-a",
-      economicAttemptId: "economic-attempt-a",
-      operatorIdentity: "operator-a",
-      reason: "provider console confirms no outstanding charge",
-      evidenceUri: "kiln://evidence/pending-settlement-audit",
-    })).toMatchObject({
-      state: "released",
-      settlement: { kind: "unknown" },
-      lifecycleEvidence: {
-        operatorIdentity: "operator-a",
-        previousState: "settlement-pending",
-        evidenceUri: "kiln://evidence/pending-settlement-audit",
-      },
-    });
-    expect(authority.acquireCommitment({
-      ...input(),
-      jobId: "job-b",
-      economicAttemptId: "economic-attempt-b",
-    })).toMatchObject({ status: "committed" });
   });
 
   it("persists exact final-unit denial evidence and replays it without partial reservation", () => {
@@ -306,7 +270,6 @@ describe("managed economic commitment authority", () => {
       }] },
     });
     expect(authority.acquireCommitment(deniedInput)).toEqual({ ...denied, replay: true });
-    expect(authority.queryCommitment("job-b", "economic-attempt-b")).toBe("absent");
     expect(authority.releaseCommitmentPreFence("job-a", "economic-attempt-a").state).toBe("released");
     expect(authority.acquireCommitment({ ...input(), jobId: "job-c", economicAttemptId: "economic-attempt-c" }))
       .toMatchObject({ status: "committed" });
@@ -368,6 +331,29 @@ describe("managed economic commitment authority", () => {
       .toMatchObject({ status: "denied", evidence: { authorityRejections: [{
         stage: "account-selection", rejections: [{ reason: "lease-conflict" }],
       }] } });
+  });
+
+  it("returns typed rejection evidence when an in-flight reservation is incompatible with the route ceiling", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-incompatible-capacity-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const authority = createAt(path, "owner-a", () => Date.parse("2026-07-31T11:00:00.000Z"));
+    expect(authority.acquireCommitment(input())).toMatchObject({ status: "committed" });
+    const database = new Database(path, { strict: true });
+    database.query("UPDATE economic_commitments SET reserved_amounts=? WHERE job_id=?").run(
+      JSON.stringify([{ atoms: "1", scale: 0, unit: "credit", scheme: { kind: "credit", creditSchemeId: "other" } }]),
+      "job-a",
+    );
+    database.close();
+
+    expect(authority.acquireCommitment({
+      ...input(), jobId: "job-b", economicAttemptId: "economic-attempt-b",
+    })).toMatchObject({
+      status: "denied",
+      evidence: { authorityRejections: [{
+        stage: "local-capacity", routeId: "route-direct", reason: "comparison-domain-incompatible",
+      }] },
+    });
   });
 
   it("commits account credit and overage posture from configured account economics", () => {
@@ -434,7 +420,7 @@ describe("managed economic commitment authority", () => {
     database.close();
     const reopened = createAt(path, "owner-b", () => Date.parse("2026-07-31T11:00:01.000Z"));
 
-    expect(() => reopened.queryCommitment("job-a", "economic-attempt-a"))
+    expect(() => reopened.recoverCommitments())
       .toThrow("account lease reference is corrupt");
   });
 
@@ -449,8 +435,7 @@ describe("managed economic commitment authority", () => {
     first.close();
 
     // Same instant: reclaim must come from the released claim, not from staleness.
-    const reclaimed = createAt(path, "owner-b", () => at);
-    expect(reclaimed.queryCommitment("job-a", "economic-attempt-a")).toBe("absent");
+    createAt(path, "owner-b", () => at);
   });
 
   it("undoes a newly won affinity and restores account capacity on pre-fence release", () => {
@@ -559,115 +544,6 @@ describe("managed economic commitment authority", () => {
 
     expect(() => createAt(path, "owner-a", () => 1_001, 10_000))
       .toThrow("already has a live owner");
-  });
-
-  it("requires audited reconciliation and never regresses leaked work", () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-economic-reconcile-"));
-    roots.push(root);
-    const path = join(root, "authority.sqlite");
-    const first = createAt(path, "owner-a", () => 1_000);
-    first.acquireCommitment(input());
-    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
-    first.close();
-    authorities.splice(authorities.indexOf(first), 1);
-    const restarted = createAt(path, "owner-b", () => 2_000);
-    expect(restarted.recoverCommitments({ leaked: [{
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      reason: "provider outcome unavailable", evidenceUri: "kiln://evidence/leak-a",
-    }] })).toMatchObject([{ state: "leaked", lifecycleEvidence: {
-      kind: "leak-classification", evidenceUri: "kiln://evidence/leak-a",
-    } }]);
-    expect(() => restarted.recordCommitmentReleaseFailure({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      reason: "late release", evidenceUri: "kiln://evidence/release-a",
-    })).toThrow("cannot regress");
-    expect(() => restarted.reconcileCommitment({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      operatorIdentity: "", reason: "audited recovery", evidenceUri: "kiln://evidence/reconcile-a",
-    })).toThrow("operator identity");
-    expect(() => restarted.reconcileCommitment({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      operatorIdentity: "operator-a", reason: "audited recovery",
-      evidenceUri: "file:///operator/home/incident.json",
-    })).toThrow("sanitized kiln URI");
-    expect(() => restarted.reconcileCommitment({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      operatorIdentity: "operator-a", reason: "secret\nmaterial",
-      evidenceUri: "kiln://evidence/reconcile-a",
-    })).toThrow("reason is invalid");
-    expect(restarted.reconcileCommitment({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      operatorIdentity: "operator-a", reason: "audited recovery", evidenceUri: "kiln://evidence/reconcile-a",
-    })).toMatchObject({ state: "released", lifecycleEvidence: {
-      operatorIdentity: "operator-a", previousState: "leaked", commitmentId: expect.any(String),
-    } });
-    expect(restarted.acquireCommitment({ ...input(), jobId: "job-b", economicAttemptId: "economic-attempt-b" }))
-      .toMatchObject({ status: "committed" });
-  });
-
-  it("keeps release-failed capacity held until audited reconciliation", () => {
-    const authority = create();
-    authority.acquireCommitment(input());
-    expect(authority.recordCommitmentReleaseFailure({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      reason: "local release failed", evidenceUri: "kiln://evidence/release-failed-a",
-    })).toMatchObject({ state: "release-failed", lifecycleEvidence: {
-      kind: "release-failure", evidenceUri: "kiln://evidence/release-failed-a",
-    } });
-    expect(authority.acquireCommitment({ ...input(), jobId: "job-b", economicAttemptId: "economic-attempt-b" }))
-      .toMatchObject({ status: "denied" });
-    expect(authority.reconcileCommitment({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      operatorIdentity: "operator-a", reason: "verified no external dispatch",
-      evidenceUri: "kiln://evidence/reconciled-release-a",
-    })).toMatchObject({ state: "released", lifecycleEvidence: { previousState: "release-failed" } });
-    expect(authority.acquireCommitment({ ...input(), jobId: "job-c", economicAttemptId: "economic-attempt-c" }))
-      .toMatchObject({ status: "committed" });
-  });
-
-  it("rolls back pre-fence affinity on reconciliation but retains the post-dispatch winner", () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-economic-affinity-reconcile-"));
-    roots.push(root);
-    const path = join(root, "authority.sqlite");
-    const authority = createAt(path, "owner-a", () => Date.parse("2026-07-31T11:00:00.000Z"));
-    const adopted = accountSnapshot();
-    const { route, candidate } = accountCapacity(adopted);
-    const affinityKey = "f".repeat(64);
-    const routeCapacity = [{ routeId: "route-direct", route,
-      affinityRequest: { continuity: "prefer" as const, scope: "session" as const, key: affinityKey as never },
-      candidates: [candidate] }];
-    const countAffinity = () => {
-      const db = new Database(path, { strict: true });
-      const count = db.query<{ count: number }, []>("SELECT COUNT(*) count FROM managed_account_affinities").get()?.count;
-      db.close();
-      return count;
-    };
-
-    authority.acquireCommitment({ ...input(adopted), routeCapacity });
-    authority.recordCommitmentReleaseFailure({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a",
-      reason: "local release failed", evidenceUri: "kiln://evidence/pre-fence-failure",
-    });
-    expect(countAffinity()).toBe(1);
-    authority.reconcileCommitment({
-      jobId: "job-a", economicAttemptId: "economic-attempt-a", operatorIdentity: "operator-a",
-      reason: "verified no dispatch", evidenceUri: "kiln://evidence/pre-fence-reconciled",
-    });
-    expect(countAffinity()).toBe(0);
-
-    authority.acquireCommitment({ ...input(adopted), jobId: "job-post-dispatch",
-      economicAttemptId: "economic-attempt-post-dispatch", routeCapacity });
-    authority.fenceDispatch("job-post-dispatch", "economic-attempt-post-dispatch", "fence-post-dispatch");
-    authority.recoverCommitments({ leaked: [{
-      jobId: "job-post-dispatch", economicAttemptId: "economic-attempt-post-dispatch",
-      reason: "provider outcome unavailable", evidenceUri: "kiln://evidence/post-dispatch-leak",
-    }] });
-    authority.reconcileCommitment({
-      jobId: "job-post-dispatch", economicAttemptId: "economic-attempt-post-dispatch",
-      operatorIdentity: "operator-a", reason: "settlement audited",
-      evidenceUri: "kiln://evidence/post-dispatch-reconciled",
-    });
-    expect(countAffinity()).toBe(1);
   });
 
   it.runIf(process.platform !== "win32")("creates database artifacts owner-only", () => {

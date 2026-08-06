@@ -93,44 +93,6 @@ describe("managed authority lease history migration", () => {
     });
     migrated.close();
 
-    const reconciler = new SqliteManagedAccountLeaseAuthority({
-      path,
-      ownerId: "operator-reconciler",
-      now: () => Date.parse("2026-07-31T11:05:00.000Z"),
-    });
-    const reconciliationInput = {
-      leaseId: "legacy-active",
-      operatorIdentity: "operator:test",
-      reason: "confirmed historical execution stopped",
-      evidenceUri: "kiln://operators/test/legacy-active-reconciliation",
-    } as const;
-    const firstReconciliation = reconciler.reconcileLegacyAccountLease(reconciliationInput);
-    expect(firstReconciliation).toMatchObject({
-      leaseId: "legacy-active",
-      previousState: "leaked",
-      state: "released",
-    });
-    reconciler.close();
-    const reconciled = new Database(path, { strict: true });
-    expect(reconciled.query<{ lifecycle_state: string; released_at: string | null }, []>(
-      "SELECT lifecycle_state,released_at FROM account_leases WHERE lease_id='legacy-active'",
-    ).get()).toMatchObject({ lifecycle_state: "released", released_at: expect.any(String) });
-    expect(reconciled.query<Record<string, unknown>, []>(
-      "SELECT operator_identity,reason,evidence_uri,previous_state FROM legacy_lease_reconciliations WHERE lease_id='legacy-active'",
-    ).get()).toEqual({
-      operator_identity: "operator:test",
-      reason: "confirmed historical execution stopped",
-      evidence_uri: "kiln://operators/test/legacy-active-reconciliation",
-      previous_state: "leaked",
-    });
-    reconciled.close();
-    const replay = new SqliteManagedAccountLeaseAuthority({ path, ownerId: "replay-reconciler" });
-    expect(replay.reconcileLegacyAccountLease(reconciliationInput)).toEqual(firstReconciliation);
-    expect(() => replay.reconcileLegacyAccountLease({
-      ...reconciliationInput,
-      reason: "different operator conclusion",
-    })).toThrow("conflicts with the durable record");
-    replay.close();
   });
 
   it("releases a claimed owner generation when migration fails", () => {
