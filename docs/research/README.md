@@ -154,6 +154,19 @@ define the active architecture contract. For doctrine, use
   adopted global policy for provider defaults, task-level effort, and explicit
   maximum-compute requests.
 
+- `31-visual-work-abstraction-2026.md`
+  Primary-source research on governed GUI/visual agents across major labs,
+  benchmarks, community signal, and cloned harnesses, to inform issue #9's
+  redesign of `visual-reference-research` into conditional visual-work
+  contracts. Evidence only; no vendor-specific architecture proposed.
+
+- `32-general-work-contracts-2026.md`
+  Cross-domain evidence on whether the separation of intent,
+  context/evidence, process/phase, capability/identity, and review as
+  conditional dimensions generalizes beyond programming, responding to issue
+  #9's monolithic-conflation hypothesis. Evidence gathering only; no Kiln
+  implementation decisions proposed.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -198,4 +211,6 @@ define the active architecture contract. For doctrine, use
 28. `28-claude-model-route-validation-2026.md`
 29. `29-instruction-file-evidence-2026.md`
 30. `30-deliberation-policy-2026.md`
-31. `web-retrieval-provider-routing.md`
+31. `31-visual-work-abstraction-2026.md`
+32. `32-general-work-contracts-2026.md`
+33. `web-retrieval-provider-routing.md`
