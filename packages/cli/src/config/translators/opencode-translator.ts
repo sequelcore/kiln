@@ -1,14 +1,15 @@
-import { translatePermission, type OpenCodeNativeRules } from "../../wrapper/session-registry.js";
+import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import type { KilnYaml } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
+import { type OpenCodeNativeRules, translatePermission } from "../../wrapper/session-registry.js";
+import type { OpenCodeResponsesProjection } from "../model-gateway-native-projection.js";
+import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
+import { resolveNativeDefaultRouteProjection } from "../native-route-integrity.js";
 import {
   createPermissionProjection,
   PERMISSION_PROJECTION_TARGET_IDS,
   type PermissionProjection,
 } from "./permission-projection.js";
-import { resolveNativeDefaultRouteProjection } from "../native-route-integrity.js";
-import type { KilnYaml } from "../../kiln-yaml-types.js";
-import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
-import type { OpenCodeResponsesProjection } from "../model-gateway-native-projection.js";
 
 type OpenCodePermissionRule = string | Record<string, string>;
 
@@ -27,9 +28,10 @@ function buildOpenCodePermissionDocument(
 
   const scope = (action: string, resource: string, effect: string): void => {
     const existing = permission[action];
-    permission[action] = typeof existing === "object"
-      ? { ...existing, [resource]: effect }
-      : { ...(typeof existing === "string" ? { "*": existing } : {}), [resource]: effect };
+    permission[action] =
+      typeof existing === "object"
+        ? { ...existing, [resource]: effect }
+        : { ...(typeof existing === "string" ? { "*": existing } : {}), [resource]: effect };
   };
 
   for (const rule of rules.tools) {
@@ -68,15 +70,20 @@ export function translateOpenCodePermissionProjection(input: {
   readonly ownsManagedDefault?: boolean;
   readonly gatewayProjection?: OpenCodeResponsesProjection;
   readonly previousManagedFields?: readonly string[];
+  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "opencode");
   const cfg = translated.config as { permissionDefault: string };
   const { kiln: _legacyKilnMetadata, ...rawExistingDocument } = input.existingDocument;
   const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) => field === "provider.kiln");
-  const existingDocument = stripManagedFields({ currentDocument: rawExistingDocument, managedFields: staleGatewayFields });
-  const defaultRoute = !input.gatewayProjection && input.kilnYaml
-    ? resolveNativeDefaultRouteProjection("opencode", input.kilnYaml)
-    : undefined;
+  const existingDocument = stripManagedFields({
+    currentDocument: rawExistingDocument,
+    managedFields: staleGatewayFields,
+  });
+  const defaultRoute =
+    !input.gatewayProjection && input.kilnYaml
+      ? resolveNativeDefaultRouteProjection("opencode", input.kilnYaml)
+      : undefined;
   const managedFields = [
     "permission",
     ...(defaultRoute?.status === "project" ? ["model"] : []),
@@ -91,19 +98,33 @@ export function translateOpenCodePermissionProjection(input: {
     return createPermissionProjection({
       targetId: PERMISSION_PROJECTION_TARGET_IDS.opencode,
       managedFields: [...new Set(managedFields)],
-      document: mergeManagedFields({ currentDocument: document, managedPatch: input.gatewayProjection.patch, managedFields: input.gatewayProjection.managedFields }),
+      document: mergeManagedFields({
+        currentDocument: document,
+        managedPatch: input.gatewayProjection.patch,
+        managedFields: input.gatewayProjection.managedFields,
+      }),
       integrity: {
-        harness: "opencode", policy: input.policy, translated,
-        semanticLoss: cfg.permissionDefault === "allow"
-          ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
-          : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
-        enforcement: { approvalControl: cfg.permissionDefault === "allow" || cfg.permissionDefault === "deny" ? "enforced" : "unknown", filesystemSandbox: "not-enforced", networkBoundary: "not-enforced", strength: "rules-only" },
+        harness: "opencode",
+        policy: input.policy,
+        translated,
+        semanticLoss:
+          cfg.permissionDefault === "allow"
+            ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
+            : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
+        enforcement: describeTrustedExecutionEnforcement({
+          harness: "opencode",
+          permissionDefault: cfg.permissionDefault,
+        }),
+        storedAuthorization: input.storedAuthorization,
       },
     });
   }
   if (defaultRoute?.status === "project" && defaultRoute.nativeModel) {
     document.model = defaultRoute.nativeModel;
-  } else if ((defaultRoute?.status === "remove-stale" || defaultRoute?.status === "missing-default") && input.ownsManagedDefault) {
+  } else if (
+    (defaultRoute?.status === "remove-stale" || defaultRoute?.status === "missing-default") &&
+    input.ownsManagedDefault
+  ) {
     delete document.model;
   }
 
@@ -115,15 +136,15 @@ export function translateOpenCodePermissionProjection(input: {
       harness: "opencode",
       policy: input.policy,
       translated,
-      semanticLoss: cfg.permissionDefault === "allow"
-        ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
-        : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
-      enforcement: {
-        approvalControl: cfg.permissionDefault === "allow" || cfg.permissionDefault === "deny" ? "enforced" : "unknown",
-        filesystemSandbox: "not-enforced",
-        networkBoundary: "not-enforced",
-        strength: "rules-only",
-      },
+      semanticLoss:
+        cfg.permissionDefault === "allow"
+          ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
+          : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
+      enforcement: describeTrustedExecutionEnforcement({
+        harness: "opencode",
+        permissionDefault: cfg.permissionDefault,
+      }),
+      storedAuthorization: input.storedAuthorization,
     },
   });
 }

@@ -1,16 +1,17 @@
-import { translatePermission } from "../../wrapper/session-registry.js";
+import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import type { KilnYaml } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
+import { translatePermission } from "../../wrapper/session-registry.js";
+import type { CodexResponsesProjection } from "../model-gateway-native-projection.js";
+import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
+import { resolveNativeDefaultRouteProjection } from "../native-route-integrity.js";
 import {
   asRecord,
   createPermissionProjection,
   PERMISSION_PROJECTION_TARGET_IDS,
-  toPermissionSyncMetadata,
   type PermissionProjection,
+  toPermissionSyncMetadata,
 } from "./permission-projection.js";
-import { resolveNativeDefaultRouteProjection } from "../native-route-integrity.js";
-import type { KilnYaml } from "../../kiln-yaml-types.js";
-import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
-import type { CodexResponsesProjection } from "../model-gateway-native-projection.js";
 
 export function translateCodexPermissionProjection(input: {
   readonly policy: KilnPermissionPolicy;
@@ -19,19 +20,25 @@ export function translateCodexPermissionProjection(input: {
   readonly ownsManagedDefault?: boolean;
   readonly gatewayProjection?: CodexResponsesProjection;
   readonly previousManagedFields?: readonly string[];
+  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "codex");
   const cfg = translated.config as { approvalMode: string; sandboxMode: string };
-  const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) =>
-    field === "model_provider" || field === "model_catalog_json" || field === "web_search" || field === "model_providers.kiln"
+  const staleGatewayFields = (input.previousManagedFields ?? []).filter(
+    (field) =>
+      field === "model_provider" ||
+      field === "model_catalog_json" ||
+      field === "web_search" ||
+      field === "model_providers.kiln",
   );
   const existingDocument = stripManagedFields({
     currentDocument: sanitizeCodexConfigDocument(input.existingDocument),
     managedFields: staleGatewayFields,
   });
-  const defaultRoute = !input.gatewayProjection && input.kilnYaml
-    ? resolveNativeDefaultRouteProjection("codex", input.kilnYaml)
-    : undefined;
+  const defaultRoute =
+    !input.gatewayProjection && input.kilnYaml
+      ? resolveNativeDefaultRouteProjection("codex", input.kilnYaml)
+      : undefined;
   const managedFields = [
     "approval_policy",
     "sandbox_mode",
@@ -53,16 +60,26 @@ export function translateCodexPermissionProjection(input: {
     return createPermissionProjection({
       targetId: PERMISSION_PROJECTION_TARGET_IDS.codex,
       managedFields: [...new Set(managedFields)],
-      document: mergeManagedFields({ currentDocument: document, managedPatch: input.gatewayProjection.patch, managedFields: input.gatewayProjection.managedFields }),
+      document: mergeManagedFields({
+        currentDocument: document,
+        managedPatch: input.gatewayProjection.patch,
+        managedFields: input.gatewayProjection.managedFields,
+      }),
       integrity: {
-        harness: "codex", policy: input.policy, translated,
-        enforcement: { approvalControl: "enforced", filesystemSandbox: "enforced", networkBoundary: "enforced", strength: "strong" },
+        harness: "codex",
+        policy: input.policy,
+        translated,
+        enforcement: describeTrustedExecutionEnforcement({ harness: "codex" }),
+        storedAuthorization: input.storedAuthorization,
       },
     });
   }
   if (defaultRoute?.status === "project" && defaultRoute.nativeModel) {
     document.model = defaultRoute.nativeModel;
-  } else if ((defaultRoute?.status === "remove-stale" || defaultRoute?.status === "missing-default") && input.ownsManagedDefault) {
+  } else if (
+    (defaultRoute?.status === "remove-stale" || defaultRoute?.status === "missing-default") &&
+    input.ownsManagedDefault
+  ) {
     delete document.model;
   }
 
@@ -74,16 +91,11 @@ export function translateCodexPermissionProjection(input: {
       harness: "codex",
       policy: input.policy,
       translated,
-      enforcement: {
-        approvalControl: "enforced",
-        filesystemSandbox: "enforced",
-        networkBoundary: "enforced",
-        strength: "strong",
-      },
+      enforcement: describeTrustedExecutionEnforcement({ harness: "codex" }),
+      storedAuthorization: input.storedAuthorization,
     },
   });
 }
-
 
 function sanitizeCodexConfigDocument(document: Record<string, unknown>): Record<string, unknown> {
   const next = { ...document };

@@ -1,9 +1,7 @@
-import type { BackendConfig } from "../../wrapper/session-registry.js";
+import type { TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import { type TrustedExecutionIntegrity, TrustedExecutionIntegritySchema } from "@kilnai/gateway-contracts";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
-import {
-  TrustedExecutionIntegritySchema,
-  type TrustedExecutionIntegrity,
-} from "@kilnai/gateway-contracts";
+import type { BackendConfig } from "../../wrapper/session-registry.js";
 
 export const PERMISSION_PROJECTION_TARGET_IDS = {
   claude: "claude-settings",
@@ -26,6 +24,7 @@ export interface PermissionProjectionIntegrityInput {
   readonly enforcement: TrustedExecutionIntegrity["enforcement"];
   readonly recommendation?: string;
   readonly now?: Date;
+  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }
 
 export interface PermissionSyncMetadata {
@@ -69,18 +68,20 @@ export function createPermissionProjection(input: {
   };
 }
 
-export function createPermissionProjectionIntegrity(input: PermissionProjectionIntegrityInput): TrustedExecutionIntegrity {
+export function createPermissionProjectionIntegrity(
+  input: PermissionProjectionIntegrityInput,
+): TrustedExecutionIntegrity {
   const observedAt = (input.now ?? new Date()).toISOString();
   const profile = trustedExecutionProfileFromPolicy(input.policy);
   const semanticLoss = [
-    ...input.translated.unsupportedRules.map((rule) =>
-      `Unsupported granular permission rule for ${input.translated.backend}: [${rule.category}] ${rule.action} ${rule.selector}.`
+    ...input.translated.unsupportedRules.map(
+      (rule) =>
+        `Unsupported granular permission rule for ${input.translated.backend}: [${rule.category}] ${rule.action} ${rule.selector}.`,
     ),
     ...(input.semanticLoss ?? []),
   ];
-  const classification: TrustedExecutionIntegrity["classification"] = semanticLoss.length > 0
-    ? "unsupported-semantic-translation"
-    : "effective-policy-unproven";
+  const classification: TrustedExecutionIntegrity["classification"] =
+    semanticLoss.length > 0 ? "unsupported-semantic-translation" : "effective-policy-unproven";
 
   return TrustedExecutionIntegritySchema.parse({
     harness: input.harness,
@@ -102,23 +103,28 @@ export function createPermissionProjectionIntegrity(input: PermissionProjectionI
       projectionOwnership: "kiln-managed",
     },
     enforcement: input.enforcement,
-    authorization: {
-      status: "unavailable",
-      revocable: true,
-      reason: profile === "trusted-full-access"
-        ? "operator-local-trusted-authorization-not-attached-to-native-projection"
-        : "authorization-not-required-for-narrower-policy",
-    },
+    authorization:
+      profile === "trusted-full-access" && input.storedAuthorization?.profile === "trusted-full-access"
+        ? input.storedAuthorization.authorization
+        : {
+            status: "unavailable",
+            revocable: true,
+            reason:
+              profile === "trusted-full-access"
+                ? "operator-local-trusted-authorization-not-attached-to-native-projection"
+                : "authorization-not-required-for-narrower-policy",
+          },
     semanticLoss,
     classification,
-    recommendation: input.recommendation
-      ?? defaultProjectionRecommendation(input.translated, semanticLoss),
+    recommendation: input.recommendation ?? defaultProjectionRecommendation(input.translated, semanticLoss),
     remediationRequiresApproval: profile === "trusted-full-access" || semanticLoss.length > 0,
     lastVerifiedAt: observedAt,
   });
 }
 
-function trustedExecutionProfileFromPolicy(policy: KilnPermissionPolicy): TrustedExecutionIntegrity["desired"]["profile"] {
+function trustedExecutionProfileFromPolicy(
+  policy: KilnPermissionPolicy,
+): TrustedExecutionIntegrity["desired"]["profile"] {
   if (policy.approval === "never" && policy.sandbox === "danger-full-access") {
     return "trusted-full-access";
   }
@@ -128,10 +134,7 @@ function trustedExecutionProfileFromPolicy(policy: KilnPermissionPolicy): Truste
   return "restricted";
 }
 
-function defaultProjectionRecommendation(
-  translated: BackendConfig,
-  semanticLoss: readonly string[],
-): string {
+function defaultProjectionRecommendation(translated: BackendConfig, semanticLoss: readonly string[]): string {
   if (semanticLoss.length > 0) {
     return `Review unsupported ${translated.backend} permission semantics before relying on unattended trusted execution.`;
   }

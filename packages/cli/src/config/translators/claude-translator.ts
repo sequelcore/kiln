@@ -1,20 +1,22 @@
-import { translatePermission, type ClaudeNativeRules } from "../../wrapper/session-registry.js";
+import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
+import { type ClaudeNativeRules, translatePermission } from "../../wrapper/session-registry.js";
+import type { ClaudeMessagesProjection } from "../model-gateway-native-projection.js";
+import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
 import {
   asRecord,
   createPermissionProjection,
   PERMISSION_PROJECTION_TARGET_IDS,
-  toPermissionSyncMetadata,
   type PermissionProjection,
+  toPermissionSyncMetadata,
 } from "./permission-projection.js";
-import { mergeManagedFields, stripManagedFields } from "../native-projection-state.js";
-import type { ClaudeMessagesProjection } from "../model-gateway-native-projection.js";
 
 export function translateClaudePermissionProjection(input: {
   readonly policy: KilnPermissionPolicy;
   readonly existingDocument: Record<string, unknown>;
   readonly gatewayProjection?: ClaudeMessagesProjection;
   readonly previousManagedFields?: readonly string[];
+  readonly storedAuthorization?: TrustedExecutionAuthorizationRecord;
 }): PermissionProjection {
   const translated = translatePermission(input.policy, "claude");
   const cfg = translated.config as { permissionMode: string; allowDangerouslySkipPermissions: boolean };
@@ -38,7 +40,9 @@ export function translateClaudePermissionProjection(input: {
   allow.push(...nativeRules.allow.filter((rule) => !allow.includes(rule)));
   deny.push(...nativeRules.deny.filter((rule) => !deny.includes(rule)));
 
-  const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) => field === "model" || field.startsWith("env."));
+  const staleGatewayFields = (input.previousManagedFields ?? []).filter(
+    (field) => field === "model" || field.startsWith("env."),
+  );
   const existingDocument = stripManagedFields({
     currentDocument: input.existingDocument,
     managedFields: staleGatewayFields,
@@ -57,21 +61,25 @@ export function translateClaudePermissionProjection(input: {
     targetId: PERMISSION_PROJECTION_TARGET_IDS.claude,
     managedFields: [...new Set(managedFields)],
     document: input.gatewayProjection
-      ? mergeManagedFields({ currentDocument: document, managedPatch: input.gatewayProjection.patch, managedFields: input.gatewayProjection.managedFields })
+      ? mergeManagedFields({
+          currentDocument: document,
+          managedPatch: input.gatewayProjection.patch,
+          managedFields: input.gatewayProjection.managedFields,
+        })
       : document,
     integrity: {
       harness: "claude-code",
       policy: input.policy,
       translated,
-      semanticLoss: cfg.permissionMode === "bypassPermissions"
-        ? ["Claude Code bypassPermissions bypasses prompts but is not equivalent to Codex sandbox enforcement."]
-        : [],
-      enforcement: {
-        approvalControl: cfg.allowDangerouslySkipPermissions ? "enforced" : "unknown",
-        filesystemSandbox: "not-enforced",
-        networkBoundary: "not-enforced",
-        strength: "rules-only",
-      },
+      semanticLoss:
+        cfg.permissionMode === "bypassPermissions"
+          ? ["Claude Code bypassPermissions bypasses prompts but is not equivalent to Codex sandbox enforcement."]
+          : [],
+      enforcement: describeTrustedExecutionEnforcement({
+        harness: "claude-code",
+        allowDangerouslySkipPermissions: cfg.allowDangerouslySkipPermissions,
+      }),
+      storedAuthorization: input.storedAuthorization,
     },
   });
 }

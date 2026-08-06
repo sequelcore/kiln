@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
 import { join } from "node:path";
-import pkg from "../package.json" with { type: "json" };
-import { migrateConfigJson } from "./kiln-yaml.js";
-import type { KilnAppConfig } from "./config.js";
 import { defineDeliberationLevelId } from "@kilnai/core";
 import { findOperatorCommand, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import pkg from "../package.json" with { type: "json" };
 import { parseRunOutputMode, type RunOutputMode } from "./application/run-output.js";
+import type { KilnAppConfig } from "./config.js";
+import { migrateConfigJson } from "./kiln-yaml.js";
 
 type RunArgFlags = {
   apiKey?: string;
@@ -29,12 +29,14 @@ type RunArgFlags = {
   workers?: number;
 };
 
-// Re-export types and config
-export type { KilnAppConfig, SystemPromptOptions } from "./config.js";
-export { ClaudeSession } from "./wrapper/claude-code-process.js";
-export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
-export type { SessionMode, SessionContext, SessionReport, WrapperConfig } from "./wrapper/index.js";
-export { SessionManager } from "./wrapper/session-manager.js";
+export type { GlobalOpenCodeModelGatewayProjectionResult } from "./config/global-opencode-model-gateway-projection.js";
+export { syncGlobalOpenCodeModelGatewayProjection } from "./config/global-opencode-model-gateway-projection.js";
+export type {
+  ClaudeMessagesProjection,
+  CodexResponsesProjection,
+  OpenCodeResponsesProjection,
+  ResponsesNativeHarness,
+} from "./config/model-gateway-native-projection.js";
 export {
   buildClaudeMessagesProjection,
   buildCodexResponsesProjection,
@@ -42,14 +44,12 @@ export {
   resolveClaudeMessagesNativeProjectionSource,
   resolveResponsesNativeProjectionSource,
 } from "./config/model-gateway-native-projection.js";
-export type {
-  ClaudeMessagesProjection,
-  CodexResponsesProjection,
-  OpenCodeResponsesProjection,
-  ResponsesNativeHarness,
-} from "./config/model-gateway-native-projection.js";
-export { syncGlobalOpenCodeModelGatewayProjection } from "./config/global-opencode-model-gateway-projection.js";
-export type { GlobalOpenCodeModelGatewayProjectionResult } from "./config/global-opencode-model-gateway-projection.js";
+// Re-export types and config
+export type { KilnAppConfig, SystemPromptOptions } from "./config.js";
+export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
+export { ClaudeSession } from "./wrapper/claude-code-process.js";
+export type { SessionContext, SessionMode, SessionReport, WrapperConfig } from "./wrapper/index.js";
+export { SessionManager } from "./wrapper/session-manager.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
@@ -85,12 +85,14 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "external-engagement": "Inspect and report governed external evidence sources",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
+    trust: "Grant or revoke local trusted execution for a native harness",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Preview or sync explicit native projection targets (--target, --all, --dry-run)",
     route: "Print the resolved worker route from global engine routing config",
     "import-native": "Import supported native engine config into Kiln global config (codex, opencode)",
     uninstall: "Remove Kiln-managed native projections without deleting unmanaged native settings",
-    tools: "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
+    tools:
+      "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",
     tui: "Interactive terminal chat (TUI mode)",
   };
 
@@ -103,7 +105,9 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     }
     console.log("\nOptions:");
     console.log("  --api-key    Anthropic API key (required for the subprocess runtime)");
-    console.log("  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama, lmstudio)");
+    console.log(
+      "  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama, lmstudio)",
+    );
     console.log("  --model      Model override for the selected provider");
     console.log("  --deliberation-level  Provider-advertised deliberation level override");
     console.log("  --authority  Requested turn authority (auto, read_only, audited, destructive)");
@@ -349,6 +353,12 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     return;
   }
 
+  if (command === "trust") {
+    const { trustCommand } = await import("./commands/trust.js");
+    await trustCommand(args.slice(1));
+    return;
+  }
+
   if (command === "cron") {
     const { cronCommand } = await import("./commands/cron.js");
     await cronCommand(config, undefined, args.slice(1));
@@ -457,7 +467,9 @@ function parsePortForFlag(args: readonly string[], flag: string, fallbackPort?: 
   return fallbackPort;
 }
 
-function parseGuiMode(args: readonly string[]): { ok: true; value: "dev" | "prod" | undefined } | { ok: false; error: string } {
+function parseGuiMode(
+  args: readonly string[],
+): { ok: true; value: "dev" | "prod" | undefined } | { ok: false; error: string } {
   const hasDevFlag = args.includes("--dev");
   const hasProdFlag = args.includes("--prod");
   if (hasDevFlag && hasProdFlag) {
@@ -553,12 +565,7 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
 
 function parseRequestedAuthority(value: string | undefined): OperatorTurnRequestedAuthority {
   const normalized = value?.trim().toLowerCase();
-  if (
-    normalized === "auto"
-    || normalized === "read_only"
-    || normalized === "audited"
-    || normalized === "destructive"
-  ) {
+  if (normalized === "auto" || normalized === "read_only" || normalized === "audited" || normalized === "destructive") {
     return normalized;
   }
   throw new Error(`Unknown requested authority '${value}'. Use auto, read_only, audited, or destructive.`);
@@ -568,8 +575,30 @@ function parseDeliberationLevel(value: string | undefined): string {
   return defineDeliberationLevelId(value?.trim() ?? "");
 }
 
-function parseMcpConfigFlags(rawArgs: readonly string[]): { client?: string; name?: string; command?: string; args?: string; test?: boolean; server?: string; repair?: boolean; uninstall?: boolean; credential?: string; fromEnv?: string } {
-  const flags: { client?: string; name?: string; command?: string; args?: string; test?: boolean; server?: string; repair?: boolean; uninstall?: boolean; credential?: string; fromEnv?: string } = {};
+function parseMcpConfigFlags(rawArgs: readonly string[]): {
+  client?: string;
+  name?: string;
+  command?: string;
+  args?: string;
+  test?: boolean;
+  server?: string;
+  repair?: boolean;
+  uninstall?: boolean;
+  credential?: string;
+  fromEnv?: string;
+} {
+  const flags: {
+    client?: string;
+    name?: string;
+    command?: string;
+    args?: string;
+    test?: boolean;
+    server?: string;
+    repair?: boolean;
+    uninstall?: boolean;
+    credential?: string;
+    fromEnv?: string;
+  } = {};
   let i = 0;
   while (i < rawArgs.length) {
     const arg = rawArgs[i]!;
