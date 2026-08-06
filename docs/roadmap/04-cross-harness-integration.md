@@ -96,6 +96,24 @@ fallback while the gateway is stopped, restart/autostart, drift repair, update,
 and exact uninstall restore that leaves native providers/defaults/allowlists
 untouched.
 
+#### Pending deliberation and global configuration activation
+
+Status: Blocked by [issue #47](https://github.com/sequelcore/kiln/issues/47).
+
+OpenCode Go/Zen deliberation remains at provider default. The current CLI does
+not reliably lower its advertised OpenAI-compatible variant, and the Go gateway
+does not provide a deterministic supported-level contract across its eligible
+upstreams. Kiln must retain `deliberationTransport: none`; explicit unsupported
+requests fail closed and task rules configured with `onUnsupported: omit` send
+no guessed level.
+
+The operator's global provider-neutral task policy is already configured and
+requires no speculative OpenCode `byRoute` rule. Reopen activation only after
+issue #47's revisioned capability and multi-session live-conformance gates pass.
+Then verify every configured OpenCode route against the existing task policy,
+add a route-wide override only if reproducible Sequel benchmarks require one,
+and confirm global-instruction and repo-shim dry runs remain unchanged.
+
 ### Slice 2 - Cross-Harness Dogfood
 
 Status: Queued behind Roadmaps 02 and 03 plus Slices 0-1.
