@@ -169,6 +169,29 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
   });
 
+  it("releases the held commitment when the lifecycle is already aborted before dispatch fencing", async () => {
+    const economicAuthority = authority();
+    const controller = new AbortController();
+    controller.abort(new Error("synthetic pre-fence abort"));
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter: async () => ({ descriptor: {} }) as never,
+    });
+
+    await expect(coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: {} as never,
+      admissionProfile: "foundation-readonly-plan",
+      abortSignal: controller.signal,
+    })).rejects.toThrow("synthetic pre-fence abort");
+
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
+  });
+
   it("aborts bounded adapter materialization and keeps the fenced commitment pending", async () => {
     const economicAuthority = authority();
     const controller = new AbortController();

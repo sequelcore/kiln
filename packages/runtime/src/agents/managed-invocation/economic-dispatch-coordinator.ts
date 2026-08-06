@@ -124,6 +124,7 @@ export class ManagedEconomicDispatchCoordinator {
       this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
     } catch (error) {
       lifecycle.dispose();
+      this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;
     }
 
