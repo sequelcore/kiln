@@ -129,12 +129,35 @@ by explicit attach target and session, then emits:
 - timeline entries
 - managed-invocation summaries
 - tool-call summaries
+- economic attempt summaries
 - target-aware resource links
 - cost and provider-route summaries
+- unprojectable evidence
 
 Every projected row preserves an `OperatorCockpitActionTarget` with at least
 `instanceId` and the relevant `sessionId`, `eventId`, or
 `managedInvocationId`.
+
+The projection is total: every ingested event either contributes evidence or
+contributes a named rejection. It recognizes three dispositions and only the
+middle one is recorded in `unprojectableEvidence`:
+
+- **unplaceable** - no usable instance identity, or an unattached instance. The
+  whole projection is untrustworthy, so it throws.
+- **rejected** - placeable, declares a recognized kind, then violates that
+  kind's own contract. Recorded as an `OperatorCockpitEvidenceRejection`.
+- **not applicable** - carries no evidence of a given class, or is of a kind
+  this projection does not fold. Ignored by design; not a rejection.
+
+A rejection carries `eventId`, `sequence`, `kind`, `reason`, and the offending
+field's *name*. It never carries the offending value, because the rejection is
+projected to every operator surface. Absence of an optional field is not a
+rejection; a supplied field that violates its contract is, including when the
+parent treats that field as optional.
+
+A non-empty `unprojectableEvidence` means the view is degraded, and CLI, TUI,
+and GUI must all say so. A cockpit that silently under-reports reads as a
+complete one, which is the failure this contract exists to prevent.
 
 Tool resource links emitted through the shared operator-event presenter are
 projected into timeline and tool-summary resources with `resourceUri` encoded
