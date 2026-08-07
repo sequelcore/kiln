@@ -1,6 +1,6 @@
 import { getGuiProviderMetadata } from "@kilnai/gateway-contracts";
 import { ChevronDownIcon } from "lucide-react";
-import { useSessionStore } from "../lib/session-store.js";
+import { useSessionStore } from "../lib/session-store/index.js";
 import { Button } from "@/components/ui/button";
 import { formatAuthorityStatus } from "../lib/authority-status-view.js";
 

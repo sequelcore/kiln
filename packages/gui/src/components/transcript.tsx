@@ -19,7 +19,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, ExternalLink, FileText, Folder, LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import { collapseAllNested, JsonView } from "react-json-view-lite";
-import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store.js";
+import type { TimelineEntry, TimelineEventEntry } from "../lib/session-store/index.js";
 import { MarkdownMessageContent, MessageRow } from "./message-row.js";
 import { TranscriptTimelineEditor } from "./transcript-timeline-editor.js";
 import { TranscriptSurface } from "./transcript-surface.js";

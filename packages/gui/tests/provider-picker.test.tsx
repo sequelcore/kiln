@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderPicker } from "../src/components/provider-picker.js";
-import type { ProviderAuthDetails, ProviderDescriptor } from "../src/lib/session-store.js";
+import type { ProviderAuthDetails, ProviderDescriptor } from "../src/lib/session-store/index.js";
 
 const baseProviders: ProviderDescriptor[] = [
   {

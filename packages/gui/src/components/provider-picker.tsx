@@ -7,7 +7,7 @@ import {
   type GuiProviderGroup,
   type GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
-import type { ProviderAuthDetails, ProviderDescriptor } from "../lib/session-store.js";
+import type { ProviderAuthDetails, ProviderDescriptor } from "../lib/session-store/index.js";
 
 interface ProviderPickerProps {
   readonly open: boolean;

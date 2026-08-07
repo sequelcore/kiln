@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ClipboardEventHandler, type FormEventHandler, type KeyboardEventHandler, type ReactNode } from "react";
 import { BorderBeam } from "border-beam";
-import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
+import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { resolveBorderBeamTheme } from "../lib/border-beam-theme.js";
 import { useUiStore } from "../lib/ui-store.js";

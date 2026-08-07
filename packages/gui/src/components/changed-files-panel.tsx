@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ChangedFileEntry } from "../lib/session-store.js";
+import type { ChangedFileEntry } from "../lib/session-store/index.js";
 import { cn } from "@/lib/utils";
 import { InspectorDetailRow, InspectorEmptyState, InspectorPanelShell } from "./inspector-panel-shell.js";
 

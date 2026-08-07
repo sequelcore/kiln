@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProviderStatus } from "../src/components/provider-status.js";
-import { useSessionStore } from "../src/lib/session-store.js";
+import { useSessionStore } from "../src/lib/session-store/index.js";
 
 function resetStore(): void {
   useSessionStore.setState({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OperatorSessionEvent, OperatorSessionEventKind } from "@kilnai/gateway-contracts";
-import type { TimelineEntry } from "../src/lib/session-store.js";
+import type { TimelineEntry } from "../src/lib/session-store/index.js";
 import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../src/lib/timeline-visibility.js";
 
 const createdAt = "2026-04-29T00:00:00.000Z";

@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-import type { Message, TimelineEntry } from "../src/lib/session-store.js";
+import type { Message, TimelineEntry } from "../src/lib/session-store/index.js";
 
 const { visibilityState } = vi.hoisted(() => ({
   visibilityState: {

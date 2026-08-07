@@ -22,8 +22,8 @@ import {
   projectVoiceAudioOutputParts,
   type VoiceAudioOutputProjection,
 } from "@kilnai/gateway-contracts";
-import type { Message } from "../lib/session-store.js";
-import { useSessionStore } from "../lib/session-store.js";
+import type { Message } from "../lib/session-store/index.js";
+import { useSessionStore } from "../lib/session-store/index.js";
 import { MarkdownTable, MarkdownTableCell, MarkdownTableHeadCell } from "./markdown-table.js";
 import {
   Attachment,

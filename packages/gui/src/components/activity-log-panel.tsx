@@ -4,7 +4,7 @@ import {
   type OperatorEventDetailItem,
   type OperatorIdentityProjection,
 } from "@kilnai/gateway-contracts";
-import type { TimelineEventEntry, TimelineEntry } from "../lib/session-store.js";
+import type { TimelineEventEntry, TimelineEntry } from "../lib/session-store/index.js";
 import { isActivityTimelineEntry } from "../lib/timeline-visibility.js";
 import {
   OperatorIdentityMark,

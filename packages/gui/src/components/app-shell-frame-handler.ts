@@ -5,7 +5,7 @@ import {
   type GuiProviderModelDiscoveryProjection,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
-import type { ProviderDescriptor } from "../lib/session-store.js";
+import type { ProviderDescriptor } from "../lib/session-store/index.js";
 
 type ThemeResultFrame = Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>;
 

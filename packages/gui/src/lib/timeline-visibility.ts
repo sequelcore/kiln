@@ -1,6 +1,6 @@
 import { operatorEventTargetsConversation, presentOperatorSessionEvent } from "@kilnai/gateway-contracts";
 import type { OperatorSessionEvent } from "@kilnai/gateway-contracts";
-import type { TimelineEntry, TimelineEventEntry } from "./session-store.js";
+import type { TimelineEntry, TimelineEventEntry } from "./session-store/index.js";
 
 export function projectConversationTimelineEntries(
   entries: readonly TimelineEntry[],

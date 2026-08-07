@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { WorkflowOverviewPanel } from "../src/components/workflow-overview-panel.js";
-import type { TimelineEntry } from "../src/lib/session-store.js";
+import type { TimelineEntry } from "../src/lib/session-store/index.js";
 
 describe("WorkflowOverviewPanel", () => {
   it("renders plan, goal, and materialization state from canonical timeline events", () => {

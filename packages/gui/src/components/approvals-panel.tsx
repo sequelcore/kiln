@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ApprovalRequest } from "../lib/session-store.js";
+import type { ApprovalRequest } from "../lib/session-store/index.js";
 import { CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

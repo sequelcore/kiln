@@ -1,5 +1,5 @@
 import { projectAgentProfileIdentity, type OperatorCockpitActionTarget } from "@kilnai/gateway-contracts";
-import type { WorkItemEntry } from "../lib/session-store.js";
+import type { WorkItemEntry } from "../lib/session-store/index.js";
 import { OperatorIdentityMark } from "./operator-identity-mark.js";
 import { ExternalLink } from "lucide-react";
 import { BorderBeam } from "border-beam";

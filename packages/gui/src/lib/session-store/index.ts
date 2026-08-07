@@ -1,0 +1,113 @@
+import { create } from "zustand";
+import { readStoredPlanMode } from "./session-store-persistence.js";
+import { createConnectionLifecycleSlice } from "./connection-lifecycle-slice.js";
+import { createSessionListSlice } from "./session-list-slice.js";
+import { createTurnStreamingSlice } from "./turn-streaming-slice.js";
+import { createProviderLifecycleSlice } from "./provider-lifecycle-slice.js";
+import { createInteractiveUseSlice } from "./interactive-use-slice.js";
+import { createVoiceSlice } from "./voice-slice.js";
+import { createApprovalGoalSlice } from "./approval-goal-slice.js";
+import { createErrorHandlingSlice } from "./error-handling-slice.js";
+import type { SessionStore, SessionStoreState } from "./session-store-state.js";
+
+/**
+ * Composition root for the session store: the default state snapshot,
+ * the eight slices spread into one `create()` call, and the public barrel
+ * re-exported below. See `docs/architecture/` for the store's role; this
+ * file only wires the pieces together.
+ */
+
+const initialPlanMode = readStoredPlanMode() ?? false;
+
+const initialState: SessionStoreState = {
+  status: "idle",
+  messages: [],
+  timelineEntries: [],
+  sessionEvents: [],
+  currentAssistant: null,
+  planMode: initialPlanMode,
+  activity: null,
+  errorBanner: null,
+  providerCatalogStatus: "pending",
+  providerCatalogError: null,
+  providers: [],
+  providerDiscovery: [],
+  providerModelDiscovery: null,
+  activeProvider: null,
+  activeModel: null,
+  sessionList: [],
+  selectedSessionId: null,
+  liveSessionId: null,
+  continuationTargetId: null,
+  detachedSessionIds: [],
+  routedProvider: null,
+  routedModel: null,
+  routeMode: "auto",
+  respondingProvider: null,
+  respondingModel: null,
+  turnCounter: 0,
+  sessionCostUsd: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  currentTurnTrackedInputTokens: 0,
+  currentTurnTrackedOutputTokens: 0,
+  clearPending: false,
+  turnCancelPending: false,
+  goalControlPending: null,
+  providerSwitching: false,
+  providerSwitchTarget: null,
+  providerAuthenticating: false,
+  providerAuthTarget: null,
+  providerAuthMessage: null,
+  providerAuthDetails: null,
+  providerExplicitSelection: false,
+  authorityStatus: null,
+  contextUsage: null,
+  interactiveUseSnapshot: null,
+  browserSessionState: null,
+  browserLiveViewportFrame: null,
+  browserOperatorInputAck: null,
+  outboundSend: null,
+  clearTimeoutId: null,
+  providerSwitchTimeoutId: null,
+  providerAuthTimeoutId: null,
+  activityPhase: "idle",
+};
+
+export const useSessionStore = create<SessionStore>()((...api) => ({
+  ...initialState,
+  ...createConnectionLifecycleSlice(...api),
+  ...createSessionListSlice(...api),
+  ...createTurnStreamingSlice(...api),
+  ...createProviderLifecycleSlice(...api),
+  ...createInteractiveUseSlice(...api),
+  ...createVoiceSlice(...api),
+  ...createApprovalGoalSlice(...api),
+  ...createErrorHandlingSlice(...api),
+}));
+
+export type {
+  ActivityPhase,
+  ActivityState,
+  ApprovalRequest,
+  ChangedFileEntry,
+  Message,
+  SessionStatus,
+  TimelineEntry,
+  TimelineEventEntry,
+  TimelineMessageEntry,
+  ToolCallEntry,
+  ToolCallStatus,
+  WorkItemEntry,
+  WorkItemExecutionAttemptEntry,
+  WorkItemPauseRequirementEntry,
+} from "./session-timeline-types.js";
+export type { AuthorityStatus } from "./authority-status-projection.js";
+export type { ProviderCatalogStatus, ProviderDescriptor } from "./provider-catalog-projection.js";
+export type { ProviderAuthDetails, RouteMode, SessionStore } from "./session-store-state.js";
+export {
+  deriveChangedFiles,
+  deriveToolCallLog,
+  derivePendingApprovals,
+  deriveWorkItems,
+} from "./derived-timeline-selectors.js";

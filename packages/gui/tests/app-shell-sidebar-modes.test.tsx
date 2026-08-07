@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
-import { useSessionStore } from "../src/lib/session-store.js";
+import { useSessionStore } from "../src/lib/session-store/index.js";
 
 const useQueryMock = vi.fn();
 const waitForGatewayMock = vi.fn();

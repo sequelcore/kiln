@@ -30,8 +30,8 @@ import {
 } from "@kilnai/gateway-contracts";
 import { GuiGatewayClient } from "../api/client.js";
 import { useGuiWs } from "../lib/use-gui-ws.js";
-import { useSessionStore } from "../lib/session-store.js";
-import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../lib/session-store.js";
+import { useSessionStore } from "../lib/session-store/index.js";
+import { deriveChangedFiles, derivePendingApprovals, deriveWorkItems } from "../lib/session-store/index.js";
 import { deriveSessionContinuity } from "../lib/session-continuity.js";
 import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
 import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";
