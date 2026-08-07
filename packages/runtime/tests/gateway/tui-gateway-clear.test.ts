@@ -10,7 +10,7 @@ import {
 import type {
   ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
-} from "../../src/agents/managed-invocation/runtime-tool.js";
+} from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 

@@ -147,7 +147,7 @@ export {
   MANAGED_AGENT_STATUS_TOOL_NAME,
   collectManagedEconomicCandidates,
   ManagedCommittedRouteMismatchError,
-} from "./runtime-tool.js";
+} from "./runtime-tool/index.js";
 export type {
   ManagedCommittedInvocationRequest,
   ManagedCommittedRouteMismatchEvidence,
@@ -166,7 +166,7 @@ export type {
   ManagedInvocationToolOptions,
   ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,
-} from "./runtime-tool.js";
+} from "./runtime-tool/index.js";
 export { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
 export { ManagedEconomicDispatchCoordinator } from "./economic-dispatch-coordinator.js";
 export type {

@@ -55,7 +55,7 @@ import {
   attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
   type ManagedInvocationToolAttachment,
-} from "../agents/managed-invocation/runtime-tool.js";
+} from "../agents/managed-invocation/runtime-tool/index.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";
 import { toOperatorSessionEventFrame } from "./operator-session-event-frame.js";
 import { approvePlanExecutionTransition } from "./plan-approval-transition.js";

@@ -39,7 +39,7 @@ import {
   type ManagedInvocationSessionEventSink,
   type ManagedInvocationToolOptions,
   withManagedInvocationService,
-} from "../../src/agents/managed-invocation/runtime-tool.js";
+} from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 

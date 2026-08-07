@@ -1,0 +1,1108 @@
+// Extracted from the managed-invocation runtime tool; behavior is intentionally unchanged.
+// prepareManagedInvocationRequest is a thin orchestrator over five steps:
+//   1. admitManagedInvocationScope           - canonicalize/parse input, resolve requested authority, governed-scope admission
+//   2. resolveManagedInvocationEconomicCommitment (economic-policy agent profiles only) -
+//      collects economic candidates, commits a route through options.economicDispatch,
+//      then recurses into this same pipeline ("already-admitted") with the committed route.
+//   3. resolveManagedInvocationRouteAndCapability - agent profile / route hint validation,
+//      route resolution, caller capability, evidence-realization + capacity checks
+//   4. resolveManagedInvocationContextPhase       - context resolver + prompt assembly
+//   5. buildManagedInvocationRequestRecord        - invocation id, authority approval, request record assembly
+// Steps 3-5 are the fixed-route path; the economic-policy path (step 2) replaces
+// them for one recursive call and then reuses their output.
+import {
+  defineManagedAgentInvocationRequest,
+  digestManagedEconomicValue,
+  isKilnWorkGovernanceEvidence,
+  resolveEvidenceRealization,
+} from "@kilnai/core";
+import type {
+  DeliberationResolution,
+  ManagedAgentCallerAttachmentIdentity,
+  ManagedAgentCapabilitySnapshotInput,
+  ManagedAgentProviderRoute,
+  ManagedAgentRequestedAuthority,
+} from "@kilnai/core";
+import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
+import { resolveManagedInvocationAgentProfile } from "../agent-profile-catalog.js";
+import { evaluateManagedInvocationCallerCapability } from "../caller-capability-policy.js";
+import { appendManagedEconomicLifecycleSessionEvent } from "../session-events.js";
+import { MANAGED_AGENT_START_TOOL_NAME } from "../tool-names.js";
+import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "../index.js";
+import type {
+  ManagedCommittedRouteMismatchEvidence,
+  ManagedInvocationAgentCatalogEntry,
+  ManagedInvocationContextResolution,
+  ManagedInvocationExecutableRoute,
+  ManagedInvocationRouteProfile,
+  ManagedInvocationToolAttachment,
+  ManagedInvocationToolInput,
+  ManagedInvocationToolResult,
+  ManagedInvocationToolRoute,
+} from "./types.js";
+import { unique } from "./catalog-descriptions.js";
+import {
+  buildRouteProfileConflictRecovery,
+  resolveRoute,
+  validateAgentRouteHint,
+} from "./route-resolution.js";
+import { resolveUnavailableRoute } from "./catalog-descriptions.js";
+import {
+  effectiveManagedInvocationReadRoots,
+  missingManagedInvocationRequiredCapabilities,
+  missingManagedInvocationRequiredReadPaths,
+  missingManagedInvocationRequiredTools,
+  requiresNetworkCapability,
+} from "./evidence-validation.js";
+import { buildManagedInvocationPresentationIntent } from "./result-projection.js";
+import { managedInvocationRouteHealthReason, managedAgentDisplayName } from "./catalog-descriptions.js";
+import {
+  buildHandoffContract,
+  buildInvocationId,
+  buildManagedInvocationContextMetadata,
+  errorResult,
+  parseInput as parseManagedInvocationInput,
+  readRecord,
+  readText,
+  readTextArray,
+  resolveInvocationContext,
+  resolveManagedInvocationParentTurnId,
+  resolveManagedInvocationParentTurnOrdinal,
+  resolveManagedInvocationRequestedAuthority,
+  requestManagedInvocationAuthorityApproval,
+  validateManagedInvocationRequestedAuthority,
+} from "./input-parsing.js";
+import { normalizeManagedInvocationCredentialRoute, publishManagedInvocationSessionEvents } from "./session-event-publishing.js";
+import { resolveManagedInvocationRouteAuthority } from "./working-directory-lease.js";
+import { collectManagedEconomicCandidates } from "./economic-candidate-collection.js";
+import type { ManagedEconomicCandidateSet } from "./economic-candidate-collection.js";
+
+export interface PreparedManagedInvocationRequest {
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly parsed: ManagedInvocationToolInput;
+  readonly canonicalizedRawInput: Record<string, unknown>;
+  readonly route: ManagedInvocationExecutableRoute;
+  readonly request: ReturnType<typeof defineManagedAgentInvocationRequest>;
+  readonly capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput;
+  readonly canonicalizedForbiddenInputFields?: readonly string[];
+  readonly lifecycleOptions?: ManagedAgentRuntimeInvocationLifecycleOptions;
+}
+
+type PrepareFailure = { readonly ok: false; readonly result: ManagedInvocationToolResult };
+type PrepareOutcome = { readonly ok: true; readonly prepared: PreparedManagedInvocationRequest } | PrepareFailure;
+
+/** Sanitized rejection raised before an adapter can be constructed for the wrong commitment. */
+export class ManagedCommittedRouteMismatchError extends Error {
+  readonly code = "committed-route-mismatch" as const;
+  readonly evidence: ManagedCommittedRouteMismatchEvidence;
+
+  constructor(evidence: ManagedCommittedRouteMismatchEvidence) {
+    super("Committed managed route does not match the configured execution route.");
+    this.name = "ManagedCommittedRouteMismatchError";
+    this.evidence = {
+      code: "committed-route-mismatch",
+      expected: sanitizeCommittedRouteIdentity(evidence.expected),
+      committed: sanitizeCommittedRouteIdentity(evidence.committed),
+    };
+  }
+}
+
+function sanitizeCommittedRouteIdentity(
+  identity: ManagedCommittedRouteMismatchEvidence["expected"],
+): ManagedCommittedRouteMismatchEvidence["expected"] {
+  return {
+    routeId: sanitizeCommittedRouteIdentityValue(identity.routeId),
+    providerId: sanitizeCommittedRouteIdentityValue(identity.providerId),
+    modelId: sanitizeCommittedRouteIdentityValue(identity.modelId),
+  };
+}
+
+function sanitizeCommittedRouteIdentityValue(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9._:/-]/gu, "-").replace(/-+/gu, "-").replace(/^-|-$/gu, "");
+  return sanitized.length > 0 ? sanitized.slice(0, 128) : "unknown";
+}
+
+export function canonicalizeManagedInvocationRawInput(
+  rawInput: Record<string, unknown>,
+  routes: readonly ManagedInvocationToolRoute[],
+): {
+  readonly input: Record<string, unknown>;
+  readonly canonicalizedForbiddenInputFields: readonly string[];
+} {
+  const forbiddenInputFields = readTextArray(rawInput.forbiddenInputFields) ?? [];
+  const routeOwnsAgentSelection = forbiddenInputFields.includes("agentProfile");
+  if (!routeOwnsAgentSelection) {
+    return { input: rawInput, canonicalizedForbiddenInputFields: [] };
+  }
+
+  const canonicalizedForbiddenInputFields: string[] = [];
+  const providerRoute = readRecord(rawInput.providerRoute);
+  const routeId = readText(rawInput.routeId);
+  const providerId = readText(providerRoute?.providerId);
+  const route = routeId && providerId
+    ? routes.find((candidate) => candidate.routeId === routeId && candidate.providerId === providerId)
+    : undefined;
+  const nextProviderRoute = providerRoute && route
+    ? routeOwnedProviderRoute(providerRoute, route.model)
+    : providerRoute;
+  if (readText(rawInput.agentProfile)) {
+    canonicalizedForbiddenInputFields.push("agentProfile");
+  }
+  const withoutAgentProfile = Object.fromEntries(
+    Object.entries(rawInput).filter(([key]) => key !== "agentProfile"),
+  );
+  return {
+    input: {
+      ...withoutAgentProfile,
+      ...(nextProviderRoute ? { providerRoute: nextProviderRoute } : {}),
+    },
+    canonicalizedForbiddenInputFields: unique(canonicalizedForbiddenInputFields),
+  };
+}
+
+function routeOwnedProviderRoute(
+  providerRoute: Record<string, unknown>,
+  routeModel: string | undefined,
+): Record<string, unknown> {
+  const providerRouteWithoutModel = Object.fromEntries(
+    Object.entries(providerRoute).filter(([key]) => key !== "model"),
+  );
+  return {
+    ...providerRouteWithoutModel,
+    ...(routeModel ? { model: routeModel } : {}),
+  };
+}
+
+/** Phase 1: canonicalize/parse raw input, resolve requested authority, admit governed scope. */
+function admitManagedInvocationScope(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext,
+  attachment: ManagedInvocationToolAttachment,
+  toolName: string,
+  scopeAdmission: "required" | "already-admitted",
+):
+  | {
+      readonly ok: true;
+      readonly canonicalizedRawInput: ReturnType<typeof canonicalizeManagedInvocationRawInput>;
+      readonly parsed: ManagedInvocationToolInput;
+      readonly requestedAuthority: ManagedAgentRequestedAuthority;
+    }
+  | PrepareFailure {
+  const { options } = attachment;
+  const canonicalizedRawInput = canonicalizeManagedInvocationRawInput(rawInput, options.routes);
+  const parsed = parseManagedInvocationInput(canonicalizedRawInput.input, toolName);
+  if (!parsed.ok) {
+    return { ok: false, result: errorResult(parsed.error, {}, toolName) };
+  }
+  const requestedAuthority = resolveManagedInvocationRequestedAuthority(
+    parsed.input.requestedAuthority,
+    context.effectiveTurnAuthority?.requestedAuthority,
+  );
+
+  if (scopeAdmission === "required" && parsed.input.goalRunId) {
+    const admission = attachment.governedScopeAdmission?.({
+      parentSessionId: context.session.id,
+      goalRunId: parsed.input.goalRunId,
+      profile: parsed.input.profile,
+      requestedAuthority,
+      ...(parsed.input.workItemId ? { workItemId: parsed.input.workItemId } : {}),
+      ...(parsed.input.attemptId ? { attemptId: parsed.input.attemptId } : {}),
+    });
+    if (!admission) {
+      return {
+        ok: false,
+        result: errorResult(
+          "Managed invocation governed scope cannot be verified on this runtime surface.",
+          {
+            errorCode: "governed_scope_admission_unavailable",
+            status: "denied",
+          },
+          toolName,
+        ),
+      };
+    }
+    if (!admission.admitted) {
+      return {
+        ok: false,
+        result: errorResult(admission.message, {
+          errorCode: admission.code,
+          status: "denied",
+          ...(admission.suggestedNextTool ? { suggestedNextTool: admission.suggestedNextTool } : {}),
+        }, toolName),
+      };
+    }
+  }
+
+  return { ok: true, canonicalizedRawInput, parsed: parsed.input, requestedAuthority };
+}
+
+/**
+ * Economic-policy branch: resolves a durable route commitment for a
+ * configured agent profile's economic policy (candidate collection ->
+ * options.economicDispatch.prepare), then recurses into
+ * prepareManagedInvocationRequest ("already-admitted") with the committed
+ * route substituted in, so the recursive call runs the normal fixed-route
+ * steps 3-5 against a concrete adapter.
+ */
+async function resolveManagedInvocationEconomicCommitment(input: {
+  readonly rawInput: Record<string, unknown>;
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly attachment: ManagedInvocationToolAttachment;
+  readonly toolName: string;
+  readonly parsed: ManagedInvocationToolInput;
+  readonly requestedAuthority: ManagedAgentRequestedAuthority;
+  readonly canonicalizedRawInput: ReturnType<typeof canonicalizeManagedInvocationRawInput>;
+  readonly agentProfile: ManagedInvocationAgentCatalogEntry;
+  readonly economicPolicyId: string;
+  readonly economicPolicyRevision: string;
+  readonly invocationId: string;
+}): Promise<PrepareOutcome> {
+  const {
+    rawInput, context, attachment, toolName, parsed, requestedAuthority,
+    canonicalizedRawInput, agentProfile, economicPolicyId, economicPolicyRevision, invocationId,
+  } = input;
+  const { options, callerIdentity } = attachment;
+
+  const economicProviderRoute: ManagedAgentProviderRoute = {
+    ...parsed.providerRoute,
+    ...(agentProfile.providerRoute?.providerId && !parsed.providerRoute.providerId
+      ? { providerId: agentProfile.providerRoute.providerId }
+      : {}),
+    ...(agentProfile.providerRoute?.model && !parsed.providerRoute.model
+      ? { model: agentProfile.providerRoute.model }
+      : {}),
+    ...(agentProfile.providerRoute?.deliberationIntent && !parsed.providerRoute.deliberationIntent
+      ? { deliberationIntent: agentProfile.providerRoute.deliberationIntent }
+      : {}),
+  };
+  const authorityAdmission = validateManagedInvocationRequestedAuthority(
+    requestedAuthority,
+    parsed.profile,
+    toolName,
+  );
+  if (!authorityAdmission.ok) {
+    return {
+      ok: false,
+      result: errorResult(authorityAdmission.error, {
+        profile: parsed.profile,
+        requestedAuthority,
+        economicPolicyId,
+      }, toolName),
+    };
+  }
+  const contextResolution = await resolveInvocationContext(parsed, options, undefined);
+  if (!contextResolution.ok) {
+    return {
+      ok: false,
+      result: errorResult(contextResolution.error, {
+        profile: parsed.profile,
+        economicPolicyId,
+        status: contextResolution.status,
+        context: buildManagedInvocationContextMetadata(parsed, contextResolution.resolution),
+      }, toolName),
+    };
+  }
+  const authorityApproval = await requestManagedInvocationAuthorityApproval({
+    requestedAuthority,
+    target: {
+      kind: "economic-policy",
+      economicPolicyId,
+    },
+    profile: parsed.profile,
+    context,
+    toolName,
+  });
+  if (!authorityApproval.ok) {
+    return {
+      ok: false,
+      result: errorResult(authorityApproval.error, {
+        profile: parsed.profile,
+        requestedAuthority,
+        economicPolicyId,
+      }, toolName),
+    };
+  }
+  const candidateSet: ManagedEconomicCandidateSet = collectManagedEconomicCandidates({
+    economicPolicyId,
+    economicPolicyRevision,
+    configuredAgentProfileId: agentProfile.name,
+    admissionProfileId: parsed.profile,
+    ...(parsed.routeId ? { routeId: parsed.routeId } : {}),
+    ...(economicProviderRoute.providerId
+      ? { providerRoute: economicProviderRoute }
+      : {}),
+    callerIdentity,
+    ...(parsed.requiredToolNames
+      ? { requiredToolNames: parsed.requiredToolNames }
+      : {}),
+    ...(parsed.requiredReadPaths
+      ? { requiredReadPaths: parsed.requiredReadPaths }
+      : {}),
+    requestedAuthority,
+    requiresNetwork: (parsed.requiredToolNames ?? []).some(requiresNetworkCapability),
+    requiresWrite: parsed.profile !== "foundation-readonly-plan",
+  }, options.routes, options.unavailableRoutes);
+  if (candidateSet.candidates.length === 0) {
+    return {
+      ok: false,
+      result: errorResult(
+        "Managed economic authority denied every admitted candidate before commitment.",
+        { errorCode: "economic_commitment_unavailable", status: "denied", candidateSet },
+        toolName,
+      ),
+    };
+  }
+  if (!options.economicDispatch) {
+    return {
+      ok: false,
+      result: errorResult(
+        "Managed economic invocation requires a durable route commitment before execution.",
+        { errorCode: "economic_commitment_unavailable", status: "denied", candidateSet },
+        toolName,
+      ),
+    };
+  }
+  const economicIdentity = digestManagedEconomicValue({
+    parentSessionId: context.session.id,
+    parentTurnId: context.turnId ?? context.toolCall.id,
+    toolCallId: context.toolCall.id,
+    configuredAgentProfileId: agentProfile.name,
+    profile: parsed.profile,
+    task: parsed.task,
+    summary: parsed.summary,
+    deliberationIntent: economicProviderRoute.deliberationIntent ?? null,
+    candidateSet,
+  }).slice("sha256:".length);
+  const economicPreparation = await options.economicDispatch.prepare({
+    candidateSet,
+    jobId: `managed-economic-job:${economicIdentity}`,
+    economicAttemptId: `economic-attempt:${economicIdentity}`,
+    intentFingerprint: digestManagedEconomicValue({ candidateSet, economicIdentity }),
+    adoptedDecisionAt: context.session.createdAt.toISOString(),
+    parentSessionId: context.session.id,
+    parentTurnId: context.turnId ?? context.toolCall.id,
+    ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+    ...(options.workspaceRoot ? {
+      lifecycleEvents: {
+        record: (recordInput) => {
+          const events = appendManagedEconomicLifecycleSessionEvent({
+            session: context.session,
+            workspaceRoot: options.workspaceRoot!,
+            ...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
+            jobId: `managed-economic-job:${economicIdentity}`,
+            economicAttemptId: `economic-attempt:${economicIdentity}`,
+            invocationId,
+            ...recordInput,
+          });
+          void publishManagedInvocationSessionEvents(options, context, events);
+        },
+      },
+    } : {}),
+  });
+  if (economicPreparation.status !== "prepared") {
+    return {
+      ok: false,
+      result: errorResult(
+        economicPreparation.status === "already-dispatched"
+          ? "Managed economic invocation was already dispatch-fenced; replay will not dispatch it again."
+          : "Managed economic authority denied every admitted candidate.",
+        {
+          errorCode: economicPreparation.status === "already-dispatched"
+            ? "managed_economic_replay_fenced"
+            : "economic_commitment_unavailable",
+          status: "denied",
+          candidateSet,
+        },
+        toolName,
+      ),
+    };
+  }
+  const selected = economicPreparation.commitment.reservation.selectedIdentity.route;
+  const selectedCandidate = candidateSet.candidates.find((candidate) =>
+    candidate.routeId === selected.routeId
+    && candidate.providerId === selected.providerId
+    && candidate.model === selected.modelId);
+  if (!selectedCandidate) {
+    economicPreparation.recordExecutionSettlementPending("committed-candidate-unavailable");
+    throw new ManagedCommittedRouteMismatchError({
+      code: "committed-route-mismatch",
+      expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+      committed: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+    });
+  }
+  const committedRoute = options.routes.find((route) =>
+    route.routeId === selected.routeId
+    && route.providerId === selected.providerId
+    && route.model === selected.modelId);
+  if (!committedRoute) {
+    economicPreparation.recordExecutionSettlementPending("committed-route-unavailable");
+    throw new ManagedCommittedRouteMismatchError({
+      code: "committed-route-mismatch",
+      expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+      committed: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
+    });
+  }
+  const fixedAgentCatalog = options.agentCatalog?.map((entry) => {
+    if (entry.name !== agentProfile.name) return entry;
+    const {
+      economicPolicyId: _economicPolicyId,
+      economicPolicyRevision: _economicPolicyRevision,
+      economicPolicyCandidateRouteIds: _economicPolicyCandidateRouteIds,
+      ...fixed
+    } = entry;
+    return {
+      ...fixed,
+      routeId: selected.routeId,
+      providerRoute: {
+        providerId: selected.providerId,
+        model: selected.modelId,
+        ...(economicProviderRoute.deliberationIntent
+          ? { deliberationIntent: economicProviderRoute.deliberationIntent }
+          : {}),
+      },
+    };
+  });
+  let recursivelyPrepared: PrepareOutcome;
+  try {
+    recursivelyPrepared = await prepareManagedInvocationRequest({
+      ...rawInput,
+      routeId: selected.routeId,
+      providerRoute: {
+        ...economicProviderRoute,
+        providerId: selected.providerId,
+        model: selected.modelId,
+      },
+    }, context, {
+      ...attachment,
+      options: {
+        ...options,
+        routes: options.routes.map((route) => route.routeId === committedRoute.routeId
+          ? { ...route, adapter: economicPreparation.adapter }
+          : route),
+        ...(fixedAgentCatalog ? { agentCatalog: fixedAgentCatalog } : {}),
+      },
+    }, toolName, "already-admitted", selectedCandidate.deliberationResolution);
+  } catch (error) {
+    economicPreparation.recordExecutionSettlementPending("postcommit-request-realization-failed");
+    throw error;
+  }
+  if (!recursivelyPrepared.ok) {
+    economicPreparation.recordExecutionSettlementPending("postcommit-request-denied");
+    return recursivelyPrepared;
+  }
+  return {
+    ok: true,
+    prepared: {
+      ...recursivelyPrepared.prepared,
+      canonicalizedRawInput: canonicalizedRawInput.input,
+      lifecycleOptions: {
+        abortSignal: economicPreparation.abortSignal,
+        economicDispatch: {
+          commitment: economicPreparation.commitment,
+          dispatchFenceId: economicPreparation.dispatchFenceId,
+          recordExecutionSettlementPending: economicPreparation.recordExecutionSettlementPending,
+          createExecutionSettlement: economicPreparation.createExecutionSettlement,
+          registerEconomicSettlement: economicPreparation.registerEconomicSettlement,
+        },
+      },
+    },
+  };
+}
+
+/** Phase 3: resolve agent profile + route, evaluate caller capability, and validate route capacity. */
+function resolveManagedInvocationRouteAndCapability(
+  parsed: ManagedInvocationToolInput,
+  requestedAuthority: ManagedAgentRequestedAuthority,
+  attachment: ManagedInvocationToolAttachment,
+  context: RuntimeBuiltinToolExecutionContext,
+  toolName: string,
+):
+  | {
+      readonly ok: true;
+      readonly route: ManagedInvocationExecutableRoute;
+      readonly profileDefaults: ManagedInvocationRouteProfile;
+      readonly invocationCapabilityEvidence: ReturnType<typeof evaluateManagedInvocationCallerCapability>;
+    }
+  | PrepareFailure {
+  const { options, callerIdentity } = attachment;
+  if (!parsed.providerRoute.providerId) {
+    return {
+      ok: false,
+      result: errorResult(`${toolName} requires providerRoute.providerId for a fixed-route invocation.`, {}, toolName),
+    };
+  }
+  const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.agentProfile);
+  const agentRouteValidation = validateAgentRouteHint(parsed, agentProfile, toolName);
+  if (!agentRouteValidation.ok) {
+    const recovery = buildRouteProfileConflictRecovery(parsed, agentRouteValidation, context, toolName);
+    return {
+      ok: false,
+      result: errorResult(recovery.output, recovery.metadata, toolName),
+    };
+  }
+  const routeResolution = resolveRoute(options.routes, parsed, agentProfile);
+  if (routeResolution.status === "ambiguous") {
+    return { ok: false, result: errorResult(routeResolution.reason, {}, toolName) };
+  }
+  if (routeResolution.status === "missing") {
+    const unavailableRoute = resolveUnavailableRoute(options.unavailableRoutes ?? [], parsed);
+    if (unavailableRoute) {
+      return {
+        ok: false,
+        result: errorResult(
+          `Managed invocation route '${unavailableRoute.routeId}' is unavailable for provider '${parsed.providerRoute.providerId}' and profile '${parsed.profile}': ${unavailableRoute.reason}`,
+          {
+            routeId: unavailableRoute.routeId,
+            routeSource: unavailableRoute.routeSource,
+            profile: parsed.profile,
+            providerRoute: {
+              providerId: unavailableRoute.providerId,
+              ...(unavailableRoute.model ? { model: unavailableRoute.model } : {}),
+            },
+            status: "unavailable",
+            presentationIntent: buildManagedInvocationPresentationIntent({
+              sourceToolName: toolName,
+              routeId: unavailableRoute.routeId,
+              routeSource: unavailableRoute.routeSource,
+              profile: parsed.profile,
+              providerId: unavailableRoute.providerId,
+              model: unavailableRoute.model,
+              status: "unavailable",
+              substantiveEvidence: false,
+              failureReason: unavailableRoute.reason,
+            }),
+          },
+          toolName,
+        ),
+      };
+    }
+    return {
+      ok: false,
+      result: errorResult(`No managed invocation route is configured for provider '${parsed.providerRoute.providerId}' and profile '${parsed.profile}'.`, {}, toolName),
+    };
+  }
+  const route = routeResolution.route;
+  if (!route.adapter) {
+    return {
+      ok: false,
+      result: errorResult(
+        "Managed invocation requires a durable economic commitment before adapter construction.",
+        { errorCode: "economic_commitment_unavailable", status: "denied" },
+        toolName,
+      ),
+    };
+  }
+  const executableRoute: ManagedInvocationExecutableRoute = {
+    ...route,
+    adapter: route.adapter,
+  };
+  const invocationCapabilityEvidence = evaluateManagedInvocationCallerCapability({
+    callerIdentity,
+    providerId: route.providerId,
+    ...(route.model ? { model: route.model } : {}),
+    ...(parsed.requestedAuthority ? { childRequestedAuthority: parsed.requestedAuthority } : {}),
+    adapterEvidence: {
+      adapterDescriptorId: route.adapter.descriptor.adapterDescriptorId,
+      adapterId: "kiln-managed-invocation",
+    },
+  });
+  if (invocationCapabilityEvidence.decision === "denied") {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation denied: ${invocationCapabilityEvidence.reason}`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.profile,
+          providerRoute: {
+            providerId: route.providerId,
+            ...(route.model ? { model: route.model } : {}),
+          },
+          status: "denied",
+          callerIdentity,
+          invocationCapabilityEvidence,
+        },
+        toolName,
+      ),
+    };
+  }
+
+  const profileDefaults = route.profiles[parsed.profile];
+  if (!profileDefaults) {
+    return {
+      ok: false,
+      result: errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.profile}'.`, {}, toolName),
+    };
+  }
+
+  // Roadmap 01 Slice 1 - Evidence Realization Contract. Strictly opt-in per
+  // route: only activates when this route's own profile declares at least
+  // one evidenceRealizations entry. A route that declares nothing keeps
+  // exactly its pre-Slice-1 behavior (requiredToolNames alone governs
+  // admission) - this must never change behavior for routes that never
+  // asked for capability-aware realization. A route that does declare
+  // realizations gets its declared (or the stable default) tools resolved
+  // against its own admitted capabilities instead of trusting whatever
+  // tool names a caller computed ahead of time - that blind trust on
+  // "bash" was the original bug: it rejected MCP-only routes regardless of
+  // their own qualified capabilities.
+  const routeDeclaresEvidenceRealizations = Object.keys(profileDefaults.evidenceRealizations ?? {}).length > 0;
+  const expectedEvidence = (parsed.expectedEvidence ?? []).filter(isKilnWorkGovernanceEvidence);
+  const evidenceRealization = routeDeclaresEvidenceRealizations && expectedEvidence.length > 0
+    ? resolveEvidenceRealization({
+        routeId: route.routeId,
+        expectedEvidence,
+        declaredRealizations: profileDefaults.evidenceRealizations,
+        admittedToolNames: profileDefaults.allowedToolNames,
+      })
+    : undefined;
+
+  if (evidenceRealization && !evidenceRealization.ok) {
+    const pause = evidenceRealization.pause;
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks a realization for: ${pause.unrealizedEvidence.join(", ")}.`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.profile,
+          status: "capability_pause",
+          capabilityPause: pause,
+          allowedToolNames: profileDefaults.allowedToolNames,
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
+            routeId: route.routeId,
+            routeSource: route.routeSource,
+            profile: parsed.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `No admitted realization for: ${pause.unrealizedEvidence.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
+  }
+
+  // Only a route that opted in (declared evidenceRealizations) and whose
+  // resolution succeeded gets its required tools replaced by the resolved
+  // set; every other route keeps trusting requiredToolNames exactly as
+  // before Slice 1.
+  const effectiveRequiredToolNames = evidenceRealization?.ok
+    ? evidenceRealization.requiredToolNames
+    : (parsed.requiredToolNames ?? []);
+
+  const missingRequiredTools = missingManagedInvocationRequiredTools(
+    effectiveRequiredToolNames,
+    profileDefaults.allowedToolNames,
+  );
+  if (missingRequiredTools.length > 0) {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required tools: ${missingRequiredTools.join(", ")}.`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.profile,
+          status: "unavailable",
+          missingRequiredTools,
+          requiredToolNames: effectiveRequiredToolNames,
+          allowedToolNames: profileDefaults.allowedToolNames,
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
+            routeId: route.routeId,
+            routeSource: route.routeSource,
+            profile: parsed.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `Missing required route tools: ${missingRequiredTools.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
+  }
+
+  const missingRequiredCapabilities = missingManagedInvocationRequiredCapabilities(
+    effectiveRequiredToolNames,
+    profileDefaults,
+  );
+  if (missingRequiredCapabilities.length > 0) {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it lacks required capabilities: ${missingRequiredCapabilities.join(", ")}.`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.profile,
+          status: "unavailable",
+          missingRequiredCapabilities,
+          requiredToolNames: effectiveRequiredToolNames,
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
+            routeId: route.routeId,
+            routeSource: route.routeSource,
+            profile: parsed.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `Missing required route capabilities: ${missingRequiredCapabilities.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
+  }
+
+  const missingRequiredReadPaths = missingManagedInvocationRequiredReadPaths(
+    parsed.requiredReadPaths ?? [],
+    profileDefaults,
+  );
+  if (missingRequiredReadPaths.length > 0) {
+    return {
+      ok: false,
+      result: errorResult(
+        `Managed invocation route '${route.routeId}' cannot execute this phase because it cannot read required paths: ${missingRequiredReadPaths.join(", ")}.`,
+        {
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.profile,
+          status: "unavailable",
+          missingRequiredReadPaths,
+          requiredReadPaths: parsed.requiredReadPaths ?? [],
+          allowedReadPaths: effectiveManagedInvocationReadRoots(profileDefaults),
+          deniedReadPaths: profileDefaults.readAuthority?.workspace.deniedPaths ?? [],
+          presentationIntent: buildManagedInvocationPresentationIntent({
+            sourceToolName: toolName,
+            routeId: route.routeId,
+            routeSource: route.routeSource,
+            profile: parsed.profile,
+            providerId: route.providerId,
+            model: route.model,
+            contextMode: parsed.contextMode,
+            status: "unavailable",
+            substantiveEvidence: false,
+            failureReason: `Missing required read authority: ${missingRequiredReadPaths.join(", ")}`,
+          }),
+        },
+        toolName,
+      ),
+    };
+  }
+
+  const authorityAdmission = validateManagedInvocationRequestedAuthority(requestedAuthority, parsed.profile, toolName);
+  if (!authorityAdmission.ok) {
+    return {
+      ok: false,
+      result: errorResult(authorityAdmission.error, {
+        profile: parsed.profile,
+        requestedAuthority,
+        routeId: route.routeId,
+        routeSource: route.routeSource,
+      }, toolName),
+    };
+  }
+
+  return { ok: true, route: executableRoute, profileDefaults, invocationCapabilityEvidence };
+}
+
+/** Phase 4: resolve context (agent profile / skills / work classification) and assemble the child prompt. */
+async function resolveManagedInvocationContextPhase(
+  parsed: ManagedInvocationToolInput,
+  options: ManagedInvocationToolAttachment["options"],
+  route: ManagedInvocationExecutableRoute,
+  toolName: string,
+): Promise<
+  | {
+      readonly ok: true;
+      readonly prompt: string;
+      readonly resolution: ManagedInvocationContextResolution;
+      readonly contextMetadata: ReturnType<typeof buildManagedInvocationContextMetadata>;
+    }
+  | PrepareFailure
+> {
+  const contextResolution = await resolveInvocationContext(parsed, options, route);
+  if (!contextResolution.ok) {
+    const contextMetadata = buildManagedInvocationContextMetadata(parsed, contextResolution.resolution);
+    return {
+      ok: false,
+      result: errorResult(contextResolution.error, {
+        routeId: route.routeId,
+        routeSource: route.routeSource,
+        profile: parsed.profile,
+        providerRoute: {
+          providerId: route.providerId,
+          ...(route.model ? { model: route.model } : {}),
+          ...(route.surface ? { surface: route.surface } : {}),
+        },
+        status: contextResolution.status,
+        context: contextMetadata,
+        presentationIntent: buildManagedInvocationPresentationIntent({
+          sourceToolName: toolName,
+          routeId: route.routeId,
+          routeSource: route.routeSource,
+          profile: parsed.profile,
+          providerId: route.providerId,
+          model: route.model,
+          contextMode: parsed.contextMode,
+          status: contextResolution.status,
+          substantiveEvidence: false,
+          failureReason: contextResolution.error,
+        }),
+      }, toolName),
+    };
+  }
+  const prompt = contextResolution.resolution.promptPrefix
+    ? `${contextResolution.resolution.promptPrefix}\n\nTask:\n${parsed.task}`
+    : parsed.task;
+  const contextMetadata = buildManagedInvocationContextMetadata(parsed, contextResolution.resolution);
+  return { ok: true, prompt, resolution: contextResolution.resolution, contextMetadata };
+}
+
+/** Phase 5: allocate the invocation id, request authority approval, and assemble the invocation request record. */
+async function buildManagedInvocationRequestRecord(input: {
+  readonly context: RuntimeBuiltinToolExecutionContext;
+  readonly options: ManagedInvocationToolAttachment["options"];
+  readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
+  readonly canonicalizedRawInput: ReturnType<typeof canonicalizeManagedInvocationRawInput>;
+  readonly parsed: ManagedInvocationToolInput;
+  readonly requestedAuthority: ManagedAgentRequestedAuthority;
+  readonly route: ManagedInvocationExecutableRoute;
+  readonly profileDefaults: ManagedInvocationRouteProfile;
+  readonly invocationCapabilityEvidence: ReturnType<typeof evaluateManagedInvocationCallerCapability>;
+  readonly prompt: string;
+  readonly resolution: ManagedInvocationContextResolution;
+  readonly contextMetadata: ReturnType<typeof buildManagedInvocationContextMetadata>;
+  readonly toolName: string;
+  readonly parentTurnId: string;
+  readonly invocationId: string;
+  readonly admittedDeliberationResolution?: DeliberationResolution;
+}): Promise<PrepareOutcome> {
+  const {
+    context, options, callerIdentity, canonicalizedRawInput, parsed, requestedAuthority,
+    route, profileDefaults, invocationCapabilityEvidence, prompt, resolution, contextMetadata,
+    toolName, parentTurnId, invocationId, admittedDeliberationResolution,
+  } = input;
+
+  const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
+  const handoffContract = buildHandoffContract(parsed);
+  const authorityApproval = await requestManagedInvocationAuthorityApproval({
+    requestedAuthority,
+    target: { kind: "route", routeId: route.routeId },
+    profile: parsed.profile,
+    context,
+    toolName,
+  });
+  if (!authorityApproval.ok) {
+    return {
+      ok: false,
+      result: errorResult(authorityApproval.error, {
+        profile: parsed.profile,
+        requestedAuthority,
+        routeId: route.routeId,
+      }, toolName),
+    };
+  }
+
+  const executionScope = parsed.workItemId
+    ? {
+        kind: "work_item" as const,
+        goalRunId: parsed.goalRunId!,
+        workItemId: parsed.workItemId,
+        ...(parsed.attemptId ? { attemptId: parsed.attemptId } : {}),
+        managedInvocationId: invocationId,
+      }
+    : parsed.goalRunId
+      ? { kind: "goal" as const, goalRunId: parsed.goalRunId, managedInvocationId: invocationId }
+      : undefined;
+  const request = defineManagedAgentInvocationRequest({
+    invocationId,
+    agentId: `${route.routeId}:${parsed.profile}`,
+    parentSessionId: context.session.id,
+    parentTurnId,
+    profile: parsed.profile,
+    requestedBy: options.requestedBy ?? "assistant",
+    requestSource: options.requestSource ?? "runtime-tool",
+    executionIntent: toolName === MANAGED_AGENT_START_TOOL_NAME
+      ? { attendance: "unattended", lifecycle: "background" }
+      : { attendance: "attended", lifecycle: "foreground" },
+    requestedAuthority,
+    ...(authorityApproval.authorityApproval ? { authorityApproval: authorityApproval.authorityApproval } : {}),
+    providerRoute: {
+      providerId: route.providerId,
+      surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+      ...(parsed.providerRoute.model ?? route.model ? { model: parsed.providerRoute.model ?? route.model } : {}),
+      ...(parsed.providerRoute.deliberationIntent ? { deliberationIntent: parsed.providerRoute.deliberationIntent } : {}),
+      ...(admittedDeliberationResolution ? { deliberationResolution: admittedDeliberationResolution } : {}),
+    },
+    adapterKind: route.adapter.descriptor.adapterKind,
+    executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+    ...(executionScope ? { executionScope } : {}),
+    ...(parsed.externalRuntimeAttachment
+      ? {
+          externalRuntimeAttachment: {
+            kind: "external-runtime" as const,
+            runtimeId: parsed.externalRuntimeAttachment.runtimeId,
+            attachmentId: parsed.externalRuntimeAttachment.attachmentId,
+          },
+        }
+      : {}),
+    authority: {
+      authorityProfileId: profileDefaults.authorityProfileId,
+      permissionProfile: profileDefaults.permissionProfile,
+      toolAuthority: {
+        allowedToolNames: profileDefaults.allowedToolNames,
+        writeAllowed: profileDefaults.writeAllowed === true,
+        networkAllowed: profileDefaults.networkAllowed === true,
+      },
+      workingDirectory: resolvedAuthority.workingDirectory,
+      timeoutMs: profileDefaults.timeoutMs,
+      ...(profileDefaults.timeoutSource ? { timeoutSource: profileDefaults.timeoutSource } : {}),
+      credentialRoute: normalizeManagedInvocationCredentialRoute(profileDefaults.credentialRoute),
+      memoryScope: profileDefaults.memoryScope,
+      ...(profileDefaults.readAuthority ? { readAuthority: profileDefaults.readAuthority } : {}),
+      ...(resolvedAuthority.writeAuthority ? { writeAuthority: resolvedAuthority.writeAuthority } : {}),
+    },
+    input: {
+      summary: parsed.summary,
+      prompt,
+      ...(parsed.resourceUris ? { resourceUris: parsed.resourceUris } : {}),
+      context: contextMetadata,
+      ...(handoffContract ? { handoff: handoffContract } : {}),
+    },
+  });
+
+  return {
+    ok: true,
+    prepared: {
+      context,
+      parsed,
+      canonicalizedRawInput: canonicalizedRawInput.input,
+      route,
+      request,
+      capabilitySnapshotInput: {
+        routeId: route.routeId,
+        routeSource: route.routeSource,
+        callerIdentity,
+        ...(route.externalRuntimeAttachment ? { externalRuntimeAttachment: route.externalRuntimeAttachment } : {}),
+        invocationCapabilityEvidence,
+        routeHealth: {
+          status: "healthy",
+          reason: managedInvocationRouteHealthReason(profileDefaults, route.routeSource),
+        },
+        providerModelProof: {
+          ...(route.providerModelProof ?? {
+            status: "live-proven",
+            source: "managed-invocation-route-health",
+            requiresToolCalls: route.adapter.descriptor.adapterKind === "direct",
+          }),
+        },
+        resourcePlane: {
+          available: true,
+          resourceUris: parsed.resourceUris ?? [],
+          reason: parsed.resourceUris && parsed.resourceUris.length > 0
+            ? "Governed resource URIs admitted by runtime context selection."
+            : "No governed resources requested.",
+        },
+        childIdentity: {
+          agentId: `${route.routeId}:${parsed.profile}`,
+          ...(parsed.agentProfile ? { requestedAgentProfile: parsed.agentProfile } : {}),
+          ...(resolution.admittedAgentProfile ? { admittedAgentProfile: resolution.admittedAgentProfile } : {}),
+          ...(managedAgentDisplayName(options, resolution.admittedAgentProfile ?? parsed.agentProfile)
+            ? { displayName: managedAgentDisplayName(options, resolution.admittedAgentProfile ?? parsed.agentProfile) }
+            : {}),
+          ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
+        },
+      },
+      ...(canonicalizedRawInput.canonicalizedForbiddenInputFields.length > 0
+        ? { canonicalizedForbiddenInputFields: canonicalizedRawInput.canonicalizedForbiddenInputFields }
+        : {}),
+    },
+  };
+}
+
+export async function prepareManagedInvocationRequest(
+  rawInput: Record<string, unknown>,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  attachment: ManagedInvocationToolAttachment,
+  toolName: string,
+  scopeAdmission: "required" | "already-admitted" = "required",
+  admittedDeliberationResolution?: DeliberationResolution,
+): Promise<PrepareOutcome> {
+  const { options, callerIdentity } = attachment;
+  if (!context) {
+    return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
+  }
+
+  // Computed once, from `context` alone, so it is identical whether read here (for the economic
+  // commitment path) or in phase 5 below (the fixed-route path and the "already-admitted"
+  // recursive call reached after economic commitment): none of the inputs to
+  // `resolveManagedInvocationParentTurnId`/`resolveManagedInvocationParentTurnOrdinal`/
+  // `buildInvocationId` change within this function.
+  const parentTurnId = resolveManagedInvocationParentTurnId(context);
+  const invocationId = buildInvocationId(
+    context.session.id,
+    resolveManagedInvocationParentTurnOrdinal(parentTurnId, context.session.userTurnCount),
+    context.toolCall.id,
+  );
+
+  const scopeOutcome = admitManagedInvocationScope(rawInput, context, attachment, toolName, scopeAdmission);
+  if (!scopeOutcome.ok) return scopeOutcome;
+  const { canonicalizedRawInput, parsed, requestedAuthority } = scopeOutcome;
+
+  const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.agentProfile);
+  if (agentProfile?.economicPolicyId && agentProfile.economicPolicyRevision) {
+    return resolveManagedInvocationEconomicCommitment({
+      rawInput,
+      context,
+      attachment,
+      toolName,
+      parsed,
+      requestedAuthority,
+      canonicalizedRawInput,
+      agentProfile,
+      economicPolicyId: agentProfile.economicPolicyId,
+      economicPolicyRevision: agentProfile.economicPolicyRevision,
+      invocationId,
+    });
+  }
+
+  const routeOutcome = resolveManagedInvocationRouteAndCapability(parsed, requestedAuthority, attachment, context, toolName);
+  if (!routeOutcome.ok) return routeOutcome;
+  const { route, profileDefaults, invocationCapabilityEvidence } = routeOutcome;
+
+  const contextOutcome = await resolveManagedInvocationContextPhase(parsed, options, route, toolName);
+  if (!contextOutcome.ok) return contextOutcome;
+  const { prompt, resolution, contextMetadata } = contextOutcome;
+
+  return buildManagedInvocationRequestRecord({
+    context,
+    options,
+    callerIdentity,
+    canonicalizedRawInput,
+    parsed,
+    requestedAuthority,
+    route,
+    profileDefaults,
+    invocationCapabilityEvidence,
+    prompt,
+    resolution,
+    contextMetadata,
+    toolName,
+    parentTurnId,
+    invocationId,
+    admittedDeliberationResolution,
+  });
+}

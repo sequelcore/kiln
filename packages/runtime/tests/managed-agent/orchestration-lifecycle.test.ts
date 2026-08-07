@@ -17,7 +17,7 @@ import {
   type ManagedAgentWorktreeLeaseManagerInput,
   type ManagedAgentWorktreeLeaseReleaseInput,
 } from "../../src/agents/managed-invocation/index.js";
-import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool.js";
+import type { ManagedInvocationToolOptions } from "../../src/agents/managed-invocation/runtime-tool/index.js";
 
 const WRITE_AUTHORITY_DESCRIPTOR = {
   proposalSupported: true,
