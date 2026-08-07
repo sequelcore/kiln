@@ -3,6 +3,7 @@ import type {
   OperatorManagedAgentResourceLeaseSnapshot,
   OperatorManagedEconomicAccountIdentity,
   OperatorManagedEconomicEvidenceAuthority,
+  OperatorManagedEconomicLifecycleTransition,
   OperatorManagedEconomicRouteIdentity,
   OperatorManagedEconomicSettlementKind,
   OperatorSessionEvent,
@@ -403,7 +404,7 @@ export interface OperatorCockpitEconomicAttemptProjection {
   readonly policyId: string;
   readonly policyRevision: string;
   readonly policyDigest: string;
-  readonly transition: string;
+  readonly transition: OperatorManagedEconomicLifecycleTransition;
   readonly commitmentId?: string;
   readonly reservationId?: string;
   readonly dispatchFenceId?: string;
@@ -416,6 +417,41 @@ export interface OperatorCockpitEconomicAttemptProjection {
   readonly latestEventId: string;
 }
 
+/**
+ * Why an event contributed no evidence to the projection.
+ *
+ * This projection recognizes three dispositions for an ingested event, and only the middle one
+ * needed a name:
+ *
+ * 1. **Unplaceable** - the event carries no usable instance identity, or names an unattached
+ *    instance. The whole projection is untrustworthy, so it throws (see `readRequiredString`).
+ * 2. **Rejected** - the event is placeable, declares a recognized kind, and then violates that
+ *    kind's own contract. It is recorded here and stays visible to the operator.
+ * 3. **Not applicable** - the event carries no evidence of a given class, or is of a kind this
+ *    projection does not fold. It is ignored by design and is not a rejection.
+ *
+ * Before this contract existed, 2 and 3 were both an unnamed `null` and were indistinguishable,
+ * so a malformed event silently reduced the projection with no operator-visible trace.
+ */
+export type OperatorCockpitEvidenceRejectionReason =
+  | "missing-required-field"
+  | "invalid-discriminator"
+  | "unsupported-version"
+  | "contract-violation";
+
+export interface OperatorCockpitEvidenceRejection {
+  readonly eventId: string;
+  readonly sequence: number;
+  readonly kind: OperatorSessionEventKind;
+  readonly reason: OperatorCockpitEvidenceRejectionReason;
+  /**
+   * The offending field's name. The offending *value* is never carried: this type is projected to
+   * every operator surface, so echoing the payload would defeat the sanitization it exists to make
+   * provable.
+   */
+  readonly field?: string;
+}
+
 export interface OperatorCockpitReadOnlyProjection {
   readonly mode: "read-only";
   readonly projectedAt: string;
@@ -425,6 +461,12 @@ export interface OperatorCockpitReadOnlyProjection {
   readonly invocations: readonly OperatorCockpitInvocationProjection[];
   readonly toolSummaries: readonly OperatorCockpitToolSummaryProjection[];
   readonly economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[];
+  /**
+   * Evidence this projection ingested but could not fold. Non-empty means the projection is a
+   * degraded view of the session and every operator surface must say so: a cockpit that silently
+   * under-reports is worse than one that reports its own gaps.
+   */
+  readonly unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[];
   readonly cost: OperatorCockpitCostProjection;
 }
 
@@ -493,7 +535,7 @@ interface EconomicAttemptAccumulator {
   policyId: string;
   policyRevision: string;
   policyDigest: string;
-  transition: string;
+  transition: OperatorManagedEconomicLifecycleTransition;
   commitmentId?: string;
   reservationId?: string;
   dispatchFenceId?: string;
@@ -578,6 +620,7 @@ export function projectOperatorCockpitReadOnlyView(
   const adoptionGates = new Map<string, OperatorCockpitManagedOrchestrationAdoptionGateProjection>();
   const tools = new Map<string, ToolAccumulator>();
   const economicAttempts = new Map<string, EconomicAttemptAccumulator>();
+  const unprojectableEvidence: OperatorCockpitEvidenceRejection[] = [];
   const providerRoutes = new Set<string>();
   const timeline: OperatorCockpitTimelineEntry[] = [];
   let inputTokens = 0;
@@ -717,13 +760,17 @@ export function projectOperatorCockpitReadOnlyView(
     }
 
     if (event.kind === "managed_economic_lifecycle") {
-      const jobId = readString(payload.jobId);
-      const economicAttemptId = readString(payload.economicAttemptId);
-      const transition = readString(payload.transition);
-      const policyId = readString(payload.policyId);
-      const policyRevision = readString(payload.policyRevision);
-      const policyDigest = readString(payload.policyDigest);
-      if (jobId && economicAttemptId && transition && policyId && policyRevision && policyDigest) {
+      const core = readEconomicAttemptCore(payload);
+      if ("reason" in core) {
+        unprojectableEvidence.push({
+          eventId: event.eventId,
+          sequence: event.sequence,
+          kind: event.kind,
+          reason: core.reason,
+          field: core.field,
+        });
+      } else {
+        const { jobId, economicAttemptId, transition, policyId, policyRevision, policyDigest } = core;
         const attempt = getOrCreateEconomicAttempt(economicAttempts, {
           jobId,
           instanceId,
@@ -817,6 +864,7 @@ export function projectOperatorCockpitReadOnlyView(
     invocations: Array.from(invocations.values()).map(projectInvocation).sort(compareByInstanceThenSessionThenInvocation),
     toolSummaries: Array.from(tools.values()).map(projectTool).sort(compareByInstanceThenSessionThenTool),
     economicAttempts: Array.from(economicAttempts.values()).map(projectEconomicAttempt).sort(compareEconomicAttempts),
+    unprojectableEvidence,
     cost: {
       inputTokens,
       outputTokens,
@@ -986,6 +1034,59 @@ function getOrCreateInvocation(
   return created;
 }
 
+function readManagedEconomicTransition(
+  value: unknown,
+): OperatorManagedEconomicLifecycleTransition | null {
+  return value === "denied"
+    || value === "held"
+    || value === "dispatch-fenced"
+    || value === "settlement-pending"
+    || value === "released"
+    || value === "release-failed"
+    || value === "leaked"
+    ? value
+    : null;
+}
+
+interface EconomicAttemptCore {
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  readonly transition: OperatorManagedEconomicLifecycleTransition;
+  readonly policyId: string;
+  readonly policyRevision: string;
+  readonly policyDigest: string;
+}
+
+interface EconomicAttemptRejectionCause {
+  readonly reason: OperatorCockpitEvidenceRejectionReason;
+  readonly field: string;
+}
+
+/**
+ * Parses the fields a `managed_economic_lifecycle` payload declares as required. Returns the
+ * offending field's name rather than discarding the event, so the caller can record a rejection:
+ * economic lifecycle events are authority evidence, and an authority record that vanishes is
+ * indistinguishable from one that never existed.
+ */
+function readEconomicAttemptCore(
+  payload: Record<string, unknown>,
+): EconomicAttemptCore | EconomicAttemptRejectionCause {
+  const jobId = readString(payload.jobId);
+  if (!jobId) return { reason: "missing-required-field", field: "jobId" };
+  const economicAttemptId = readString(payload.economicAttemptId);
+  if (!economicAttemptId) return { reason: "missing-required-field", field: "economicAttemptId" };
+  const policyId = readString(payload.policyId);
+  if (!policyId) return { reason: "missing-required-field", field: "policyId" };
+  const policyRevision = readString(payload.policyRevision);
+  if (!policyRevision) return { reason: "missing-required-field", field: "policyRevision" };
+  const policyDigest = readString(payload.policyDigest);
+  if (!policyDigest) return { reason: "missing-required-field", field: "policyDigest" };
+  if (!readString(payload.transition)) return { reason: "missing-required-field", field: "transition" };
+  const transition = readManagedEconomicTransition(payload.transition);
+  if (!transition) return { reason: "invalid-discriminator", field: "transition" };
+  return { jobId, economicAttemptId, transition, policyId, policyRevision, policyDigest };
+}
+
 function getOrCreateEconomicAttempt(
   economicAttempts: Map<string, EconomicAttemptAccumulator>,
   input: {
@@ -996,7 +1097,7 @@ function getOrCreateEconomicAttempt(
     readonly policyId: string;
     readonly policyRevision: string;
     readonly policyDigest: string;
-    readonly transition: string;
+    readonly transition: OperatorManagedEconomicLifecycleTransition;
     readonly latestEventId: string;
   },
 ): EconomicAttemptAccumulator {

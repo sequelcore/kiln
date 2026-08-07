@@ -27,6 +27,7 @@ import type { ReactiveState, Message, ContinuationSidebarInfo, PendingApproval, 
 import { update, createMessage } from "./state.js";
 import {
   EMPTY_TUI_ECONOMIC_ATTEMPTS,
+  EMPTY_TUI_UNPROJECTABLE_EVIDENCE,
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
   appendManagedAgentSessionEvent,
@@ -421,6 +422,7 @@ function appendManagedAgentProjectionEvent(
   });
   update(ctx.state, "managedAgents", operatorWorkspaceState.cockpitView.managedAgents);
   update(ctx.state, "economicAttempts", operatorWorkspaceState.cockpitView.economicAttempts);
+  update(ctx.state, "unprojectableEvidence", operatorWorkspaceState.cockpitView.unprojectableEvidence);
   update(ctx.state, "operatorWorkspaceHome", operatorWorkspaceState.home);
   ctx.renderSidebarManagedAgents?.();
 }
@@ -602,6 +604,7 @@ export async function sendMessage(
   update(ctx.state, "managedAgentSessionEvents", []);
   update(ctx.state, "managedAgents", EMPTY_TUI_MANAGED_AGENT_VIEW_STATE);
   update(ctx.state, "economicAttempts", EMPTY_TUI_ECONOMIC_ATTEMPTS);
+  update(ctx.state, "unprojectableEvidence", EMPTY_TUI_UNPROJECTABLE_EVIDENCE);
   update(ctx.state, "operatorWorkspaceHome", EMPTY_TUI_OPERATOR_WORKSPACE_HOME);
   update(ctx.state, "thinking", "");
   update(ctx.state, "thinkingVisible", false);

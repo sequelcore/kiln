@@ -631,5 +631,50 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText("held")).toBeVisible();
     expect(screen.getByText("route codex-oauth/gpt-test")).toBeVisible();
     expect(view.managedAgents.items).toHaveLength(0);
+    expect(screen.queryByLabelText("Unprojectable evidence")).toBeNull();
+  });
+
+  it("surfaces unprojectable evidence so a degraded panel cannot read as a complete one", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "gui-economic:instance:1",
+        label: "Synthetic economic runtime",
+        kind: "local",
+      }],
+      events: [{
+        eventId: "gui-economic:event:malformed",
+        kilnSessionId: "gui-economic:session:1",
+        sequence: 1,
+        timestamp: "2026-08-06T12:00:00.000Z",
+        kind: "managed_economic_lifecycle",
+        payload: {
+          instanceId: "gui-economic:instance:1",
+          sessionId: "gui-economic:session:1",
+          jobId: "managed-economic-job:gui-fixture",
+          economicAttemptId: "economic-attempt:gui-fixture:1",
+          transition: "not-a-real-transition",
+          policyId: "gui-fixture-policy",
+          policyRevision: "1",
+          policyDigest: "sha256:gui-fixture-policy-digest",
+        },
+      }],
+    });
+    const view = createOperatorCockpitReadOnlyViewState({ projection, viewState: {} });
+
+    render(
+      <ManagedAgentCockpitPanel
+        viewState={view.managedAgents}
+        economicAttempts={view.economicAttempts}
+        unprojectableEvidence={view.unprojectableEvidence}
+      />,
+    );
+
+    expect(view.economicAttempts).toHaveLength(0);
+    expect(screen.getByLabelText("Unprojectable evidence")).toBeVisible();
+    expect(screen.getByText("Unprojectable evidence (1) — view incomplete")).toBeVisible();
+    expect(screen.getByText(/invalid-discriminator/)).toBeVisible();
+    expect(screen.queryByText("Economic attempts")).toBeNull();
+    expect(document.body.textContent).not.toContain("not-a-real-transition");
   });
 });

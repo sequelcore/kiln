@@ -724,4 +724,46 @@ describe("TUI managed-agent cockpit projection", () => {
       "managed-economic-job:tui-fixture  held  codex-oauth/gpt-test",
     ]));
   });
+
+  it("reports unprojectable evidence so a degraded cockpit cannot read as a complete one", () => {
+    const malformed = event("evt-economic-malformed", 1, "managed_economic_lifecycle", {
+      instanceId: "local-tui",
+      sessionId: "session-1",
+      jobId: "managed-economic-job:tui-fixture",
+      economicAttemptId: "economic-attempt:tui-fixture:1",
+      transition: "not-a-real-transition",
+      policyId: "tui-fixture-policy",
+      policyRevision: "1",
+      policyDigest: "sha256:tui-fixture-policy-digest",
+    });
+
+    const events = appendManagedAgentSessionEvent([], malformed);
+    const workspaceState = projectTuiOperatorWorkspaceState(events);
+
+    expect(workspaceState.cockpitView.economicAttempts).toHaveLength(0);
+    expect(workspaceState.cockpitView.unprojectableEvidence).toEqual([{
+      eventId: "evt-economic-malformed",
+      sequence: 1,
+      kind: "managed_economic_lifecycle",
+      reason: "invalid-discriminator",
+      field: "transition",
+    }]);
+
+    const lines = formatManagedAgentCockpitLines(
+      workspaceState.cockpitView.managedAgents,
+      workspaceState.cockpitView.economicAttempts,
+      workspaceState.cockpitView.unprojectableEvidence,
+    );
+    expect(lines).toEqual(expect.arrayContaining([
+      "unprojectable evidence (1) - view incomplete:",
+      "managed_economic_lifecycle  invalid-discriminator  transition",
+    ]));
+  });
+
+  it("renders no unprojectable section when every event projects", () => {
+    const lines = formatManagedAgentCockpitLines(
+      projectTuiOperatorWorkspaceState([]).cockpitView.managedAgents,
+    );
+    expect(lines.some((line) => line.includes("unprojectable"))).toBe(false);
+  });
 });

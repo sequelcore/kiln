@@ -2555,12 +2555,11 @@ function economicLifecyclePresentation(payload: Record<string, unknown>): Operat
   addItem(details, "Settlement", settlementKind);
   addItem(details, "Settlement authority", payload.settlementAuthority);
   addItem(details, "Reason", reason);
-  addPrimitiveItems(
-    details,
-    payload,
-    8,
-    ["jobId", "economicAttemptId", "transition", "policyId", "policyRevision", "policyDigest", "commitmentId", "reservationId", "dispatchFenceId", "selectedRoute", "selectedAccount", "settlementKind", "settlementAuthority", "reason"],
-  );
+  // Deliberately no `addPrimitiveItems` fallback. Every field this payload declares is rendered
+  // explicitly above, so a denylisted dump could only ever surface fields nobody decided to show -
+  // which is how an unanticipated producer field, or a secret-shaped one, reaches the operator
+  // without a decision. Absence must be provable here, and a denylist can only exclude what was
+  // anticipated. New economic fields get an explicit `addItem` line or they are not rendered.
   return {
     title: ECONOMIC_LIFECYCLE_TITLES[transition] ?? "Economic lifecycle event",
     summary,

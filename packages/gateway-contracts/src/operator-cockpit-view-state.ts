@@ -1,5 +1,6 @@
 import type {
   OperatorCockpitEconomicAttemptProjection,
+  OperatorCockpitEvidenceRejection,
   OperatorCockpitExternalToolFailureProjection,
   OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
@@ -77,6 +78,8 @@ export interface OperatorCockpitReadOnlyViewState {
   };
   readonly managedAgents: OperatorCockpitManagedAgentViewState;
   readonly economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[];
+  /** Non-empty means this view is a degraded projection; every surface must say so. */
+  readonly unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[];
   readonly attention: OperatorAttentionSummary;
 }
 
@@ -182,6 +185,7 @@ export function createOperatorCockpitReadOnlyViewState(
     replay,
     managedAgents,
     economicAttempts: input.projection.economicAttempts,
+    unprojectableEvidence: input.projection.unprojectableEvidence,
     attention: createOperatorAttentionSummary(
       managedAgents.items.flatMap(managedAgentAttentionItem),
     ),

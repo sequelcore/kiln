@@ -3,6 +3,7 @@ import type {
   GuiManagedAgentControlAction,
   GuiManagedAgentControlResultFrame,
   OperatorCockpitEconomicAttemptProjection,
+  OperatorCockpitEvidenceRejection,
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitManagedAgentViewState,
   OperatorCockpitInvocationProjection,
@@ -102,6 +103,7 @@ export async function managedAgentCommand(
   });
   const managedAgents = cockpitView.managedAgents;
   const economicAttempts = cockpitView.economicAttempts;
+  const unprojectableEvidence = cockpitView.unprojectableEvidence;
   const workspaceHome = createOperatorWorkspaceHomeProjection({
     projectedAt,
     cockpitView,
@@ -112,8 +114,8 @@ export async function managedAgentCommand(
   switch (subcommand) {
     case "list": {
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, managedAgents, governedWorkItems, workspaceHome, invocations: projection.invocations, economicAttempts }, null, 2)
-        : formatManagedAgentList(sessionId, managedAgents, workspaceHome, governedWorkItems, economicAttempts));
+        ? JSON.stringify({ sessionId, managedAgents, governedWorkItems, workspaceHome, invocations: projection.invocations, economicAttempts, unprojectableEvidence }, null, 2)
+        : formatManagedAgentList(sessionId, managedAgents, workspaceHome, governedWorkItems, economicAttempts, unprojectableEvidence));
       return;
     }
     case "status": {
@@ -404,8 +406,9 @@ function formatManagedAgentList(
   workspaceHome: OperatorWorkspaceHomeProjection,
   governedWorkItems: readonly OperatorGovernedWorkItemProjection[],
   economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[] = [],
+  unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[] = [],
 ): string {
-  if (viewState.items.length === 0 && economicAttempts.length === 0) {
+  if (viewState.items.length === 0 && economicAttempts.length === 0 && unprojectableEvidence.length === 0) {
     return `No managed children found for session ${sessionId}.`;
   }
   return [
@@ -415,6 +418,7 @@ function formatManagedAgentList(
     ...formatGovernedWorkItemLines(governedWorkItems),
     ...viewState.items.map((item) => formatManagedAgentListRow(item)),
     ...formatEconomicAttemptLines(economicAttempts),
+    ...formatUnprojectableEvidenceLines(unprojectableEvidence),
   ].join("\n");
 }
 
@@ -429,6 +433,25 @@ function formatEconomicAttemptLines(
   return [
     "Economic attempts:",
     ...economicAttempts.map((attempt) => formatEconomicAttemptRow(attempt)),
+  ];
+}
+
+// A non-empty rejection list means the cockpit below is a degraded view of the session. Reporting
+// the gap is the whole point: a listing that silently omits evidence reads as a complete one.
+function formatUnprojectableEvidenceLines(
+  unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[],
+): readonly string[] {
+  if (unprojectableEvidence.length === 0) {
+    return [];
+  }
+  return [
+    `Unprojectable evidence (${unprojectableEvidence.length}) - this view is incomplete:`,
+    ...unprojectableEvidence.map((rejection) => [
+      rejection.kind.padEnd(30),
+      rejection.reason.padEnd(24),
+      rejection.field ? `field:${rejection.field}` : undefined,
+      `event:${rejection.eventId}`,
+    ].filter((part): part is string => part !== undefined).join("  ")),
   ];
 }
 

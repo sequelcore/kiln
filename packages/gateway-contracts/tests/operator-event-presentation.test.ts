@@ -2558,4 +2558,30 @@ describe("operator event presentation", () => {
     expect(leaked.title).toBe("Economic reservation leaked");
     expect(leaked.tone).toBe("warning");
   });
+
+  it("renders nothing for an economic payload field it was never told to render", () => {
+    const presentation = presentOperatorEventPayload("managed_economic_lifecycle", {
+      jobId: "managed-economic-job:fixture",
+      economicAttemptId: "economic-attempt:fixture:1",
+      transition: "held",
+      policyId: "fixture-policy",
+      policyRevision: "1",
+      policyDigest: "sha256:fixture-policy-digest",
+      credentialFileIdentity: "a".repeat(64),
+      rawProviderResponse: "sk-live-should-never-surface",
+      operatorHomePath: "/Users/someone/.kiln/credentials",
+    });
+
+    const serialized = JSON.stringify(presentation);
+    expect(serialized).not.toContain("sk-live-should-never-surface");
+    expect(serialized).not.toContain("/Users/someone/.kiln/credentials");
+    expect(serialized).not.toContain("a".repeat(64));
+    expect(presentation.details.map((item) => item.label)).toEqual([
+      "Job",
+      "Attempt",
+      "Transition",
+      "Policy",
+      "Policy revision",
+    ]);
+  });
 });

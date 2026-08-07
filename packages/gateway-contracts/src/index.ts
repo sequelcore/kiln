@@ -295,6 +295,8 @@ export type {
   OperatorCockpitAttachTransport,
   OperatorCockpitCostProjection,
   OperatorCockpitEconomicAttemptProjection,
+  OperatorCockpitEvidenceRejection,
+  OperatorCockpitEvidenceRejectionReason,
   OperatorCockpitExternalToolFailureProjection,
   OperatorCockpitInstanceProjection,
   OperatorCockpitInvocationProjection,

@@ -2075,4 +2075,124 @@ describe("operator cockpit read-only projection", () => {
     });
     expect(projection.invocations).toHaveLength(0);
   });
+
+  describe("unprojectable evidence", () => {
+    const attachTargets = [{
+      instanceId: "economic:instance:1",
+      label: "Synthetic economic runtime",
+      kind: "local" as const,
+    }];
+
+    function economicEvent(
+      sequence: number,
+      payloadOverrides: Record<string, unknown>,
+    ): OperatorSessionEvent {
+      return {
+        eventId: `economic:event:${sequence}`,
+        kilnSessionId: "economic:session:1",
+        sequence,
+        timestamp: `2026-08-06T12:00:0${sequence}.000Z`,
+        kind: "managed_economic_lifecycle",
+        turnId: "economic:turn:1",
+        payload: {
+          instanceId: "economic:instance:1",
+          sessionId: "economic:session:1",
+          jobId: "managed-economic-job:fixture",
+          economicAttemptId: "economic-attempt:fixture:1",
+          transition: "held",
+          policyId: "fixture-policy",
+          policyRevision: "1",
+          policyDigest: "sha256:fixture-policy-digest",
+          ...payloadOverrides,
+        },
+      };
+    }
+
+    it("rejects an economic event missing a required field instead of discarding it", () => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [economicEvent(1, { policyDigest: undefined })],
+      });
+
+      expect(projection.economicAttempts).toHaveLength(0);
+      expect(projection.unprojectableEvidence).toEqual([{
+        eventId: "economic:event:1",
+        sequence: 1,
+        kind: "managed_economic_lifecycle",
+        reason: "missing-required-field",
+        field: "policyDigest",
+      }]);
+    });
+
+    it("rejects an unrecognized transition instead of projecting it as a rendered string", () => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [economicEvent(1, { transition: "definitely-not-a-transition" })],
+      });
+
+      expect(projection.economicAttempts).toHaveLength(0);
+      expect(projection.unprojectableEvidence).toEqual([{
+        eventId: "economic:event:1",
+        sequence: 1,
+        kind: "managed_economic_lifecycle",
+        reason: "invalid-discriminator",
+        field: "transition",
+      }]);
+    });
+
+    it("never carries the offending value, only its field name", () => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [economicEvent(1, { transition: "sk-live-secret-shaped-value" })],
+      });
+
+      const serialized = JSON.stringify(projection.unprojectableEvidence);
+      expect(serialized).not.toContain("sk-live-secret-shaped-value");
+      expect(projection.unprojectableEvidence[0]?.field).toBe("transition");
+    });
+
+    it("does not treat an event kind it never folds as a rejection", () => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [{
+          eventId: "unrelated:event:1",
+          kilnSessionId: "economic:session:1",
+          sequence: 1,
+          timestamp: "2026-08-06T12:00:01.000Z",
+          kind: "turn_completed",
+          payload: {
+            instanceId: "economic:instance:1",
+            sessionId: "economic:session:1",
+          },
+        }],
+      });
+
+      expect(projection.unprojectableEvidence).toEqual([]);
+    });
+
+    it("changes observably when the malformed events are removed from the stream", () => {
+      const wellFormed = economicEvent(1, { transition: "held" });
+      const malformed = economicEvent(2, { transition: "not-a-transition" });
+
+      const withMalformed = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [wellFormed, malformed],
+      });
+      const withoutMalformed = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [wellFormed],
+      });
+
+      expect(withMalformed.economicAttempts).toHaveLength(1);
+      expect(withoutMalformed.economicAttempts).toHaveLength(1);
+      expect(withMalformed.unprojectableEvidence).toHaveLength(1);
+      expect(withoutMalformed.unprojectableEvidence).toHaveLength(0);
+    });
+  });
 });

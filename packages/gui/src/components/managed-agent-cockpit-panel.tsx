@@ -1,5 +1,6 @@
 import type {
   OperatorCockpitEconomicAttemptProjection,
+  OperatorCockpitEvidenceRejection,
   OperatorCockpitManagedAgentAttentionState,
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitManagedAgentViewState,
@@ -18,6 +19,7 @@ type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
   readonly economicAttempts?: readonly OperatorCockpitEconomicAttemptProjection[];
+  readonly unprojectableEvidence?: readonly OperatorCockpitEvidenceRejection[];
   readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
   readonly onCancel?: (input: {
     readonly sessionId: string;
@@ -530,9 +532,38 @@ function EconomicAttemptsSection(props: { readonly economicAttempts: readonly Op
   );
 }
 
+// A non-empty rejection list means this panel is showing a degraded projection. It is rendered
+// with warning styling ahead of the evidence sections, because an operator who cannot see that
+// the view is incomplete will read it as complete.
+function UnprojectableEvidenceSection(
+  props: { readonly unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[] },
+) {
+  if (props.unprojectableEvidence.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label="Unprojectable evidence" className="mt-4 grid gap-2">
+      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-warning">
+        Unprojectable evidence ({props.unprojectableEvidence.length}) — view incomplete
+      </p>
+      <ul className="grid gap-1 rounded-md border border-warning/40 bg-warning/5 px-4 py-3">
+        {props.unprojectableEvidence.map((rejection) => (
+          <li key={rejection.eventId} className="min-w-0 truncate font-mono text-[10.5px] text-muted-foreground">
+            {rejection.kind} · {rejection.reason}
+            {rejection.field ? ` · ${rejection.field}` : ""}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
   const economicAttempts = props.economicAttempts ?? [];
-  const hasContent = props.viewState.items.length > 0 || economicAttempts.length > 0;
+  const unprojectableEvidence = props.unprojectableEvidence ?? [];
+  const hasContent = props.viewState.items.length > 0
+    || economicAttempts.length > 0
+    || unprojectableEvidence.length > 0;
   return (
     <section aria-label="Managed agents" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
       <header className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4">
@@ -568,6 +599,7 @@ export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
               />
             ))}
           </div>
+          <UnprojectableEvidenceSection unprojectableEvidence={unprojectableEvidence} />
           <EconomicAttemptsSection economicAttempts={economicAttempts} />
         </div>
       )}

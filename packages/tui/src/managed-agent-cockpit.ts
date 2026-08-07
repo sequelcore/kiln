@@ -9,6 +9,7 @@ import {
   projectOperatorCockpitReadOnlyView,
   type OperatorCockpitAttachTarget,
   type OperatorCockpitEconomicAttemptProjection,
+  type OperatorCockpitEvidenceRejection,
   type OperatorCockpitManagedAgentDrilldownTarget,
   type OperatorCockpitManagedAgentViewItem,
   type OperatorCockpitManagedAgentViewState,
@@ -31,6 +32,7 @@ export const EMPTY_TUI_MANAGED_AGENT_VIEW_STATE: OperatorCockpitManagedAgentView
 };
 
 export const EMPTY_TUI_ECONOMIC_ATTEMPTS: readonly OperatorCockpitEconomicAttemptProjection[] = [];
+export const EMPTY_TUI_UNPROJECTABLE_EVIDENCE: readonly OperatorCockpitEvidenceRejection[] = [];
 
 export interface TuiManagedAgentProjectionOptions {
   readonly drilldownTarget?: OperatorCockpitManagedAgentDrilldownTarget;
@@ -116,6 +118,7 @@ export const EMPTY_TUI_OPERATOR_WORKSPACE_HOME = projectTuiOperatorWorkspaceStat
 export function formatManagedAgentCockpitLines(
   viewState: OperatorCockpitManagedAgentViewState,
   economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[] = EMPTY_TUI_ECONOMIC_ATTEMPTS,
+  unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[] = EMPTY_TUI_UNPROJECTABLE_EVIDENCE,
 ): readonly string[] {
   if (viewState.items.length === 0) {
     return [
@@ -123,6 +126,7 @@ export function formatManagedAgentCockpitLines(
         ? ["(none)", ...formatManagedAgentDrilldownLines(viewState.drilldown)]
         : ["(none)"]),
       ...formatEconomicAttemptCockpitLines(economicAttempts),
+      ...formatUnprojectableEvidenceCockpitLines(unprojectableEvidence),
     ];
   }
 
@@ -131,6 +135,25 @@ export function formatManagedAgentCockpitLines(
     ...viewState.items.slice(0, 5).flatMap(formatManagedAgentItemLines),
     ...(viewState.drilldown ? formatManagedAgentDrilldownLines(viewState.drilldown) : []),
     ...formatEconomicAttemptCockpitLines(economicAttempts),
+    ...formatUnprojectableEvidenceCockpitLines(unprojectableEvidence),
+  ];
+}
+
+// A non-empty rejection list means the cockpit is a degraded view. Surfacing the count is the
+// point: an operator reading a silently-shortened list has no way to know it is short.
+function formatUnprojectableEvidenceCockpitLines(
+  unprojectableEvidence: readonly OperatorCockpitEvidenceRejection[],
+): readonly string[] {
+  if (unprojectableEvidence.length === 0) {
+    return [];
+  }
+  return [
+    `unprojectable evidence (${unprojectableEvidence.length}) - view incomplete:`,
+    ...unprojectableEvidence.slice(0, 5).map((rejection) => [
+      rejection.kind,
+      rejection.reason,
+      rejection.field,
+    ].filter((part): part is string => part !== undefined).join("  ")),
   ];
 }
 
