@@ -57,7 +57,7 @@ import {
   attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
   type ManagedInvocationToolAttachment,
-} from "../agents/managed-invocation/runtime-tool.js";
+} from "../agents/managed-invocation/runtime-tool/index.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
 import { appendManagedInvocationPromptAdmissionSessionEvent } from "../agents/managed-invocation/prompt-admission.js";
 import { createOperatorThemeBridge } from "./operator-theme-bridge.js";

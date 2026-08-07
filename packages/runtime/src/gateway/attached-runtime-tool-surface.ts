@@ -75,7 +75,7 @@ import {
   resolveManagedInvocationService,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolAttachment,
-} from "../agents/managed-invocation/runtime-tool.js";
+} from "../agents/managed-invocation/runtime-tool/index.js";
 import {
   createManagedAgentInvocationResourceProvider,
   isManagedAgentInvocationResourceProvider,

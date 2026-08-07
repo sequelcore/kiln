@@ -23,7 +23,7 @@ import {
   type ManagedInvocationRouteProfile,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
-} from "./runtime-tool.js";
+} from "./runtime-tool/index.js";
 import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
 

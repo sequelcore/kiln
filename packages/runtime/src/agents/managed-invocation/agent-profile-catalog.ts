@@ -1,7 +1,7 @@
 import type {
   ManagedInvocationAgentCatalogEntry,
   ManagedInvocationToolOptions,
-} from "./runtime-tool.js";
+} from "./runtime-tool/index.js";
 
 export function resolveManagedInvocationAgentProfile(
   options: ManagedInvocationToolOptions,

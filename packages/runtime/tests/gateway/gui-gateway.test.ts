@@ -44,8 +44,8 @@ import {
 import type {
   ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
-} from "../../src/agents/managed-invocation/runtime-tool.js";
-import { createManagedInvocationLifecycleToolExecutors } from "../../src/agents/managed-invocation/runtime-tool.js";
+} from "../../src/agents/managed-invocation/runtime-tool/index.js";
+import { createManagedInvocationLifecycleToolExecutors } from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import {
   ManagedAgentWorktreeReviewRequiredError,
   ManagedRuntimeCredentialRouteLeaseManager,

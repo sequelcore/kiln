@@ -10,7 +10,7 @@ import {
 } from "@kilnai/core";
 import type {
   ManagedEconomicCandidateSet,
-} from "../agents/managed-invocation/runtime-tool.js";
+} from "../agents/managed-invocation/runtime-tool/index.js";
 import type {
   ManagedEconomicDispatchCoordinator,
   ManagedEconomicDispatchPreparation,
