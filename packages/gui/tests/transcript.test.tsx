@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Transcript } from "../src/components/transcript.js";
-import type { Message, TimelineEntry } from "../src/lib/session-store.js";
+import type { Message, TimelineEntry } from "../src/lib/session-store/index.js";
 import {
   projectWorkflowActivity,
   type OperatorSessionEvent,

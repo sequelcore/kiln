@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
-import type { ApprovalRequest } from "../lib/session-store.js";
+import type { ApprovalRequest } from "../lib/session-store/index.js";
 import { Button } from "@/components/ui/button";
 
 interface ChatWorkbenchProps {

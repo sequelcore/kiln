@@ -1,4 +1,4 @@
-import { useSessionStore } from "../lib/session-store.js";
+import { useSessionStore } from "../lib/session-store/index.js";
 
 const SIDEBAR_COLLAPSED_KEY = "kiln.gui.sidebarCollapsed";
 const OPERATOR_TERMINAL_HEIGHT_KEY_PREFIX = "kiln.gui.operatorTerminalHeight";

@@ -8,7 +8,7 @@ import {
   selectVoiceInputCaptureMimeType,
   voiceInputDisplayText,
 } from "@kilnai/gateway-contracts/voice-input-parts";
-import type { ActivityPhase, SessionStatus } from "../lib/session-store.js";
+import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
 import type { ContextUsageProjection, WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { ComposerLeadingActions, ComposerTrailingActions } from "./composer-actions.js";

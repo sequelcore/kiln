@@ -3,7 +3,7 @@ import type {
   GuiOutboundFrame,
   GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
-import { useSessionStore } from "../src/lib/session-store.js";
+import { useSessionStore } from "../src/lib/session-store/index.js";
 
 function resetSessionStore(): void {
   useSessionStore.setState({

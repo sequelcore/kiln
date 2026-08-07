@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { WorkItemsPanel } from "../src/components/work-items-panel.js";
-import type { WorkItemEntry } from "../src/lib/session-store.js";
+import type { WorkItemEntry } from "../src/lib/session-store/index.js";
 import { useUiStore } from "../src/lib/ui-store.js";
 
 describe("WorkItemsPanel", () => {

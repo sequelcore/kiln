@@ -1,5 +1,5 @@
 import type { GuiOutboundFrame } from "@kilnai/gateway-contracts";
-import type { ProviderDescriptor } from "../lib/session-store.js";
+import type { ProviderDescriptor } from "../lib/session-store/index.js";
 import {
   waitForProviderAuthResolution,
   waitForProviderSwitchResolution,

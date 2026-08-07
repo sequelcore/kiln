@@ -1,4 +1,4 @@
-import type { TimelineEntry } from "../lib/session-store.js";
+import type { TimelineEntry } from "../lib/session-store/index.js";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 

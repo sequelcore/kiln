@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ActivityLogPanel } from "../src/components/activity-log-panel.js";
-import type { TimelineEntry } from "../src/lib/session-store.js";
+import type { TimelineEntry } from "../src/lib/session-store/index.js";
 
 describe("ActivityLogPanel", () => {
   it("renders provider routing as typed details instead of a raw payload", () => {

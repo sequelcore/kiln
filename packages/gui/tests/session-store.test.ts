@@ -6,7 +6,7 @@ import {
   deriveToolCallLog,
   deriveWorkItems,
   useSessionStore,
-} from "../src/lib/session-store.js";
+} from "../src/lib/session-store/index.js";
 import {
   EXTERNAL_RUNTIME_GOVERNANCE_FIXTURE,
   externalRuntimeGovernanceEvents,

@@ -1,4 +1,4 @@
-import type { ActivityPhase } from "../lib/session-store.js";
+import type { ActivityPhase } from "../lib/session-store/index.js";
 
 interface ActivityPhaseAnnouncementProps {
   readonly phase: ActivityPhase;
