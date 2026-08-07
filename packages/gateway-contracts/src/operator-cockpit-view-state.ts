@@ -1,4 +1,5 @@
 import type {
+  OperatorCockpitEconomicAttemptProjection,
   OperatorCockpitExternalToolFailureProjection,
   OperatorCockpitInvocationProjection,
   OperatorCockpitReadOnlyProjection,
@@ -75,6 +76,7 @@ export interface OperatorCockpitReadOnlyViewState {
     readonly nextEventId?: string;
   };
   readonly managedAgents: OperatorCockpitManagedAgentViewState;
+  readonly economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[];
   readonly attention: OperatorAttentionSummary;
 }
 
@@ -179,6 +181,7 @@ export function createOperatorCockpitReadOnlyViewState(
     timeline,
     replay,
     managedAgents,
+    economicAttempts: input.projection.economicAttempts,
     attention: createOperatorAttentionSummary(
       managedAgents.items.flatMap(managedAgentAttentionItem),
     ),

@@ -393,25 +393,36 @@ describe("managed economic candidate admission", () => {
         }],
         contextResolver,
         invocationService: service,
+        workspaceRoot: "C:/workspace",
         economicDispatch: {
-          prepare: async () => ({
-            status: "prepared",
-            commitment: {
-              reservation: {
-                selectedIdentity: {
-                  route: {
-                    routeId: "codex-primary",
-                    providerId: "codex-oauth",
-                    modelId: "gpt-test",
+          prepare: async (input: { readonly lifecycleEvents?: { readonly record: (recordInput: unknown) => void } }) => {
+            input.lifecycleEvents?.record({
+              transition: "held",
+              policy: {
+                policyId: "economy-policy",
+                policyRevision: "revision-001",
+                policyDigest: "sha256:test-policy-digest",
+              },
+            });
+            return {
+              status: "prepared",
+              commitment: {
+                reservation: {
+                  selectedIdentity: {
+                    route: {
+                      routeId: "codex-primary",
+                      providerId: "codex-oauth",
+                      modelId: "gpt-test",
+                    },
                   },
                 },
-              },
-            } as never,
-            adapter: { descriptor: {} } as never,
-            recordExecutionSettlementPending,
-            createExecutionSettlement: () => ({} as never),
-            registerEconomicSettlement: () => undefined,
-          }),
+              } as never,
+              adapter: { descriptor: {} } as never,
+              recordExecutionSettlementPending,
+              createExecutionSettlement: () => ({} as never),
+              registerEconomicSettlement: () => undefined,
+            };
+          },
         },
       },
       callerIdentity: {
@@ -424,12 +435,20 @@ describe("managed economic candidate admission", () => {
       .get("managed_agent.invoke");
     if (!executor) throw new Error("managed_agent.invoke was not registered");
 
+    const sessionEvents: any[] = [];
     const result = await executor({
       profile: "foundation-readonly-plan",
       agentProfile: "scout",
       task: "Inspect the policy boundary.",
     }, {
-      session: { id: "session-test", createdAt: new Date("2026-08-01T00:00:00.000Z") } as RuntimeBuiltinToolExecutionContext["session"],
+      session: {
+        id: "session-test",
+        createdAt: new Date("2026-08-01T00:00:00.000Z"),
+        userTurnCount: 1,
+        get sessionEvents() { return sessionEvents; },
+        nextSessionEventSequence: () => sessionEvents.length + 1,
+        appendSessionEvents: (events: readonly unknown[]) => { sessionEvents.push(...events); },
+      } as RuntimeBuiltinToolExecutionContext["session"],
       turnId: "turn-test",
       toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
     }) as { readonly isError: boolean; readonly output: string };
@@ -438,6 +457,17 @@ describe("managed economic candidate admission", () => {
     expect(recordExecutionSettlementPending).toHaveBeenCalledOnce();
     expect(recordExecutionSettlementPending).toHaveBeenCalledWith("postcommit-request-denied");
     expect(start).not.toHaveBeenCalled();
+
+    // Proves the session-event jobId<->invocationId join: the economic lifecycle event recorded
+    // during commitment carries the same invocationId this invocation would be assigned, even
+    // though the recursive "already-admitted" call that would normally reach that computation
+    // failed here (postcommit context realization failure). The invocationId is computed once,
+    // from context alone, before the economic block runs.
+    expect(sessionEvents).toHaveLength(1);
+    expect(sessionEvents[0]).toMatchObject({
+      kind: "managed_economic_lifecycle",
+      invocationId: "managed-session-test-1-tool-call-test",
+    });
   });
 
   it("denies skills before exposing economic candidates", async () => {

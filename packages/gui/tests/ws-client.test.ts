@@ -187,6 +187,37 @@ describe("GuiWsClient", () => {
       }));
     });
 
+    it("accepts managed_economic_lifecycle events instead of dropping them during frame validation", () => {
+      client = createClient();
+      client.connect();
+      const wsInstance = wsInstances[wsInstances.length - 1]!;
+      wsInstance.simulateMessage(JSON.stringify({
+        type: "session_event",
+        event: {
+          eventId: "economic-1",
+          kilnSessionId: "session-1",
+          sequence: 1,
+          timestamp: "2026-08-06T00:00:01.000Z",
+          kind: "managed_economic_lifecycle",
+          payload: {
+            instanceId: "local-app",
+            sessionId: "session-1",
+            jobId: "managed-economic-job:ws-fixture",
+            economicAttemptId: "economic-attempt:ws-fixture:1",
+            transition: "held",
+            policyId: "ws-fixture-policy",
+            policyRevision: "1",
+            policyDigest: "sha256:ws-fixture-policy-digest",
+          },
+        },
+      }));
+
+      expect(onFrame).toHaveBeenCalledWith(expect.objectContaining({
+        type: "session_event",
+        event: expect.objectContaining({ kind: "managed_economic_lifecycle" }),
+      }));
+    });
+
     it("preserves the terminal capability while adding the stable user id", () => {
       client = new GuiWsClient({
         baseUrl: "ws://localhost:3000/ws?operatorToken=secret",

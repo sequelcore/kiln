@@ -218,6 +218,7 @@ export interface AppendManagedEconomicLifecycleSessionEventInput {
   readonly transition: SessionManagedEconomicLifecycleTransition;
   readonly jobId: string;
   readonly economicAttemptId: string;
+  readonly invocationId?: string;
   readonly policy: ManagedEconomicPolicyIdentity;
   readonly commitment?: ManagedEconomicCommitment;
   readonly dispatchFenceId?: string;
@@ -240,6 +241,7 @@ export function appendManagedEconomicLifecycleSessionEvent(
     timestamp: input.timestamp ?? new Date(),
     jobId: input.jobId,
     economicAttemptId: input.economicAttemptId,
+    ...(input.invocationId !== undefined ? { invocationId: input.invocationId } : {}),
     transition: input.transition,
     policyId: input.policy.policyId,
     policyRevision: input.policy.policyRevision,

@@ -588,4 +588,48 @@ describe("ManagedAgentCockpitPanel", () => {
       wakeRequested: false,
     });
   });
+
+  it("renders economic attempts as their own section, not nested under an invocation", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "gui-economic:instance:1",
+        label: "Synthetic economic runtime",
+        kind: "local",
+      }],
+      events: [{
+        eventId: "gui-economic:event:1",
+        kilnSessionId: "gui-economic:session:1",
+        sequence: 1,
+        timestamp: "2026-08-06T12:00:00.000Z",
+        kind: "managed_economic_lifecycle",
+        payload: {
+          instanceId: "gui-economic:instance:1",
+          sessionId: "gui-economic:session:1",
+          jobId: "managed-economic-job:gui-fixture",
+          economicAttemptId: "economic-attempt:gui-fixture:1",
+          transition: "held",
+          policyId: "gui-fixture-policy",
+          policyRevision: "1",
+          policyDigest: "sha256:gui-fixture-policy-digest",
+          selectedRoute: {
+            routeId: "gui-fixture-route",
+            providerId: "codex-oauth",
+            modelId: "gpt-test",
+            adapterCapabilityId: "gui-fixture-adapter",
+            adapterCapabilityVersion: "1",
+          },
+        },
+      }],
+    });
+    const view = createOperatorCockpitReadOnlyViewState({ projection, viewState: {} });
+
+    render(<ManagedAgentCockpitPanel viewState={view.managedAgents} economicAttempts={view.economicAttempts} />);
+
+    expect(screen.getByText("Economic attempts")).toBeVisible();
+    expect(screen.getByText("managed-economic-job:gui-fixture")).toBeVisible();
+    expect(screen.getByText("held")).toBeVisible();
+    expect(screen.getByText("route codex-oauth/gpt-test")).toBeVisible();
+    expect(view.managedAgents.items).toHaveLength(0);
+  });
 });

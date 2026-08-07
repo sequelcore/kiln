@@ -2815,8 +2815,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
         commitment: {
           commitmentId: "commitment-economic-account",
           reservation: {
+            reservationId: "reservation:test",
             jobId: "managed-economic-job:test",
             economicAttemptId: "economic-attempt:test",
+            policy: { policyId: "test-policy" },
             selectedIdentity: {
               route: {
                 routeId: "opencode:managed-test-route",
@@ -2826,6 +2828,9 @@ describe("RuntimeManagedAgentInvocationService", () => {
               },
               account: { kind: "account-bound" },
             },
+            envelope: { kind: "bounded" },
+            amounts: [],
+            authorityRevision: "revision:test",
           },
         } as never,
         dispatchFenceId: "managed-economic-dispatch:test",
@@ -2841,12 +2846,15 @@ describe("RuntimeManagedAgentInvocationService", () => {
       record: { lifecycleState: "completed" },
     });
     expect(recoveryStore.save).toHaveBeenCalledWith(expect.objectContaining({
-      economicDispatch: {
+      economicDispatch: expect.objectContaining({
         commitmentId: "commitment-economic-account",
         jobId: "managed-economic-job:test",
         economicAttemptId: "economic-attempt:test",
         dispatchFenceId: "managed-economic-dispatch:test",
-      },
+        reservation: expect.objectContaining({
+          reservationId: "reservation:test",
+        }),
+      }),
     }));
     const checkpoint = recoveryStore.save.mock.calls
       .map(([saved]) => saved)
@@ -2857,6 +2865,26 @@ describe("RuntimeManagedAgentInvocationService", () => {
     expect(validateManagedAgentRuntimeRecoveryCheckpoint(checkpoint).economicDispatch).toEqual(
       checkpoint.economicDispatch,
     );
+    expect(checkpoint.economicDispatch?.reservation).toMatchObject({
+      reservationId: "reservation:test",
+      jobId: "managed-economic-job:test",
+      economicAttemptId: "economic-attempt:test",
+    });
+    // A checkpoint persisted before the reservation field existed must still validate: the
+    // field is optional precisely so an in-flight recovery record from before this change
+    // survives a restart instead of being quarantined as corrupt.
+    const { reservation: _legacyReservation, ...economicDispatchWithoutReservation } = checkpoint.economicDispatch!;
+    expect(validateManagedAgentRuntimeRecoveryCheckpoint({
+      ...checkpoint,
+      economicDispatch: economicDispatchWithoutReservation,
+    }).economicDispatch?.reservation).toBeUndefined();
+    expect(() => validateManagedAgentRuntimeRecoveryCheckpoint({
+      ...checkpoint,
+      economicDispatch: {
+        ...checkpoint.economicDispatch,
+        reservation: { ...checkpoint.economicDispatch?.reservation, jobId: "managed-economic-job:mismatched" },
+      },
+    })).toThrow("reservation identity does not match its dispatch reference");
     expect(() => validateManagedAgentRuntimeRecoveryCheckpoint({
       ...checkpoint,
       economicDispatch: { ...checkpoint.economicDispatch, dispatchFenceId: " managed-economic-dispatch:test" },
@@ -5358,8 +5386,10 @@ describe("RuntimeManagedAgentInvocationService", () => {
         commitment: {
           commitmentId: "commitment-write-test",
           reservation: {
+            reservationId: "reservation:write-test",
             jobId: "managed-economic-job:write-test",
             economicAttemptId: "economic-attempt:write-test",
+            policy: { policyId: "test-policy" },
             selectedIdentity: {
               route: {
                 routeId: "opencode:managed-test-route",
@@ -5369,6 +5399,9 @@ describe("RuntimeManagedAgentInvocationService", () => {
               },
               account: { kind: "accountless" },
             },
+            envelope: { kind: "bounded" },
+            amounts: [],
+            authorityRevision: "revision:write-test",
           },
         } as never,
         dispatchFenceId: "managed-economic-dispatch:write-test",

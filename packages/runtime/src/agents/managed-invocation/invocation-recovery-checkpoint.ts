@@ -26,6 +26,7 @@ export function economicDispatchCheckpoint(
     jobId: dispatch.commitment.reservation.jobId,
     economicAttemptId: dispatch.commitment.reservation.economicAttemptId,
     dispatchFenceId: dispatch.dispatchFenceId,
+    reservation: dispatch.commitment.reservation,
   };
 }
 

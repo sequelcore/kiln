@@ -707,6 +707,52 @@ export interface OperatorManagedAgentInvocationEventPayload extends Record<strin
   readonly recoveredAt?: string;
 }
 
+export type OperatorManagedEconomicLifecycleTransition =
+  | "denied" | "held" | "dispatch-fenced" | "settlement-pending"
+  | "release-failed" | "leaked" | "released";
+
+// Mirrors, does not import, @kilnai/core's SessionManagedEconomicRouteIdentity to keep
+// gateway-contracts free of a core dependency.
+export interface OperatorManagedEconomicRouteIdentity {
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly adapterCapabilityId: string;
+  readonly adapterCapabilityVersion: string;
+}
+
+// Mirrors, does not import, @kilnai/core's SessionManagedEconomicAccountIdentity.
+export interface OperatorManagedEconomicAccountIdentity {
+  readonly kind: "account-bound" | "accountless";
+  readonly capacityIdentity?: string;
+  readonly creditPosture?: "disabled" | "committed";
+  readonly overagePosture?: "disabled" | "committed";
+}
+
+export type OperatorManagedEconomicSettlementKind =
+  | "charge" | "estimate" | "subscription" | "included" | "free" | "unknown";
+
+export type OperatorManagedEconomicEvidenceAuthority = "authoritative" | "unknown";
+
+export interface OperatorManagedEconomicLifecycleEventPayload extends Record<string, unknown> {
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  /** Best-effort cross-reference to a managed-agent invocation; absent on older events. */
+  readonly invocationId?: string;
+  readonly transition: OperatorManagedEconomicLifecycleTransition;
+  readonly policyId: string;
+  readonly policyRevision: string;
+  readonly policyDigest: string;
+  readonly commitmentId?: string;
+  readonly reservationId?: string;
+  readonly dispatchFenceId?: string;
+  readonly selectedRoute?: OperatorManagedEconomicRouteIdentity;
+  readonly selectedAccount?: OperatorManagedEconomicAccountIdentity;
+  readonly settlementKind?: OperatorManagedEconomicSettlementKind;
+  readonly settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
+  readonly reason?: string;
+}
+
 export interface OperatorSessionEvent {
   readonly eventId: string;
   readonly kilnSessionId: string;
@@ -723,6 +769,11 @@ export interface OperatorSessionEvent {
 export interface OperatorManagedAgentInvocationSessionEvent extends OperatorSessionEvent {
   readonly kind: OperatorAgentInvocationSessionEventKind;
   readonly payload: OperatorManagedAgentInvocationEventPayload;
+}
+
+export interface OperatorManagedEconomicLifecycleSessionEvent extends OperatorSessionEvent {
+  readonly kind: "managed_economic_lifecycle";
+  readonly payload: OperatorManagedEconomicLifecycleEventPayload;
 }
 
 export type GuiSessionEvent = OperatorSessionEvent;

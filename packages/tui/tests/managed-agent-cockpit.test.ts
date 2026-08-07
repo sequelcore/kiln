@@ -685,4 +685,43 @@ describe("TUI managed-agent cockpit projection", () => {
       attentionCount: 0,
     });
   });
+
+  it("projects and renders managed_economic_lifecycle events as their own section, not nested under an invocation", () => {
+    const held = event("evt-economic-held", 1, "managed_economic_lifecycle", {
+      instanceId: "local-tui",
+      sessionId: "session-1",
+      jobId: "managed-economic-job:tui-fixture",
+      economicAttemptId: "economic-attempt:tui-fixture:1",
+      transition: "held",
+      policyId: "tui-fixture-policy",
+      policyRevision: "1",
+      policyDigest: "sha256:tui-fixture-policy-digest",
+      selectedRoute: {
+        routeId: "tui-fixture-route",
+        providerId: "codex-oauth",
+        modelId: "gpt-test",
+        adapterCapabilityId: "tui-fixture-adapter",
+        adapterCapabilityVersion: "1",
+      },
+    });
+
+    const events = appendManagedAgentSessionEvent([], held);
+    const workspaceState = projectTuiOperatorWorkspaceState(events);
+
+    expect(workspaceState.cockpitView.economicAttempts).toHaveLength(1);
+    expect(workspaceState.cockpitView.economicAttempts[0]).toMatchObject({
+      jobId: "managed-economic-job:tui-fixture",
+      transition: "held",
+    });
+    expect(workspaceState.cockpitView.managedAgents.items).toHaveLength(0);
+
+    const lines = formatManagedAgentCockpitLines(
+      workspaceState.cockpitView.managedAgents,
+      workspaceState.cockpitView.economicAttempts,
+    );
+    expect(lines).toEqual(expect.arrayContaining([
+      "economic attempts:",
+      "managed-economic-job:tui-fixture  held  codex-oauth/gpt-test",
+    ]));
+  });
 });

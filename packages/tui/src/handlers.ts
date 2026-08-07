@@ -26,6 +26,7 @@ import type { SessionLike } from "./types.js";
 import type { ReactiveState, Message, ContinuationSidebarInfo, PendingApproval, WorkItem } from "./state.js";
 import { update, createMessage } from "./state.js";
 import {
+  EMPTY_TUI_ECONOMIC_ATTEMPTS,
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
   appendManagedAgentSessionEvent,
@@ -419,6 +420,7 @@ function appendManagedAgentProjectionEvent(
     drilldownTarget: selectTuiManagedAgentDrilldownTarget(managedAgentSessionEvents),
   });
   update(ctx.state, "managedAgents", operatorWorkspaceState.cockpitView.managedAgents);
+  update(ctx.state, "economicAttempts", operatorWorkspaceState.cockpitView.economicAttempts);
   update(ctx.state, "operatorWorkspaceHome", operatorWorkspaceState.home);
   ctx.renderSidebarManagedAgents?.();
 }
@@ -599,6 +601,7 @@ export async function sendMessage(
   update(ctx.state, "currentTurnId", undefined);
   update(ctx.state, "managedAgentSessionEvents", []);
   update(ctx.state, "managedAgents", EMPTY_TUI_MANAGED_AGENT_VIEW_STATE);
+  update(ctx.state, "economicAttempts", EMPTY_TUI_ECONOMIC_ATTEMPTS);
   update(ctx.state, "operatorWorkspaceHome", EMPTY_TUI_OPERATOR_WORKSPACE_HOME);
   update(ctx.state, "thinking", "");
   update(ctx.state, "thinkingVisible", false);

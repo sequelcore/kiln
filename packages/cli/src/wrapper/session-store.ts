@@ -475,6 +475,7 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'agent_invocation_completed',
   'agent_invocation_failed',
   'agent_invocation_cancelled',
+  'managed_economic_lifecycle',
   'continuity_decided',
   'error_recorded',
   'turn_completed',

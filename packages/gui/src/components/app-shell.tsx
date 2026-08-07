@@ -436,6 +436,7 @@ function useAppShellRuntimeView() {
     };
   }, [sessionEvents]);
   const managedAgentCockpitView = localOperatorWorkspaceState.cockpitView.managedAgents;
+  const managedAgentEconomicAttempts = localOperatorWorkspaceState.cockpitView.economicAttempts;
   const approvalCount = pendingApprovals.length;
   const activeModelCapabilities = activeProvider && activeModel
     ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
@@ -1310,6 +1311,7 @@ function useAppShellRuntimeView() {
             }}
             managedAgents={{
               viewState: managedAgentCockpitView,
+              economicAttempts: managedAgentEconomicAttempts,
               onOpenResource: (uri, target) => void cockpitActions.openResource(uri, target),
               onCancel: cockpitActions.cancelManagedAgent,
               onPrompt: cockpitActions.promptManagedAgent,

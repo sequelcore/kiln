@@ -2,6 +2,7 @@ import type {
   GuiInboundFrame,
   GuiManagedAgentControlAction,
   GuiManagedAgentControlResultFrame,
+  OperatorCockpitEconomicAttemptProjection,
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitManagedAgentViewState,
   OperatorCockpitInvocationProjection,
@@ -100,6 +101,7 @@ export async function managedAgentCommand(
     viewState: {},
   });
   const managedAgents = cockpitView.managedAgents;
+  const economicAttempts = cockpitView.economicAttempts;
   const workspaceHome = createOperatorWorkspaceHomeProjection({
     projectedAt,
     cockpitView,
@@ -110,8 +112,8 @@ export async function managedAgentCommand(
   switch (subcommand) {
     case "list": {
       console.log(args.includes("--json")
-        ? JSON.stringify({ sessionId, managedAgents, governedWorkItems, workspaceHome, invocations: projection.invocations }, null, 2)
-        : formatManagedAgentList(sessionId, managedAgents, workspaceHome, governedWorkItems));
+        ? JSON.stringify({ sessionId, managedAgents, governedWorkItems, workspaceHome, invocations: projection.invocations, economicAttempts }, null, 2)
+        : formatManagedAgentList(sessionId, managedAgents, workspaceHome, governedWorkItems, economicAttempts));
       return;
     }
     case "status": {
@@ -401,8 +403,9 @@ function formatManagedAgentList(
   viewState: OperatorCockpitManagedAgentViewState,
   workspaceHome: OperatorWorkspaceHomeProjection,
   governedWorkItems: readonly OperatorGovernedWorkItemProjection[],
+  economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[] = [],
 ): string {
-  if (viewState.items.length === 0) {
+  if (viewState.items.length === 0 && economicAttempts.length === 0) {
     return `No managed children found for session ${sessionId}.`;
   }
   return [
@@ -411,7 +414,34 @@ function formatManagedAgentList(
     formatManagedAgentGovernanceSummary(workspaceHome),
     ...formatGovernedWorkItemLines(governedWorkItems),
     ...viewState.items.map((item) => formatManagedAgentListRow(item)),
+    ...formatEconomicAttemptLines(economicAttempts),
   ].join("\n");
+}
+
+// Economic attempts are not joined to a specific managed invocation (jobId carries no durable
+// invocationId link yet), so they are listed as their own section rather than nested per row.
+function formatEconomicAttemptLines(
+  economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[],
+): readonly string[] {
+  if (economicAttempts.length === 0) {
+    return [];
+  }
+  return [
+    "Economic attempts:",
+    ...economicAttempts.map((attempt) => formatEconomicAttemptRow(attempt)),
+  ];
+}
+
+function formatEconomicAttemptRow(attempt: OperatorCockpitEconomicAttemptProjection): string {
+  return [
+    attempt.jobId.padEnd(48),
+    attempt.transition.padEnd(18),
+    `policy:${attempt.policyId}`,
+    attempt.selectedRoute ? `route:${attempt.selectedRoute.providerId}/${attempt.selectedRoute.modelId}` : undefined,
+    attempt.selectedAccount ? `account:${attempt.selectedAccount.kind}` : undefined,
+    attempt.settlementKind ? `settlement:${attempt.settlementKind}` : undefined,
+    attempt.reason ? `reason:${attempt.reason}` : undefined,
+  ].filter((part): part is string => part !== undefined).join("  ");
 }
 
 function formatManagedAgentListRow(item: OperatorCockpitManagedAgentViewItem): string {

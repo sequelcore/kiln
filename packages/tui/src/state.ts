@@ -4,6 +4,7 @@
  */
 
 import type {
+  OperatorCockpitEconomicAttemptProjection,
   OperatorCockpitManagedAgentViewState,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
@@ -14,6 +15,7 @@ import type {
   OperatorGovernedWorkItemProjection,
 } from "@kilnai/gateway-contracts";
 import {
+  EMPTY_TUI_ECONOMIC_ATTEMPTS,
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
 } from "./managed-agent-cockpit.js";
@@ -90,6 +92,8 @@ export interface ReactiveState {
   managedAgentSessionEvents: readonly OperatorSessionEvent[];
   /** Shared cockpit projection for managed children visible in the TUI sidebar. */
   managedAgents: OperatorCockpitManagedAgentViewState;
+  /** Shared cockpit projection of managed-economic-job lifecycle attempts (not joined to a specific invocation). */
+  economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[];
   /** Shared Operator Workspace home projection for cross-surface summaries. */
   operatorWorkspaceHome: OperatorWorkspaceHomeProjection;
   /** Whether plan mode is active (read-only planning). */
@@ -223,6 +227,7 @@ export function createReactiveState(): ReactiveState {
     workItems: [],
     managedAgentSessionEvents: [],
     managedAgents: EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
+    economicAttempts: EMPTY_TUI_ECONOMIC_ATTEMPTS,
     operatorWorkspaceHome: EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
     planMode: false,
     slashCommands: [],

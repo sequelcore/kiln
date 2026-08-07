@@ -2505,4 +2505,57 @@ describe("operator event presentation", () => {
     expect(presentation.toolPresentation?.preview?.text).toBe("Managed invocation produced a textual fallback.");
     expect(JSON.stringify(presentation.toolPresentation)).not.toContain("\"presentationIntent\"");
   });
+
+  it("presents managed_economic_lifecycle transitions with distinct tone and title", () => {
+    const held = presentOperatorEventPayload("managed_economic_lifecycle", {
+      jobId: "managed-economic-job:fixture",
+      economicAttemptId: "economic-attempt:fixture:1",
+      transition: "held",
+      policyId: "fixture-policy",
+      policyRevision: "1",
+      selectedRoute: {
+        routeId: "fixture-route",
+        providerId: "codex-oauth",
+        modelId: "gpt-test",
+      },
+    });
+    expect(held.title).toBe("Economic route committed");
+    expect(held.tone).toBe("info");
+    expect(held.summary).toContain("fixture-policy");
+    expect(held.summary).toContain("codex-oauth/gpt-test");
+    expect(held.details).toContainEqual({ label: "Route", value: "codex-oauth/gpt-test" });
+
+    const denied = presentOperatorEventPayload("managed_economic_lifecycle", {
+      jobId: "managed-economic-job:fixture",
+      economicAttemptId: "economic-attempt:fixture:1",
+      transition: "denied",
+      policyId: "fixture-policy",
+      policyRevision: "1",
+      reason: "no candidate met the strict quota ceiling",
+    });
+    expect(denied.title).toBe("Economic route denied");
+    expect(denied.tone).toBe("error");
+    expect(denied.summary).toContain("no candidate met the strict quota ceiling");
+
+    const released = presentOperatorEventPayload("managed_economic_lifecycle", {
+      jobId: "managed-economic-job:fixture",
+      economicAttemptId: "economic-attempt:fixture:1",
+      transition: "released",
+      policyId: "fixture-policy",
+      policyRevision: "1",
+      settlementKind: "charge",
+    });
+    expect(released.title).toBe("Economic reservation released");
+    expect(released.tone).toBe("success");
+
+    const leaked = presentOperatorEventPayload("managed_economic_lifecycle", {
+      jobId: "managed-economic-job:fixture",
+      economicAttemptId: "economic-attempt:fixture:1",
+      transition: "leaked",
+      policyId: "fixture-policy",
+      policyRevision: "1",
+    });
+    expect(leaked.title).toBe("Economic reservation leaked");
+    expect(leaked.tone).toBe("warning");
+  });
 });

@@ -1,4 +1,5 @@
 import type {
+  OperatorCockpitEconomicAttemptProjection,
   OperatorCockpitManagedAgentAttentionState,
   OperatorCockpitManagedAgentViewItem,
   OperatorCockpitManagedAgentViewState,
@@ -16,6 +17,7 @@ type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 
 interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
+  readonly economicAttempts?: readonly OperatorCockpitEconomicAttemptProjection[];
   readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
   readonly onCancel?: (input: {
     readonly sessionId: string;
@@ -47,6 +49,20 @@ function statusVariant(state: OperatorCockpitManagedAgentAttentionState): "defau
   if (state === "failed" || state === "needs_review" || state === "timed_out" || state === "stale") return "destructive";
   if (state === "active") return "secondary";
   return "outline";
+}
+
+const ECONOMIC_TRANSITION_VARIANTS: Record<string, "default" | "destructive" | "outline" | "secondary"> = {
+  denied: "destructive",
+  held: "secondary",
+  "dispatch-fenced": "secondary",
+  "settlement-pending": "secondary",
+  released: "default",
+  "release-failed": "destructive",
+  leaked: "destructive",
+};
+
+function economicTransitionVariant(transition: string): "default" | "destructive" | "outline" | "secondary" {
+  return ECONOMIC_TRANSITION_VARIANTS[transition] ?? "outline";
 }
 
 function resourceLabel(uri: string): string {
@@ -449,7 +465,74 @@ function ManagedAgentItem(props: {
   );
 }
 
+// Economic attempts are not joined to a specific managed invocation (jobId carries no durable
+// invocationId link yet), so they are rendered as their own section rather than nested per item.
+function EconomicAttemptCard(props: { readonly attempt: OperatorCockpitEconomicAttemptProjection }) {
+  const attempt = props.attempt;
+  const routeLabel = attempt.selectedRoute
+    ? `${attempt.selectedRoute.providerId}/${attempt.selectedRoute.modelId}`
+    : undefined;
+  return (
+    <article className="rounded-md border border-border/70 bg-card px-4 py-3 shadow-sm">
+      <div className="flex min-w-0 items-center gap-2">
+        <h3 className="min-w-0 max-w-full truncate font-mono text-xs font-semibold text-foreground">
+          {attempt.jobId}
+        </h3>
+        <Badge variant={economicTransitionVariant(attempt.transition)}>{attempt.transition}</Badge>
+      </div>
+      <dl className="mt-2 grid gap-1 font-mono text-[10.5px] text-muted-foreground sm:grid-cols-2 xl:grid-cols-4">
+        <div className="min-w-0">
+          <dt className="sr-only">Policy</dt>
+          <dd className="truncate">policy {attempt.policyId}</dd>
+        </div>
+        {routeLabel ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Route</dt>
+            <dd className="truncate">route {routeLabel}</dd>
+          </div>
+        ) : null}
+        {attempt.selectedAccount ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Account</dt>
+            <dd className="truncate">account {attempt.selectedAccount.kind}</dd>
+          </div>
+        ) : null}
+        {attempt.settlementKind ? (
+          <div className="min-w-0">
+            <dt className="sr-only">Settlement</dt>
+            <dd className="truncate">settlement {attempt.settlementKind}</dd>
+          </div>
+        ) : null}
+        {attempt.reason ? (
+          <div className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Reason</dt>
+            <dd className="truncate">{attempt.reason}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </article>
+  );
+}
+
+function EconomicAttemptsSection(props: { readonly economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[] }) {
+  if (props.economicAttempts.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label="Economic attempts" className="mt-4 grid gap-3">
+      <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+        Economic attempts
+      </p>
+      {props.economicAttempts.map((attempt) => (
+        <EconomicAttemptCard key={`${attempt.instanceId}:${attempt.sessionId}:${attempt.jobId}`} attempt={attempt} />
+      ))}
+    </section>
+  );
+}
+
 export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
+  const economicAttempts = props.economicAttempts ?? [];
+  const hasContent = props.viewState.items.length > 0 || economicAttempts.length > 0;
   return (
     <section aria-label="Managed agents" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
       <header className="flex min-h-12 shrink-0 items-center gap-3 border-b border-border/70 bg-card/70 px-4">
@@ -463,7 +546,7 @@ export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
           {props.onCancel ? "live control" : "read only"}
         </Badge>
       </header>
-      {props.viewState.items.length === 0 ? (
+      {!hasContent ? (
         <div className="grid min-h-0 flex-1 place-items-center px-6 py-16 text-center">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">No managed children in the current session</p>
@@ -485,6 +568,7 @@ export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
               />
             ))}
           </div>
+          <EconomicAttemptsSection economicAttempts={economicAttempts} />
         </div>
       )}
     </section>

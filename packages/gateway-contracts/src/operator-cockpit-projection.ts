@@ -1,6 +1,10 @@
 import type {
   OperatorManagedAgentExternalRuntimeAttachmentIdentity,
   OperatorManagedAgentResourceLeaseSnapshot,
+  OperatorManagedEconomicAccountIdentity,
+  OperatorManagedEconomicEvidenceAuthority,
+  OperatorManagedEconomicRouteIdentity,
+  OperatorManagedEconomicSettlementKind,
   OperatorSessionEvent,
   OperatorSessionEventKind,
 } from "./frames.js";
@@ -381,6 +385,37 @@ export interface OperatorCockpitCostProjection {
   readonly providerRoutes: readonly string[];
 }
 
+/**
+ * Projected independently of `OperatorCockpitInvocationProjection`: a
+ * `managed_economic_lifecycle` event's `jobId` has no durable join key back to a specific
+ * managed-agent invocation today (jobId is a digest of session/turn/tool-call identity computed
+ * independently in Runtime). Nesting this under an invocation would be a fabricated link, so it
+ * is kept as its own top-level collection until Runtime carries an explicit join.
+ */
+export interface OperatorCockpitEconomicAttemptProjection {
+  readonly jobId: string;
+  readonly economicAttemptId: string;
+  /** Best-effort cross-reference to a managed-agent invocation; absent on older events. */
+  readonly invocationId?: string;
+  readonly instanceId: string;
+  readonly sessionId: string;
+  readonly parentTurnId?: string;
+  readonly policyId: string;
+  readonly policyRevision: string;
+  readonly policyDigest: string;
+  readonly transition: string;
+  readonly commitmentId?: string;
+  readonly reservationId?: string;
+  readonly dispatchFenceId?: string;
+  readonly selectedRoute?: OperatorManagedEconomicRouteIdentity;
+  readonly selectedAccount?: OperatorManagedEconomicAccountIdentity;
+  readonly settlementKind?: OperatorManagedEconomicSettlementKind;
+  readonly settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
+  readonly reason?: string;
+  readonly eventCount: number;
+  readonly latestEventId: string;
+}
+
 export interface OperatorCockpitReadOnlyProjection {
   readonly mode: "read-only";
   readonly projectedAt: string;
@@ -389,6 +424,7 @@ export interface OperatorCockpitReadOnlyProjection {
   readonly timeline: readonly OperatorCockpitTimelineEntry[];
   readonly invocations: readonly OperatorCockpitInvocationProjection[];
   readonly toolSummaries: readonly OperatorCockpitToolSummaryProjection[];
+  readonly economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[];
   readonly cost: OperatorCockpitCostProjection;
 }
 
@@ -445,6 +481,29 @@ interface InvocationAccumulator {
   eventCount: number;
   latestEventId: string;
   title: string;
+}
+
+interface EconomicAttemptAccumulator {
+  readonly jobId: string;
+  readonly instanceId: string;
+  readonly sessionId: string;
+  economicAttemptId: string;
+  invocationId?: string;
+  parentTurnId?: string;
+  policyId: string;
+  policyRevision: string;
+  policyDigest: string;
+  transition: string;
+  commitmentId?: string;
+  reservationId?: string;
+  dispatchFenceId?: string;
+  selectedRoute?: OperatorManagedEconomicRouteIdentity;
+  selectedAccount?: OperatorManagedEconomicAccountIdentity;
+  settlementKind?: OperatorManagedEconomicSettlementKind;
+  settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
+  reason?: string;
+  eventCount: number;
+  latestEventId: string;
 }
 
 interface ToolAccumulator {
@@ -518,6 +577,7 @@ export function projectOperatorCockpitReadOnlyView(
   const invocations = new Map<string, InvocationAccumulator>();
   const adoptionGates = new Map<string, OperatorCockpitManagedOrchestrationAdoptionGateProjection>();
   const tools = new Map<string, ToolAccumulator>();
+  const economicAttempts = new Map<string, EconomicAttemptAccumulator>();
   const providerRoutes = new Set<string>();
   const timeline: OperatorCockpitTimelineEntry[] = [];
   let inputTokens = 0;
@@ -656,6 +716,46 @@ export function projectOperatorCockpitReadOnlyView(
       session.invocations.add(managedInvocationId);
     }
 
+    if (event.kind === "managed_economic_lifecycle") {
+      const jobId = readString(payload.jobId);
+      const economicAttemptId = readString(payload.economicAttemptId);
+      const transition = readString(payload.transition);
+      const policyId = readString(payload.policyId);
+      const policyRevision = readString(payload.policyRevision);
+      const policyDigest = readString(payload.policyDigest);
+      if (jobId && economicAttemptId && transition && policyId && policyRevision && policyDigest) {
+        const attempt = getOrCreateEconomicAttempt(economicAttempts, {
+          jobId,
+          instanceId,
+          sessionId,
+          economicAttemptId,
+          policyId,
+          policyRevision,
+          policyDigest,
+          transition,
+          latestEventId: event.eventId,
+        });
+        attempt.eventCount += 1;
+        attempt.latestEventId = event.eventId;
+        attempt.economicAttemptId = economicAttemptId;
+        attempt.transition = transition;
+        attempt.policyId = policyId;
+        attempt.policyRevision = policyRevision;
+        attempt.policyDigest = policyDigest;
+        attempt.parentTurnId = readString(payload.parentTurnId) ?? event.turnId ?? attempt.parentTurnId;
+        attempt.invocationId = readString(payload.invocationId) ?? attempt.invocationId;
+        attempt.commitmentId = readString(payload.commitmentId) ?? attempt.commitmentId;
+        attempt.reservationId = readString(payload.reservationId) ?? attempt.reservationId;
+        attempt.dispatchFenceId = readString(payload.dispatchFenceId) ?? attempt.dispatchFenceId;
+        attempt.selectedRoute = readManagedEconomicRoute(payload.selectedRoute) ?? attempt.selectedRoute;
+        attempt.selectedAccount = readManagedEconomicAccount(payload.selectedAccount) ?? attempt.selectedAccount;
+        attempt.settlementKind = readManagedEconomicSettlementKind(payload.settlementKind) ?? attempt.settlementKind;
+        attempt.settlementAuthority = readManagedEconomicEvidenceAuthority(payload.settlementAuthority)
+          ?? attempt.settlementAuthority;
+        attempt.reason = readString(payload.reason) ?? attempt.reason;
+      }
+    }
+
     if (toolCallId && toolCallScopeId && toolName) {
       const toolTarget: OperatorCockpitActionTarget = {
         gatewayTargetId: gatewayTarget.targetId,
@@ -716,6 +816,7 @@ export function projectOperatorCockpitReadOnlyView(
     timeline,
     invocations: Array.from(invocations.values()).map(projectInvocation).sort(compareByInstanceThenSessionThenInvocation),
     toolSummaries: Array.from(tools.values()).map(projectTool).sort(compareByInstanceThenSessionThenTool),
+    economicAttempts: Array.from(economicAttempts.values()).map(projectEconomicAttempt).sort(compareEconomicAttempts),
     cost: {
       inputTokens,
       outputTokens,
@@ -885,6 +986,39 @@ function getOrCreateInvocation(
   return created;
 }
 
+function getOrCreateEconomicAttempt(
+  economicAttempts: Map<string, EconomicAttemptAccumulator>,
+  input: {
+    readonly jobId: string;
+    readonly instanceId: string;
+    readonly sessionId: string;
+    readonly economicAttemptId: string;
+    readonly policyId: string;
+    readonly policyRevision: string;
+    readonly policyDigest: string;
+    readonly transition: string;
+    readonly latestEventId: string;
+  },
+): EconomicAttemptAccumulator {
+  const key = projectionKey(input.instanceId, input.sessionId, input.jobId);
+  const existing = economicAttempts.get(key);
+  if (existing) return existing;
+  const created: EconomicAttemptAccumulator = {
+    jobId: input.jobId,
+    instanceId: input.instanceId,
+    sessionId: input.sessionId,
+    economicAttemptId: input.economicAttemptId,
+    policyId: input.policyId,
+    policyRevision: input.policyRevision,
+    policyDigest: input.policyDigest,
+    transition: input.transition,
+    eventCount: 0,
+    latestEventId: input.latestEventId,
+  };
+  economicAttempts.set(key, created);
+  return created;
+}
+
 function getOrCreateTool(
   tools: Map<string, ToolAccumulator>,
   input: {
@@ -914,6 +1048,42 @@ function getOrCreateTool(
   };
   tools.set(key, created);
   return created;
+}
+
+function projectEconomicAttempt(input: EconomicAttemptAccumulator): OperatorCockpitEconomicAttemptProjection {
+  return {
+    jobId: input.jobId,
+    economicAttemptId: input.economicAttemptId,
+    ...(input.invocationId !== undefined ? { invocationId: input.invocationId } : {}),
+    instanceId: input.instanceId,
+    sessionId: input.sessionId,
+    ...(input.parentTurnId !== undefined ? { parentTurnId: input.parentTurnId } : {}),
+    policyId: input.policyId,
+    policyRevision: input.policyRevision,
+    policyDigest: input.policyDigest,
+    transition: input.transition,
+    ...(input.commitmentId !== undefined ? { commitmentId: input.commitmentId } : {}),
+    ...(input.reservationId !== undefined ? { reservationId: input.reservationId } : {}),
+    ...(input.dispatchFenceId !== undefined ? { dispatchFenceId: input.dispatchFenceId } : {}),
+    ...(input.selectedRoute !== undefined ? { selectedRoute: input.selectedRoute } : {}),
+    ...(input.selectedAccount !== undefined ? { selectedAccount: input.selectedAccount } : {}),
+    ...(input.settlementKind !== undefined ? { settlementKind: input.settlementKind } : {}),
+    ...(input.settlementAuthority !== undefined ? { settlementAuthority: input.settlementAuthority } : {}),
+    ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    eventCount: input.eventCount,
+    latestEventId: input.latestEventId,
+  };
+}
+
+function compareEconomicAttempts(
+  a: OperatorCockpitEconomicAttemptProjection,
+  b: OperatorCockpitEconomicAttemptProjection,
+): number {
+  return a.instanceId === b.instanceId
+    ? a.sessionId === b.sessionId
+      ? a.jobId.localeCompare(b.jobId)
+      : a.sessionId.localeCompare(b.sessionId)
+    : a.instanceId.localeCompare(b.instanceId);
 }
 
 function projectInstance(input: InstanceAccumulator): OperatorCockpitInstanceProjection {
@@ -1334,6 +1504,47 @@ function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInv
     ...(worktreeReview !== undefined ? { worktreeReview } : {}),
     ...(worktreeConflict !== undefined ? { worktreeConflict } : {}),
   };
+}
+
+function readManagedEconomicRoute(value: unknown): OperatorManagedEconomicRouteIdentity | undefined {
+  const route = asRecord(value);
+  const routeId = readString(route.routeId);
+  const providerId = readString(route.providerId);
+  const modelId = readString(route.modelId);
+  const adapterCapabilityId = readString(route.adapterCapabilityId);
+  const adapterCapabilityVersion = readString(route.adapterCapabilityVersion);
+  if (!routeId || !providerId || !modelId || !adapterCapabilityId || !adapterCapabilityVersion) {
+    return undefined;
+  }
+  return { routeId, providerId, modelId, adapterCapabilityId, adapterCapabilityVersion };
+}
+
+function readManagedEconomicAccount(value: unknown): OperatorManagedEconomicAccountIdentity | undefined {
+  const account = asRecord(value);
+  const kind = account.kind;
+  if (kind !== "account-bound" && kind !== "accountless") {
+    return undefined;
+  }
+  const capacityIdentity = readString(account.capacityIdentity) ?? undefined;
+  const creditPosture = account.creditPosture;
+  const overagePosture = account.overagePosture;
+  return {
+    kind,
+    ...(capacityIdentity !== undefined ? { capacityIdentity } : {}),
+    ...(creditPosture === "disabled" || creditPosture === "committed" ? { creditPosture } : {}),
+    ...(overagePosture === "disabled" || overagePosture === "committed" ? { overagePosture } : {}),
+  };
+}
+
+function readManagedEconomicSettlementKind(value: unknown): OperatorManagedEconomicSettlementKind | undefined {
+  return value === "charge" || value === "estimate" || value === "subscription"
+    || value === "included" || value === "free" || value === "unknown"
+    ? value
+    : undefined;
+}
+
+function readManagedEconomicEvidenceAuthority(value: unknown): OperatorManagedEconomicEvidenceAuthority | undefined {
+  return value === "authoritative" || value === "unknown" ? value : undefined;
 }
 
 function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvocationAccountLeaseProjection | null {
@@ -2323,6 +2534,7 @@ const MANAGED_AGENT_GOVERNANCE_REPLAY_EVENT_KINDS: readonly OperatorSessionEvent
   "assistant_message",
   "error_recorded",
   "turn_completed",
+  "managed_economic_lifecycle",
 ];
 
 function isManagedAgentReplayEventKind(kind: string): kind is OperatorSessionEventKind {

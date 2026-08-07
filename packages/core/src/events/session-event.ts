@@ -607,6 +607,13 @@ export interface CanonicalManagedEconomicLifecycleEvent
   extends SessionEventEnvelope<"managed_economic_lifecycle"> {
   readonly jobId: string;
   readonly economicAttemptId: string;
+  /**
+   * The managed-agent invocation this economic attempt belongs to, when known. `jobId` is
+   * computed independently of `invocationId` in Runtime (see runtime-tool.ts), so this is a
+   * best-effort cross-reference, not a durable key relationship - it is absent on events emitted
+   * before this field existed and must not be treated as a required join.
+   */
+  readonly invocationId?: string;
   readonly transition: SessionManagedEconomicLifecycleTransition;
   readonly policyId: string;
   readonly policyRevision: string;

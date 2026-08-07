@@ -223,6 +223,53 @@ describe("managed-agent command", () => {
     expect(log.mock.calls[1]?.[0]).toContain("Worktree review diagnostics: kiln://artifacts/child-1/worktree-review-required");
   });
 
+  it("lists economic attempts as their own section, not nested under an invocation", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    await appendManagedInvocationEvents(transcriptStore, "session-1");
+    await transcriptStore.append("session-1", {
+      eventId: "economic-event-1",
+      kilnSessionId: "session-1",
+      sequence: 100,
+      timestamp: "2026-05-23T00:00:05.000Z",
+      kind: "managed_economic_lifecycle",
+      source: { actor: "runtime", surface: "runtime", component: "managed-invocation" },
+      payload: {
+        instanceId: "local",
+        sessionId: "session-1",
+        jobId: "managed-economic-job:cli-fixture",
+        economicAttemptId: "economic-attempt:cli-fixture:1",
+        transition: "held",
+        policyId: "cli-fixture-policy",
+        policyRevision: "1",
+        policyDigest: "sha256:cli-fixture-policy-digest",
+        selectedRoute: {
+          routeId: "cli-fixture-route",
+          providerId: "codex-oauth",
+          modelId: "gpt-test",
+          adapterCapabilityId: "cli-fixture-adapter",
+          adapterCapabilityVersion: "1",
+        },
+        selectedAccount: { kind: "accountless" },
+      },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      ["--session", "session-1"],
+      { projectPath: root, projectedAt: () => "2026-05-23T00:00:00.000Z" },
+    );
+
+    const output = log.mock.calls[0]?.[0] as string;
+    expect(output).toContain("Economic attempts:");
+    expect(output).toContain("managed-economic-job:cli-fixture");
+    expect(output).toContain("held");
+    expect(output).toContain("policy:cli-fixture-policy");
+    expect(output).toContain("route:codex-oauth/gpt-test");
+  });
+
   it("prints canonical managed account lease evidence without local policy reconstruction", async () => {
     const root = await tempRoot();
     const transcriptStore = new TranscriptStore(root);

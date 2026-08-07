@@ -1995,4 +1995,84 @@ describe("operator cockpit read-only projection", () => {
       ],
     });
   });
+
+  it("folds managed_economic_lifecycle events into a top-level economic attempt, not an invocation", () => {
+    const held: OperatorSessionEvent = {
+      eventId: "economic:event:1",
+      kilnSessionId: "economic:session:1",
+      sequence: 1,
+      timestamp: "2026-08-06T12:00:00.000Z",
+      kind: "managed_economic_lifecycle",
+      turnId: "economic:turn:1",
+      payload: {
+        instanceId: "economic:instance:1",
+        sessionId: "economic:session:1",
+        jobId: "managed-economic-job:fixture",
+        economicAttemptId: "economic-attempt:fixture:1",
+        transition: "held",
+        policyId: "fixture-policy",
+        policyRevision: "1",
+        policyDigest: "sha256:fixture-policy-digest",
+        commitmentId: "fixture-commitment",
+        reservationId: "fixture-reservation",
+        selectedRoute: {
+          routeId: "fixture-route",
+          providerId: "codex-oauth",
+          modelId: "gpt-test",
+          adapterCapabilityId: "fixture-adapter",
+          adapterCapabilityVersion: "1",
+        },
+        selectedAccount: { kind: "accountless" },
+      },
+    };
+    const settled: OperatorSessionEvent = {
+      eventId: "economic:event:2",
+      kilnSessionId: "economic:session:1",
+      sequence: 2,
+      timestamp: "2026-08-06T12:00:05.000Z",
+      kind: "managed_economic_lifecycle",
+      turnId: "economic:turn:1",
+      payload: {
+        instanceId: "economic:instance:1",
+        sessionId: "economic:session:1",
+        jobId: "managed-economic-job:fixture",
+        economicAttemptId: "economic-attempt:fixture:1",
+        transition: "released",
+        policyId: "fixture-policy",
+        policyRevision: "1",
+        policyDigest: "sha256:fixture-policy-digest",
+        commitmentId: "fixture-commitment",
+        reservationId: "fixture-reservation",
+        settlementKind: "charge",
+        settlementAuthority: "authoritative",
+      },
+    };
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "economic:instance:1",
+        label: "Synthetic economic runtime",
+        kind: "local",
+      }],
+      events: [held, settled],
+    });
+
+    expect(projection.economicAttempts).toHaveLength(1);
+    expect(projection.economicAttempts[0]).toMatchObject({
+      jobId: "managed-economic-job:fixture",
+      economicAttemptId: "economic-attempt:fixture:1",
+      transition: "released",
+      policyId: "fixture-policy",
+      selectedRoute: {
+        providerId: "codex-oauth",
+        modelId: "gpt-test",
+      },
+      selectedAccount: { kind: "accountless" },
+      settlementKind: "charge",
+      settlementAuthority: "authoritative",
+      eventCount: 2,
+    });
+    expect(projection.invocations).toHaveLength(0);
+  });
 });

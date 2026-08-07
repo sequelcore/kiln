@@ -2499,6 +2499,79 @@ function agentPresentation(kind: OperatorSessionEventKind, payload: Record<strin
   };
 }
 
+const ECONOMIC_LIFECYCLE_TITLES: Record<string, string> = {
+  denied: "Economic route denied",
+  held: "Economic route committed",
+  "dispatch-fenced": "Economic dispatch fenced",
+  "settlement-pending": "Economic settlement pending",
+  released: "Economic reservation released",
+  "release-failed": "Economic release failed",
+  leaked: "Economic reservation leaked",
+};
+
+const ECONOMIC_LIFECYCLE_TONES: Record<string, OperatorEventTone> = {
+  denied: "error",
+  held: "info",
+  "dispatch-fenced": "running",
+  "settlement-pending": "running",
+  released: "success",
+  "release-failed": "error",
+  leaked: "warning",
+};
+
+function economicRouteLabel(route: Record<string, unknown> | null): string | null {
+  const providerId = readString(route?.providerId);
+  if (!providerId) {
+    return null;
+  }
+  const modelId = readString(route?.modelId);
+  return modelId ? `${providerId}/${modelId}` : providerId;
+}
+
+function economicLifecyclePresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const transition = readString(payload.transition) ?? "unknown";
+  const policyId = readString(payload.policyId);
+  const routeLabel = economicRouteLabel(asRecord(payload.selectedRoute));
+  const settlementKind = readString(payload.settlementKind);
+  const reason = readString(payload.reason);
+  const summaryParts = [
+    policyId ?? "economic policy",
+    routeLabel,
+    settlementKind ? `settlement: ${settlementKind}` : null,
+    reason,
+  ].filter((value): value is string => value !== null && value !== undefined);
+  const summary = summaryParts.join(" · ");
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Job", payload.jobId);
+  addItem(details, "Attempt", payload.economicAttemptId);
+  addItem(details, "Transition", transition);
+  addItem(details, "Policy", policyId);
+  addItem(details, "Policy revision", payload.policyRevision);
+  addItem(details, "Commitment", payload.commitmentId);
+  addItem(details, "Reservation", payload.reservationId);
+  addItem(details, "Dispatch fence", payload.dispatchFenceId);
+  addItem(details, "Route", routeLabel);
+  addItem(details, "Account", asRecord(payload.selectedAccount)?.kind);
+  addItem(details, "Settlement", settlementKind);
+  addItem(details, "Settlement authority", payload.settlementAuthority);
+  addItem(details, "Reason", reason);
+  addPrimitiveItems(
+    details,
+    payload,
+    8,
+    ["jobId", "economicAttemptId", "transition", "policyId", "policyRevision", "policyDigest", "commitmentId", "reservationId", "dispatchFenceId", "selectedRoute", "selectedAccount", "settlementKind", "settlementAuthority", "reason"],
+  );
+  return {
+    title: ECONOMIC_LIFECYCLE_TITLES[transition] ?? "Economic lifecycle event",
+    summary,
+    compactText: summary,
+    tone: ECONOMIC_LIFECYCLE_TONES[transition] ?? "info",
+    details,
+    surfaces: INLINE_ACTIVITY_SURFACES,
+    conversationDisposition: "none",
+  };
+}
+
 function continuityPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const runtimeContinuity = asRecord(payload.runtimeContinuity);
   const decision = readString(payload.decision) ?? readString(runtimeContinuity?.strategy);
@@ -2850,6 +2923,8 @@ export function presentOperatorEventPayload(
     case "agent_invocation_failed":
     case "agent_invocation_cancelled":
       return agentPresentation(kind, payload);
+    case "managed_economic_lifecycle":
+      return economicLifecyclePresentation(payload);
     case "continuity_decided":
       return continuityPresentation(payload);
     case "turn_completed":

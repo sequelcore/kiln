@@ -15,6 +15,7 @@ import type {
   ManagedAgentLifecycleState,
   ManagedAccountLeaseEvidence,
   ManagedAgentResourceLeaseEvidence,
+  ManagedEconomicReservation,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
@@ -31,6 +32,12 @@ export interface ManagedAgentRuntimeEconomicDispatchCheckpoint {
   readonly jobId: string;
   readonly economicAttemptId: string;
   readonly dispatchFenceId: string;
+  /**
+   * Optional even though newly written checkpoints always populate it: checkpoints persisted
+   * before this field existed must still validate on restart (checkpoints are transient
+   * in-flight recovery records under the same `version: 2`, not a durable history schema).
+   */
+  readonly reservation?: ManagedEconomicReservation;
 }
 
 export interface ManagedAgentRuntimeRecoveryCheckpoint {
@@ -282,12 +289,66 @@ function validateEconomicDispatchCheckpoint(input: unknown): ManagedAgentRuntime
   if (!isRecord(input)) {
     throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic dispatch reference must be an object");
   }
+  const jobId = validateAuthorityReference(input.jobId, "job id");
+  const economicAttemptId = validateAuthorityReference(input.economicAttemptId, "attempt id");
+  const reservation = input.reservation !== undefined
+    ? validateEconomicReservationCheckpoint(input.reservation, jobId, economicAttemptId)
+    : undefined;
   return {
     commitmentId: validateAuthorityReference(input.commitmentId, "commitment id"),
-    jobId: validateAuthorityReference(input.jobId, "job id"),
-    economicAttemptId: validateAuthorityReference(input.economicAttemptId, "attempt id"),
+    jobId,
+    economicAttemptId,
     dispatchFenceId: validateAuthorityReference(input.dispatchFenceId, "dispatch fence id"),
+    ...(reservation !== undefined ? { reservation } : {}),
   };
+}
+
+// Structural persistence validation only: the reservation's economic-domain correctness (policy
+// rules, price/envelope semantics, amount arithmetic) is Core's responsibility and already ran
+// once when the Runtime SQLite authority produced the value. This guards only against disk
+// corruption of the persisted checkpoint, and cross-checks identity against the sibling fields
+// that already anchor this checkpoint's authority reference. The field itself is optional so
+// checkpoints persisted before it existed still validate (see the interface doc comment).
+function validateEconomicReservationCheckpoint(
+  input: unknown,
+  expectedJobId: string,
+  expectedEconomicAttemptId: string,
+): ManagedEconomicReservation {
+  if (!isRecord(input)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic reservation must be an object");
+  }
+  const reservationId = validateAuthorityReference(input.reservationId, "reservation id");
+  const jobId = validateAuthorityReference(input.jobId, "reservation job id");
+  const economicAttemptId = validateAuthorityReference(input.economicAttemptId, "reservation attempt id");
+  const authorityRevision = validateAuthorityReference(input.authorityRevision, "reservation authority revision");
+  if (jobId !== expectedJobId || economicAttemptId !== expectedEconomicAttemptId) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Managed runtime recovery economic reservation identity does not match its dispatch reference",
+    );
+  }
+  if (!isRecord(input.policy)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic reservation requires a policy");
+  }
+  if (!isRecord(input.selectedIdentity)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic reservation requires a selected identity");
+  }
+  if (!isRecord(input.envelope)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic reservation requires an envelope");
+  }
+  if (!Array.isArray(input.amounts)) {
+    throw new ManagedAgentRuntimeAdmissionError("Managed runtime recovery economic reservation requires reserved amounts");
+  }
+  return {
+    reservationId,
+    jobId,
+    economicAttemptId,
+    policy: input.policy,
+    selectedIdentity: input.selectedIdentity,
+    priceIdentity: input.priceIdentity ?? null,
+    envelope: input.envelope,
+    amounts: input.amounts,
+    authorityRevision,
+  } as unknown as ManagedEconomicReservation;
 }
 
 function validateAuthorityReference(input: unknown, field: string): string {

@@ -8,6 +8,7 @@ import {
   createOperatorWorkspaceHomeProjection,
   projectOperatorCockpitReadOnlyView,
   type OperatorCockpitAttachTarget,
+  type OperatorCockpitEconomicAttemptProjection,
   type OperatorCockpitManagedAgentDrilldownTarget,
   type OperatorCockpitManagedAgentViewItem,
   type OperatorCockpitManagedAgentViewState,
@@ -28,6 +29,8 @@ export const EMPTY_TUI_MANAGED_AGENT_VIEW_STATE: OperatorCockpitManagedAgentView
   activeCount: 0,
   attentionCount: 0,
 };
+
+export const EMPTY_TUI_ECONOMIC_ATTEMPTS: readonly OperatorCockpitEconomicAttemptProjection[] = [];
 
 export interface TuiManagedAgentProjectionOptions {
   readonly drilldownTarget?: OperatorCockpitManagedAgentDrilldownTarget;
@@ -112,22 +115,61 @@ export const EMPTY_TUI_OPERATOR_WORKSPACE_HOME = projectTuiOperatorWorkspaceStat
 
 export function formatManagedAgentCockpitLines(
   viewState: OperatorCockpitManagedAgentViewState,
+  economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[] = EMPTY_TUI_ECONOMIC_ATTEMPTS,
 ): readonly string[] {
   if (viewState.items.length === 0) {
-    return viewState.drilldown
-      ? ["(none)", ...formatManagedAgentDrilldownLines(viewState.drilldown)]
-      : ["(none)"];
+    return [
+      ...(viewState.drilldown
+        ? ["(none)", ...formatManagedAgentDrilldownLines(viewState.drilldown)]
+        : ["(none)"]),
+      ...formatEconomicAttemptCockpitLines(economicAttempts),
+    ];
   }
 
   return [
     `attention: ${viewState.attentionCount}  active: ${viewState.activeCount}`,
     ...viewState.items.slice(0, 5).flatMap(formatManagedAgentItemLines),
     ...(viewState.drilldown ? formatManagedAgentDrilldownLines(viewState.drilldown) : []),
+    ...formatEconomicAttemptCockpitLines(economicAttempts),
+  ];
+}
+
+// Not joined to a specific managed invocation (jobId carries no durable invocationId link yet),
+// so economic attempts are listed as their own section rather than nested per item.
+function formatEconomicAttemptCockpitLines(
+  economicAttempts: readonly OperatorCockpitEconomicAttemptProjection[],
+): readonly string[] {
+  if (economicAttempts.length === 0) {
+    return [];
+  }
+  return [
+    "economic attempts:",
+    ...economicAttempts.slice(0, 5).map((attempt) => {
+      const route = attempt.selectedRoute
+        ? `${attempt.selectedRoute.providerId}/${attempt.selectedRoute.modelId}`
+        : undefined;
+      return [
+        attempt.jobId,
+        attempt.transition,
+        route,
+        attempt.settlementKind,
+      ].filter((part): part is string => part !== undefined).join("  ");
+    }),
   ];
 }
 
 function normalizeManagedAgentSessionEvent(event: OperatorSessionEvent): OperatorSessionEvent | null {
   const payload = asRecord(event.payload);
+  if (event.kind === "managed_economic_lifecycle") {
+    return {
+      ...event,
+      payload: {
+        ...payload,
+        instanceId: readString(payload.instanceId) ?? TUI_COCKPIT_ATTACH_TARGET.instanceId,
+        sessionId: readString(payload.sessionId) ?? event.kilnSessionId,
+      },
+    };
+  }
   if (event.kind.startsWith("work_item_") && hasManagedOrchestrationAdoptionGate(payload)) {
     const instanceId = readString(payload.instanceId);
     const sessionId = readString(payload.sessionId);

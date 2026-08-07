@@ -310,7 +310,7 @@ export function renderSidebarManagedAgents(
   theme: KilnTheme,
   ui: UIComponents
 ): void {
-  const lines = formatManagedAgentCockpitLines(state.managedAgents);
+  const lines = formatManagedAgentCockpitLines(state.managedAgents, state.economicAttempts);
   const color = state.managedAgents.attentionCount > 0 ? theme.warning : theme.textMuted;
   ui.sidebarManagedAgentsText.content = t`${fg(color)(lines.join("\n"))}`;
 }

@@ -1545,6 +1545,18 @@ async function prepareManagedInvocationRequest(
     return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
 
+  // Computed once, from `context` alone, so it is identical whether read here (for the economic
+  // commitment path) or at its historical call site below (the fixed-route path and the
+  // "already-admitted" recursive call reached after economic commitment): none of the inputs to
+  // `resolveManagedInvocationParentTurnId`/`resolveManagedInvocationParentTurnOrdinal`/
+  // `buildInvocationId` change within this function.
+  const parentTurnId = resolveManagedInvocationParentTurnId(context);
+  const invocationId = buildInvocationId(
+    context.session.id,
+    resolveManagedInvocationParentTurnOrdinal(parentTurnId, context.session.userTurnCount),
+    context.toolCall.id,
+  );
+
   const canonicalizedRawInput = canonicalizeManagedInvocationRawInput(rawInput, options.routes);
   const parsed = parseInput(canonicalizedRawInput.input, toolName);
   if (!parsed.ok) {
@@ -1719,6 +1731,7 @@ async function prepareManagedInvocationRequest(
               ...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
               jobId: `managed-economic-job:${economicIdentity}`,
               economicAttemptId: `economic-attempt:${economicIdentity}`,
+              invocationId,
               ...recordInput,
             });
             void publishManagedInvocationSessionEvents(options, context, events);
@@ -2159,12 +2172,6 @@ async function prepareManagedInvocationRequest(
     ? `${contextResolution.resolution.promptPrefix}\n\nTask:\n${parsed.input.task}`
     : parsed.input.task;
 
-  const parentTurnId = resolveManagedInvocationParentTurnId(context);
-  const invocationId = buildInvocationId(
-    context.session.id,
-    resolveManagedInvocationParentTurnOrdinal(parentTurnId, context.session.userTurnCount),
-    context.toolCall.id,
-  );
   const resolvedAuthority = resolveManagedInvocationRouteAuthority(profileDefaults, invocationId);
   const handoffContract = buildHandoffContract(parsed.input);
   const contextMetadata = buildManagedInvocationContextMetadata(parsed.input, contextResolution.resolution);

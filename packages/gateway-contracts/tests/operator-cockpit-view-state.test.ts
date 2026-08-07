@@ -1220,4 +1220,41 @@ describe("operator cockpit read-only view state", () => {
       },
     }).timeline.valid).toBe(false);
   });
+
+  it("passes economicAttempts through from the projection", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: "economic-view:instance:1",
+        label: "Synthetic economic runtime",
+        kind: "local",
+      }],
+      events: [{
+        eventId: "economic-view:event:1",
+        kilnSessionId: "economic-view:session:1",
+        sequence: 1,
+        timestamp: "2026-08-06T12:00:00.000Z",
+        kind: "managed_economic_lifecycle",
+        payload: {
+          instanceId: "economic-view:instance:1",
+          sessionId: "economic-view:session:1",
+          jobId: "managed-economic-job:fixture",
+          economicAttemptId: "economic-attempt:fixture:1",
+          transition: "held",
+          policyId: "fixture-policy",
+          policyRevision: "1",
+          policyDigest: "sha256:fixture-policy-digest",
+        },
+      }],
+    });
+
+    const view = createOperatorCockpitReadOnlyViewState({
+      projection,
+      viewState: {},
+    });
+
+    expect(view.economicAttempts).toEqual(projection.economicAttempts);
+    expect(view.economicAttempts).toHaveLength(1);
+    expect(view.economicAttempts[0]?.jobId).toBe("managed-economic-job:fixture");
+  });
 });

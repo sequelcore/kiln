@@ -317,11 +317,12 @@ function readStrings(value: unknown): readonly string[] {
 function isManagedInvocationEvent(
   event: CanonicalSessionEvent,
 ): event is Extract<CanonicalSessionEvent, {
-  readonly kind: "agent_invocation_requested" | "agent_invocation_started" | "agent_invocation_completed" | "agent_invocation_failed" | "agent_invocation_cancelled";
+  readonly kind: "agent_invocation_requested" | "agent_invocation_started" | "agent_invocation_completed" | "agent_invocation_failed" | "agent_invocation_cancelled" | "managed_economic_lifecycle";
 }> {
   return event.kind === "agent_invocation_requested"
     || event.kind === "agent_invocation_started"
     || event.kind === "agent_invocation_completed"
     || event.kind === "agent_invocation_failed"
-    || event.kind === "agent_invocation_cancelled";
+    || event.kind === "agent_invocation_cancelled"
+    || event.kind === "managed_economic_lifecycle";
 }
