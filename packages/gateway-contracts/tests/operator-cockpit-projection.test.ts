@@ -2194,5 +2194,502 @@ describe("operator cockpit read-only projection", () => {
       expect(withMalformed.unprojectableEvidence).toHaveLength(1);
       expect(withoutMalformed.unprojectableEvidence).toHaveLength(0);
     });
+
+    function managedInvocationEvent(
+      sequence: number,
+      kind: OperatorSessionEvent["kind"],
+      payloadOverrides: Record<string, unknown>,
+    ): OperatorSessionEvent {
+      return {
+        eventId: `managed:event:${sequence}`,
+        kilnSessionId: "economic:session:1",
+        sequence,
+        timestamp: `2026-08-07T12:00:0${sequence}.000Z`,
+        kind,
+        turnId: "managed:turn:1",
+        payload: {
+          instanceId: "economic:instance:1",
+          sessionId: "economic:session:1",
+          managedInvocationId: "managed:invocation:1",
+          ...payloadOverrides,
+        },
+      };
+    }
+
+    describe("prompt admission", () => {
+      it("is not a rejection when the event kind carries no prompt admission evidence", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {})],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects an admitted prompt missing its required promptAdmissionId", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_prompt_admitted", {
+            deliveryMode: "steer",
+            admissionState: "admitted",
+            inputSummary: "do the thing",
+            promptHash: "sha256:fixture",
+            wakeRequested: false,
+          })],
+        });
+
+        expect(projection.invocations[0]?.promptAdmissionCount).toBe(0);
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_prompt_admitted",
+          reason: "missing-required-field",
+          field: "promptAdmissionId",
+        }]);
+      });
+
+      it("rejects an unrecognized delivery mode as an invalid discriminator", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_prompt_admitted", {
+            promptAdmissionId: "prompt:1",
+            deliveryMode: "not-a-mode",
+            admissionState: "admitted",
+            inputSummary: "do the thing",
+            promptHash: "sha256:fixture",
+            wakeRequested: false,
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_prompt_admitted",
+          reason: "invalid-discriminator",
+          field: "deliveryMode",
+        }]);
+      });
+    });
+
+    describe("external tool failure", () => {
+      function toolEvent(sequence: number, metadataOverrides: Record<string, unknown>): OperatorSessionEvent {
+        return managedInvocationEvent(sequence, "tool_call_completed", {
+          toolCallId: "tool-call:1",
+          toolCallScopeId: "tool-scope:1",
+          toolName: "managed_agent.invoke",
+          metadata: {
+            kind: "external_tool_failure",
+            ...metadataOverrides,
+          },
+        });
+      }
+
+      it("is not a rejection when tool metadata carries no external tool failure evidence", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "tool_call_completed", {
+            toolCallId: "tool-call:1",
+            toolCallScopeId: "tool-scope:1",
+            toolName: "managed_agent.invoke",
+            metadata: { kind: "tool_output" },
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects an external tool failure missing its required selector", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [toolEvent(1, {
+            category: "invocation-error",
+            diagnostic: "the external runtime rejected the call",
+            redacted: false,
+            blocked: false,
+          })],
+        });
+
+        expect(projection.toolSummaries[0]?.externalFailure).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "tool_call_completed",
+          reason: "missing-required-field",
+          field: "metadata.selector",
+        }]);
+      });
+
+      it("rejects a selector that does not carry the mcp: scheme as a contract violation", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [toolEvent(1, {
+            selector: "http:not-an-mcp-selector",
+            category: "invocation-error",
+            diagnostic: "the external runtime rejected the call",
+            redacted: false,
+            blocked: false,
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "tool_call_completed",
+          reason: "contract-violation",
+          field: "metadata.selector",
+        }]);
+      });
+    });
+
+    describe("resource lease", () => {
+      it("is not a rejection when no resource lease evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {})],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects a resource lease present in the payload but missing leaseId", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {
+            managedInvocationEvidence: {
+              lifecycle: {
+                resourceLease: {
+                  createdAt: "2026-08-07T12:00:00.000Z",
+                  healthStatus: "healthy",
+                  cleanupStatus: "not-required",
+                  workingDirectoryPath: "/workspace",
+                  workingDirectoryMode: "workspace-write",
+                  resourceUris: [],
+                  diagnosticUris: [],
+                },
+              },
+            },
+          })],
+        });
+
+        expect(projection.invocations[0]?.resourceLease).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_failed",
+          reason: "missing-required-field",
+          field: "resourceLease.leaseId",
+        }]);
+      });
+
+      it("rejects an unrecognized health status as an invalid discriminator", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {
+            managedInvocationEvidence: {
+              lifecycle: {
+                resourceLease: {
+                  leaseId: "lease:1",
+                  createdAt: "2026-08-07T12:00:00.000Z",
+                  healthStatus: "not-a-health-status",
+                  cleanupStatus: "not-required",
+                  workingDirectoryPath: "/workspace",
+                  workingDirectoryMode: "workspace-write",
+                  resourceUris: [],
+                  diagnosticUris: [],
+                },
+              },
+            },
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_failed",
+          reason: "invalid-discriminator",
+          field: "resourceLease.healthStatus",
+        }]);
+      });
+    });
+
+    describe("account lease", () => {
+      it("is not a rejection when no account lease evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {})],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects an account lease present in the payload but missing selectionReason", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {
+            managedInvocationEvidence: {
+              lifecycle: {
+                accountLease: {
+                  leaseId: "lease:1",
+                  accountPolicyId: "policy:1",
+                  accountRef: "configured:account:opaque",
+                  route: { providerId: "openai", providerModelId: "gpt-test", scope: "virtual:policy" },
+                  jobId: "managed:invocation:1",
+                  runtimeInvocationId: "managed:invocation:1",
+                  credentialRevisionId: "a".repeat(64),
+                  acquiredAt: "2026-08-07T12:00:00.000Z",
+                  lifecycleState: "held",
+                  resourceUris: [],
+                  diagnosticUris: [],
+                },
+              },
+            },
+          })],
+        });
+
+        expect(projection.invocations[0]?.accountLease).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_failed",
+          reason: "missing-required-field",
+          field: "accountLease.selectionReason",
+        }]);
+      });
+
+      it("never carries the offending credential value, only its field name", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {
+            managedInvocationEvidence: {
+              lifecycle: {
+                accountLease: {
+                  leaseId: "lease:1",
+                  accountPolicyId: "policy:1",
+                  accountRef: "configured:account:opaque",
+                  route: { providerId: "openai", providerModelId: "gpt-test", scope: "virtual:policy" },
+                  jobId: "managed:invocation:1",
+                  runtimeInvocationId: "managed:invocation:1",
+                  credentialRevisionId: "sk-live-not-a-real-hex-digest",
+                  selectionReason: "least-pressure",
+                  acquiredAt: "2026-08-07T12:00:00.000Z",
+                  lifecycleState: "held",
+                  resourceUris: [],
+                  diagnosticUris: [],
+                },
+              },
+            },
+          })],
+        });
+
+        const serialized = JSON.stringify(projection.unprojectableEvidence);
+        expect(serialized).not.toContain("sk-live-not-a-real-hex-digest");
+        expect(projection.unprojectableEvidence[0]).toEqual({
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_failed",
+          reason: "contract-violation",
+          field: "accountLease.credentialRevisionId",
+        });
+      });
+    });
+
+    describe("invocation transcript", () => {
+      it("is not a rejection when no transcript evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedInvocationEvidence: { lifecycle: { sourceResourceUris: ["kiln://fixture"] } },
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects a transcript present in the payload but missing uri", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedInvocationEvidence: { transcript: { redacted: false } },
+          })],
+        });
+
+        expect(projection.invocations[0]?.transcript).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_completed",
+          reason: "missing-required-field",
+          field: "transcript.uri",
+        }]);
+      });
+    });
+
+    describe("invocation result handoff", () => {
+      it("is not a rejection when no result handoff evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedInvocationEvidence: { transcript: { uri: "kiln://fixture/transcript" } },
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects a result handoff present but not shaped as an object", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedInvocationEvidence: { resultHandoff: "not-an-object" },
+          })],
+        });
+
+        expect(projection.invocations[0]?.resultHandoff).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_completed",
+          reason: "contract-violation",
+          field: "resultHandoff",
+        }]);
+      });
+    });
+
+    describe("managed invocation recovery", () => {
+      it("is not a rejection when no recovery evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {})],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects a recovery block present but not shaped as an object", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_failed", {
+            managedInvocationRecovery: "not-an-object",
+          })],
+        });
+
+        expect(projection.invocations[0]?.managedInvocationRecovery).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_failed",
+          reason: "contract-violation",
+          field: "managedInvocationRecovery",
+        }]);
+      });
+    });
+
+    describe("managed invocation phase completion", () => {
+      it("is not a rejection when no phase completion evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {})],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects a phase completion block present but not shaped as an object", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedInvocationPhaseCompletion: 42,
+          })],
+        });
+
+        expect(projection.invocations[0]?.managedInvocationPhaseCompletion).toBeUndefined();
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_completed",
+          reason: "contract-violation",
+          field: "managedInvocationPhaseCompletion",
+        }]);
+      });
+    });
+
+    describe("managed orchestration adoption gate", () => {
+      it("is not a rejection when no adoption gate evidence is offered", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {})],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([]);
+      });
+
+      it("rejects an adoption gate present in the payload but missing required", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedOrchestrationAdoptionGate: {
+              status: "pending_review",
+              childId: "child:1",
+              resourceUris: [],
+              blockingEvidence: [],
+            },
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_completed",
+          reason: "missing-required-field",
+          field: "managedOrchestrationAdoptionGate.required",
+        }]);
+      });
+
+      it("rejects an unrecognized adoption gate status as an invalid discriminator", () => {
+        const projection = projectOperatorCockpitReadOnlyView({
+          projectedAt: "2026-08-07T12:01:00.000Z",
+          attachTargets,
+          events: [managedInvocationEvent(1, "agent_invocation_completed", {
+            managedOrchestrationAdoptionGate: {
+              required: true,
+              status: "not-a-status",
+              childId: "child:1",
+              resourceUris: [],
+              blockingEvidence: [],
+            },
+          })],
+        });
+
+        expect(projection.unprojectableEvidence).toEqual([{
+          eventId: "managed:event:1",
+          sequence: 1,
+          kind: "agent_invocation_completed",
+          reason: "invalid-discriminator",
+          field: "managedOrchestrationAdoptionGate.status",
+        }]);
+      });
+    });
   });
 });

@@ -664,7 +664,11 @@ export function projectOperatorCockpitReadOnlyView(
       presentation.toolPresentation?.resourceLinks ?? [],
       target,
     );
-    const adoptionGate = readManagedOrchestrationAdoptionGate(payload.managedOrchestrationAdoptionGate);
+    const adoptionGateResult = readManagedOrchestrationAdoptionGate(payload.managedOrchestrationAdoptionGate);
+    if (adoptionGateResult && isEvidenceRejection(adoptionGateResult)) {
+      pushEvidenceRejection(unprojectableEvidence, event, adoptionGateResult);
+    }
+    const adoptionGate = adoptionGateResult && !isEvidenceRejection(adoptionGateResult) ? adoptionGateResult : null;
 
     instance.eventCount += 1;
     instance.sessions.add(sessionId);
@@ -727,21 +731,47 @@ export function projectOperatorCockpitReadOnlyView(
         ?? invocation.externalRuntimeAttachment;
       invocation.timeoutMs = readTimeoutMs(payload) ?? invocation.timeoutMs;
       invocation.timeoutSource = readTimeoutSource(payload) ?? invocation.timeoutSource;
-      invocation.resourceLease = readResourceLease(payload) ?? invocation.resourceLease;
-      invocation.accountLease = readAccountLease(payload) ?? invocation.accountLease;
-      invocation.managedInvocationRecovery = readManagedInvocationRecovery(payload.managedInvocationRecovery)
-        ?? invocation.managedInvocationRecovery;
-      invocation.managedInvocationPhaseCompletion = readManagedInvocationPhaseCompletion(payload.managedInvocationPhaseCompletion)
-        ?? invocation.managedInvocationPhaseCompletion;
+
+      const resourceLeaseResult = readResourceLease(payload);
+      if (resourceLeaseResult && isEvidenceRejection(resourceLeaseResult)) {
+        pushEvidenceRejection(unprojectableEvidence, event, resourceLeaseResult);
+      } else {
+        invocation.resourceLease = resourceLeaseResult ?? invocation.resourceLease;
+      }
+
+      const accountLeaseResult = readAccountLease(payload);
+      if (accountLeaseResult && isEvidenceRejection(accountLeaseResult)) {
+        pushEvidenceRejection(unprojectableEvidence, event, accountLeaseResult);
+      } else {
+        invocation.accountLease = accountLeaseResult ?? invocation.accountLease;
+      }
+
+      const managedInvocationRecoveryResult = readManagedInvocationRecovery(payload.managedInvocationRecovery);
+      if (managedInvocationRecoveryResult && isEvidenceRejection(managedInvocationRecoveryResult)) {
+        pushEvidenceRejection(unprojectableEvidence, event, managedInvocationRecoveryResult);
+      } else {
+        invocation.managedInvocationRecovery = managedInvocationRecoveryResult ?? invocation.managedInvocationRecovery;
+      }
+
+      const managedInvocationPhaseCompletionResult = readManagedInvocationPhaseCompletion(payload.managedInvocationPhaseCompletion);
+      if (managedInvocationPhaseCompletionResult && isEvidenceRejection(managedInvocationPhaseCompletionResult)) {
+        pushEvidenceRejection(unprojectableEvidence, event, managedInvocationPhaseCompletionResult);
+      } else {
+        invocation.managedInvocationPhaseCompletion = managedInvocationPhaseCompletionResult
+          ?? invocation.managedInvocationPhaseCompletion;
+      }
+
       addEvidenceResourceUris(invocation, invocation.managedInvocationRecovery?.sourceResourceUris ?? []);
       addEvidenceResourceUris(invocation, invocation.managedInvocationPhaseCompletion?.sourceResourceUris ?? []);
-      applyManagedInvocationEvidence(invocation, payload);
-      const promptAdmission = readPromptAdmission(event, payload);
-      if (promptAdmission) {
-        const existingPromptAdmission = invocation.promptAdmissions.get(promptAdmission.promptAdmissionId);
-        invocation.promptAdmissions.set(promptAdmission.promptAdmissionId, existingPromptAdmission
-          ? mergePromptAdmission(existingPromptAdmission, promptAdmission)
-          : promptAdmission);
+      applyManagedInvocationEvidence(invocation, payload, event, unprojectableEvidence);
+      const promptAdmissionResult = readPromptAdmission(event, payload);
+      if (promptAdmissionResult && isEvidenceRejection(promptAdmissionResult)) {
+        pushEvidenceRejection(unprojectableEvidence, event, promptAdmissionResult);
+      } else if (promptAdmissionResult) {
+        const existingPromptAdmission = invocation.promptAdmissions.get(promptAdmissionResult.promptAdmissionId);
+        invocation.promptAdmissions.set(promptAdmissionResult.promptAdmissionId, existingPromptAdmission
+          ? mergePromptAdmission(existingPromptAdmission, promptAdmissionResult)
+          : promptAdmissionResult);
       }
       const pendingAdoptionGate = adoptionGates.get(adoptionKey);
       if (pendingAdoptionGate) {
@@ -825,7 +855,12 @@ export function projectOperatorCockpitReadOnlyView(
       tool.eventCount += 1;
       tool.latestEventId = event.eventId;
       tool.status = readToolStatus(event, payload);
-      tool.externalFailure = readExternalToolFailure(payload) ?? tool.externalFailure;
+      const externalToolFailureResult = readExternalToolFailure(payload);
+      if (externalToolFailureResult && isEvidenceRejection(externalToolFailureResult)) {
+        pushEvidenceRejection(unprojectableEvidence, event, externalToolFailureResult);
+      } else {
+        tool.externalFailure = externalToolFailureResult ?? tool.externalFailure;
+      }
       addResourceLinks(tool.resourceLinks, resourceLinks);
       const identityKey = projectionKey(toolCallScopeId, toolCallId);
       instance.tools.add(identityKey);
@@ -1358,10 +1393,48 @@ function readProviderRoute(payload: Record<string, unknown>): string | null {
   return model ? `${provider}/${model}` : provider;
 }
 
+/**
+ * A tier-2 evidence reader's verdict that its input is present but violates its own declared
+ * shape. Distinct from the readers' plain `null`, which means "no evidence of this class was
+ * offered" (tier 3, not a defect). Tagged with `__evidenceRejection` rather than discriminated by
+ * the presence of a `reason` or `field` key alone, because several of the success types below
+ * (recovery, phase completion, adoption gate) legitimately carry their own `reason` field.
+ */
+interface EvidenceRejectionCause {
+  readonly __evidenceRejection: true;
+  readonly reason: OperatorCockpitEvidenceRejectionReason;
+  readonly field: string;
+}
+
+function evidenceRejection(
+  reason: OperatorCockpitEvidenceRejectionReason,
+  field: string,
+): EvidenceRejectionCause {
+  return { __evidenceRejection: true, reason, field };
+}
+
+function isEvidenceRejection(value: unknown): value is EvidenceRejectionCause {
+  return isRecordValue(value) && value.__evidenceRejection === true;
+}
+
+function pushEvidenceRejection(
+  unprojectableEvidence: OperatorCockpitEvidenceRejection[],
+  event: OperatorSessionEvent,
+  cause: EvidenceRejectionCause,
+): void {
+  unprojectableEvidence.push({
+    eventId: event.eventId,
+    sequence: event.sequence,
+    kind: event.kind,
+    reason: cause.reason,
+    field: cause.field,
+  });
+}
+
 function readPromptAdmission(
   event: OperatorSessionEvent,
   payload: Record<string, unknown>,
-): OperatorCockpitInvocationPromptAdmissionProjection | null {
+): OperatorCockpitInvocationPromptAdmissionProjection | EvidenceRejectionCause | null {
   if (
     event.kind !== "agent_invocation_prompt_admitted" &&
     event.kind !== "agent_invocation_prompt_recovered"
@@ -1369,13 +1442,31 @@ function readPromptAdmission(
     return null;
   }
   const promptAdmissionId = readString(payload.promptAdmissionId);
+  if (!promptAdmissionId) {
+    return evidenceRejection("missing-required-field", "promptAdmissionId");
+  }
+  if (payload.deliveryMode !== undefined && !readPromptDeliveryMode(payload.deliveryMode)) {
+    return evidenceRejection("invalid-discriminator", "deliveryMode");
+  }
   const deliveryMode = readPromptDeliveryMode(payload.deliveryMode);
+  if (!deliveryMode) {
+    return evidenceRejection("missing-required-field", "deliveryMode");
+  }
+  if (payload.deliveryState !== undefined && !readPromptDeliveryState(payload.deliveryState)) {
+    return evidenceRejection("invalid-discriminator", "deliveryState");
+  }
   const deliveryState = readPromptDeliveryState(payload.deliveryState);
   if (event.kind === "agent_invocation_prompt_recovered") {
+    if (!deliveryState) {
+      return evidenceRejection("missing-required-field", "deliveryState");
+    }
     const recoveryReason = readString(payload.recoveryReason);
+    if (!recoveryReason) {
+      return evidenceRejection("missing-required-field", "recoveryReason");
+    }
     const recoveredAt = readString(payload.recoveredAt);
-    if (!promptAdmissionId || !deliveryMode || !deliveryState || !recoveryReason || !recoveredAt) {
-      return null;
+    if (!recoveredAt) {
+      return evidenceRejection("missing-required-field", "recoveredAt");
     }
     const recovery = {
       reason: recoveryReason,
@@ -1396,12 +1487,23 @@ function readPromptAdmission(
       timestamp: event.timestamp,
     };
   }
+  if (payload.admissionState !== undefined && !readPromptAdmissionState(payload.admissionState)) {
+    return evidenceRejection("invalid-discriminator", "admissionState");
+  }
   const admissionState = readPromptAdmissionState(payload.admissionState);
+  if (!admissionState) {
+    return evidenceRejection("missing-required-field", "admissionState");
+  }
   const inputSummary = readString(payload.inputSummary);
+  if (!inputSummary) {
+    return evidenceRejection("missing-required-field", "inputSummary");
+  }
   const promptHash = readString(payload.promptHash);
-  const wakeRequested = typeof payload.wakeRequested === "boolean" ? payload.wakeRequested : null;
-  if (!promptAdmissionId || !deliveryMode || !admissionState || !inputSummary || !promptHash || wakeRequested === null) {
-    return null;
+  if (!promptHash) {
+    return evidenceRejection("missing-required-field", "promptHash");
+  }
+  if (typeof payload.wakeRequested !== "boolean") {
+    return evidenceRejection("missing-required-field", "wakeRequested");
   }
   return {
     promptAdmissionId,
@@ -1410,7 +1512,7 @@ function readPromptAdmission(
     admissionState,
     inputSummary,
     promptHash,
-    wakeRequested,
+    wakeRequested: payload.wakeRequested,
     eventId: event.eventId,
     sequence: event.sequence,
     timestamp: event.timestamp,
@@ -1506,20 +1608,31 @@ function readExternalRuntimeAttachmentValue(
 
 function readExternalToolFailure(
   payload: Record<string, unknown>,
-): OperatorCockpitExternalToolFailureProjection | null {
+): OperatorCockpitExternalToolFailureProjection | EvidenceRejectionCause | null {
   const metadata = asRecord(payload.metadata);
-  const selector = readString(metadata.selector);
-  const category = readString(metadata.category);
-  const diagnostic = readString(metadata.diagnostic);
-  if (
-    metadata.kind !== "external_tool_failure"
-    || !selector?.startsWith("mcp:")
-    || !category
-    || !diagnostic
-    || typeof metadata.redacted !== "boolean"
-    || typeof metadata.blocked !== "boolean"
-  ) {
+  if (metadata.kind !== "external_tool_failure") {
     return null;
+  }
+  const selector = readString(metadata.selector);
+  if (!selector) {
+    return evidenceRejection("missing-required-field", "metadata.selector");
+  }
+  if (!selector.startsWith("mcp:")) {
+    return evidenceRejection("contract-violation", "metadata.selector");
+  }
+  const category = readString(metadata.category);
+  if (!category) {
+    return evidenceRejection("missing-required-field", "metadata.category");
+  }
+  const diagnostic = readString(metadata.diagnostic);
+  if (!diagnostic) {
+    return evidenceRejection("missing-required-field", "metadata.diagnostic");
+  }
+  if (typeof metadata.redacted !== "boolean") {
+    return evidenceRejection("missing-required-field", "metadata.redacted");
+  }
+  if (typeof metadata.blocked !== "boolean") {
+    return evidenceRejection("missing-required-field", "metadata.blocked");
   }
   const attachment = readExternalRuntimeAttachmentValue(metadata.attachment);
   return {
@@ -1564,35 +1677,53 @@ function readTimeoutSource(payload: Record<string, unknown>): string | null {
     ?? readString(authorityProfile.timeoutSource);
 }
 
-function readResourceLease(payload: Record<string, unknown>): OperatorCockpitInvocationResourceLeaseProjection | null {
+function readResourceLease(
+  payload: Record<string, unknown>,
+): OperatorCockpitInvocationResourceLeaseProjection | EvidenceRejectionCause | null {
   const capabilitySnapshot = asRecord(payload.capabilitySnapshot);
   const evidence = asRecord(payload.managedInvocationEvidence);
   const lifecycle = asRecord(evidence.lifecycle);
   const snapshotLease = asRecord(capabilitySnapshot.resourceLease);
   const lifecycleLease = asRecord(lifecycle.resourceLease);
-  const lease = isRecordValue(lifecycle.resourceLease) ? lifecycleLease : snapshotLease;
-  const leaseId = readString(lease.leaseId);
-  const createdAt = readString(lease.createdAt);
-  const healthStatus = readLeaseHealthStatus(lease.healthStatus);
-  const cleanupStatus = readLeaseCleanupStatus(lease.cleanupStatus);
-  const workingDirectoryPath = readString(lease.workingDirectoryPath);
-  const workingDirectoryMode = readWorkingDirectoryMode(lease.workingDirectoryMode);
-  const resourceUris = readRequiredStringList(lease.resourceUris);
-  const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
-  const worktreeReview = readWorktreeReview(lease.worktreeReview);
-  const worktreeConflict = readWorktreeConflict(lease.worktreeConflict);
-  if (
-    !leaseId
-    || !createdAt
-    || !healthStatus
-    || !cleanupStatus
-    || !workingDirectoryPath
-    || !workingDirectoryMode
-    || !resourceUris
-    || !diagnosticUris
-  ) {
+  const leasePresent = isRecordValue(lifecycle.resourceLease) || isRecordValue(capabilitySnapshot.resourceLease);
+  if (!leasePresent) {
     return null;
   }
+  const lease = isRecordValue(lifecycle.resourceLease) ? lifecycleLease : snapshotLease;
+
+  const leaseId = readString(lease.leaseId);
+  if (!leaseId) return evidenceRejection("missing-required-field", "resourceLease.leaseId");
+  const createdAt = readString(lease.createdAt);
+  if (!createdAt) return evidenceRejection("missing-required-field", "resourceLease.createdAt");
+  if (lease.healthStatus === undefined) {
+    return evidenceRejection("missing-required-field", "resourceLease.healthStatus");
+  }
+  const healthStatus = readLeaseHealthStatus(lease.healthStatus);
+  if (!healthStatus) return evidenceRejection("invalid-discriminator", "resourceLease.healthStatus");
+  if (lease.cleanupStatus === undefined) {
+    return evidenceRejection("missing-required-field", "resourceLease.cleanupStatus");
+  }
+  const cleanupStatus = readLeaseCleanupStatus(lease.cleanupStatus);
+  if (!cleanupStatus) return evidenceRejection("invalid-discriminator", "resourceLease.cleanupStatus");
+  const workingDirectoryPath = readString(lease.workingDirectoryPath);
+  if (!workingDirectoryPath) return evidenceRejection("missing-required-field", "resourceLease.workingDirectoryPath");
+  if (lease.workingDirectoryMode === undefined) {
+    return evidenceRejection("missing-required-field", "resourceLease.workingDirectoryMode");
+  }
+  const workingDirectoryMode = readWorkingDirectoryMode(lease.workingDirectoryMode);
+  if (!workingDirectoryMode) return evidenceRejection("invalid-discriminator", "resourceLease.workingDirectoryMode");
+  if (!Array.isArray(lease.resourceUris)) {
+    return evidenceRejection("missing-required-field", "resourceLease.resourceUris");
+  }
+  const resourceUris = readRequiredStringList(lease.resourceUris);
+  if (!resourceUris) return evidenceRejection("contract-violation", "resourceLease.resourceUris");
+  if (!Array.isArray(lease.diagnosticUris)) {
+    return evidenceRejection("missing-required-field", "resourceLease.diagnosticUris");
+  }
+  const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
+  if (!diagnosticUris) return evidenceRejection("contract-violation", "resourceLease.diagnosticUris");
+  const worktreeReview = readWorktreeReview(lease.worktreeReview);
+  const worktreeConflict = readWorktreeConflict(lease.worktreeConflict);
   return {
     leaseId,
     createdAt,
@@ -1648,40 +1779,76 @@ function readManagedEconomicEvidenceAuthority(value: unknown): OperatorManagedEc
   return value === "authoritative" || value === "unknown" ? value : undefined;
 }
 
-function readAccountLease(payload: Record<string, unknown>): OperatorCockpitInvocationAccountLeaseProjection | null {
+function readAccountLease(
+  payload: Record<string, unknown>,
+): OperatorCockpitInvocationAccountLeaseProjection | EvidenceRejectionCause | null {
   const evidence = asRecord(payload.managedInvocationEvidence);
   const lifecycle = asRecord(evidence.lifecycle);
-  const lease = asRecord(lifecycle.accountLease);
-  const route = asRecord(lease.route);
-  const leaseId = readString(lease.leaseId);
-  const accountPolicyId = readString(lease.accountPolicyId);
-  const accountRef = readString(lease.accountRef);
-  const providerId = readString(route.providerId);
-  const providerModelId = readString(route.providerModelId);
-  const scope = readString(route.scope);
-  const jobId = readString(lease.jobId);
-  const runtimeInvocationId = readString(lease.runtimeInvocationId);
-  const credentialRevisionId = readString(lease.credentialRevisionId);
-  const selectionReason = readString(lease.selectionReason);
-  const candidateRejections = readAccountLeaseCandidateRejections(lease.candidateRejections);
-  const usageEvidence = readAccountLeaseUsageEvidence(lease.usageEvidence);
-  const acquiredAt = readString(lease.acquiredAt);
-  const lifecycleState = readAccountLeaseLifecycleState(lease.lifecycleState);
-  const affinityCommitOutcome = readAccountAffinityCommitOutcome(lease.affinityCommitOutcome);
-  const resourceUris = readRequiredStringList(lease.resourceUris);
-  const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
-  if (
-    !leaseId || !accountPolicyId || !accountRef || !providerId || !providerModelId || !scope
-    || !jobId || !runtimeInvocationId || !credentialRevisionId || !/^[a-f0-9]{64}$/u.test(credentialRevisionId)
-    || !selectionReason || !candidateRejections || !acquiredAt || !lifecycleState || !resourceUris || !diagnosticUris
-    || usageEvidence === null
-    || affinityCommitOutcome === null
-    || (affinityCommitOutcome !== undefined && lifecycleState !== "released")
-  ) {
+  if (!isRecordValue(lifecycle.accountLease)) {
     return null;
   }
+  const lease = asRecord(lifecycle.accountLease);
+  const route = asRecord(lease.route);
+
+  const leaseId = readString(lease.leaseId);
+  if (!leaseId) return evidenceRejection("missing-required-field", "accountLease.leaseId");
+  const accountPolicyId = readString(lease.accountPolicyId);
+  if (!accountPolicyId) return evidenceRejection("missing-required-field", "accountLease.accountPolicyId");
+  const accountRef = readString(lease.accountRef);
+  if (!accountRef) return evidenceRejection("missing-required-field", "accountLease.accountRef");
+  const providerId = readString(route.providerId);
+  if (!providerId) return evidenceRejection("missing-required-field", "accountLease.route.providerId");
+  const providerModelId = readString(route.providerModelId);
+  if (!providerModelId) return evidenceRejection("missing-required-field", "accountLease.route.providerModelId");
+  const scope = readString(route.scope);
+  if (!scope) return evidenceRejection("missing-required-field", "accountLease.route.scope");
+  const jobId = readString(lease.jobId);
+  if (!jobId) return evidenceRejection("missing-required-field", "accountLease.jobId");
+  const runtimeInvocationId = readString(lease.runtimeInvocationId);
+  if (!runtimeInvocationId) return evidenceRejection("missing-required-field", "accountLease.runtimeInvocationId");
+  const credentialRevisionId = readString(lease.credentialRevisionId);
+  if (!credentialRevisionId) return evidenceRejection("missing-required-field", "accountLease.credentialRevisionId");
+  if (!/^[a-f0-9]{64}$/u.test(credentialRevisionId)) {
+    return evidenceRejection("contract-violation", "accountLease.credentialRevisionId");
+  }
+  const selectionReason = readString(lease.selectionReason);
+  if (!selectionReason) return evidenceRejection("missing-required-field", "accountLease.selectionReason");
+  const candidateRejections = readAccountLeaseCandidateRejections(lease.candidateRejections);
+  if (candidateRejections === null) {
+    return evidenceRejection("contract-violation", "accountLease.candidateRejections");
+  }
+  const acquiredAt = readString(lease.acquiredAt);
+  if (!acquiredAt) return evidenceRejection("missing-required-field", "accountLease.acquiredAt");
+  if (lease.lifecycleState === undefined) {
+    return evidenceRejection("missing-required-field", "accountLease.lifecycleState");
+  }
+  const lifecycleState = readAccountLeaseLifecycleState(lease.lifecycleState);
+  if (!lifecycleState) return evidenceRejection("invalid-discriminator", "accountLease.lifecycleState");
+  const usageEvidence = readAccountLeaseUsageEvidence(lease.usageEvidence);
+  if (usageEvidence === null) {
+    return evidenceRejection("contract-violation", "accountLease.usageEvidence");
+  }
+  const affinityCommitOutcome = readAccountAffinityCommitOutcome(lease.affinityCommitOutcome);
+  if (affinityCommitOutcome === null) {
+    return evidenceRejection("invalid-discriminator", "accountLease.affinityCommitOutcome");
+  }
+  if (affinityCommitOutcome !== undefined && lifecycleState !== "released") {
+    return evidenceRejection("contract-violation", "accountLease.affinityCommitOutcome");
+  }
+  if (!Array.isArray(lease.resourceUris)) {
+    return evidenceRejection("missing-required-field", "accountLease.resourceUris");
+  }
+  const resourceUris = readRequiredStringList(lease.resourceUris);
+  if (!resourceUris) return evidenceRejection("contract-violation", "accountLease.resourceUris");
+  if (!Array.isArray(lease.diagnosticUris)) {
+    return evidenceRejection("missing-required-field", "accountLease.diagnosticUris");
+  }
+  const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
+  if (!diagnosticUris) return evidenceRejection("contract-violation", "accountLease.diagnosticUris");
   const releasedAt = readString(lease.releasedAt) ?? undefined;
-  if ((lifecycleState === "released") !== (releasedAt !== undefined)) return null;
+  if ((lifecycleState === "released") !== (releasedAt !== undefined)) {
+    return evidenceRejection("contract-violation", "accountLease.releasedAt");
+  }
   return {
     leaseId,
     accountPolicyId,
@@ -1782,6 +1949,8 @@ function readAccountAffinityCommitOutcome(
 function applyManagedInvocationEvidence(
   invocation: InvocationAccumulator,
   payload: Record<string, unknown>,
+  event: OperatorSessionEvent,
+  unprojectableEvidence: OperatorCockpitEvidenceRejection[],
 ): void {
   const evidence = asRecord(payload.managedInvocationEvidence);
   if (Object.keys(evidence).length === 0) {
@@ -1804,18 +1973,22 @@ function applyManagedInvocationEvidence(
   addSourceResourceUris(invocation, sourceResourceUris);
   addEvidenceResourceUris(invocation, sourceResourceUris);
 
-  const transcript = readInvocationTranscript(evidence.transcript);
-  if (transcript) {
-    invocation.transcript = transcript;
-    addEvidenceResourceUris(invocation, [transcript.uri]);
+  const transcriptResult = readInvocationTranscript(evidence.transcript);
+  if (transcriptResult && isEvidenceRejection(transcriptResult)) {
+    pushEvidenceRejection(unprojectableEvidence, event, transcriptResult);
+  } else if (transcriptResult) {
+    invocation.transcript = transcriptResult;
+    addEvidenceResourceUris(invocation, [transcriptResult.uri]);
   }
 
-  const handoff = readInvocationResultHandoff(evidence.resultHandoff);
-  if (handoff) {
-    invocation.resultHandoff = handoff;
+  const handoffResult = readInvocationResultHandoff(evidence.resultHandoff);
+  if (handoffResult && isEvidenceRejection(handoffResult)) {
+    pushEvidenceRejection(unprojectableEvidence, event, handoffResult);
+  } else if (handoffResult) {
+    invocation.resultHandoff = handoffResult;
     addEvidenceResourceUris(invocation, [
-      ...handoff.resourceUris,
-      ...handoff.memoryWriteProposalUris,
+      ...handoffResult.resourceUris,
+      ...handoffResult.memoryWriteProposalUris,
     ]);
   }
 
@@ -1845,13 +2018,18 @@ function applyManagedInvocationEvidence(
   }
 }
 
-function readInvocationTranscript(value: unknown): OperatorCockpitInvocationTranscriptProjection | null {
-  if (!isRecordValue(value)) {
+function readInvocationTranscript(
+  value: unknown,
+): OperatorCockpitInvocationTranscriptProjection | EvidenceRejectionCause | null {
+  if (value === undefined || value === null) {
     return null;
+  }
+  if (!isRecordValue(value)) {
+    return evidenceRejection("contract-violation", "transcript");
   }
   const uri = readString(value.uri);
   if (!uri) {
-    return null;
+    return evidenceRejection("missing-required-field", "transcript.uri");
   }
   const redacted = readBooleanOrUnknown(value.redacted);
   const truncated = readBooleanOrUnknown(value.truncated);
@@ -1870,9 +2048,14 @@ function readInvocationTranscript(value: unknown): OperatorCockpitInvocationTran
   };
 }
 
-function readInvocationResultHandoff(value: unknown): OperatorCockpitInvocationResultHandoffProjection | null {
-  if (!isRecordValue(value)) {
+function readInvocationResultHandoff(
+  value: unknown,
+): OperatorCockpitInvocationResultHandoffProjection | EvidenceRejectionCause | null {
+  if (value === undefined || value === null) {
     return null;
+  }
+  if (!isRecordValue(value)) {
+    return evidenceRejection("contract-violation", "resultHandoff");
   }
   const summary = readString(value.summary) ?? undefined;
   const resourceUris = readOptionalStringList(value.resourceUris);
@@ -1887,15 +2070,18 @@ function readInvocationResultHandoff(value: unknown): OperatorCockpitInvocationR
   };
 }
 
-function readManagedInvocationRecovery(value: unknown): OperatorCockpitManagedInvocationRecoveryProjection | null {
-  const fields = readManagedInvocationPhaseActionFields(value);
-  if (!fields || !isRecordValue(value)) {
+function readManagedInvocationRecovery(
+  value: unknown,
+): OperatorCockpitManagedInvocationRecoveryProjection | EvidenceRejectionCause | null {
+  const fields = readManagedInvocationPhaseActionFields(value, "managedInvocationRecovery");
+  if (!fields || isEvidenceRejection(fields)) {
     return fields;
   }
-  const blockedWorkItemUpdateInputTemplate = isRecordValue(value.blockedWorkItemUpdateInputTemplate)
-    ? value.blockedWorkItemUpdateInputTemplate
+  const record = value as Record<string, unknown>;
+  const blockedWorkItemUpdateInputTemplate = isRecordValue(record.blockedWorkItemUpdateInputTemplate)
+    ? record.blockedWorkItemUpdateInputTemplate
     : undefined;
-  const blockedWhen = readString(value.blockedWhen) ?? undefined;
+  const blockedWhen = readString(record.blockedWhen) ?? undefined;
   return {
     ...fields,
     ...(blockedWorkItemUpdateInputTemplate !== undefined ? { blockedWorkItemUpdateInputTemplate } : {}),
@@ -1905,10 +2091,10 @@ function readManagedInvocationRecovery(value: unknown): OperatorCockpitManagedIn
 
 function readManagedInvocationPhaseCompletion(
   value: unknown,
-): OperatorCockpitManagedInvocationPhaseCompletionProjection | null {
-  const fields = readManagedInvocationPhaseActionFields(value);
-  if (!fields) {
-    return null;
+): OperatorCockpitManagedInvocationPhaseCompletionProjection | EvidenceRejectionCause | null {
+  const fields = readManagedInvocationPhaseActionFields(value, "managedInvocationPhaseCompletion");
+  if (!fields || isEvidenceRejection(fields)) {
+    return fields;
   }
   return {
     ...(fields.status !== undefined ? { status: fields.status } : {}),
@@ -1922,9 +2108,15 @@ function readManagedInvocationPhaseCompletion(
   };
 }
 
-function readManagedInvocationPhaseActionFields(value: unknown): ManagedInvocationPhaseActionFields | null {
-  if (!isRecordValue(value)) {
+function readManagedInvocationPhaseActionFields(
+  value: unknown,
+  fieldPrefix: string,
+): ManagedInvocationPhaseActionFields | EvidenceRejectionCause | null {
+  if (value === undefined || value === null) {
     return null;
+  }
+  if (!isRecordValue(value)) {
+    return evidenceRejection("contract-violation", fieldPrefix);
   }
   const evidenceToRecord = readOptionalStringList(value.evidenceToRecord);
   const requiredToolNames = readOptionalStringList(value.requiredToolNames);
@@ -1975,26 +2167,50 @@ function readWriteEvidenceResourceUris(value: unknown): readonly string[] {
 
 function readManagedOrchestrationAdoptionGate(
   value: unknown,
-): OperatorCockpitManagedOrchestrationAdoptionGateProjection | null {
-  if (!isRecordValue(value)) {
+): OperatorCockpitManagedOrchestrationAdoptionGateProjection | EvidenceRejectionCause | null {
+  if (value === undefined || value === null) {
     return null;
+  }
+  if (!isRecordValue(value)) {
+    return evidenceRejection("contract-violation", "managedOrchestrationAdoptionGate");
+  }
+  if (value.required === undefined) {
+    return evidenceRejection("missing-required-field", "managedOrchestrationAdoptionGate.required");
   }
   if (typeof value.required !== "boolean") {
-    return null;
+    return evidenceRejection("contract-violation", "managedOrchestrationAdoptionGate.required");
+  }
+  if (value.status === undefined) {
+    return evidenceRejection("missing-required-field", "managedOrchestrationAdoptionGate.status");
   }
   const status = readManagedOrchestrationAdoptionGateStatus(value.status);
+  if (!status) {
+    return evidenceRejection("invalid-discriminator", "managedOrchestrationAdoptionGate.status");
+  }
+  if (!Array.isArray(value.resourceUris)) {
+    return evidenceRejection("missing-required-field", "managedOrchestrationAdoptionGate.resourceUris");
+  }
   const resourceUris = readRequiredStringList(value.resourceUris);
+  if (!resourceUris) {
+    return evidenceRejection("contract-violation", "managedOrchestrationAdoptionGate.resourceUris");
+  }
+  if (!Array.isArray(value.blockingEvidence)) {
+    return evidenceRejection("missing-required-field", "managedOrchestrationAdoptionGate.blockingEvidence");
+  }
   const blockingEvidence = readRequiredStringList(value.blockingEvidence);
-  if (!status || !resourceUris || !blockingEvidence) {
-    return null;
+  if (!blockingEvidence) {
+    return evidenceRejection("contract-violation", "managedOrchestrationAdoptionGate.blockingEvidence");
   }
   const rejection = readManagedOrchestrationAdoptionGateRejection(value.rejection);
   if (value.rejection !== undefined && !rejection) {
-    return null;
+    return evidenceRejection("contract-violation", "managedOrchestrationAdoptionGate.rejection");
   }
-  const childId = readString(value.childId) ?? undefined;
+  if (value.childId === undefined) {
+    return evidenceRejection("missing-required-field", "managedOrchestrationAdoptionGate.childId");
+  }
+  const childId = readString(value.childId);
   if (!childId) {
-    return null;
+    return evidenceRejection("contract-violation", "managedOrchestrationAdoptionGate.childId");
   }
   const target = readString(value.target) ?? undefined;
   const reason = readString(value.reason) ?? undefined;
