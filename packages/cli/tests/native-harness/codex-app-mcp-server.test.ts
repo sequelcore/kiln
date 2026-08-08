@@ -803,7 +803,7 @@ describe("CodexAppMcpServer", () => {
     expect(transportClosed).toBe(true);
   });
 
-  it("connects inspection tools and sanitizes managed-job unavailability when Runtime composition fails", async () => {
+  it.each(["codex", "claude", "opencode"] as const)("connects %s inspection tools and sanitizes managed-job unavailability when Runtime composition fails", async (harness) => {
     const handlers = new Map<unknown, (request: { params: Record<string, unknown> }) => unknown>();
     const listSchema = Symbol("tools/list");
     const callSchema = Symbol("tools/call");
@@ -824,10 +824,10 @@ describe("CodexAppMcpServer", () => {
     };
 
     const handle = await startNativeHarnessMcpServer({
-      harness: "codex",
+      harness,
       projectPath: "C:\\workspace\\project",
       inspection: createNativeHarnessInspectionService({
-        harness: "codex",
+        harness,
         readStatus: async () => snapshot(),
         readBridgeProjection: async () => "current",
         readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\project" }),
