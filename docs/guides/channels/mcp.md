@@ -106,14 +106,20 @@ owned fields in `.kiln/install-state.json`, refuses unmanaged id collisions,
 detects drift, and never replaces malformed native files. Repair is explicit;
 uninstall removes only recorded fields.
 
-Codex, Claude Code, and OpenCode projection can also install the project-local
-`kiln-control-plane` bridge. The harness starts `kiln native-harness
-control-plane-mcp --harness <harness> --project-root <root>` as a stdio child.
-This provides Kiln inspection, sanitized account-usage inspection, and
-managed-agent tools without starting the HTTP Model Gateway. The distinct
-identity does not overwrite an operator's existing `kiln tools --mcp` server.
-Projection rejects non-Kiln roots, reserved-id collisions, malformed files,
-and drift; uninstall removes only owned fields.
+Codex, Claude Code, and OpenCode projection installs one user-scoped
+`kiln-control-plane` declaration per harness. Each harness starts
+`kiln native-harness control-plane-mcp --harness <harness>` as a short-lived
+stdio bridge. The bridge derives the adopted project from its working
+directory and authenticates to one global loopback Operator Runtime. Sessions
+for the same project share one lazy project Runtime; different projects remain
+isolated. This provides Kiln inspection, sanitized account-usage inspection,
+and managed-agent tools without starting the HTTP Model Gateway.
+
+The distinct identity does not overwrite an operator's existing `kiln tools
+--mcp` server. Projection rejects reserved-id collisions, malformed native
+files, and drift; uninstall removes only recorded owned fields. Legacy
+project-local declarations are detected only for owned migration and are never
+treated as runtime authority.
 
 ## Runtime surfaces
 

@@ -1,8 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { parse as parseToml } from "smol-toml";
-import { stripJsonComments } from "../config/json-comments.js";
 import type { HarnessIntegrationId } from "../config/harness-integration-capabilities.js";
+import { syncGlobalControlPlaneMcpProjections } from "../config/global-control-plane-mcp-projection.js";
 import {
   KILN_STATUS_EVIDENCE_VERSION,
   KilnConfigStatusSnapshotSchema,
@@ -376,7 +373,7 @@ function diagnosticFor(code: string, targetId?: string): NativeHarnessDiagnostic
     KILN_PROJECTION_STALE: { message: "A Kiln projection is stale.", operatorAction: "Review the reported setup recommendation before trusting that projection." },
     KILN_PROJECTION_DRIFTED: { message: "A Kiln projection has drifted.", operatorAction: "Review the reported setup recommendation before trusting that projection." },
     KILN_BRIDGE_READ_FAILED: { message: "The native bridge declaration could not be read safely.", operatorAction: "Verify the generated project-local MCP declaration, then retry." },
-    KILN_BRIDGE_PROJECTION_UNRESOLVED: { message: "Native bridge capability is not fully provable from observed projection evidence.", operatorAction: "Verify the project-local MCP declaration and harness capability before relying on it." },
+    KILN_BRIDGE_PROJECTION_UNRESOLVED: { message: "Native bridge capability is not fully provable from observed projection evidence.", operatorAction: "Verify the global MCP declaration and harness capability before relying on it." },
     KILN_INTERNAL_ADAPTER_FAILURE: { message: "Native-harness inspection could not initialize safely.", operatorAction: "Restart the read-only bridge after reviewing Kiln setup diagnostics." },
   };
   const base = diagnostics[code] ?? { message: "Native-harness inspection failed safely.", operatorAction: "Retry the read-only inspection after reviewing Kiln setup diagnostics." };
@@ -387,31 +384,10 @@ function isIdentifier(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value);
 }
 
-async function readNativeHarnessBridgeProjection(projectRoot: string, harness: HarnessIntegrationId): Promise<BridgeProjectionState> {
-  const path = harness === "codex"
-    ? join(projectRoot, ".codex", "config.toml")
-    : harness === "claude"
-      ? join(projectRoot, ".mcp.json")
-      : join(projectRoot, "opencode.json");
-  if (!existsSync(path)) return "missing";
-  try {
-    const raw = readFileSync(path, "utf8");
-    const parsed = (harness === "codex" ? parseToml(raw) : JSON.parse(stripJsonComments(raw))) as Record<string, unknown>;
-    const rootKey = harness === "codex" ? "mcp_servers" : harness === "claude" ? "mcpServers" : "mcp";
-    const root = parsed[rootKey] as Record<string, unknown> | undefined;
-    const server = root?.["kiln-control-plane"] as { command?: unknown; args?: unknown; enabled?: unknown } | undefined;
-    const command = harness === "opencode" && Array.isArray(server?.command) ? server.command : undefined;
-    const executable = command ? command[0] : server?.command;
-    const args = command ? command.slice(1) : server?.args;
-    const expected = ["native-harness", "control-plane-mcp", "--harness", harness, "--project-root", projectRoot];
-    return executable === "kiln"
-      && Array.isArray(args)
-      && args.length === expected.length
-      && args.every((value, index) => index === expected.length - 1
-        ? typeof value === "string" && resolve(value) === resolve(projectRoot)
-        : value === expected[index])
-      && (harness === "claude" || server?.enabled === true) ? "current" : "invalid";
-  } catch {
-    throw new Error("Native harness bridge declaration could not be read");
-  }
+async function readNativeHarnessBridgeProjection(_projectRoot: string, harness: HarnessIntegrationId): Promise<BridgeProjectionState> {
+  const projection = await syncGlobalControlPlaneMcpProjections({ operation: "status", harnesses: [harness] });
+  const status = projection.targets[0]?.status;
+  if (status === "current") return "current";
+  if (status === "missing") return "missing";
+  return "invalid";
 }

@@ -13,7 +13,7 @@ import {
  * Shared between the `config-status.js` mock (still the sole source of
  * `workGovernance` evidence, consulted by `inspection.inspectWorkGovernance()`)
  * and the `global-config.js` mock below (now the real source
- * `loadNativeHarnessManagedRouteConfig` reads `managedAgents`/`modelGateway`
+ * `loadOperatorProjectManagedRouteConfig` reads `managedAgents`/`modelGateway`
  * global authority from). Kept in one place so both mocks describe the same
  * fixture route instead of two independently drifting copies.
  */
@@ -87,7 +87,8 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
 });
 
 vi.mock("../../src/application/config-status.js", () => ({
-  readConfigStatusSnapshot: vi.fn(async () => {
+  readConfigStatusSnapshot: vi.fn(async (options?: { readonly projectPath?: string }) => {
+    const projectRoot = options?.projectPath ?? "C:/workspace/unresolved";
     const effectiveConfig = {
       version: "1",
       workGovernance: {
@@ -102,12 +103,12 @@ vi.mock("../../src/application/config-status.js", () => ({
       evidenceVersion: 1,
       generatedAt: new Date().toISOString(),
       project: {
-        rootPath: "C:/workspace/kiln",
+        rootPath: projectRoot,
         projectName: "kiln",
         hasGitRoot: true,
         hasKilnYaml: true,
-        kilnYaml: { path: "C:/workspace/kiln/.kiln/kiln.yaml", status: "valid" },
-        projectContext: { path: "C:/workspace/kiln/.kiln/project-context.md", status: "valid" },
+        kilnYaml: { path: resolve(projectRoot, ".kiln", "kiln.yaml"), status: "valid" },
+        projectContext: { path: resolve(projectRoot, ".kiln", "project-context.md"), status: "valid" },
       },
       global: { path: "C:/Users/ExampleUser/.kiln/config.yaml", status: "valid" },
       effectiveConfigStatus: "valid",
@@ -117,9 +118,9 @@ vi.mock("../../src/application/config-status.js", () => ({
       permissionIntegrity: [],
       mcp: { servers: [], diagnostics: [] },
       setup: {
-        projectRoot: "C:/workspace/kiln",
+        projectRoot,
         projectContext: {
-          path: "C:/workspace/kiln/.kiln/project-context.md",
+          path: resolve(projectRoot, ".kiln", "project-context.md"),
           status: "valid",
           recommendation: "none",
         },
@@ -135,14 +136,47 @@ vi.mock("../../src/application/config-status.js", () => ({
 }));
 
 import {
-  createNativeHarnessManagedJobApplicationComposition,
-  createNativeHarnessManagedJobApplicationService,
-  summarizeNativeHarnessManagedAgents,
-} from "../../src/application/codex-app-managed-jobs.js";
+  createOperatorProjectManagedJobApplicationComposition,
+  createOperatorProjectManagedJobApplicationService,
+  summarizeOperatorProjectManagedAgents,
+} from "../../src/application/operator-project-managed-jobs.js";
+import { readConfigStatusSnapshot } from "../../src/application/config-status.js";
 
-describe("Codex App managed-job production composition", () => {
+describe("operator project managed-job production composition", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("requires the server-trusted project root and never falls back to discovery", async () => {
+    await expect(createOperatorProjectManagedJobApplicationComposition({
+      projectPath: undefined,
+    } as never)).rejects.toMatchObject({ code: "project_identity_unavailable" });
+  });
+
+  it("rejects canonical governance evidence bound to a different project", async () => {
+    const projectRoot = mkdtempSync(resolve(tmpdir(), "kiln-managed-job-governance-root-"));
+    mkdirSync(resolve(projectRoot, ".kiln"), { recursive: true });
+    writeFileSync(resolve(projectRoot, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => ({}),
+    });
+    try {
+      const candidate = await readConfigStatusSnapshot({ projectPath: projectRoot });
+      vi.mocked(readConfigStatusSnapshot).mockResolvedValueOnce({
+        ...candidate,
+        project: { ...candidate.project, rootPath: resolve(projectRoot, "other-project") },
+      });
+      await expect(composition.application.submit({
+        objective: "Reject cross-project governance evidence.",
+        configuredAgentProfileId: "missing-agent",
+        callerId: "claude-native-harness",
+        idempotencyKey: "cross-project-governance-proof",
+      })).rejects.toMatchObject({ code: "governance_unavailable" });
+    } finally {
+      composition.close();
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it("recovers persisted jobs without constructing an execution owner", async () => {
@@ -167,8 +201,7 @@ describe("Codex App managed-job production composition", () => {
       });
 
     try {
-      const composition = await createNativeHarnessManagedJobApplicationComposition({
-        harness: "codex",
+      const composition = await createOperatorProjectManagedJobApplicationComposition({
         discoverProviderModels: async () => ({}),
         projectPath: projectRoot,
       });
@@ -201,13 +234,13 @@ describe("Codex App managed-job production composition", () => {
       { name: "economic-worker", role: "Policy-only worker", economicPolicyId: "bounded-policy" },
     ];
 
-    expect(summarizeNativeHarnessManagedAgents(agents, undefined)).toMatchObject([{
+    expect(summarizeOperatorProjectManagedAgents(agents, undefined)).toMatchObject([{
       configuredAgentProfileId: "economic-worker",
       availability: "unavailable",
       admissionProfileId: "foundation-readonly-plan",
       diagnostic: "route_unavailable",
     }]);
-    expect(summarizeNativeHarnessManagedAgents(agents, {
+    expect(summarizeOperatorProjectManagedAgents(agents, {
       routes: [
         route("codex-route", "codex-oauth"),
         route("opencode-route", "opencode-go"),
@@ -223,7 +256,7 @@ describe("Codex App managed-job production composition", () => {
       availability: "admitted",
       admissionProfileId: "foundation-readonly-plan",
     }]);
-    expect(summarizeNativeHarnessManagedAgents(agents, {
+    expect(summarizeOperatorProjectManagedAgents(agents, {
       routes: [],
       agentCatalog: [{
         name: "economic-worker",
@@ -244,7 +277,7 @@ describe("Codex App managed-job production composition", () => {
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
-    const service = await createNativeHarnessManagedJobApplicationService({ harness: "codex", discoverProviderModels: async () => ({}) });
+    const service = await createOperatorProjectManagedJobApplicationService({ projectPath: process.cwd(), discoverProviderModels: async () => ({}) });
     await expect(service.submit({
       objective: "Bounded production composition proof.",
       configuredAgentProfileId: "missing-agent",

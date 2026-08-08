@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   uninstall: vi.fn(async (root: string, options: { harnesses: readonly string[] }) => ({
     targets: options.harnesses.map((harness) => ({ harness, path: root, status: "uninstalled" })),
   })),
+  globalSync: vi.fn(async (input: { operation: string; harnesses: readonly string[] }) => ({
+    operation: input.operation,
+    targets: input.harnesses.map((harness) => ({ harness, path: "global", status: input.operation === "uninstall" ? "uninstalled" : "current", changed: true, migratedLegacy: false })),
+  })),
   discover: vi.fn(async () => ({ serverId: "fixture", tools: [], resources: [], prompts: [], discoveredAt: "2026-07-19T00:00:00.000Z" })),
   disconnect: vi.fn(async () => undefined),
   recordDiscovery: vi.fn(() => ({ health: "healthy", discovery: "current" })),
@@ -22,6 +26,9 @@ vi.mock("../../src/config/config-merger.js", () => ({
 vi.mock("../../src/config/native-mcp-projection-sync.js", () => ({
   syncNativeMcpProjections: mocks.sync,
   uninstallNativeMcpProjections: mocks.uninstall,
+}));
+vi.mock("../../src/config/global-control-plane-mcp-projection.js", () => ({
+  syncGlobalControlPlaneMcpProjections: mocks.globalSync,
 }));
 vi.mock("../../src/config/mcp-credentials.js", () => ({
   createCanonicalMcpClient: () => ({ discover: mocks.discover, disconnect: mocks.disconnect }),
@@ -46,6 +53,7 @@ describe("mcpConfigCommand", () => {
     mocks.load.mockClear();
     mocks.sync.mockClear();
     mocks.uninstall.mockClear();
+    mocks.globalSync.mockClear();
     mocks.discover.mockClear();
     mocks.disconnect.mockClear();
   });
@@ -57,8 +65,13 @@ describe("mcpConfigCommand", () => {
     expect(mocks.sync).toHaveBeenCalledWith(
       { servers: {}, diagnostics: [] },
       process.cwd(),
-      { harnesses: ["codex", "claude", "opencode"], includeKilnControlPlane: true },
+      { harnesses: ["codex", "claude", "opencode"] },
     );
+    expect(mocks.globalSync).toHaveBeenCalledWith({
+      operation: "install",
+      harnesses: ["codex", "claude", "opencode"],
+      projectPath: process.cwd(),
+    });
   });
 
   it.each([
@@ -67,16 +80,15 @@ describe("mcpConfigCommand", () => {
     ["opencode", "opencode"],
   ] as const)("installs the control plane when %s is selected alone", async (client, harness) => {
     await mcpConfigCommand(APP_CONFIG, { client });
-    expect(mocks.sync).toHaveBeenCalledWith(expect.anything(), process.cwd(), {
-      harnesses: [harness],
-      includeKilnControlPlane: true,
-    });
+    expect(mocks.sync).toHaveBeenCalledWith(expect.anything(), process.cwd(), { harnesses: [harness] });
+    expect(mocks.globalSync).toHaveBeenCalledWith({ operation: "install", harnesses: [harness], projectPath: process.cwd() });
   });
 
   it("uninstalls only the selected governed MCP projection", async () => {
     await mcpConfigCommand(APP_CONFIG, { client: "codex", uninstall: true });
 
     expect(mocks.uninstall).toHaveBeenCalledWith(process.cwd(), { harnesses: ["codex"] });
+    expect(mocks.globalSync).toHaveBeenCalledWith({ operation: "uninstall", harnesses: ["codex"] });
     expect(mocks.load).not.toHaveBeenCalled();
     expect(mocks.sync).not.toHaveBeenCalled();
   });

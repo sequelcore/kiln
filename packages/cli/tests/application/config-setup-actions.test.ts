@@ -62,6 +62,24 @@ describe("config setup actions", () => {
     ]));
   });
 
+  it("installs the control-plane MCP globally while keeping project MCP projection project-specific", async () => {
+    const userHome = join(tempDir, "home");
+    const result = await executeConfigSetupAction({
+      projectPath: tempDir,
+      action: "sync-native-projections",
+      userHome,
+    });
+
+    expect(result.status).toBe("applied");
+    const claudeGlobal = JSON.parse(readFileSync(join(userHome, ".claude.json"), "utf8"));
+    expect(claudeGlobal.mcpServers["kiln-control-plane"]).toEqual({
+      type: "stdio",
+      command: process.execPath,
+      args: [process.argv[1], "native-harness", "control-plane-mcp", "--harness", "claude"],
+    });
+    expect(existsSync(join(tempDir, ".mcp.json"))).toBe(false);
+  });
+
   it("blocks review-only actions instead of mutating drifted state", async () => {
     const result = await executeConfigSetupAction({
       projectPath: tempDir,

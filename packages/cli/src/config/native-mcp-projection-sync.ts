@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import type { McpConfigurationResolution, ResolvedMcpServer } from "@kilnai/core";
+import type { McpConfigurationResolution } from "@kilnai/core";
 import { stripJsonComments } from "./json-comments.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
@@ -43,7 +43,6 @@ export interface NativeMcpProjectionOptions {
   readonly harnesses?: readonly NativeMcpHarness[];
   readonly force?: boolean;
   readonly now?: string;
-  readonly includeKilnControlPlane?: boolean;
 }
 
 export function assertNativeMcpProjectionCurrent(
@@ -85,12 +84,6 @@ export async function syncNativeMcpProjections(
   options: NativeMcpProjectionOptions = {},
 ): Promise<NativeMcpProjectionResult> {
   const kilnDir = join(projectPath, ".kiln");
-  if (options.includeKilnControlPlane) {
-    const projectMarker = join(kilnDir, "kiln.yaml");
-    if (!existsSync(projectMarker) || !statSync(projectMarker).isFile()) {
-      throw new Error(`Cannot project the Kiln control-plane bridge: '${projectMarker}' does not exist.`);
-    }
-  }
   let installState = readNativeProjectionInstallState(kilnDir);
   let stateChanged = false;
   const targets: NativeMcpProjectionTargetResult[] = [];
@@ -126,16 +119,16 @@ export async function syncNativeMcpProjections(
     }
 
     const rootKey = rootKeyFor(harness);
-    if (options.includeKilnControlPlane && resolution.servers["kiln-control-plane"]) {
+    if (resolution.servers["kiln-control-plane"]) {
       targets.push({
         harness,
         path: target,
         status: "incompatible",
-        reason: "Canonical MCP server id 'kiln-control-plane' is reserved for the Kiln control-plane bridge.",
+        reason: "Canonical MCP server id 'kiln-control-plane' is reserved for the global Kiln control-plane bridge.",
         servers: [{
           id: "kiln-control-plane",
           status: "incompatible",
-          reason: "Rename the canonical MCP server; 'kiln-control-plane' is a reserved native control-plane identity.",
+          reason: "Rename the canonical MCP server; 'kiln-control-plane' is a reserved global native identity.",
         }],
       });
       continue;
@@ -148,10 +141,7 @@ export async function syncNativeMcpProjections(
     const serverResults: NonNullable<NativeMcpProjectionTargetResult["servers"]>[number][] = [];
     const root = isRecord(base[rootKey]) ? base[rootKey] : {};
 
-    const servers = [
-      ...Object.values(resolution.servers),
-      ...(options.includeKilnControlPlane ? [kilnControlPlaneServer(projectPath, harness)] : []),
-    ];
+    const servers = Object.values(resolution.servers);
     for (const server of servers) {
       const projection = projectMcpServer(harness, server);
       if (projection.status === "compatible" && server.id in root && !wasPreviouslyManaged(previous?.managedFields, rootKey, server.id)) {
@@ -217,21 +207,6 @@ export async function syncNativeMcpProjections(
   } catch (error) {
     rollbackNativeDocuments(rollbacks, error);
   }
-}
-
-function kilnControlPlaneServer(projectPath: string, harness: NativeMcpHarness): ResolvedMcpServer {
-  return {
-    id: "kiln-control-plane",
-    enabled: true,
-    transport: "stdio",
-    command: "kiln",
-    args: ["native-harness", "control-plane-mcp", "--harness", harness, "--project-root", projectPath],
-    admission: { state: "admitted" },
-    source: "project",
-    provenance: {},
-    connection: { state: "not-tested" },
-    projection: { state: "not-synchronized" },
-  };
 }
 
 export async function uninstallNativeMcpProjections(

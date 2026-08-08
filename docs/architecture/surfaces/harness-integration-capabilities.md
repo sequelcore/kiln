@@ -29,8 +29,9 @@ authority owner.
 - **Kiln tool**: an admitted Kiln operation with a named application owner,
   declared read/write authority, stable result contract, and evidence.
 - **Managed agent**: a child execution admitted by Kiln's managed-invocation
-  contract. It is not a native collaboration worker and is not exposed by the
-  Slice 2 read-only bridge.
+  contract. It is not a native collaboration worker; the MCP bridge exposes it
+  only through the governed managed-job submit, status, result, cancel, and
+  replay operations.
 - **Invocation route**: the requested provider or harness execution path;
   **resolved route** is the route Kiln admitted after policy and evidence
   checks.
@@ -60,12 +61,14 @@ Codex App MCP adapter is the caller.
 
 ### Native Harness MCP Bridge
 
-The admitted adapter is a project-local stdio MCP server projected under the
-reserved `kiln-control-plane` identity for Codex, Claude Code, and OpenCode.
-Each native harness owns discovery, trust, and child-process lifecycle. The
-installed `kiln native-harness control-plane-mcp` command owns only protocol
-startup and receives an explicit harness and validated project root. The server
-maps no-argument read-only operations to the
+The admitted adapter is installed once per user under the reserved
+`kiln-control-plane` identity for Codex, Claude Code, and OpenCode. Each native
+harness owns discovery, trust, and the lifecycle of its short-lived stdio
+bridge. The installed `kiln native-harness control-plane-mcp --harness
+<harness>` command owns only protocol translation. It derives project identity
+from the child process working directory, resolves the canonical adopted root,
+and validates its `.kiln/kiln.yaml`; neither MCP tools nor command arguments may
+select a project. The runtime maps no-argument read-only operations to the
 CLI application's canonical status, resolved-governance, and harness
 capability query owners. It also exposes managed-job submit, status, result,
 cancel, and replay operations through the canonical Runtime application owner.
@@ -74,18 +77,22 @@ managed work uses admitted Kiln direct-provider routes.
 
 Native-harness MCP connections are session-owned, but Runtime authority is not.
 Multiple Codex threads, Claude Code processes, and OpenCode instances may start
-independent stdio adapters for the same project at the same time. Those adapters
-must remain thin transport clients of one project-scoped Operator Runtime; they
-must not each construct a competing managed-job, economic-lease, recovery, or
-provider-routing authority. The target shared owner must be exposed through an
-authenticated loopback Streamable HTTP boundary, while stdio remains the
-compatibility and bootstrap boundary for harnesses that own local child-process
-lifecycle. That shared HTTP owner is not implemented yet.
+independent stdio bridges concurrently. They authenticate over exact-loopback
+Streamable HTTP to one global Operator Runtime supervisor. That supervisor
+lazily creates one isolated project Runtime per canonical project identity, so
+sessions for the same project share managed-job, economic-lease, recovery, and
+provider-routing authority while different projects remain isolated. Stdio is
+only the harness compatibility boundary; it never composes project Runtime
+authority locally. If the supervisor or authenticated session is unavailable,
+the bridge fails closed with sanitized diagnostics.
 
-During migration to that shared owner, protocol startup and read-only inspection
-remain available when another process owns the managed Runtime. Managed-job
-mutation on a non-owning adapter fails closed with a typed unavailable result;
-an adapter never steals, weakens, or bypasses the live economic authority.
+Global supervisor and session credential files rely on the operating system's
+per-user profile protections and ACLs; POSIX mode bits alone do not establish
+that boundary on Windows. The installation assumes the user's profile ACLs
+exclude other unprivileged users and rejects unauthenticated loopback clients.
+It does not attempt to defend against a malicious process already running as
+the same OS user, because that process can read the user's files and native
+harness state.
 
 The adapter returns source, observation time, harness identity, request
 identity, and the direct-provider/native-harness authority boundary. It removes
@@ -113,19 +120,17 @@ The native-harness status-projection boundary validates the canonical evidence
 version, full status shape, and observation time before projecting it. Missing,
 malformed, future, stale, or unsupported evidence is unresolved; a resolved
 governance policy is additionally validated as a complete policy contract
-before it can be authoritative. The source-checkout entrypoint identifies its
-repository from its module location. The installed entrypoint receives an
-explicit working directory from the governed native projection and validates
-the canonical project marker before composition; MCP arguments never choose
-project identity.
+before it can be authoritative. The bridge resolves the harness-supplied
+working directory through the trusted-workspace boundary before opening a
+short-lived authenticated session; MCP arguments never choose project identity.
 
 Native trust remains outside Kiln's authority and must be established by the
-operator when the harness requires it. Kiln does not replace global native MCP
-configuration for activation. Each harness starts the stdio child itself; the
-MCP bridge never depends on the HTTP Model Gateway process. Governed MCP sync
-projects `kiln native-harness control-plane-mcp --harness <harness>
---project-root <root>`. The installed CLI validates the explicit project root
-through its canonical `.kiln/kiln.yaml` before composition. Generated native
+operator when the harness requires it. Governed MCP sync installs the global
+user-scoped declaration for each harness and records owned fields and drift
+state under Kiln's global runtime directory. Each harness starts its own stdio
+bridge; that bridge ensures the global Operator Runtime independently of the
+HTTP Model Gateway process. Legacy project-local declarations are migration
+input only and are removed only when Kiln can prove ownership. Generated native
 MCP files are projection state and are not committed as doctrine. Codex App's MCP lifecycle and
 tool calls are documented by the [Codex app-server protocol](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
 The [MCP stdio transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)

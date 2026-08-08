@@ -4,6 +4,10 @@ import type { NativeMcpHarness } from "../config/native-mcp-projection.js";
 import type { KilnAppConfig } from "../config.js";
 import { createCanonicalMcpClient, createMcpCredentialAccess } from "../config/mcp-credentials.js";
 import { recordMcpDiscovery, recordMcpFailure } from "../config/mcp-runtime-state.js";
+import {
+  syncGlobalControlPlaneMcpProjections,
+  type GlobalControlPlaneMcpProjectionTargetResult,
+} from "../config/global-control-plane-mcp-projection.js";
 
 export interface McpConfigFlags {
   readonly client?: string;
@@ -31,12 +35,21 @@ export async function mcpConfigCommand(
   }
   const harnesses = parseHarnesses(flags.client);
   if (flags.uninstall) {
-    const result = await uninstallNativeMcpProjections(process.cwd(), {
+    const nativeResult = await uninstallNativeMcpProjections(process.cwd(), {
       harnesses,
       ...(flags.repair ? { force: true } : {}),
     });
-    for (const target of result.targets) console.log(formatTarget(target));
-    const blocked = result.targets.filter((target) => target.status === "blocked-malformed" || target.status === "drifted");
+    const globalResult = await syncGlobalControlPlaneMcpProjections({
+      operation: "uninstall",
+      harnesses,
+      ...(flags.repair ? { force: true } : {}),
+    });
+    for (const target of nativeResult.targets) console.log(formatTarget(target));
+    for (const target of globalResult.targets) console.log(formatGlobalTarget(target));
+    const blocked = [
+      ...nativeResult.targets.filter((target) => target.status === "blocked-malformed" || target.status === "drifted"),
+      ...globalResult.targets.filter((target) => target.status === "blocked-malformed" || target.status === "drifted" || target.status === "incompatible"),
+    ];
     if (blocked.length > 0) throw new Error(`MCP projection uninstall did not complete for: ${blocked.map((target) => target.harness).join(", ")}`);
     return;
   }
@@ -48,12 +61,23 @@ export async function mcpConfigCommand(
     await testCanonicalMcpServers(resolution.servers, flags.server);
     return;
   }
+  const globalResult = await syncGlobalControlPlaneMcpProjections({
+    operation: "install",
+    harnesses,
+    projectPath: process.cwd(),
+    ...(flags.repair ? { force: true } : {}),
+  });
+  for (const target of globalResult.targets) console.log(formatGlobalTarget(target));
+  const globalBlocked = globalResult.targets.filter((target) =>
+    target.status === "blocked-malformed" || target.status === "drifted" || target.status === "incompatible");
+  if (globalBlocked.length > 0) {
+    throw new Error(`Global control-plane MCP projection did not complete for: ${globalBlocked.map((target) => target.harness).join(", ")}`);
+  }
   const result = await syncNativeMcpProjections(
     resolution,
     process.cwd(),
     {
       harnesses,
-      includeKilnControlPlane: true,
       ...(flags.repair ? { force: true } : {}),
     },
   );
@@ -120,4 +144,8 @@ function parseHarnesses(client: string | undefined): readonly NativeMcpHarness[]
 
 function formatTarget(target: NativeMcpProjectionTargetResult): string {
   return `${target.harness}: ${target.status} (${target.path})${target.reason ? ` - ${target.reason}` : ""}`;
+}
+
+function formatGlobalTarget(target: GlobalControlPlaneMcpProjectionTargetResult): string {
+  return `${target.harness} global control-plane: ${target.status} (${target.path})${target.reason ? ` - ${target.reason}` : ""}`;
 }

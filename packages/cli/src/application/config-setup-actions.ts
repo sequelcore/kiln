@@ -15,6 +15,7 @@ import { resolveProjectRoot } from "./project-root-resolver.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
 import { syncGlobalInstructionShimProjections } from "./global-instruction-shim-projection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
+import { syncGlobalControlPlaneMcpProjections } from "../config/global-control-plane-mcp-projection.js";
 
 export interface ExecuteConfigSetupActionInput {
   readonly projectPath: string;
@@ -133,10 +134,14 @@ async function syncNativeProjections(
     skillConfig: kilnYaml.skills,
     userHome,
   });
+  const globalMcpResult = await syncGlobalControlPlaneMcpProjections({
+    operation: "install",
+    projectPath,
+    userHome,
+  });
   const mcpResult = await syncNativeMcpProjections(
     loadResolvedKilnMcpConfiguration(projectPath),
     projectPath,
-    { includeKilnControlPlane: true },
   );
   const mcpErrors = mcpResult.targets.flatMap((target) =>
     target.status === "current"
@@ -148,6 +153,9 @@ async function syncNativeProjections(
     ...agentResult.errors,
     ...skillResult.errors,
     ...mcpErrors,
+    ...globalMcpResult.targets.flatMap((target) => target.status === "current"
+      ? []
+      : [`${target.harness} global control-plane MCP projection ${target.status}${target.reason ? `: ${target.reason}` : ""}`]),
   ];
   if (errors.length > 0) {
     return result(action, "failed", "Native projection sync failed.", errors, projectPath, userHome);

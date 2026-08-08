@@ -24,6 +24,33 @@ export {
 } from "./operator-commands.js";
 
 export type {
+  OperatorProjectBinding,
+  OperatorProjectRuntimeDiagnostic,
+  OperatorProjectRuntimeLifecycle,
+  OperatorProjectRuntimeStatus,
+  OperatorRuntimeHarness,
+  OperatorSessionClaims,
+  OperatorSupervisorDiagnostic,
+  OperatorSupervisorIdentity,
+  OperatorSupervisorLifecycle,
+  OperatorSupervisorStatus,
+} from "./operator-runtime.js";
+export {
+  OPERATOR_PROJECT_RUNTIME_DIAGNOSTICS,
+  OPERATOR_PROJECT_RUNTIME_LIFECYCLES,
+  OPERATOR_RUNTIME_AUDIENCE,
+  OPERATOR_RUNTIME_HARNESSES,
+  OPERATOR_RUNTIME_PROTOCOL_VERSION,
+  OPERATOR_SUPERVISOR_DIAGNOSTICS,
+  OPERATOR_SUPERVISOR_LIFECYCLES,
+  OperatorProjectBindingSchema,
+  OperatorProjectRuntimeStatusSchema,
+  OperatorSessionClaimsSchema,
+  OperatorSupervisorIdentitySchema,
+  OperatorSupervisorStatusSchema,
+} from "./operator-runtime.js";
+
+export type {
   OperatorResourceContentKind,
   OperatorResourceProviderReadResult,
   OperatorResourceReadPresentation,

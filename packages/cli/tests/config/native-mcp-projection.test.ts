@@ -149,111 +149,10 @@ function portableResolution(): McpConfigurationResolution {
   });
 }
 
-function emptyResolution(): McpConfigurationResolution {
-  return resolveMcpConfiguration({});
-}
-
-function writeKilnProjectMarker(root: string): void {
-  mkdirSync(join(root, ".kiln"), { recursive: true });
-  writeFileSync(join(root, ".kiln", "kiln.yaml"), "version: '1'\n", "utf8");
-}
-
 describe("native MCP projection lifecycle", () => {
-  it("installs a distinct project-local control-plane bridge for every harness and removes only owned bridges", async () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-control-plane-"));
+  it("reserves the global control-plane identity without projecting it locally", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-reserved-"));
     roots.push(root);
-    writeKilnProjectMarker(root);
-    mkdirSync(join(root, ".codex"), { recursive: true });
-    writeFileSync(join(root, ".codex", "config.toml"), 'model = "keep-me"\n\n[mcp_servers.unmanaged]\ncommand = "keep"\n');
-    writeFileSync(join(root, ".mcp.json"), JSON.stringify({ mcpServers: { unmanaged: { command: "keep" } } }));
-    writeFileSync(join(root, "opencode.json"), JSON.stringify({ mcp: {
-      unmanaged: { type: "local", command: ["keep"] },
-      kiln: { type: "local", command: ["kiln", "tools", "--mcp"], enabled: true },
-    } }));
-
-    const sync = await syncNativeMcpProjections(emptyResolution(), root, {
-      includeKilnControlPlane: true,
-    });
-
-    expect(sync.targets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ harness: "codex", status: "current" }),
-    ]));
-    const codex = parseToml(readFileSync(join(root, ".codex", "config.toml"), "utf8")) as Record<string, unknown>;
-    expect(codex).toMatchObject({
-      model: "keep-me",
-      mcp_servers: {
-        unmanaged: { command: "keep" },
-        "kiln-control-plane": {
-          command: "kiln",
-          args: ["native-harness", "control-plane-mcp", "--harness", "codex", "--project-root", root],
-        },
-      },
-    });
-    expect(JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"))).toEqual({
-      mcpServers: {
-        unmanaged: { command: "keep" },
-        "kiln-control-plane": {
-          type: "stdio",
-          command: "kiln",
-          args: ["native-harness", "control-plane-mcp", "--harness", "claude", "--project-root", root],
-        },
-      },
-    });
-    expect(JSON.parse(readFileSync(join(root, "opencode.json"), "utf8"))).toEqual({
-      mcp: {
-        unmanaged: { type: "local", command: ["keep"] },
-        kiln: { type: "local", command: ["kiln", "tools", "--mcp"], enabled: true },
-        "kiln-control-plane": {
-          type: "local",
-          command: ["kiln", "native-harness", "control-plane-mcp", "--harness", "opencode", "--project-root", root],
-          enabled: true,
-        },
-      },
-    });
-
-    await uninstallNativeMcpProjections(root);
-    const uninstalled = parseToml(readFileSync(join(root, ".codex", "config.toml"), "utf8")) as Record<string, unknown>;
-    expect(uninstalled).toMatchObject({
-      model: "keep-me",
-      mcp_servers: { unmanaged: { command: "keep" } },
-    });
-    expect((uninstalled.mcp_servers as Record<string, unknown>)["kiln-control-plane"]).toBeUndefined();
-    expect(JSON.parse(readFileSync(join(root, ".mcp.json"), "utf8"))).toEqual({ mcpServers: { unmanaged: { command: "keep" } } });
-    expect(JSON.parse(readFileSync(join(root, "opencode.json"), "utf8"))).toEqual({ mcp: {
-      unmanaged: { type: "local", command: ["keep"] },
-      kiln: { type: "local", command: ["kiln", "tools", "--mcp"], enabled: true },
-    } });
-  });
-
-  it("fails closed without modifying an unmanaged native MCP server named kiln-control-plane", async () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-control-plane-collision-"));
-    roots.push(root);
-    writeKilnProjectMarker(root);
-    mkdirSync(join(root, ".codex"), { recursive: true });
-    const target = join(root, ".codex", "config.toml");
-    const original = '[mcp_servers.kiln-control-plane]\ncommand = "someone-else"\nargs = ["serve"]\n';
-    writeFileSync(target, original);
-
-    const result = await syncNativeMcpProjections(emptyResolution(), root, {
-      harnesses: ["codex"],
-      includeKilnControlPlane: true,
-    });
-
-    expect(result.targets).toEqual([
-      expect.objectContaining({
-        harness: "codex",
-        status: "incompatible",
-        servers: [expect.objectContaining({ id: "kiln-control-plane", status: "incompatible", reason: expect.stringContaining("unmanaged") })],
-      }),
-    ]);
-    expect(readFileSync(target, "utf8")).toBe(original);
-    expect(existsSync(join(root, ".kiln", "install-state.json"))).toBe(false);
-  });
-
-  it("reserves the control-plane identity for every harness instead of overwriting canonical MCP", async () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-control-plane-reserved-"));
-    roots.push(root);
-    writeKilnProjectMarker(root);
     const conflicting = resolveMcpConfiguration({
       project: {
         scope: "project",
@@ -264,35 +163,15 @@ describe("native MCP projection lifecycle", () => {
       },
     });
 
-    const result = await syncNativeMcpProjections(conflicting, root, {
-      harnesses: ["codex", "claude", "opencode"],
-      includeKilnControlPlane: true,
-    });
+    const result = await syncNativeMcpProjections(conflicting, root, { harnesses: ["codex"] });
 
-    expect(result.targets).toHaveLength(3);
-    expect(result.targets.every((target) => target.status === "incompatible" && target.reason?.includes("reserved"))).toBe(true);
+    expect(result.targets).toEqual([expect.objectContaining({ status: "incompatible", reason: expect.stringContaining("global") })]);
     expect(existsSync(join(root, ".codex", "config.toml"))).toBe(false);
-    expect(existsSync(join(root, ".kiln", "install-state.json"))).toBe(false);
-  });
-
-  it("refuses to project the control-plane bridge outside an adopted Kiln project", async () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-control-plane-unadopted-"));
-    roots.push(root);
-
-    await expect(syncNativeMcpProjections(emptyResolution(), root, {
-      includeKilnControlPlane: true,
-    })).rejects.toThrow(join(".kiln", "kiln.yaml"));
-
-    expect(existsSync(join(root, ".codex", "config.toml"))).toBe(false);
-    expect(existsSync(join(root, ".mcp.json"))).toBe(false);
-    expect(existsSync(join(root, "opencode.json"))).toBe(false);
-    expect(existsSync(join(root, ".kiln", "install-state.json"))).toBe(false);
   });
 
   it("restores every native MCP file byte-for-byte when install-state persistence fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-native-mcp-state-rollback-"));
     roots.push(root);
-    writeKilnProjectMarker(root);
     const files = [
       join(root, ".codex", "config.toml"),
       join(root, ".mcp.json"),
@@ -307,8 +186,8 @@ describe("native MCP projection lifecycle", () => {
       throw new Error("synthetic MCP install-state failure");
     });
 
-    await expect(syncNativeMcpProjections(emptyResolution(), root, {
-      includeKilnControlPlane: true,
+    await expect(syncNativeMcpProjections(portableResolution(), root, {
+      harnesses: ["claude", "opencode"],
     })).rejects.toThrow("synthetic MCP install-state failure");
 
     for (const [path, content] of before) expect(readFileSync(path, "utf8")).toBe(content);

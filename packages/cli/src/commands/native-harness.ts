@@ -1,25 +1,52 @@
-import { startNativeHarnessMcpServer } from "../native-harness/codex-app-mcp-server.js";
-import { resolveNativeHarnessProjectRoot } from "../application/native-harness-project-root.js";
-import type { NativeMcpHarness } from "../config/native-mcp-projection.js";
+import pkg from "../../package.json" with { type: "json" };
+import type { OperatorRuntimeHarness } from "@kilnai/gateway-contracts";
+import { createGlobalOperatorRuntimeLifecycle, type GlobalOperatorRuntimeLifecycle } from "../application/operator-runtime-lifecycle.js";
+import { startGlobalMcpBridge, type StartGlobalMcpBridgeOptions } from "../native-harness/global-mcp-bridge.js";
 
-export async function nativeHarnessCommand(args: readonly string[]): Promise<void> {
-  const parsed = parseNativeHarnessMcpArgs(args);
-  const project = resolveNativeHarnessProjectRoot(parsed.projectPath);
-  if (project.status !== "resolved") throw new Error("The trusted --project-root must contain .kiln/kiln.yaml.");
-
-  process.stdin.pause();
-  await startNativeHarnessMcpServer({ harness: parsed.harness, projectPath: project.rootPath });
-  process.stdin.resume();
+interface NativeHarnessCommandDependencies {
+  readonly createLifecycle: () => GlobalOperatorRuntimeLifecycle;
+  readonly startBridge: (options: StartGlobalMcpBridgeOptions) => Promise<unknown>;
+  readonly pauseStdin: () => void;
+  readonly resumeStdin: () => void;
 }
 
-function parseNativeHarnessMcpArgs(args: readonly string[]): { readonly harness: NativeMcpHarness; readonly projectPath: string } {
-  if (args.length !== 5 || args[0] !== "control-plane-mcp" || args[1] !== "--harness" || args[3] !== "--project-root") {
-    throw new Error("Usage: kiln native-harness control-plane-mcp --harness <codex|claude|opencode> --project-root <path>");
+const defaultDependencies: NativeHarnessCommandDependencies = {
+  createLifecycle: () => createGlobalOperatorRuntimeLifecycle({
+    version: pkg.version,
+    execPath: process.execPath,
+    entrypoint: process.argv[1] ?? "",
+  }),
+  startBridge: startGlobalMcpBridge,
+  pauseStdin: () => { process.stdin.pause(); },
+  resumeStdin: () => { process.stdin.resume(); },
+};
+
+export async function nativeHarnessCommand(
+  args: readonly string[],
+  overrides: Partial<NativeHarnessCommandDependencies> = {},
+): Promise<void> {
+  const dependencies = { ...defaultDependencies, ...overrides };
+  const parsed = parseNativeHarnessMcpArgs(args);
+  const lifecycle = dependencies.createLifecycle();
+  dependencies.pauseStdin();
+  try {
+    await dependencies.startBridge({
+      harness: parsed.harness,
+      supervisor: lifecycle.supervisor,
+      readBridgeCredentials: lifecycle.readBridgeCredentials,
+    });
+  } finally {
+    dependencies.resumeStdin();
+  }
+}
+
+function parseNativeHarnessMcpArgs(args: readonly string[]): { readonly harness: OperatorRuntimeHarness } {
+  if (args.length !== 3 || args[0] !== "control-plane-mcp" || args[1] !== "--harness") {
+    throw new Error("Usage: kiln native-harness control-plane-mcp --harness <codex|claude|opencode>");
   }
   const harness = args[2];
-  const projectPath = args[4]?.trim();
-  if ((harness !== "codex" && harness !== "claude" && harness !== "opencode") || !projectPath) {
-    throw new Error("Usage: kiln native-harness control-plane-mcp --harness <codex|claude|opencode> --project-root <path>");
+  if (harness !== "codex" && harness !== "claude" && harness !== "opencode") {
+    throw new Error("Usage: kiln native-harness control-plane-mcp --harness <codex|claude|opencode>");
   }
-  return { harness, projectPath };
+  return { harness };
 }

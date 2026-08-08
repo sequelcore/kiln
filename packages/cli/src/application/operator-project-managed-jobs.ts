@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
   createSessionBuiltinToolOptions,
@@ -25,12 +26,23 @@ import {
   type ManagedInvocationRouteResolution,
 } from "../config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
-import { discoverNativeHarnessProjectRoot, resolveNativeHarnessProjectRoot } from "./native-harness-project-root.js";
-import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
+import { resolveNativeHarnessProjectRoot } from "./native-harness-project-root.js";
+import { readConfigStatusSnapshot } from "./config-status.js";
+import {
+  KILN_STATUS_EVIDENCE_VERSION,
+  KilnConfigStatusSnapshotSchema,
+  KilnResolvedWorkGovernancePolicySchema,
+  type KilnResolvedWorkGovernancePolicy,
+} from "@kilnai/gateway-contracts";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { deriveEffectiveKilnYaml, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { readGlobalConfig } from "../config/global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
+
+const MAX_GOVERNANCE_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
+const MAX_GOVERNANCE_FUTURE_CLOCK_SKEW_MS = 60 * 1_000;
+const OPERATOR_MANAGED_JOB_ADMISSION_ID = "operator-managed-agent-delegation";
+const OPERATOR_MANAGED_JOB_SOURCE = "operator-managed-job";
 
 /**
  * `modelGateway`, `engines`, `routing`, and `models` are global Runtime
@@ -42,7 +54,7 @@ import { readKilnYaml } from "../kiln-yaml.js";
  * same global read -- so a project `kiln.yaml` can never define or override
  * it, and no two reads of global config can observe different snapshots.
  */
-function loadNativeHarnessManagedRouteConfig(
+function loadOperatorProjectManagedRouteConfig(
   rootPath: string,
 ): ManagedAgentRouteConfigSource | undefined {
   const globalConfig = readGlobalConfig();
@@ -62,26 +74,79 @@ function loadNativeHarnessManagedRouteConfig(
 const REQUIRED_ADMISSION_PROFILE_ID = "foundation-readonly-plan";
 
 /**
- * Production composition for a project-local native-harness bridge. Configuration
- * and Runtime retain route and provider authority; this adapter only connects
- * their already-admitted values to the persistent application owner.
+ * Production composition for one operator-supervised project Runtime.
+ * Configuration and Runtime retain route and provider authority; this owner
+ * serves every admitted native-harness caller without adopting harness identity.
  */
-export type NativeHarnessId = "codex" | "claude" | "opencode";
-
-export interface CreateNativeHarnessManagedJobApplicationCompositionOptions {
-  readonly harness: NativeHarnessId;
+export interface CreateOperatorProjectManagedJobApplicationCompositionOptions {
   readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
   readonly onRefreshError?: (error: unknown) => void;
-  readonly projectPath?: string;
+  readonly projectPath: string;
 }
 
-export async function createNativeHarnessManagedJobApplicationService(
-  options: CreateNativeHarnessManagedJobApplicationCompositionOptions,
+interface OperatorProjectGovernanceEvidence {
+  readonly policy: KilnResolvedWorkGovernancePolicy;
+}
+
+/**
+ * Reads project-neutral governance authority from the canonical config-status
+ * owner. Harness-facing inspection remains a separate per-request concern.
+ */
+function createOperatorProjectGovernanceReader(rootPath: string): {
+  read(): Promise<OperatorProjectGovernanceEvidence>;
+} {
+  return {
+    async read() {
+      let candidate: unknown;
+      try {
+        candidate = await readConfigStatusSnapshot({ projectPath: rootPath });
+      } catch {
+        throw new ManagedJobApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
+      }
+      const snapshot = KilnConfigStatusSnapshotSchema.safeParse(candidate);
+      if (
+        !snapshot.success
+        || snapshot.data.evidenceVersion !== KILN_STATUS_EVIDENCE_VERSION
+        || !sameCanonicalProjectRoot(snapshot.data.project.rootPath, rootPath)
+        || snapshot.data.effectiveConfigStatus !== "valid"
+      ) {
+        throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
+      }
+      const observedAt = Date.parse(snapshot.data.generatedAt);
+      const now = Date.now();
+      if (
+        !Number.isFinite(observedAt)
+        || observedAt > now + MAX_GOVERNANCE_FUTURE_CLOCK_SKEW_MS
+        || now - observedAt > MAX_GOVERNANCE_EVIDENCE_AGE_MS
+      ) {
+        throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
+      }
+      const policy = KilnResolvedWorkGovernancePolicySchema.safeParse(
+        snapshot.data.effectiveConfig?.workGovernance,
+      );
+      if (!policy.success) {
+        throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
+      }
+      return { policy: policy.data };
+    },
+  };
+}
+
+function sameCanonicalProjectRoot(left: string, right: string): boolean {
+  try {
+    return realpathSync(left) === realpathSync(right);
+  } catch {
+    return false;
+  }
+}
+
+export async function createOperatorProjectManagedJobApplicationService(
+  options: CreateOperatorProjectManagedJobApplicationCompositionOptions,
 ): Promise<ManagedJobApplicationService> {
-  return (await createNativeHarnessManagedJobApplicationComposition(options)).service;
+  return (await createOperatorProjectManagedJobApplicationComposition(options)).service;
 }
 
-export interface NativeHarnessManagedAgentSummary {
+export interface OperatorProjectManagedAgentSummary {
   readonly configuredAgentProfileId: string;
   readonly displayName?: string;
   readonly role?: string;
@@ -92,16 +157,16 @@ export interface NativeHarnessManagedAgentSummary {
   readonly operatorAction?: string;
 }
 
-export interface NativeHarnessManagedJobApplicationComposition {
+export interface OperatorProjectManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
-  readonly application: NativeHarnessManagedJobApplicationPort;
-  readonly configuredAgents: readonly NativeHarnessManagedAgentSummary[];
+  readonly application: OperatorProjectManagedJobApplicationPort;
+  readonly configuredAgents: readonly OperatorProjectManagedAgentSummary[];
   /** Releases the process-owned economic authority so a restart can reclaim it immediately. */
   close(): void;
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
-export interface NativeHarnessManagedJobApplicationPort {
+export interface OperatorProjectManagedJobApplicationPort {
   submit(input: unknown): Promise<ManagedJobRecord>;
   getStatus(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
   getResult(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobResultQuery>;
@@ -109,12 +174,13 @@ export interface NativeHarnessManagedJobApplicationPort {
   getReplay(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobReplayQuery>;
 }
 
-export async function createNativeHarnessManagedJobApplicationComposition(
-  options: CreateNativeHarnessManagedJobApplicationCompositionOptions,
-): Promise<NativeHarnessManagedJobApplicationComposition> {
-  const root = options.projectPath
-    ? resolveNativeHarnessProjectRoot(options.projectPath)
-    : discoverNativeHarnessProjectRoot();
+export async function createOperatorProjectManagedJobApplicationComposition(
+  options: CreateOperatorProjectManagedJobApplicationCompositionOptions,
+): Promise<OperatorProjectManagedJobApplicationComposition> {
+  if (!options || typeof options.projectPath !== "string" || options.projectPath.trim().length === 0) {
+    throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
+  }
+  const root = resolveNativeHarnessProjectRoot(options.projectPath);
   if (root.status !== "resolved") {
     throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
   }
@@ -125,11 +191,11 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   const admittedMcpServers = Object.values(mcpResolution.servers).filter((server) =>
     server.enabled && server.admission?.state === "admitted");
   const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
-  const inspection = createNativeHarnessInspectionService({ harness: options.harness, readProjectRoot: async () => root });
+  const governance = createOperatorProjectGovernanceReader(root.rootPath);
   const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
     let config: ManagedAgentRouteConfigSource | undefined;
     try {
-      config = loadNativeHarnessManagedRouteConfig(root.rootPath);
+      config = loadOperatorProjectManagedRouteConfig(root.rootPath);
     } catch {
       throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
     }
@@ -158,7 +224,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     return current;
   };
   const managedInvocation = await freshManagedInvocation();
-  const initialConfig = loadNativeHarnessManagedRouteConfig(root.rootPath);
+  const initialConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
   if (!initialConfig) {
     throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
   }
@@ -180,10 +246,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     project: { resolve: async () => project },
     governance: {
       resolve: async () => {
-        const governance = await inspection.inspectWorkGovernance();
-        if (governance.authority !== "authoritative") {
-          throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
-        }
+        await governance.read();
         const now = new Date();
         return {
           version: 1,
@@ -194,16 +257,13 @@ export async function createNativeHarnessManagedJobApplicationComposition(
         };
       },
       admit: async () => {
-        const governance = await inspection.inspectWorkGovernance();
-        if (governance.authority !== "authoritative" || !governance.policy) {
-          throw new ManagedJobApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
-        }
+        const { policy } = await governance.read();
         // This surface is delegation, never direct execution. The configured
         // policy must explicitly govern managed-agent work before it is admitted.
-        if (!governance.policy.requireDelegationFor.includes("managed-agents")) {
+        if (!policy.requireDelegationFor.includes("managed-agents")) {
           return { admitted: false };
         }
-        return { admitted: true, admissionId: `${options.harness}-managed-agent-delegation`, source: "kiln-work-governance" };
+        return { admitted: true, admissionId: OPERATOR_MANAGED_JOB_ADMISSION_ID, source: "kiln-work-governance" };
       },
     },
     profiles: {
@@ -262,7 +322,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     },
     economicAdoption: {
       adopt: async (job) => {
-        const currentConfig = loadNativeHarnessManagedRouteConfig(root.rootPath);
+        const currentConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
         if (!currentConfig) {
           throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
         }
@@ -303,7 +363,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
           parentTurnId: job.parent?.turnId ?? job.id,
           profile: job.admissionProfileId,
           requestedBy: job.callerId,
-          requestSource: `${options.harness}-managed-job`,
+          requestSource: OPERATOR_MANAGED_JOB_SOURCE,
           providerRoute: {
             providerId: selected.providerId,
             surface: route.surface ?? "direct-provider",
@@ -335,7 +395,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
           routeSource: route.routeSource,
           callerIdentity: {
             kind: "kiln-runtime",
-            surface: `${options.harness}-managed-job`,
+            surface: OPERATOR_MANAGED_JOB_SOURCE,
             attachmentId: `managed-job:${job.id}`,
           },
           ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
@@ -367,7 +427,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     store: managedJobStore,
   });
   await service.recoverInterrupted();
-  const application: NativeHarnessManagedJobApplicationPort = {
+  const application: OperatorProjectManagedJobApplicationPort = {
     submit: (input) => service.start(input),
     getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
     getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
@@ -377,7 +437,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   return {
     service,
     application,
-    configuredAgents: summarizeNativeHarnessManagedAgents(configuredAgents, managedInvocation),
+    configuredAgents: summarizeOperatorProjectManagedAgents(configuredAgents, managedInvocation),
     close: () => { closeManagedAccountRuntimeComposition(root.rootPath); },
   };
 }
@@ -388,11 +448,11 @@ function selectAdmissionProfile(
   return route.profiles[REQUIRED_ADMISSION_PROFILE_ID] ? REQUIRED_ADMISSION_PROFILE_ID : undefined;
 }
 
-export function summarizeNativeHarnessManagedAgents(
+export function summarizeOperatorProjectManagedAgents(
   configuredAgents: readonly KilnAgentDefinition[],
   resolution: ManagedInvocationRouteResolution["managedInvocation"],
-): readonly NativeHarnessManagedAgentSummary[] {
-  return configuredAgents.flatMap((agent): readonly NativeHarnessManagedAgentSummary[] => {
+): readonly OperatorProjectManagedAgentSummary[] {
+  return configuredAgents.flatMap((agent): readonly OperatorProjectManagedAgentSummary[] => {
     if (!agent.economicPolicyId) return [];
     const base = {
       configuredAgentProfileId: agent.name,

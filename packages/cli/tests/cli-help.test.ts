@@ -33,6 +33,7 @@ describe("CLI help", () => {
     expect(helpOutput).toContain("uninstall");
     expect(helpOutput).toContain("route");
     expect(helpOutput).toContain("tools");
+    expect(helpOutput).toContain("operator-runtime");
     expect(helpOutput).not.toContain("  serve");
     expect(helpOutput).toContain(
       "Launch native dev tools MCP server over stdio and inspect shared resources (--mcp, --resources, --resource <uri>)",

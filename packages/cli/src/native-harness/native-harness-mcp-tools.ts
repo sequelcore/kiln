@@ -1,17 +1,37 @@
 import type { ManagedJobRecord, ManagedJobReplayQuery, ManagedJobResultQuery } from "@kilnai/runtime";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { type AccountUsageInspectionService, createAccountUsageInspectionService } from "../application/account-usage-inspection.js";
-import { createNativeHarnessManagedJobApplicationComposition, type NativeHarnessId, type NativeHarnessManagedJobApplicationComposition, type NativeHarnessManagedJobApplicationPort } from "../application/codex-app-managed-jobs.js";
+import type { OperatorProjectManagedJobApplicationPort } from "../application/operator-project-managed-jobs.js";
+import type { HarnessIntegrationId } from "../config/harness-integration-capabilities.js";
 import { createNativeHarnessInspectionService, type NativeHarnessInspectionService } from "../application/native-harness-inspection.js";
 
 const INSPECTION_TOOL_NAMES = ["kiln_status_inspect", "kiln_work_governance_inspect", "kiln_capability_inspect", "kiln_account_usage_inspect"] as const;
 const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status", "kiln_managed_agent_result", "kiln_managed_agent_cancel", "kiln_managed_agent_replay"] as const;
 const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...MANAGED_JOB_TOOL_NAMES] as const;
 
-type NativeHarnessMcpToolName = (typeof TOOL_NAMES)[number];
+export type NativeHarnessMcpToolName = (typeof TOOL_NAMES)[number];
+
+export interface NativeHarnessMcpToolDefinition {
+  readonly name: NativeHarnessMcpToolName;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema: Record<string, unknown>;
+  readonly annotations: Record<string, boolean>;
+}
+
+/** Stable native-harness catalog shared by the global bridge and operator runtime. */
+export function nativeHarnessMcpToolCatalog(): readonly NativeHarnessMcpToolDefinition[] {
+  return TOOL_NAMES.map((name) => ({
+    name,
+    description: descriptionFor(name),
+    inputSchema: inputSchemaFor(name),
+    outputSchema: { type: "object" },
+    annotations: annotationsFor(name),
+  }));
+}
 
 /** The canonical application boundary. The MCP adapter must not reimplement it. */
-export type ManagedJobApplicationPort = NativeHarnessManagedJobApplicationPort;
+export type ManagedJobApplicationPort = OperatorProjectManagedJobApplicationPort;
+type NativeHarnessId = HarnessIntegrationId;
 
 /** Trusted harness identity, supplied by composition rather than MCP arguments. */
 export interface NativeHarnessMcpRequestIdentity {
@@ -26,97 +46,32 @@ export interface NativeHarnessMcpCallResult {
   readonly isError?: true;
 }
 
-export interface NativeHarnessMcpServerOptions {
+export interface NativeHarnessMcpToolsOptions {
   readonly harness: NativeHarnessId;
   readonly inspection?: NativeHarnessInspectionService;
   readonly managedJobs?: ManagedJobApplicationPort;
   readonly requestIdentity?: () => NativeHarnessMcpRequestIdentity;
-  readonly sdkLoader?: () => Promise<NativeHarnessMcpSdk>;
-  readonly transportFactory?: () => StdioServerTransport;
   readonly accountUsage?: AccountUsageInspectionService;
 }
 
-export interface StartNativeHarnessMcpServerOptions {
-  readonly harness: NativeHarnessId;
-  readonly projectPath: string;
-  readonly inspection?: NativeHarnessInspectionService;
-  readonly createComposition?: (options: { readonly harness: NativeHarnessId; readonly projectPath: string }) => Promise<NativeHarnessManagedJobApplicationComposition>;
-  readonly sdkLoader?: () => Promise<NativeHarnessMcpSdk>;
-  readonly transportFactory?: () => StdioServerTransport;
-  readonly writeDiagnostic?: (message: string) => void;
-  readonly registerProcessSignals?: boolean;
-}
-
-export interface NativeHarnessMcpServerHandle {
-  readonly managedRuntime: Promise<{ readonly status: "attached" | "unavailable" }>;
-  close(): Promise<void>;
-}
-
-export interface NativeHarnessMcpSdk {
-  readonly Server: new (info: { name: string; version: string }, options: { capabilities: Record<string, unknown> }) => McpServerInstance;
-  readonly ListToolsRequestSchema: unknown;
-  readonly CallToolRequestSchema: unknown;
-}
-
-interface McpServerInstance {
-  setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void;
-  connect(transport: StdioServerTransport): Promise<void>;
-  close(): Promise<void>;
-}
-
-export class NativeHarnessMcpServer {
+export class NativeHarnessMcpTools {
   private readonly harness: NativeHarnessId;
-  private inspection: NativeHarnessInspectionService;
+  private readonly inspection: NativeHarnessInspectionService;
   private managedJobs: ManagedJobApplicationPort | undefined;
   private readonly requestIdentity: () => NativeHarnessMcpRequestIdentity;
   private requestSequence = 0;
-  private readonly sdkLoader: () => Promise<NativeHarnessMcpSdk>;
-  private readonly transportFactory: () => StdioServerTransport;
   private readonly accountUsage: AccountUsageInspectionService;
-  private connectedServer: McpServerInstance | undefined;
-  private transport: StdioServerTransport | undefined;
-  private sdk: NativeHarnessMcpSdk | undefined;
 
-  constructor(options: NativeHarnessMcpServerOptions) {
+  constructor(options: NativeHarnessMcpToolsOptions) {
     this.harness = options.harness;
     this.inspection = options.inspection ?? createNativeHarnessInspectionService({ harness: options.harness });
     this.managedJobs = options.managedJobs;
     this.requestIdentity = options.requestIdentity ?? (() => ({ callerId: `${options.harness}-native-harness` }));
-    this.sdkLoader = options.sdkLoader ?? loadSdk;
-    this.transportFactory = options.transportFactory ?? (() => new StdioServerTransport());
     this.accountUsage = options.accountUsage ?? createAccountUsageInspectionService();
   }
 
-  listTools(): readonly {
-    readonly name: NativeHarnessMcpToolName;
-    readonly description: string;
-    readonly inputSchema: Record<string, unknown>;
-    readonly outputSchema: Record<string, unknown>;
-    readonly annotations: Record<string, boolean>;
-  }[] {
-    return TOOL_NAMES.map((name) => ({
-      name,
-      description: descriptionFor(name),
-      inputSchema: inputSchemaFor(name),
-      outputSchema: { type: "object" },
-      annotations: annotationsFor(name),
-    }));
-  }
-
-  async initialize(): Promise<void> {
-    this.sdk = await this.sdkLoader();
-  }
-
-  async start(): Promise<void> {
-    if (!this.sdk) await this.initialize();
-    this.connectedServer = this.createServer();
-    this.transport = this.transportFactory();
-    await this.connectedServer.connect(this.transport);
-  }
-
-  attachManagedJobs(options: { readonly application: ManagedJobApplicationPort; readonly inspection: NativeHarnessInspectionService }): void {
-    this.managedJobs = options.application;
-    this.inspection = options.inspection;
+  listTools(): readonly NativeHarnessMcpToolDefinition[] {
+    return nativeHarnessMcpToolCatalog();
   }
 
   async callTool(name: string, args: unknown): Promise<NativeHarnessMcpCallResult> {
@@ -136,25 +91,6 @@ export class NativeHarnessMcpServer {
     }
     const result = name === "kiln_account_usage_inspect" ? await this.accountUsage.inspect() : name === "kiln_status_inspect" ? await this.inspection.inspectStatus() : name === "kiln_work_governance_inspect" ? await this.inspection.inspectWorkGovernance() : await this.inspection.inspectCapability();
     return this.success(result, requestId);
-  }
-
-  async close(): Promise<void> {
-    await this.transport?.close();
-    await this.connectedServer?.close();
-    this.transport = undefined;
-    this.connectedServer = undefined;
-    this.sdk = undefined;
-  }
-
-  private createServer(): McpServerInstance {
-    if (!this.sdk) throw new Error("Native harness MCP server was not initialized");
-    const server = new this.sdk.Server({ name: `kiln-${this.harness}-control-plane`, version: "0.1.0" }, { capabilities: { tools: {} } });
-    server.setRequestHandler(this.sdk.ListToolsRequestSchema, async () => ({ tools: this.listTools() }));
-    server.setRequestHandler(this.sdk.CallToolRequestSchema, async (request) => {
-      const params = request.params as { name?: unknown; arguments?: unknown };
-      return await this.callTool(typeof params.name === "string" ? params.name : "", params.arguments ?? {});
-    });
-    return server;
   }
 
   private success(value: unknown, requestId: string): NativeHarnessMcpCallResult {
@@ -245,7 +181,7 @@ export class NativeHarnessMcpServer {
       },
       evidence: {
         harness: this.harness,
-        adapter: "project-local-kiln-control-plane-mcp",
+        adapter: "global-operator-runtime-mcp",
         callerId: identity.callerId,
         requestId,
       },
@@ -271,7 +207,7 @@ export class NativeHarnessMcpServer {
       },
       evidence: {
         harness: this.harness,
-        adapter: "project-local-kiln-control-plane-mcp",
+        adapter: "global-operator-runtime-mcp",
         callerId: identity.callerId,
         requestId,
       },
@@ -296,92 +232,13 @@ export class NativeHarnessMcpServer {
       },
       evidence: {
         harness: this.harness,
-        adapter: "project-local-kiln-control-plane-mcp",
+        adapter: "global-operator-runtime-mcp",
         callerId: identity.callerId,
         requestId,
       },
     };
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
-}
-
-export async function startNativeHarnessMcpServer(options: StartNativeHarnessMcpServerOptions): Promise<NativeHarnessMcpServerHandle> {
-  const projectPath = options.projectPath;
-  const inspection = (): NativeHarnessInspectionService =>
-    createNativeHarnessInspectionService({
-      harness: options.harness,
-      ...(projectPath ? { readProjectRoot: async () => ({ status: "resolved" as const, rootPath: projectPath }) } : {}),
-    });
-  const server = new NativeHarnessMcpServer({
-    harness: options.harness,
-    inspection: options.inspection ?? inspection(),
-    ...(options.sdkLoader ? { sdkLoader: options.sdkLoader } : {}),
-    ...(options.transportFactory ? { transportFactory: options.transportFactory } : {}),
-  });
-  let composition: NativeHarnessManagedJobApplicationComposition | undefined;
-  let compositionClosed = false;
-  let closed = false;
-  let closePromise: Promise<void> | undefined;
-  const writeDiagnostic =
-    options.writeDiagnostic ??
-    ((message: string) => {
-      process.stderr.write(`${message}\n`);
-    });
-  const closeComposition = (): void => {
-    if (!composition || compositionClosed) return;
-    compositionClosed = true;
-    composition.close();
-  };
-  const onSignal = (): void => {
-    void close().catch(() => {
-      writeDiagnostic("Kiln MCP shutdown did not complete cleanly.");
-    });
-  };
-  const unregisterSignals = (): void => {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
-  };
-  const close = async (): Promise<void> => {
-    if (closePromise) return closePromise;
-    closed = true;
-    unregisterSignals();
-    closePromise = (async () => {
-      try {
-        await server.close();
-      } finally {
-        closeComposition();
-      }
-    })();
-    return closePromise;
-  };
-  await server.start();
-  if (options.registerProcessSignals !== false) {
-    process.once("SIGINT", onSignal);
-    process.once("SIGTERM", onSignal);
-  }
-  const createComposition = options.createComposition ?? createNativeHarnessManagedJobApplicationComposition;
-  const managedRuntime = createComposition({ harness: options.harness, projectPath })
-    .then((created) => {
-      composition = created;
-      if (closed) {
-        closeComposition();
-        return { status: "attached" as const };
-      }
-      server.attachManagedJobs({
-        application: created.application,
-        inspection: createNativeHarnessInspectionService({
-          harness: options.harness,
-          managedAgents: created.configuredAgents,
-          ...(projectPath ? { readProjectRoot: async () => ({ status: "resolved" as const, rootPath: projectPath }) } : {}),
-        }),
-      });
-      return { status: "attached" as const };
-    })
-    .catch(() => {
-      writeDiagnostic("Kiln managed-job Runtime is unavailable; inspection tools remain active.");
-      return { status: "unavailable" as const };
-    });
-  return { close, managedRuntime };
 }
 
 export { createNativeHarnessInspectionService };
@@ -473,13 +330,4 @@ function operatorActionFor(code: string): string {
 
 function isMutationOperation(name: string): boolean {
   return /(?:managed[_ .-]?agent|invoke|config|setup|sync|work[_ .-]?item|goal|mutation|apply)/iu.test(name);
-}
-
-async function loadSdk(): Promise<NativeHarnessMcpSdk> {
-  const [serverModule, typesModule] = await Promise.all([import("@modelcontextprotocol/sdk/server/index.js"), import("@modelcontextprotocol/sdk/types.js")]);
-  return {
-    Server: serverModule.Server as unknown as NativeHarnessMcpSdk["Server"],
-    ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
-    CallToolRequestSchema: typesModule.CallToolRequestSchema,
-  };
 }

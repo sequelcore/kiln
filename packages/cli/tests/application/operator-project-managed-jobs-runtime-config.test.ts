@@ -5,25 +5,25 @@ import { join } from "node:path";
 import { deriveProviderModelEligibility, type ProviderModelEligibilityRequirements } from "@kilnai/core";
 import { normalizeRuntimeProviderDiscoveryCatalog } from "@kilnai/runtime";
 import { writeGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
-import { createNativeHarnessManagedJobApplicationComposition } from "../../src/application/codex-app-managed-jobs.js";
+import { createOperatorProjectManagedJobApplicationComposition } from "../../src/application/operator-project-managed-jobs.js";
 import { createNativeHarnessInspectionService } from "../../src/application/native-harness-inspection.js";
-import { NativeHarnessMcpServer } from "../../src/native-harness/codex-app-mcp-server.js";
+import { NativeHarnessMcpTools } from "../../src/native-harness/native-harness-mcp-tools.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import { economicConfig } from "../config/managed-economic-policy-config-fixture.js";
 
 /**
- * Regression proof for #56 revised S1: the project-local native-harness
- * `kiln-control-plane` MCP composition must derive its managed-route config
+ * Regression proof for #56 revised S1: the operator-supervised project Runtime
+ * composition must derive its managed-route config
  * (`modelGateway`, `engines`, `routing`, `models`, `managedAgents`, ...) from
  * canonical global/project config with the correct authority split, not from
  * `readConfigStatusSnapshot().effectiveConfig` (a project/status projection
  * that never carries global-only Runtime route authority). Unlike
- * `codex-app-managed-jobs.test.ts`, this file does not mock `config-status.js`,
+ * `operator-project-managed-jobs.test.ts`, this file does not mock `config-status.js`,
  * `global-config.js`, or `kiln-yaml.js`: it drives the real production
  * `readGlobalConfig()` + `readKilnYaml()` reads against real fixture files on
  * disk, through the real composition boundary
- * (`createNativeHarnessManagedJobApplicationComposition`) and the real MCP
- * surface (`NativeHarnessMcpServer`). A fake `effectiveConfig` mock (as the
+ * (`createOperatorProjectManagedJobApplicationComposition`) and the real MCP
+ * surface (`NativeHarnessMcpTools`). A fake `effectiveConfig` mock (as the
  * existing sibling test uses) can assert whatever shape it likes, including a
  * `modelGateway` field that `KilnYaml` never actually produces -- which is
  * exactly how the original defect went uncaught.
@@ -141,8 +141,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     writeGlobalConfig(economicConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
-    const composition = await createNativeHarnessManagedJobApplicationComposition({
-      harness: "codex",
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -153,7 +152,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         providerFamily: "codex-oauth",
       }]);
 
-      const server = new NativeHarnessMcpServer({
+      const server = new NativeHarnessMcpTools({
         harness: "codex",
         managedJobs: composition.application,
         inspection: createNativeHarnessInspectionService({
@@ -188,8 +187,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     writeGlobalConfig(globalConfig);
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
-    const composition = await createNativeHarnessManagedJobApplicationComposition({
-      harness: "codex",
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -224,8 +222,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       "modelGateway: not-a-gateway",
     ].join("\n"), { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
-    const composition = await createNativeHarnessManagedJobApplicationComposition({
-      harness: "codex",
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
@@ -257,8 +254,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       "        accountPolicyId: unresolvable-policy",
     ].join("\n"));
 
-    await expect(createNativeHarnessManagedJobApplicationComposition({
-      harness: "codex",
+    await expect(createOperatorProjectManagedJobApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => ({}),
     })).rejects.toThrow("Managed account or economic routes require modelGateway configuration.");

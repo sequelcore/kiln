@@ -4,7 +4,7 @@ import type { KilnGlobalConfig } from "../../src/config/global-config.js";
  * Canonical schema-v2 global config: a runtime-selected `codex-standard`
  * managed route covered by a matching `modelGateway.virtualModels` economic
  * route. Shared by `managed-economic-policy-config.test.ts` (schema/runtime
- * validation of this shape) and `codex-app-managed-jobs-runtime-config.test.ts`
+ * validation of this shape) and `operator-project-managed-jobs-runtime-config.test.ts`
  * (the real native-harness composition boundary), so both exercise the exact
  * same valid fixture rather than two independently drifting copies.
  */

@@ -1,4 +1,68 @@
 // Gateway
+export {
+  OPERATOR_SESSION_CLOCK_SKEW_SECONDS,
+  OPERATOR_SESSION_CREDENTIAL_ERROR_CODES,
+  OPERATOR_SESSION_CREDENTIAL_VERSION,
+  OPERATOR_SESSION_MAX_LIFETIME_SECONDS,
+  OPERATOR_SESSION_MIN_SECRET_BYTES,
+  OperatorSessionCredentialError,
+  signOperatorSessionCredential,
+  verifyOperatorSessionCredential,
+} from "./operator-runtime/operator-session-auth.js";
+export type {
+  OperatorSessionCredentialErrorCode,
+  OperatorSessionExpectedBinding,
+  OperatorSessionVerificationOptions,
+} from "./operator-runtime/operator-session-auth.js";
+export {
+  OPERATOR_RUNTIME_BINDING_HEADERS,
+  OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,
+  OPERATOR_RUNTIME_HEALTH_PATH,
+  OPERATOR_RUNTIME_INSPECTION_MAX_RESPONSE_BYTES,
+  OPERATOR_RUNTIME_INSPECTION_MAX_TIMEOUT_MS,
+  OPERATOR_RUNTIME_MCP_PATH,
+  OPERATOR_RUNTIME_REQUEST_MAX_BYTES,
+  OPERATOR_RUNTIME_SESSION_PATH,
+  OPERATOR_RUNTIME_SESSION_REQUEST_MAX_BYTES,
+  inspectOperatorRuntimeListener,
+  startOperatorRuntimeListener,
+} from "./operator-runtime/operator-listener.js";
+export type {
+  OperatorRuntimeListener,
+  OperatorRuntimeListenerFetch,
+  OperatorRuntimeListenerInspection,
+  OperatorRuntimeMcpRequest,
+  OperatorRuntimeSessionOpenInput,
+  OperatorRuntimeSessionOpenResult,
+  StartOperatorRuntimeListenerOptions,
+} from "./operator-runtime/operator-listener.js";
+export { ProjectRuntimeRegistry, ProjectRuntimeRegistryError } from "./operator-runtime/project-runtime-registry.js";
+export type {
+  ProjectRuntimeFactory,
+  ProjectRuntimeOwner,
+  ProjectRuntimeRegistryDescriptor,
+  ProjectRuntimeRegistryErrorCode,
+} from "./operator-runtime/project-runtime-registry.js";
+export {
+  OperatorRuntimeSupervisor,
+  nodeOperatorRuntimeProcessAdapter,
+  readOperatorRuntimeBridgeCredentials,
+  readOperatorRuntimeChildCredentials,
+} from "./operator-runtime/operator-supervisor.js";
+export type {
+  OperatorRuntimeBridgeCredentials,
+  OperatorRuntimeChildCredentials,
+  OperatorRuntimeCredentialMaterial,
+  OperatorRuntimeLaunchDescriptor,
+  OperatorRuntimeListenerInspector,
+  OperatorRuntimeProcessAdapter,
+  OperatorRuntimeSpawnDescriptor,
+  OperatorRuntimeState,
+  OperatorRuntimeSupervisorDoctor,
+  OperatorRuntimeSupervisorReason,
+  OperatorRuntimeSupervisorStatus,
+} from "./operator-runtime/operator-supervisor.js";
+
 export { OPENAI_RESPONSES_RAW_BODY_MAX_BYTES, createOpenAIResponsesRoutes } from "./gateway/openai-responses-routes.js";
 export type {
   OpenAIResponsesCompatibilityEvidence,
