@@ -262,25 +262,38 @@ Cost $0.51, 77.4s. This is re-proof for the Claude arm only; the Codex arm
 load-bearing proof of the `commands` allowlist fix) remains unverified live
 and should be re-run once Codex quota is available.
 
-Two CLI rough edges surfaced during re-proof, neither a regression from this
-change, both deferred (not scheduled) per operator decision to document only:
+Two CLI rough edges surfaced during re-proof, initially deferred
+(document-only) per operator decision, then closed the same day once the
+operator asked for the full fix:
 
-- `kiln run --plan --output json` is rejected ("--output answer/json is not
-  supported with interactive plan mode"). Plan mode's json restriction
-  assumes a human-interactive plan-then-execute flow; that assumption does
-  not hold for a read-only inspection turn with no execution follow-up
-  (exactly this task's shape). Fixable either as a clearer error message
-  explaining the restriction and suggesting `--output human`, or, more
-  completely, by allowing `--output json` in plan mode whenever there is no
-  pending execution decision to render interactively.
-- `kiln run --provider claude` without `--model` fails with "There's an
-  issue with the selected model (gpt-5.6-terra)" -- it resolves the
-  project's global default model (`gpt-5.6-terra`, bound to the default
-  provider) rather than a model admitted for the explicitly requested
-  provider. This is a real default-resolution gap, not just an unclear
-  error: `resolveProviderRouteCandidates`
-  (`packages/cli/src/config/provider-route-candidates.ts`, the same file
-  touched by this session's Codex OAuth binding fix) should resolve a
-  provider-appropriate default model when `--provider` is given explicitly
-  without `--model`, instead of reusing the global default's model id
-  unconditionally.
+- `kiln run --plan --output json` was rejected ("--output answer/json is not
+  supported with interactive plan mode"). The restriction conflated two
+  different things: an interactive stdin approval prompt (real, and
+  incompatible with non-human output) that only fires when the model calls
+  `submit_plan`, versus a plan-mode turn that never proposes a plan at all
+  (this task's shape, and any read-only inspection turn). Fixed by removing
+  the blanket pre-flight rejection in `packages/cli/src/commands/run.ts`,
+  threading a submitted plan through the JSON envelope as
+  `resources.proposedPlan` (`packages/cli/src/application/run-output.ts`)
+  instead of printing it to stdout and blocking on stdin, and skipping the
+  interactive prompt entirely for non-human output modes -- the caller
+  reads the plan from structured output and re-invokes without `--plan` to
+  execute it; Kiln never guesses that a missing interactive answer means
+  approved or denied. Live-verified: `kiln run --plan --output json
+  --provider claude --model claude-sonnet-5 "..."` now completes and
+  emits a valid `kiln.run.output.v1` envelope where it previously exited 1
+  before dispatch. Covered by `packages/cli/tests/application/run-output.test.ts`.
+- `kiln run --provider claude` without `--model` failed with "There's an
+  issue with the selected model (gpt-5.6-terra)" -- `resolveCandidateModel`
+  fell back to `models.default` even though that default is only a matched
+  pair with `resolveGlobalDefaultProvider()`, not a provider-agnostic
+  value. Fixed in `packages/cli/src/config/provider-route-candidates.ts`:
+  the `models.default` fallback now applies only when the resolved
+  provider equals the configured default provider; otherwise the model is
+  left unresolved so the native harness (here, Claude Code) applies its
+  own default instead of receiving a foreign model id. Covered by two new
+  cases in `packages/cli/src/config/provider-route-candidates.test.ts`.
+
+Both fixes shipped in commit `cf555249`, full workspace typecheck and the
+`@kilnai/cli` suite green (1829/1831; the one pre-existing unrelated
+failure noted above is untouched by this change).
