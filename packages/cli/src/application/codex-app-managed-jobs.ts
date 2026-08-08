@@ -21,6 +21,7 @@ import {
   createManagedAccountRuntimeComposition,
   createManagedEconomicDispatchComposition,
   projectManagedEconomicJobAdoption,
+  type ManagedAgentRouteConfigSource,
   type ManagedInvocationRouteResolution,
 } from "../config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
@@ -29,7 +30,23 @@ import { discoverNativeHarnessProjectRoot, resolveNativeHarnessProjectRoot } fro
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { readGlobalConfig } from "../config/global-config.js";
 import type { KilnYaml } from "../kiln-yaml-types.js";
+
+/**
+ * `modelGateway` is global Runtime/account/economic authority; it is not a
+ * project `KilnYaml` field and `readConfigStatusSnapshot().effectiveConfig`
+ * (a project/status projection) never carries it. Compose the managed-route
+ * source from one coherent read so every consumer observes the same
+ * project-merged route config together with the same global-only gateway.
+ */
+async function loadNativeHarnessManagedRouteConfig(
+  rootPath: string,
+): Promise<ManagedAgentRouteConfigSource | undefined> {
+  const effectiveConfig = (await readConfigStatusSnapshot({ projectPath: rootPath })).effectiveConfig as KilnYaml | undefined;
+  if (!effectiveConfig) return undefined;
+  return { ...effectiveConfig, modelGateway: readGlobalConfig()?.modelGateway };
+}
 
 /** Slice 3 admits read-only planning only; the route must explicitly support it. */
 const REQUIRED_ADMISSION_PROFILE_ID = "foundation-readonly-plan";
@@ -100,9 +117,9 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
   const inspection = createNativeHarnessInspectionService({ harness: options.harness, readProjectRoot: async () => root });
   const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
-    let config: KilnYaml | undefined;
+    let config: ManagedAgentRouteConfigSource | undefined;
     try {
-      config = (await readConfigStatusSnapshot({ projectPath: root.rootPath })).effectiveConfig as KilnYaml | undefined;
+      config = await loadNativeHarnessManagedRouteConfig(root.rootPath);
     } catch {
       throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
     }
@@ -131,7 +148,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     return current;
   };
   const managedInvocation = await freshManagedInvocation();
-  const initialConfig = (await readConfigStatusSnapshot({ projectPath: root.rootPath })).effectiveConfig as KilnYaml | undefined;
+  const initialConfig = await loadNativeHarnessManagedRouteConfig(root.rootPath);
   if (!initialConfig) {
     throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
   }
@@ -235,7 +252,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     },
     economicAdoption: {
       adopt: async (job) => {
-        const currentConfig = (await readConfigStatusSnapshot({ projectPath: root.rootPath })).effectiveConfig as KilnYaml | undefined;
+        const currentConfig = await loadNativeHarnessManagedRouteConfig(root.rootPath);
         if (!currentConfig) {
           throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
         }

@@ -12,7 +12,7 @@ import {
   projectManagedEconomicJobAdoption,
 } from "../../src/config/managed-agent-routes.js";
 
-function economicConfig(): KilnGlobalConfig {
+export function economicConfig(): KilnGlobalConfig {
   return {
     version: "1",
     managedAgents: {
