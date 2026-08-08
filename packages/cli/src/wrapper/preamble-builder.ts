@@ -1,6 +1,6 @@
 import type { Agent, DomainConfig } from "@kilnai/core";
 import { renderProjectedContext } from "../application/context-types.js";
-import type { KilnPermissionPolicy } from "./session.js";
+import type { KilnPermissionPolicy, SessionPromptKind } from "./session.js";
 import type { SessionContext } from "./index.js";
 
 export const PREAMBLE_CACHE_BOUNDARY = "__KILN_PROMPT_DYNAMIC_BOUNDARY__";
@@ -149,30 +149,62 @@ export interface ResolvedTurnPrompt {
   readonly userPrompt: string;
 }
 
+export interface ResolveTurnPromptInput {
+  readonly prompt: string;
+  /**
+   * Explicit provenance of `prompt`. Only `"kiln-preamble"` from a trusted
+   * Kiln-owned caller (one that itself built the governed structured
+   * preamble via `buildPreamble`, under the real per-turn permission
+   * policy) authorizes treating `prompt` as system content. This must never
+   * be inferred from `prompt`'s shape or content — a raw, attacker- or
+   * user-controlled message can contain the exact `<kiln-preamble>` text.
+   * Absent or `"user"` fails closed to ordinary/untrusted content.
+   */
+  readonly promptKind?: SessionPromptKind;
+  readonly task: string;
+  /** Static per-session system content, used only when neither a trusted preamble nor an explicit per-call system override applies. */
+  readonly fallbackSystemPrompt: string;
+  /** Explicit per-call system override owned by the caller (e.g. the runtime orchestrator's EffectivePromptManifest). Authoritative over `fallbackSystemPrompt` for an ordinary (non-preamble) prompt. */
+  readonly explicitSystem?: string;
+}
+
 /**
- * Single owning seam for translating a turn's canonical prompt (`prompt`, as
- * produced by `buildPreamble` from the currently governed context) into a
- * provider's native system/user split.
+ * Single owning seam for translating a turn's canonical prompt into a
+ * provider's native system/user split, using only explicit provenance —
+ * never content inspection — to decide system authority.
  *
- * When `prompt` is a structured Kiln preamble, it already reflects the real
- * per-turn permission policy (governed context, task, constraints) and must
- * be used as-is for the system channel, with `task` carrying the user turn.
+ * When `promptKind` is `"kiln-preamble"`, `prompt` already reflects the real
+ * per-turn permission policy (governed context, task, constraints) and is
+ * used as-is for the system channel, with `task` carrying the user turn.
  * Callers must never substitute an earlier prepared system-prompt snapshot
  * here — that reintroduces content the current policy has excluded.
  *
- * When `prompt` is not a structured preamble (e.g. a raw interactive
- * message), `fallbackSystemPrompt` supplies the session's static system
- * content and `prompt` itself is the user turn.
+ * Otherwise `prompt` is ordinary content and is always the user turn.
+ * `explicitSystem` (a legitimate per-call override) takes precedence over
+ * `fallbackSystemPrompt` (a static per-session default) for the system
+ * channel.
+ *
+ * A trusted preamble combined with an explicit per-call system override is
+ * two competing system authorities for the same turn; this fails closed
+ * with an error rather than silently picking one.
  */
-export function resolveTurnPrompt(
-  prompt: string,
-  task: string,
-  fallbackSystemPrompt: string,
-): ResolvedTurnPrompt {
-  const hasStructuredPreamble = prompt.trimStart().startsWith("<kiln-preamble>");
+export function resolveTurnPrompt(input: ResolveTurnPromptInput): ResolvedTurnPrompt {
+  const isTrustedKilnPreamble = input.promptKind === "kiln-preamble";
+  const hasExplicitSystem = input.explicitSystem !== undefined && input.explicitSystem.trim().length > 0;
+
+  if (isTrustedKilnPreamble && hasExplicitSystem) {
+    throw new Error(
+      "resolveTurnPrompt: a trusted kiln-preamble prompt and an explicit per-call system override were both supplied for the same turn. These are two competing system authorities — refusing to silently pick one.",
+    );
+  }
+
+  if (isTrustedKilnPreamble) {
+    return { systemPrompt: input.prompt, userPrompt: input.task };
+  }
+
   return {
-    systemPrompt: hasStructuredPreamble ? prompt : fallbackSystemPrompt,
-    userPrompt: hasStructuredPreamble ? task : prompt,
+    systemPrompt: input.explicitSystem ?? input.fallbackSystemPrompt,
+    userPrompt: input.prompt,
   };
 }
 

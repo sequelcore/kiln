@@ -163,6 +163,7 @@ describe("runSession context governance integration", () => {
     expect(governedContext.projectedContext?.blocks?.length).toBe(0);
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "PROMPT",
+      promptKind: "kiln-preamble",
     }));
   }, 10_000);
 

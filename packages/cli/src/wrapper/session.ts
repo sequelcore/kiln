@@ -151,10 +151,29 @@ export interface SessionCapabilities {
   readonly permissionPolicy: KilnPermissionPolicy;
 }
 
+/**
+ * Explicit provenance for `SessionRunOptions.prompt`. Trust must never be
+ * inferred from prompt content (e.g. a `<kiln-preamble>` prefix) — a raw
+ * user message can contain that exact text. Only a trusted Kiln-owned
+ * caller that itself built the governed structured preamble (via
+ * `buildPreamble`, under the real per-turn permission policy) may assert
+ * `"kiln-preamble"`. Every other caller — including runtime/subscription
+ * paths that serialize conversation history into a single prompt string —
+ * must leave this unset, which fails closed to `"user"`.
+ */
+export type SessionPromptKind = "user" | "kiln-preamble";
+
 export interface SessionRunOptions {
   readonly kilnSessionId?: string;
   readonly turnId?: string;
   readonly prompt: string;
+  /**
+   * Provenance of `prompt`. Absent or `"user"` means ordinary/untrusted
+   * content: it must never be treated as system-authoritative regardless of
+   * its shape. Only set to `"kiln-preamble"` by the trusted CLI caller that
+   * built the governed preamble for this exact turn.
+   */
+  readonly promptKind?: SessionPromptKind;
   /**
    * Explicit per-call system-prompt override. Set only by callers that own a
    * correctly-governed per-turn value at call time (e.g. the runtime

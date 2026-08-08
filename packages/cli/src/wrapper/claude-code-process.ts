@@ -186,11 +186,13 @@ export class ClaudeSession implements IKilnSession {
     if (this.config.env) Object.assign(env, this.config.env);
     if (options.env) Object.assign(env, options.env);
 
-    const { systemPrompt: baseSystemPrompt, userPrompt } = resolveTurnPrompt(
-      options.prompt,
-      this.config.task,
-      this.config.systemPrompt,
-    );
+    const { systemPrompt: baseSystemPrompt, userPrompt } = resolveTurnPrompt({
+      prompt: options.prompt,
+      promptKind: options.promptKind,
+      task: this.config.task,
+      fallbackSystemPrompt: this.config.systemPrompt,
+      explicitSystem: options.system,
+    });
 
     const sdkOptions: Options = {
       abortController,

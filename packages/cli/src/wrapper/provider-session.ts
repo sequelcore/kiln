@@ -407,12 +407,13 @@ export class ProviderSession implements IKilnSession {
     readonly systemPrompt: string;
     readonly userPrompt: string;
   } {
-    const { systemPrompt: fallbackSystemPrompt, userPrompt } = resolveTurnPrompt(
-      options.prompt,
-      this.config.task,
-      this.config.systemPrompt ?? "",
-    );
-    const baseSystemPrompt = options.system ?? fallbackSystemPrompt;
+    const { systemPrompt: baseSystemPrompt, userPrompt } = resolveTurnPrompt({
+      prompt: options.prompt,
+      promptKind: options.promptKind,
+      task: this.config.task,
+      fallbackSystemPrompt: this.config.systemPrompt ?? "",
+      explicitSystem: options.system,
+    });
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority ?? "auto";
     const runtimeExecutionMode = this.config.runtimeExecutionMode ?? "execute";
     const systemPrompt = appendExecutionIdentity(
