@@ -25,27 +25,37 @@ import {
   type ManagedInvocationRouteResolution,
 } from "../config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../config/managed-agent-provider-models.js";
-import { readConfigStatusSnapshot } from "./config-status.js";
 import { discoverNativeHarnessProjectRoot, resolveNativeHarnessProjectRoot } from "./native-harness-project-root.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
-import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { deriveEffectiveKilnYaml, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { readGlobalConfig } from "../config/global-config.js";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import { readKilnYaml } from "../kiln-yaml.js";
 
 /**
- * `modelGateway` is global Runtime/account/economic authority; it is not a
- * project `KilnYaml` field and `readConfigStatusSnapshot().effectiveConfig`
- * (a project/status projection) never carries it. Compose the managed-route
- * source from one coherent read so every consumer observes the same
- * project-merged route config together with the same global-only gateway.
+ * `modelGateway`, `engines`, `routing`, and `models` are global Runtime
+ * route authority; none of them are project `KilnYaml` fields, so
+ * `globalToKilnYaml` (and therefore the effective-`KilnYaml` projection)
+ * never carries them. Read canonical global config and canonical project
+ * config exactly once each, derive the effective project-authorized config
+ * from those exact values, and attach the global-only authority from the
+ * same global read -- so a project `kiln.yaml` can never define or override
+ * it, and no two reads of global config can observe different snapshots.
  */
-async function loadNativeHarnessManagedRouteConfig(
+function loadNativeHarnessManagedRouteConfig(
   rootPath: string,
-): Promise<ManagedAgentRouteConfigSource | undefined> {
-  const effectiveConfig = (await readConfigStatusSnapshot({ projectPath: rootPath })).effectiveConfig as KilnYaml | undefined;
+): ManagedAgentRouteConfigSource | undefined {
+  const globalConfig = readGlobalConfig();
+  const projectConfig = readKilnYaml(join(rootPath, ".kiln"));
+  const effectiveConfig = deriveEffectiveKilnYaml(globalConfig, projectConfig);
   if (!effectiveConfig) return undefined;
-  return { ...effectiveConfig, modelGateway: readGlobalConfig()?.modelGateway };
+  return {
+    ...effectiveConfig,
+    modelGateway: globalConfig?.modelGateway,
+    engines: globalConfig?.engines,
+    routing: globalConfig?.routing,
+    models: globalConfig?.models,
+  };
 }
 
 /** Slice 3 admits read-only planning only; the route must explicitly support it. */
@@ -119,7 +129,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
   const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
     let config: ManagedAgentRouteConfigSource | undefined;
     try {
-      config = await loadNativeHarnessManagedRouteConfig(root.rootPath);
+      config = loadNativeHarnessManagedRouteConfig(root.rootPath);
     } catch {
       throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed-route eligibility evidence.");
     }
@@ -148,7 +158,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     return current;
   };
   const managedInvocation = await freshManagedInvocation();
-  const initialConfig = await loadNativeHarnessManagedRouteConfig(root.rootPath);
+  const initialConfig = loadNativeHarnessManagedRouteConfig(root.rootPath);
   if (!initialConfig) {
     throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
   }
@@ -252,7 +262,7 @@ export async function createNativeHarnessManagedJobApplicationComposition(
     },
     economicAdoption: {
       adopt: async (job) => {
-        const currentConfig = await loadNativeHarnessManagedRouteConfig(root.rootPath);
+        const currentConfig = loadNativeHarnessManagedRouteConfig(root.rootPath);
         if (!currentConfig) {
           throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
         }

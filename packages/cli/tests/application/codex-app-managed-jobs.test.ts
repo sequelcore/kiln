@@ -9,12 +9,82 @@ import {
   SqliteManagedAccountLeaseAuthority,
 } from "@kilnai/runtime";
 
-vi.mock("../../src/config/config-merger.js", () => ({
-  loadResolvedKilnMcpConfiguration: vi.fn(() => ({
-    servers: {},
-    diagnostics: [],
-  })),
-}));
+/**
+ * Shared between the `config-status.js` mock (still the sole source of
+ * `workGovernance` evidence, consulted by `inspection.inspectWorkGovernance()`)
+ * and the `global-config.js` mock below (now the real source
+ * `loadNativeHarnessManagedRouteConfig` reads `managedAgents`/`modelGateway`
+ * global authority from). Kept in one place so both mocks describe the same
+ * fixture route instead of two independently drifting copies.
+ */
+const TEST_MANAGED_AGENTS_CONFIG = {
+  enabled: true,
+  routes: [
+    {
+      id: "test-readonly-route",
+      kind: "direct",
+      provider: "codex-oauth",
+      model: "gpt-5.6-terra",
+      profiles: ["foundation-readonly-plan"],
+      workingDirectory: "project",
+      tools: {
+        allowed: ["read"],
+        network: false,
+        writes: false,
+      },
+      memory: { access: "read-only" },
+      credentials: {
+        mode: "runtime-selected",
+        accountPolicyId: "managed-codex",
+      },
+    },
+  ],
+};
+
+const TEST_MODEL_GATEWAY_CONFIG = {
+  port: 4819,
+  accounts: [{
+    id: "test-account",
+    providerId: "codex-oauth",
+    credentialId: "synthetic-test-credential",
+    maxConcurrency: 1,
+    reservedAffinitySlots: 0,
+  }],
+  replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
+  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
+  principals: [],
+  virtualModels: [{
+    id: "managed-codex",
+    providerId: "codex-oauth",
+    providerModelId: "gpt-5.6-terra",
+    accountIds: ["test-account"],
+    capabilities: ["text"],
+    affinity: { continuity: "none" },
+  }],
+};
+
+vi.mock("../../src/config/config-merger.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/config-merger.js")>();
+  return {
+    ...actual,
+    loadResolvedKilnMcpConfiguration: vi.fn(() => ({
+      servers: {},
+      diagnostics: [],
+    })),
+  };
+});
+
+vi.mock("../../src/config/global-config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
+  return {
+    ...actual,
+    readGlobalConfig: vi.fn(() => ({
+      version: "1",
+      managedAgents: TEST_MANAGED_AGENTS_CONFIG,
+      modelGateway: TEST_MODEL_GATEWAY_CONFIG,
+    })),
+  };
+});
 
 vi.mock("../../src/application/config-status.js", () => ({
   readConfigStatusSnapshot: vi.fn(async () => {
@@ -26,50 +96,7 @@ vi.mock("../../src/application/config-status.js", () => ({
         requireDelegationFor: ["managed-agents"],
         requiredEvidence: ["surface-map", "tests"],
       },
-      managedAgents: {
-        enabled: true,
-        routes: [
-          {
-            id: "test-readonly-route",
-            kind: "direct",
-            provider: "codex-oauth",
-            model: "gpt-5.6-terra",
-            profiles: ["foundation-readonly-plan"],
-            workingDirectory: "project",
-            tools: {
-              allowed: ["read"],
-              network: false,
-              writes: false,
-            },
-            memory: { access: "read-only" },
-            credentials: {
-              mode: "runtime-selected",
-              accountPolicyId: "managed-codex",
-            },
-          },
-        ],
-      },
-      modelGateway: {
-        port: 4819,
-        accounts: [{
-          id: "test-account",
-          providerId: "codex-oauth",
-          credentialId: "synthetic-test-credential",
-          maxConcurrency: 1,
-          reservedAffinitySlots: 0,
-        }],
-        replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
-        surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
-        principals: [],
-        virtualModels: [{
-          id: "managed-codex",
-          providerId: "codex-oauth",
-          providerModelId: "gpt-5.6-terra",
-          accountIds: ["test-account"],
-          capabilities: ["text"],
-          affinity: { continuity: "none" },
-        }],
-      },
+      managedAgents: TEST_MANAGED_AGENTS_CONFIG,
     };
     return {
       evidenceVersion: 1,
