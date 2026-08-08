@@ -156,7 +156,6 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       const server = new NativeHarnessMcpServer({
         harness: "codex",
         managedJobs: composition.application,
-        configuredAgents: composition.configuredAgents,
         inspection: createNativeHarnessInspectionService({
           harness: "codex",
           managedAgents: composition.configuredAgents,
@@ -172,8 +171,9 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         "kiln_managed_agent_replay",
       ]));
       const invokeTool = tools.find((tool) => tool.name === "kiln_managed_agent_invoke");
-      expect((invokeTool?.inputSchema.properties as { configuredAgentProfileId: { enum?: readonly string[] } }).configuredAgentProfileId.enum)
-        .toContain("economic-worker");
+      expect(invokeTool).toBeDefined();
+      expect((invokeTool!.inputSchema.properties as { configuredAgentProfileId: Record<string, unknown> }).configuredAgentProfileId)
+        .toEqual({ type: "string", minLength: 1, maxLength: 200 });
     } finally {
       composition.close();
     }

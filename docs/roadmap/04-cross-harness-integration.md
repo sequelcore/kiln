@@ -82,6 +82,14 @@ each harness starts its own stdio child. Rename remaining Codex-named source
 files only after every consumer uses the harness-neutral contract; do not
 leave a compatibility wrapper behind.
 
+Concurrent stdio children must not become concurrent Runtime owners. First,
+make protocol startup and inspection independent from managed Runtime
+composition so an existing live owner cannot abort the MCP handshake. Then
+mount the harness-neutral control-plane catalog on one authenticated,
+project-scoped Operator Gateway Streamable HTTP endpoint and make every stdio
+adapter a thin client of that owner. Preserve the economic authority's
+single-live-owner fencing; do not replace it with multi-process SQLite writers.
+
 Exit gate: a harness adapter can be removed without changing canonical route
 policy, and background job lifecycle is represented in Kiln events, never in
 adapter-local prose.
@@ -109,7 +117,7 @@ no guessed level.
 
 The operator's global provider-neutral task policy is already configured and
 requires no speculative OpenCode `byRoute` rule. Reopen activation only after
-issue #47's revisioned capability and multi-session live-conformance gates pass.
+issue #47's revisioned capability and live-conformance gates pass.
 Then verify every configured OpenCode route against the existing task policy,
 add a route-wide override only if reproducible Sequel benchmarks require one,
 and confirm global-instruction and repo-shim dry runs remain unchanged.

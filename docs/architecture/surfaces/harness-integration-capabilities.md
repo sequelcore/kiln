@@ -72,6 +72,21 @@ cancel, and replay operations through the canonical Runtime application owner.
 It does not invoke `codex exec`, `opencode run`, or another native CLI process;
 managed work uses admitted Kiln direct-provider routes.
 
+Native-harness MCP connections are session-owned, but Runtime authority is not.
+Multiple Codex threads, Claude Code processes, and OpenCode instances may start
+independent stdio adapters for the same project at the same time. Those adapters
+must remain thin transport clients of one project-scoped Operator Runtime; they
+must not each construct a competing managed-job, economic-lease, recovery, or
+provider-routing authority. The target shared owner must be exposed through an
+authenticated loopback Streamable HTTP boundary, while stdio remains the
+compatibility and bootstrap boundary for harnesses that own local child-process
+lifecycle. That shared HTTP owner is not implemented yet.
+
+During migration to that shared owner, protocol startup and read-only inspection
+remain available when another process owns the managed Runtime. Managed-job
+mutation on a non-owning adapter fails closed with a typed unavailable result;
+an adapter never steals, weakens, or bypasses the live economic authority.
+
 The adapter returns source, observation time, harness identity, request
 identity, and the direct-provider/native-harness authority boundary. It removes
 paths, effective configuration, errors, environment values, and credentials

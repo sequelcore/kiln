@@ -5,11 +5,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import type { ManagedJobRecord } from "@kilnai/runtime";
+import type { NativeHarnessManagedJobApplicationComposition } from "../../src/application/codex-app-managed-jobs.js";
 import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
 import {
   NativeHarnessMcpServer,
   createNativeHarnessInspectionService,
   type NativeHarnessMcpSdk,
+  startNativeHarnessMcpServer,
 } from "../../src/native-harness/codex-app-mcp-server.js";
 
 const CodexAppMcpServer = class extends NativeHarnessMcpServer {
@@ -221,23 +223,14 @@ describe("CodexAppMcpServer", () => {
     expect(inspect).toHaveBeenCalledTimes(1);
   });
 
-  it("narrows invoke to safely admitted configured agents without exposing route configuration", () => {
-    const server = new CodexAppMcpServer({
-      configuredAgents: [{
-        configuredAgentProfileId: "scout",
-        displayName: "Scout",
-        role: "Read-only scout",
-        availability: "admitted",
-        providerFamily: "opencode-go",
-        admissionProfileId: "foundation-readonly-plan",
-      }],
-    });
+  it("publishes a stable invoke schema without exposing route configuration", () => {
+    const server = new CodexAppMcpServer({});
     const tool = server.listTools().find((candidate) => candidate.name === "kiln_managed_agent_invoke");
 
     expect(tool?.inputSchema).toMatchObject({
       additionalProperties: false,
       required: ["objective", "configuredAgentProfileId", "idempotencyKey"],
-      properties: { configuredAgentProfileId: { enum: ["scout"] } },
+      properties: { configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200 } },
     });
     expect(JSON.stringify(tool?.inputSchema)).not.toContain("route");
     expect(JSON.stringify(tool?.inputSchema)).not.toContain("foundation-readonly-plan");
@@ -808,5 +801,168 @@ describe("CodexAppMcpServer", () => {
     await server.close();
     expect(serverClosed).toBe(true);
     expect(transportClosed).toBe(true);
+  });
+
+  it("connects inspection tools and sanitizes managed-job unavailability when Runtime composition fails", async () => {
+    const handlers = new Map<unknown, (request: { params: Record<string, unknown> }) => unknown>();
+    const listSchema = Symbol("tools/list");
+    const callSchema = Symbol("tools/call");
+    let connected = false;
+    const diagnostics: string[] = [];
+    const sdk: CodexAppMcpSdk = {
+      Server: class {
+        setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void {
+          handlers.set(schema, handler);
+        }
+        async connect(): Promise<void> {
+          connected = true;
+        }
+        async close(): Promise<void> {}
+      },
+      ListToolsRequestSchema: listSchema,
+      CallToolRequestSchema: callSchema,
+    };
+
+    const handle = await startNativeHarnessMcpServer({
+      harness: "codex",
+      projectPath: "C:\\workspace\\project",
+      inspection: createNativeHarnessInspectionService({
+        harness: "codex",
+        readStatus: async () => snapshot(),
+        readBridgeProjection: async () => "current",
+        readProjectRoot: async () => ({ status: "resolved", rootPath: "C:\\workspace\\project" }),
+        now: () => new Date(OBSERVED_AT),
+      }),
+      sdkLoader: async () => sdk,
+      transportFactory: () => ({ close: async () => {} }) as never,
+      createComposition: async () => {
+        throw new Error("C:\\secret\\owner.sqlite: live owner");
+      },
+      writeDiagnostic: (message) => {
+        diagnostics.push(message);
+      },
+      registerProcessSignals: false,
+    });
+    await expect(handle.managedRuntime).resolves.toEqual({ status: "unavailable" });
+
+    expect(connected).toBe(true);
+    await expect(handlers.get(listSchema)!({ params: {} })).resolves.toMatchObject({
+      tools: expect.arrayContaining([expect.objectContaining({ name: "kiln_status_inspect" })]),
+    });
+    await expect(handlers.get(callSchema)!({ params: { name: "kiln_status_inspect", arguments: {} } })).resolves.toMatchObject({ structuredContent: { operation: "status" } });
+    await expect(
+      handlers.get(callSchema)!({
+        params: { name: "kiln_managed_agent_status", arguments: { jobId: "managed-job-0001" } },
+      }),
+    ).resolves.toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "KILN_MANAGED_JOBS_UNAVAILABLE" } },
+    });
+    expect(diagnostics).toEqual(["Kiln managed-job Runtime is unavailable; inspection tools remain active."]);
+    expect(diagnostics.join(" ")).not.toContain("secret");
+    await handle.close();
+  });
+
+  it("attaches a successful background composition to the connected server", async () => {
+    const handlers = new Map<unknown, (request: { params: Record<string, unknown> }) => unknown>();
+    const callSchema = Symbol("tools/call");
+    let resolveComposition!: (composition: NativeHarnessManagedJobApplicationComposition) => void;
+    const compositionPromise = new Promise<NativeHarnessManagedJobApplicationComposition>((resolve) => {
+      resolveComposition = resolve;
+    });
+    const sdk: CodexAppMcpSdk = {
+      Server: class {
+        setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void {
+          handlers.set(schema, handler);
+        }
+        async connect(): Promise<void> {}
+        async close(): Promise<void> {}
+      },
+      ListToolsRequestSchema: Symbol("tools/list"),
+      CallToolRequestSchema: callSchema,
+    };
+    const composition = {
+      service: {} as never,
+      application: {
+        submit: async () => managedJob(),
+        getStatus: async () => managedJob(),
+        getResult: async () => ({
+          jobId: "managed-job-0001",
+          availability: "pending" as const,
+          lifecycleState: "running" as const,
+          configuredAgentProfileId: "scout",
+          admissionProfileId: "foundation-readonly-plan",
+          routeId: "route-go",
+          providerId: "opencode-go",
+        }),
+        cancel: async () => managedJob(),
+        getReplay: async () => ({
+          jobId: "managed-job-0001",
+          availability: "unavailable" as const,
+          lifecycleState: "succeeded" as const,
+          configuredAgentProfileId: "scout",
+          admissionProfileId: "foundation-readonly-plan",
+          routeId: "route-go",
+          providerId: "opencode-go",
+          lifecycle: [],
+          resultAvailability: "unavailable" as const,
+          diagnostic: "replay_unavailable" as const,
+        }),
+      },
+      configuredAgents: [],
+      close: vi.fn(),
+    };
+    const handle = await startNativeHarnessMcpServer({
+      harness: "codex",
+      projectPath: "C:\\workspace\\project",
+      sdkLoader: async () => sdk,
+      transportFactory: () => ({ close: async () => {} }) as never,
+      createComposition: async () => compositionPromise,
+      registerProcessSignals: false,
+    });
+
+    resolveComposition(composition);
+    await expect(handle.managedRuntime).resolves.toEqual({ status: "attached" });
+    await expect(
+      handlers.get(callSchema)!({
+        params: { name: "kiln_managed_agent_status", arguments: { jobId: "managed-job-0001" } },
+      }),
+    ).resolves.toMatchObject({
+      structuredContent: { job: { id: "managed-job-0001" } },
+    });
+    await handle.close();
+    await handle.close();
+    expect(composition.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a composition that succeeds after shutdown exactly once", async () => {
+    let resolveComposition!: (composition: NativeHarnessManagedJobApplicationComposition) => void;
+    const compositionPromise = new Promise<NativeHarnessManagedJobApplicationComposition>((resolve) => {
+      resolveComposition = resolve;
+    });
+    const composition = { service: {} as never, application: {} as never, configuredAgents: [], close: vi.fn() };
+    const sdk: CodexAppMcpSdk = {
+      Server: class {
+        setRequestHandler(): void {}
+        async connect(): Promise<void> {}
+        async close(): Promise<void> {}
+      },
+      ListToolsRequestSchema: Symbol("tools/list"),
+      CallToolRequestSchema: Symbol("tools/call"),
+    };
+    const handle = await startNativeHarnessMcpServer({
+      harness: "codex",
+      projectPath: "C:\\workspace\\project",
+      sdkLoader: async () => sdk,
+      transportFactory: () => ({ close: async () => {} }) as never,
+      createComposition: async () => compositionPromise,
+      registerProcessSignals: false,
+    });
+
+    await handle.close();
+    resolveComposition(composition);
+    await expect(handle.managedRuntime).resolves.toEqual({ status: "attached" });
+    await handle.close();
+    expect(composition.close).toHaveBeenCalledTimes(1);
   });
 });

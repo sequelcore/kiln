@@ -1,27 +1,14 @@
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  createNativeHarnessInspectionService,
-  type NativeHarnessInspectionService,
-} from "../application/native-harness-inspection.js";
 import type { ManagedJobRecord, ManagedJobReplayQuery, ManagedJobResultQuery } from "@kilnai/runtime";
-import {
-  createNativeHarnessManagedJobApplicationComposition,
-  type NativeHarnessManagedJobApplicationPort,
-  type NativeHarnessManagedAgentSummary,
-  type NativeHarnessId,
-} from "../application/codex-app-managed-jobs.js";
-import { createAccountUsageInspectionService, type AccountUsageInspectionService } from "../application/account-usage-inspection.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { type AccountUsageInspectionService, createAccountUsageInspectionService } from "../application/account-usage-inspection.js";
+import { createNativeHarnessManagedJobApplicationComposition, type NativeHarnessId, type NativeHarnessManagedJobApplicationComposition, type NativeHarnessManagedJobApplicationPort } from "../application/codex-app-managed-jobs.js";
+import { createNativeHarnessInspectionService, type NativeHarnessInspectionService } from "../application/native-harness-inspection.js";
 
-const INSPECTION_TOOL_NAMES = [
-  "kiln_status_inspect",
-  "kiln_work_governance_inspect",
-  "kiln_capability_inspect",
-  "kiln_account_usage_inspect",
-] as const;
+const INSPECTION_TOOL_NAMES = ["kiln_status_inspect", "kiln_work_governance_inspect", "kiln_capability_inspect", "kiln_account_usage_inspect"] as const;
 const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status", "kiln_managed_agent_result", "kiln_managed_agent_cancel", "kiln_managed_agent_replay"] as const;
 const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...MANAGED_JOB_TOOL_NAMES] as const;
 
-type NativeHarnessMcpToolName = typeof TOOL_NAMES[number];
+type NativeHarnessMcpToolName = (typeof TOOL_NAMES)[number];
 
 /** The canonical application boundary. The MCP adapter must not reimplement it. */
 export type ManagedJobApplicationPort = NativeHarnessManagedJobApplicationPort;
@@ -43,7 +30,6 @@ export interface NativeHarnessMcpServerOptions {
   readonly harness: NativeHarnessId;
   readonly inspection?: NativeHarnessInspectionService;
   readonly managedJobs?: ManagedJobApplicationPort;
-  readonly configuredAgents?: readonly NativeHarnessManagedAgentSummary[];
   readonly requestIdentity?: () => NativeHarnessMcpRequestIdentity;
   readonly sdkLoader?: () => Promise<NativeHarnessMcpSdk>;
   readonly transportFactory?: () => StdioServerTransport;
@@ -53,6 +39,17 @@ export interface NativeHarnessMcpServerOptions {
 export interface StartNativeHarnessMcpServerOptions {
   readonly harness: NativeHarnessId;
   readonly projectPath: string;
+  readonly inspection?: NativeHarnessInspectionService;
+  readonly createComposition?: (options: { readonly harness: NativeHarnessId; readonly projectPath: string }) => Promise<NativeHarnessManagedJobApplicationComposition>;
+  readonly sdkLoader?: () => Promise<NativeHarnessMcpSdk>;
+  readonly transportFactory?: () => StdioServerTransport;
+  readonly writeDiagnostic?: (message: string) => void;
+  readonly registerProcessSignals?: boolean;
+}
+
+export interface NativeHarnessMcpServerHandle {
+  readonly managedRuntime: Promise<{ readonly status: "attached" | "unavailable" }>;
+  close(): Promise<void>;
 }
 
 export interface NativeHarnessMcpSdk {
@@ -69,9 +66,8 @@ interface McpServerInstance {
 
 export class NativeHarnessMcpServer {
   private readonly harness: NativeHarnessId;
-  private readonly inspection: NativeHarnessInspectionService;
-  private readonly managedJobs: ManagedJobApplicationPort | undefined;
-  private readonly configuredAgents: readonly NativeHarnessManagedAgentSummary[];
+  private inspection: NativeHarnessInspectionService;
+  private managedJobs: ManagedJobApplicationPort | undefined;
   private readonly requestIdentity: () => NativeHarnessMcpRequestIdentity;
   private requestSequence = 0;
   private readonly sdkLoader: () => Promise<NativeHarnessMcpSdk>;
@@ -85,18 +81,23 @@ export class NativeHarnessMcpServer {
     this.harness = options.harness;
     this.inspection = options.inspection ?? createNativeHarnessInspectionService({ harness: options.harness });
     this.managedJobs = options.managedJobs;
-    this.configuredAgents = options.configuredAgents ?? [];
     this.requestIdentity = options.requestIdentity ?? (() => ({ callerId: `${options.harness}-native-harness` }));
     this.sdkLoader = options.sdkLoader ?? loadSdk;
     this.transportFactory = options.transportFactory ?? (() => new StdioServerTransport());
     this.accountUsage = options.accountUsage ?? createAccountUsageInspectionService();
   }
 
-  listTools(): readonly { readonly name: NativeHarnessMcpToolName; readonly description: string; readonly inputSchema: Record<string, unknown>; readonly outputSchema: Record<string, unknown>; readonly annotations: Record<string, boolean> }[] {
+  listTools(): readonly {
+    readonly name: NativeHarnessMcpToolName;
+    readonly description: string;
+    readonly inputSchema: Record<string, unknown>;
+    readonly outputSchema: Record<string, unknown>;
+    readonly annotations: Record<string, boolean>;
+  }[] {
     return TOOL_NAMES.map((name) => ({
       name,
       description: descriptionFor(name),
-      inputSchema: inputSchemaFor(name, this.configuredAgents),
+      inputSchema: inputSchemaFor(name),
       outputSchema: { type: "object" },
       annotations: annotationsFor(name),
     }));
@@ -113,28 +114,27 @@ export class NativeHarnessMcpServer {
     await this.connectedServer.connect(this.transport);
   }
 
+  attachManagedJobs(options: { readonly application: ManagedJobApplicationPort; readonly inspection: NativeHarnessInspectionService }): void {
+    this.managedJobs = options.application;
+    this.inspection = options.inspection;
+  }
+
   async callTool(name: string, args: unknown): Promise<NativeHarnessMcpCallResult> {
     const identity = this.trustedIdentity();
     const requestId = identity.requestId ?? `${this.harness}-control-plane-mcp-${++this.requestSequence}`;
-    if (MANAGED_JOB_TOOL_NAMES.includes(name as typeof MANAGED_JOB_TOOL_NAMES[number])) {
-      return this.callManagedJobTool(name as typeof MANAGED_JOB_TOOL_NAMES[number], args, identity, requestId);
+    if (MANAGED_JOB_TOOL_NAMES.includes(name as (typeof MANAGED_JOB_TOOL_NAMES)[number])) {
+      return this.callManagedJobTool(name as (typeof MANAGED_JOB_TOOL_NAMES)[number], args, identity, requestId);
     }
     if (!isEmptyObject(args)) {
       return this.error("KILN_TOOL_INVALID_REQUEST", "This read-only Kiln inspection tool does not accept arguments.", "Remove request arguments and retry.", requestId);
     }
-    if (!INSPECTION_TOOL_NAMES.includes(name as typeof INSPECTION_TOOL_NAMES[number])) {
+    if (!INSPECTION_TOOL_NAMES.includes(name as (typeof INSPECTION_TOOL_NAMES)[number])) {
       if (isMutationOperation(name)) {
         return this.error("KILN_TOOL_READ_ONLY", "Managed-agent invocation and configuration mutation are not admitted on this tool surface.", "Use an approved Kiln operator surface for a separately admitted mutation or invocation.", requestId);
       }
       return this.error("KILN_TOOL_UNSUPPORTED", "This Kiln native-harness operation is unsupported.", "Use one of the discovered read-only Kiln inspection tools.", requestId);
     }
-    const result = name === "kiln_account_usage_inspect"
-      ? await this.accountUsage.inspect()
-      : name === "kiln_status_inspect"
-      ? await this.inspection.inspectStatus()
-      : name === "kiln_work_governance_inspect"
-        ? await this.inspection.inspectWorkGovernance()
-        : await this.inspection.inspectCapability();
+    const result = name === "kiln_account_usage_inspect" ? await this.accountUsage.inspect() : name === "kiln_status_inspect" ? await this.inspection.inspectStatus() : name === "kiln_work_governance_inspect" ? await this.inspection.inspectWorkGovernance() : await this.inspection.inspectCapability();
     return this.success(result, requestId);
   }
 
@@ -148,10 +148,7 @@ export class NativeHarnessMcpServer {
 
   private createServer(): McpServerInstance {
     if (!this.sdk) throw new Error("Native harness MCP server was not initialized");
-    const server = new this.sdk.Server(
-      { name: `kiln-${this.harness}-control-plane`, version: "0.1.0" },
-      { capabilities: { tools: {} } },
-    );
+    const server = new this.sdk.Server({ name: `kiln-${this.harness}-control-plane`, version: "0.1.0" }, { capabilities: { tools: {} } });
     server.setRequestHandler(this.sdk.ListToolsRequestSchema, async () => ({ tools: this.listTools() }));
     server.setRequestHandler(this.sdk.CallToolRequestSchema, async (request) => {
       const params = request.params as { name?: unknown; arguments?: unknown };
@@ -181,12 +178,7 @@ export class NativeHarnessMcpServer {
     }
   }
 
-  private async callManagedJobTool(
-    name: typeof MANAGED_JOB_TOOL_NAMES[number],
-    args: unknown,
-    identity: NativeHarnessMcpRequestIdentity,
-    requestId: string,
-  ): Promise<NativeHarnessMcpCallResult> {
+  private async callManagedJobTool(name: (typeof MANAGED_JOB_TOOL_NAMES)[number], args: unknown, identity: NativeHarnessMcpRequestIdentity, requestId: string): Promise<NativeHarnessMcpCallResult> {
     if (!this.managedJobs) return this.error("KILN_MANAGED_JOBS_UNAVAILABLE", "The managed-job application owner is unavailable.", "Restart the native harness after the managed-job application boundary is configured.", requestId);
     try {
       if (name === "kiln_managed_agent_invoke") {
@@ -220,7 +212,13 @@ export class NativeHarnessMcpServer {
     const configuredAgentProfileId = args.configuredAgentProfileId.trim();
     const idempotencyKey = args.idempotencyKey.trim();
     if (objective.length === 0 || objective.length > 12000 || !isIdentifier(configuredAgentProfileId) || !isIdentifier(idempotencyKey)) throw applicationInputError();
-    return { objective, configuredAgentProfileId, idempotencyKey, callerId: identity.callerId, ...(identity.parent ? { parent: identity.parent } : {}) };
+    return {
+      objective,
+      configuredAgentProfileId,
+      idempotencyKey,
+      callerId: identity.callerId,
+      ...(identity.parent ? { parent: identity.parent } : {}),
+    };
   }
 
   private statusRequest(args: unknown): string {
@@ -228,13 +226,9 @@ export class NativeHarnessMcpServer {
     return args.jobId.trim();
   }
 
-  private managedJobSuccess(name: typeof MANAGED_JOB_TOOL_NAMES[number], job: ManagedJobRecord, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
+  private managedJobSuccess(name: (typeof MANAGED_JOB_TOOL_NAMES)[number], job: ManagedJobRecord, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
     const structuredContent = {
-      operation: name === "kiln_managed_agent_invoke"
-        ? "managed-agent-invoke"
-        : name === "kiln_managed_agent_cancel"
-          ? "managed-agent-cancel"
-          : "managed-agent-status",
+      operation: name === "kiln_managed_agent_invoke" ? "managed-agent-invoke" : name === "kiln_managed_agent_cancel" ? "managed-agent-cancel" : "managed-agent-status",
       job: {
         id: job.id,
         state: job.state,
@@ -249,7 +243,12 @@ export class NativeHarnessMcpServer {
         observedAt: job.updatedAt,
         ...(job.diagnostic ? { diagnostic: { code: job.diagnostic, operatorAction: operatorActionFor(job.diagnostic) } } : {}),
       },
-      evidence: { harness: this.harness, adapter: "project-local-kiln-control-plane-mcp", callerId: identity.callerId, requestId },
+      evidence: {
+        harness: this.harness,
+        adapter: "project-local-kiln-control-plane-mcp",
+        callerId: identity.callerId,
+        requestId,
+      },
     };
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
@@ -270,7 +269,12 @@ export class NativeHarnessMcpServer {
         ...(result.handoff ? { handoff: result.handoff } : {}),
         ...(result.diagnostic ? { diagnostic: { code: result.diagnostic, operatorAction: operatorActionFor(result.diagnostic) } } : {}),
       },
-      evidence: { harness: this.harness, adapter: "project-local-kiln-control-plane-mcp", callerId: identity.callerId, requestId },
+      evidence: {
+        harness: this.harness,
+        adapter: "project-local-kiln-control-plane-mcp",
+        callerId: identity.callerId,
+        requestId,
+      },
     };
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
@@ -290,42 +294,94 @@ export class NativeHarnessMcpServer {
         resultAvailability: replay.resultAvailability,
         ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
       },
-      evidence: { harness: this.harness, adapter: "project-local-kiln-control-plane-mcp", callerId: identity.callerId, requestId },
+      evidence: {
+        harness: this.harness,
+        adapter: "project-local-kiln-control-plane-mcp",
+        callerId: identity.callerId,
+        requestId,
+      },
     };
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
 }
 
-export async function startNativeHarnessMcpServer(
-  options: StartNativeHarnessMcpServerOptions,
-): Promise<void> {
+export async function startNativeHarnessMcpServer(options: StartNativeHarnessMcpServerOptions): Promise<NativeHarnessMcpServerHandle> {
   const projectPath = options.projectPath;
-  const composition = await createNativeHarnessManagedJobApplicationComposition({ harness: options.harness, projectPath });
+  const inspection = (): NativeHarnessInspectionService =>
+    createNativeHarnessInspectionService({
+      harness: options.harness,
+      ...(projectPath ? { readProjectRoot: async () => ({ status: "resolved" as const, rootPath: projectPath }) } : {}),
+    });
   const server = new NativeHarnessMcpServer({
     harness: options.harness,
-    managedJobs: composition.application,
-    configuredAgents: composition.configuredAgents,
-    inspection: createNativeHarnessInspectionService({
-      harness: options.harness,
-      managedAgents: composition.configuredAgents,
-      ...(projectPath
-        ? { readProjectRoot: async () => ({ status: "resolved" as const, rootPath: projectPath }) }
-        : {}),
-    }),
+    inspection: options.inspection ?? inspection(),
+    ...(options.sdkLoader ? { sdkLoader: options.sdkLoader } : {}),
+    ...(options.transportFactory ? { transportFactory: options.transportFactory } : {}),
   });
-  let closing = false;
-  const close = async (): Promise<void> => {
-    if (closing) return;
-    closing = true;
-    try {
-      await server.close();
-    } finally {
-      composition.close();
-    }
+  let composition: NativeHarnessManagedJobApplicationComposition | undefined;
+  let compositionClosed = false;
+  let closed = false;
+  let closePromise: Promise<void> | undefined;
+  const writeDiagnostic =
+    options.writeDiagnostic ??
+    ((message: string) => {
+      process.stderr.write(`${message}\n`);
+    });
+  const closeComposition = (): void => {
+    if (!composition || compositionClosed) return;
+    compositionClosed = true;
+    composition.close();
   };
-  process.once("SIGINT", () => { void close(); });
-  process.once("SIGTERM", () => { void close(); });
+  const onSignal = (): void => {
+    void close().catch(() => {
+      writeDiagnostic("Kiln MCP shutdown did not complete cleanly.");
+    });
+  };
+  const unregisterSignals = (): void => {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  };
+  const close = async (): Promise<void> => {
+    if (closePromise) return closePromise;
+    closed = true;
+    unregisterSignals();
+    closePromise = (async () => {
+      try {
+        await server.close();
+      } finally {
+        closeComposition();
+      }
+    })();
+    return closePromise;
+  };
   await server.start();
+  if (options.registerProcessSignals !== false) {
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+  }
+  const createComposition = options.createComposition ?? createNativeHarnessManagedJobApplicationComposition;
+  const managedRuntime = createComposition({ harness: options.harness, projectPath })
+    .then((created) => {
+      composition = created;
+      if (closed) {
+        closeComposition();
+        return { status: "attached" as const };
+      }
+      server.attachManagedJobs({
+        application: created.application,
+        inspection: createNativeHarnessInspectionService({
+          harness: options.harness,
+          managedAgents: created.configuredAgents,
+          ...(projectPath ? { readProjectRoot: async () => ({ status: "resolved" as const, rootPath: projectPath }) } : {}),
+        }),
+      });
+      return { status: "attached" as const };
+    })
+    .catch(() => {
+      writeDiagnostic("Kiln managed-job Runtime is unavailable; inspection tools remain active.");
+      return { status: "unavailable" as const };
+    });
+  return { close, managedRuntime };
 }
 
 export { createNativeHarnessInspectionService };
@@ -346,25 +402,26 @@ function descriptionFor(name: NativeHarnessMcpToolName): string {
   return "Replay canonical lifecycle evidence for one authorized managed-job identifier.";
 }
 
-function inputSchemaFor(
-  name: NativeHarnessMcpToolName,
-  configuredAgents: readonly NativeHarnessManagedAgentSummary[],
-): Record<string, unknown> {
-  if (INSPECTION_TOOL_NAMES.includes(name as typeof INSPECTION_TOOL_NAMES[number])) return emptyObjectSchema();
+function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown> {
+  if (INSPECTION_TOOL_NAMES.includes(name as (typeof INSPECTION_TOOL_NAMES)[number])) return emptyObjectSchema();
   if (name === "kiln_managed_agent_invoke") {
-    const admittedAgentIds = configuredAgents.filter((agent) => agent.availability === "admitted").map((agent) => agent.configuredAgentProfileId);
     return {
       type: "object",
       additionalProperties: false,
       required: ["objective", "configuredAgentProfileId", "idempotencyKey"],
       properties: {
         objective: { type: "string", minLength: 1, maxLength: 12000 },
-        configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200, ...(admittedAgentIds.length > 0 ? { enum: admittedAgentIds } : {}) },
+        configuredAgentProfileId: { type: "string", minLength: 1, maxLength: 200 },
         idempotencyKey: { type: "string", minLength: 1, maxLength: 200 },
       },
     };
   }
-  return { type: "object", additionalProperties: false, required: ["jobId"], properties: { jobId: { type: "string", minLength: 1, maxLength: 200 } } };
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["jobId"],
+    properties: { jobId: { type: "string", minLength: 1, maxLength: 200 } },
+  };
 }
 
 function annotationsFor(name: NativeHarnessMcpToolName): Record<string, boolean> {
@@ -376,14 +433,40 @@ function isEmptyObject(value: unknown): value is Record<string, never> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boolean { return Object.keys(value).every((key) => keys.includes(key)); }
-function isIdentifier(value: string): boolean { return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value); }
-function applicationInputError(): Error & { code: "invalid_request" } { return Object.assign(new Error("invalid request"), { code: "invalid_request" as const }); }
-function applicationCode(error: unknown): string { return isRecord(error) && typeof error.code === "string" && /^[a-z_]{3,80}$/u.test(error.code) ? error.code : "internal_adapter_failure"; }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key));
+}
+function isIdentifier(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value);
+}
+function applicationInputError(): Error & { code: "invalid_request" } {
+  return Object.assign(new Error("invalid request"), { code: "invalid_request" as const });
+}
+function applicationCode(error: unknown): string {
+  return isRecord(error) && typeof error.code === "string" && /^[a-z_]{3,80}$/u.test(error.code) ? error.code : "internal_adapter_failure";
+}
 function operatorActionFor(code: string): string {
   const actions: Record<string, string> = {
-    invalid_request: "Provide only valid bounded managed-job fields.", project_identity_unavailable: "Restore the trusted project composition boundary.", unknown_job: "Verify the managed-job identifier.", idempotency_conflict: "Use a new idempotency key for different managed work.", "identity-revision-conflict": "Restore the exact admitted policy, candidate, snapshot, and rate-card revisions for this attempt.", governance_unavailable: "Restore authoritative Kiln governance evidence.", governance_not_authoritative: "Refresh authoritative Kiln governance evidence.", admission_denied: "Review the authoritative work-governance policy.", profile_unavailable: "Choose a configured admitted agent.", route_unavailable: "Restore the configured policy candidate set and current eligibility evidence.", job_persistence_unavailable: "Restore the managed-job store and retry safely.", job_persistence_corrupt: "Repair the managed-job store before retrying.", economic_commitment_unavailable: "Wait until the configured economic commitment authority is available.", provider_rejected: "Review the Runtime managed-agent admission diagnostic.", provider_timeout: "Review the configured managed-agent timeout.", invocation_failed: "Inspect the Runtime managed-agent diagnostic before retrying.", internal_adapter_failure: "Retry safely or inspect Kiln status."
+    invalid_request: "Provide only valid bounded managed-job fields.",
+    project_identity_unavailable: "Restore the trusted project composition boundary.",
+    unknown_job: "Verify the managed-job identifier.",
+    idempotency_conflict: "Use a new idempotency key for different managed work.",
+    "identity-revision-conflict": "Restore the exact admitted policy, candidate, snapshot, and rate-card revisions for this attempt.",
+    governance_unavailable: "Restore authoritative Kiln governance evidence.",
+    governance_not_authoritative: "Refresh authoritative Kiln governance evidence.",
+    admission_denied: "Review the authoritative work-governance policy.",
+    profile_unavailable: "Choose a configured admitted agent.",
+    route_unavailable: "Restore the configured policy candidate set and current eligibility evidence.",
+    job_persistence_unavailable: "Restore the managed-job store and retry safely.",
+    job_persistence_corrupt: "Repair the managed-job store before retrying.",
+    economic_commitment_unavailable: "Wait until the configured economic commitment authority is available.",
+    provider_rejected: "Review the Runtime managed-agent admission diagnostic.",
+    provider_timeout: "Review the configured managed-agent timeout.",
+    invocation_failed: "Inspect the Runtime managed-agent diagnostic before retrying.",
+    internal_adapter_failure: "Retry safely or inspect Kiln status.",
   };
   return actions[code] ?? "Retry safely or inspect Kiln status.";
 }
@@ -393,10 +476,7 @@ function isMutationOperation(name: string): boolean {
 }
 
 async function loadSdk(): Promise<NativeHarnessMcpSdk> {
-  const [serverModule, typesModule] = await Promise.all([
-    import("@modelcontextprotocol/sdk/server/index.js"),
-    import("@modelcontextprotocol/sdk/types.js"),
-  ]);
+  const [serverModule, typesModule] = await Promise.all([import("@modelcontextprotocol/sdk/server/index.js"), import("@modelcontextprotocol/sdk/types.js")]);
   return {
     Server: serverModule.Server as unknown as NativeHarnessMcpSdk["Server"],
     ListToolsRequestSchema: typesModule.ListToolsRequestSchema,
