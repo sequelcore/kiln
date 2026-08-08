@@ -49,7 +49,7 @@ import type {
   SessionCapabilities,
   SessionRunOptions,
 } from "./session.js";
-import { buildProviderSystemPrompt } from "./preamble-builder.js";
+import { buildProviderSystemPrompt, resolveTurnPrompt } from "./preamble-builder.js";
 import { PermissionPolicyAuthorizer } from "./permission-policy-authorizer.js";
 import { ProviderContextTracker } from "./provider-context.js";
 import {
@@ -400,10 +400,6 @@ export class ProviderSession implements IKilnSession {
     }
   }
 
-  private isStructuredPreamble(prompt: string): boolean {
-    return prompt.trimStart().startsWith("<kiln-preamble>");
-  }
-
   private buildSystemAndPrompt(
     options: SessionRunOptions,
     effectiveTurnAuthority?: PerCallToolConfig["effectiveTurnAuthority"],
@@ -411,9 +407,12 @@ export class ProviderSession implements IKilnSession {
     readonly systemPrompt: string;
     readonly userPrompt: string;
   } {
-    const hasStructuredPreamble = this.isStructuredPreamble(options.prompt);
-    const baseSystemPrompt = options.system ?? (hasStructuredPreamble ? options.prompt : (this.config.systemPrompt ?? ""));
-    const userPrompt = hasStructuredPreamble ? this.config.task : options.prompt;
+    const { systemPrompt: fallbackSystemPrompt, userPrompt } = resolveTurnPrompt(
+      options.prompt,
+      this.config.task,
+      this.config.systemPrompt ?? "",
+    );
+    const baseSystemPrompt = options.system ?? fallbackSystemPrompt;
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority ?? "auto";
     const runtimeExecutionMode = this.config.runtimeExecutionMode ?? "execute";
     const systemPrompt = appendExecutionIdentity(

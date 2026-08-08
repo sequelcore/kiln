@@ -1403,7 +1403,6 @@ export async function runCommand(
 
   const sessionConfig = {
     task,
-    systemPrompt: context.systemPrompt,
     mcpServerEntryPath: context.mcpServerEntryPath,
     cwd: context.workingDirectory,
     env,

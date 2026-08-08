@@ -155,6 +155,13 @@ export interface SessionRunOptions {
   readonly kilnSessionId?: string;
   readonly turnId?: string;
   readonly prompt: string;
+  /**
+   * Explicit per-call system-prompt override. Set only by callers that own a
+   * correctly-governed per-turn value at call time (e.g. the runtime
+   * orchestrator's EffectivePromptManifest). CLI-side callers must not set
+   * this from a prepared/pre-rendered snapshot; the governed structured
+   * `prompt` is the single canonical source for CLI turns.
+   */
   readonly system?: string;
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;

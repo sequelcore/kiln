@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildPreamble,
   buildProviderSystemPrompt,
+  resolveTurnPrompt,
 } from "../../src/wrapper/preamble-builder.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
 import type { DomainConfig, Agent } from "@kilnai/core";
@@ -346,5 +347,36 @@ describe("buildProviderSystemPrompt", () => {
 
     expect(result).toBe("Base prompt");
     expect(result).not.toContain("[KILN EXECUTABLE TOOL GUIDANCE]");
+  });
+});
+
+describe("resolveTurnPrompt", () => {
+  // This is the single owning seam (#59) for translating a turn's canonical
+  // governed prompt into a provider's system/user split. It must never
+  // recombine an earlier prepared/stale system-prompt snapshot with the
+  // current governed structured preamble.
+  it("uses the structured preamble as system and the task as the user turn", () => {
+    const excludedMarker = "KILN_TEST_MARKER_STALE_MEMORY_7f3a1c";
+    const result = resolveTurnPrompt(
+      "<kiln-preamble><task>Ship the fix</task></kiln-preamble>",
+      "Ship the fix",
+      `stale prepared system prompt containing ${excludedMarker}`,
+    );
+
+    expect(result.systemPrompt).toBe("<kiln-preamble><task>Ship the fix</task></kiln-preamble>");
+    expect(result.systemPrompt).not.toContain(excludedMarker);
+    expect(result.userPrompt).toBe("Ship the fix");
+  });
+
+  it("falls back to the provided system prompt for a non-structured prompt", () => {
+    const retainedMarker = "KILN_TEST_MARKER_RETAINED_9d2e0b";
+    const result = resolveTurnPrompt(
+      "raw interactive user message",
+      "interactive",
+      `base system prompt with ${retainedMarker}`,
+    );
+
+    expect(result.systemPrompt).toContain(retainedMarker);
+    expect(result.userPrompt).toBe("raw interactive user message");
   });
 });

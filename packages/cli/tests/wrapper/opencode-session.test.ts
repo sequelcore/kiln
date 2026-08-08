@@ -360,6 +360,38 @@ describe("OpenCodeSession.run() integration", () => {
     expect(promptText).toContain("Execute the task above in this turn.");
   });
 
+  // Regression for #59: application/run-session.ts used to forward a stale
+  // prepared systemPrompt (built before the real per-turn permission policy
+  // was known) as `options.system`. OpenCodeSession concatenated it back
+  // onto the governed turn prompt, reintroducing content the current policy
+  // had already excluded. The CLI call site no longer sets `system`; when
+  // absent, the governed prompt must reach OpenCode unmodified.
+  it("run() does not reintroduce excluded content when the CLI turn omits an explicit system override", async () => {
+    const mock = makeMockClient("ses_no_stale_system", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_no_stale_system", status: { type: "idle" } } },
+      },
+    ], 0.001);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+
+    const excludedMarker = "KILN_TEST_MARKER_STALE_MEMORY_7f3a1c";
+    const session = new OpenCodeSession(baseConfig());
+    for await (const _event of await session.run({
+      prompt: "<kiln-preamble><task>inspect</task></kiln-preamble>",
+    })) {
+      // consume
+    }
+
+    const promptCall = mock.session.prompt.mock.calls[0]?.[0] as {
+      parts?: Array<{ type: string; text?: string }>;
+    } | undefined;
+    const promptText = promptCall?.parts?.[0]?.text;
+    expect(promptText).not.toContain(excludedMarker);
+    expect(promptText).not.toContain("--- Kiln Prepared System Context ---");
+    expect(promptText).toContain("<kiln-preamble>");
+  });
+
   it("run() does not write non-native model ids into OpenCode config", async () => {
     const mock = makeMockClient("ses_model_skip", [
       {

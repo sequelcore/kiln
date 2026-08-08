@@ -15,6 +15,7 @@ import type {
   KilnPermissionPolicy,
 } from "./session.js";
 import { NativeToolEventIdentity } from "./session.js";
+import { resolveTurnPrompt } from "./preamble-builder.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
@@ -185,6 +186,12 @@ export class ClaudeSession implements IKilnSession {
     if (this.config.env) Object.assign(env, this.config.env);
     if (options.env) Object.assign(env, options.env);
 
+    const { systemPrompt: baseSystemPrompt, userPrompt } = resolveTurnPrompt(
+      options.prompt,
+      this.config.task,
+      this.config.systemPrompt,
+    );
+
     const sdkOptions: Options = {
       abortController,
       systemPrompt: {
@@ -192,7 +199,7 @@ export class ClaudeSession implements IKilnSession {
         preset: "claude_code",
         append: appendExecutionIdentity(
           appendConstraintMetadataToSystemPrompt(
-            this.config.systemPrompt,
+            baseSystemPrompt,
             this.config.nativeRules,
             this.config.constraintInstructions,
           ),
@@ -239,7 +246,7 @@ export class ClaudeSession implements IKilnSession {
     }
 
     const queryInstance: Query = query({
-      prompt: options.prompt,
+      prompt: userPrompt,
       options: sdkOptions,
     });
     this.activeQuery = queryInstance;

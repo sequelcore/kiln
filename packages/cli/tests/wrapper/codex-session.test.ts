@@ -290,6 +290,35 @@ describe("CodexSession.run() JSONL parsing", () => {
     expect(prompt).toContain("Execute the task above in this turn.");
   });
 
+  // Regression for #59: application/run-session.ts used to forward a stale
+  // prepared systemPrompt (built before the real per-turn permission policy
+  // was known) as `options.system`. CodexSession concatenated it back onto
+  // the governed turn prompt via appendPreparedSystemContext, reintroducing
+  // content the current policy had already excluded. The CLI call site no
+  // longer sets `system`; when absent, the governed prompt must reach codex
+  // unmodified.
+  it("run() does not reintroduce excluded content when the CLI turn omits an explicit system override", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+
+    const excludedMarker = "KILN_TEST_MARKER_STALE_MEMORY_7f3a1c";
+    const session = new CodexSession(baseConfig());
+    const collectPromise = collectEvents(session.run({
+      prompt: "<kiln-preamble><task>inspect</task></kiln-preamble>",
+    }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    resolveExit(0);
+
+    await collectPromise;
+
+    const prompt = vi.mocked(proc.stdin.end).mock.calls[0]?.[0] as string;
+    expect(prompt).not.toContain(excludedMarker);
+    expect(prompt).not.toContain("--- Kiln Prepared System Context ---");
+    expect(prompt).toContain("<kiln-preamble>");
+  });
+
   it("run() passes an admitted deliberation level as a Codex config override", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);

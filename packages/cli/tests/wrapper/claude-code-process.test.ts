@@ -265,6 +265,63 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect(appendedSystemPrompt).toContain("model: claude-sonnet-4-5-20250929");
   });
 
+  // Regression for #59: SessionManager.prepare() builds `config.systemPrompt`
+  // before the real per-turn permission policy is known. If ClaudeSession
+  // appended that stale, pre-rendered value to the SDK's native system
+  // channel unconditionally, excluded content would survive filtering and
+  // also duplicate the governed structured preamble already carried as the
+  // turn's prompt. The governed structured preamble must fully supersede the
+  // stale config-level system prompt.
+  it("uses the governed structured preamble as the native system prompt instead of the stale prepared config.systemPrompt", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })());
+
+    const excludedMarker = "KILN_TEST_MARKER_STALE_MEMORY_7f3a1c";
+    const session = new ClaudeSession(baseConfig({
+      task: "Ship the governed prompt fix",
+      systemPrompt: `stale prepared system prompt containing ${excludedMarker}`,
+    }));
+
+    await collectEvents(session.run({
+      prompt: "<kiln-preamble><task>Ship the governed prompt fix</task></kiln-preamble>",
+      cwd: process.cwd(),
+    }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
+      prompt?: string;
+      options?: { systemPrompt?: { append?: string } };
+    } | undefined;
+    const appendedSystemPrompt = queryCall?.options?.systemPrompt?.append ?? "";
+
+    expect(appendedSystemPrompt).not.toContain(excludedMarker);
+    expect(appendedSystemPrompt).toContain("<kiln-preamble>");
+    expect(queryCall?.prompt).toBe("Ship the governed prompt fix");
+  });
+
+  it("falls back to the configured systemPrompt for a non-structured (interactive) prompt", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })());
+
+    const retainedMarker = "KILN_TEST_MARKER_RETAINED_9d2e0b";
+    const session = new ClaudeSession(baseConfig({
+      systemPrompt: `interactive base prompt with ${retainedMarker}`,
+    }));
+
+    await collectEvents(session.run({ prompt: "raw interactive user message", cwd: process.cwd() }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const queryCall = queryCalls[queryCalls.length - 1]?.[0] as {
+      prompt?: string;
+      options?: { systemPrompt?: { append?: string } };
+    } | undefined;
+
+    expect(queryCall?.options?.systemPrompt?.append ?? "").toContain(retainedMarker);
+    expect(queryCall?.prompt).toBe("raw interactive user message");
+  });
+
   it("uses the SDK JSON schema output format for a managed structured handoff", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
       yield { type: "result", total_cost_usd: 0, is_error: false };

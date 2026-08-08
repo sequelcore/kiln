@@ -182,7 +182,6 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         kilnSessionId: options.sessionId ?? session.sessionId,
         turnId: `attempt:${candidateIndex + 1}`,
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
-        system: options.context.systemPrompt,
         cwd: options.context.workingDirectory,
         toolSandbox: options.toolSandbox,
         env: options.env,

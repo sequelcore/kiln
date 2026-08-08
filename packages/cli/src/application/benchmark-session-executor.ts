@@ -288,7 +288,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     );
     const sessionConfig = {
       task: sessionInput,
-      systemPrompt: sessionContext.systemPrompt,
       mcpServerEntryPath: sessionContext.mcpServerEntryPath,
       cwd,
       env,

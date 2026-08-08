@@ -92,6 +92,12 @@ function appendConstraintInstructions(
   return `${prompt}\n\n${constraintInstructions.join("\n")}`;
 }
 
+/**
+ * Applies an explicit per-call system override supplied by a caller that
+ * owns a correctly-governed per-turn value at call time (e.g. the runtime
+ * orchestrator's EffectivePromptManifest). CLI-side callers must not supply
+ * a prepared/pre-rendered snapshot here.
+ */
 function appendPreparedSystemContext(prompt: string, systemPrompt?: string): string {
   const system = systemPrompt?.trim();
   if (!system) {

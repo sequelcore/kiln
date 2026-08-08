@@ -144,6 +144,38 @@ function buildCompactionRecoverySection(): string {
   return `<kiln-compaction-recovery>After any context compaction: 1) save a session summary using format Goal/Instructions/Discoveries/Accomplished/Next Steps/Relevant Files, 2) recall your memory context, then continue.</kiln-compaction-recovery>`;
 }
 
+export interface ResolvedTurnPrompt {
+  readonly systemPrompt: string;
+  readonly userPrompt: string;
+}
+
+/**
+ * Single owning seam for translating a turn's canonical prompt (`prompt`, as
+ * produced by `buildPreamble` from the currently governed context) into a
+ * provider's native system/user split.
+ *
+ * When `prompt` is a structured Kiln preamble, it already reflects the real
+ * per-turn permission policy (governed context, task, constraints) and must
+ * be used as-is for the system channel, with `task` carrying the user turn.
+ * Callers must never substitute an earlier prepared system-prompt snapshot
+ * here — that reintroduces content the current policy has excluded.
+ *
+ * When `prompt` is not a structured preamble (e.g. a raw interactive
+ * message), `fallbackSystemPrompt` supplies the session's static system
+ * content and `prompt` itself is the user turn.
+ */
+export function resolveTurnPrompt(
+  prompt: string,
+  task: string,
+  fallbackSystemPrompt: string,
+): ResolvedTurnPrompt {
+  const hasStructuredPreamble = prompt.trimStart().startsWith("<kiln-preamble>");
+  return {
+    systemPrompt: hasStructuredPreamble ? prompt : fallbackSystemPrompt,
+    userPrompt: hasStructuredPreamble ? task : prompt,
+  };
+}
+
 export function buildPreamble(
   ctx: SessionContext,
   policy: KilnPermissionPolicy,
