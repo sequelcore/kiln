@@ -243,3 +243,44 @@ No CLI command creates `modelGateway.virtualModels` entries yet; the
 operator edits the global config directly. A dedicated `kiln model bind`
 (or similar) convenience command is deferred, not scheduled — open only if
 operators report the manual YAML edit as friction in practice.
+
+## Follow-Up: Live Re-Proof, Claude Arm Only (2026-08-08)
+
+Codex OAuth quota was exhausted at re-proof time, so only the "Kiln -> Claude
+CLI" arm was re-run against the fix, same frozen task, same repository
+(post-fix HEAD `8636123b`): `kiln run --plan --provider claude --model
+claude-sonnet-5 "<frozen task>"`.
+
+Terminal result: `completed` (previously `blocked`). The session used `Grep`
+and `Read` freely, produced the exact expected JSON answer with correct
+`file:line` citations for all four required facts, reported marker
+visibility consistent with the deterministic answer key
+(`context-directives: true`, `context-guidance: false`, `context-evidence:
+true`), and left the working tree clean (`git status` empty after the run).
+Cost $0.51, 77.4s. This is re-proof for the Claude arm only; the Codex arm
+(the one with no dedicated read-only tool surface, and therefore the more
+load-bearing proof of the `commands` allowlist fix) remains unverified live
+and should be re-run once Codex quota is available.
+
+Two CLI rough edges surfaced during re-proof, neither a regression from this
+change, both deferred (not scheduled) per operator decision to document only:
+
+- `kiln run --plan --output json` is rejected ("--output answer/json is not
+  supported with interactive plan mode"). Plan mode's json restriction
+  assumes a human-interactive plan-then-execute flow; that assumption does
+  not hold for a read-only inspection turn with no execution follow-up
+  (exactly this task's shape). Fixable either as a clearer error message
+  explaining the restriction and suggesting `--output human`, or, more
+  completely, by allowing `--output json` in plan mode whenever there is no
+  pending execution decision to render interactively.
+- `kiln run --provider claude` without `--model` fails with "There's an
+  issue with the selected model (gpt-5.6-terra)" -- it resolves the
+  project's global default model (`gpt-5.6-terra`, bound to the default
+  provider) rather than a model admitted for the explicitly requested
+  provider. This is a real default-resolution gap, not just an unclear
+  error: `resolveProviderRouteCandidates`
+  (`packages/cli/src/config/provider-route-candidates.ts`, the same file
+  touched by this session's Codex OAuth binding fix) should resolve a
+  provider-appropriate default model when `--provider` is given explicitly
+  without `--model`, instead of reusing the global default's model id
+  unconditionally.
