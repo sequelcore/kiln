@@ -11,6 +11,7 @@ import { buildOperatorIdentityContextCandidate } from "../../src/config/operator
 import { buildWorkGovernanceContextCandidate } from "../../src/application/work-governance-context.js";
 import { resolveInstructionProfileContextCandidates } from "../../src/application/instruction-profile-context.js";
 import { renderSessionLedger } from "../../src/application/session-ledger.js";
+import { buildPreamble, resolveTurnPrompt } from "../../src/wrapper/preamble-builder.js";
 
 /**
  * Issue #57 regression: governance-bearing context (operator identity, work
@@ -29,6 +30,11 @@ describe("SessionManager governance context preservation under budget pressure",
   let userHome: string;
   let projectPath: string;
   const PROFILE_NAME = "regression-governance-profile";
+  const REQUIRED_INSTRUCTION_TAIL = "KILN_TEST_REQUIRED_INSTRUCTION_LINE_250";
+  const REQUIRED_INSTRUCTION_BODY = Array.from(
+    { length: 250 },
+    (_, index) => `KILN_TEST_REQUIRED_INSTRUCTION_LINE_${index + 1}`,
+  ).join("\n");
 
   beforeEach(() => {
     userHome = mkdtempSync(join(tmpdir(), "kiln-gov-userhome-"));
@@ -43,7 +49,7 @@ describe("SessionManager governance context preservation under budget pressure",
         "displayName: Regression Governance Profile",
         "description: Synthetic fixture for issue #57 regression coverage.",
         "---",
-        "Synthetic instruction body for governance regression coverage.",
+        REQUIRED_INSTRUCTION_BODY,
         "",
       ].join("\n"),
       "utf-8",
@@ -55,7 +61,7 @@ describe("SessionManager governance context preservation under budget pressure",
     rmSync(projectPath, { recursive: true, force: true });
   });
 
-  it("preserves operator-identity, work-governance, and instruction-profile context while deferring optional context under real budget pressure", async () => {
+  it("preserves governor-admitted context in the complete preamble while omitting governor-deferred context", async () => {
     const identityCandidate = buildOperatorIdentityContextCandidate({
       name: "Regression Operator",
       timezone: "UTC",
@@ -86,13 +92,13 @@ describe("SessionManager governance context preservation under budget pressure",
     const requiredTokens = [identityCandidate, workGovernanceCandidate, ...instructionProfileCandidates]
       .reduce((total, candidate) => total + estimateTextTokens((candidate as ContextCandidate).content), ledgerTokens);
 
-    const smallOptionalContent = "Small optional context block admitted under budget pressure.";
+    const smallOptionalContent = "KILN_TEST_ADMITTED_OPTIONAL_CONTEXT";
     const smallOptionalTokens = estimateTextTokens(smallOptionalContent);
-    const largeOptionalContent = "Large optional context block that must be deferred. ".repeat(400);
+    const largeOptionalContent = "KILN_TEST_DEFERRED_CONTEXT ".repeat(400);
     const largeOptionalTokens = estimateTextTokens(largeOptionalContent);
 
-    // The budget admits every required block plus the small optional block
-    // exactly, leaving zero headroom for the large optional block. This is
+    // The budget admits every required block plus the small optional candidate
+    // exactly, leaving zero headroom for the larger one. This is
     // real budget pressure (total candidate tokens exceed the budget), not a
     // budget that happens to fit everything.
     const turnBudget = requiredTokens + smallOptionalTokens;
@@ -112,11 +118,18 @@ describe("SessionManager governance context preservation under budget pressure",
       required: false,
       score: 0.9,
     };
-
     const appConfig: KilnAppConfig = {
       createRegistry: () => ({
         loadInstalledDomains: () => undefined,
-        detectAndMerge: () => ({ displayName: "Regression Test Domain" }),
+        detectAndMerge: () => ({
+          name: "regression",
+          displayName: "Regression Test Domain",
+          detectPatterns: [],
+          toolTags: new Set(),
+          qualityGates: [],
+          multishotExamples: "",
+          phaseExamples: "",
+        }),
       }) as never,
       buildSystemPrompt: () => "system prompt",
       contextCandidates: [
@@ -163,10 +176,10 @@ describe("SessionManager governance context preservation under budget pressure",
     expect(identityBlock).toBeDefined();
     expect(workGovernanceBlock).toBeDefined();
     expect(instructionProfileBlock).toBeDefined();
+    if (!identityBlock || !workGovernanceBlock || !instructionProfileBlock) return;
 
     const governanceBlockIds = [identityBlock, workGovernanceBlock, instructionProfileBlock]
-      .map((block) => block?.id)
-      .filter((id): id is string => id !== undefined);
+      .map((block) => block.id);
     expect(governanceBlockIds).toHaveLength(3);
 
     for (const blockId of governanceBlockIds) {
@@ -174,6 +187,7 @@ describe("SessionManager governance context preservation under budget pressure",
       expect(audit.preservedRequiredBlockIds).toContain(blockId);
       expect(audit.deferredBlockIds).not.toContain(blockId);
     }
+    expect(audit.preservedRequiredBlockIds).toContain(instructionProfileBlock.id);
 
     expect(
       projectedContext.blocks.some((block) => block.source === "synthetic:large-optional"),
@@ -185,5 +199,27 @@ describe("SessionManager governance context preservation under budget pressure",
     if (deferredLargeOptionalBlockId) {
       expect(audit.deferredBlockIds).toContain(deferredLargeOptionalBlockId);
     }
+
+    const preamble = buildPreamble(sessionContext, WRAPPER_CONFIG.permissionPolicy);
+    const admittedSyntheticBlocks = projectedContext.blocks.filter((block) =>
+      block.source.startsWith("synthetic:"),
+    );
+    expect(admittedSyntheticBlocks.map((block) => block.source)).toEqual([
+      "synthetic:small-optional",
+    ]);
+    const resolvedTurn = resolveTurnPrompt({
+      prompt: preamble,
+      promptKind: "kiln-preamble",
+      task: sessionContext.task,
+      fallbackSystemPrompt: sessionContext.systemPrompt,
+    });
+    for (const block of admittedSyntheticBlocks) {
+      expect(audit.selectedBlockIds).toContain(block.id);
+      expect(resolvedTurn.systemPrompt).toContain(block.content);
+    }
+    expect(resolvedTurn.systemPrompt).toContain(REQUIRED_INSTRUCTION_TAIL);
+    expect(resolvedTurn.systemPrompt).not.toContain("KILN_TEST_DEFERRED_CONTEXT");
+    expect(resolvedTurn.systemPrompt).not.toContain("[context evidence truncated");
+    expect(resolvedTurn.userPrompt).toBe(sessionContext.task);
   });
 });

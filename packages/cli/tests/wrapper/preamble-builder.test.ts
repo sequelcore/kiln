@@ -175,7 +175,7 @@ describe("buildPreamble", () => {
     expect(result).toContain("Default memory context");
   });
 
-  it("truncates projectedContext evidence at 200 lines", () => {
+  it("preserves projectedContext evidence beyond 200 lines", () => {
     const lines: string[] = [];
     for (let i = 1; i <= 250; i++) {
       lines.push(`Line ${i}: context from prior session`);
@@ -186,12 +186,13 @@ describe("buildPreamble", () => {
     };
     const result = buildPreamble(ctx, { approval: "on-request", sandbox: "read-only" }, undefined);
 
-    expect(result).toContain("[context evidence truncated - 50 lines omitted]");
-    expect(result).not.toContain("Line 201");
+    expect(result).not.toContain("[context evidence truncated");
     expect(result).toContain("Line 200");
+    expect(result).toContain("Line 201");
+    expect(result).toContain("Line 250: context from prior session");
   });
 
-  it("does not truncate when projectedContext evidence is exactly 200 lines", () => {
+  it("preserves projectedContext evidence at 200 lines", () => {
     const lines: string[] = [];
     for (let i = 1; i <= 200; i++) {
       lines.push(`Line ${i}`);
