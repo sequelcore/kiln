@@ -86,10 +86,18 @@ function globalWebToKilnWeb(globalWeb: KilnGlobalConfig["web"]): KilnYamlWebConf
   };
 }
 
-export async function loadKilnConfig(projectPath: string): Promise<KilnYaml | null> {
-  const globalConfig = readGlobalConfig();
-  const projectConfig = readKilnYaml(join(projectPath, ".kiln"));
-
+/**
+ * Pure projection: derives the effective project-authorized `KilnYaml` from
+ * exact already-read global/project config values, with no I/O of its own.
+ * Callers that need global-only fields alongside this projection (e.g.
+ * `modelGateway`, `engines`) must read `globalConfig` once and keep it,
+ * since `globalToKilnYaml` intentionally omits authority that is not a
+ * project `KilnYaml` field.
+ */
+export function deriveEffectiveKilnYaml(
+  globalConfig: KilnGlobalConfig | null,
+  projectConfig: KilnYaml | null,
+): KilnYaml | null {
   if (!globalConfig) {
     return projectConfig;
   }
@@ -99,4 +107,10 @@ export async function loadKilnConfig(projectPath: string): Promise<KilnYaml | nu
   }
 
   return mergeKilnYaml(globalToKilnYaml(globalConfig), projectConfig);
+}
+
+export async function loadKilnConfig(projectPath: string): Promise<KilnYaml | null> {
+  const globalConfig = readGlobalConfig();
+  const projectConfig = readKilnYaml(join(projectPath, ".kiln"));
+  return deriveEffectiveKilnYaml(globalConfig, projectConfig);
 }
