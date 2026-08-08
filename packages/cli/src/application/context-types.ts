@@ -21,12 +21,3 @@ export function estimateTextTokens(text: string): number {
   if (normalized === "") return 0;
   return Math.ceil(normalized.length / 4);
 }
-
-export function renderProjectedContext(projectedContext: ProjectedContext): string | undefined {
-  const rendered = projectedContext.blocks
-    .map((block) => compactBlankLines(block.content))
-    .filter((content) => content !== "")
-    .join("\n\n");
-
-  return rendered === "" ? undefined : rendered;
-}

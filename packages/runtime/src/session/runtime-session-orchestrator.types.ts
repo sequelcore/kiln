@@ -214,7 +214,9 @@ export interface OrchestrateResult {
 }
 
 export interface GovernedRuntimeContext {
-  readonly content?: string;
+  readonly directives?: readonly import("@kilnai/core").ProjectedContextBlock[];
+  readonly guidance?: readonly import("@kilnai/core").ProjectedContextBlock[];
+  readonly evidence?: readonly import("@kilnai/core").ProjectedContextBlock[];
   readonly audit?: ContextAuditEntry;
 }
 

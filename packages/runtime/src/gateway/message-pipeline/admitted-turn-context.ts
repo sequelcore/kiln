@@ -8,14 +8,13 @@ import type {
 import type { AdmittedTurnContext } from "./process-admitted-turn.js";
 import {
   DefaultContextGovernor,
-  renderProjectedContext
+  partitionProjectedContext
 } from "@kilnai/core";
 import type {
   OrchestrateResult,
   PerCallToolConfig
 } from "../../session/runtime-session-orchestrator.js";
 import {
-  appendGroundingDirective,
   formatUserContext
 } from "../context-formatter.js";
 import {
@@ -45,7 +44,9 @@ export interface AdmittedTurnContextProjectionInput {
 }
 
 export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionInput): {
-  readonly content: string | undefined;
+  readonly directives: readonly import("@kilnai/core").ProjectedContextBlock[];
+  readonly guidance: readonly import("@kilnai/core").ProjectedContextBlock[];
+  readonly evidence: readonly import("@kilnai/core").ProjectedContextBlock[];
   readonly audit?: ContextAuditEntry;
 } {
   const candidates: ContextCandidate[] = [];
@@ -93,6 +94,21 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
       score: 0.6,
     });
   }
+  if (input.groundingMode === "strict" || input.groundingMode === "verified") {
+    candidates.push({
+      kind: "procedural",
+      modelFacingSemantics: "directive",
+      source: "runtime-grounding-policy",
+      content: [
+        "--- Grounding Rules ---",
+        "Answer ONLY from the knowledge context, configured services, and FAQs provided above.",
+        "If the answer is not in your provided context, say you don't have that information and offer to connect the user with the human team.",
+        "Never fabricate specific data (regulations, prices, dates, legal references).",
+      ].join("\n"),
+      required: true,
+      score: 1,
+    });
+  }
   candidates.push(...(input.proceduralContextCandidates ?? []));
   candidates.push(...(input.coordinationContextCandidates ?? []));
 
@@ -104,10 +120,12 @@ export function projectAdmittedTurnContext(input: AdmittedTurnContextProjectionI
     artifacts: candidates,
     contextAllocationMode: input.contextPolicy?.contextAllocationMode,
   });
-  const mergedMemory = renderProjectedContext(projectedContext);
+  const partitioned = partitionProjectedContext(projectedContext);
   const audit = projectedContext.auditTrail?.[projectedContext.auditTrail.length - 1];
   return {
-    content: appendGroundingDirective(mergedMemory, input.groundingMode),
+    directives: partitioned.directives,
+    guidance: partitioned.guidance,
+    evidence: partitioned.evidence,
     audit,
   };
 }

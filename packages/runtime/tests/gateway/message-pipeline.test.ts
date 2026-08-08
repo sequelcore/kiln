@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, InMemoryContextArtifactCache, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, textParts } from "@kilnai/core";
+import { EventBus, InMemoryContextArtifactCache, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, renderContextBlocks, textParts } from "@kilnai/core";
 import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
 import type { SkillConfig } from "@kilnai/core";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
@@ -205,8 +205,15 @@ function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): Admitted
 
 function getGovernedContextContent(orchestrator: RuntimeSessionOrchestrator): string {
   const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-  const governedContextArg = callArgs[2] as { readonly content?: string } | undefined;
-  return governedContextArg?.content ?? "";
+  const governedContextArg = callArgs[2] as {
+    readonly directives?: string;
+    readonly guidance?: string;
+    readonly evidence?: string;
+  } | undefined;
+  return [governedContextArg?.directives, governedContextArg?.guidance, governedContextArg?.evidence]
+    .map((blocks) => blocks ? renderContextBlocks(blocks) : undefined)
+    .filter((content): content is string => Boolean(content))
+    .join("\n\n");
 }
 
 describe("processAdmittedTurn", () => {
@@ -370,8 +377,8 @@ describe("processAdmittedTurn", () => {
       groundingMode: undefined,
     });
 
-    expect(projected.content).toContain("contact profile");
-    expect(projected.content).toContain("visitor browser state");
+    expect(renderContextBlocks(projected.evidence)).toContain("contact profile");
+    expect(renderContextBlocks(projected.evidence)).toContain("visitor browser state");
     expect(projected.audit?.blocks).toContainEqual(expect.objectContaining({
       source: "runtime-contact-context",
       decision: "admitted",
@@ -435,6 +442,7 @@ describe("processAdmittedTurn", () => {
       groundingMode: undefined,
       proceduralContextCandidates: [{
         kind: "procedural",
+        modelFacingSemantics: "guidance",
         source: "adaptation-fixture",
         content: "unsplit canonical source",
         score: 0.5,
@@ -450,9 +458,60 @@ describe("processAdmittedTurn", () => {
       },
     });
 
-    expect(projected.content).toContain("selected segment A");
-    expect(projected.content).not.toContain("unsplit canonical source");
+    expect(renderContextBlocks(projected.guidance)).toContain("selected segment A");
+    expect(renderContextBlocks(projected.guidance)).not.toContain("unsplit canonical source");
     expect(projected.audit?.allocationMode).toBe("segmented");
+  });
+
+  it("preserves directive, guidance, and evidence partitions through admission", () => {
+    const projected = projectAdmittedTurnContext({
+      userContext: undefined,
+      cachedRuntimeSummary: "historical summary",
+      recalledMemoryCandidates: undefined,
+      knowledgeContext: undefined,
+      contactContext: undefined,
+      groundingMode: undefined,
+      proceduralContextCandidates: [
+        { kind: "procedural", modelFacingSemantics: "directive", source: "runtime-plan", content: "Plan mode is read only.", required: true, score: 1 },
+        { kind: "procedural", modelFacingSemantics: "guidance", source: "runtime-skill", content: "Suggested workflow.", required: false, score: 0.7 },
+      ],
+    });
+
+    expect(renderContextBlocks(projected.directives)).toContain("Plan mode is read only.");
+    expect(renderContextBlocks(projected.guidance)).toContain("Suggested workflow.");
+    expect(renderContextBlocks(projected.evidence)).toContain("historical summary");
+  });
+
+  it("admits grounding as a budgeted directive with auditable identity under overflow", () => {
+    const projected = projectAdmittedTurnContext({
+      userContext: undefined,
+      cachedRuntimeSummary: undefined,
+      recalledMemoryCandidates: undefined,
+      knowledgeContext: undefined,
+      contactContext: undefined,
+      groundingMode: "strict",
+      proceduralContextCandidates: [{
+        kind: "procedural",
+        modelFacingSemantics: "directive",
+        source: "oversized-required-directive",
+        content: "x".repeat(10_000),
+        required: true,
+        score: 1,
+      }],
+    });
+
+    const grounding = projected.directives.find((block) => block.source === "runtime-grounding-policy");
+    const audit = projected.audit;
+    expect(grounding).toMatchObject({ kind: "procedural", modelFacingSemantics: "directive", required: true });
+    expect(audit?.blocks).toContainEqual(expect.objectContaining({
+      id: grounding?.id,
+      source: "runtime-grounding-policy",
+      kind: "procedural",
+      modelFacingSemantics: "directive",
+      decision: "admitted",
+    }));
+    expect(audit?.overflow).toBe(true);
+    expect(audit?.requiredTokens).toBeGreaterThan(audit?.tokenBudget ?? 0);
   });
 
   it("keeps lifecycle attribution out of the provider request and task outcome", async () => {
@@ -514,7 +573,7 @@ describe("processAdmittedTurn", () => {
       session,
       textParts("Prove request neutrality."),
       expect.objectContaining({
-        content: expect.stringContaining("Relevant durable memory."),
+        evidence: expect.arrayContaining([expect.objectContaining({ content: "Relevant durable memory." })]),
       }),
       undefined,
       undefined,
@@ -1571,7 +1630,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        content: expect.stringContaining("Previous context here."),
+        evidence: expect.arrayContaining([expect.objectContaining({ content: "Previous context here." })]),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       undefined,
@@ -1597,7 +1656,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        content: expect.stringContaining("Authority mode: auto."),
+        directives: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Authority mode: auto.") })]),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       builtinTools,
@@ -1715,7 +1774,7 @@ describe("processAdmittedTurn", () => {
       expect.anything(),
       textParts("hello"),
       expect.objectContaining({
-        content: expect.stringContaining("Authority mode: auto."),
+        directives: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("Authority mode: auto.") })]),
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       callBuiltinTools,
@@ -1747,7 +1806,7 @@ describe("processAdmittedTurn", () => {
     resolveSpy.mockRestore();
   });
 
-  it("prepends [User Context] block first in governed context when userContext is present", async () => {
+  it("keeps user context in the evidence partition when directives are present", async () => {
     const orchestrator = makeMockOrchestrator();
     const sessionRegistry = makeMockSessionRegistry();
     const ctx = makeBaseContext({
@@ -1759,10 +1818,13 @@ describe("processAdmittedTurn", () => {
 
     await processInboundMessage(ctx);
 
-    const governedContextContent = getGovernedContextContent(orchestrator);
-    expect(governedContextContent).toBeDefined();
-    expect(governedContextContent.startsWith("[User Context]:")).toBe(true);
-    expect(governedContextContent).toContain("Previous context here.");
+    const governedContext = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[2] as {
+      readonly directives?: readonly { readonly content: string }[];
+      readonly evidence?: readonly { readonly content: string }[];
+    };
+    expect(renderContextBlocks(governedContext.directives ?? [])).toContain("Authority mode: auto.");
+    expect(renderContextBlocks(governedContext.evidence ?? [])?.startsWith("[User Context]:")).toBe(true);
+    expect(renderContextBlocks(governedContext.evidence ?? [])).toContain("Previous context here.");
   });
 
   it("omits [User Context] block from governed context when userContext is absent", async () => {

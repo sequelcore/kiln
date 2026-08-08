@@ -16,17 +16,37 @@ import type {
   ContextTaskPhase,
   ContextUtilityEvidence,
   ContextUtilitySignals,
+  ModelFacingContextSemantics,
   ProjectedContext,
   ProjectedContextBlock,
   RequiredContextOverflowPolicy,
 } from "./projected-context.js";
 import { estimateTextTokens } from "./projected-context.js";
+import { sha256ContentIdentity } from "./content-identity.js";
 
 export const DEFAULT_PROJECTED_CONTEXT_TOKEN_BUDGET = 2000;
 export const DEFAULT_SESSION_ARTIFACT_TTL_MS = 1000 * 60 * 60 * 12;
 
 const PREFERRED_SOURCE_SCORE_BONUS = 0.2;
 const FIELD_CATEGORY_BONUS = 0.35;
+
+function resolveModelFacingSemantics(candidate: ContextCandidate): ModelFacingContextSemantics {
+  const expected = candidate.kind === "instruction"
+    ? "directive"
+    : candidate.kind === "procedural"
+      ? undefined
+      : "evidence";
+  if (!expected) {
+    if (!candidate.modelFacingSemantics) {
+      throw new Error("Procedural context candidates must explicitly declare modelFacingSemantics");
+    }
+    return candidate.modelFacingSemantics;
+  }
+  if (candidate.modelFacingSemantics && candidate.modelFacingSemantics !== expected) {
+    throw new Error(`Context kind ${candidate.kind} cannot be promoted to ${candidate.modelFacingSemantics}`);
+  }
+  return expected;
+}
 
 interface RankedContextBlock {
   readonly block: ProjectedContextBlock;
@@ -169,7 +189,9 @@ function buildContextAuditEntry(input: {
     blocks.push({
       id: candidate.block.id,
       kind: candidate.block.kind,
+      modelFacingSemantics: candidate.block.modelFacingSemantics,
       source: candidate.block.source,
+      contentHash: sha256ContentIdentity(candidate.block.content),
       required: candidate.block.required,
       memoryRecordId: candidate.block.memoryRecordId,
       estimatedTokens: candidate.estimatedTokens,
@@ -188,7 +210,9 @@ function buildContextAuditEntry(input: {
     blocks.push({
       id: candidate.block.id,
       kind: candidate.block.kind,
+      modelFacingSemantics: candidate.block.modelFacingSemantics,
       source: candidate.block.source,
+      contentHash: sha256ContentIdentity(candidate.block.content),
       required: candidate.block.required,
       memoryRecordId: candidate.block.memoryRecordId,
       estimatedTokens: candidate.estimatedTokens,
@@ -249,6 +273,7 @@ export class DefaultContextGovernor<
         blocks.push({
           id: uniqueBlockId(baseId, blockIds),
           kind: candidate.kind,
+          modelFacingSemantics: resolveModelFacingSemantics(candidate),
           source: candidate.source,
           content,
           required: candidate.required ?? false,
@@ -272,6 +297,7 @@ export class DefaultContextGovernor<
         blocks.push({
           id: uniqueBlockId(`summary:cached-module:${stableHash(key)}`, blockIds),
           kind: "summary",
+          modelFacingSemantics: "evidence",
           source: "context-artifact-cache",
           content: cachedModuleSummary.content,
           required: false,
@@ -289,6 +315,7 @@ export class DefaultContextGovernor<
       blocks.push({
         id: uniqueBlockId("summary:cached-plan", blockIds),
         kind: "summary",
+        modelFacingSemantics: "evidence",
         source: "context-artifact-cache",
         content: cachedPlanSummary.content,
         required: false,
@@ -305,6 +332,7 @@ export class DefaultContextGovernor<
       blocks.push({
         id: uniqueBlockId("summary:cached-project", blockIds),
         kind: "summary",
+        modelFacingSemantics: "evidence",
         source: "context-artifact-cache",
         content: cachedProjectSummary.content,
         required: false,
@@ -321,6 +349,7 @@ export class DefaultContextGovernor<
       blocks.push({
         id: uniqueBlockId("summary:cached-session", blockIds),
         kind: "summary",
+        modelFacingSemantics: "evidence",
         source: "context-artifact-cache",
         content: cachedSessionSummary.content,
         required: false,
@@ -338,6 +367,7 @@ export class DefaultContextGovernor<
       blocks.push({
         id: uniqueBlockId("ledger:session", blockIds),
         kind: "ledger",
+        modelFacingSemantics: "evidence",
         source: "session-ledger",
         content: renderedLedger,
         required: true,
@@ -352,6 +382,7 @@ export class DefaultContextGovernor<
       blocks.push({
         id: uniqueBlockId(`artifact:${stableHash(artifact)}`, blockIds),
         kind: "artifact",
+        modelFacingSemantics: "evidence",
         source: "session-artifact",
         content: artifact,
         required: true,
@@ -365,6 +396,7 @@ export class DefaultContextGovernor<
       blocks.push({
         id: uniqueBlockId("memory:snapshot", blockIds),
         kind: "memory",
+        modelFacingSemantics: "evidence",
         source: "session-memory-snapshot",
         content: input.memorySnapshot,
         required: false,

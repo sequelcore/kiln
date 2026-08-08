@@ -27,6 +27,7 @@ export function buildOperatorIdentityContextCandidate(
   }
   return {
     kind: "instruction",
+    modelFacingSemantics: "directive",
     source: "operator-identity:~/.kiln/config.yaml#identity",
     content,
     required: true,

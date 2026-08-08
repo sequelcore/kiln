@@ -763,7 +763,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
     expect(calledSession).toBe(session);
     expect(parts).toEqual(textParts("hello"));
     expect(governedContext).toEqual(expect.objectContaining({
-      content: expect.stringContaining("plan: enterprise"),
+      evidence: expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("plan: enterprise") })]),
       audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
     }));
   });
@@ -831,7 +831,7 @@ describe("createGatewayApp multi-tenant wiring", () => {
       channel: "web",
     });
     const governedContext = vi.mocked(orchestrator.processMessage).mock.calls[0]![2];
-    expect(governedContext?.content).toContain("Adapter handoff is active.");
+    expect(governedContext?.evidence?.some((block) => block.content.includes("Adapter handoff is active."))).toBe(true);
     expect(governedContext?.audit?.blocks.find((block) => block.kind === "coordination")).toEqual(
       expect.objectContaining({
         decision: "admitted",

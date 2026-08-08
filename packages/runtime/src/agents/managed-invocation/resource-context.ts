@@ -4,7 +4,6 @@ import type {
 } from "@kilnai/core";
 import {
   DefaultContextGovernor,
-  renderProjectedContext,
 } from "@kilnai/core";
 import type { RuntimeSession } from "../../session/runtime-session.js";
 import type {
@@ -51,7 +50,7 @@ export async function buildManagedInvocationResourceContext(
   });
   const audit = projected.auditTrail?.[projected.auditTrail.length - 1];
   return {
-    content: renderProjectedContext(projected),
+    evidence: projected.blocks,
     ...(audit ? { audit } : {}),
   };
 }

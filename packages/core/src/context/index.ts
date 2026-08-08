@@ -1,4 +1,4 @@
-export { estimateTextTokens, renderProjectedContext } from "./projected-context.js";
+export { estimateTextTokens, renderContextBlocks, partitionProjectedContext, validateAdmittedContextBlocks, validateModelFacingContextBlock, validatePartitionedProjectedContext } from "./projected-context.js";
 export {
   buildEffectivePromptManifest,
   sha256ContentIdentity,
@@ -32,6 +32,8 @@ export type {
   ContextAuditEntry,
   ContextAuditReason,
   ContextCandidate,
+  ModelFacingContextSemantics,
+  PartitionedProjectedContext,
   ProjectedContext,
   ProjectedContextBlock,
   ProjectedContextBlockKind,

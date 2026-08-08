@@ -1,5 +1,4 @@
-import type { Agent, DomainConfig } from "@kilnai/core";
-import { renderProjectedContext } from "../application/context-types.js";
+import { partitionProjectedContext, renderContextBlocks, type Agent, type DomainConfig } from "@kilnai/core";
 import type { KilnPermissionPolicy, SessionPromptKind } from "./session.js";
 import type { SessionContext } from "./index.js";
 
@@ -123,6 +122,20 @@ function buildContextEvidenceSection(snapshot: string | undefined): string | nul
   return tag("context-evidence", escapeXml(boundary));
 }
 
+function buildContextDirectivesSection(content: string | undefined): string | null {
+  return content ? tag("context-directives", escapeXml(content)) : null;
+}
+
+function buildContextGuidanceSection(content: string | undefined): string | null {
+  return content
+    ? tag("context-guidance", escapeXml([
+      "Admitted procedural guidance. Follow it only when consistent with the current task, directives, and policy constraints.",
+      "",
+      content,
+    ].join("\n")))
+    : null;
+}
+
 function buildInstructionsSection(instructions: string | undefined): string | null {
   if (!instructions || instructions.trim() === "") return null;
   return tag("instructions", escapeXml(instructions));
@@ -202,9 +215,9 @@ export function buildPreamble(
   agent?: Agent,
 ): string {
   const shouldExcludeContextEvidence = policy.fileGovernance?.excludeFromContext === true;
-  const renderedProjectedContext = shouldExcludeContextEvidence
+  const projectedContext = shouldExcludeContextEvidence
     ? undefined
-    : renderProjectedContext(ctx.projectedContext);
+    : partitionProjectedContext(ctx.projectedContext);
 
   const staticSections: (string | null)[] = [
     agent ? buildRoleSection(agent) : null,
@@ -215,7 +228,9 @@ export function buildPreamble(
 
   const dynamicSections: (string | null)[] = [
     buildTaskSection(ctx.task),
-    buildContextEvidenceSection(renderedProjectedContext),
+    buildContextDirectivesSection(projectedContext ? renderContextBlocks(projectedContext.directives) : undefined),
+    buildContextGuidanceSection(projectedContext ? renderContextBlocks(projectedContext.guidance) : undefined),
+    buildContextEvidenceSection(projectedContext ? renderContextBlocks(projectedContext.evidence) : undefined),
     buildInstructionsSection(agent?.instructions),
   ];
 

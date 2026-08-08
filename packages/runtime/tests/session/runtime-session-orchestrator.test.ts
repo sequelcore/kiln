@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
-import type { ContextAuditEntry } from "@kilnai/core";
+import { textParts, extractText, sha256ContentIdentity } from "@kilnai/core";
+import type { ContextAuditEntry, ProjectedContextBlock } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";
@@ -27,19 +27,35 @@ function makeSession(systemPrompt = "You are helpful."): RuntimeSession {
 }
 
 function makeGovernedContext(content: string) {
-  return {
+  const block: ProjectedContextBlock = {
+    id: "fixture:directive",
+    kind: "procedural",
+    modelFacingSemantics: "directive",
+    source: "fixture",
     content,
+    required: true,
+    score: 1,
+    estimatedTokens: 1,
+  };
+  return {
+    directives: [block],
+    guidance: [],
+    evidence: [],
     audit: {
       governor: "DefaultContextGovernor",
-      selectedBlockIds: [],
+      selectedBlockIds: [block.id],
       deferredBlockIds: [],
       requiredBlockIds: [],
       preservedRequiredBlockIds: [],
-      selectedTokens: 0,
-      requiredTokens: 0,
-      tokenBudget: 0,
+      selectedTokens: 1,
+      requiredTokens: 1,
+      tokenBudget: 1,
       overflow: false,
-      blocks: [],
+      blocks: [{
+        id: block.id, kind: block.kind, modelFacingSemantics: block.modelFacingSemantics,
+        source: block.source, contentHash: sha256ContentIdentity(block.content), required: block.required, estimatedTokens: 1, baseScore: 1,
+        effectiveScore: 1, decision: "admitted", reason: "required-preserved", order: 0,
+      }],
     } satisfies ContextAuditEntry,
   };
 }
@@ -110,7 +126,8 @@ describe("RuntimeSessionOrchestrator", () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("help"), makeGovernedContext("some governed context"));
       const callArgs = vi.mocked(provider.createMessage).mock.calls[0][0];
-      expect(callArgs.system).toContain("Base prompt.\n\n--- Governed Context ---\nsome governed context");
+      expect(callArgs.system).toContain("--- Governed Context Directives ---");
+      expect(callArgs.system).toContain("some governed context");
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
@@ -191,7 +208,11 @@ describe("RuntimeSessionOrchestrator", () => {
 
     it("rejects unaudited governed context content", async () => {
       const session = makeSession("Base prompt.");
-      await expect(orchestrator.processMessage(session, textParts("help"), { content: "raw context" }))
+      await expect(orchestrator.processMessage(session, textParts("help"), {
+        directives: [{ id: "raw", kind: "procedural", modelFacingSemantics: "directive", source: "fixture", content: "raw context", required: true, score: 1 }],
+        guidance: [],
+        evidence: [],
+      }))
         .rejects
         .toThrow("Governed runtime context must include a DefaultContextGovernor audit");
     });

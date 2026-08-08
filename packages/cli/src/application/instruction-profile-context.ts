@@ -53,6 +53,7 @@ export function instructionProfileToContextCandidate(
 ): ContextCandidate {
   return {
     kind: "instruction",
+    modelFacingSemantics: "directive",
     source: `instruction-profile:${profile.filePath}`,
     required: true,
     score: INSTRUCTION_PROFILE_SCORE,

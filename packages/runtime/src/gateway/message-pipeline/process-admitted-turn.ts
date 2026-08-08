@@ -761,6 +761,7 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
   if (executionMode === "plan") {
     proceduralContextCandidates.push({
       kind: "procedural",
+      modelFacingSemantics: "directive",
       source: "runtime-execution-mode:plan",
       required: true,
       score: 1,

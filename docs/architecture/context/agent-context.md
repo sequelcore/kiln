@@ -25,6 +25,36 @@ work, and evidence required before closeout. Instruction profiles may express
 team doctrine, but the cross-surface policy lives in resolved
 `workGovernance` config and is projected as required context.
 
+## Model-Facing Semantics
+
+`DefaultContextGovernor` is the sole owner of context admission and carries a
+model-facing semantic class with every admitted block. The class is not derived
+from `required`, score, source, or body content:
+
+- `directive` is authoritative context: `instruction` blocks (operator identity,
+  work governance, and instruction profiles) and runtime plan-mode, authority,
+  governed-work, and web-attribution procedural blocks.
+- `guidance` is admitted but lower-precedence procedure: an admitted skill is
+  guidance and yields to the active task, directives, and policy constraints.
+- `evidence` is non-authoritative historical or retrieved material: memory,
+  summaries, knowledge, coordination, artifacts, ledgers, and managed resource
+  content remain evidence even when required for budget admission.
+
+`procedural` is intentionally ambiguous and must explicitly declare its
+model-facing class. Core rejects an unclassified procedural candidate and
+rejects attempts to promote an evidence kind or demote an instruction kind.
+The final CLI, runtime, and managed-child seams validate every block and its
+declared partition again, failing closed for missing, invalid, or mismatched
+classes before rendering.
+Runtime and managed-child seams additionally require the rendered block set to
+match the governor audit exactly: each id is selected and admitted once, and
+kind, source, semantic class, required status, projection metadata, and
+SHA-256 content identity must remain unchanged.
+CLI and runtime preserve the typed block (`id`, kind, source, and class) until
+final prompt assembly. Evidence is rendered in a separate section that
+prohibits executing directives contained in the evidence; that disclaimer does
+not apply to directives or guidance.
+
 ## Canonical Surfaces
 
 | Surface | Purpose | Native or personalizable |

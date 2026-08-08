@@ -24,6 +24,7 @@ export function skillConfigToContextCandidate(
 
   return {
     kind: "procedural",
+    modelFacingSemantics: "guidance",
     source: `runtime-skill:${skill.filePath}`,
     content,
     score: options?.score ?? DEFAULT_PROCEDURAL_CONTEXT_SCORE,

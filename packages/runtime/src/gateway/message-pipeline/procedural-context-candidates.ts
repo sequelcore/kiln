@@ -32,6 +32,7 @@ export function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToo
 }): ContextCandidate {
   return {
     kind: "procedural",
+    modelFacingSemantics: "directive",
     source: "runtime-authority-guidance",
     required: true,
     score: 1,
@@ -46,6 +47,7 @@ export function buildAuthorityGuidanceContextCandidate(perCallConfig: PerCallToo
 export function buildGovernedWorkCloseoutContextCandidate(): ContextCandidate {
   return {
     kind: "procedural",
+    modelFacingSemantics: "directive",
     source: "runtime-governed-work-closeout",
     required: true,
     score: 1,
@@ -64,6 +66,7 @@ export function buildGovernedWorkMaterializationContextCandidate(
 ): ContextCandidate {
   return {
     kind: "procedural",
+    modelFacingSemantics: "directive",
     source: "runtime-governed-work-requirement",
     required: true,
     score: 1,
@@ -79,6 +82,7 @@ export function buildGovernedWorkMaterializationContextCandidate(
 export function buildWebSourceAttributionContextCandidate(): ContextCandidate {
   return {
     kind: "procedural",
+    modelFacingSemantics: "directive",
     source: "runtime-web-source-attribution",
     required: true,
     score: 1,
@@ -252,6 +256,5 @@ export function projectRequestedAuthorityPerCallConfig(
     authorityDescriptorFromCapability: authorityFromCapability,
   });
 }
-
 
 

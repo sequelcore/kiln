@@ -55,6 +55,7 @@ export function buildWorkGovernanceContextCandidate(
 
   return {
     kind: "instruction",
+    modelFacingSemantics: "directive",
     source: "work-governance:resolved-kiln-config#workGovernance",
     content,
     required: true,

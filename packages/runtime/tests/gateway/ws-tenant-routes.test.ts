@@ -776,8 +776,8 @@ describe("createWsTenantRoutes", () => {
         activeAgentId: "billing-specialist",
       });
       const governedContext = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![2];
-      expect(governedContext?.content).toContain("Cross-agent memory");
-      expect(governedContext?.content).toContain("Billing handoff stays active.");
+      expect(governedContext?.evidence?.some((block) => block.content.includes("Cross-agent memory"))).toBe(true);
+      expect(governedContext?.evidence?.some((block) => block.content.includes("Billing handoff stays active."))).toBe(true);
       expect(governedContext?.audit?.blocks.find((block) => block.kind === "coordination")).toEqual(
         expect.objectContaining({
           decision: "admitted",
