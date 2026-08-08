@@ -39,7 +39,6 @@ describe("run plan permission policy", () => {
     expect(evaluator.evaluateTool("resource_list").action).toBe("allow");
     expect(evaluator.evaluateTool("resource_template_list").action).toBe("allow");
     expect(evaluator.evaluateTool("resource_read").action).toBe("allow");
-    expect(evaluator.evaluateTool("Bash").action).toBe("deny");
     expect(evaluator.evaluateTool("kiln_config.apply_change").action).toBe("deny");
     expect(evaluator.evaluateFile(".").action).toBe("allow");
     expect(evaluator.evaluateFile("packages/gui/src/App.tsx").action).toBe("allow");
@@ -47,5 +46,35 @@ describe("run plan permission policy", () => {
     expect(evaluator.evaluateFile(".git/config").action).toBe("deny");
     expect(evaluator.evaluateFile("packages/gui/node_modules/react/index.js").action).toBe("deny");
     expect(JSON.stringify(PLAN_POLICY.fileGovernance?.allowGlobs ?? [])).not.toContain("/workspace/");
+  });
+
+  it("gates native shell access by command shape instead of denying the tool outright", () => {
+    const evaluator = createPermissionEvaluator(PLAN_POLICY);
+
+    // The shell tool itself is admitted; per-invocation command patterns
+    // enforce the read-only boundary, matching how Claude Code, Codex, and
+    // opencode gate shell access by command shape rather than by tool name.
+    expect(evaluator.evaluateTool("Bash").action).toBe("allow");
+    expect(evaluator.evaluateTool("bash").action).toBe("allow");
+
+    expect(evaluator.evaluateCommand("git status", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("git diff HEAD~1", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("git log -20", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("git show HEAD", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("cat package.json", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("ls -la packages/cli", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("head -50 README.md", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("tail -50 README.md", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("wc -l README.md", "bash").action).toBe("allow");
+    expect(evaluator.evaluateCommand("pwd", "bash").action).toBe("allow");
+
+    // Unmatched shapes -- including write effects and command chaining that
+    // widens a read-only pattern into a different command -- fall through to
+    // the untrusted-approval default and are denied.
+    expect(evaluator.evaluateCommand("rm -rf /", "bash").action).toBe("deny");
+    expect(evaluator.evaluateCommand("npm install", "bash").action).toBe("deny");
+    expect(evaluator.evaluateCommand("git push origin main", "bash").action).toBe("deny");
+    expect(evaluator.evaluateCommand("curl https://example.com", "bash").action).toBe("deny");
+    expect(evaluator.evaluateCommand("cat package.json && rm -rf /", "bash").action).toBe("deny");
   });
 });

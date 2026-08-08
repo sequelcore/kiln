@@ -415,7 +415,13 @@ export class CodexOAuthCredentialPoolService {
         buildCodexOAuthExhaustionDiagnostic(status),
       );
     }
-    if (executable.length !== 1) throw new KilnError("CONFIG_INVALID", "Codex OAuth pooled execution requires exactly one executable credential; bind additional accounts through explicit virtual models.");
+    if (executable.length !== 1) {
+      throw new KilnError(
+        "CONFIG_INVALID",
+        "Codex OAuth pooled execution requires exactly one executable credential; bind additional accounts through explicit virtual models.",
+        { context: { availableCredentials: executable.map((entry) => entry.id) }, suggestion: buildAmbiguousAccountSuggestion(executable) },
+      );
+    }
     const pool = await this.#createPool();
     this.observability?.register(CODEX_OAUTH_POOL_PROVIDER_ID, pool);
     return new PooledProviderAdapter<CodexOAuthPoolCredential>({
@@ -800,6 +806,11 @@ function isExecutableTokenFile(tokenFile: CodexOAuthTokenFile): boolean {
 
 function isExecutableCredentialStatus(status: CodexOAuthCredentialStatus): boolean {
   return status.status === "valid" || status.status === "expiring-soon";
+}
+
+function buildAmbiguousAccountSuggestion(executable: readonly CodexOAuthCredentialStatus[]): string {
+  const ids = executable.map((entry) => entry.id).join(", ");
+  return `Add an entry under modelGateway.virtualModels in the Kiln global config binding one of these executable credential ids to a model (${ids}), then pass --model <virtualModelId> to kiln run.`;
 }
 
 function buildCodexOAuthExhaustionDiagnostic(

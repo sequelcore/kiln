@@ -563,7 +563,24 @@ describe("CodexOAuthCredentialPoolService", () => {
     const service = new CodexOAuthCredentialPoolService({ rootDir });
     await service.linkCredential({ id: "first", tokenFile: token({ access_token: "access-first" }) });
     await service.linkCredential({ id: "second", tokenFile: token({ access_token: "access-second" }) });
+
     await expect(service.createPooledAdapter({ defaultModel: "model" })).rejects.toThrow("exactly one executable credential");
+
+    try {
+      await service.createPooledAdapter({ defaultModel: "model" });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(KilnError);
+      const kilnError = error as KilnError;
+      expect(kilnError.code).toBe("CONFIG_INVALID");
+      // The suggestion must name the exact executable credential ids so the
+      // operator knows which one to bind -- an opaque "bind a virtual model"
+      // message with no candidates is not actionable.
+      expect(kilnError.suggestion).toContain("first");
+      expect(kilnError.suggestion).toContain("second");
+      expect(kilnError.suggestion).toContain("modelGateway.virtualModels");
+      expect(kilnError.suggestion).toContain("--model");
+    }
   });
 
   it("materializes only an exact selected Codex OAuth account revision", async () => {

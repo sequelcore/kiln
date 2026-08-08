@@ -268,6 +268,37 @@ export const PLAN_POLICY: KilnPermissionPolicy = {
       action: "allow",
       reason: "Plan mode may read shared Kiln resources.",
     },
+    {
+      tool: "bash",
+      action: "allow",
+      reason: "Native harnesses without dedicated read/grep/glob tools (e.g. Codex) have no other path to repository inspection. The command-pattern layer below restricts invocations to a read-only allowlist, matching how Claude Code, Codex, and opencode gate shell access by command shape rather than by tool identity.",
+    },
+  ],
+  commands: [
+    // Double-star wildcards are required: the shared glob matcher compiles a
+    // single `*` to `[^/]*` (file-glob semantics), which would stop matching
+    // at the first `/` in a repository-relative path argument.
+    { pattern: "git status**", action: "allow", reason: "Read-only repository status." },
+    { pattern: "git diff**", action: "allow", reason: "Read-only diff inspection." },
+    { pattern: "git log**", action: "allow", reason: "Read-only history inspection." },
+    { pattern: "git show**", action: "allow", reason: "Read-only object inspection." },
+    { pattern: "git blame**", action: "allow", reason: "Read-only history inspection." },
+    { pattern: "cat **", action: "allow", reason: "Read-only file inspection." },
+    { pattern: "ls**", action: "allow", reason: "Read-only directory listing." },
+    { pattern: "head **", action: "allow", reason: "Read-only file inspection." },
+    { pattern: "tail **", action: "allow", reason: "Read-only file inspection." },
+    { pattern: "wc **", action: "allow", reason: "Read-only file inspection." },
+    { pattern: "pwd", action: "allow", reason: "Read-only working directory inspection." },
+    // Declared after the read-only allowlist so a matching deny wins: findLastMatch
+    // favors the last matching rule, and a chained or redirected command must not
+    // inherit an earlier pattern's allow just because its prefix looks read-only.
+    { pattern: "**&&**", action: "deny", reason: "Command chaining can smuggle a write past a read-only pattern." },
+    { pattern: "**;**", action: "deny", reason: "Command chaining can smuggle a write past a read-only pattern." },
+    { pattern: "**|**", action: "deny", reason: "Piping can smuggle a write past a read-only pattern." },
+    { pattern: "**`**", action: "deny", reason: "Command substitution can smuggle a write past a read-only pattern." },
+    { pattern: "**$(**", action: "deny", reason: "Command substitution can smuggle a write past a read-only pattern." },
+    { pattern: "**>**", action: "deny", reason: "Output redirection is a write effect." },
+    { pattern: "**<**", action: "deny", reason: "Input redirection is not required for read-only inspection." },
   ],
 };
 

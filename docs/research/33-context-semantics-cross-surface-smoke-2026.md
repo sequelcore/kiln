@@ -162,3 +162,84 @@ Before repeating this task, resolve or explicitly admit the harness shell-tool
 policy mismatch and configure a virtual-model binding for the direct Codex
 OAuth route. A rerun before those readiness gates would only reproduce known
 pre-dispatch failures.
+
+## Follow-Up: Readiness Gate Resolution (2026-08-08)
+
+### Shell-tool policy mismatch (short-term, closed)
+
+Root cause: `packages/cli/src/commands/run.ts` `PLAN_POLICY` never granted the
+`bash`/`Bash` tool at all, so `evaluateTool` fell through to the
+`untrusted`-approval default (deny) before the per-invocation command-pattern
+layer (`evaluateCommand`, `packages/cli/src/application/run-session.ts:277-307`)
+ever ran. Codex CLI has no dedicated read-only tool surface separate from its
+shell (`cloned/codex`), so this denied 100% of its plan-mode capability, not
+just write effects.
+
+Comparative research across `cloned/claude-code`, `cloned/codex`,
+`cloned/opencode`, and `cloned/pi` found that none of these harnesses gate
+read-only mode by omitting the shell tool; each gates by command/action shape
+(Claude Code's per-invocation `BashPermissionRequest`, Codex's
+`AskForApproval` + `FileSystemSandboxPolicy` computed from actual filesystem
+effect, opencode's `evaluate(action, resource, ruleset)` defaulting to `ask`).
+Kiln already has the equivalent mechanism — `KilnCommandPermissionRule`
+pattern matching, previously used only by `SAFE_DEFAULTS_COMMAND_RULES` — so
+the fix was to use it for `PLAN_POLICY` rather than to invent new
+architecture: `bash`/`Bash` is now tool-level `allow`, and a `commands`
+allowlist restricts invocations to read-only shapes (`git status/diff/log/
+show/blame`, `cat`, `ls`, `head`, `tail`, `wc`, `pwd`), with explicit
+higher-priority deny rules for chaining/redirection operators (`&&`, `;`,
+`|`, backtick and `$(...)` substitution, `>`, `<`) so a read-only prefix
+cannot be used to smuggle a write past the allowlist. Unmatched commands keep
+falling through to the untrusted-approval default (deny). Covered by
+`packages/cli/tests/commands/run-plan-policy.test.ts`.
+
+This closes the `kiln run` plan-mode readiness gap for both Codex CLI and
+Claude Code. It does not change the general `permission-evaluator.ts`
+default-action semantics (still deny-by-tool-name outside `untrusted`
+policies), and the glob-based command matcher's chaining risk is mitigated
+only by explicit deny patterns, not by a real shell parse — a targeted
+mitigation, not the general fix.
+
+**Deferred, not scheduled:** migrating `permission-evaluator.ts` from
+per-tool default-deny to command-shape/effect-based gating as the general
+mechanism (matching Codex's sandbox-computed-from-effect model) is a larger
+semantic change than this readiness gate warranted. Revisit only if further
+plan-mode or safe-defaults gaps recur that a broader allowlist can't
+reasonably absorb; no roadmap track currently owns this and none should be
+opened speculatively ahead of that evidence.
+
+### Codex OAuth virtual-model binding (short-term, closed)
+
+Confirmed not owned by issue #34: `packages/runtime/src/agents/credential-pool/codex-oauth-credential-pool.ts`
+(`createPooledAdapter`) refuses ambiguous auto-selection among multiple
+executable OAuth credentials by design, a different subsystem from #34's
+`managed_agent_invoke` economic-dispatch path (`docs/roadmap/02-managed-invocation-routing.md`).
+Comparative research found no surveyed harness performs implicit
+rotation/round-robin across multiple credentials for the same provider
+(`cloned/pi` represents one account per provider key structurally; Claude
+Code and Codex both assume one explicit active credential, switched via
+login/logout) — confirming Kiln's ambiguity refusal is the correct default,
+not a gap to remove.
+
+The actual gap was narrower than the smoke doc's original framing: the
+explicit-binding surface already existed end to end
+(`ProviderRouteCandidate.accountBinding` in `packages/cli/src/config/
+provider-route-candidates.ts`, resolved from a `modelGateway.virtualModels`
+entry matched against `kiln run --model <virtualModelId>`, threaded through
+`packages/cli/src/wrapper/direct-provider-adapter-factory.ts::createCodexOAuthAdapter`
+and `CodexOAuthCredentialPoolService.createExactAdapter`). What was missing
+was that hitting the ambiguity case produced an opaque error with no
+indication of *how* to resolve it. Fixed by attaching a `KilnError.suggestion`
+at the throw site (`codex-oauth-credential-pool.ts`) naming the exact
+executable credential ids and the `modelGateway.virtualModels` + `--model`
+steps to bind one — surfaced automatically by the CLI's existing
+`formatError` (`packages/cli/src/formatters.ts`), no new architecture, no
+duplicated eligibility logic at the CLI layer. Covered by
+`packages/runtime/tests/agents/codex-oauth-credential-pool.test.ts`
+("rejects pooled execution when multiple Codex OAuth subscriptions are
+executable").
+
+No CLI command creates `modelGateway.virtualModels` entries yet; the
+operator edits the global config directly. A dedicated `kiln model bind`
+(or similar) convenience command is deferred, not scheduled — open only if
+operators report the manual YAML edit as friction in practice.
