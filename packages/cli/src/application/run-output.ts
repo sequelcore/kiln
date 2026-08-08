@@ -248,6 +248,10 @@ export interface RunJsonOutputEnvelope {
   };
   readonly resources: {
     readonly exactArtifacts: readonly string[];
+    /** Present only in --plan mode when the model called submit_plan. Non-human
+     *  output modes cannot prompt on stdin for plan approval, so the plan is
+     *  returned as data instead; the caller re-invokes without --plan to execute it. */
+    readonly proposedPlan?: string;
   };
 }
 
@@ -368,6 +372,7 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly exactArtifacts: readonly string[];
   readonly capabilityGap?: CapabilityGapRecord;
   readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
+  readonly proposedPlan?: string;
 }): RunJsonOutputEnvelope {
   return {
     schemaVersion: "kiln.run.output.v1",
@@ -407,6 +412,7 @@ export function buildRunJsonOutputEnvelope(input: {
     },
     resources: {
       exactArtifacts: input.exactArtifacts,
+      ...(input.proposedPlan !== undefined ? { proposedPlan: input.proposedPlan } : {}),
     },
   };
 }

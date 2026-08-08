@@ -210,6 +210,37 @@ describe("resolveProviderRouteCandidates", () => {
     })).toBe("mechanical-edit");
   });
 
+  it("does not leak the global default model onto an explicitly overridden provider it was never configured for", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      routing: { defaultWorker: "codex-oauth" },
+      models: { default: "gpt-5.6-terra" },
+    };
+
+    // models.default is only a matched pair with resolveGlobalDefaultProvider();
+    // overriding the provider away from that default must not carry it along
+    // as if it were valid for the new provider. Leave model unresolved so the
+    // native harness applies its own default instead of failing on a foreign
+    // model id.
+    expect(resolveProviderRouteCandidates({
+      globalConfig,
+      flagProvider: "claude",
+    })).toEqual([{ provider: "claude" }]);
+  });
+
+  it("still applies the global default model when the explicit provider matches the configured default provider", () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "1",
+      routing: { defaultWorker: "codex-oauth" },
+      models: { default: "gpt-5.6-terra" },
+    };
+
+    expect(resolveProviderRouteCandidates({
+      globalConfig,
+      flagProvider: "codex-oauth",
+    })).toEqual([{ provider: "codex-oauth", model: "gpt-5.6-terra" }]);
+  });
+
   it("uses defaultWorker and fallback when ordered routes are absent", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",

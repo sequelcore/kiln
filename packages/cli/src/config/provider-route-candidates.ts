@@ -277,10 +277,17 @@ function resolveCandidateModel(
   explicitModel?: string,
   options: { readonly useConfiguredRouteFallback?: boolean } = {},
 ): string | undefined {
+  // models.default is configured as a pair with resolveGlobalDefaultProvider();
+  // it names a model for whichever provider Kiln falls back to on its own, not
+  // for every provider. Once the caller has explicitly picked a different
+  // provider (via --provider), that pairing no longer holds, so leaking the
+  // default model onto it produces a foreign, likely-invalid model id instead
+  // of letting the native harness apply its own default.
+  const defaultModelApplies = provider === normalizeProvider(resolveGlobalDefaultProvider(globalConfig));
   return normalizeModel(explicitModel)
     ?? (options.useConfiguredRouteFallback ? normalizeModel(findConfiguredRouteModel(globalConfig, provider)) : undefined)
     ?? normalizeModel(globalConfig?.models?.[provider])
-    ?? normalizeModel(globalConfig?.models?.default);
+    ?? (defaultModelApplies ? normalizeModel(globalConfig?.models?.default) : undefined);
 }
 
 function findConfiguredRouteModel(

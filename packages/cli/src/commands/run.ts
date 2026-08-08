@@ -862,22 +862,6 @@ export async function runCommand(
     });
     exitRunCommand(1, executionOptions);
   }
-  if (flags.plan && runOutput.mode !== "human") {
-    const errorMessage = "--output answer/json is not supported with interactive plan mode.";
-    runOutput.writeErrorLine(`Error: ${errorMessage}`);
-    emitRunFailureOutput(runOutput, {
-      answer: "",
-      sessionId,
-      task,
-      domain: "unknown",
-      provider: flags.provider,
-      model: flags.model,
-      startedAt,
-      startedAtMs,
-      lastError: errorMessage,
-    });
-    exitRunCommand(1, executionOptions);
-  }
   if ((flags.workers ?? 1) > 1 && runOutput.mode !== "human") {
     const errorMessage = "--output answer/json is not supported with parallel worker mode.";
     runOutput.writeErrorLine(`Error: ${errorMessage}`);
@@ -2044,6 +2028,7 @@ capabilityGap: postSessionCapabilityGap,
     exactArtifacts,
     capabilityGap: postSessionCapabilityGap,
     managedInvocationAuthorityNotes,
+    proposedPlan: submittedPlan,
   };
 
   if (verificationResult && !verificationResult.passed) {
@@ -2067,6 +2052,15 @@ capabilityGap: postSessionCapabilityGap,
   emitRunOutput(runOutput, finalRunOutput);
 
   if (flags.plan && submittedPlan !== undefined) {
+    // Non-human output modes cannot prompt on stdin for approval (there is no
+    // terminal on the other end of a json/answer pipe). The plan already
+    // reached the caller as structured data via emitRunOutput above
+    // (resources.proposedPlan); the caller decides and re-invokes without
+    // --plan to execute, rather than Kiln guessing "no answer" means denied
+    // or blocking indefinitely on a read that will never resolve.
+    if (runOutput.mode !== "human") {
+      return;
+    }
     runOutput.writeTelemetryLine("═══════════════════════════════");
     runOutput.writeTelemetryLine(" PROPOSED PLAN");
     runOutput.writeTelemetryLine("═══════════════════════════════");
@@ -2115,6 +2109,7 @@ interface RunOutputEmissionInput {
   readonly exactArtifacts: readonly string[];
   readonly capabilityGap?: CapabilityGapRecord;
   readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
+  readonly proposedPlan?: string;
 }
 
 interface RunFailureOutputInput {
