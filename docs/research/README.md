@@ -167,6 +167,13 @@ define the active architecture contract. For doctrine, use
   #9's monolithic-conflation hypothesis. Evidence gathering only; no Kiln
   implementation decisions proposed.
 
+- `33-context-semantics-cross-surface-smoke-2026.md`
+  Exploratory read-only comparison of native Codex and Claude CLI surfaces,
+  their Kiln-governed harness paths, and direct Codex OAuth readiness after the
+  model-facing context semantics change. Records objective scoring, marker
+  visibility, tool-policy blockers, and benchmark limitations without making
+  comparative quality claims.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -213,4 +220,5 @@ define the active architecture contract. For doctrine, use
 30. `30-deliberation-policy-2026.md`
 31. `31-visual-work-abstraction-2026.md`
 32. `32-general-work-contracts-2026.md`
-33. `web-retrieval-provider-routing.md`
+33. `33-context-semantics-cross-surface-smoke-2026.md`
+34. `web-retrieval-provider-routing.md`
