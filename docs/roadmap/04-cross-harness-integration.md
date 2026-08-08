@@ -209,6 +209,18 @@ binds the conservative intent envelope before provider execution. CLI, GUI,
 TUI, harness ingress v2, examples, and operator config use
 `deliberationPolicy`; the former normalized policy has no reader or alias.
 
+#### Research note - codex plugin interactive capabilities
+
+The `codex@openai-codex` Claude Code plugin currently provides three
+interactive capabilities that no slice above names as scope: an in-session
+rescue/second-opinion subagent (`/codex:rescue`), a stop-time review gate
+hook, and session handoff from Claude Code to Codex (`/codex:transfer`).
+Slices 0-4 cover routing/execution unification (harness-neutral MCP bridge,
+Codex App dogfood without burning quota, native-plus-Kiln composite picker),
+not these three. Do not treat the plugin as redundant with this track, or
+retire it, until a slice explicitly targets absorbing rescue, review-gate, or
+session-transfer behavior into Kiln's governed surface.
+
 ### Slice 5 - Unified Status And Repair
 
 Status: Queued.
