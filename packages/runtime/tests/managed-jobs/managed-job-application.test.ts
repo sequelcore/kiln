@@ -6,6 +6,7 @@ import {
   FilesystemManagedJobStore,
   InMemoryManagedJobStore,
   ManagedJobApplicationService,
+  ManagedJobExecutionFailure,
   type ManagedJobApplicationOptions,
   type ManagedJobEconomicProfile,
   type ManagedJobEconomicAdoption,
@@ -254,7 +255,7 @@ function nativeStoredJob(input: {
     ...(input.dispatchFenceId ? { dispatchFenceId: input.dispatchFenceId } : {}),
   };
   return {
-    version: 9,
+    version: 10,
     id: input.id,
     adoptedDecisionAt: updatedAt,
     state: input.state,
@@ -291,8 +292,8 @@ async function dispatchAccepted(
   return accepted;
 }
 
-describe("ManagedJobApplicationService V9 record", () => {
-  it("accepts a durable queued V9 record before dispatch and exposes completion through status/result", async () => {
+describe("ManagedJobApplicationService V10 record", () => {
+  it("accepts a durable queued V10 record before dispatch and exposes completion through status/result", async () => {
     const execution = deferred<{
       readonly runtimeInvocationId: string;
       readonly completedAt: string;
@@ -391,7 +392,7 @@ describe("ManagedJobApplicationService V9 record", () => {
     });
 
     expect(job).toMatchObject({
-      version: 9,
+      version: 10,
       state: "succeeded",
       dispatch: {
         kind: "native-harness",
@@ -418,6 +419,58 @@ describe("ManagedJobApplicationService V9 record", () => {
         dispatchFenceId: "native-harness-dispatch:dispatch-000000001",
       },
     });
+  });
+
+  it("persists sanitized terminal failure evidence identically in status, result, replay, and lifecycle", async () => {
+    const store = new InMemoryManagedJobStore();
+    const service = new ManagedJobApplicationService({
+      ...createOptions({ store }),
+      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+      routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
+      nativeHarnessExecution: {
+        execute: async () => {
+          throw new ManagedJobExecutionFailure(
+            "harness_version_mismatch",
+            "kiln://diagnostics/managed-jobs/harness-version-mismatch",
+            "C:\\operator\\secret payload",
+          );
+        },
+      },
+      nativeHarnessDispatchIdGenerator: () => "dispatch-failure-000001",
+    });
+
+    const job = await dispatchAccepted(service, { ...submission, configuredAgentProfileId: nativeHarnessProfile.id });
+    const expectedEvidence = {
+      version: 1,
+      classification: "harness_version_mismatch",
+      diagnosticUri: "kiln://diagnostics/managed-jobs/harness-version-mismatch",
+    };
+    expect(job).toMatchObject({ state: "failed", failureEvidence: expectedEvidence });
+    expect(job.lifecycle.at(-1)).toMatchObject({ state: "failed", failureEvidence: expectedEvidence });
+    expect(JSON.stringify(job)).not.toContain("secret payload");
+    await expect(service.getStatus(query, job.id)).resolves.toMatchObject({ failureEvidence: expectedEvidence });
+    await expect(service.getResult(query, job.id)).resolves.toMatchObject({ availability: "failed", failureEvidence: expectedEvidence });
+    await expect(service.getReplay(query, job.id)).resolves.toMatchObject({ resultAvailability: "failed", failureEvidence: expectedEvidence });
+  });
+
+  it("fails closed to sanitized unknown evidence for invalid diagnostic URIs and untyped errors", async () => {
+    const execute = vi.fn()
+      .mockRejectedValueOnce(new ManagedJobExecutionFailure("native_session_error", "https://provider.invalid/private", "raw provider message"))
+      .mockRejectedValueOnce(new Error("C:\\operator\\provider-secret"));
+    const makeService = () => new ManagedJobApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+      routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
+      nativeHarnessExecution: { execute },
+      idGenerator: (() => { let index = 0; return () => `job-failure-00000${++index}`; })(),
+      nativeHarnessDispatchIdGenerator: (() => { let index = 0; return () => `dispatch-failure-00000${++index}`; })(),
+    });
+    const invalidUri = await dispatchAccepted(makeService(), { ...submission, configuredAgentProfileId: nativeHarnessProfile.id, idempotencyKey: "failure-invalid-uri" });
+    const unknown = await dispatchAccepted(makeService(), { ...submission, configuredAgentProfileId: nativeHarnessProfile.id, idempotencyKey: "failure-unknown" });
+
+    expect(invalidUri.failureEvidence).toEqual({ version: 1, classification: "native_session_error" });
+    expect(unknown.failureEvidence).toEqual({ version: 1, classification: "unknown_failure" });
+    expect(JSON.stringify([invalidUri, unknown])).not.toContain("provider-secret");
   });
 
   it("persists the native fence before invoking the harness process", async () => {
@@ -853,7 +906,7 @@ describe("ManagedJobApplicationService V9 record", () => {
     const job = await dispatchAccepted(service, submission);
 
     expect(job).toMatchObject({
-      version: 9,
+      version: 10,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       dispatch: {
@@ -948,7 +1001,7 @@ describe("ManagedJobApplicationService V9 record", () => {
     await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ dispatch: { kind: "economic", economic: { availability: "unavailable", reason: "evidence-unprojectable" } } });
   });
 
-  it("persists one V9 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
+  it("persists one V10 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();
     const selectedCommitment = {
@@ -1028,7 +1081,7 @@ describe("ManagedJobApplicationService V9 record", () => {
 
     const completed = await dispatchAccepted(service, submission);
     expect(completed).toMatchObject({
-      version: 9,
+      version: 10,
       state: "succeeded",
       objective: submission.objective,
       result: {
@@ -1104,11 +1157,10 @@ describe("ManagedJobApplicationService V9 record", () => {
     };
     expect(() => new InMemoryManagedJobStore([queued])).toThrowError(expect.objectContaining({
       code: "job_persistence_corrupt",
-      operatorAction: "Reset the managed-job store; only canonical V9 records are supported.",
     }));
   });
 
-  it("returns the persisted V9 attempt identity and decision time on a later replay", async () => {
+  it("returns the persisted V10 attempt identity and decision time on a later replay", async () => {
     let currentTime = now;
     const store = new InMemoryManagedJobStore();
     const service = new ManagedJobApplicationService(createOptions({
@@ -1122,7 +1174,7 @@ describe("ManagedJobApplicationService V9 record", () => {
 
     expect(replay).toEqual(first);
     expect(replay).toMatchObject({
-      version: 9,
+      version: 10,
       dispatch: { kind: "economic", economicAttemptId: "economic-attempt:attempt-000000001" },
       adoptedDecisionAt: now.toISOString(),
     });
@@ -1202,7 +1254,7 @@ describe("ManagedJobApplicationService V9 record", () => {
     });
   });
 
-  it("preserves V9 idempotency across a filesystem restart", async () => {
+  it("preserves V10 idempotency across a filesystem restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v9-"));
     try {
       const first = new ManagedJobApplicationService(createOptions({
@@ -1219,13 +1271,27 @@ describe("ManagedJobApplicationService V9 record", () => {
         await readFile(join(root, "managed-jobs.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 9 });
+      expect(persisted[0]).toMatchObject({ version: 10 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("fails closed for corrupt V9 candidate evidence", async () => {
+  it("performs a one-time V9 to V10 filesystem migration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v9-migration-"));
+    try {
+      const legacy = { ...nativeStoredJob({ id: "native-job-v9-migration", state: "queued" }), version: 9 };
+      await writeFile(join(root, "managed-jobs.json"), `${JSON.stringify([legacy])}\n`, "utf8");
+
+      await expect(new FilesystemManagedJobStore(root).get(legacy.id)).resolves.toMatchObject({ version: 10, id: legacy.id });
+      const persisted = JSON.parse(await readFile(join(root, "managed-jobs.json"), "utf8")) as Array<Record<string, unknown>>;
+      expect(persisted).toMatchObject([{ version: 10, id: legacy.id }]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed for corrupt V10 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-corrupt-"));
     try {
       const service = new ManagedJobApplicationService(createOptions({

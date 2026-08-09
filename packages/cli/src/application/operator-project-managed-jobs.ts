@@ -11,13 +11,15 @@ import {
   FilesystemManagedJobStore,
   ManagedJobApplicationError,
   ManagedJobApplicationService,
+  ManagedJobExecutionFailure,
+  type ManagedJobExecutionFailureClassification,
   type ManagedJobNativeHarnessProfile,
   type ManagedJobNativeHarnessRoute,
   type ManagedJobRecord,
   type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
 } from "@kilnai/runtime";
-import type { ManagedAgentCallerAttachmentIdentity } from "@kilnai/core";
+import type { ManagedAgentCallerAttachmentIdentity, ManagedAgentInvocationRecord } from "@kilnai/core";
 import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
@@ -512,7 +514,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
         }
         const joined = await invocationService.join(request.invocationId);
         if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
-          throw new ManagedJobApplicationError("invocation_failed", "Inspect durable native-harness Runtime terminal evidence.");
+          throw managedJobExecutionFailure(joined.status === "completed" ? joined.record : undefined);
         }
         return {
           runtimeInvocationId: joined.record.invocationId,
@@ -622,7 +624,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
         }
         const joined = await invocationService.join(request.invocationId);
         if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
-          throw new ManagedJobApplicationError("invocation_failed", "Inspect durable managed Runtime terminal evidence.");
+          throw managedJobExecutionFailure(joined.status === "completed" ? joined.record : undefined);
         }
         return {
           runtimeInvocationId: joined.record.invocationId,
@@ -661,6 +663,35 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       closeManagedAccountRuntimeComposition(root.rootPath);
     },
   };
+}
+
+function managedJobExecutionFailure(
+  record: ManagedAgentInvocationRecord | undefined,
+): ManagedJobExecutionFailure {
+  const diagnostic = record?.diagnostics?.find((candidate) => candidate.classification !== undefined)
+    ?? record?.diagnostics?.[0];
+  return new ManagedJobExecutionFailure(
+    managedJobFailureClassification(diagnostic?.classification),
+    diagnostic?.uri,
+  );
+}
+
+function managedJobFailureClassification(
+  classification: string | undefined,
+): ManagedJobExecutionFailureClassification {
+  if (
+    classification === "harness_version_mismatch"
+    || classification === "structured_handoff_rejected"
+    || classification === "model_identity_mismatch"
+    || classification === "private_artifact_cleanup_failed"
+    || classification === "provider_quota_exhausted"
+    || classification === "native_session_error"
+    || classification === "write_boundary_violation"
+    || classification === "result_handoff_missing"
+  ) {
+    return classification;
+  }
+  return "unknown_failure";
 }
 
 type OperatorManagedInvocationRoute = NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number];

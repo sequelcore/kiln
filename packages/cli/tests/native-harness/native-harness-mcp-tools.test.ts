@@ -103,7 +103,7 @@ function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord
     rejections: [],
   };
   return {
-    version: 9,
+    version: 10,
     id: "managed-job-0001",
     adoptedDecisionAt: OBSERVED_AT,
     state,
@@ -266,7 +266,7 @@ describe("NativeHarnessMcpTools", () => {
     expect(JSON.stringify(result)).not.toContain("objective");
   });
 
-  it("projects a failed V9 job without fabricating route or provider identity", async () => {
+  it("projects a failed V10 job without fabricating route or provider identity", async () => {
     const server = new CodexMcpTools({
       managedJobs: {
         accept: async () => managedEconomicJob(),
@@ -319,6 +319,89 @@ describe("NativeHarnessMcpTools", () => {
     });
     expect(JSON.stringify(result.structuredContent)).not.toContain("routeId");
     expect(JSON.stringify(result.structuredContent)).not.toContain("providerId");
+  });
+
+  it("projects the same sanitized terminal failure evidence through status, result, and replay", async () => {
+    const failureEvidence = {
+      version: 1 as const,
+      classification: "structured_handoff_rejected" as const,
+      diagnosticUri: "kiln://diagnostics/managed-jobs/structured-handoff-rejected",
+    };
+    const failed = managedJob({
+      state: "failed",
+      diagnostic: "invocation_failed",
+      failureEvidence,
+      lifecycle: [{
+        sequence: 1,
+        state: "failed",
+        observedAt: OBSERVED_AT,
+        diagnostic: "invocation_failed",
+        failureEvidence,
+      }],
+    });
+    const server = new CodexMcpTools({
+      managedJobs: {
+        accept: async () => failed,
+        getStatus: async () => failed,
+        getResult: async () => ({
+          jobId: failed.id,
+          availability: "failed",
+          lifecycleState: "failed",
+          configuredAgentProfileId: failed.configuredAgentProfileId,
+          admissionProfileId: failed.admissionProfileId,
+          diagnostic: "invocation_failed",
+          failureEvidence,
+        }),
+        cancel: async () => failed,
+        getReplay: async () => ({
+          jobId: failed.id,
+          availability: "available",
+          lifecycleState: "failed",
+          configuredAgentProfileId: failed.configuredAgentProfileId,
+          admissionProfileId: failed.admissionProfileId,
+          lifecycle: failed.lifecycle,
+          resultAvailability: "failed",
+          dispatch: {
+            kind: "native-harness",
+            routeId: "route-claude",
+            routeRevision: "revision-001",
+            providerId: "claude",
+            model: "claude-concrete-model",
+            admissionProfileId: "foundation-readonly-plan",
+            adapterCapabilityId: "claude-cli",
+            adapterCapabilityVersion: "1",
+            acknowledgement: {
+              version: 1,
+              source: "managed-route-admission",
+              credentialMode: "credentialless",
+              acknowledgedAt: OBSERVED_AT,
+              routeId: "route-claude",
+              routeRevision: "revision-001",
+              providerId: "claude",
+              model: "claude-concrete-model",
+              admissionProfileId: "foundation-readonly-plan",
+              adapterCapabilityId: "claude-cli",
+              adapterCapabilityVersion: "1",
+            },
+          },
+          diagnostic: "invocation_failed",
+          failureEvidence,
+        }),
+      },
+    });
+
+    const [status, result, replay] = await Promise.all([
+      server.callTool("kiln_managed_agent_status", { jobId: failed.id }),
+      server.callTool("kiln_managed_agent_result", { jobId: failed.id }),
+      server.callTool("kiln_managed_agent_replay", { jobId: failed.id }),
+    ]);
+    const projected = [
+      (status.structuredContent as { job: { failureEvidence?: unknown } }).job.failureEvidence,
+      (result.structuredContent as { result: { failureEvidence?: unknown } }).result.failureEvidence,
+      (replay.structuredContent as { replay: { failureEvidence?: unknown } }).replay.failureEvidence,
+    ];
+    expect(projected).toEqual([failureEvidence, failureEvidence, failureEvidence]);
+    expect(JSON.stringify([status, result, replay])).not.toMatch(/raw provider payload|secret-token|C:\\operator/i);
   });
 
   it("projects trusted cancellation and canonical lifecycle replay without accepting caller authority or prose", async () => {

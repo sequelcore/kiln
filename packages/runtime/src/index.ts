@@ -455,6 +455,7 @@ export {
   InMemoryManagedJobStore,
   ManagedJobApplicationError,
   ManagedJobApplicationService,
+  ManagedJobExecutionFailure,
 } from "./managed-jobs/index.js";
 export type {
   ManagedJobDiagnosticCode,
@@ -466,6 +467,8 @@ export type {
   ManagedJobEconomicReplayPort,
   ManagedJobEconomicCommitmentPort,
   ManagedJobExecutionContext,
+  ManagedJobExecutionFailureClassification,
+  ManagedJobFailureEvidence,
   ManagedJobGovernanceEvidence,
   ManagedJobGovernancePort,
   ManagedJobProfile,

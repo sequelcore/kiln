@@ -179,14 +179,18 @@ full. Result records validate version, job and invocation identity, route,
 configured agent, admission profile, terminal state, and timestamps before
 they are observable. Terminal results are immutable.
 
-Managed-job V9 is the only supported persisted record. Its `dispatch` union
+Managed-job V10 is the only supported persisted record. Its `dispatch` union
 separates economic commitment evidence from exact native-harness route
 evidence; the native branch has no economic policy, account, quota, price, or
-candidate fields. The operator explicitly discarded the terminal pre-V9 local
+candidate fields. V10 adds closed terminal-failure classification plus an
+optional canonical `kiln://` diagnostic pointer without persisting provider
+messages. Real V9 operator records receive one V9-to-V10 rewrite; no V9 writer
+or indefinite dual-version execution path remains. The operator explicitly
+discarded the terminal pre-V9 local
 store; Runtime rejects every other record version rather than retaining a
 migration or recovery reader.
 
-V9 remains the managed-job record, not a producer of `RuntimeSession` or
+V10 remains the managed-job record, not a producer of `RuntimeSession` or
 cockpit events. Economic replay may join the durable SQLite authority, while
 native-harness replay returns the persisted exact route acknowledgement and
 dispatch fence without economic evidence. Session-event surfaces render
@@ -217,11 +221,11 @@ authority before job recovery. Native-harness profiles instead persist an
 exact route acknowledgement and use the managed-job store's single Runtime
 fence immediately before adapter/process materialization. The application
 boundary refreshes canonical eligibility for every submission and persists the
-V9 precommit record before any external effect. Economic jobs then adopt,
+V10 precommit record before any external effect. Economic jobs then adopt,
 commit, fence, execute, and settle; native-harness jobs fence, execute through
 the canonical harness adapter, and fail closed on restart without silently
-redispatching. `kiln_managed_agent_replay` joins economic V9 jobs to the
-durable Runtime SQLite authority through a Runtime port and returns native V9
+redispatching. `kiln_managed_agent_replay` joins economic V10 jobs to the
+durable Runtime SQLite authority through a Runtime port and returns native V10
 route/fence evidence directly from the job owner. It projects evidence as
 available, unavailable, or unprojectable; it neither duplicates the
 authority/store nor synthesizes a RuntimeSession or cockpit event. The MCP
@@ -852,13 +856,14 @@ Recovery checkpoints reference the economic commitment and dispatch fence by
 immutable identifiers. They never duplicate the account lease held by the
 SQLite economic authority.
 
-Managed-job V9 is the sole persisted contract and contains the objective plus
+Managed-job V10 is the sole persisted contract and contains the objective plus
 the canonical terminal Runtime handoff. Its dispatch branch is explicit:
 economic records carry policy/candidate evidence, while native-harness records
 carry only exact credentialless route identity, a stable versioned
 acknowledgement, and optional fence. Runtime rejects a native-harness profile
 that advertises runtime-selected credentials before governance, persistence,
-adapter, credential, process, or account-authority work. Pre-V9 records fail
+adapter, credential, process, or account-authority work. V9 records migrate once
+without invented failure evidence; pre-V9 records fail
 closed as corrupt state; no compatibility reader remains.
 The model-facing route catalog includes each healthy route's timeout budget.
 Parent agents should route broad repository review, long reasoning, or
@@ -937,13 +942,13 @@ profile before adapter materialization; a mismatch fails closed as an
 
 Candidate collection cannot construct an adapter, resolve a credential, launch
 a process, acquire a lease, reserve capacity, or call a provider. A new
-economic managed job is persisted in V9 with policy/revision and constraints, a
+economic managed job is persisted in V10 with policy/revision and constraints, a
 namespaced `economicAttemptId`, and pinned `adoptedDecisionAt`, but without a
 selected `routeId` or `providerId`. A native-harness job instead persists its
 exact route identity and versioned acknowledgement, with no economic fields.
 Core then adopts an immutable economic snapshot whose policy, candidate set,
 price/rate evidence, and full contents are bound by canonical sorted SHA-256
-digests. Runtime accepts no pre-V9 managed-job record and never infers a new
+digests. Runtime accepts only V10 after its one-time V9 migration and never infers a new
 economic attempt from retired state.
 
 Runtime acquires the commitment synchronously from the user-scoped SQLite ledger
@@ -1364,6 +1369,12 @@ Agent catalog projection is also semantic admission. An agent with an explicit
 model contradicts the route, or its declared tools are not admitted by any
 profile on that route. `kiln status` exposes these as managed agent profile
 issues instead of silently rewriting the profile to match the route.
+Schema-v2 economic-policy validation is isolated to the configured agent that
+declares the invalid binding. That agent is omitted and receives explicit
+health evidence, while unrelated healthy routes and agents remain visible.
+In particular, an invalid direct-provider policy cannot revoke an accountless
+native-harness route. Route adapters remain deferred until an admitted job is
+dispatched.
 
 Assistant egress text must not expose provider-internal tool-call markup. If a
 direct provider returns raw assistant tool syntax such as `<assistant to=...>`

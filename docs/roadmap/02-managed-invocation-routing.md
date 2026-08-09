@@ -9,7 +9,7 @@ managed capacity/affinity, but does not claim a live provider proof.
 
 The canonical `managed_economic_lifecycle` session event now requires `evidenceVersion: 1`; there is no compatibility reader. Rejections are typed, secret-free, and staged as `economic-selection`, `account-selection`, `local-capacity`, or `commitment-conflict`. One portable fixture covers the seven lifecycle transitions, every rejection stage, malformed-version rejection, and secret-shaped negative evidence. Gateway projection is total: malformed evidence is explicit `unprojectableEvidence`, including the former `readOptionalStringList`, `readWorktreeReview`, and `readWorktreeConflict` residuals, rather than silently dropped.
 
-CLI (`kiln managed-agent list`), TUI, and GUI render the shared session-event cockpit projection; the SDK exports the same contract. Native remains excluded from this #34 cockpit-event scope, but the provider-neutral managed-job V9 MCP contract now admits explicit `native-harness` routes. Managed jobs do not synthesize RuntimeSession or cockpit events: economic replay joins the durable Runtime SQLite authority by `jobId` plus `economicAttemptId`, while native replay returns its exact route acknowledgement and dispatch fence from the single job owner. Unavailable or unprojectable evidence remains explicit.
+CLI (`kiln managed-agent list`), TUI, and GUI render the shared session-event cockpit projection; the SDK exports the same contract. Native remains excluded from this #34 cockpit-event scope, but the provider-neutral managed-job V10 MCP contract now admits explicit `native-harness` routes. Managed jobs do not synthesize RuntimeSession or cockpit events: economic replay joins the durable Runtime SQLite authority by `jobId` plus `economicAttemptId`, while native replay returns its exact route acknowledgement and dispatch fence from the single job owner. Unavailable or unprojectable evidence remains explicit.
 
 The real SQLite coordinator proof rejects Codex at its economic ceiling, selects OpenCode, persists the fence before adapter construction, and shows zero Codex adapter, credential, quota, MCP, process, and provider activity. The proof makes no cheapest/free claim, no provider-global exclusivity claim, and performs no live/provider spend. Issue #34 supplied the economic commitment consumed by the shared account authority later implemented in issue #39.
 
@@ -148,10 +148,11 @@ reservations and ceilings without claiming free execution without evidence.
 
 Core now adopts one immutable economic snapshot with canonical sorted SHA-256
 digests over the policy, candidate set, price/rate evidence, and full decision
-basis. Managed-job V9 is the sole persisted contract. Its economic branch
+basis. Managed-job V10 is the sole persisted contract. Its economic branch
 durably pins a namespaced `economicAttemptId`, while its native-harness branch
 pins exact route identity and a versioned acknowledgement without economic
-fields. The operator-approved reset retired every pre-V9 reader without a
+fields. A one-time V9-to-V10 rewrite preserves real operator evidence. The
+operator-approved reset retired every pre-V9 reader without a
 compatibility path.
 
 One project-runtime SQLite writer performs route capacity, account-backed or
@@ -209,8 +210,8 @@ merge:
   tests previously asserted against. This is a deliberately bounded piece of
   `#34-S6` (Runtime + one representative consumer only). `#34-S7` and
   `#34-S8` completed the portable fixture, active-surface/SDK parity, and the
-exact economic V9-to-MCP authority replay join described above; native-harness
-V9 replay remains a direct exact-route projection without economic authority.
+exact economic V10-to-MCP authority replay join described above; native-harness
+V10 replay remains a direct exact-route projection without economic authority.
 
 ### Slice 5 - Cross-Path Account Authority Convergence
 

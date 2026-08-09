@@ -24,7 +24,7 @@ import type {
 } from "../managed-account-leases/managed-account-lease-authority.js";
 
 export const MANAGED_JOB_STATES = ["queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
-export const MANAGED_JOB_SCHEMA_VERSION = 9 as const;
+export const MANAGED_JOB_SCHEMA_VERSION = 10 as const;
 /** Recovery is deliberately pre-fence-only for economic work and never
  * resumes an external native-harness process after a process restart. */
 export const MANAGED_JOB_RECOVERY_POLICY = {
@@ -107,6 +107,34 @@ export interface ManagedJobEconomicProfile {
     readonly providerId?: string;
     readonly model?: string;
   };
+}
+
+export type ManagedJobExecutionFailureClassification =
+  | "harness_version_mismatch"
+  | "structured_handoff_rejected"
+  | "model_identity_mismatch"
+  | "private_artifact_cleanup_failed"
+  | "provider_quota_exhausted"
+  | "native_session_error"
+  | "write_boundary_violation"
+  | "result_handoff_missing"
+  | "unknown_failure";
+
+/** Provider-neutral terminal evidence. Error messages and provider payloads never cross this boundary. */
+export interface ManagedJobFailureEvidence {
+  readonly version: 1;
+  readonly classification: ManagedJobExecutionFailureClassification;
+  readonly diagnosticUri?: string;
+}
+
+export class ManagedJobExecutionFailure extends Error {
+  readonly evidence: ManagedJobFailureEvidence;
+
+  constructor(classification: ManagedJobExecutionFailureClassification, diagnosticUri?: string, message = classification) {
+    super(message);
+    this.name = "ManagedJobExecutionFailure";
+    this.evidence = { version: 1, classification, ...(isCanonicalKilnDiagnosticUri(diagnosticUri) ? { diagnosticUri } : {}) };
+  }
 }
 
 export interface ManagedJobExecutionContext {
@@ -201,6 +229,7 @@ export interface ManagedJobLifecycleEntry {
   readonly state: ManagedJobState;
   readonly observedAt: string;
   readonly diagnostic?: ManagedJobDiagnosticCode;
+  readonly failureEvidence?: ManagedJobFailureEvidence;
 }
 
 /** Canonical persisted managed-job representation. */
@@ -223,6 +252,7 @@ export interface ManagedJobRecord {
   readonly updatedAt: string;
   readonly parent?: { readonly invocationId: string; readonly turnId: string };
   readonly diagnostic?: ManagedJobDiagnosticCode;
+  readonly failureEvidence?: ManagedJobFailureEvidence;
   readonly result?: ManagedJobResult;
   readonly lifecycle: readonly ManagedJobLifecycleEntry[];
 }
@@ -239,6 +269,7 @@ export interface ManagedJobResultQuery {
   readonly provenance?: ManagedJobResult["provenance"];
   readonly handoff?: ManagedAgentResultHandoff;
   readonly diagnostic?: ManagedJobDiagnosticCode;
+  readonly failureEvidence?: ManagedJobFailureEvidence;
 }
 
 export interface ManagedJobReplayQuery {
@@ -269,6 +300,7 @@ export interface ManagedJobReplayQuery {
         readonly dispatchFenceId?: string;
       };
   readonly diagnostic?: ManagedJobDiagnosticCode;
+  readonly failureEvidence?: ManagedJobFailureEvidence;
 }
 
 export type ManagedJobEconomicReplay =
@@ -342,7 +374,7 @@ export interface ManagedJobStore {
   get(id: string): Promise<ManagedJobRecord | undefined>;
   /** Atomically persists the exact-route fence before adapter creation. */
   fenceNativeHarness(id: string, dispatchFenceId: string, updatedAt?: string): Promise<ManagedJobNativeHarnessFenceResult>;
-  transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord>;
+  transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string, failureEvidence?: ManagedJobFailureEvidence): Promise<ManagedJobRecord>;
   completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord>;
   listNonterminal(): Promise<readonly ManagedJobRecord[]>;
 }
@@ -381,7 +413,7 @@ export class ManagedJobApplicationService {
   }
 
   /**
-   * Accepts and durably reserves governed V9 work without crossing an
+   * Accepts and durably reserves governed V10 work without crossing an
    * economic/native dispatch boundary. Completion is observed through the
    * status, result, and replay queries after the project owner schedules the
    * returned job.
@@ -662,8 +694,9 @@ export class ManagedJobApplicationService {
     }
     if (!job || !isNonterminal(job.state)) return job;
     const diagnostic = isDiagnostic(error) ? error : "invocation_failed";
+    const failureEvidence = normalizeManagedJobExecutionFailure(error);
     try {
-      return await this.transition(job.id, "failed", diagnostic);
+      return await this.transition(job.id, "failed", diagnostic, failureEvidence);
     } catch {
       return undefined;
     }
@@ -840,8 +873,8 @@ export class ManagedJobApplicationService {
         resultHandoff: normalizeManagedJobResultHandoff(execution.resultHandoff, fenced.objective),
       };
       return await this.options.store.completeSuccess(fenced.id, result, execution.completedAt);
-    } catch {
-      return this.transition(fenced.id, "failed", "invocation_failed");
+    } catch (error) {
+      return this.transition(fenced.id, "failed", "invocation_failed", normalizeManagedJobExecutionFailure(error));
     }
   }
 
@@ -914,9 +947,9 @@ export class ManagedJobApplicationService {
           resultHandoff: normalizeManagedJobResultHandoff(execution.resultHandoff, job.objective),
         };
         return await this.options.store.completeSuccess(job.id, result, execution.completedAt);
-      } catch {
+      } catch (error) {
         preparation.recordExecutionSettlementPending("managed-job-execution-failed");
-        return this.transition(job.id, "failed", "invocation_failed");
+        return this.transition(job.id, "failed", "invocation_failed", normalizeManagedJobExecutionFailure(error));
       }
     } catch (error) {
       if (error instanceof ManagedJobApplicationError) throw error;
@@ -957,7 +990,7 @@ export class ManagedJobApplicationService {
     }
   }
 
-  /** Re-checks the persisted V9 candidate identity before and after fencing. */
+  /** Re-checks the persisted V10 candidate identity before and after fencing. */
   private async validateCurrentEconomicCandidateIdentity(job: ManagedJobRecord): Promise<void> {
     const dispatch = economicDispatchOf(job);
     let profile: ManagedJobProfile | undefined;
@@ -972,13 +1005,13 @@ export class ManagedJobApplicationService {
     } catch {
       throw new ManagedJobApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V9 managed economic candidate identity before execution.",
+        "Restore the exact V10 managed economic candidate identity before execution.",
       );
     }
     if (!isManagedEconomicCandidateSet(resolved) || !sameManagedEconomicCandidateSet(dispatch.candidateSet, resolved)) {
       throw new ManagedJobApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V9 managed economic candidate identity before execution.",
+        "Restore the exact V10 managed economic candidate identity before execution.",
       );
     }
   }
@@ -987,8 +1020,8 @@ export class ManagedJobApplicationService {
     try { return await this.options.store.reserve({ job }); } catch (error) { throw normalizeStoreError(error); }
   }
 
-  private async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode): Promise<ManagedJobRecord> {
-    try { return await this.options.store.transition(id, state, diagnostic, this.now()); } catch (error) { throw normalizeStoreError(error); }
+  private async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, failureEvidence?: ManagedJobFailureEvidence): Promise<ManagedJobRecord> {
+    try { return await this.options.store.transition(id, state, diagnostic, this.now(), failureEvidence); } catch (error) { throw normalizeStoreError(error); }
   }
 
   private authorizeQuery(context: TrustedManagedJobQueryContext, job: ManagedJobRecord): void {
@@ -1012,7 +1045,7 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
   private readonly bindings = new Map<string, { readonly fingerprint: string; readonly jobId: string }>();
 
   constructor(storedJobs: readonly unknown[] = []) {
-    for (const storedJob of storedJobs) {
+    for (const storedJob of migrateV9ManagedJobRecords(storedJobs).records) {
       const job = validateStoredJob(storedJob);
       if (this.jobs.has(job.id) || this.bindings.has(job.idempotencyKeyHash)) {
         throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
@@ -1060,10 +1093,10 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
     this.jobs.set(id, next);
     return { kind: "acquired", job: cloneManagedJob(next) };
   }
-  async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord> {
+  async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string, failureEvidence?: ManagedJobFailureEvidence): Promise<ManagedJobRecord> {
     const current = this.jobs.get(id);
     if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
-    if (current.state === state && current.diagnostic === diagnostic) return cloneManagedJob(current);
+    if (current.state === state && current.diagnostic === diagnostic && JSON.stringify(current.failureEvidence) === JSON.stringify(failureEvidence)) return cloneManagedJob(current);
     if (!canTransition(current.state, state)) throw new ManagedJobApplicationError("invalid_transition", "Keep terminal managed-job states immutable.");
     const timestamp = updatedAt ?? new Date().toISOString();
     if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt)) throw new ManagedJobApplicationError("invalid_transition", "Use monotonic managed-job timestamps.");
@@ -1071,8 +1104,9 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
       ...current,
       state,
       updatedAt: timestamp,
-      lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, state, timestamp, diagnostic)],
+      lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, state, timestamp, diagnostic, failureEvidence)],
       ...(diagnostic ? { diagnostic } : {}),
+      ...(failureEvidence ? { failureEvidence } : {}),
     };
     this.jobs.set(id, next);
     return cloneManagedJob(next);
@@ -1110,7 +1144,7 @@ export class FilesystemManagedJobStore implements ManagedJobStore {
       return result;
     });
   }
-  async get(id: string): Promise<ManagedJobRecord | undefined> { return (await this.loadMemory()).get(id); }
+  async get(id: string): Promise<ManagedJobRecord | undefined> { return this.withLock(async () => (await this.loadMemory()).get(id)); }
   async fenceNativeHarness(id: string, dispatchFenceId: string, updatedAt?: string): Promise<ManagedJobNativeHarnessFenceResult> {
     return this.withLock(async () => {
       const memory = await this.loadMemory();
@@ -1119,18 +1153,21 @@ export class FilesystemManagedJobStore implements ManagedJobStore {
       return result;
     });
   }
-  async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord> {
-    return this.withLock(async () => { const memory = await this.loadMemory(); const job = await memory.transition(id, state, diagnostic, updatedAt); await this.saveMemory(memory); return job; });
+  async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string, failureEvidence?: ManagedJobFailureEvidence): Promise<ManagedJobRecord> {
+    return this.withLock(async () => { const memory = await this.loadMemory(); const job = await memory.transition(id, state, diagnostic, updatedAt, failureEvidence); await this.saveMemory(memory); return job; });
   }
   async completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord> {
     return this.withLock(async () => { const memory = await this.loadMemory(); const job = await memory.completeSuccess(id, result, updatedAt); await this.saveMemory(memory); return job; });
   }
-  async listNonterminal(): Promise<readonly ManagedJobRecord[]> { return (await this.loadMemory()).listNonterminal(); }
+  async listNonterminal(): Promise<readonly ManagedJobRecord[]> { return this.withLock(async () => (await this.loadMemory()).listNonterminal()); }
   private async loadMemory(): Promise<InMemoryManagedJobStore> {
     try {
       const parsed = JSON.parse(await readFile(resolve(this.root, "managed-jobs.json"), "utf8")) as unknown;
       if (!Array.isArray(parsed)) throw new Error("corrupt");
-      return new InMemoryManagedJobStore(parsed);
+      const migrated = migrateV9ManagedJobRecords(parsed);
+      const memory = new InMemoryManagedJobStore(migrated.records);
+      if (migrated.didMigrate) await this.saveMemory(memory);
+      return memory;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return new InMemoryManagedJobStore();
@@ -1182,17 +1219,27 @@ function parseManagedJobSubmission(value: unknown): ManagedJobSubmission {
   if (value.parent !== undefined) { if (!isRecord(value.parent) || !hasOnly(value.parent, ["invocationId", "turnId"]) || !isIdentifier(value.parent.invocationId) || !isIdentifier(value.parent.turnId)) throw new ManagedJobApplicationError("invalid_request", "Provide valid parent invocation lineage."); parent = { invocationId: value.parent.invocationId, turnId: value.parent.turnId }; }
   return { objective, configuredAgentProfileId, callerId, idempotencyKey, ...(parent ? { parent } : {}) };
 }
+function migrateV9ManagedJobRecords(records: readonly unknown[]): { readonly records: readonly unknown[]; readonly didMigrate: boolean } {
+  let didMigrate = false;
+  const migrated = records.map((record) => {
+    if (!isRecord(record) || record.version !== 9) return record;
+    didMigrate = true;
+    // V9 had no terminal failure evidence; preserving its fields is the complete migration.
+    return { ...record, version: MANAGED_JOB_SCHEMA_VERSION };
+  });
+  return { records: migrated, didMigrate };
+}
 function validateStoredJob(value: unknown): ManagedJobRecord {
   if (isRecord(value) && value.version !== MANAGED_JOB_SCHEMA_VERSION) {
     throw new ManagedJobApplicationError(
       "job_persistence_corrupt",
-      "Reset the managed-job store; only canonical V9 records are supported.",
+      "Reset the managed-job store; only canonical V10 records are supported.",
     );
   }
   const allowed = [
     "version", "id", "adoptedDecisionAt", "state", "objective", "projectId", "callerId",
     "configuredAgentProfileId", "admissionProfileId", "dispatch", "governanceSource", "admissionId",
-    "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic",
+    "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic", "failureEvidence",
     "result", "lifecycle",
   ];
   if (
@@ -1219,6 +1266,7 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
     || Date.parse(value.adoptedDecisionAt) !== Date.parse(value.createdAt)
     || Date.parse(value.createdAt) > Date.parse(value.updatedAt)
     || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))
+    || (value.failureEvidence !== undefined && !isValidManagedJobFailureEvidence(value.failureEvidence))
     || (
       value.parent !== undefined
       && (
@@ -1249,6 +1297,9 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
       )
     || (job.state === "succeeded" && !job.result)
     || (job.state !== "succeeded" && job.result !== undefined)
+    || (job.state !== "failed" && job.failureEvidence !== undefined)
+    || (job.failureEvidence === undefined && job.lifecycle.some((entry) => entry.failureEvidence !== undefined))
+    || (job.failureEvidence !== undefined && JSON.stringify(job.lifecycle.at(-1)?.failureEvidence) !== JSON.stringify(job.failureEvidence))
     || (job.result !== undefined && !isValidManagedJobResult(job.result, job, job.updatedAt))
   ) {
     throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
@@ -1256,15 +1307,53 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
   return job;
 }
 function normalizeStoreError(error: unknown): ManagedJobApplicationError { return error instanceof ManagedJobApplicationError ? error : new ManagedJobApplicationError("job_persistence_unavailable", "Restore the managed-job store and retry safely."); }
+function normalizeManagedJobExecutionFailure(error: unknown): ManagedJobFailureEvidence {
+  if (error instanceof ManagedJobExecutionFailure && isValidManagedJobFailureEvidence(error.evidence)) return error.evidence;
+  return { version: 1, classification: "unknown_failure" };
+}
+function isValidManagedJobFailureEvidence(value: unknown): value is ManagedJobFailureEvidence {
+  return isRecord(value)
+    && hasOnly(value, ["version", "classification", "diagnosticUri"])
+    && value.version === 1
+    && isManagedJobExecutionFailureClassification(value.classification)
+    && (value.diagnosticUri === undefined || isCanonicalKilnDiagnosticUri(value.diagnosticUri));
+}
+function isManagedJobExecutionFailureClassification(value: unknown): value is ManagedJobExecutionFailureClassification {
+  return typeof value === "string" && ["harness_version_mismatch", "structured_handoff_rejected", "model_identity_mismatch", "private_artifact_cleanup_failed", "provider_quota_exhausted", "native_session_error", "write_boundary_violation", "result_handoff_missing", "unknown_failure"].includes(value);
+}
+function isCanonicalKilnDiagnosticUri(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const uri = new URL(value);
+    if (
+      uri.protocol !== "kiln:"
+      || uri.port !== ""
+      || uri.username !== ""
+      || uri.password !== ""
+      || uri.search !== ""
+      || uri.hash !== ""
+    ) return false;
+    const segments = uri.pathname.split("/").filter(Boolean);
+    if (uri.hostname === "diagnostics") {
+      return segments.length > 0
+        && segments.every((segment) => /^[a-z0-9][a-z0-9-]*$/u.test(segment));
+    }
+    return uri.hostname === "managed-agents"
+      && segments.length >= 4
+      && segments[0] === "invocations"
+      && segments[2] === "resources"
+      && segments.every((segment) => /^[A-Za-z0-9][A-Za-z0-9:._%-]*$/u.test(segment));
+  } catch { return false; }
+}
 function canTransition(from: ManagedJobState, to: ManagedJobState): boolean { if (from === to) return false; if (from === "queued") return to === "running" || to === "failed" || to === "interrupted" || to === "cancelled"; return from === "running" && (to === "succeeded" || to === "failed" || to === "timed_out" || to === "interrupted" || to === "cancelled"); }
-function lifecycleEntry(sequence: number, state: ManagedJobState, observedAt: string, diagnostic?: ManagedJobDiagnosticCode): ManagedJobLifecycleEntry {
-  return { sequence, state, observedAt, ...(diagnostic ? { diagnostic } : {}) };
+function lifecycleEntry(sequence: number, state: ManagedJobState, observedAt: string, diagnostic?: ManagedJobDiagnosticCode, failureEvidence?: ManagedJobFailureEvidence): ManagedJobLifecycleEntry {
+  return { sequence, state, observedAt, ...(diagnostic ? { diagnostic } : {}), ...(failureEvidence ? { failureEvidence } : {}) };
 }
 function isValidLifecycle(value: unknown, state: ManagedJobState, createdAt: string, updatedAt: string): value is readonly ManagedJobLifecycleEntry[] {
   if (!Array.isArray(value) || value.length === 0) return false;
   let previousTime = Number.NEGATIVE_INFINITY;
   for (const [index, entry] of value.entries()) {
-    if (!isRecord(entry) || !hasOnly(entry, ["sequence", "state", "observedAt", "diagnostic"]) || entry.sequence !== index + 1 || !MANAGED_JOB_STATES.includes(entry.state as ManagedJobState) || !isIso(entry.observedAt) || (entry.diagnostic !== undefined && !isDiagnostic(entry.diagnostic))) return false;
+    if (!isRecord(entry) || !hasOnly(entry, ["sequence", "state", "observedAt", "diagnostic", "failureEvidence"]) || entry.sequence !== index + 1 || !MANAGED_JOB_STATES.includes(entry.state as ManagedJobState) || !isIso(entry.observedAt) || (entry.diagnostic !== undefined && !isDiagnostic(entry.diagnostic)) || (entry.failureEvidence !== undefined && (!isValidManagedJobFailureEvidence(entry.failureEvidence) || entry.state !== "failed"))) return false;
     const observedAt = Date.parse(entry.observedAt);
     if (observedAt < previousTime) return false;
     previousTime = observedAt;
@@ -1422,6 +1511,7 @@ function resultQuery(job: ManagedJobRecord, availability: ManagedJobResultAvaila
     ...(executionIdentity ?? {}),
     ...(result ? { completedAt: result.completedAt, provenance: { ...result.provenance }, handoff: normalizeManagedJobResultHandoff(result.resultHandoff) } : {}),
     ...(diagnostic ? { diagnostic } : {}),
+    ...(job.failureEvidence ? { failureEvidence: job.failureEvidence } : {}),
   };
 }
 function replayQuery(
@@ -1447,6 +1537,7 @@ function replayQuery(
     resultAvailability,
     dispatch,
     ...(diagnostic ? { diagnostic } : {}),
+    ...(job.failureEvidence ? { failureEvidence: job.failureEvidence } : {}),
   };
 }
 function cloneManagedJob(value: ManagedJobRecord): ManagedJobRecord { return structuredClone(value); }

@@ -29,13 +29,14 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-Managed-job V9 is the only persisted representation. Its discriminated
+Managed-job V10 is the only persisted representation. Its discriminated
 `dispatch.kind` is either `economic` or `native-harness`. The economic branch
 durably creates a namespaced `economicAttemptId` and `adoptedDecisionAt` before
 adoption or commitment. The native-harness branch stores only its exact
 credentialless route/provider/model, stable versioned route acknowledgement,
 and optional Runtime dispatch fence; it never creates an economic policy,
-account, quota, price, candidate, reservation, or settlement record. Pre-V9
+account, quota, price, candidate, reservation, or settlement record. V9 is
+migrated once to V10 to preserve operator evidence; pre-V9
 records fail closed and are never upgraded by inference.
 
 ## Atomic Commitment
@@ -130,7 +131,7 @@ participant's live reservation.
 Startup first recovers the SQLite authority and then recovers managed jobs.
 Economic recovery queries the exact `(jobId, economicAttemptId)`:
 
-- `absent` may be committed from the persisted V9 economic intent;
+- `absent` may be committed from the persisted V10 economic intent;
 - a historical V6 held commitment from the interim no-dispatch path is released
   directly from its durable job and economic-attempt identity without
   re-adopting config;

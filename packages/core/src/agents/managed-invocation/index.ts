@@ -466,6 +466,47 @@ export interface ManagedAgentTranscriptPointer {
 export interface ManagedAgentDiagnosticPointer {
   readonly uri: string;
   readonly kind: "timeout" | "failure" | "adapter" | "cleanup";
+  readonly classification?: ManagedAgentTerminalFailureClassification;
+}
+
+export type ManagedAgentTerminalFailureClassification =
+  | "harness_version_mismatch"
+  | "structured_handoff_rejected"
+  | "model_identity_mismatch"
+  | "private_artifact_cleanup_failed"
+  | "provider_quota_exhausted"
+  | "native_session_error"
+  | "write_boundary_violation"
+  | "result_handoff_missing"
+  | "unknown_failure";
+
+export interface ManagedAgentProviderFailureSignal {
+  readonly code?: string;
+  readonly message?: string;
+}
+
+const PROVIDER_QUOTA_CODES = new Set([
+  "402",
+  "payment_required",
+  "quota",
+  "quota_exceeded",
+  "quota_exhausted",
+  "subscription_limit_reached",
+  "usage_limit_exceeded",
+]);
+
+/** Classifies only explicit provider exhaustion signals; advisory quota text is not sufficient. */
+export function isManagedAgentProviderQuotaFailure(
+  signal: ManagedAgentProviderFailureSignal | undefined,
+): boolean {
+  if (!signal) return false;
+  const code = signal.code?.trim().toLowerCase().replace(/[\s-]+/gu, "_") ?? "";
+  if (PROVIDER_QUOTA_CODES.has(code)) return true;
+  const message = signal.message?.toLowerCase().replace(/\s+/gu, " ").trim() ?? "";
+  return /\b(?:weekly|monthly|daily|usage|subscription) limit (?:reached|exceeded|exhausted)\b/u.test(message)
+    || /\b(?:hit|reached|exceeded|exhausted) (?:your |the )?(?:weekly |monthly |daily |usage |subscription )?limit\b/u.test(message)
+    || /\bquota (?:reached|exceeded|exhausted)\b/u.test(message)
+    || /\b(?:reached|exceeded|exhausted) (?:your |the )?quota\b/u.test(message);
 }
 
 export interface ManagedAgentTokenClassUsage {
@@ -2093,7 +2134,29 @@ function requireDiagnosticPointer(input: ManagedAgentDiagnosticPointer): Managed
   return {
     uri: requireText(input.uri, "Managed invocation diagnostic uri is required"),
     kind: input.kind,
+    ...(input.classification !== undefined
+      ? { classification: requireTerminalFailureClassification(input.classification) }
+      : {}),
   };
+}
+
+function requireTerminalFailureClassification(
+  input: ManagedAgentTerminalFailureClassification,
+): ManagedAgentTerminalFailureClassification {
+  if (
+    input === "harness_version_mismatch"
+    || input === "structured_handoff_rejected"
+    || input === "model_identity_mismatch"
+    || input === "private_artifact_cleanup_failed"
+    || input === "provider_quota_exhausted"
+    || input === "native_session_error"
+    || input === "write_boundary_violation"
+    || input === "result_handoff_missing"
+    || input === "unknown_failure"
+  ) {
+    return input;
+  }
+  throw new Error("Managed invocation terminal failure classification is not supported");
 }
 
 function requireInvocationRecordProviderRoute(

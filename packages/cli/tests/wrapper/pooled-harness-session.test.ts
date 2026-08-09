@@ -138,6 +138,70 @@ describe("PooledHarnessSession", () => {
     ]);
   });
 
+  it.each([
+    ["SDK_ERROR", "You've hit your weekly limit"],
+    ["SDK_ERROR", "Monthly limit reached"],
+    ["402", "Payment required"],
+  ])("rotates Claude credentials after an explicit subscription limit (%s)", async (code, message) => {
+    const pool = new CredentialPool<{ homeDir: string }>("claude-code", {
+      credentials: [
+        credential("first", "C:/claude/first", "claude-code"),
+        credential("second", "C:/claude/second", "claude-code"),
+      ],
+    });
+    const seenHomes: string[] = [];
+    const session = new PooledHarnessSession({
+      provider: "claude-code",
+      pool,
+      createDefaultSession: () => new MockSession("default-session", []),
+      createSession: (auth) => {
+        seenHomes.push(auth.homeDir);
+        return auth.homeDir.endsWith("/first")
+          ? new MockSession("first-session", [
+              { type: "error", code, message, isRetryable: false },
+              { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+            ])
+          : new MockSession("second-session", [
+              { type: "text_delta", content: "final output" },
+              { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+            ]);
+      },
+    });
+
+    await expect(collect(session.run({ prompt: "do work" }))).resolves.toEqual([
+      { type: "text_delta", content: "final output" },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+    ]);
+    expect(seenHomes).toEqual(["C:/claude/first", "C:/claude/second"]);
+  });
+
+  it("does not rotate Claude credentials for advisory quota text", async () => {
+    const pool = new CredentialPool<{ homeDir: string }>("claude-code", {
+      credentials: [
+        credential("first", "C:/claude/first", "claude-code"),
+        credential("second", "C:/claude/second", "claude-code"),
+      ],
+    });
+    const seenHomes: string[] = [];
+    const failure = { type: "error" as const, code: "SDK_ERROR", message: "Quota metadata could not be parsed", isRetryable: false };
+    const session = new PooledHarnessSession({
+      provider: "claude-code",
+      pool,
+      createDefaultSession: () => new MockSession("default-session", []),
+      createSession: (auth) => {
+        seenHomes.push(auth.homeDir);
+        return new MockSession("failed-session", [
+          failure,
+          { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false },
+        ]);
+      },
+    });
+
+    const events = await collect(session.run({ prompt: "do work" }));
+    expect(seenHomes).toEqual(["C:/claude/first"]);
+    expect(events).toContainEqual(failure);
+  });
+
   it("uses the default session when no harness pool entries exist", async () => {
     const pool = new CredentialPool<{ homeDir: string }>("opencode");
     const createSession = vi.fn();
@@ -186,11 +250,15 @@ describe("PooledHarnessSession", () => {
   });
 });
 
-function credential(id: string, homeDir: string): Credential<{ homeDir: string }> {
+function credential(
+  id: string,
+  homeDir: string,
+  providerId: "codex" | "claude-code" = "codex",
+): Credential<{ homeDir: string }> {
   return {
     id,
     label: id,
-    providerId: "codex",
+    providerId,
     source: "manual",
     priority: 0,
     auth: { homeDir },

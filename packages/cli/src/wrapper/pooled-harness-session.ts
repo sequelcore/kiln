@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AllCredentialsExhaustedError,
+  isManagedAgentProviderQuotaFailure,
   type CredentialOutcome,
   type CredentialPool,
   type ExecutionSessionEphemeralHarnessStateEvidence,
@@ -170,7 +171,7 @@ function mapHarnessEventsToOutcome(events: readonly ExecutionSessionEvent[]): Cr
   if (text.includes("429") || text.includes("rate limit") || text.includes("rate-limit")) {
     return { type: "rate-limited" };
   }
-  if (text.includes("402") || text.includes("quota")) {
+  if (isManagedAgentProviderQuotaFailure(error)) {
     return { type: "quota-exceeded" };
   }
   if (text.includes("401") || text.includes("403") || text.includes("auth")) {

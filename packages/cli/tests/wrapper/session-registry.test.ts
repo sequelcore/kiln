@@ -381,6 +381,31 @@ describe("SessionRegistry", () => {
       expect(claudeSdkMocks.lastQuery?.options?.env?.CLAUDE_CONFIG_DIR).toBe(isolatedConfigDir);
     });
 
+    it("binds the default Claude session to its native config home for private plan containment", async () => {
+      const credentialDir = join(TEST_HOME_DIR, ".kiln", "auth", "claude-code");
+      rmSync(credentialDir, { recursive: true, force: true });
+      const nativeConfigDir = join(TEST_HOME_DIR, ".claude");
+      mkdirSync(join(nativeConfigDir, "plans"), { recursive: true });
+      claudeSdkMocks.lastQuery = undefined;
+      const { registry } = createDefaultRegistry();
+      const session = registry.createSession("claude", {
+        task: "test",
+        permissionPolicy: { approval: "untrusted", sandbox: "read-only" },
+        privatePlanArtifactCapability: {
+          capabilityId: "claude-code-private-plan-artifacts-v1",
+          harness: "claude-code",
+          version: "2.1.226",
+          relativeDirectory: "plans",
+        },
+      });
+
+      for await (const _event of session.run({ prompt: "test", cwd: process.cwd() })) {
+        // consume the synthetic SDK result and private artifact evidence
+      }
+
+      expect(claudeSdkMocks.lastQuery?.options?.env?.CLAUDE_CONFIG_DIR).toBe(nativeConfigDir);
+    });
+
     it("preserves configured runtime session identity for direct provider sessions", () => {
       const { registry } = createDefaultRegistry();
       const session = registry.createSession("ollama", {

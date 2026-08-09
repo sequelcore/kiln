@@ -10,6 +10,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineStructuredExecutionResult,
+  isManagedAgentProviderQuotaFailure,
   renderContextBlocks,
   resolveDeliberation,
   STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
@@ -269,6 +270,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
               privatePlanVersionMismatch ? "diagnostics" : "private-plan-artifacts-cleanup",
             ),
             kind: privatePlanVersionMismatch ? "failure" as const : "cleanup" as const,
+            classification: privatePlanVersionMismatch
+              ? "harness_version_mismatch" as const
+              : "private_artifact_cleanup_failed" as const,
           }],
         } : {}),
         transcript: transcriptPointer(request.invocationId),
@@ -324,6 +328,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
                 privatePlanVersionMismatch ? "diagnostics" : "private-plan-artifacts-cleanup",
               ),
               kind: privatePlanVersionMismatch ? "failure" as const : "cleanup" as const,
+              classification: privatePlanVersionMismatch
+                ? "harness_version_mismatch" as const
+                : "private_artifact_cleanup_failed" as const,
             }
           : {
               uri: managedInvocationUri(request.invocationId, "timeout"),
@@ -418,6 +425,17 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       ephemeralHarnessState,
     );
     const privatePlanFailure = privatePlanVersionMismatch || cleanupFailure;
+    const terminalFailureClassification = classifyTerminalFailure({
+      request,
+      collected,
+      provenance,
+      structuredResult,
+      nativeHandoffFailure,
+      privatePlanVersionMismatch,
+      cleanupFailure,
+      readOnlyFilesystemViolation,
+      admittedProviderModelId: this.admittedProviderModelId,
+    });
     const childSummaryUsed = !privatePlanVersionMismatch
       && nativeHandoffFailure === undefined
       && (structuredResult !== undefined || (textFallback?.trim().length ?? 0) > 0);
@@ -436,6 +454,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
               : cleanupFailure
                 ? "cleanup" as const
                 : "failure" as const,
+            ...(terminalFailureClassification ? { classification: terminalFailureClassification } : {}),
           }],
         }
         : {}),
@@ -883,6 +902,52 @@ function privatePlanArtifactVersionFailure(
   }
   const observed = observedHarnessVersion === undefined ? "missing" : `'${observedHarnessVersion}'`;
   return `Managed Claude invocation failed: observed Claude Code version ${observed} does not match the exact admitted Claude private plan capability version '${capability.version}'.`;
+}
+
+function classifyTerminalFailure(input: {
+  readonly request: ManagedAgentInvocationRequest;
+  readonly collected: CollectedCliHarnessEvidence;
+  readonly provenance: ManagedAgentResultHandoffProvenance;
+  readonly structuredResult: StructuredExecutionResult | undefined;
+  readonly nativeHandoffFailure: string | undefined;
+  readonly privatePlanVersionMismatch: boolean;
+  readonly cleanupFailure: boolean;
+  readonly readOnlyFilesystemViolation: boolean;
+  readonly admittedProviderModelId: string | undefined;
+}): NonNullable<ManagedAgentInvocationRecord["diagnostics"]>[number]["classification"] | undefined {
+  if (input.privatePlanVersionMismatch) return "harness_version_mismatch";
+  if (input.cleanupFailure) return "private_artifact_cleanup_failed";
+  if (input.readOnlyFilesystemViolation || input.collected.fileChanges.length > 0) {
+    return "write_boundary_violation";
+  }
+  if (isManagedAgentProviderQuotaFailure(input.collected.error)) return "provider_quota_exhausted";
+  if (input.collected.error !== undefined || input.collected.completed?.outcome === "failed") {
+    return "native_session_error";
+  }
+  if (input.nativeHandoffFailure !== undefined) {
+    if (
+      input.structuredResult === undefined
+      || input.provenance.delivery !== "native-structured-output"
+    ) {
+      return "structured_handoff_rejected";
+    }
+    if (
+      input.provenance.primaryObservedModelId === undefined
+      || input.provenance.observedModelIds.length === 0
+      || (input.admittedProviderModelId !== undefined
+        && input.provenance.primaryObservedModelId !== input.admittedProviderModelId)
+    ) {
+      return "model_identity_mismatch";
+    }
+    return "unknown_failure";
+  }
+  if (
+    input.structuredResult === undefined
+    && input.collected.textParts.join("").trim().length === 0
+  ) {
+    return "result_handoff_missing";
+  }
+  return undefined;
 }
 
 function hasPrivatePlanCleanupFailure(

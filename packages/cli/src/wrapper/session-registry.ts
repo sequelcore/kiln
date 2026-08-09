@@ -38,6 +38,7 @@ import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-projection.js";
 import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
 import { assertNativeMcpProjectionCurrent } from "../config/native-mcp-projection-sync.js";
+import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
 export type DirectApiProviderId =
@@ -994,6 +995,19 @@ function withHarnessHomeEnv(
   };
 }
 
+function withDefaultHarnessHomeEnv(
+  provider: HarnessPoolProviderId,
+  env: Record<string, string> | undefined,
+): Record<string, string> {
+  const envName = HARNESS_PROVIDER_HOME_ENV[provider];
+  const configured = env?.[envName]?.trim();
+  const harness = provider === "claude-code" ? "claude" : provider;
+  return {
+    ...(env ?? {}),
+    [envName]: configured || resolveNativeHarnessDir(harness),
+  };
+}
+
 function createPooledHarnessSession(
   provider: HarnessPoolProviderId,
   createSession: (auth: HarnessHomeAuth) => IKilnSession,
@@ -1172,7 +1186,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
         return createPooledHarnessSession(
           "claude-code",
           (auth) => createSession(withHarnessHomeEnv("claude-code", config.env, auth)),
-          () => createSession(config.env),
+          () => createSession(withDefaultHarnessHomeEnv("claude-code", config.env)),
           config.runtimeSessionId,
         );
       },

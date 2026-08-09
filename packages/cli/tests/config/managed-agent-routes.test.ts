@@ -1174,12 +1174,23 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
-  it("rejects missing or widening schema-v2 agent policy bindings before adapter construction", async () => {
+  it("isolates missing or widening schema-v2 policy bindings to the affected agent", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-agent-policy-"));
     try {
       const agentsDir = join(root, ".kiln", "agents");
       mkdirSync(agentsDir, { recursive: true });
       const agentPath = join(agentsDir, "economic-worker.md");
+      writeFileSync(join(agentsDir, "harness-advisor.md"), [
+        "---",
+        "name: harness-advisor",
+        "role: Native harness advisor",
+        "goal: Preserve harness work when another agent policy is invalid.",
+        "tier: reasoning",
+        "mode: managed-child",
+        "routeId: codex-readonly",
+        "---",
+        "Remain within the native harness route.",
+      ].join("\n"));
       const writeAgent = (policyLine: string, routeLine = "") => writeFileSync(agentPath, [
         "---",
         "name: economic-worker",
@@ -1222,13 +1233,22 @@ describe("resolveManagedInvocationToolOptions", () => {
           provider: "codex-oauth",
           model: "gpt-5.4-mini",
           profiles: ["foundation-readonly-plan"],
+        }, {
+          id: "codex-readonly",
+          kind: "harness",
+          provider: "codex",
+          model: "gpt-5.3-codex-spark",
+          profiles: ["foundation-readonly-plan"],
         }],
       });
       let adapterConstructions = 0;
       const resolve = () => resolveManagedInvocationToolOptions(config, {
         cwd: root,
         userHome: root,
-        registry: createRegistry("codex-oauth"),
+        registry: createRegistryForProviders([
+          { provider: "codex-oauth" },
+          { provider: "codex" },
+        ]),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
         directAdapterFactory: (route) => {
@@ -1244,6 +1264,17 @@ describe("resolveManagedInvocationToolOptions", () => {
         available: false,
         reason: expect.stringContaining("economicPolicyId"),
       }));
+      expect(missing.routeHealth).toContainEqual(expect.objectContaining({
+        routeId: "admitted-route",
+        available: true,
+      }));
+      expect(missing.managedInvocation?.agentCatalog ?? []).not.toContainEqual(expect.objectContaining({
+        name: "economic-worker",
+      }));
+      expect(missing.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "harness-advisor",
+        routeId: "codex-readonly",
+      }));
       expect(adapterConstructions).toBe(0);
 
       writeAgent("economicPolicyId: bounded-policy", "routeId: outside-policy");
@@ -1252,6 +1283,17 @@ describe("resolveManagedInvocationToolOptions", () => {
         agentName: "economic-worker",
         available: false,
         reason: expect.stringContaining("not admitted"),
+      }));
+      expect(widening.routeHealth).toContainEqual(expect.objectContaining({
+        routeId: "admitted-route",
+        available: true,
+      }));
+      expect(widening.managedInvocation?.agentCatalog ?? []).not.toContainEqual(expect.objectContaining({
+        name: "economic-worker",
+      }));
+      expect(widening.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
+        name: "harness-advisor",
+        routeId: "codex-readonly",
       }));
       expect(adapterConstructions).toBe(0);
     } finally {

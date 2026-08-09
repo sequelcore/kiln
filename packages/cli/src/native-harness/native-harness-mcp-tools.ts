@@ -199,6 +199,7 @@ export class NativeHarnessMcpTools {
         createdAt: job.createdAt,
         observedAt: job.updatedAt,
         ...(job.diagnostic ? { diagnostic: { code: job.diagnostic, operatorAction: operatorActionFor(job.diagnostic) } } : {}),
+        ...(job.failureEvidence ? { failureEvidence: job.failureEvidence } : {}),
       },
       evidence: {
         harness: this.harness,
@@ -225,6 +226,7 @@ export class NativeHarnessMcpTools {
         ...(result.provenance ? { provenance: result.provenance } : {}),
         ...(result.handoff ? { handoff: result.handoff } : {}),
         ...(result.diagnostic ? { diagnostic: { code: result.diagnostic, operatorAction: operatorActionFor(result.diagnostic) } } : {}),
+        ...(result.failureEvidence ? { failureEvidence: result.failureEvidence } : {}),
       },
       evidence: {
         harness: this.harness,
@@ -251,6 +253,7 @@ export class NativeHarnessMcpTools {
         resultAvailability: replay.resultAvailability,
         dispatch: replay.dispatch,
         ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
+        ...(replay.failureEvidence ? { failureEvidence: replay.failureEvidence } : {}),
       },
       evidence: {
         harness: this.harness,

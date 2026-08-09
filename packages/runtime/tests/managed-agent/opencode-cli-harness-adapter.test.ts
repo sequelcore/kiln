@@ -588,6 +588,7 @@ describe("ManagedCliHarnessAdapter configured for OpenCode", () => {
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-agents/invocations/invocation-opencode-1/resources/diagnostics",
       kind: "failure",
+      classification: "result_handoff_missing",
     }]);
     expect(result.record.resultHandoff).toMatchObject({
       summary: "Managed CLI harness invocation failed: the child process completed without a result handoff.",

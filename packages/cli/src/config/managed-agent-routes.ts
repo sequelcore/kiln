@@ -585,9 +585,9 @@ export async function resolveManagedInvocationToolOptions(
     routeConfigs,
     config.managedAgents,
   );
-  if (economicPolicyHealth.length > 0) {
-    return { routeHealth: [], agentHealth: economicPolicyHealth };
-  }
+  const economicPolicyHealthByAgent = new Map(
+    economicPolicyHealth.map((health) => [health.agentName, health]),
+  );
   const skillCatalog = loadManagedInvocationSkillCatalog(context.cwd, userHome, config.skills);
   mark("managed-route-skills-loaded", { count: skillCatalog.length });
 
@@ -633,9 +633,12 @@ export async function resolveManagedInvocationToolOptions(
       });
     }
   }
-  const agentProjections = configuredAgentDefinitions.map((agent) =>
-    projectManagedAgentCatalogEntry(agent, routes, config.managedAgents)
-  );
+  const agentProjections = configuredAgentDefinitions.map((agent) => {
+    const policyHealth = economicPolicyHealthByAgent.get(agent.name);
+    return policyHealth
+      ? { health: policyHealth }
+      : projectManagedAgentCatalogEntry(agent, routes, config.managedAgents);
+  });
   const agentCatalog = agentProjections.flatMap((projection) => projection.entry ? [projection.entry] : []);
   const agentHealth = agentProjections.flatMap((projection) => projection.health ? [projection.health] : []);
 

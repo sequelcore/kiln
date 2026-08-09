@@ -167,7 +167,52 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff.summary).toContain("error_max_structured_output_retries");
     expect(result.record.resultHandoff.summary).not.toContain("without a result handoff");
-    expect(result.record.diagnostics?.length ?? 0).toBeGreaterThan(0);
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-agents/invocations/invocation-claude-1/resources/diagnostics",
+      kind: "failure",
+      classification: "native_session_error",
+    }]);
+  });
+
+  it.each([
+    ["SDK_ERROR", "Claude Code returned an error result: weekly limit reached"],
+    ["SDK_ERROR", "Claude Code returned an error result: monthly limit exceeded"],
+    ["402", "Payment required"],
+  ])("classifies a Claude subscription limit without persisting the provider message (%s)", async (code, message) => {
+    const result = await invokeWith([
+      {
+        type: "error",
+        code,
+        message,
+        isRetryable: false,
+      },
+      { type: "completed", totalUsd: 0, durationMs: 100, outcome: "failed", isPreflightCrash: false },
+    ]);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") return;
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.diagnostics?.[0]).toMatchObject({
+      kind: "failure",
+      classification: "provider_quota_exhausted",
+    });
+    expect(JSON.stringify(result.record.diagnostics)).not.toContain(message);
+  });
+
+  it("does not classify advisory quota text as provider exhaustion", async () => {
+    const result = await invokeWith([
+      {
+        type: "error",
+        code: "SDK_ERROR",
+        message: "Quota metadata could not be parsed",
+        isRetryable: false,
+      },
+      { type: "completed", totalUsd: 0, durationMs: 100, outcome: "failed", isPreflightCrash: false },
+    ]);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") return;
+    expect(result.record.diagnostics?.[0]?.classification).toBe("native_session_error");
   });
 
   it("reports the required native handoff when the provider gave no terminal cause", async () => {
@@ -179,6 +224,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
     if (result.status !== "completed") return;
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff.summary).toContain("native structured-output handoff was missing");
+    expect(result.record.diagnostics?.[0]?.classification).toBe("structured_handoff_rejected");
   });
 
   it("retains native Claude handoff, concrete model, and portable executable provenance", async () => {
@@ -335,6 +381,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
     if (result.status !== "completed") return;
     expect(result.record.lifecycleState).toBe("failed");
     expect(result.record.resultHandoff.summary).toContain("does not match the admitted model identity");
+    expect(result.record.diagnostics?.[0]?.classification).toBe("model_identity_mismatch");
   });
 
   it("admits the exact primary Claude model while retaining auxiliary model usage", async () => {
@@ -454,6 +501,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-agents/invocations/invocation-claude-1/resources/diagnostics",
       kind: "failure",
+      classification: "harness_version_mismatch",
     }]);
   });
 
@@ -483,6 +531,7 @@ describe("ManagedCliHarnessAdapter surfaces Claude terminal causes", () => {
     expect(result.record.diagnostics).toEqual([{
       uri: "kiln://managed-agents/invocations/invocation-claude-1/resources/private-plan-artifacts-cleanup",
       kind: "cleanup",
+      classification: "private_artifact_cleanup_failed",
     }]);
     expect(result.record.writeEvidence).toBeUndefined();
     expect(result.record.resultHandoff.ephemeralHarnessState?.[0]).toMatchObject({

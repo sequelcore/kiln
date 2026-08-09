@@ -11,6 +11,7 @@ import {
   defineManagedAccountLeaseEvidence,
   assertManagedAgentResultHandoffContract,
   evaluateManagedAgentAdmission,
+  isManagedAgentProviderQuotaFailure,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentInvocationRequest,
@@ -19,6 +20,28 @@ import type {
   ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentUsageReport,
 } from "../../src/agents/managed-invocation/index.js";
+
+describe("managed provider failure classification", () => {
+  it.each([
+    [{ code: "402", message: "Payment required" }],
+    [{ code: "PAYMENT_REQUIRED", message: "Request denied" }],
+    [{ code: "SDK_ERROR", message: "You've hit your weekly limit" }],
+    [{ code: "SDK_ERROR", message: "Monthly limit reached" }],
+    [{ code: "SDK_ERROR", message: "Usage limit exceeded" }],
+    [{ code: "quota_exhausted", message: "Request denied" }],
+  ])("recognizes explicit quota exhaustion %o", (signal) => {
+    expect(isManagedAgentProviderQuotaFailure(signal)).toBe(true);
+  });
+
+  it.each([
+    [{ code: "SDK_ERROR", message: "Quota metadata could not be parsed" }],
+    [{ code: "SDK_ERROR", message: "Usage limit configuration is unavailable" }],
+    [{ code: "429", message: "Rate limit reached" }],
+    [{ code: "SDK_ERROR", message: "No quota information was returned" }],
+  ])("does not infer exhaustion from advisory text %o", (signal) => {
+    expect(isManagedAgentProviderQuotaFailure(signal)).toBe(false);
+  });
+});
 
 function makeRequest(): ManagedAgentInvocationRequest {
   return {
