@@ -1,15 +1,83 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveProviderModelEligibility, type ProviderModelEligibilityRequirements } from "@kilnai/core";
-import { normalizeRuntimeProviderDiscoveryCatalog } from "@kilnai/runtime";
+import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
 import { writeGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { createOperatorProjectManagedJobApplicationComposition } from "../../src/application/operator-project-managed-jobs.js";
 import { createNativeHarnessInspectionService } from "../../src/application/native-harness-inspection.js";
 import { NativeHarnessMcpTools } from "../../src/native-harness/native-harness-mcp-tools.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import { economicConfig } from "../config/managed-economic-policy-config-fixture.js";
+
+const routeCatalogTrace = vi.hoisted(() => ({
+  contexts: [] as Array<{ readonly compositionMode?: "execution" | "candidate-admission"; readonly managedAccountComposition?: unknown }>,
+  catalogs: [] as Array<{ readonly managedInvocation?: { readonly invocationService?: unknown } }>,
+  mutateExecutionCapabilityVersion: false,
+  mutateExecutionProfileAuthority: false,
+  executionRefreshCount: 0,
+}));
+const adapterTrace = vi.hoisted(() => ({
+  createCalls: 0,
+  adapter: {
+    descriptor: {
+      adapterKind: "direct",
+      supportedExecutionModes: ["direct-provider"],
+    },
+    invoke: vi.fn(),
+  },
+}));
+
+vi.mock("../../src/config/managed-agent-route-catalog.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/managed-agent-route-catalog.js")>();
+  return {
+    ...actual,
+    createStagedManagedInvocationRouteCatalog: vi.fn(async (
+      ...args: Parameters<typeof actual.createStagedManagedInvocationRouteCatalog>
+    ) => {
+      routeCatalogTrace.contexts.push(args[1]);
+      const catalog = await actual.createStagedManagedInvocationRouteCatalog(...args);
+      if (
+        args[1].compositionMode === "execution"
+        && (routeCatalogTrace.mutateExecutionCapabilityVersion || routeCatalogTrace.mutateExecutionProfileAuthority)
+      ) {
+        const tracedCatalog = {
+          ...catalog,
+          refreshNow: async () => {
+            await catalog.refreshNow();
+            routeCatalogTrace.executionRefreshCount += 1;
+            const route = catalog.managedInvocation?.routes[0];
+            if (routeCatalogTrace.mutateExecutionCapabilityVersion && route?.economicCapability) {
+              Object.assign(route.economicCapability, {
+                adapterCapabilityVersion: "execution-mismatch",
+              });
+            }
+            if (routeCatalogTrace.mutateExecutionProfileAuthority && routeCatalogTrace.executionRefreshCount >= 3) {
+              const profile = route?.profiles["foundation-readonly-plan"];
+              if (profile) Object.assign(profile, { timeoutMs: profile.timeoutMs + 1 });
+            }
+          },
+        };
+        routeCatalogTrace.catalogs.push(tracedCatalog);
+        return tracedCatalog;
+      }
+      routeCatalogTrace.catalogs.push(catalog);
+      return catalog;
+    }),
+  };
+});
+
+vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/managed-agent-direct-adapters.js")>();
+  return {
+    ...actual,
+    createManagedDirectProviderAdapterFactory: vi.fn(() => async () => {
+      adapterTrace.createCalls += 1;
+      return adapterTrace.adapter as never;
+    }),
+  };
+});
 
 /**
  * Regression proof for #56 revised S1: the operator-supervised project Runtime
@@ -86,6 +154,27 @@ const ECONOMIC_WORKER_AGENT = [
   "Regression fixture agent; not used for real work.",
 ].join("\n");
 
+function accountlessEconomicConfig(): KilnGlobalConfig {
+  const configured = economicConfig();
+  return {
+    ...configured,
+    managedAgents: {
+      ...configured.managedAgents!,
+      routes: configured.managedAgents!.routes.map((route) => ({
+        ...route,
+        credentials: { mode: "credentialless" as const, economicsRouteId: "codex-standard-policy" },
+      })),
+    },
+    modelGateway: {
+      ...configured.modelGateway!,
+      virtualModels: configured.modelGateway!.virtualModels.map((model) => ({
+        ...model,
+        accountIds: [],
+      })),
+    },
+  };
+}
+
 describe("native-harness managed-route runtime config authority (#56 S1)", () => {
   const tempDirs: string[] = [];
   const isolatedEnvKeys = ["XDG_CONFIG_HOME", "HOME", "USERPROFILE"] as const;
@@ -102,6 +191,13 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
+    routeCatalogTrace.contexts.length = 0;
+    routeCatalogTrace.catalogs.length = 0;
+    routeCatalogTrace.mutateExecutionCapabilityVersion = false;
+    routeCatalogTrace.mutateExecutionProfileAuthority = false;
+    routeCatalogTrace.executionRefreshCount = 0;
+    adapterTrace.createCalls = 0;
+    adapterTrace.adapter.invoke.mockClear();
   });
 
   /**
@@ -146,11 +242,13 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
-      expect(composition.configuredAgents).toMatchObject([{
+      const economicWorker = composition.configuredAgents.find((agent) => agent.configuredAgentProfileId === "economic-worker");
+      expect(economicWorker).toBeDefined();
+      expect(economicWorker).toMatchObject({
         configuredAgentProfileId: "economic-worker",
         availability: "admitted",
         providerFamily: "codex-oauth",
-      }]);
+      });
 
       const server = new NativeHarnessMcpTools({
         harness: "codex",
@@ -174,7 +272,134 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expect((invokeTool!.inputSchema.properties as { configuredAgentProfileId: Record<string, unknown> }).configuredAgentProfileId)
         .toEqual({ type: "string", minLength: 1, maxLength: 200 });
     } finally {
-      composition.close();
+      await composition.close();
+    }
+  });
+
+  it("rebuilds an execution composition after the economic dispatch fence", async () => {
+    useIsolatedGlobalConfigHome();
+    writeGlobalConfig(accountlessEconomicConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockImplementation(async (
+      _request,
+      _adapter,
+      _capabilitySnapshot,
+      _lifecycleOptions,
+    ) => {
+      return { status: "started" } as never;
+    });
+    const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockResolvedValue({
+      status: "completed",
+      record: {
+        invocationId: "managed-job-runtime",
+        lifecycleState: "completed",
+        resultHandoff: {
+          provenance: {
+            delivery: "native-structured-output",
+            configuredModelId: "gpt-5.6-codex",
+            primaryObservedModelId: "gpt-5.6-codex",
+            observedModelIds: ["gpt-5.6-codex"],
+          },
+          summary: "Synthetic managed execution completed.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+      },
+    } as never);
+
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
+    });
+    try {
+      expect(routeCatalogTrace.contexts[0]).toMatchObject({ compositionMode: "candidate-admission" });
+      expect(routeCatalogTrace.catalogs[0]?.managedInvocation?.invocationService).toBeUndefined();
+
+      const result = await composition.application.accept({
+        objective: "Prove post-fence managed execution.",
+        configuredAgentProfileId: "economic-worker",
+        callerId: "codex-app",
+        idempotencyKey: "post-fence-managed-execution",
+      });
+
+      expect(result.state).toBe("queued");
+      await composition.close();
+      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "succeeded" });
+      expect(adapterTrace.createCalls).toBe(1);
+      expect(start).toHaveBeenCalledOnce();
+      expect(join).toHaveBeenCalledWith(`managed-job:${result.id}`);
+      expect(start.mock.calls[0]?.[1]).toBe(adapterTrace.adapter);
+      const executionIndex = routeCatalogTrace.contexts.findIndex((context) => context.compositionMode === "execution");
+      expect(executionIndex).toBeGreaterThan(0);
+      expect(routeCatalogTrace.contexts[executionIndex]).toMatchObject({
+        compositionMode: "execution",
+        managedAccountComposition: expect.any(Object),
+      });
+      expect(routeCatalogTrace.catalogs[executionIndex]?.managedInvocation?.invocationService).toBeDefined();
+    } finally {
+      await composition.close();
+      start.mockRestore();
+      join.mockRestore();
+    }
+  });
+
+  it("fails closed before Runtime start when post-fence adapter capability changes", async () => {
+    useIsolatedGlobalConfigHome();
+    writeGlobalConfig(accountlessEconomicConfig());
+    routeCatalogTrace.mutateExecutionCapabilityVersion = true;
+    const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({
+      status: "started",
+    } as never);
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
+    });
+    try {
+      const result = await composition.application.accept({
+        objective: "Reject a changed post-fence capability.",
+        configuredAgentProfileId: "economic-worker",
+        callerId: "codex-app",
+        idempotencyKey: "post-fence-capability-mismatch",
+      });
+      expect(result.state).toBe("queued");
+      await composition.close();
+      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "failed", diagnostic: "invocation_failed" });
+      expect(start).not.toHaveBeenCalled();
+      expect(adapterTrace.adapter.invoke).not.toHaveBeenCalled();
+    } finally {
+      await composition.close();
+      start.mockRestore();
+    }
+  });
+
+  it("fails closed before Runtime start when execution authority changes under the same adapter identity", async () => {
+    useIsolatedGlobalConfigHome();
+    writeGlobalConfig(accountlessEconomicConfig());
+    routeCatalogTrace.mutateExecutionProfileAuthority = true;
+    const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({
+      status: "started",
+    } as never);
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
+    });
+    try {
+      const result = await composition.application.accept({
+        objective: "Reject changed execution authority with a stable adapter identity.",
+        configuredAgentProfileId: "economic-worker",
+        callerId: "codex-app",
+        idempotencyKey: "post-fence-profile-authority-mismatch",
+      });
+      expect(result.state).toBe("queued");
+      await composition.close();
+      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "failed", diagnostic: "invocation_failed" });
+      expect(start).not.toHaveBeenCalled();
+      expect(adapterTrace.adapter.invoke).not.toHaveBeenCalled();
+    } finally {
+      await composition.close();
+      start.mockRestore();
     }
   });
 
@@ -195,13 +420,15 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       // Same fixture as the positive test above -- the eligibility catalog would
       // admit this exact route -- except the global engine is disabled, so this
       // proves the denial and not mere eligibility-catalog absence.
-      expect(composition.configuredAgents).toMatchObject([{
+      const economicWorker = composition.configuredAgents.find((agent) => agent.configuredAgentProfileId === "economic-worker");
+      expect(economicWorker).toBeDefined();
+      expect(economicWorker).toMatchObject({
         configuredAgentProfileId: "economic-worker",
         availability: "unresolved",
         diagnostic: "eligibility_unresolved",
-      }]);
+      });
     } finally {
-      composition.close();
+      await composition.close();
     }
   });
 
@@ -227,13 +454,15 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
     });
     try {
-      expect(composition.configuredAgents).toMatchObject([{
+      const economicWorker = composition.configuredAgents.find((agent) => agent.configuredAgentProfileId === "economic-worker");
+      expect(economicWorker).toBeDefined();
+      expect(economicWorker).toMatchObject({
         configuredAgentProfileId: "economic-worker",
         availability: "admitted",
         providerFamily: "codex-oauth",
-      }]);
+      });
     } finally {
-      composition.close();
+      await composition.close();
     }
   });
 

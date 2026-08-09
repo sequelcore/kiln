@@ -484,6 +484,7 @@ async function invokeManagedMultimodalDelegation(input: {
   readonly requirements: RuntimeMultimodalRequirements;
   readonly decision: ReturnType<typeof planMultimodalRoute>;
 }): Promise<RuntimeMultimodalDelegationExecutionResult> {
+  const adapter = input.route.adapter;
   const observedRuntimeAuthority = input.route.observedRuntimeAuthority;
   const service = new RuntimeManagedAgentInvocationService({
     credentialRouteLeaseManager: new ManagedRuntimeCredentialRouteLeaseManager({
@@ -517,8 +518,8 @@ async function invokeManagedMultimodalDelegation(input: {
     },
     requestedAuthority: input.route.requestedAuthority ?? "read_only",
     providerRoute: input.route.providerRoute,
-    adapterKind: input.route.adapter.descriptor.adapterKind,
-    executionMode: input.route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+    adapterKind: adapter.descriptor.adapterKind,
+    executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
     authority: input.route.authority,
     input: {
       summary: `Delegate ${input.requirements.requestedCapability} handling for multimodal runtime admission.`,
@@ -548,7 +549,7 @@ async function invokeManagedMultimodalDelegation(input: {
   });
 
   const startedAt = Date.now();
-  const result = await service.invoke(request, input.route.adapter, {
+  const result = await service.invoke(request, adapter, {
     routeId: input.route.route.routeId,
     routeSource: "explicit-managed-route",
     routeHealth: {
@@ -558,7 +559,7 @@ async function invokeManagedMultimodalDelegation(input: {
     providerModelProof: {
       status: "configured",
       source: "multimodal-delegation-route",
-      requiresToolCalls: input.route.adapter.descriptor.adapterKind === "direct",
+      requiresToolCalls: adapter.descriptor.adapterKind === "direct",
     },
     resourcePlane: {
       available: true,

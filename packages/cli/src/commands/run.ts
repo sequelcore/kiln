@@ -89,6 +89,7 @@ import {
   createRuntimeBudgetAdmissionFromGlobalConfig,
 } from "../application/runtime-budget-admission.js";
 import {
+  createKilnRuntimeCallerIdentity,
   createKilnRuntimeManagedInvocationAttachment,
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
@@ -2202,11 +2203,10 @@ function resolveParallelWorkerAdmissionLimits(
     if (flags.model && route.model !== flags.model) return false;
     const profile = route.profiles["foundation-apply-approved-writes"];
     return profile !== undefined
-      && route.adapter !== undefined
+      && route.createAdapter !== undefined
       && profile.workingDirectory.mode === "isolated-worktree"
       && profile.workingDirectoryLease !== undefined
-      && route.adapter.descriptor.lifecycle.exposesStart
-      && route.adapter.descriptor.lifecycle.exposesTerminal;
+      && route.capability.adapter.kind !== "direct-provider";
   });
   const hasSingleLifecycleRoute = lifecycleRoutes.length === 1;
   const complexity = scoreComplexity({ messageText: task, toolCount: 0, turnDepth: 1 }).class;
@@ -2274,6 +2274,7 @@ export async function runParallelWorkers(
         ...(flags.provider ? { providerId: flags.provider } : {}),
         ...(flags.model ? { model: flags.model } : {}),
       },
+      callerIdentity: createKilnRuntimeCallerIdentity("run", flags.requestedAuthority),
       requestedAuthority: flags.requestedAuthority ?? "audited",
     });
   } catch (error) {

@@ -1,11 +1,11 @@
+import { createHash } from "node:crypto";
 import {
   advanceAttemptCommit,
   createAttemptCommit,
   dispatchModelGatewayOneRound,
-  selectModelGatewayAccount,
   validateModelTurn,
+  type AccountPolicyId,
   type AttemptCommitPhase,
-  type ModelGatewayAccountCandidate,
   type ModelGatewayAccountSelectionResult,
   type ModelGatewayAffinity,
   type ModelGatewayOneRoundDispatcher,
@@ -13,9 +13,14 @@ import {
   type ModelTurn,
   type ModelTurnResult,
 } from "@kilnai/core";
+import type {
+  AccountCapacitySettlement,
+  ManagedAccountAffinityRequest,
+  ManagedAccountCandidateBinding,
+  SqliteManagedAccountLeaseAuthority,
+} from "../managed-account-leases/managed-account-lease-authority.js";
 
 export type GovernedOneRoundToolExecutionMode = "caller-owned" | "kiln-owned";
-
 export interface GovernedOneRoundIdentity {
   readonly tenantId: string;
   readonly applicationId: string;
@@ -23,25 +28,23 @@ export interface GovernedOneRoundIdentity {
   readonly sessionId: string;
   readonly turnId: string;
 }
-
-/** Evidence is admitted before this boundary; it is not inferred from model output. */
 export interface GovernedOneRoundAuthorityEvidence {
   readonly status: "admitted" | "denied";
   readonly capabilityId: string;
   readonly scopes: readonly string[];
 }
-
 export interface GovernedOneRoundBudgetEvidence {
   readonly status: "admitted" | "denied";
   readonly evidenceId: string;
 }
-
 export type GovernedOneRoundAffinityPolicy =
   | { readonly continuity: "none" }
-  | { readonly continuity: "prefer" | "require"; readonly key: string; readonly allowRebind?: boolean };
-
+  | {
+      readonly continuity: "prefer" | "require";
+      readonly key: string;
+      readonly allowRebind?: boolean;
+    };
 export interface GovernedOneRoundInvocationInput {
-  /** Caller-owned stable identity for this invocation/replay attempt. */
   readonly attemptId: string;
   readonly identity: GovernedOneRoundIdentity;
   readonly route: ModelGatewayRoute;
@@ -51,27 +54,17 @@ export interface GovernedOneRoundInvocationInput {
   readonly toolExecutionMode: GovernedOneRoundToolExecutionMode;
   readonly turn: ModelTurn;
   readonly signal?: AbortSignal;
-  /** Called after committed evidence and immediately before the sole provider dispatch. */
-  readonly lifecycle?: { readonly afterCommittedBeforeDispatch: () => void | Promise<void> };
+  readonly lifecycle?: {
+    readonly afterCommittedBeforeDispatch: () => void | Promise<void>;
+  };
 }
-
 export interface GovernedOneRoundCandidateCatalog {
-  list(input: Pick<GovernedOneRoundInvocationInput, "identity" | "route" | "authority" | "budget">): Promise<readonly ModelGatewayAccountCandidate[]>;
+  list(input: Pick<GovernedOneRoundInvocationInput, "identity" | "route" | "authority" | "budget">): Promise<{
+    readonly accountPolicyId: AccountPolicyId;
+    readonly candidates: readonly ManagedAccountCandidateBinding[];
+  }>;
 }
-
-export interface GovernedOneRoundAffinityStore {
-  read(input: { readonly identity: GovernedOneRoundIdentity; readonly route: ModelGatewayRoute; readonly key: string }): Promise<ModelGatewayAffinity | undefined>;
-  write(input: { readonly identity: GovernedOneRoundIdentity; readonly route: ModelGatewayRoute; readonly key: string; readonly affinity: ModelGatewayAffinity }): Promise<void>;
-}
-
-export interface GovernedOneRoundAccountLease {
-  acquire(input: { readonly identity: GovernedOneRoundIdentity; readonly route: ModelGatewayRoute; readonly account: ModelGatewayAffinity["account"]; readonly purpose: "new" | "affinity" }): Promise<{ readonly leaseId: string } | undefined>;
-  release(input: { readonly leaseId: string }): Promise<void>;
-}
-
 export type GovernedOneRoundAttemptPhase = AttemptCommitPhase;
-
-/** Portable event evidence. It deliberately excludes secrets, prompts, and headers. */
 export interface GovernedOneRoundAttemptEvidence {
   readonly attemptId: string;
   readonly tenantId: string;
@@ -85,157 +78,164 @@ export interface GovernedOneRoundAttemptEvidence {
   readonly selectionReason: "existing-affinity" | "least-pressure" | "affinity-rebind";
   readonly authorityCapabilityId: string;
   readonly budgetEvidenceId: string;
+  readonly settlement?: "settled" | "pending" | "failed";
 }
-
 export interface GovernedOneRoundAttemptEvidenceSink {
   record(evidence: GovernedOneRoundAttemptEvidence): Promise<void>;
 }
-
 export interface GovernedOneRoundDispatcherResolver {
-  resolve(input: { readonly identity: GovernedOneRoundIdentity; readonly route: ModelGatewayRoute; readonly account: ModelGatewayAffinity["account"]; readonly leaseId: string }): Promise<ModelGatewayOneRoundDispatcher>;
+  resolve(input: {
+    readonly identity: GovernedOneRoundIdentity;
+    readonly route: ModelGatewayRoute;
+    readonly account: ModelGatewayAffinity["account"];
+    readonly leaseId: string;
+    readonly capacityIdentity: string;
+    readonly credentialRevisionId: string;
+  }): Promise<ModelGatewayOneRoundDispatcher>;
 }
-
 export interface GovernedOneRoundInvocationPorts {
   readonly candidateCatalog: GovernedOneRoundCandidateCatalog;
-  readonly affinityStore: GovernedOneRoundAffinityStore;
-  readonly accountLease: GovernedOneRoundAccountLease;
+  readonly accountCapacityAuthority: SqliteManagedAccountLeaseAuthority;
   readonly attemptEvidence: GovernedOneRoundAttemptEvidenceSink;
   readonly dispatcherResolver: GovernedOneRoundDispatcherResolver;
 }
-
-export type GovernedOneRoundCloseoutDiagnosticCode =
-  | "affinity-write-failed"
-  | "terminal-evidence-failed"
-  | "lease-release-failed";
-
+export type GovernedOneRoundCloseoutDiagnosticCode = "terminal-evidence-failed" | "capacity-settlement-failed";
 export interface GovernedOneRoundCloseoutDiagnostic {
   readonly code: GovernedOneRoundCloseoutDiagnosticCode;
   readonly phase: GovernedOneRoundAttemptPhase;
 }
-
 export interface GovernedOneRoundCloseout {
   readonly status: "complete" | "incomplete";
   readonly diagnostics: readonly GovernedOneRoundCloseoutDiagnostic[];
 }
-
 export interface GovernedOneRoundInvocationResult {
   readonly result: ModelTurnResult;
   readonly route: ModelGatewayRoute;
   readonly account: ModelGatewayAffinity["account"];
   readonly selection: ModelGatewayAccountSelectionResult;
   readonly affinity?: ModelGatewayAffinity;
-  readonly attempt: { readonly attemptId: string; readonly leaseId: string; readonly phases: readonly GovernedOneRoundAttemptPhase[] };
+  readonly attempt: {
+    readonly attemptId: string;
+    readonly leaseId: string;
+    readonly phases: readonly GovernedOneRoundAttemptPhase[];
+  };
   readonly closeout: GovernedOneRoundCloseout;
 }
-
-export type GovernedOneRoundInvocationErrorCode = "tool-execution-mode" | "authority-denied" | "budget-denied" | "invalid-input" | "affinity-required" | "no-eligible-account" | "lease-conflict" | "aborted";
-
+export type GovernedOneRoundInvocationErrorCode =
+  | "tool-execution-mode"
+  | "authority-denied"
+  | "budget-denied"
+  | "invalid-input"
+  | "affinity-required"
+  | "no-eligible-account"
+  | "lease-conflict"
+  | "aborted";
 export class GovernedOneRoundInvocationError extends Error {
-  constructor(readonly code: GovernedOneRoundInvocationErrorCode, message: string) {
+  constructor(
+    readonly code: GovernedOneRoundInvocationErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = "GovernedOneRoundInvocationError";
   }
 }
-
-/** A provider error after conservative commit. It must never be auto-retried. */
 export class GovernedOneRoundCommittedError extends Error {
   readonly retryable = false;
-
   constructor(
     readonly cause: unknown,
     readonly diagnostics: readonly GovernedOneRoundCloseoutDiagnostic[],
-    readonly attempt: { readonly attemptId: string; readonly leaseId: string; readonly phases: readonly GovernedOneRoundAttemptPhase[] },
+    readonly attempt: {
+      readonly attemptId: string;
+      readonly leaseId: string;
+      readonly phases: readonly GovernedOneRoundAttemptPhase[];
+    },
   ) {
     super(cause instanceof Error ? cause.message : "Committed one-round invocation failed.", { cause });
     this.name = "GovernedOneRoundCommittedError";
   }
 }
 
-/**
- * Runtime application boundary for a caller-owned, single provider round.
- * It intentionally has neither a ToolExecutor port nor a retry path.
- */
+/** Provider material is resolved only after an authority-held capacity record exists. */
 export async function invokeGovernedOneRound(
   input: GovernedOneRoundInvocationInput,
   ports: GovernedOneRoundInvocationPorts,
 ): Promise<GovernedOneRoundInvocationResult> {
   validateAdmission(input);
-  const candidates = await ports.candidateCatalog.list({
+  const catalog = await ports.candidateCatalog.list({
     identity: input.identity,
     route: input.route,
     authority: input.authority,
     budget: input.budget,
   });
-  const storedAffinity = input.affinity.continuity === "none"
-    ? undefined
-    : await ports.affinityStore.read({ identity: input.identity, route: input.route, key: input.affinity.key });
-  if (input.affinity.continuity === "require" && storedAffinity === undefined) {
-    throw new GovernedOneRoundInvocationError("affinity-required", "A required route affinity is unavailable.");
+  const affinityRequest: ManagedAccountAffinityRequest =
+    input.affinity.continuity === "none"
+      ? { continuity: "none" }
+      : {
+          continuity: input.affinity.continuity,
+          scope: "session",
+          key: affinityKey(input) as never,
+          ...(input.affinity.allowRebind ? { allowRebind: true } : {}),
+        };
+  const runtimeInvocationId = input.attemptId;
+  const acquired = ports.accountCapacityAuthority.acquireAccountCapacity({
+    runtimeInvocationId,
+    intentFingerprint: intentFingerprint(input),
+    accountPolicyId: catalog.accountPolicyId,
+    route: input.route,
+    candidates: catalog.candidates,
+    affinityRequest,
+  });
+  if (acquired.status === "conflict")
+    throw new GovernedOneRoundInvocationError(
+      "lease-conflict",
+      "The invocation capacity identity conflicts with a prior request.",
+    );
+  if (acquired.status === "unavailable")
+    throw new GovernedOneRoundInvocationError(
+      input.affinity.continuity === "require" ? "affinity-required" : "no-eligible-account",
+      "No eligible account capacity is admitted for this one-round invocation.",
+    );
+  if (acquired.replay)
+    throw new GovernedOneRoundInvocationError(
+      "lease-conflict",
+      "The invocation capacity record already exists and cannot be dispatched again.",
+    );
+  const capacity = acquired.record;
+  const selected = {
+    account: capacity.accountRef,
+    route: capacity.route,
+    reason: capacity.selectionReason,
+  } as NonNullable<ModelGatewayAccountSelectionResult["selected"]>;
+  const selection: ModelGatewayAccountSelectionResult = {
+    selected,
+    rejections: capacity.candidateRejections,
+  };
+  if (input.signal?.aborted) {
+    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
+    throw new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
   }
-
-  const precommitRejections: ModelGatewayAccountSelectionResult["rejections"][number][] = [];
-  let remaining = [...candidates];
-  let selection: ModelGatewayAccountSelectionResult;
-  let lease: { readonly leaseId: string } | undefined;
-  let dispatcher: ModelGatewayOneRoundDispatcher | undefined;
-  let lastResolverError: unknown;
-  while (true) {
-    const current = selectModelGatewayAccount({
+  let dispatcher: ModelGatewayOneRoundDispatcher;
+  try {
+    dispatcher = await ports.dispatcherResolver.resolve({
+      identity: input.identity,
       route: input.route,
-      work: storedAffinity === undefined ? "new" : "existing",
-      ...(storedAffinity === undefined ? {} : { affinity: storedAffinity, allowAffinityRebind: input.affinity.continuity !== "none" && input.affinity.allowRebind === true }),
-      candidates: remaining,
+      account: capacity.accountRef,
+      leaseId: capacity.leaseId,
+      capacityIdentity: capacity.capacityIdentity,
+      credentialRevisionId: capacity.credentialRevisionId,
     });
-    if (current.selected === undefined) {
-      if (lastResolverError !== undefined) throw lastResolverError;
-      if (precommitRejections.length > 0) throw new GovernedOneRoundInvocationError("lease-conflict", "All eligible account leases are unavailable.");
-      throw new GovernedOneRoundInvocationError("no-eligible-account", "No eligible account is admitted for this one-round invocation.");
-    }
-    lease = await ports.accountLease.acquire({ identity: input.identity, route: input.route, account: current.selected.account, purpose: storedAffinity === undefined ? "new" : "affinity" });
-    if (lease === undefined) {
-      precommitRejections.push({ account: current.selected.account, reason: "lease-conflict" });
-      remaining = remaining.filter((candidate) => candidate.account !== current.selected!.account);
-      continue;
-    }
-    selection = { ...current, rejections: Object.freeze([...precommitRejections, ...current.rejections]) };
-    if (input.signal?.aborted) break;
-    try {
-      dispatcher = await ports.dispatcherResolver.resolve({ identity: input.identity, route: input.route, account: current.selected.account, leaseId: lease.leaseId });
-      break;
-    } catch (error) {
-      try {
-        await ports.accountLease.release({ leaseId: lease.leaseId });
-      } catch (releaseError) {
-        throw new AggregateError([error, releaseError], "Dispatcher resolution failed and its lease could not be safely released.");
-      }
-      lastResolverError = error;
-      precommitRejections.push({ account: current.selected.account, reason: "dispatcher-unavailable" });
-      remaining = remaining.filter((candidate) => candidate.account !== current.selected!.account);
-    }
+  } catch (error) {
+    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
+    throw error;
   }
-  const selected = selection.selected!;
 
-  let attempt = createAttemptCommit({ attemptId: input.attemptId, account: selected.account });
+  let attempt = createAttemptCommit({
+    attemptId: input.attemptId,
+    account: capacity.accountRef,
+  });
   const phases: GovernedOneRoundAttemptPhase[] = [];
   const diagnostics: GovernedOneRoundCloseoutDiagnostic[] = [];
-  const record = async (): Promise<void> => {
-    phases.push(attempt.phase);
-    await ports.attemptEvidence.record({
-      attemptId: attempt.attemptId,
-      tenantId: input.identity.tenantId,
-      applicationId: input.identity.applicationId,
-      callerId: input.identity.callerId,
-      sessionId: input.identity.sessionId,
-      turnId: input.identity.turnId,
-      route: input.route,
-      account: selected.account,
-      phase: attempt.phase,
-      selectionReason: selected.reason,
-      authorityCapabilityId: input.authority.capabilityId,
-      budgetEvidenceId: input.budget.evidenceId,
-    });
-  };
-  const recordTerminal = async (): Promise<void> => {
+  const record = async (terminal = false) => {
     phases.push(attempt.phase);
     try {
       await ports.attemptEvidence.record({
@@ -246,130 +246,183 @@ export async function invokeGovernedOneRound(
         sessionId: input.identity.sessionId,
         turnId: input.identity.turnId,
         route: input.route,
-        account: selected.account,
+        account: capacity.accountRef,
         phase: attempt.phase,
-        selectionReason: selected.reason,
+        selectionReason: capacity.selectionReason,
         authorityCapabilityId: input.authority.capabilityId,
         budgetEvidenceId: input.budget.evidenceId,
       });
-    } catch {
-      diagnostics.push({ code: "terminal-evidence-failed", phase: attempt.phase });
+    } catch (error) {
+      if (terminal)
+        diagnostics.push({
+          code: "terminal-evidence-failed",
+          phase: attempt.phase,
+        });
+      else throw error;
     }
   };
-
-  await record();
-
-  let result: ModelTurnResult | undefined;
-  let primaryError: unknown;
-  let effectsMayHaveEscaped = false;
   try {
+    await record();
     attempt = advanceAttemptCommit(attempt, "leased");
     await record();
-    if (input.signal?.aborted) {
-      attempt = advanceAttemptCommit(attempt, "cancelled");
-      await recordTerminal();
-      primaryError = new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
-    } else {
-      if (dispatcher !== undefined) {
-        attempt = advanceAttemptCommit(attempt, "dispatching");
-        await record();
-        attempt = advanceAttemptCommit(attempt, "committed");
-        await record();
-        effectsMayHaveEscaped = true;
-        try {
-          await input.lifecycle?.afterCommittedBeforeDispatch();
-          result = await dispatchModelGatewayOneRound(dispatcher, {
-            account: selected.account,
-            route: input.route,
-            sessionId: input.identity.sessionId,
-            turn: input.turn,
-            signal: input.signal,
-          });
-        } catch (error) {
-          primaryError = error;
-        }
-
-        if (result !== undefined) {
-          if (input.affinity.continuity !== "none") {
-            try {
-              await ports.affinityStore.write({
-                identity: input.identity,
-                route: input.route,
-                key: input.affinity.key,
-                affinity: { account: selected.account, route: input.route },
-              });
-            } catch {
-              diagnostics.push({ code: "affinity-write-failed", phase: attempt.phase });
-            }
-          }
-          attempt = advanceAttemptCommit(attempt, "succeeded");
-          await recordTerminal();
-        } else {
-          attempt = advanceAttemptCommit(attempt, input.signal?.aborted ? "cancelled" : "failed");
-          await recordTerminal();
-        }
-      }
-    }
   } catch (error) {
-    primaryError = primaryError ?? error;
+    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
+    throw error;
   }
-
+  if (input.signal?.aborted) {
+    attempt = advanceAttemptCommit(attempt, "cancelled");
+    await record(true);
+    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
+    throw new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
+  }
+  attempt = advanceAttemptCommit(attempt, "dispatching");
   try {
-    await ports.accountLease.release({ leaseId: lease.leaseId });
-  } catch {
-    diagnostics.push({ code: "lease-release-failed", phase: attempt.phase });
+    await record();
+  } catch (error) {
+    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
+    throw error;
   }
-
-  const attemptResult = { attemptId: attempt.attemptId, leaseId: lease.leaseId, phases: Object.freeze([...phases]) };
-  if (result !== undefined) {
-    const affinity = input.affinity.continuity === "none"
-      ? undefined
-      : { account: selected.account, route: input.route };
-    return {
-      result,
+  const dispatchFenceId = `${input.attemptId}:dispatch`;
+  attempt = advanceAttemptCommit(attempt, "committed");
+  // Committed evidence is observational; the lifecycle hook still has a pre-fence rollback path.
+  await record(true);
+  try {
+    await input.lifecycle?.afterCommittedBeforeDispatch();
+  } catch (error) {
+    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
+    throw new GovernedOneRoundCommittedError(error, Object.freeze(diagnostics), {
+      attemptId: attempt.attemptId,
+      leaseId: capacity.leaseId,
+      phases: Object.freeze(phases),
+    });
+  }
+  ports.accountCapacityAuthority.fenceAccountCapacityDispatch(runtimeInvocationId, dispatchFenceId);
+  let result: ModelTurnResult | undefined;
+  let failure: unknown;
+  try {
+    result = await dispatchModelGatewayOneRound(dispatcher, {
+      account: capacity.accountRef,
       route: input.route,
-      account: selected.account,
-      selection,
-      ...(affinity === undefined ? {} : { affinity }),
-      attempt: attemptResult,
-      closeout: { status: diagnostics.length === 0 ? "complete" : "incomplete", diagnostics: Object.freeze([...diagnostics]) },
-    };
+      sessionId: input.identity.sessionId,
+      turn: input.turn,
+      signal: input.signal,
+    });
+  } catch (error) {
+    failure = error;
   }
-  if (effectsMayHaveEscaped) {
-    throw new GovernedOneRoundCommittedError(primaryError, Object.freeze([...diagnostics]), attemptResult);
+  attempt = advanceAttemptCommit(
+    attempt,
+    result === undefined ? (input.signal?.aborted ? "cancelled" : "failed") : "succeeded",
+  );
+  await record(true);
+  let settlement: AccountCapacitySettlement;
+  try {
+    settlement =
+      result === undefined
+        ? // A provider exception after the durable fence is not evidence that no effect escaped.
+          {
+            kind: "unknown",
+            reason: input.signal?.aborted
+              ? "gateway-cancelled-after-dispatch-fence"
+              : "gateway-provider-failure-after-dispatch-fence",
+            observedAt: new Date().toISOString(),
+          }
+        : {
+            kind: "completed",
+            outcome: "success",
+            observedAt: new Date().toISOString(),
+          };
+    ports.accountCapacityAuthority.settleAccountCapacity(runtimeInvocationId, dispatchFenceId, settlement);
+  } catch {
+    diagnostics.push({
+      code: "capacity-settlement-failed",
+      phase: attempt.phase,
+    });
+    try {
+      await ports.attemptEvidence.record({
+        attemptId: attempt.attemptId,
+        tenantId: input.identity.tenantId,
+        applicationId: input.identity.applicationId,
+        callerId: input.identity.callerId,
+        sessionId: input.identity.sessionId,
+        turnId: input.identity.turnId,
+        route: input.route,
+        account: capacity.accountRef,
+        phase: attempt.phase,
+        selectionReason: capacity.selectionReason,
+        authorityCapabilityId: input.authority.capabilityId,
+        budgetEvidenceId: input.budget.evidenceId,
+        settlement: "failed",
+      });
+    } catch {
+      // A failed evidence sink cannot alter conservative capacity state.
+    }
   }
-  throw primaryError;
+  const attemptResult = {
+    attemptId: attempt.attemptId,
+    leaseId: capacity.leaseId,
+    phases: Object.freeze(phases),
+  };
+  if (result === undefined)
+    throw new GovernedOneRoundCommittedError(failure, Object.freeze(diagnostics), attemptResult);
+  const affinity =
+    input.affinity.continuity === "none" ? undefined : { account: capacity.accountRef, route: input.route };
+  return {
+    result,
+    route: input.route,
+    account: capacity.accountRef,
+    selection,
+    ...(affinity ? { affinity } : {}),
+    attempt: attemptResult,
+    closeout: {
+      status: diagnostics.length ? "incomplete" : "complete",
+      diagnostics: Object.freeze(diagnostics),
+    },
+  };
 }
 
+function intentFingerprint(input: GovernedOneRoundInvocationInput): `sha256:${string}` {
+  return `sha256:${createHash("sha256")
+    .update(
+      JSON.stringify({
+        attemptId: input.attemptId,
+        identity: input.identity,
+        route: input.route,
+        turn: input.turn,
+      }),
+    )
+    .digest("hex")}`;
+}
+function affinityKey(input: GovernedOneRoundInvocationInput): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        identity: input.identity,
+        route: input.route,
+        key: input.affinity.continuity === "none" ? "" : input.affinity.key,
+      }),
+    )
+    .digest("hex");
+}
 function validateAdmission(input: GovernedOneRoundInvocationInput): void {
-  if (input.toolExecutionMode !== "caller-owned") {
+  if (input.toolExecutionMode !== "caller-owned")
     throw new GovernedOneRoundInvocationError("tool-execution-mode", "This boundary admits caller-owned tools only.");
-  }
-  if (input.authority.status !== "admitted") {
+  if (input.authority.status !== "admitted")
     throw new GovernedOneRoundInvocationError("authority-denied", "The invocation authority was not admitted.");
-  }
-  if (input.budget.status !== "admitted") {
+  if (input.budget.status !== "admitted")
     throw new GovernedOneRoundInvocationError("budget-denied", "The invocation budget was not admitted.");
-  }
-  const required = {
+  for (const [name, value] of Object.entries({
     attemptId: input.attemptId,
-    tenantId: input.identity.tenantId,
-    applicationId: input.identity.applicationId,
-    callerId: input.identity.callerId,
-    sessionId: input.identity.sessionId,
-    turnId: input.identity.turnId,
+    ...input.identity,
     capabilityId: input.authority.capabilityId,
     budgetEvidenceId: input.budget.evidenceId,
     providerId: input.route.providerId,
     providerModelId: input.route.providerModelId,
     routeScope: input.route.scope,
     ...(input.affinity.continuity === "none" ? {} : { affinityKey: input.affinity.key }),
-  };
-  for (const [name, value] of Object.entries(required)) {
-    if (typeof value !== "string" || value.trim().length === 0 || value !== value.trim()) {
+  }))
+    if (typeof value !== "string" || !value.trim() || value !== value.trim())
       throw new GovernedOneRoundInvocationError("invalid-input", `${name} must be a non-empty canonical string.`);
-    }
-  }
   try {
     validateModelTurn(input.turn);
   } catch (error) {

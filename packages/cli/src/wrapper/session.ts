@@ -14,6 +14,7 @@
 import type {
   AgentMessage,
   ExecutionSessionCostTrackingMode,
+  ExecutionSessionEphemeralHarnessStateEvidence,
   ExecutionSessionEvent,
   MemoryLayerKind,
   MemoryScopeKind,
@@ -308,6 +309,10 @@ function requireToolIdentityPart(value: string): string {
 export interface IKilnSession {
   run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent>;
   dispose(): Promise<void>;
+  /** Harness version observed during the current run, when the harness reports it. */
+  readonly observedHarnessVersion?: string;
+  /** Optional drain for terminal evidence finalized during disposal. */
+  drainEphemeralHarnessStateEvidence?(): readonly ExecutionSessionEphemeralHarnessStateEvidence[];
   readonly capabilities: SessionCapabilities;
   readonly sessionId: string;
   readonly providerSessionId: string | undefined;

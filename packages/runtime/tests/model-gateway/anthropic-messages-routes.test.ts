@@ -1,4 +1,5 @@
-import { createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import { createAccountPolicyId, createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { describe, expect, it, vi } from "vitest";
 import { createAnthropicMessagesRoutes, type AnthropicMessagesIngressConfig } from "../../src/model-gateway/anthropic-messages-routes.js";
 import type { GovernedOneRoundInvocationPorts } from "../../src/model-gateway/governed-one-round-invocation.js";
@@ -10,10 +11,10 @@ const result: ModelTurnResult = { parts: [{ type: "text", text: "PROBE_OK" }], u
 
 function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?: (input: ModelGatewayOneRoundDispatchInput) => Promise<ModelTurnResult> } = {}) {
   const execute = vi.fn(overrides.execute ?? (async () => result));
-  const candidate = vi.fn(async (input) => [{ account: createAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }]);
+  const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `anthropic-test-${crypto.randomUUID()}`, configurationRevision: "test" });
+  const candidate = vi.fn(async (input) => ({ accountPolicyId: createAccountPolicyId("gateway:test"), candidates: [{ candidate: { account: createAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } }] }));
   const invocationPorts: GovernedOneRoundInvocationPorts = {
-    candidateCatalog: { list: candidate }, affinityStore: { read: async () => undefined, write: async () => undefined },
-    accountLease: { acquire: async () => ({ leaseId: "lease" }), release: async () => undefined },
+    candidateCatalog: { list: candidate }, accountCapacityAuthority: authority,
     attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatchOneRound: execute }) },
   };
   const namespaceCorrelation = vi.fn(async () => ({ sessionId: "ns:session", turnId: "ns:turn" }));
@@ -22,7 +23,7 @@ function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?
     resolveVirtualModel: async ({ requestedModel }) => requestedModel === "claude-kiln" ? { route, capabilities: new Set(["text", "function-tools"]), affinity: { continuity: "none" } } : undefined,
     listVirtualModels: async () => [{ id: "claude-kiln", displayName: "Claude Kiln" }, { id: "internal-model", displayName: "Hidden" }],
     namespaceCorrelation, compatibilityEvidence: { record: async () => undefined }, invocationPorts,
-    createAttemptId: () => "attempt", createMessageId: () => "msg_kiln_1",
+    createAttemptId: () => `attempt-${crypto.randomUUID()}`, createMessageId: () => "msg_kiln_1",
     ...overrides,
   };
   return { config, execute, candidate, namespaceCorrelation };

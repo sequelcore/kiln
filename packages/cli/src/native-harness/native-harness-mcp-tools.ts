@@ -118,7 +118,12 @@ export class NativeHarnessMcpTools {
     if (!this.managedJobs) return this.error("KILN_MANAGED_JOBS_UNAVAILABLE", "The managed-job application owner is unavailable.", "Restart the native harness after the managed-job application boundary is configured.", requestId);
     try {
       if (name === "kiln_managed_agent_invoke") {
-        const job = await this.managedJobs.submit(this.invokeRequest(args, identity));
+        const job = await this.managedJobs.accept(this.invokeRequest(args, identity), {
+          kind: "external-harness",
+          harness: this.harness,
+          attachmentId: `native-harness:${this.harness}:${identity.callerId}`,
+          evidenceId: requestId,
+        });
         return this.managedJobSuccess(name, job, identity, requestId);
       }
       const jobId = this.statusRequest(args);
@@ -163,16 +168,32 @@ export class NativeHarnessMcpTools {
   }
 
   private managedJobSuccess(name: (typeof MANAGED_JOB_TOOL_NAMES)[number], job: ManagedJobRecord, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
+    const dispatch = job.dispatch.kind === "economic"
+      ? {
+          kind: "economic" as const,
+          economicPolicyId: job.dispatch.economicPolicyId,
+          economicPolicyRevision: job.dispatch.economicPolicyRevision,
+          constraints: job.dispatch.constraints,
+        }
+      : {
+          kind: "native-harness" as const,
+          routeId: job.dispatch.routeId,
+          routeRevision: job.dispatch.routeRevision,
+          providerId: job.dispatch.providerId,
+          model: job.dispatch.model,
+          dispatchFenceId: job.dispatch.dispatchFenceId,
+    };
     const structuredContent = {
       operation: name === "kiln_managed_agent_invoke" ? "managed-agent-invoke" : name === "kiln_managed_agent_cancel" ? "managed-agent-cancel" : "managed-agent-status",
+      ...(name === "kiln_managed_agent_invoke"
+        ? { accepted: true, completionChannel: "status-result-replay" as const }
+        : {}),
       job: {
         id: job.id,
         state: job.state,
         configuredAgentProfileId: job.configuredAgentProfileId,
         admissionProfileId: job.admissionProfileId,
-        economicPolicyId: job.economicPolicyId,
-        economicPolicyRevision: job.economicPolicyRevision,
-        constraints: job.constraints,
+        dispatch,
         ...(job.result ? { routeId: job.result.routeId } : {}),
         governanceSource: job.governanceSource,
         createdAt: job.createdAt,
@@ -228,7 +249,7 @@ export class NativeHarnessMcpTools {
         providerId: replay.providerId,
         lifecycle: replay.lifecycle,
         resultAvailability: replay.resultAvailability,
-        economic: replay.economic,
+        dispatch: replay.dispatch,
         ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
       },
       evidence: {

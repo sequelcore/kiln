@@ -23,6 +23,7 @@ import type {
   ManagedEconomicAdoptedSnapshotExpectation,
   ManagedEconomicPriceEvidence,
   ModelDeliberationCapabilities,
+  RouteCapability,
 } from "@kilnai/core";
 import {
   adoptManagedEconomicSnapshot,
@@ -82,6 +83,10 @@ import type {
   ProviderId,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
+import {
+  resolveClaudePrivatePlanArtifactCapability,
+  type ClaudePrivatePlanArtifactCapability,
+} from "../wrapper/claude-private-plan-artifacts.js";
 import type { DirectProviderAccountBinding } from "../wrapper/direct-provider-adapter-factory.js";
 import { createManagedInvocationContextResolver } from "./managed-invocation-context-resolver.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "../application/agent-loader.js";
@@ -89,6 +94,37 @@ import { readSkillCatalogStatus } from "./skill-catalog-status.js";
 import { resolveConfiguredModelTaskSuitability } from "./model-task-suitability.js";
 
 type ManagedSkillCatalogEntry = NonNullable<ManagedInvocationToolOptions["skillCatalog"]>[number];
+
+function managedRouteCapability(input: {
+  readonly route: KilnManagedAgentRouteConfig;
+  readonly model: string;
+  readonly profiles: ManagedInvocationToolRoute["profiles"];
+  readonly adapterKind: RouteCapability["adapter"]["kind"];
+  readonly settlement: RouteCapability["settlement"];
+  readonly provenProfiles?: readonly ManagedAgentAdmissionProfile[];
+  readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
+}): RouteCapability {
+  const profileNames = Object.keys(input.profiles) as ManagedAgentAdmissionProfile[];
+  const profileValues = Object.values(input.profiles);
+  const write = profileValues.some((profile) => profile?.writeAllowed === true)
+    && (input.provenProfiles ?? profileNames).some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile));
+  return {
+    identity: { routeId: input.route.id, revision: "configured-v1" },
+    target: { providerId: input.route.provider, modelId: input.model },
+    adapter: { kind: input.adapterKind, capabilityId: `managed:${input.route.id}`, capabilityVersion: "v1" },
+    authorityCeiling: write ? "destructive" : "read_only",
+    toolNames: [...new Set(profileValues.flatMap((profile) => profile?.allowedToolNames ?? []))],
+    supportsRecursion: true,
+    supportsAttachments: input.externalRuntimeAttachment !== undefined,
+    supportsWrite: write,
+    ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
+    proof: { status: "configured", source: "provider-adapter-catalog", provenProfiles: profileNames.filter((profile) => (input.provenProfiles ?? profileNames).includes(profile)) },
+    capacity: input.route.credentials?.mode === "runtime-selected"
+      ? { kind: "policy-bound", accountPolicyId: input.route.credentials.accountPolicyId }
+      : { kind: "accountless" },
+    settlement: input.settlement,
+  };
+}
 
 export type ManagedAgentOperatorSurface = "gui" | "tui" | "run" | "operator";
 
@@ -186,15 +222,13 @@ export interface ManagedAccountRuntimeComposition {
 
 export type ManagedEconomicAdoptionSubject = Pick<
   ManagedJobRecord,
-  | "economicPolicyId"
-  | "economicPolicyRevision"
-  | "candidateSet"
-  | "constraints"
   | "adoptedDecisionAt"
   | "projectId"
   | "callerId"
   | "parent"
->;
+> & {
+  readonly dispatch: Extract<ManagedJobRecord["dispatch"], { readonly kind: "economic" }>;
+};
 
 /** Projects validated config and persisted admission into immutable Core evidence. */
 export async function projectManagedEconomicJobAdoption(
@@ -202,17 +236,24 @@ export async function projectManagedEconomicJobAdoption(
   job: ManagedEconomicAdoptionSubject,
   routing: ConfiguredManagedAccountRuntime,
 ): Promise<ManagedJobEconomicAdoption> {
+  if (!isManagedEconomicAdoptionSubject(job)) {
+    throw new ManagedJobApplicationError(
+      "identity-revision-conflict",
+      "Restore the exact persisted managed economic dispatch contract.",
+    );
+  }
   const managed = config.managedAgents;
   const gateway = config.modelGateway;
+  const dispatch = job.dispatch;
   const policy = managed?.economicPolicies?.find((entry) =>
-    entry.id === job.economicPolicyId && entry.revision === job.economicPolicyRevision);
+    entry.id === dispatch.economicPolicyId && entry.revision === dispatch.economicPolicyRevision);
   if (managed?.schemaVersion !== 2 || !policy || !gateway) {
     throw new ManagedJobApplicationError(
       "identity-revision-conflict",
       "Restore the exact persisted managed economic policy revision.",
     );
   }
-  const admitted = admittedEconomicIdentities(job.candidateSet);
+  const admitted = admittedEconomicIdentities(dispatch.candidateSet);
   const domains = policy.comparisonDomains.map((domain) => ({
     id: domain.id,
     rank: domain.rank,
@@ -329,9 +370,9 @@ export async function projectManagedEconomicJobAdoption(
     );
   }
   const callerConstraints = {
-    ...(job.constraints.routeId ? { routeIds: [job.constraints.routeId] } : {}),
-    ...(job.constraints.providerId ? { providerIds: [job.constraints.providerId] } : {}),
-    ...(job.constraints.model ? { modelIds: [job.constraints.model] } : {}),
+    ...(dispatch.constraints.routeId ? { routeIds: [dispatch.constraints.routeId] } : {}),
+    ...(dispatch.constraints.providerId ? { providerIds: [dispatch.constraints.providerId] } : {}),
+    ...(dispatch.constraints.model ? { modelIds: [dispatch.constraints.model] } : {}),
   };
   const snapshot = adoptManagedEconomicSnapshot({
     policy: {
@@ -349,8 +390,8 @@ export async function projectManagedEconomicJobAdoption(
     routes,
   });
   const expectation: ManagedEconomicAdoptedSnapshotExpectation = {
-    policyId: job.economicPolicyId,
-    policyRevision: job.economicPolicyRevision,
+    policyId: dispatch.economicPolicyId,
+    policyRevision: dispatch.economicPolicyRevision,
     candidateSetDigest: snapshot.candidateSetDigest,
     admittedCandidates: admitted,
     callerConstraints,
@@ -423,13 +464,73 @@ function admittedEconomicIdentities(candidateSet: ManagedEconomicCandidateSet) {
     modelId: candidate.model ?? "",
     adapterCapabilityId: candidate.adapterCapabilityId,
     adapterCapabilityVersion: candidate.adapterCapabilityVersion,
+    profileAuthorityDigest: candidate.profileAuthorityDigest,
     accountPolicy: candidate.accountPolicyId
       ? { kind: "account-bound" as const, accountPolicyId: candidate.accountPolicyId }
       : { kind: "accountless" as const },
   }));
 }
 
-const SUPPORTED_HARNESS_PROVIDERS = new Set<string>(["claude", "codex", "opencode"]);
+function isManagedEconomicAdoptionSubject(value: unknown): value is ManagedEconomicAdoptionSubject {
+  if (!isObjectRecord(value)) return false;
+  if (
+    !isNonEmptyText(value.projectId)
+    || !isNonEmptyText(value.callerId)
+    || !isIsoTimestamp(value.adoptedDecisionAt)
+    || (value.parent !== undefined && (
+      !isObjectRecord(value.parent)
+      || !isNonEmptyText(value.parent.invocationId)
+      || !isNonEmptyText(value.parent.turnId)
+    ))
+  ) return false;
+  const dispatch = value.dispatch;
+  if (
+    !isObjectRecord(dispatch)
+    || dispatch.kind !== "economic"
+    || !isNonEmptyText(dispatch.economicAttemptId)
+    || !isNonEmptyText(dispatch.economicPolicyId)
+    || !isNonEmptyText(dispatch.economicPolicyRevision)
+    || !isObjectRecord(dispatch.constraints)
+  ) return false;
+  const candidateSet = dispatch.candidateSet;
+  if (
+    !isObjectRecord(candidateSet)
+    || !isNonEmptyText(candidateSet.economicPolicyId)
+    || !isNonEmptyText(candidateSet.economicPolicyRevision)
+    || !isNonEmptyText(candidateSet.admissionProfileId)
+    || !isObjectRecord(candidateSet.constraints)
+    || !Array.isArray(candidateSet.candidates)
+    || !Array.isArray(candidateSet.rejections)
+  ) return false;
+  return candidateSet.candidates.every((candidate) => (
+    isObjectRecord(candidate)
+    && isNonEmptyText(candidate.routeId)
+    && isNonEmptyText(candidate.routeSource)
+    && isNonEmptyText(candidate.providerId)
+    && (candidate.model === undefined || isNonEmptyText(candidate.model))
+    && (candidate.accountPolicyId === undefined || isNonEmptyText(candidate.accountPolicyId))
+      && isNonEmptyText(candidate.adapterCapabilityId)
+      && isNonEmptyText(candidate.adapterCapabilityVersion)
+      && isCanonicalSha256(candidate.profileAuthorityDigest)
+  ));
+}
+
+function isCanonicalSha256(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyText(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return isNonEmptyText(value) && Number.isFinite(Date.parse(value));
+}
+
 const READONLY_PROFILE: KilnManagedAgentProfile = "foundation-readonly-plan";
 const WRITE_PROFILES = new Set<KilnManagedAgentProfile>([
   "foundation-propose-writes",
@@ -440,11 +541,10 @@ const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
 const DEFAULT_WRITE_ALLOWED_TOOLS = ["read", "tree", "grep", "glob", "write", "edit", "apply-patch"] as const;
 const DEFAULT_MANAGED_WORKSPACE_DENIED_ENTRIES = [".git", "node_modules", ".kiln"] as const;
 const DEFAULT_TIMEOUT_MS = 300000;
-const DEFAULT_MODELS: Record<string, string> = {
+const HARNESS_TRANSPORT_DEFAULT_MODELS: Record<string, string> = {
   codex: "gpt-5.3-codex-spark",
   opencode: "opencode/minimax-m2.5-free",
 };
-const LIVE_PROVEN_WRITE_HARNESS_PROVIDERS = new Set<string>(["codex"]);
 const CLAUDE_MOVING_MODEL_ALIASES = new Set<string>(["default", "sonnet", "opus", "haiku"]);
 const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   proposalSupported: true,
@@ -454,14 +554,6 @@ const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   cleanupEvidence: true,
   scopeReduction: true,
 } as const;
-const HARNESS_READONLY_RESULT_HANDOFF_MODELS: Record<string, readonly string[] | "*"> = {
-  claude: ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"],
-  codex: "*",
-  // OpenCode permission rules do not provide a hard filesystem boundary for a
-  // managed child. Keep the native child route closed; authorized OpenCode Go
-  // and Zen direct-provider routes remain available through Kiln tool policy.
-  opencode: [],
-};
 const MANAGED_ACCOUNT_COMPOSITIONS = new Map<string, ManagedAccountRuntimeComposition>();
 
 export async function resolveManagedInvocationToolOptions(
@@ -514,14 +606,10 @@ export async function resolveManagedInvocationToolOptions(
     routeIndex += 1;
     mark("managed-route-resolve-started", { routeIndex, routeId: routeConfig.routeConfig.id });
     const policyIds = economicPolicyIdsByRoute.get(routeConfig.routeConfig.id) ?? [];
-    const deferAdapterConstruction = routeConfig.routeConfig.kind === "direct"
-      ? true
-      : policyIds.length > 0 || context.compositionMode === "candidate-admission";
     const resolved = await resolveRouteConfig(
       routeConfig,
       context,
       config,
-      deferAdapterConstruction,
     );
     mark("managed-route-resolve-finished", { routeIndex, routeId: routeConfig.routeConfig.id });
     const policyUncovered = routeConfig.routeConfig.kind === "direct" && policyIds.length === 0;
@@ -670,10 +758,14 @@ export function createManagedEconomicDispatchComposition(
   return { coordinator, port: {
     prepare: async (input) => {
       const adoption = await awaitManagedRoutePreparation(projectManagedEconomicJobAdoption(config, {
-        economicPolicyId: input.candidateSet.economicPolicyId,
-        economicPolicyRevision: input.candidateSet.economicPolicyRevision,
-        candidateSet: input.candidateSet,
-        constraints: input.candidateSet.constraints,
+        dispatch: {
+          kind: "economic",
+          economicAttemptId: input.economicAttemptId,
+          economicPolicyId: input.candidateSet.economicPolicyId,
+          economicPolicyRevision: input.candidateSet.economicPolicyRevision,
+          candidateSet: input.candidateSet,
+          constraints: input.candidateSet.constraints,
+        },
         adoptedDecisionAt: input.adoptedDecisionAt,
         projectId,
         callerId: input.parentSessionId,
@@ -690,6 +782,7 @@ export function createManagedEconomicDispatchComposition(
         admissionProfile: input.candidateSet.admissionProfileId,
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
         ...(input.lifecycleEvents ? { lifecycleEvents: input.lifecycleEvents } : {}),
+        ...(input.validateExecutionProfile ? { validateExecutionProfile: input.validateExecutionProfile } : {}),
       });
     },
   } };
@@ -1100,7 +1193,6 @@ async function resolveRouteConfig(
   projection: ManagedAgentRouteConfigProjection,
   context: ResolveManagedInvocationToolOptionsContext,
   config: ManagedAgentRouteConfigSource,
-  deferAdapterConstruction: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -1146,19 +1238,11 @@ async function resolveRouteConfig(
       config,
       baseHealth,
       writeRequired,
-      deferAdapterConstruction,
     );
   }
 
   if (routeConfig.workingDirectory === "sandbox") {
     return unhealthy(baseHealth, "Harness sandbox working-directory routes require live-proven sandbox enforcement.");
-  }
-
-  if (!SUPPORTED_HARNESS_PROVIDERS.has(routeConfig.provider)) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not have a live-proven managed harness adapter.`);
-  }
-  if (writeRequired && !LIVE_PROVEN_WRITE_HARNESS_PROVIDERS.has(routeConfig.provider)) {
-    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' does not have live-proven write evidence support.`);
   }
 
   if (!isProviderAvailable(context, routeConfig.provider)) {
@@ -1180,7 +1264,7 @@ async function resolveRouteConfig(
 
   const model = routeConfig.provider === "claude"
     ? routeConfig.model
-    : routeConfig.model ?? DEFAULT_MODELS[routeConfig.provider];
+    : routeConfig.model ?? HARNESS_TRANSPORT_DEFAULT_MODELS[routeConfig.provider];
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
@@ -1201,30 +1285,50 @@ async function resolveRouteConfig(
   if (!canonicalAdmission.eligible) {
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
   }
-  if (!supportsReadonlyResultHandoff(routeConfig.provider, model)) {
+
+  const privatePlanArtifactCapability = routeConfig.provider === "claude"
+    && !writeRequired
+    && profiles.length === 1
+    && profiles[0] === READONLY_PROFILE
+    ? resolveClaudePrivatePlanArtifactCapability(harnessExecutable?.evidence.version)
+    : undefined;
+  if (
+    routeConfig.provider === "claude"
+    && !writeRequired
+    && profiles.length === 1
+    && profiles[0] === READONLY_PROFILE
+    && privatePlanArtifactCapability === undefined
+  ) {
     return unhealthy(
       baseHealth,
-      readonlyResultHandoffUnavailableReason(routeConfig.provider, model),
+      "Claude Code executable version lacks the admitted private plan artifact-location capability.",
     );
   }
-
+  if (writeRequired && !(catalogEntry.entry.provenProfiles ?? profiles).some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile))) {
+    return unhealthy(baseHealth, `Provider '${routeConfig.provider}' model '${model}' has no catalog-proven write enforcement.`);
+  }
   const profileResolution = buildRouteProfiles(routeConfig, context.cwd, profiles, config.managedAgents?.worktreeLease);
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
-  const builtinToolsProvider = deferAdapterConstruction
-    ? undefined
-    : createManagedRouteBuiltinToolsProvider(context);
-  const adapter = deferAdapterConstruction
-    ? undefined
-    : new ManagedCliHarnessAdapter({
-        providerId: routeConfig.provider,
+  const createAdapter = async (): Promise<ManagedAgentRuntimeAdapter> => {
+    const builtinToolsProvider = createManagedRouteBuiltinToolsProvider(context);
+    return new ManagedCliHarnessAdapter({
+      providerId: routeConfig.provider,
+      model,
+      ...(routeConfig.provider === "claude" ? { admittedProviderModelId: model } : {}),
+      factory: createHarnessSessionFactory(
+        routeConfig.provider as ProviderId,
         model,
-        ...(routeConfig.provider === "claude" ? { admittedProviderModelId: model } : {}),
-        factory: createHarnessSessionFactory(routeConfig.provider as ProviderId, model, context, harnessExecutable),
-        ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
-        ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
-      });
+        context,
+        harnessExecutable,
+        privatePlanArtifactCapability,
+      ),
+      ...(privatePlanArtifactCapability ? { privatePlanArtifactCapability } : {}),
+      ...(writeRequired ? { writeAuthority: LIVE_PROVEN_HARNESS_WRITE_AUTHORITY } : {}),
+      ...(builtinToolsProvider ? { builtinToolsProvider } : {}),
+    });
+  };
   const voiceProfile = managedAgentVoiceProfile(routeConfig, config);
   const externalRuntimeAttachment = resolveRouteExternalRuntimeAttachment(routeConfig);
   const route: ManagedInvocationToolRoute = {
@@ -1236,7 +1340,8 @@ async function resolveRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    ...(adapter ? { adapter } : {}),
+    capability: managedRouteCapability({ route: routeConfig, model, profiles: profileResolution.profiles, adapterKind: "cli-harness", settlement: { kind: "not-required" }, provenProfiles: catalogEntry.entry.provenProfiles, ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}) }),
+    createAdapter,
     surface: "cli-harness",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     taskSuitability: resolveTaskSuitability(
@@ -1264,7 +1369,6 @@ async function resolveRemoteHarnessRouteConfig(
   config: ManagedAgentRouteConfigSource,
   baseHealth: Omit<ManagedAgentRouteHealth, "available" | "reason">,
   writeRequired: boolean,
-  deferAdapterConstruction: boolean,
 ): Promise<{
   readonly health: ManagedAgentRouteHealth;
   readonly route?: ManagedInvocationToolRoute;
@@ -1284,9 +1388,7 @@ async function resolveRemoteHarnessRouteConfig(
   if (!profileResolution.ok) {
     return unhealthy(baseHealth, profileResolution.reason);
   }
-  const adapter = deferAdapterConstruction
-    ? undefined
-    : new ManagedRemoteHarnessAdapter({
+  const createAdapter = async (): Promise<ManagedAgentRuntimeAdapter> => new ManagedRemoteHarnessAdapter({
         providerId: routeConfig.provider,
         model,
         invokeUrl: remoteHarness.invokeUrl,
@@ -1305,7 +1407,8 @@ async function resolveRemoteHarnessRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
-    ...(adapter ? { adapter } : {}),
+    capability: managedRouteCapability({ route: routeConfig, model, profiles: profileResolution.profiles, adapterKind: "governed-external-runtime", settlement: { kind: "not-required" }, ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}) }),
+    createAdapter,
     surface: "remote-harness",
     ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
     providerModelProof: {
@@ -1329,18 +1432,6 @@ async function resolveRemoteHarnessRouteConfig(
     },
     route,
   };
-}
-
-function supportsReadonlyResultHandoff(provider: string, model: string): boolean {
-  const supportedModels = HARNESS_READONLY_RESULT_HANDOFF_MODELS[provider];
-  return supportedModels === "*" || supportedModels?.includes(model) === true;
-}
-
-function readonlyResultHandoffUnavailableReason(provider: string, model: string): string {
-  if (provider === "opencode") {
-    return "Provider 'opencode' native harness has no admitted hard filesystem boundary for managed child execution; use an authorized direct provider route or keep the route unavailable.";
-  }
-  return `Provider '${provider}' model '${model}' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.`;
 }
 
 function routeRequiresWriteAuthority(
@@ -1664,6 +1755,11 @@ async function resolveDirectRouteConfig(
     providerId: routeConfig.provider,
     model,
     ...(voiceProfile ? { voiceProfile } : {}),
+    capability: managedRouteCapability({
+      route: routeConfig, model, profiles: profileResolution.profiles, adapterKind: "direct-provider",
+      settlement: { kind: "managed-economic-selection", contractVersion: "managed-economic-v1", policyIds: [routeConfig.credentials?.mode === "runtime-selected" ? routeConfig.credentials.accountPolicyId : routeConfig.id], pendingSettlement: "required", recovery: "required" },
+      ...(externalRuntimeAttachment ? { externalRuntimeAttachment } : {}),
+    }),
     createCommittedAdapter: async (request: ManagedCommittedInvocationRequest) => {
       const committedRoute = request.commitment.reservation.selectedIdentity.route;
       const committedAccount = request.commitment.reservation.selectedIdentity.account;
@@ -2034,6 +2130,7 @@ function createHarnessSessionFactory(
   model: string,
   context: ResolveManagedInvocationToolOptionsContext,
   harnessExecutable: ClaudeCodeExecutableResolution | undefined,
+  privatePlanArtifactCapability: ClaudePrivatePlanArtifactCapability | undefined,
 ): CliSessionFactory {
   return (systemPrompt, cwd, factoryContext) => {
     const config: ProviderCreateConfig = {
@@ -2053,6 +2150,11 @@ function createHarnessSessionFactory(
           }
         : {}),
       ...(factoryContext?.structuredOutput ? { structuredOutputSchema: factoryContext.structuredOutput.schema } : {}),
+      ...(factoryContext?.privatePlanArtifactCapability
+        ? { privatePlanArtifactCapability: factoryContext.privatePlanArtifactCapability }
+        : privatePlanArtifactCapability
+          ? { privatePlanArtifactCapability }
+          : {}),
       ...(factoryContext?.operatorSurface ? { operatorSurface: factoryContext.operatorSurface } : {}),
     };
     return context.registry.createSession(provider, config);
@@ -2066,10 +2168,7 @@ function createManagedInvocationService(
   existingServiceKey: string | undefined,
   managedAccountComposition: ManagedAccountRuntimeComposition | undefined,
 ): RuntimeManagedAgentInvocationService | undefined {
-  const serviceKey = managedInvocationServiceKey(config, cwd);
-  if (!serviceKey) {
-    return undefined;
-  }
+  const serviceKey = managedInvocationServiceKey(config, cwd) ?? `managed-invocation:${resolve(cwd)}`;
   if (existingService && existingServiceKey === serviceKey) {
     return existingService;
   }

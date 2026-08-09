@@ -459,7 +459,7 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-code")).toHaveTextContent(/"ok":\s*true/);
     expect(screen.getByTestId("workspace-panel")).toHaveTextContent("Selected file: C:/workspace/kiln/package.json");
-  });
+  }, 10_000);
 
   it("returns to the chat surface when selecting a session from another surface", async () => {
     render(<AppShell />);

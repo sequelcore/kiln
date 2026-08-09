@@ -6,6 +6,8 @@ import {
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicAdoptedSnapshotExpectation,
   type ManagedAgentAdmissionProfile,
+  type ManagedAgentCallerAttachmentIdentity,
+  type DeliberationResolution,
   type ManagedAgentResultHandoff,
 } from "@kilnai/core";
 import type {
@@ -22,6 +24,13 @@ import type {
 } from "../managed-account-leases/managed-account-lease-authority.js";
 
 export const MANAGED_JOB_STATES = ["queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
+export const MANAGED_JOB_SCHEMA_VERSION = 9 as const;
+/** Recovery is deliberately pre-fence-only for economic work and never
+ * resumes an external native-harness process after a process restart. */
+export const MANAGED_JOB_RECOVERY_POLICY = {
+  economic: { unfenced: "redispatch", dispatchFenced: "hold" },
+  nativeHarness: { unfenced: "interrupt", dispatchFenced: "interrupt" },
+} as const;
 export type ManagedJobState = typeof MANAGED_JOB_STATES[number];
 
 export class ManagedJobApplicationError extends Error {
@@ -88,6 +97,7 @@ export interface ManagedJobGovernanceEvidence {
 }
 
 export interface ManagedJobEconomicProfile {
+  readonly kind: "economic";
   readonly id: string;
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
@@ -98,7 +108,75 @@ export interface ManagedJobEconomicProfile {
     readonly model?: string;
   };
 }
-export type ManagedJobProfile = ManagedJobEconomicProfile;
+
+export interface ManagedJobExecutionContext {
+  /** Trusted identity of the parent harness; never parsed from the job input. */
+  readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
+}
+
+/**
+ * Exact-route admission for a credentialless native harness.  This branch
+ * deliberately has no economic policy, account, quota, price, or candidate
+ * identity.  The acknowledgement is the durable operator/runtime contract
+ * for the exact route that may be executed after the dispatch fence.
+ */
+export interface ManagedJobNativeHarnessAcknowledgement {
+  readonly version: 1;
+  readonly source: "managed-route-admission";
+  /** Native-harness dispatches are strictly credentialless; Runtime never resolves an account. */
+  readonly credentialMode: "credentialless";
+  readonly acknowledgedAt: string;
+  readonly routeId: string;
+  readonly routeRevision: string;
+  readonly providerId: string;
+  readonly model: string;
+  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly adapterCapabilityId: string;
+  readonly adapterCapabilityVersion: string;
+}
+
+export interface ManagedJobNativeHarnessProfile {
+  readonly kind: "native-harness";
+  readonly id: string;
+  readonly admissionProfileId: ManagedAgentAdmissionProfile;
+  readonly routeId: string;
+  readonly routeRevision: string;
+  readonly providerId: string;
+  readonly model: string;
+  readonly adapterCapabilityId: string;
+  readonly adapterCapabilityVersion: string;
+  readonly acknowledgement: ManagedJobNativeHarnessAcknowledgement;
+}
+
+export type ManagedJobProfile = ManagedJobEconomicProfile | ManagedJobNativeHarnessProfile;
+
+export type ManagedJobNativeHarnessRoute = Omit<ManagedJobNativeHarnessProfile, "id">;
+
+export type ManagedJobDispatch =
+  | {
+      readonly kind: "economic";
+      readonly economicAttemptId: string;
+      readonly economicPolicyId: string;
+      readonly economicPolicyRevision: string;
+      readonly constraints: {
+        readonly routeId?: string;
+        readonly providerId?: string;
+        readonly model?: string;
+      };
+      readonly candidateSet: ManagedEconomicCandidateSet;
+    }
+  | {
+      readonly kind: "native-harness";
+      readonly routeId: string;
+      readonly routeRevision: string;
+      readonly providerId: string;
+      readonly model: string;
+      readonly admissionProfileId: ManagedAgentAdmissionProfile;
+      readonly adapterCapabilityId: string;
+      readonly adapterCapabilityVersion: string;
+      readonly acknowledgement: ManagedJobNativeHarnessAcknowledgement;
+      readonly dispatchFenceId?: string;
+    };
 
 /** Immutable, normalized success evidence. Handoff content is untrusted child output. */
 export interface ManagedJobResult {
@@ -127,9 +205,8 @@ export interface ManagedJobLifecycleEntry {
 
 /** Canonical persisted managed-job representation. */
 export interface ManagedJobRecord {
-  readonly version: 7;
+  readonly version: typeof MANAGED_JOB_SCHEMA_VERSION;
   readonly id: string;
-  readonly economicAttemptId: string;
   readonly adoptedDecisionAt: string;
   readonly state: ManagedJobState;
   readonly objective: string;
@@ -137,14 +214,7 @@ export interface ManagedJobRecord {
   readonly callerId: string;
   readonly configuredAgentProfileId: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
-  readonly economicPolicyId: string;
-  readonly economicPolicyRevision: string;
-  readonly constraints: {
-    readonly routeId?: string;
-    readonly providerId?: string;
-    readonly model?: string;
-  };
-  readonly candidateSet: ManagedEconomicCandidateSet;
+  readonly dispatch: ManagedJobDispatch;
   readonly governanceSource: string;
   readonly admissionId: string;
   readonly requestFingerprint: string;
@@ -181,7 +251,23 @@ export interface ManagedJobReplayQuery {
   readonly providerId?: string;
   readonly lifecycle: readonly ManagedJobLifecycleEntry[];
   readonly resultAvailability: ManagedJobResultAvailability;
-  readonly economic: ManagedJobEconomicReplay;
+  readonly dispatch:
+    | {
+        readonly kind: "economic";
+        readonly economic: ManagedJobEconomicReplay;
+      }
+    | {
+        readonly kind: "native-harness";
+        readonly routeId: string;
+        readonly routeRevision: string;
+        readonly providerId: string;
+        readonly model: string;
+        readonly admissionProfileId: ManagedAgentAdmissionProfile;
+        readonly adapterCapabilityId: string;
+        readonly adapterCapabilityVersion: string;
+        readonly acknowledgement: ManagedJobNativeHarnessAcknowledgement;
+        readonly dispatchFenceId?: string;
+      };
   readonly diagnostic?: ManagedJobDiagnosticCode;
 }
 
@@ -198,8 +284,12 @@ export interface ManagedJobGovernancePort {
   admit(input: { readonly project: TrustedManagedJobProject; readonly objective: string; readonly configuredAgentProfileId: string; readonly admissionProfileId: string; readonly evidence: ManagedJobGovernanceEvidence }): Promise<{ readonly admitted: true; readonly admissionId: string; readonly source: string } | { readonly admitted: false }>;
 }
 export interface ManagedJobProfilePort { resolve(id: string): Promise<ManagedJobProfile | undefined>; }
+export interface ManagedJobRouteResolutionContext {
+  readonly invocationId?: string;
+  readonly compositionMode?: "candidate-admission" | "execution";
+}
 export interface ManagedJobRoutePort {
-  resolve(profile: ManagedJobProfile): Promise<ManagedEconomicCandidateSet | undefined>;
+  resolve(profile: ManagedJobProfile, context?: ManagedJobRouteResolutionContext): Promise<ManagedEconomicCandidateSet | ManagedJobNativeHarnessRoute | undefined>;
 }
 export type ManagedJobCommitmentRecoveryState = "absent" | "committed" | "dispatch-fenced";
 export interface ManagedJobCommitmentRecoveryPort {
@@ -241,9 +331,17 @@ export type ManagedJobReservation =
   | { readonly kind: "existing"; readonly job: ManagedJobRecord }
   | { readonly kind: "conflict" };
 
+/** Result of the atomic native dispatch-fence ownership decision. */
+export type ManagedJobNativeHarnessFenceResult =
+  | { readonly kind: "acquired"; readonly job: ManagedJobRecord }
+  | { readonly kind: "existing"; readonly job: ManagedJobRecord }
+  | { readonly kind: "conflict"; readonly job: ManagedJobRecord };
+
 export interface ManagedJobStore {
   reserve(input: { readonly job: ManagedJobRecord }): Promise<ManagedJobReservation>;
   get(id: string): Promise<ManagedJobRecord | undefined>;
+  /** Atomically persists the exact-route fence before adapter creation. */
+  fenceNativeHarness(id: string, dispatchFenceId: string, updatedAt?: string): Promise<ManagedJobNativeHarnessFenceResult>;
   transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord>;
   completeSuccess(id: string, result: ManagedJobResult, updatedAt?: string): Promise<ManagedJobRecord>;
   listNonterminal(): Promise<readonly ManagedJobRecord[]>;
@@ -262,27 +360,37 @@ export interface ManagedJobApplicationOptions {
   readonly economicReplay?: ManagedJobEconomicReplayPort;
   readonly economicDispatch?: ManagedEconomicDispatchCoordinator;
   readonly economicExecution?: ManagedJobEconomicExecutionPort;
+  readonly nativeHarnessExecution?: ManagedJobNativeHarnessExecutionPort;
   readonly clock?: () => Date;
   readonly idGenerator?: () => string;
   readonly economicAttemptIdGenerator?: () => string;
+  readonly nativeHarnessDispatchIdGenerator?: () => string;
 }
 
 export class ManagedJobApplicationService {
   private readonly clock: () => Date;
   private readonly idGenerator: () => string;
   private readonly economicAttemptIdGenerator: () => string;
+  private readonly nativeHarnessDispatchIdGenerator: () => string;
 
   constructor(private readonly options: ManagedJobApplicationOptions) {
     this.clock = options.clock ?? (() => new Date());
     this.idGenerator = options.idGenerator ?? randomUUID;
     this.economicAttemptIdGenerator = options.economicAttemptIdGenerator ?? randomUUID;
+    this.nativeHarnessDispatchIdGenerator = options.nativeHarnessDispatchIdGenerator ?? randomUUID;
   }
 
-  async submit(input: unknown): Promise<ManagedJobRecord> {
-    return await this.start(input);
+  /**
+   * Accepts and durably reserves governed V9 work without crossing an
+   * economic/native dispatch boundary. Completion is observed through the
+   * status, result, and replay queries after the project owner schedules the
+   * returned job.
+   */
+  async accept(input: unknown): Promise<ManagedJobRecord> {
+    return await this.prepare(input);
   }
 
-  async start(input: unknown): Promise<ManagedJobRecord> {
+  private async prepare(input: unknown): Promise<ManagedJobRecord> {
     const request = parseManagedJobSubmission(input);
     const project = await this.resolveProject();
     if (request.parent && (!this.options.lineage || !await this.validateLineage(project, request))) throw new ManagedJobApplicationError("invalid_request", "Provide trusted parent invocation lineage.");
@@ -291,6 +399,9 @@ export class ManagedJobApplicationService {
     try { profile = await this.options.profiles.resolve(request.configuredAgentProfileId); } catch { throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile."); }
     if (!profile) throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
     if (!isIdentifier(profile.id) || profile.id !== request.configuredAgentProfileId) throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured admitted agent profile.");
+    if (profile.kind === "native-harness") {
+      return await this.startNativeHarnessPrecommit(request, project, governance, profile);
+    }
     return await this.startEconomicPrecommit(request, project, governance, profile);
   }
 
@@ -319,9 +430,13 @@ export class ManagedJobApplicationService {
     if (!isIdentifier(admission.admissionId) || !isIdentifier(admission.source)) {
       throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
     }
+    const jobId = this.newJobId();
     let candidateSet: ManagedEconomicCandidateSet | undefined;
     try {
-      const resolved = await this.options.routes.resolve(profile);
+      const resolved = await this.options.routes.resolve(profile, {
+        invocationId: `managed-job:${jobId}`,
+        compositionMode: "candidate-admission",
+      });
       if (isManagedEconomicCandidateSet(resolved)) candidateSet = resolved;
     } catch {
       throw new ManagedJobApplicationError("route_unavailable", "Refresh managed economic candidate admission.");
@@ -346,9 +461,8 @@ export class ManagedJobApplicationService {
       parent: request.parent,
     });
     const queued: ManagedJobRecord = {
-      version: 7,
-      id: this.newJobId(),
-      economicAttemptId: this.newEconomicAttemptId(),
+      version: MANAGED_JOB_SCHEMA_VERSION,
+      id: jobId,
       adoptedDecisionAt: now,
       state: "queued",
       objective: request.objective,
@@ -356,10 +470,14 @@ export class ManagedJobApplicationService {
       callerId: request.callerId,
       configuredAgentProfileId: profile.id,
       admissionProfileId: profile.admissionProfileId,
-      economicPolicyId: profile.economicPolicyId,
-      economicPolicyRevision: profile.economicPolicyRevision,
-      constraints,
-      candidateSet,
+      dispatch: {
+        kind: "economic",
+        economicAttemptId: this.newEconomicAttemptId(),
+        economicPolicyId: profile.economicPolicyId,
+        economicPolicyRevision: profile.economicPolicyRevision,
+        constraints,
+        candidateSet,
+      },
       governanceSource: admission.source,
       admissionId: admission.admissionId,
       requestFingerprint,
@@ -377,9 +495,178 @@ export class ManagedJobApplicationService {
     if (reservation.kind === "conflict") throw new ManagedJobApplicationError("idempotency_conflict", "Use a new idempotency identity for different managed work.");
     if (reservation.kind === "existing") {
       if (!isNonterminal(reservation.job.state)) return reservation.job;
-      return this.commitEconomicAttempt(reservation.job);
+      return reservation.job;
     }
-    return this.commitEconomicAttempt(queued);
+    return queued;
+  }
+
+  private async startNativeHarnessPrecommit(
+    request: ManagedJobSubmission,
+    project: TrustedManagedJobProject,
+    governance: ManagedJobGovernanceEvidence,
+    profile: ManagedJobNativeHarnessProfile,
+  ): Promise<ManagedJobRecord> {
+    if (!isValidNativeHarnessProfile(profile)) {
+      throw new ManagedJobApplicationError("profile_unavailable", "Choose a configured exact native-harness route profile.");
+    }
+    let admission: Awaited<ReturnType<ManagedJobGovernancePort["admit"]>>;
+    try {
+      admission = await this.options.governance.admit({
+        project,
+        objective: request.objective,
+        configuredAgentProfileId: profile.id,
+        admissionProfileId: profile.admissionProfileId,
+        evidence: governance,
+      });
+    } catch {
+      throw new ManagedJobApplicationError("governance_unavailable", "Restore authoritative Kiln governance evidence.");
+    }
+    if (!admission.admitted) throw new ManagedJobApplicationError("admission_denied", "Review the authoritative work-governance policy.");
+    if (!isIdentifier(admission.admissionId) || !isIdentifier(admission.source)) {
+      throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
+    }
+    let resolved: ManagedJobNativeHarnessRoute | undefined;
+    try {
+      const candidate = await this.options.routes.resolve(profile);
+      if (isValidNativeHarnessRoute(candidate)) resolved = candidate;
+    } catch {
+      throw new ManagedJobApplicationError("route_unavailable", "Refresh the exact native-harness route admission.");
+    }
+    if (!resolved || !sameNativeHarnessRoute(profile, resolved)) {
+      throw new ManagedJobApplicationError("route_unavailable", "Refresh the exact native-harness route admission.");
+    }
+    const now = this.now();
+    const dispatch = {
+      kind: "native-harness" as const,
+      routeId: resolved.routeId,
+      routeRevision: resolved.routeRevision,
+      providerId: resolved.providerId,
+      model: resolved.model,
+      admissionProfileId: resolved.admissionProfileId,
+      adapterCapabilityId: resolved.adapterCapabilityId,
+      adapterCapabilityVersion: resolved.adapterCapabilityVersion,
+      acknowledgement: resolved.acknowledgement,
+    };
+    const requestFingerprint = digestManagedEconomicValue({
+      kind: dispatch.kind,
+      objective: request.objective,
+      configuredAgentProfileId: request.configuredAgentProfileId,
+      route: {
+        routeId: dispatch.routeId,
+        routeRevision: dispatch.routeRevision,
+        providerId: dispatch.providerId,
+        model: dispatch.model,
+        admissionProfileId: dispatch.admissionProfileId,
+        adapterCapabilityId: dispatch.adapterCapabilityId,
+        adapterCapabilityVersion: dispatch.adapterCapabilityVersion,
+        acknowledgement: {
+          version: dispatch.acknowledgement.version,
+          source: dispatch.acknowledgement.source,
+          credentialMode: dispatch.acknowledgement.credentialMode,
+          routeId: dispatch.acknowledgement.routeId,
+          routeRevision: dispatch.acknowledgement.routeRevision,
+          providerId: dispatch.acknowledgement.providerId,
+          model: dispatch.acknowledgement.model,
+          admissionProfileId: dispatch.acknowledgement.admissionProfileId,
+          adapterCapabilityId: dispatch.acknowledgement.adapterCapabilityId,
+          adapterCapabilityVersion: dispatch.acknowledgement.adapterCapabilityVersion,
+        },
+      },
+      parent: request.parent,
+    });
+    const queued: ManagedJobRecord = {
+      version: MANAGED_JOB_SCHEMA_VERSION,
+      id: this.newJobId(),
+      adoptedDecisionAt: now,
+      state: "queued",
+      objective: request.objective,
+      projectId: project.id,
+      callerId: request.callerId,
+      configuredAgentProfileId: profile.id,
+      admissionProfileId: profile.admissionProfileId,
+      dispatch,
+      governanceSource: admission.source,
+      admissionId: admission.admissionId,
+      requestFingerprint,
+      idempotencyKeyHash: digestManagedEconomicValue({
+        projectId: project.id,
+        callerId: request.callerId,
+        idempotencyKey: request.idempotencyKey,
+      }),
+      createdAt: now,
+      updatedAt: now,
+      lifecycle: [{ sequence: 1, state: "queued", observedAt: now }],
+      ...(request.parent ? { parent: request.parent } : {}),
+    };
+    const reservation = await this.reserve(queued);
+    if (reservation.kind === "conflict") throw new ManagedJobApplicationError("idempotency_conflict", "Use a new idempotency identity for different managed work.");
+    if (reservation.kind === "existing") {
+      if (!isNonterminal(reservation.job.state)) return reservation.job;
+      if (reservation.job.dispatch.kind !== "native-harness") return reservation.job;
+      return reservation.job;
+    }
+    return queued;
+  }
+
+  /** Runs one already accepted job. The project owner is responsible for
+   * coalescing calls and retaining the returned promise until completion. */
+  async dispatch(id: string, context?: ManagedJobExecutionContext): Promise<ManagedJobRecord> {
+    if (!isIdentifier(id)) throw new ManagedJobApplicationError("invalid_request", "Provide a valid managed-job identifier.");
+    let job: ManagedJobRecord;
+    try {
+      job = await this.options.store.get(id) as ManagedJobRecord;
+    } catch (error) {
+      throw normalizeStoreError(error);
+    }
+    if (!job) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
+    if (!isNonterminal(job.state)) return job;
+    if (job.dispatch.kind === "economic") {
+      try {
+        const recoveryState = (this.options.commitmentRecovery ?? this.options.economicCommitment)?.query({
+          jobId: job.id,
+          economicAttemptId: job.dispatch.economicAttemptId,
+        });
+        if (recoveryState === "dispatch-fenced") return job;
+      } catch {
+        // The commitment coordinator remains the authority for an unknown
+        // recovery state; let the normal dispatch path fail closed.
+      }
+    }
+    if (job.dispatch.kind === "native-harness") {
+      // A persisted native fence is proof that the external process may have
+      // started. Never resolve a fresh route or invoke the harness again.
+      if (job.dispatch.dispatchFenceId !== undefined) return job;
+      const resolvedRoute = await this.resolveNativeHarnessDispatchRoute(job);
+      // The accepted acknowledgement is the durable identity. Route lookup
+      // may refresh observation time, but it cannot replace that identity.
+      const route: ManagedJobNativeHarnessRoute = {
+        ...resolvedRoute,
+        acknowledgement: job.dispatch.acknowledgement,
+      };
+      return await this.commitNativeHarnessAttempt(
+        job as ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> },
+        route,
+        context?.callerIdentity,
+      );
+    }
+    return await this.commitEconomicAttempt(job);
+  }
+
+  /** Converts an owned worker rejection into one safe terminal job state. */
+  async failDispatch(id: string, error: unknown): Promise<ManagedJobRecord | undefined> {
+    let job: ManagedJobRecord | undefined;
+    try {
+      job = await this.options.store.get(id);
+    } catch {
+      return undefined;
+    }
+    if (!job || !isNonterminal(job.state)) return job;
+    const diagnostic = isDiagnostic(error) ? error : "invocation_failed";
+    try {
+      return await this.transition(job.id, "failed", diagnostic);
+    } catch {
+      return undefined;
+    }
   }
 
   async getStatus(context: TrustedManagedJobQueryContext, id: string): Promise<ManagedJobRecord> {
@@ -413,13 +700,13 @@ export class ManagedJobApplicationService {
 
   async getReplay(context: TrustedManagedJobQueryContext, id: string): Promise<ManagedJobReplayQuery> {
     const job = await this.getStatus(context, id);
-    return replayQuery(job, "available", job.lifecycle, undefined, this.economicReplay(job));
+    return replayQuery(job, "available", job.lifecycle, undefined, this.dispatchReplay(job));
   }
 
-  private economicReplay(job: ManagedJobRecord): ManagedJobEconomicReplay {
+  private economicReplay(job: ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "economic" }> }): ManagedJobEconomicReplay {
     if (!this.options.economicReplay) return { availability: "unavailable", reason: "authority-unavailable" };
     try {
-      const snapshot = this.options.economicReplay.inspect({ jobId: job.id, economicAttemptId: job.economicAttemptId });
+      const snapshot = this.options.economicReplay.inspect({ jobId: job.id, economicAttemptId: job.dispatch.economicAttemptId });
       return snapshot === undefined
         ? { availability: "unavailable", reason: "evidence-not-found" }
         : { availability: "available", snapshot };
@@ -428,16 +715,44 @@ export class ManagedJobApplicationService {
     }
   }
 
+  private dispatchReplay(job: ManagedJobRecord): ManagedJobReplayQuery["dispatch"] {
+    if (job.dispatch.kind === "native-harness") {
+      return {
+        kind: "native-harness",
+        routeId: job.dispatch.routeId,
+        routeRevision: job.dispatch.routeRevision,
+        providerId: job.dispatch.providerId,
+        model: job.dispatch.model,
+        admissionProfileId: job.dispatch.admissionProfileId,
+        adapterCapabilityId: job.dispatch.adapterCapabilityId,
+        adapterCapabilityVersion: job.dispatch.adapterCapabilityVersion,
+        acknowledgement: job.dispatch.acknowledgement,
+        ...(job.dispatch.dispatchFenceId ? { dispatchFenceId: job.dispatch.dispatchFenceId } : {}),
+      };
+    }
+    return {
+      kind: "economic",
+      economic: this.economicReplay(
+        job as ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "economic" }> },
+      ),
+    };
+  }
+
   async recoverInterrupted(): Promise<readonly ManagedJobRecord[]> {
     try {
       const jobs = await this.options.store.listNonterminal();
       return Promise.all(jobs.map(async (job) => {
-        const state = (this.options.commitmentRecovery ?? this.options.economicCommitment)?.query({
-          jobId: job.id,
-          economicAttemptId: job.economicAttemptId,
-        });
-        if (state === "dispatch-fenced") return job;
-        return this.commitEconomicAttempt(job);
+        if (job.dispatch.kind === "native-harness") {
+          // Neither a queued native job nor a fenced native process has a
+          // restart-safe caller/process owner. Mark both interrupted rather
+          // than silently redispatching a possibly started external process.
+          return this.transition(job.id, "interrupted", "invocation_failed");
+        }
+        // Economic work without a dispatch fence is safe to hand back to the
+        // project dispatcher: SQLite acquisition is idempotent and still owns
+        // the only post-commit boundary. A fenced record stays pending for
+        // settlement/reconciliation and is never redispatched here.
+        return job;
       }));
     } catch (error) { throw normalizeStoreError(error); }
   }
@@ -466,27 +781,93 @@ export class ManagedJobApplicationService {
     return `economic-attempt:${seed}`;
   }
 
+  private newNativeHarnessDispatchId(): string {
+    const seed = this.nativeHarnessDispatchIdGenerator();
+    if (!isIdentifier(seed) || seed.length < 12) throw new ManagedJobApplicationError("invalid_request", "Configure a valid opaque native-harness dispatch identifier generator.");
+    return `native-harness-dispatch:${seed}`;
+  }
+
+  private async commitNativeHarnessAttempt(
+    job: ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> },
+    route: ManagedJobNativeHarnessRoute,
+    callerIdentity?: ManagedAgentCallerAttachmentIdentity,
+  ): Promise<ManagedJobRecord> {
+    if (!sameNativeHarnessDispatchRoute(job.dispatch, route)) {
+      throw new ManagedJobApplicationError("identity-revision-conflict", "Restore the exact persisted native-harness route acknowledgement.");
+    }
+    // A persisted fence means another owner already crossed the only dispatch
+    // boundary. An idempotent acceptance must return that nonterminal record
+    // rather than creating a second process or adapter.
+    if (job.dispatch.dispatchFenceId !== undefined) return job;
+    if (!this.options.nativeHarnessExecution) {
+      return this.transition(job.id, "failed", "route_unavailable");
+    }
+    let fenceResult: ManagedJobNativeHarnessFenceResult;
+    try {
+      const dispatchFenceId = job.dispatch.dispatchFenceId ?? this.newNativeHarnessDispatchId();
+      fenceResult = await this.options.store.fenceNativeHarness(job.id, dispatchFenceId, this.now());
+    } catch (error) {
+      if (error instanceof ManagedJobApplicationError) throw error;
+      return this.transition(job.id, "failed", "route_unavailable");
+    }
+    // Only the atomic owner may cross the external process boundary. An
+    // existing or conflicting fence belongs to another dispatcher, including
+    // a caller that happened to generate the same fence identifier.
+    if (fenceResult.kind !== "acquired") return fenceResult.job;
+    const fenced = fenceResult.job;
+    if (fenced.state !== "running" || fenced.dispatch.kind !== "native-harness" || !fenced.dispatch.dispatchFenceId) {
+      return fenced;
+    }
+    try {
+      const execution = await this.options.nativeHarnessExecution.execute({
+        job: fenced as ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> },
+        route,
+        dispatchFenceId: fenced.dispatch.dispatchFenceId,
+        ...(callerIdentity ? { callerIdentity } : {}),
+      });
+      const selected = fenced.dispatch;
+      const result: ManagedJobResult = {
+        version: 1,
+        jobId: fenced.id,
+        runtimeInvocationId: execution.runtimeInvocationId,
+        configuredAgentProfileId: fenced.configuredAgentProfileId,
+        admissionProfileId: fenced.admissionProfileId,
+        routeId: selected.routeId,
+        providerId: selected.providerId,
+        terminalState: "completed",
+        completedAt: execution.completedAt,
+        provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
+        resultHandoff: normalizeManagedJobResultHandoff(execution.resultHandoff, fenced.objective),
+      };
+      return await this.options.store.completeSuccess(fenced.id, result, execution.completedAt);
+    } catch {
+      return this.transition(fenced.id, "failed", "invocation_failed");
+    }
+  }
+
   private async commitEconomicAttempt(job: ManagedJobRecord): Promise<ManagedJobRecord> {
     if (!this.options.economicAdoption || !this.options.economicDispatch || !this.options.economicExecution) {
       return this.transition(job.id, "failed", "economic_commitment_unavailable");
     }
     try {
+      const dispatch = economicDispatchOf(job);
+      await this.validateCurrentEconomicCandidateIdentity(job);
       // All async config, quota, credential-revision, and capacity work completes
       // before entering the synchronous SQLite authority.
       const adopted = await this.options.economicAdoption.adopt(job);
       const intentFingerprint = digestManagedEconomicValue({
         jobId: job.id,
-        economicAttemptId: job.economicAttemptId,
+        economicAttemptId: dispatch.economicAttemptId,
         projectId: job.projectId,
         callerId: job.callerId,
         admissionProfileId: job.admissionProfileId,
         admissionId: job.admissionId,
         governanceSource: job.governanceSource,
         requestFingerprint: job.requestFingerprint,
-        economicPolicyId: job.economicPolicyId,
-        economicPolicyRevision: job.economicPolicyRevision,
+        economicPolicyId: dispatch.economicPolicyId,
+        economicPolicyRevision: dispatch.economicPolicyRevision,
         candidateSetDigest: adopted.expectation.candidateSetDigest,
-        constraints: job.constraints,
+        constraints: dispatch.constraints,
         snapshotDigest: adopted.snapshot.snapshotDigest,
         rateCardRevisions: adopted.snapshot.routes.map(({ route }) => ({
           routeId: route.routeId,
@@ -503,10 +884,13 @@ export class ManagedJobApplicationService {
       });
       const preparation = await this.options.economicDispatch.prepare({
         jobId: job.id,
-        economicAttemptId: job.economicAttemptId,
+        economicAttemptId: dispatch.economicAttemptId,
         intentFingerprint,
         adoption: adopted,
         admissionProfile: job.admissionProfileId,
+        validateExecutionProfile: async () => {
+          await this.validateCurrentEconomicCandidateIdentity(job);
+        },
       });
       if (preparation.status === "denied") {
         return this.transition(job.id, "failed", "economic_commitment_unavailable");
@@ -547,6 +931,56 @@ export class ManagedJobApplicationService {
       throw new ManagedJobApplicationError("governance_not_authoritative", "Refresh authoritative Kiln governance evidence.");
     }
     return evidence;
+  }
+
+  private async resolveNativeHarnessDispatchRoute(
+    job: ManagedJobRecord,
+  ): Promise<ManagedJobNativeHarnessRoute> {
+    try {
+      const profile = await this.options.profiles.resolve(job.configuredAgentProfileId);
+      if (!profile || profile.kind !== "native-harness" || !isValidNativeHarnessProfile(profile)) {
+        throw new Error("profile");
+      }
+      const resolved = await this.options.routes.resolve(profile, {
+        invocationId: `managed-job:${job.id}`,
+        compositionMode: "execution",
+      });
+      if (!isValidNativeHarnessRoute(resolved) || !sameNativeHarnessRoute(profile, resolved)) {
+        throw new Error("route");
+      }
+      return resolved;
+    } catch {
+      throw new ManagedJobApplicationError(
+        "identity-revision-conflict",
+        "Restore the exact persisted native-harness route acknowledgement before dispatch.",
+      );
+    }
+  }
+
+  /** Re-checks the persisted V9 candidate identity before and after fencing. */
+  private async validateCurrentEconomicCandidateIdentity(job: ManagedJobRecord): Promise<void> {
+    const dispatch = economicDispatchOf(job);
+    let profile: ManagedJobProfile | undefined;
+    let resolved: ManagedEconomicCandidateSet | ManagedJobNativeHarnessRoute | undefined;
+    try {
+      profile = await this.options.profiles.resolve(job.configuredAgentProfileId);
+      if (!profile || profile.kind !== "economic") throw new Error("profile");
+      resolved = await this.options.routes.resolve(profile, {
+        invocationId: `managed-job:${job.id}`,
+        compositionMode: "execution",
+      });
+    } catch {
+      throw new ManagedJobApplicationError(
+        "identity-revision-conflict",
+        "Restore the exact V9 managed economic candidate identity before execution.",
+      );
+    }
+    if (!isManagedEconomicCandidateSet(resolved) || !sameManagedEconomicCandidateSet(dispatch.candidateSet, resolved)) {
+      throw new ManagedJobApplicationError(
+        "identity-revision-conflict",
+        "Restore the exact V9 managed economic candidate identity before execution.",
+      );
+    }
   }
 
   private async reserve(job: ManagedJobRecord): Promise<ManagedJobReservation> {
@@ -605,6 +1039,27 @@ export class InMemoryManagedJobStore implements ManagedJobStore {
     return { kind: "created", job: cloneManagedJob(job) };
   }
   async get(id: string): Promise<ManagedJobRecord | undefined> { const job = this.jobs.get(id); return job ? cloneManagedJob(job) : undefined; }
+  async fenceNativeHarness(id: string, dispatchFenceId: string, updatedAt?: string): Promise<ManagedJobNativeHarnessFenceResult> {
+    const current = this.jobs.get(id);
+    if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
+    if (current.dispatch.kind !== "native-harness") throw new ManagedJobApplicationError("identity-revision-conflict", "Persisted managed dispatch is not a native-harness route.");
+    if (current.dispatch.dispatchFenceId !== undefined) {
+      return { kind: "existing", job: cloneManagedJob(current) };
+    }
+    if (current.state !== "queued") return { kind: "conflict", job: cloneManagedJob(current) };
+    if (!isNativeHarnessDispatchFenceId(dispatchFenceId)) throw new ManagedJobApplicationError("invalid_request", "Use a valid native-harness dispatch fence identifier.");
+    const timestamp = updatedAt ?? new Date().toISOString();
+    if (!isIso(timestamp) || Date.parse(timestamp) < Date.parse(current.updatedAt)) throw new ManagedJobApplicationError("invalid_transition", "Use monotonic managed-job timestamps.");
+    const next: ManagedJobRecord = {
+      ...current,
+      state: "running",
+      updatedAt: timestamp,
+      dispatch: { ...current.dispatch, dispatchFenceId },
+      lifecycle: [...current.lifecycle, lifecycleEntry(current.lifecycle.length + 1, "running", timestamp)],
+    };
+    this.jobs.set(id, next);
+    return { kind: "acquired", job: cloneManagedJob(next) };
+  }
   async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord> {
     const current = this.jobs.get(id);
     if (!current) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
@@ -656,6 +1111,14 @@ export class FilesystemManagedJobStore implements ManagedJobStore {
     });
   }
   async get(id: string): Promise<ManagedJobRecord | undefined> { return (await this.loadMemory()).get(id); }
+  async fenceNativeHarness(id: string, dispatchFenceId: string, updatedAt?: string): Promise<ManagedJobNativeHarnessFenceResult> {
+    return this.withLock(async () => {
+      const memory = await this.loadMemory();
+      const result = await memory.fenceNativeHarness(id, dispatchFenceId, updatedAt);
+      if (result.kind === "acquired") await this.saveMemory(memory);
+      return result;
+    });
+  }
   async transition(id: string, state: ManagedJobState, diagnostic?: ManagedJobDiagnosticCode, updatedAt?: string): Promise<ManagedJobRecord> {
     return this.withLock(async () => { const memory = await this.loadMemory(); const job = await memory.transition(id, state, diagnostic, updatedAt); await this.saveMemory(memory); return job; });
   }
@@ -720,26 +1183,23 @@ function parseManagedJobSubmission(value: unknown): ManagedJobSubmission {
   return { objective, configuredAgentProfileId, callerId, idempotencyKey, ...(parent ? { parent } : {}) };
 }
 function validateStoredJob(value: unknown): ManagedJobRecord {
-  if (isRecord(value) && value.version !== 7) {
+  if (isRecord(value) && value.version !== MANAGED_JOB_SCHEMA_VERSION) {
     throw new ManagedJobApplicationError(
       "job_persistence_corrupt",
-      "Reset the managed-job store; only canonical V7 records are supported.",
+      "Reset the managed-job store; only canonical V9 records are supported.",
     );
   }
   const allowed = [
-    "version", "id", "economicAttemptId", "adoptedDecisionAt", "state",
-    "objective", "projectId", "callerId", "configuredAgentProfileId",
-    "admissionProfileId", "economicPolicyId", "economicPolicyRevision",
-    "constraints", "candidateSet", "governanceSource", "admissionId",
-    "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt",
-    "parent", "diagnostic", "result", "lifecycle",
+    "version", "id", "adoptedDecisionAt", "state", "objective", "projectId", "callerId",
+    "configuredAgentProfileId", "admissionProfileId", "dispatch", "governanceSource", "admissionId",
+    "requestFingerprint", "idempotencyKeyHash", "createdAt", "updatedAt", "parent", "diagnostic",
+    "result", "lifecycle",
   ];
   if (
     !isRecord(value)
-    || value.version !== 7
+    || value.version !== MANAGED_JOB_SCHEMA_VERSION
     || !hasOnly(value, allowed)
     || !isIdentifier(value.id)
-    || !isEconomicAttemptId(value.economicAttemptId)
     || !isIso(value.adoptedDecisionAt)
     || !MANAGED_JOB_STATES.includes(value.state as ManagedJobState)
     || typeof value.objective !== "string"
@@ -749,8 +1209,7 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
     || !isIdentifier(value.callerId)
     || !isIdentifier(value.configuredAgentProfileId)
     || !isManagedAgentAdmissionProfile(value.admissionProfileId)
-    || !isIdentifier(value.economicPolicyId)
-    || !isIdentifier(value.economicPolicyRevision)
+    || !isValidManagedJobDispatch(value.dispatch)
     || !isIdentifier(value.governanceSource)
     || !isIdentifier(value.admissionId)
     || !isCanonicalHash(value.requestFingerprint)
@@ -759,8 +1218,6 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
     || !isIso(value.updatedAt)
     || Date.parse(value.adoptedDecisionAt) !== Date.parse(value.createdAt)
     || Date.parse(value.createdAt) > Date.parse(value.updatedAt)
-    || !isValidManagedJobConstraints(value.constraints)
-    || !isManagedEconomicCandidateSet(value.candidateSet as ManagedEconomicCandidateSet)
     || (value.diagnostic !== undefined && !isDiagnostic(value.diagnostic))
     || (
       value.parent !== undefined
@@ -775,18 +1232,22 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
   ) {
     throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
   }
-  const candidateSet = value.candidateSet as ManagedEconomicCandidateSet;
-  if (
-    candidateSet.economicPolicyId !== value.economicPolicyId
-    || candidateSet.economicPolicyRevision !== value.economicPolicyRevision
-    || candidateSet.admissionProfileId !== value.admissionProfileId
-    || !sameManagedJobConstraints(candidateSet.constraints, value.constraints as ManagedJobEconomicProfile["constraints"])
-  ) {
-    throw new ManagedJobApplicationError("job_persistence_corrupt", "Repair the managed-job store before retrying.");
-  }
   const job = value as unknown as ManagedJobRecord;
   if (
-    (job.state === "succeeded" && !job.result)
+    job.dispatch.kind === "economic"
+      ? (
+        job.dispatch.candidateSet.economicPolicyId !== job.dispatch.economicPolicyId
+        || job.dispatch.candidateSet.economicPolicyRevision !== job.dispatch.economicPolicyRevision
+        || job.dispatch.candidateSet.admissionProfileId !== job.admissionProfileId
+        || !sameManagedJobConstraints(job.dispatch.candidateSet.constraints, job.dispatch.constraints)
+      )
+      : (
+        job.dispatch.admissionProfileId !== job.admissionProfileId
+        || (job.dispatch.dispatchFenceId !== undefined && !isNativeHarnessDispatchFenceId(job.dispatch.dispatchFenceId))
+        || (job.state === "queued" && job.dispatch.dispatchFenceId !== undefined)
+        || (job.state === "running" && job.dispatch.dispatchFenceId === undefined)
+      )
+    || (job.state === "succeeded" && !job.result)
     || (job.state !== "succeeded" && job.result !== undefined)
     || (job.result !== undefined && !isValidManagedJobResult(job.result, job, job.updatedAt))
   ) {
@@ -818,7 +1279,10 @@ function isValidLifecycle(value: unknown, state: ManagedJobState, createdAt: str
 function isFreshEvidence(value: ManagedJobGovernanceEvidence, now: Date): boolean { return isIso(value.issuedAt) && isIso(value.validUntil) && Date.parse(value.issuedAt) <= now.getTime() && now.getTime() <= Date.parse(value.validUntil); }
 function isValidManagedJobResult(value: unknown, job: ManagedJobRecord, updatedAt: string): value is ManagedJobResult {
   if (!isRecord(value) || !hasOnly(value, ["version", "jobId", "runtimeInvocationId", "configuredAgentProfileId", "admissionProfileId", "routeId", "providerId", "terminalState", "completedAt", "provenance", "resultHandoff"]) || value.version !== 1 || value.jobId !== job.id || !isIdentifier(value.runtimeInvocationId) || value.configuredAgentProfileId !== job.configuredAgentProfileId || value.admissionProfileId !== job.admissionProfileId || value.terminalState !== "completed" || !isIso(value.completedAt) || Date.parse(value.completedAt) !== Date.parse(updatedAt) || !isRecord(value.provenance) || !hasOnly(value.provenance, ["source", "trust"]) || value.provenance.source !== "runtime-managed-invocation" || value.provenance.trust !== "untrusted-child-output" || !isSafeResultHandoff(value.resultHandoff)) return false;
-  return job.candidateSet.candidates.some(
+  if (job.dispatch.kind === "native-harness") {
+    return job.dispatch.routeId === value.routeId && job.dispatch.providerId === value.providerId;
+  }
+  return job.dispatch.candidateSet.candidates.some(
     (candidate) => candidate.routeId === value.routeId && candidate.providerId === value.providerId,
   );
 }
@@ -839,6 +1303,19 @@ export interface ManagedJobEconomicExecutionPort {
   execute(input: {
     readonly job: ManagedJobRecord;
     readonly preparation: Extract<ManagedEconomicDispatchPreparation, { readonly status: "prepared" }>;
+  }): Promise<{
+    readonly runtimeInvocationId: string;
+    readonly completedAt: string;
+    readonly resultHandoff: ManagedAgentResultHandoff;
+  }>;
+}
+
+export interface ManagedJobNativeHarnessExecutionPort {
+  execute(input: {
+    readonly job: ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> };
+    readonly route: ManagedJobNativeHarnessRoute;
+    readonly dispatchFenceId: string;
+    readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
   }): Promise<{
     readonly runtimeInvocationId: string;
     readonly completedAt: string;
@@ -947,7 +1424,13 @@ function resultQuery(job: ManagedJobRecord, availability: ManagedJobResultAvaila
     ...(diagnostic ? { diagnostic } : {}),
   };
 }
-function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery["availability"], lifecycle: readonly ManagedJobLifecycleEntry[], diagnostic?: ManagedJobDiagnosticCode, economic: ManagedJobEconomicReplay = { availability: "unavailable", reason: "authority-unavailable" }): ManagedJobReplayQuery {
+function replayQuery(
+  job: ManagedJobRecord,
+  availability: ManagedJobReplayQuery["availability"],
+  lifecycle: readonly ManagedJobLifecycleEntry[],
+  diagnostic: ManagedJobDiagnosticCode | undefined,
+  dispatch: ManagedJobReplayQuery["dispatch"],
+): ManagedJobReplayQuery {
   const resultAvailability: ManagedJobResultAvailability = job.state === "queued" || job.state === "running"
     ? "pending"
     : job.state === "succeeded"
@@ -962,16 +1445,162 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
     ...(job.result && { routeId: job.result.routeId, providerId: job.result.providerId }),
     lifecycle,
     resultAvailability,
-    economic,
+    dispatch,
     ...(diagnostic ? { diagnostic } : {}),
   };
 }
 function cloneManagedJob(value: ManagedJobRecord): ManagedJobRecord { return structuredClone(value); }
 function isValidEconomicManagedJobProfile(profile: ManagedJobEconomicProfile): boolean {
-  return isIdentifier(profile.economicPolicyId)
+  return profile.kind === "economic"
+    && isIdentifier(profile.economicPolicyId)
     && isIdentifier(profile.economicPolicyRevision)
     && isManagedAgentAdmissionProfile(profile.admissionProfileId)
     && isValidManagedJobConstraints(profile.constraints ?? {});
+}
+function isValidNativeHarnessAcknowledgement(value: unknown): value is ManagedJobNativeHarnessAcknowledgement {
+  return isRecord(value)
+    && hasOnly(value, [
+      "version", "source", "credentialMode", "acknowledgedAt", "routeId", "routeRevision", "providerId", "model",
+      "admissionProfileId", "adapterCapabilityId", "adapterCapabilityVersion",
+    ])
+    && value.version === 1
+    && value.source === "managed-route-admission"
+    && value.credentialMode === "credentialless"
+    && isIso(value.acknowledgedAt)
+    && isIdentifier(value.routeId)
+    && isIdentifier(value.routeRevision)
+    && isIdentifier(value.providerId)
+    && isBoundedOpaqueIdentity(value.model)
+    && isManagedAgentAdmissionProfile(value.admissionProfileId)
+    && isIdentifier(value.adapterCapabilityId)
+    && isIdentifier(value.adapterCapabilityVersion);
+}
+function isValidNativeHarnessProfile(profile: ManagedJobNativeHarnessProfile): boolean {
+  return profile.kind === "native-harness"
+    && isIdentifier(profile.id)
+    && isManagedAgentAdmissionProfile(profile.admissionProfileId)
+    && isIdentifier(profile.routeId)
+    && isIdentifier(profile.routeRevision)
+    && isIdentifier(profile.providerId)
+    && isBoundedOpaqueIdentity(profile.model)
+    && isIdentifier(profile.adapterCapabilityId)
+    && isIdentifier(profile.adapterCapabilityVersion)
+    && isValidNativeHarnessAcknowledgement(profile.acknowledgement)
+    && profile.acknowledgement.routeId === profile.routeId
+    && profile.acknowledgement.routeRevision === profile.routeRevision
+    && profile.acknowledgement.providerId === profile.providerId
+    && profile.acknowledgement.model === profile.model
+    && profile.acknowledgement.admissionProfileId === profile.admissionProfileId
+    && profile.acknowledgement.adapterCapabilityId === profile.adapterCapabilityId
+    && profile.acknowledgement.adapterCapabilityVersion === profile.adapterCapabilityVersion;
+}
+function isValidNativeHarnessRoute(value: unknown): value is ManagedJobNativeHarnessRoute {
+  return isRecord(value)
+    && value.kind === "native-harness"
+    && hasOnly(value, [
+      "kind", "admissionProfileId", "routeId", "routeRevision", "providerId", "model",
+      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement",
+    ])
+    && isManagedAgentAdmissionProfile(value.admissionProfileId)
+    && isIdentifier(value.routeId)
+    && isIdentifier(value.routeRevision)
+    && isIdentifier(value.providerId)
+    && isBoundedOpaqueIdentity(value.model)
+    && isIdentifier(value.adapterCapabilityId)
+    && isIdentifier(value.adapterCapabilityVersion)
+    && isValidNativeHarnessAcknowledgement(value.acknowledgement)
+    && value.acknowledgement.routeId === value.routeId
+    && value.acknowledgement.routeRevision === value.routeRevision
+    && value.acknowledgement.providerId === value.providerId
+    && value.acknowledgement.model === value.model
+    && value.acknowledgement.admissionProfileId === value.admissionProfileId
+    && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
+    && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion;
+}
+function sameNativeHarnessRoute(left: ManagedJobNativeHarnessProfile, right: ManagedJobNativeHarnessRoute): boolean {
+  return left.admissionProfileId === right.admissionProfileId
+    && left.routeId === right.routeId
+    && left.routeRevision === right.routeRevision
+    && left.providerId === right.providerId
+    && left.model === right.model
+    && left.adapterCapabilityId === right.adapterCapabilityId
+    && left.adapterCapabilityVersion === right.adapterCapabilityVersion
+    && sameNativeHarnessAcknowledgement(left.acknowledgement, right.acknowledgement);
+}
+function sameNativeHarnessAcknowledgement(
+  left: ManagedJobNativeHarnessAcknowledgement,
+  right: ManagedJobNativeHarnessAcknowledgement,
+): boolean {
+  return left.version === right.version
+    && left.source === right.source
+    && left.credentialMode === right.credentialMode
+    && left.acknowledgedAt === right.acknowledgedAt
+    && left.routeId === right.routeId
+    && left.routeRevision === right.routeRevision
+    && left.providerId === right.providerId
+    && left.model === right.model
+    && left.admissionProfileId === right.admissionProfileId
+    && left.adapterCapabilityId === right.adapterCapabilityId
+    && left.adapterCapabilityVersion === right.adapterCapabilityVersion;
+}
+function sameNativeHarnessDispatchRoute(
+  dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }>,
+  route: ManagedJobNativeHarnessRoute,
+): boolean {
+  return dispatch.routeId === route.routeId
+    && dispatch.routeRevision === route.routeRevision
+    && dispatch.providerId === route.providerId
+    && dispatch.model === route.model
+    && dispatch.admissionProfileId === route.admissionProfileId
+    && dispatch.adapterCapabilityId === route.adapterCapabilityId
+    && dispatch.adapterCapabilityVersion === route.adapterCapabilityVersion
+    && sameNativeHarnessAcknowledgement(dispatch.acknowledgement, route.acknowledgement);
+}
+function isValidNativeHarnessDispatch(value: unknown): value is Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> {
+  return isRecord(value)
+    && value.kind === "native-harness"
+    && isIdentifier(value.routeId)
+    && isIdentifier(value.routeRevision)
+    && isIdentifier(value.providerId)
+    && isBoundedOpaqueIdentity(value.model)
+    && isManagedAgentAdmissionProfile(value.admissionProfileId)
+    && isIdentifier(value.adapterCapabilityId)
+    && isIdentifier(value.adapterCapabilityVersion)
+    && isValidNativeHarnessAcknowledgement(value.acknowledgement)
+    && (value.dispatchFenceId === undefined || isNativeHarnessDispatchFenceId(value.dispatchFenceId))
+    && value.acknowledgement.routeId === value.routeId
+    && value.acknowledgement.routeRevision === value.routeRevision
+    && value.acknowledgement.providerId === value.providerId
+    && value.acknowledgement.model === value.model
+    && value.acknowledgement.admissionProfileId === value.admissionProfileId
+    && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
+    && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion;
+}
+function isValidManagedJobDispatch(value: unknown): value is ManagedJobDispatch {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "native-harness") {
+    return hasOnly(value, [
+      "kind", "routeId", "routeRevision", "providerId", "model", "admissionProfileId",
+      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "dispatchFenceId",
+    ]) && isValidNativeHarnessDispatch(value);
+  }
+  if (value.kind !== "economic") return false;
+  return hasOnly(value, [
+    "kind", "economicAttemptId", "economicPolicyId", "economicPolicyRevision", "constraints", "candidateSet",
+  ])
+    && isEconomicAttemptId(value.economicAttemptId)
+    && isIdentifier(value.economicPolicyId)
+    && isIdentifier(value.economicPolicyRevision)
+    && isValidManagedJobConstraints(value.constraints)
+    && isManagedEconomicCandidateSet(value.candidateSet as ManagedEconomicCandidateSet);
+}
+function economicDispatchOf(
+  job: ManagedJobRecord,
+): Extract<ManagedJobDispatch, { readonly kind: "economic" }> {
+  if (job.dispatch.kind !== "economic") {
+    throw new ManagedJobApplicationError("identity-revision-conflict", "Persisted managed dispatch is not economic.");
+  }
+  return job.dispatch;
 }
 function normalizeManagedJobConstraints(
   constraints: ManagedJobEconomicProfile["constraints"] | undefined,
@@ -989,11 +1618,26 @@ function sameManagedJobConstraints(
   return JSON.stringify(normalizeManagedJobConstraints(left))
     === JSON.stringify(normalizeManagedJobConstraints(right));
 }
+function sameManagedEconomicCandidateSet(
+  left: ManagedEconomicCandidateSet,
+  right: ManagedEconomicCandidateSet,
+): boolean {
+  if (
+    left.economicPolicyId !== right.economicPolicyId
+    || left.economicPolicyRevision !== right.economicPolicyRevision
+    || left.admissionProfileId !== right.admissionProfileId
+    || !sameManagedJobConstraints(left.constraints, right.constraints)
+  ) return false;
+  const canonicalCandidates = (value: ManagedEconomicCandidateSet): string => digestManagedEconomicValue(
+    [...value.candidates].sort((a, b) => digestManagedEconomicValue(a).localeCompare(digestManagedEconomicValue(b))),
+  );
+  return canonicalCandidates(left) === canonicalCandidates(right);
+}
 function isManagedEconomicCandidateSet(
-  value: ManagedEconomicCandidateSet | undefined,
+  value: unknown,
 ): value is ManagedEconomicCandidateSet {
   if (
-    value === undefined
+    !isRecord(value)
     || !isIdentifier(value.economicPolicyId)
     || !isIdentifier(value.economicPolicyRevision)
     || !isManagedAgentAdmissionProfile(value.admissionProfileId)
@@ -1008,8 +1652,9 @@ function isManagedEconomicCandidateSet(
     if (
       !isRecord(candidate)
       || !hasOnly(candidate, [
-        "routeId", "routeSource", "providerId", "model", "accountPolicyId",
-        "surface", "adapterCapabilityId", "adapterCapabilityVersion",
+       "routeId", "routeSource", "providerId", "model", "accountPolicyId",
+         "surface", "adapterCapabilityId", "adapterCapabilityVersion", "profileAuthorityDigest",
+         "deliberationResolution",
       ])
       || !isIdentifier(candidate.routeId)
       || !isManagedAgentRouteSource(candidate.routeSource)
@@ -1020,8 +1665,11 @@ function isManagedEconomicCandidateSet(
         && !isIdentifier(candidate.accountPolicyId)
       )
       || (candidate.surface !== undefined && !isIdentifier(candidate.surface))
-      || !isIdentifier(candidate.adapterCapabilityId)
-      || !isIdentifier(candidate.adapterCapabilityVersion)
+       || !isIdentifier(candidate.adapterCapabilityId)
+       || !isIdentifier(candidate.adapterCapabilityVersion)
+       || !isCanonicalHash(candidate.profileAuthorityDigest)
+       || (candidate.deliberationResolution !== undefined
+         && !isValidManagedCandidateDeliberationResolution(candidate.deliberationResolution))
       || candidateRouteIds.has(candidate.routeId)
     ) {
       return false;
@@ -1039,7 +1687,8 @@ function isManagedEconomicCandidateSet(
         "not-in-policy",
         "caller-constraint-excluded",
         "non-economic-admission-failed",
-        "economic-capability-unverified",
+         "economic-capability-unverified",
+         "deliberation-denied",
       ].includes(String(rejection.reason))
       || candidateRouteIds.has(rejection.routeId)
       || rejectedRouteIds.has(rejection.routeId)
@@ -1049,6 +1698,68 @@ function isManagedEconomicCandidateSet(
     rejectedRouteIds.add(rejection.routeId);
   }
   return true;
+}
+function isValidManagedCandidateDeliberationResolution(value: unknown): value is DeliberationResolution {
+  if (!isRecord(value) || !hasOnly(value, ["status", "requested", "source", "capabilityEvidence", "selectedLevel", "reason"])) return false;
+  if (
+    (value.source !== "operator"
+      && value.source !== "work-item"
+      && value.source !== "agent-profile"
+      && value.source !== "route"
+      && value.source !== "task"
+      && value.source !== "project"
+      && value.source !== "provider-default")
+    || (value.requested !== undefined && !isValidManagedCandidateDeliberationIntent(value.requested))
+    || (value.capabilityEvidence !== undefined && !isValidManagedCandidateDeliberationEvidence(value.capabilityEvidence))
+  ) return false;
+  if (value.status === "exact" || value.status === "defaulted") {
+    return isBoundedOpaqueIdentity(value.selectedLevel) && value.reason === undefined;
+  }
+  if (value.status === "clamped") {
+    return isBoundedOpaqueIdentity(value.selectedLevel) && isDeliberationResolutionReason(value.reason);
+  }
+  if (value.status === "omitted") {
+    return isDeliberationResolutionReason(value.reason) && value.selectedLevel === undefined;
+  }
+  return false;
+}
+function isValidManagedCandidateDeliberationIntent(value: unknown): boolean {
+  if (!isRecord(value) || !hasOnly(value, ["mode", "preferredLevel", "target", "bounds", "onUnsupported"])) return false;
+  if (value.onUnsupported !== "deny" && value.onUnsupported !== "omit" && value.onUnsupported !== "allow-clamp") return false;
+  if (value.bounds !== undefined && (
+    !isRecord(value.bounds)
+    || !hasOnly(value.bounds, ["min", "max"])
+    || (value.bounds.min !== undefined && !isBoundedOpaqueIdentity(value.bounds.min))
+    || (value.bounds.max !== undefined && !isBoundedOpaqueIdentity(value.bounds.max))
+  )) return false;
+  if (value.mode === "provider-default") {
+    return value.preferredLevel === undefined && value.target === undefined;
+  }
+  if (value.mode === "fixed") {
+    return isBoundedOpaqueIdentity(value.preferredLevel) && value.target === undefined;
+  }
+  return value.mode === "adaptive"
+    && (value.target === "latency-first" || value.target === "balanced" || value.target === "quality-first")
+    && value.preferredLevel === undefined;
+}
+function isValidManagedCandidateDeliberationEvidence(value: unknown): boolean {
+  return isRecord(value)
+    && hasOnly(value, ["sourceIdentity", "sourceRevision", "observedAt"])
+    && isBoundedOpaqueIdentity(value.sourceIdentity)
+    && isBoundedOpaqueIdentity(value.sourceRevision)
+    && isIso(value.observedAt);
+}
+function isDeliberationResolutionReason(value: unknown): boolean {
+  return value === "not-requested"
+    || value === "capability-unknown"
+    || value === "capability-invalid"
+    || value === "provider-default-unavailable"
+    || value === "adaptive-unsupported"
+    || value === "preferred-level-unsupported"
+    || value === "preferred-level-outside-bounds"
+    || value === "bound-unsupported"
+    || value === "invalid-bounds"
+    || value === "no-level-within-bounds";
 }
 function isIdentifier(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(value); }
 function isBoundedOpaqueIdentity(value: unknown): value is string {
@@ -1074,6 +1785,11 @@ function isEconomicAttemptId(value: unknown): value is string {
   return typeof value === "string"
     && value.startsWith("economic-attempt:")
     && isIdentifier(value.slice("economic-attempt:".length));
+}
+function isNativeHarnessDispatchFenceId(value: unknown): value is string {
+  return typeof value === "string"
+    && value.startsWith("native-harness-dispatch:")
+    && isIdentifier(value.slice("native-harness-dispatch:".length));
 }
 function isNonterminal(state: ManagedJobState): boolean {
   return state === "queued" || state === "running";

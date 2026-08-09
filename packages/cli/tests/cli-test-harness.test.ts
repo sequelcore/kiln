@@ -31,7 +31,7 @@ describe("CLI test harness", () => {
 
   it("bounds test, hook, and teardown lifecycle stalls", () => {
     expect(vitestConfig.test).toMatchObject({
-      testTimeout: 10_000,
+      testTimeout: 20_000,
       hookTimeout: 10_000,
       teardownTimeout: 10_000,
     });

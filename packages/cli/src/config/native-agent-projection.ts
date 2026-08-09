@@ -1,11 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
+import type { RouteAdmissionDecision } from "@kilnai/core";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
+  adoptLegacyNativeProjectionFile,
   createNativeProjectionFileSnapshot,
   detectNativeProjectionFileDrift,
+  isFullyOwnedNativeProjectionFile,
   readNativeProjectionInstallState,
   removeNativeProjectionTargetState,
   upsertNativeProjectionTargetState,
@@ -13,6 +16,7 @@ import {
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "./native-projection-state.js";
+import { isSafeProjectionPathComponent, resolveProjectionPathWithin } from "./native-projection-paths.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
   describeProjectionDrift,
@@ -21,7 +25,8 @@ import {
   type NativeProjectionSyncOptions,
 } from "./native-projection-policy.js";
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
-import { decideNativeAgentProjection } from "./native-agent-projection-decision.js";
+import { decideNativeAgentProjection, type NativeAgentProjectionDecision } from "./native-agent-projection-decision.js";
+import { createNativeAgentRouteAdmissionResolver } from "./native-agent-route-admission.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -30,9 +35,25 @@ export interface NativeAgentProjectionResult {
   synced: number;
   errors: string[];
   outcomes: readonly ProjectionOutcome[];
+  unavailable: readonly NativeAgentProjectionUnavailable[];
 }
 
-export interface NativeAgentProjectionOptions extends NativeProjectionSyncOptions {}
+export interface NativeAgentProjectionUnavailable {
+  readonly targetId: string;
+  readonly agentName: string;
+  readonly harness: "claude" | "codex" | "opencode";
+  readonly decision: Exclude<NativeAgentProjectionDecision, { readonly kind: "project" }>;
+}
+
+export interface NativeAgentProjectionOptions extends NativeProjectionSyncOptions {
+  readonly resolveRouteAdmission?: (input: {
+    readonly agent: KilnAgentDefinition;
+    readonly routeId?: string;
+    readonly providerId: string;
+    readonly model?: string;
+    readonly harness: NativeAgentProjectionTarget["key"];
+  }) => RouteAdmissionDecision | undefined;
+}
 
 interface NativeAgentProjectionTarget {
   readonly key: "claude" | "codex" | "opencode";
@@ -48,6 +69,7 @@ interface NativeAgentFileSyncResult {
   readonly removedTargetId?: string;
   readonly error?: string;
   readonly outcome: ProjectionOutcome;
+  readonly unavailable?: NativeAgentProjectionUnavailable;
 }
 
 function escapeTomlString(value: string): string {
@@ -192,13 +214,16 @@ export async function syncNativeAgentProjections(
 ): Promise<NativeAgentProjectionResult> {
   const errors: string[] = [];
   const outcomes: ProjectionOutcome[] = [];
+  const unavailable: NativeAgentProjectionUnavailable[] = [];
   let synced = 0;
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
 
   let agents: KilnAgentDefinition[];
   try {
-    agents = await loadAgentDefinitions(projectPath);
+    agents = options.userHome === undefined
+      ? await loadAgentDefinitions(projectPath)
+      : await loadAgentDefinitions(projectPath, { userHome: options.userHome });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -213,12 +238,20 @@ export async function syncNativeAgentProjections(
         status: "failed",
         reason: `Agent load failed: ${message}`,
       }],
+      unavailable,
     };
   }
 
-  if (agents.length === 0) {
-    return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes };
+  const hasManagedAgentProjection = Object.keys(installState.targets)
+    .some((targetId) => targetId.includes("-agent:"));
+  if (agents.length === 0 && !hasManagedAgentProjection) {
+    return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes, unavailable };
   }
+  const defaultAdmissionResolver = options.resolveRouteAdmission || !agents.some((agent) => agent.providerRoute)
+    ? undefined
+    : await createNativeAgentRouteAdmissionResolver(projectPath);
+  const resolveRouteAdmission = options.resolveRouteAdmission
+    ?? ((input) => defaultAdmissionResolver?.resolve(input.agent));
 
   const targets: NativeAgentProjectionTarget[] = [
     {
@@ -279,9 +312,24 @@ export async function syncNativeAgentProjections(
       outcomes.push({ targetId: `${target.key}-agent-directory`, path: target.dir, status: "failed", reason });
     }
 
+    const staleAgentResult = pruneOmittedNativeAgentProjections({
+      target,
+      agents,
+      kilnDir,
+      installState,
+      options,
+    });
+    installState = staleAgentResult.installState;
+    outcomes.push(...staleAgentResult.outcomes);
+    if (staleAgentResult.errors.length > 0) {
+      setTargetFailed(target.key);
+      errors.push(...staleAgentResult.errors);
+    }
+
     for (const agent of agents) {
-      const result = syncAgentFile(agent, target, kilnDir, installState, options);
+      const result = syncAgentFile(agent, target, kilnDir, installState, { ...options, resolveRouteAdmission });
       outcomes.push(result.outcome);
+      if (result.unavailable) unavailable.push(result.unavailable);
       if (!result.ok) {
         setTargetFailed(target.key);
         errors.push(`${target.label} agent "${agent.name}" failed: ${result.error ?? "unknown error"}`);
@@ -292,14 +340,16 @@ export async function syncNativeAgentProjections(
         synced += 1;
       }
       if (result.removedTargetId) {
-        installState = removeNativeProjectionTargetState(installState, result.removedTargetId);
+        if (!options.dryRun) {
+          installState = removeNativeProjectionTargetState(installState, result.removedTargetId);
+        }
       }
     }
   }
 
   if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
 
-  return { claude, codex, opencode, synced, errors, outcomes };
+  return { claude, codex, opencode, synced, errors, outcomes, unavailable };
 }
 
 function syncAgentFile(
@@ -311,15 +361,115 @@ function syncAgentFile(
 ): NativeAgentFileSyncResult {
   const filePath = join(target.dir, `${agent.name}.${target.extension}`);
   const targetId = `${target.key}-agent:${agent.name}`;
-  const decision = decideNativeAgentProjection({ agent, harness: target.key });
-  if (decision.kind === "omit") {
-    return removeOwnedOmittedAgentFile({
-      filePath,
-      installState,
-      kilnDir,
-      options,
-      targetId,
-    });
+  const identity = {
+    targetId,
+    filePath,
+    harness: target.key,
+    sourceIdentity: `agent:${agent.name}`,
+  } as const;
+  if (!isSafeProjectionPathComponent(agent.name) || !resolveProjectionPathWithin(target.dir, filePath)) {
+    return {
+      ok: false,
+      error: `unsafe managed agent projection path: ${agent.name}`,
+      outcome: {
+        targetId,
+        path: filePath,
+        status: "blocked",
+        reason: `unsafe managed agent projection path: ${agent.name}`,
+      },
+    };
+  }
+  const decision = decideNativeAgentProjection({
+    agent,
+    harness: target.key,
+    admission: agent.providerRoute ? options.resolveRouteAdmission?.({
+      agent,
+      ...(agent.routeId ? { routeId: agent.routeId } : {}), providerId: agent.providerRoute.providerId,
+      ...(agent.providerRoute.model ? { model: agent.providerRoute.model } : {}), harness: target.key,
+    }) : undefined,
+  });
+  if (decision.kind !== "project") {
+    const unavailable = { targetId, agentName: agent.name, harness: target.key, decision };
+    let managedTarget = installState.targets[targetId];
+    let observedContent: string | Uint8Array | undefined;
+    if (!isFullyOwnedNativeProjectionFile(managedTarget, identity) && existsSync(filePath)) {
+      observedContent = readFileSync(filePath);
+      managedTarget = adoptLegacyNativeProjectionFile({
+        target: managedTarget,
+        currentContent: observedContent,
+        expected: identity,
+        harnessRoot: target.dir,
+      });
+    }
+    const ownedTarget = managedTarget;
+    if (!ownedTarget || !isFullyOwnedNativeProjectionFile(ownedTarget, identity)) {
+      return {
+        ok: true,
+        outcome: {
+          targetId,
+          path: filePath,
+          status: "skipped",
+          reason: nativeProjectionUnavailableReason(decision.reason),
+        },
+        unavailable,
+      };
+    }
+    try {
+      if (existsSync(filePath)) {
+        const drift = detectNativeProjectionFileDrift({
+          targetId,
+          state: {
+            version: 1,
+            targets: { [targetId]: ownedTarget },
+          },
+          currentContent: observedContent ?? readFileSync(filePath),
+        });
+        if (drift) {
+          return {
+            ok: false,
+            error: `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+            outcome: {
+              targetId,
+              path: filePath,
+              status: "blocked",
+              reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+            },
+            unavailable,
+          };
+        }
+      }
+      if (options.dryRun) {
+        return {
+          ok: true,
+          removedTargetId: targetId,
+          outcome: {
+            targetId,
+            path: filePath,
+            status: "planned",
+            reason: "remove unavailable managed agent projection",
+          },
+          unavailable,
+        };
+      }
+      if (existsSync(filePath)) {
+        backupNativeProjectionFile({ kilnDir, targetId, filePath });
+        unlinkSync(filePath);
+      }
+      return {
+        ok: true,
+        removedTargetId: targetId,
+        outcome: { targetId, path: filePath, status: "removed", reason: "remove unavailable managed agent projection" },
+        unavailable,
+      };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        error: reason,
+        outcome: { targetId, path: filePath, status: "failed", reason },
+        unavailable,
+      };
+    }
   }
 
   try {
@@ -344,7 +494,7 @@ function syncAgentFile(
     }
 
     const content = target.render(agent, decision.nativeModel);
-    const snapshot = createNativeProjectionFileSnapshot({ targetId, filePath, content });
+    const snapshot = createNativeProjectionFileSnapshot({ ...identity, content });
     if (options.dryRun) {
       return {
         ok: true,
@@ -368,70 +518,96 @@ function syncAgentFile(
   }
 }
 
-function removeOwnedOmittedAgentFile(input: {
-  readonly filePath: string;
-  readonly installState: NativeProjectionInstallState;
+function pruneOmittedNativeAgentProjections(input: {
+  readonly target: NativeAgentProjectionTarget;
+  readonly agents: readonly KilnAgentDefinition[];
   readonly kilnDir: string;
+  readonly installState: NativeProjectionInstallState;
   readonly options: NativeAgentProjectionOptions;
-  readonly targetId: string;
-}): NativeAgentFileSyncResult {
-  if (!input.installState.targets[input.targetId]) {
-    return {
-      ok: true,
-      outcome: { targetId: input.targetId, path: input.filePath, status: "skipped", reason: "agent is not projected to this harness" },
-    };
-  }
+}): {
+  readonly installState: NativeProjectionInstallState;
+  readonly errors: readonly string[];
+  readonly outcomes: readonly ProjectionOutcome[];
+} {
+  const prefix = `${input.target.key}-agent:`;
+  const currentNames = new Set(input.agents.map((agent) => agent.name));
+  const errors: string[] = [];
+  const outcomes: ProjectionOutcome[] = [];
+  let installState = input.installState;
 
-  try {
-    if (!existsSync(input.filePath)) {
-      return {
-        ok: true,
-        removedTargetId: input.targetId,
-        outcome: { targetId: input.targetId, path: input.filePath, status: input.options.dryRun ? "planned" : "removed", reason: "remove stale install-state entry" },
-      };
+  for (const [targetId, targetState] of Object.entries(input.installState.targets)) {
+    if (!targetId.startsWith(prefix)) continue;
+    const agentName = targetId.slice(prefix.length);
+    if (currentNames.has(agentName)) continue;
+    const filePath = targetState.filePath;
+    const identity = {
+      targetId,
+      filePath,
+      harness: input.target.key,
+      sourceIdentity: `agent:${agentName}`,
+    } as const;
+    if (!isSafeProjectionPathComponent(agentName)
+      || !resolveProjectionPathWithin(input.target.dir, filePath)) {
+      continue;
     }
-
-    const drift = detectNativeProjectionFileDrift({
-      targetId: input.targetId,
-      state: input.installState,
-      currentContent: readFileSync(input.filePath, "utf-8"),
-    });
-    if (drift && !input.options.force) {
-        return {
-          ok: false,
-          error: `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
-          outcome: {
-            targetId: input.targetId,
-            path: input.filePath,
-            status: "blocked",
-            reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
+    let managedTarget: NativeProjectionTargetState | undefined = targetState;
+    let observedContent: string | Uint8Array | undefined;
+    if (!isFullyOwnedNativeProjectionFile(managedTarget, identity) && existsSync(filePath)) {
+      observedContent = readFileSync(filePath);
+      managedTarget = adoptLegacyNativeProjectionFile({
+        target: managedTarget,
+        currentContent: observedContent,
+        expected: identity,
+        harnessRoot: input.target.dir,
+      });
+    }
+    const ownedTarget = managedTarget;
+    if (!ownedTarget || !isFullyOwnedNativeProjectionFile(ownedTarget, identity)) continue;
+    try {
+      if (existsSync(filePath)) {
+        const drift = detectNativeProjectionFileDrift({
+          targetId,
+          state: {
+            version: 1,
+            targets: { [targetId]: ownedTarget },
           },
-        };
+          currentContent: observedContent ?? readFileSync(filePath),
+        });
+        if (drift) {
+          const reason = `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`;
+          errors.push(`${input.target.label} omitted agent "${agentName}" failed: ${reason}`);
+          outcomes.push({ targetId, path: filePath, status: "blocked", reason });
+          continue;
+        }
       }
-
-    if (input.options.dryRun) {
-      return {
-        ok: true,
-        outcome: { targetId: input.targetId, path: input.filePath, status: "planned", reason: "remove managed agent file content" },
-      };
+      if (input.options.dryRun) {
+        outcomes.push({
+          targetId,
+          path: filePath,
+          status: "planned",
+          reason: "remove omitted managed agent projection",
+        });
+        continue;
+      }
+      if (existsSync(filePath)) {
+        backupNativeProjectionFile({ kilnDir: input.kilnDir, targetId, filePath });
+        unlinkSync(filePath);
+      }
+      installState = removeNativeProjectionTargetState(installState, targetId);
+      outcomes.push({ targetId, path: filePath, status: "removed", reason: "remove omitted managed agent projection" });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      errors.push(`${input.target.label} omitted agent "${agentName}" failed: ${reason}`);
+      outcomes.push({ targetId, path: filePath, status: "failed", reason });
     }
-    backupNativeProjectionFile({
-      kilnDir: input.kilnDir,
-      targetId: input.targetId,
-      filePath: input.filePath,
-    });
-    unlinkSync(input.filePath);
-    return {
-      ok: true,
-      removedTargetId: input.targetId,
-      outcome: { targetId: input.targetId, path: input.filePath, status: "removed" },
-    };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      error: reason,
-      outcome: { targetId: input.targetId, path: input.filePath, status: "failed", reason },
-    };
   }
+
+  return { installState, errors, outcomes };
+}
+
+function nativeProjectionUnavailableReason(
+  reason: import("./native-agent-projection-decision.js").NativeProjectionUnavailableReason,
+): string {
+  if (reason.kind === "transport") return `native projection transport unavailable: ${reason.code}`;
+  return `managed route admission unavailable: ${reason.reasons.map((rejection) => rejection.code).join(", ")}`;
 }

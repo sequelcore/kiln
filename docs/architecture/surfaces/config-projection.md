@@ -80,10 +80,14 @@ route/provider/model identity. A mismatch emits sanitized typed
 `committed-route-mismatch` evidence before adapter construction and fails
 closed. It never falls back to another configured route or account.
 
-Economic commitment is local project-runtime authority. Config projection does
-not claim provider-global or subscription-global capacity, and Roadmap issue
-#34 internal Slice 4 performs no provider dispatch. Model Gateway ingress keeps
-its separate `LocalModelGatewayStore` authority until Roadmap 02 Slice 5.
+Economic commitment is Kiln-local Runtime authority. Runtime composes the
+user-scoped SQLite ledger, whose single writer shares account capacity and
+affinity between Gateway ingress and managed jobs while project-namespacing
+economic commitments. Config projection neither selects a route nor owns a
+ledger. It makes no provider-global or subscription-global capacity claim.
+Adapters remain deferred mechanism kinds; callers can only narrow admitted
+capabilities, and an encoder is transport-only. Native projections must expose
+unavailable or unresolved evidence explicitly.
 
 ## Global Config
 

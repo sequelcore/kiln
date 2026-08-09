@@ -13,8 +13,8 @@ const fingerprint = { rawBody: "{}", ingress: "openai-responses", tenantId: "ten
 const completed = { responseId: "resp_synthetic", result: { parts: [{ type: "text" as const, text: "synthetic" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" } };
 const gatewayConfig = { port: 4901, accounts: [{ id: "account", providerId: "codex-oauth" as const, credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }], replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses" as const, tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth" as const, providerModelId: "model", accountIds: ["account"], capabilities: ["text" as const], affinity: { continuity: "none" as const } }] };
 
-function store(path: string, ownerId: string): LocalModelGatewayStore {
-  return new LocalModelGatewayStore({ path, replaySecret: secret, replayTtlMs: 5_000, replayMaxEntries: 20, accounts: [], ownerId, ownerStaleMs: 75 });
+function store(path: string): LocalModelGatewayStore {
+  return new LocalModelGatewayStore({ path, replaySecret: secret, replayTtlMs: 5_000, replayMaxEntries: 20 });
 }
 
 function requireDispatch(decision: ModelGatewayReplayDecision) {
@@ -23,7 +23,7 @@ function requireDispatch(decision: ModelGatewayReplayDecision) {
 }
 
 async function child(mode: "claimed" | "committed", path: string): Promise<void> {
-  const authority = store(path, `child-${mode}`);
+  const authority = store(path);
   const claim = requireDispatch(authority.claim(authority.fingerprint(fingerprint)));
   if (mode === "committed") authority.markCommitted(claim.key, claim.fence);
   process.exit(0);
@@ -40,27 +40,24 @@ async function main(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "kiln-real-sqlite-"));
   try {
     const durablePath = join(root, "durable.sqlite");
-    const first = store(durablePath, "owner-first");
+    const first = store(durablePath);
     const key = first.fingerprint(fingerprint);
     const claim = requireDispatch(first.claim(key));
     first.markCommitted(key, claim.fence); first.complete(key, claim.fence, completed); first.close();
     if ((await stat(durablePath)).size === 0) throw new Error("SQLite database was not written to disk.");
-    const reopened = store(durablePath, "owner-reopened");
+    const reopened = store(durablePath);
     const replay = reopened.claim(key);
     if (replay.kind !== "replay-completed" || replay.value.responseId !== completed.responseId) throw new Error("Completed replay did not survive file-backed reopen.");
-    let fenced = false;
-    try { store(durablePath, "owner-conflict"); } catch (error) { fenced = error instanceof Error && error.message.includes("live runtime owner"); }
-    if (!fenced) throw new Error("A second live SQLite owner was not fenced.");
     reopened.close(); reopened.close();
 
     const claimedPath = join(root, "claimed-crash.sqlite");
     await spawnCrash("claimed", claimedPath);
-    const claimedRecovery = store(claimedPath, "claimed-recovery");
+    const claimedRecovery = store(claimedPath);
     requireDispatch(claimedRecovery.claim(claimedRecovery.fingerprint(fingerprint))); claimedRecovery.close();
 
     const committedPath = join(root, "committed-crash.sqlite");
     await spawnCrash("committed", committedPath);
-    const committedRecovery = store(committedPath, "committed-recovery");
+    const committedRecovery = store(committedPath);
     if (committedRecovery.claim(committedRecovery.fingerprint(fingerprint)).kind !== "committed-unknown") throw new Error("Committed crash recovery permitted redispatch.");
     committedRecovery.close();
 
@@ -139,7 +136,7 @@ modelGateway:
     if (watcherStopCalls !== 1) throw new Error(`Expected CredentialWatcher.stop once after late startup failure, observed ${watcherStopCalls} call(s); observed error "${observedLateFailure}".`);
     if (dedupCloseCalls !== 1) throw new Error(`Expected WebhookDedup.close once after late startup failure, observed ${dedupCloseCalls} call(s); observed error "${observedLateFailure}".`);
     console.log("real Bun SQLite durability, fencing, recovery, permissions, and startup cleanup checks passed");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 }
 
 const mode = process.argv[2];

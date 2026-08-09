@@ -91,8 +91,18 @@ export function mergeCancelledRecords(
         ?? adapterHandoff?.provenance
         ?? runtimeGeneratedHandoffProvenance(adapterRecord.providerRoute.model),
       summary: runtimeHandoff?.summary ?? adapterHandoff?.summary ?? "Managed invocation cancelled.",
+      ...(runtimeHandoff?.summaryAuthority !== undefined
+        ? { summaryAuthority: runtimeHandoff.summaryAuthority }
+        : adapterHandoff?.summaryAuthority !== undefined
+          ? { summaryAuthority: adapterHandoff.summaryAuthority }
+          : {}),
       resourceUris: adapterHandoff?.resourceUris ?? runtimeHandoff?.resourceUris ?? [],
       memoryWriteProposalUris: adapterHandoff?.memoryWriteProposalUris ?? runtimeHandoff?.memoryWriteProposalUris ?? [],
+      ...(adapterHandoff?.ephemeralHarnessState !== undefined
+        ? { ephemeralHarnessState: adapterHandoff.ephemeralHarnessState }
+        : runtimeHandoff?.ephemeralHarnessState !== undefined
+          ? { ephemeralHarnessState: runtimeHandoff.ephemeralHarnessState }
+          : {}),
     },
   });
 }

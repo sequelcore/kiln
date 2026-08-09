@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { AllCredentialsExhaustedError, type CredentialOutcome, type CredentialPool, type ExecutionSessionEvent } from "@kilnai/core";
+import {
+  AllCredentialsExhaustedError,
+  type CredentialOutcome,
+  type CredentialPool,
+  type ExecutionSessionEphemeralHarnessStateEvidence,
+  type ExecutionSessionEvent,
+} from "@kilnai/core";
 import type { HarnessHomeAuth, HarnessPoolProviderId } from "@kilnai/runtime";
 import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "./session.js";
 
@@ -19,6 +25,8 @@ export class PooledHarnessSession implements IKilnSession {
   private readonly createSession: (auth: HarnessHomeAuth) => IKilnSession;
   private readonly createDefaultSession: () => IKilnSession;
   private activeSession: IKilnSession | null = null;
+  private _observedHarnessVersion: string | undefined;
+  private pendingEphemeralHarnessStateEvidence: ExecutionSessionEphemeralHarnessStateEvidence[] = [];
 
   constructor(config: PooledHarnessSessionConfig) {
     this.provider = config.provider;
@@ -47,7 +55,12 @@ export class PooledHarnessSession implements IKilnSession {
     return this.activeSession?.providerSessionId;
   }
 
+  get observedHarnessVersion(): string | undefined {
+    return this._observedHarnessVersion ?? this.activeSession?.observedHarnessVersion;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
+    this._observedHarnessVersion = undefined;
     const pool = await this.pool;
     if (pool.snapshot().metrics.totalCredentials === 0) {
       const session = this.createDefaultSession();
@@ -56,6 +69,7 @@ export class PooledHarnessSession implements IKilnSession {
         yield* session.run(options);
       } finally {
         await session.dispose();
+        this._observedHarnessVersion = session.observedHarnessVersion;
       }
       return;
     }
@@ -84,6 +98,7 @@ export class PooledHarnessSession implements IKilnSession {
         }
       } finally {
         await session.dispose();
+        this._observedHarnessVersion = session.observedHarnessVersion;
       }
 
       const outcome = mapHarnessEventsToOutcome(events);
@@ -103,6 +118,10 @@ export class PooledHarnessSession implements IKilnSession {
         return;
       }
 
+      // A retry discards the entire failed attempt, including evidence
+      // finalized by the inner session during disposal.
+      session.drainEphemeralHarnessStateEvidence?.();
+
       lastError = events.find((event) => event.type === "error")?.message;
       lastOutcome = outcome;
     }
@@ -111,8 +130,29 @@ export class PooledHarnessSession implements IKilnSession {
   }
 
   async dispose(): Promise<void> {
-    await this.activeSession?.dispose();
-    this.activeSession = null;
+    const session = this.activeSession;
+    if (session === null) return;
+    try {
+      await session.dispose();
+    } finally {
+      this._observedHarnessVersion = session.observedHarnessVersion ?? this._observedHarnessVersion;
+      for (const evidence of session.drainEphemeralHarnessStateEvidence?.() ?? []) {
+        if (!this.pendingEphemeralHarnessStateEvidence.some((candidate) =>
+          candidate.capabilityId === evidence.capabilityId
+          && candidate.artifactDigest === evidence.artifactDigest
+          && candidate.cleanupStatus === evidence.cleanupStatus
+        )) {
+          this.pendingEphemeralHarnessStateEvidence.push(evidence);
+        }
+      }
+      this.activeSession = null;
+    }
+  }
+
+  drainEphemeralHarnessStateEvidence(): readonly ExecutionSessionEphemeralHarnessStateEvidence[] {
+    const evidence = this.pendingEphemeralHarnessStateEvidence;
+    this.pendingEphemeralHarnessStateEvidence = [];
+    return evidence;
   }
 
   private resolveMaxAttempts(pool: CredentialPool<HarnessHomeAuth>): number {

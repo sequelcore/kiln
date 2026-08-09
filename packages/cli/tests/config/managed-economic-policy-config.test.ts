@@ -13,6 +13,8 @@ import {
 } from "../../src/config/managed-agent-routes.js";
 import { economicConfig } from "./managed-economic-policy-config-fixture.js";
 
+const testProfileAuthorityDigest = `sha256:${"9".repeat(64)}`;
+
 function accountlessEconomicConfig(): KilnGlobalConfig {
   const config = structuredClone(economicConfig()) as Record<string, any>;
   config.managedAgents.routes[0].credentials = {
@@ -29,20 +31,31 @@ function economicJob(jobId: string, economicAttemptId: string) {
     id: jobId,
     projectId: "project-a",
     callerId: "caller-a",
-    economicAttemptId,
     adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-    economicPolicyId: "default-economic-policy",
-    economicPolicyRevision: "rev-2026-07",
-    constraints: {},
-    candidateSet: { candidates: [{
-      routeId: "codex-standard",
-      routeSource: "explicit-managed-route",
-      providerId: "codex-oauth",
-      model: "gpt-5.6-codex",
-      accountPolicyId: "codex-standard-policy",
-      adapterCapabilityId: "codex-direct",
-      adapterCapabilityVersion: "v1",
-    }] },
+    dispatch: {
+      kind: "economic" as const,
+      economicAttemptId,
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "rev-2026-07",
+      constraints: {},
+      candidateSet: {
+        economicPolicyId: "default-economic-policy",
+        economicPolicyRevision: "rev-2026-07",
+        admissionProfileId: "foundation-readonly-plan" as const,
+        constraints: {},
+        candidates: [{
+          routeId: "codex-standard",
+          routeSource: "explicit-managed-route",
+          providerId: "codex-oauth",
+          model: "gpt-5.6-codex",
+          accountPolicyId: "codex-standard-policy",
+          adapterCapabilityId: "codex-direct",
+          adapterCapabilityVersion: "v1",
+          profileAuthorityDigest: testProfileAuthorityDigest,
+        }],
+        rejections: [],
+      },
+    },
   } as never;
 }
 
@@ -118,27 +131,33 @@ describe("managed economic policy config", () => {
       candidates: [],
     }));
     const adoption = await projectManagedEconomicJobAdoption(economicConfig(), {
-      economicAttemptId: "economic-attempt:test-attempt-001",
+      projectId: "project-a",
+      callerId: "caller-a",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      economicPolicyId: "default-economic-policy",
-      economicPolicyRevision: "rev-2026-07",
-      constraints: {},
-      candidateSet: {
+      dispatch: {
+        kind: "economic" as const,
+        economicAttemptId: "economic-attempt:test-attempt-001",
         economicPolicyId: "default-economic-policy",
         economicPolicyRevision: "rev-2026-07",
-        admissionProfileId: "foundation-readonly-plan",
         constraints: {},
-        candidates: [{
-          routeId: "codex-standard",
-          routeSource: "explicit-managed-route",
-          providerId: "codex-oauth",
-          model: "gpt-5.6-codex",
-          accountPolicyId: "codex-standard-policy",
-          surface: "direct-provider",
-          adapterCapabilityId: "codex-direct",
-          adapterCapabilityVersion: "v1",
-        }],
-        rejections: [],
+        candidateSet: {
+          economicPolicyId: "default-economic-policy",
+          economicPolicyRevision: "rev-2026-07",
+          admissionProfileId: "foundation-readonly-plan" as const,
+          constraints: {},
+          candidates: [{
+            routeId: "codex-standard",
+            routeSource: "explicit-managed-route",
+            providerId: "codex-oauth",
+            model: "gpt-5.6-codex",
+            accountPolicyId: "codex-standard-policy",
+            surface: "direct-provider",
+            adapterCapabilityId: "codex-direct",
+            adapterCapabilityVersion: "v1",
+            profileAuthorityDigest: testProfileAuthorityDigest,
+          }],
+          rejections: [],
+        },
       },
     } as never, { resolve } as never);
 
@@ -175,22 +194,31 @@ describe("managed economic policy config", () => {
       id: "job-affinity",
       projectId: "project-a",
       callerId: "caller-a",
-      economicAttemptId: "economic-attempt:affinity-001",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      economicPolicyId: "default-economic-policy",
-      economicPolicyRevision: "rev-2026-07",
-      constraints: {},
       parent: { invocationId: "parent-invocation-secret", turnId: "parent-turn-secret" },
-      candidateSet: {
-        candidates: [{
-          routeId: "codex-standard",
-          routeSource: "explicit-managed-route",
-          providerId: "codex-oauth",
-          model: "gpt-5.6-codex",
-          accountPolicyId: "codex-standard-policy",
-          adapterCapabilityId: "codex-direct",
-          adapterCapabilityVersion: "v1",
-        }],
+      dispatch: {
+        kind: "economic" as const,
+        economicAttemptId: "economic-attempt:affinity-001",
+        economicPolicyId: "default-economic-policy",
+        economicPolicyRevision: "rev-2026-07",
+        constraints: {},
+        candidateSet: {
+          economicPolicyId: "default-economic-policy",
+          economicPolicyRevision: "rev-2026-07",
+          admissionProfileId: "foundation-readonly-plan" as const,
+          constraints: {},
+          candidates: [{
+            routeId: "codex-standard",
+            routeSource: "explicit-managed-route",
+            providerId: "codex-oauth",
+            model: "gpt-5.6-codex",
+            accountPolicyId: "codex-standard-policy",
+            adapterCapabilityId: "codex-direct",
+            adapterCapabilityVersion: "v1",
+            profileAuthorityDigest: testProfileAuthorityDigest,
+          }],
+          rejections: [],
+        },
       },
     } as never;
 
@@ -214,50 +242,97 @@ describe("managed economic policy config", () => {
       id: "job-affinity",
       projectId: "project-a",
       callerId: "caller-a",
-      economicAttemptId: "economic-attempt:affinity-001",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      economicPolicyId: "default-economic-policy",
-      economicPolicyRevision: "rev-2026-07",
-      constraints: {},
-      candidateSet: { candidates: [{
-        routeId: "codex-standard", routeSource: "explicit-managed-route",
-        providerId: "codex-oauth", model: "gpt-5.6-codex",
-        accountPolicyId: "codex-standard-policy",
-        adapterCapabilityId: "codex-direct", adapterCapabilityVersion: "v1",
-      }] },
+      dispatch: {
+        kind: "economic" as const,
+        economicAttemptId: "economic-attempt:affinity-001",
+        economicPolicyId: "default-economic-policy",
+        economicPolicyRevision: "rev-2026-07",
+        constraints: {},
+        candidateSet: {
+          economicPolicyId: "default-economic-policy",
+          economicPolicyRevision: "rev-2026-07",
+          admissionProfileId: "foundation-readonly-plan" as const,
+          constraints: {},
+          candidates: [{
+            routeId: "codex-standard", routeSource: "explicit-managed-route",
+            providerId: "codex-oauth", model: "gpt-5.6-codex",
+            accountPolicyId: "codex-standard-policy",
+            adapterCapabilityId: "codex-direct", adapterCapabilityVersion: "v1",
+            profileAuthorityDigest: testProfileAuthorityDigest,
+          }],
+          rejections: [],
+        },
+      },
     } as never, { resolve } as never)).rejects.toMatchObject({ code: "identity-revision-conflict" });
   });
 
   it("maps exact persisted policy revision drift to identity-revision-conflict without capacity lookup", async () => {
     const resolve = vi.fn();
     await expect(projectManagedEconomicJobAdoption(economicConfig(), {
-      economicPolicyId: "default-economic-policy",
-      economicPolicyRevision: "older-revision",
-      candidateSet: { candidates: [] },
+      projectId: "project-a",
+      callerId: "caller-a",
+      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
+      dispatch: {
+        kind: "economic" as const,
+        economicAttemptId: "economic-attempt:revision-drift-001",
+        economicPolicyId: "default-economic-policy",
+        economicPolicyRevision: "older-revision",
+        constraints: {},
+        candidateSet: {
+          economicPolicyId: "default-economic-policy",
+          economicPolicyRevision: "older-revision",
+          admissionProfileId: "foundation-readonly-plan" as const,
+          constraints: {},
+          candidates: [],
+          rejections: [],
+        },
+      },
     } as never, { resolve } as never)).rejects.toMatchObject({
       code: "identity-revision-conflict",
     });
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  it("rejects a pre-V9 economic job shape with a typed identity conflict", async () => {
+    await expect(projectManagedEconomicJobAdoption(economicConfig(), {
+      economicPolicyId: "default-economic-policy",
+      economicPolicyRevision: "rev-2026-07",
+      candidateSet: { candidates: [] },
+    } as never, { resolve: vi.fn() } as never)).rejects.toMatchObject({
+      code: "identity-revision-conflict",
+    });
+  });
+
   it("projects an accountless route without fabricating account candidates", async () => {
     const config = accountlessEconomicConfig();
     const resolve = vi.fn();
     const adoption = await projectManagedEconomicJobAdoption(config, {
-      economicAttemptId: "economic-attempt:accountless-001",
+      projectId: "project-a",
+      callerId: "caller-a",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      economicPolicyId: "default-economic-policy",
-      economicPolicyRevision: "rev-2026-07",
-      constraints: {},
-      candidateSet: {
-        candidates: [{
-          routeId: "codex-standard",
-          routeSource: "explicit-managed-route",
-          providerId: "codex-oauth",
-          model: "gpt-5.6-codex",
-          adapterCapabilityId: "codex-direct",
-          adapterCapabilityVersion: "v1",
-        }],
+      dispatch: {
+        kind: "economic" as const,
+        economicAttemptId: "economic-attempt:accountless-001",
+        economicPolicyId: "default-economic-policy",
+        economicPolicyRevision: "rev-2026-07",
+        constraints: {},
+        candidateSet: {
+          economicPolicyId: "default-economic-policy",
+          economicPolicyRevision: "rev-2026-07",
+          admissionProfileId: "foundation-readonly-plan" as const,
+          constraints: {},
+          candidates: [{
+            routeId: "codex-standard",
+            routeSource: "explicit-managed-route",
+            providerId: "codex-oauth",
+            model: "gpt-5.6-codex",
+            adapterCapabilityId: "codex-direct",
+            adapterCapabilityVersion: "v1",
+            profileAuthorityDigest: testProfileAuthorityDigest,
+          }],
+          rejections: [],
+        },
       },
     } as never, { resolve } as never);
 

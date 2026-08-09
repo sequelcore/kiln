@@ -279,9 +279,6 @@ export function snapshotInputFromAdmission(snapshot: ManagedAgentCapabilitySnaps
     routeSource: snapshot.routeSource,
     ...(snapshot.callerIdentity ? { callerIdentity: snapshot.callerIdentity } : {}),
     ...(snapshot.externalRuntimeAttachment ? { externalRuntimeAttachment: snapshot.externalRuntimeAttachment } : {}),
-    ...(snapshot.invocationCapabilityEvidence
-      ? { invocationCapabilityEvidence: snapshot.invocationCapabilityEvidence }
-      : {}),
     routeHealth: snapshot.routeHealth,
     providerModelProof: snapshot.providerModelProof,
     authorityEvidence: snapshot.authorityEvidence,

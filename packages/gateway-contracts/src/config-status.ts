@@ -450,10 +450,6 @@ export interface KilnHarnessCapabilitySnapshot {
   readonly nativeConfigImport: string;
   readonly mcpRuntimeTools: string;
   readonly hooks: string;
-  readonly crossHarnessManagedInvocation: {
-    readonly adapterId: string;
-    readonly supportedProviderIds: readonly string[];
-  };
 }
 
 export interface KilnConfigSetupSnapshot {
@@ -779,9 +775,5 @@ export const KilnConfigStatusSnapshotSchema = z.object({
     nativeConfigImport: z.enum(["supported", "unsupported"]),
     mcpRuntimeTools: z.enum(["supported", "unsupported"]),
     hooks: z.enum(["supported", "unsupported"]),
-    crossHarnessManagedInvocation: z.object({
-      adapterId: z.string(),
-      supportedProviderIds: z.array(z.string()),
-    }),
   })),
 });

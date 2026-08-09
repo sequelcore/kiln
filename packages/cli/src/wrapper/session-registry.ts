@@ -25,6 +25,7 @@ import {
   type RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
 import { ClaudeSession, type ClaudeSessionConfig } from "./claude-code-process.js";
+import type { ClaudePrivatePlanArtifactCapability } from "./claude-private-plan-artifacts.js";
 import { CodexSession } from "./codex-session.js";
 import { OpenCodeSession } from "./opencode-session.js";
 import { PooledHarnessSession } from "./pooled-harness-session.js";
@@ -186,6 +187,7 @@ export interface ProviderCreateConfig {
     readonly executable: string;
     readonly version: string;
   };
+  readonly privatePlanArtifactCapability?: ClaudePrivatePlanArtifactCapability;
 }
 
 export interface CreateDefaultRegistryOptions {
@@ -1165,6 +1167,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           structuredOutputSchema: config.structuredOutputSchema,
           harnessExecutable: config.harnessExecutable,
           harnessEvidence: config.harnessEvidence,
+          privatePlanArtifactCapability: config.privatePlanArtifactCapability,
         });
         return createPooledHarnessSession(
           "claude-code",

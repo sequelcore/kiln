@@ -26,9 +26,14 @@ roadmap reorganization.
 
 ## Execution Queue
 
+Track 02 implementation status: Slices 1-5 are complete in portable code and
+test evidence. This includes the shared user-scoped SQLite ledger for Gateway
+and managed capacity/affinity; commitments remain project-namespaced. No live
+provider proof is implied.
+
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [02 - Managed Invocation Routing](02-managed-invocation-routing.md) | Ready | Issue #34 closes `#34-S5`–`#34-S8`: Runtime SQLite selection and pre-adapter fence; `evidenceVersion: 1` staged, secret-free lifecycle evidence; one portable fixture and total Gateway projection across CLI/TUI/GUI with SDK export parity; and MCP replay's exact V7 `jobId` + `economicAttemptId` authority join. Native is intentionally excluded. The synthetic SQLite proof rejects Codex without constructing it and selects OpenCode without live/provider spend. Issue #39 is now unblocked by this closeout only; its cross-path convergence is not implemented. |
+| 1 | [02 - Managed Invocation Routing](02-managed-invocation-routing.md) | Ready | Issues #34 and #39 are implemented with portable evidence: Runtime owns economic selection and the user-scoped SQLite ledger now shares account capacity and affinity across managed jobs and Gateway ingress. Native and live-provider proof remain separate. |
 | 2 | [03 - Model Gateway Lifecycle](03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
 | 3 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
 | 4 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |

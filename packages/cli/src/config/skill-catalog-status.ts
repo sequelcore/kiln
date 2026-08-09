@@ -1,9 +1,10 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import {
   KILN_CORE_BUILTIN_SKILLS,
   loadSkillMdIndex,
+  renderSkillMarkdown,
   resolveKilnCoreBuiltinSkills,
   type SkillIndex,
 } from "@kilnai/core";
@@ -16,11 +17,21 @@ import type {
 } from "@kilnai/gateway-contracts";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import {
+  adoptLegacyNativeProjectionFile,
   detectNativeProjectionFileDrift,
-  readNativeProjectionInstallState,
+  isFullyOwnedNativeProjectionFile,
   type NativeProjectionInstallState,
+  type NativeProjectionTargetState,
+  nativeProjectionFileMatchesDesired,
+  readNativeProjectionInstallState,
 } from "./native-projection-state.js";
 import { NATIVE_SKILL_TARGETS } from "./native-skill-targets.js";
+import {
+  canonicalSkillKey,
+  isSafeProjectionPathComponent,
+  isSafeProjectionRelativePath,
+  resolveProjectionPathWithin,
+} from "./native-projection-paths.js";
 
 export interface ReadSkillCatalogStatusOptions {
   readonly projectPath: string;
@@ -43,7 +54,7 @@ export function readSkillCatalogStatus(
     userHome,
     skillConfig: options.skillConfig,
   });
-  const configuredNames = new Set(configured.map((entry) => entry.index.name));
+  const configuredNames = new Set(configured.map((entry) => canonicalSkillKey(entry.index.name)));
   const installState = readNativeProjectionInstallState(join(options.projectPath, ".kiln"));
   const entries: KilnSkillCatalogSnapshotEntry[] = [
     ...configured.map((entry) => projectConfiguredSkill(entry, userHome, installState)),
@@ -67,8 +78,10 @@ function discoverConfiguredSkills(input: {
   addSkillDirectory(discovered, join(input.projectPath, ".kiln", "skills"), "project");
 
   for (const skill of resolveKilnCoreBuiltinSkills(input.skillConfig?.builtin)) {
-    if (!discovered.has(skill.name)) {
-      discovered.set(skill.name, {
+    if (!isSafeProjectionPathComponent(skill.name)) continue;
+    const key = canonicalSkillKey(skill.name);
+    if (!discovered.has(key)) {
+      discovered.set(key, {
         index: skill,
         origin: "builtin",
         sourcePath: skill.filePath,
@@ -87,11 +100,14 @@ function addSkillDirectory(
   for (const skillPath of readSkillMarkdownPaths(dirPath)) {
     try {
       const index = loadSkillMdIndex(skillPath);
+      if (!isSafeProjectionPathComponent(index.name)) continue;
       const skillDirectory = dirname(skillPath);
-      if (skillDirectory !== dirPath && basename(skillDirectory) !== index.name) {
+      if (skillDirectory !== dirPath
+        && (!isSafeProjectionPathComponent(basename(skillDirectory))
+          || canonicalSkillKey(basename(skillDirectory)) !== canonicalSkillKey(index.name))) {
         continue;
       }
-      discovered.set(index.name, {
+      discovered.set(canonicalSkillKey(index.name), {
         index,
         origin,
         sourcePath: skillPath,
@@ -104,12 +120,17 @@ function addSkillDirectory(
 
 function readSkillMarkdownPaths(dirPath: string): readonly string[] {
   try {
-    return readdirSync(dirPath, { withFileTypes: true }).flatMap((entry) => {
+    return readdirSync(dirPath, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .flatMap((entry) => {
       if (entry.isDirectory()) {
+        if (!isSafeProjectionPathComponent(entry.name)) return [];
         const skillMd = readDirectorySkillMarkdownPath(join(dirPath, entry.name));
         return skillMd ? [skillMd] : [];
       }
-      return entry.name.endsWith(".md") ? [join(dirPath, entry.name)] : [];
+      return entry.name.toLowerCase().endsWith(".md") && isSafeProjectionPathComponent(entry.name)
+        ? [join(dirPath, entry.name)]
+        : [];
     });
   } catch {
     return [];
@@ -147,8 +168,7 @@ function projectConfiguredSkill(
         target.target,
         target.displayName,
         target.dir(userHome),
-        source.index.name,
-        projectionFileNames(source),
+        source,
         installState,
       )
     ),
@@ -163,22 +183,64 @@ function readConfiguredProjectionStatus(
   target: KilnSkillProjectionTargetSnapshot["target"],
   displayName: string,
   targetRoot: string,
-  skillName: string,
-  fileNames: readonly string[],
+  source: SkillSourceEntry,
   installState: NativeProjectionInstallState,
 ): KilnSkillProjectionTargetSnapshot {
+  const skillName = source.index.name;
+  const fileNames = projectionFileNames(source);
   const primaryFileName = fileNames.find((fileName) => fileName.toLowerCase() === "skill.md") ?? fileNames[0] ?? "SKILL.md";
   const statuses = fileNames.map((fileName) => {
-    const path = join(targetRoot, skillName, fileName);
-    const targetId = `${target}-skill:${skillName}/${fileName}`;
-    return readProjectionStatus(targetId, path, installState, installState.targets[targetId] !== undefined);
+    if (!isSafeProjectionPathComponent(skillName) || !isSafeProjectionRelativePath(fileName)) {
+      return "missing" as const;
+    }
+    const path = resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, fileName));
+    const targetId = `${target}-skill:${canonicalSkillKey(skillName)}/${fileName}`;
+    if (!path) return "missing" as const;
+    const targetState = findSkillProjectionState(installState, targetId);
+    return readProjectionStatus(
+      targetId,
+      path,
+      targetState ? { version: 1, targets: { [targetId]: targetState } } : installState,
+      targetState !== undefined,
+      canonicalSkillProjectionContent(source, fileName),
+      {
+        targetId,
+        filePath: path,
+        harness: target,
+        sourceIdentity: `${source.origin}:${canonicalSkillKey(skillName)}/${fileName}`,
+      },
+      targetRoot,
+    );
   });
   return {
     target,
     displayName,
-    path: join(targetRoot, skillName, primaryFileName),
+    path: resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, primaryFileName))
+      ?? join(targetRoot, skillName, primaryFileName),
     status: aggregateProjectionStatus(statuses),
   };
+}
+
+function canonicalSkillProjectionContent(
+  source: SkillSourceEntry,
+  fileName: string,
+): string | Uint8Array | undefined {
+  if (source.origin === "builtin") {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === source.index.name);
+    return skill ? renderSkillMarkdown(skill) : undefined;
+  }
+
+  const sourcePath = canonicalSkillKey(basename(dirname(source.index.filePath))) === canonicalSkillKey(source.index.name)
+    ? join(dirname(source.index.filePath), fileName)
+    : fileName === basename(source.index.filePath)
+      ? source.index.filePath
+      : undefined;
+  if (!sourcePath) return undefined;
+  try {
+    return readFileSync(sourcePath);
+  } catch {
+    return undefined;
+  }
 }
 
 function projectionFileNames(source: SkillSourceEntry): readonly string[] {
@@ -188,7 +250,7 @@ function projectionFileNames(source: SkillSourceEntry): readonly string[] {
   if (!source.index.filePath) {
     return ["SKILL.md"];
   }
-  if (basename(dirname(source.index.filePath)) !== source.index.name) {
+  if (canonicalSkillKey(basename(dirname(source.index.filePath))) !== canonicalSkillKey(source.index.name)) {
     return [basename(source.index.filePath)];
   }
   try {
@@ -203,6 +265,7 @@ function readSkillProjectionFileNames(sourceRoot: string, currentDir: string): r
   return readdirSync(currentDir, { withFileTypes: true })
     .sort((left, right) => left.name.localeCompare(right.name))
     .flatMap((entry) => {
+      if (!isSafeProjectionPathComponent(entry.name)) return [];
       const sourcePath = join(currentDir, entry.name);
       if (entry.isDirectory()) {
         return readSkillProjectionFileNames(sourceRoot, sourcePath);
@@ -227,6 +290,14 @@ function readProjectionStatus(
   path: string,
   installState: NativeProjectionInstallState,
   managed: boolean,
+  desiredContent?: string | Uint8Array,
+  expected?: {
+    readonly targetId: string;
+    readonly filePath: string;
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly sourceIdentity: string;
+  },
+  harnessRoot?: string,
 ): KilnSkillCatalogProjectionStatus {
   if (!existsSync(path)) {
     return "missing";
@@ -234,12 +305,65 @@ function readProjectionStatus(
   if (!managed) {
     return "unmanaged-native";
   }
+  const currentContent = readFileSync(path);
+  if (desiredContent !== undefined && expected
+    && !isFullyOwnedNativeProjectionFile(installState.targets[targetId], expected)) {
+    const adopted = harnessRoot
+      ? adoptLegacyNativeProjectionFile({
+        target: installState.targets[targetId],
+        currentContent,
+        expected,
+        harnessRoot,
+      })
+      : undefined;
+    if (adopted && nativeProjectionFileMatchesDesired({
+      target: adopted,
+      currentContent,
+      desiredContent,
+      expected,
+    })) {
+      return "projected";
+    }
+    return "drifted";
+  }
+  if (desiredContent !== undefined && nativeProjectionFileMatchesDesired({
+    target: installState.targets[targetId],
+    currentContent,
+    desiredContent,
+    expected,
+  })) {
+    return "projected";
+  }
   const drift = detectNativeProjectionFileDrift({
     targetId,
     state: installState,
-    currentContent: readFileSync(path),
+    currentContent,
   });
   return drift ? "drifted" : "projected";
+}
+
+function findSkillProjectionState(
+  installState: NativeProjectionInstallState,
+  targetId: string,
+): NativeProjectionTargetState | undefined {
+  const exact = installState.targets[targetId];
+  if (exact) return exact;
+  const marker = targetId.indexOf("-skill:");
+  if (marker < 0) return undefined;
+  const prefix = targetId.slice(0, marker + "-skill:".length);
+  const suffix = targetId.slice(prefix.length);
+  const separator = suffix.indexOf("/");
+  if (separator <= 0) return undefined;
+  const canonicalSkill = canonicalSkillKey(suffix.slice(0, separator));
+  const fileName = suffix.slice(separator + 1);
+  return Object.entries(installState.targets).find(([candidateId]) => {
+    if (!candidateId.startsWith(prefix)) return false;
+    const candidateSuffix = candidateId.slice(prefix.length);
+    const candidateSeparator = candidateSuffix.indexOf("/");
+    return candidateSeparator > 0
+      && canonicalSkillKey(candidateSuffix.slice(0, candidateSeparator)) === canonicalSkill
+      && candidateSuffix.slice(candidateSeparator + 1) === fileName;
+  })?.[1];
 }
 
 function discoverUnmanagedNativeSkills(
@@ -251,7 +375,8 @@ function discoverUnmanagedNativeSkills(
   for (const target of NATIVE_SKILL_TARGETS) {
     const targetRoot = target.dir(userHome);
     for (const name of readNativeSkillNames(targetRoot)) {
-      if (configuredNames.has(name)) {
+      if (!isSafeProjectionPathComponent(name)) continue;
+      if (configuredNames.has(canonicalSkillKey(name))) {
         continue;
       }
       const key = `${target.target}:${name}`;
@@ -286,7 +411,9 @@ function discoverUnmanagedNativeSkills(
 function readNativeSkillNames(targetRoot: string): readonly string[] {
   try {
     return readdirSync(targetRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && readDirectorySkillMarkdownPath(join(targetRoot, entry.name)))
+      .filter((entry) => entry.isDirectory()
+        && isSafeProjectionPathComponent(entry.name)
+        && readDirectorySkillMarkdownPath(join(targetRoot, entry.name)))
       .map((entry) => entry.name);
   } catch {
     return [];

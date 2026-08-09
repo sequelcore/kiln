@@ -7,16 +7,21 @@
 // never had a home for - it is neither single-route admission (evidence-validation.ts)
 // nor hint-based route selection (route-resolution.ts), so it gets its own
 // module rather than being forced into either.
-import { resolveDeliberation } from "@kilnai/core";
+import {
+  admitManagedRoute,
+  digestManagedEconomicProfileAuthority,
+  resolveDeliberation,
+} from "@kilnai/core";
 import type {
   DeliberationResolution,
   ManagedAgentAdmissionProfile,
+  ManagedAgentAuthorityProfile,
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
   ManagedAgentRouteSource,
 } from "@kilnai/core";
-import { evaluateManagedInvocationCallerCapability } from "../caller-capability-policy.js";
+import { deriveManagedInvocationCallerAuthority } from "../caller-capability-policy.js";
 import { MANAGED_AGENT_INVOKE_TOOL_NAME } from "../tool-names.js";
 import type {
   ManagedInvocationToolRoute,
@@ -28,6 +33,7 @@ import {
   missingManagedInvocationRequiredReadPaths,
   missingManagedInvocationRequiredTools,
 } from "./evidence-validation.js";
+import { resolveManagedInvocationRouteAuthority } from "./working-directory-lease.js";
 
 export interface ManagedEconomicInvocationCommand {
   readonly economicPolicyId: string;
@@ -42,6 +48,8 @@ export interface ManagedEconomicInvocationCommand {
   readonly requestedAuthority?: ManagedAgentRequestedAuthority;
   readonly requiresNetwork?: boolean;
   readonly requiresWrite?: boolean;
+  /** Exact invocation identity used to resolve dynamic worktree authority. */
+  readonly invocationId?: string;
 }
 
 export type ManagedEconomicCandidateRejectionReason =
@@ -66,6 +74,7 @@ export interface ManagedEconomicCandidateDescriptor {
   readonly surface?: string;
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
+  readonly profileAuthorityDigest: string;
   readonly deliberationResolution?: DeliberationResolution;
 }
 
@@ -131,21 +140,16 @@ export function collectManagedEconomicCandidates(
           MANAGED_AGENT_INVOKE_TOOL_NAME,
         ).ok
       )
-      || (
-        command.callerIdentity !== undefined
-        && evaluateManagedInvocationCallerCapability({
-          callerIdentity: command.callerIdentity,
-          providerId: route.providerId,
-          ...(route.model ? { model: route.model } : {}),
-          adapterEvidence: {
-            adapterDescriptorId:
-              route.economicCapability?.status === "verified"
-                ? route.economicCapability.adapterCapabilityId
-                : "economic-capability-unverified",
-            adapterId: "kiln-managed-invocation",
-          },
-        }).decision === "denied"
-      )
+      || (command.callerIdentity !== undefined && admitManagedRoute({
+        route: route.capability,
+        work: {
+          evaluatedAt: new Date().toISOString(), profile: command.admissionProfileId,
+          requestedAuthority: command.requestedAuthority === undefined || command.requestedAuthority === "auto" ? "read_only" : command.requestedAuthority,
+          requiredToolNames: command.requiredToolNames ?? [], requiresRecursion: false, requiresAttachments: false,
+          requiresWrite: command.requiresWrite === true, minimumProof: "configured",
+        },
+        caller: deriveManagedInvocationCallerAuthority({ callerIdentity: command.callerIdentity, routeAllowedToolNames: profile.allowedToolNames }),
+      }).status !== "admitted")
     );
     if (nonEconomicAdmissionFailed) {
       rejections.push({
@@ -203,10 +207,13 @@ export function collectManagedEconomicCandidates(
       routeSource: route.routeSource,
       providerId: route.providerId,
       ...(route.model ? { model: route.model } : {}),
-      ...(route.accountPolicyId ? { accountPolicyId: route.accountPolicyId } : {}),
+      ...(route.capability.capacity.kind === "policy-bound"
+        ? { accountPolicyId: route.capability.capacity.accountPolicyId }
+        : {}),
       ...(route.surface ? { surface: route.surface } : {}),
       adapterCapabilityId: economicCapability.adapterCapabilityId,
       adapterCapabilityVersion: economicCapability.adapterCapabilityVersion,
+      profileAuthorityDigest: digestManagedEconomicCandidateProfileAuthority(profile, command.invocationId),
       ...(deliberationResolution ? { deliberationResolution } : {}),
     });
   }
@@ -222,5 +229,42 @@ export function collectManagedEconomicCandidates(
     },
     candidates,
     rejections,
+  };
+}
+
+export function digestManagedEconomicCandidateProfileAuthority(
+  profile: NonNullable<ManagedInvocationToolRoute["profiles"][ManagedAgentAdmissionProfile]>,
+  invocationId?: string,
+): string {
+  return digestManagedEconomicProfileAuthority(managedEconomicCandidateAuthority(profile, invocationId));
+}
+
+function managedEconomicCandidateAuthority(
+  profile: NonNullable<ManagedInvocationToolRoute["profiles"][ManagedAgentAdmissionProfile]>,
+  invocationId: string | undefined,
+): ManagedAgentAuthorityProfile {
+  const resolved = invocationId
+    ? resolveManagedInvocationRouteAuthority(profile, invocationId)
+    : {
+        workingDirectory: profile.workingDirectory,
+        writeAuthority: profile.writeAuthority,
+      };
+  return {
+    authorityProfileId: profile.authorityProfileId,
+    permissionProfile: profile.permissionProfile,
+    toolAuthority: {
+      allowedToolNames: profile.allowedToolNames,
+      writeAllowed: profile.writeAllowed === true,
+      networkAllowed: profile.networkAllowed === true,
+    },
+    workingDirectory: resolved.workingDirectory,
+    timeoutMs: profile.timeoutMs,
+    ...(profile.timeoutSource !== undefined ? { timeoutSource: profile.timeoutSource } : {}),
+    credentialRoute: profile.credentialRoute.mode === "credentialless"
+      ? profile.credentialRoute
+      : { ...profile.credentialRoute, routeId: profile.credentialRoute.routeId.trim() },
+    memoryScope: profile.memoryScope,
+    ...(profile.readAuthority !== undefined ? { readAuthority: profile.readAuthority } : {}),
+    ...(resolved.writeAuthority !== undefined ? { writeAuthority: resolved.writeAuthority } : {}),
   };
 }

@@ -102,6 +102,23 @@ re-evaluates admission immediately before execution using the admitted
 capability snapshot, checks the adapter descriptor, and validates the returned
 record against the admitted request and snapshot.
 
+`RouteCapability` is a pure Core value: it describes a configured route and its
+admitted limits without performing selection, I/O, or provider work. Runtime is
+the sole composition boundary for capability admission, economic commitment,
+deferred adapter materialization, and dispatch. Adapter kinds are deferred
+mechanisms, not authority owners. A caller may narrow an already admitted route
+set but cannot broaden it; encoders translate an admitted result to transport
+only. Native projections explicitly report unavailable or unresolved evidence
+rather than inferring an executable route.
+
+`RouteCapability.adapter.capabilityId` and `capabilityVersion` identify the
+catalogued mechanism contract, not a materialized adapter instance. Runtime
+binds the route target's provider and model before construction, then verifies
+the constructed descriptor's provider and exact mechanism kind. Core runtime
+admission separately verifies the requested profile against that descriptor;
+the model remains an invocation target supplied to the provider-generic
+adapter, not an adapter identity field.
+
 ## Persistent Managed Jobs
 
 Runtime owns the persistent managed-job application boundary in
@@ -162,15 +179,21 @@ full. Result records validate version, job and invocation identity, route,
 configured agent, admission profile, terminal state, and timestamps before
 they are observable. Terminal results are immutable.
 
-Managed-job V7 is the only supported persisted record. The operator explicitly
-discarded the terminal pre-V7 local store in issue #43; Runtime rejects every
-other record version rather than retaining a migration or recovery reader.
+Managed-job V9 is the only supported persisted record. Its `dispatch` union
+separates economic commitment evidence from exact native-harness route
+evidence; the native branch has no economic policy, account, quota, price, or
+candidate fields. The operator explicitly discarded the terminal pre-V9 local
+store; Runtime rejects every other record version rather than retaining a
+migration or recovery reader.
 
-V7 remains the managed-job record, not a producer of `RuntimeSession` or
-cockpit events. Session-event surfaces render Runtime's canonical
-`managed_economic_lifecycle` evidence; managed-job replay is a separate MCP
-read model. The distinction prevents replay from manufacturing session history
-or giving a job projection a second lifecycle owner.
+V9 remains the managed-job record, not a producer of `RuntimeSession` or
+cockpit events. Economic replay may join the durable SQLite authority, while
+native-harness replay returns the persisted exact route acknowledgement and
+dispatch fence without economic evidence. Session-event surfaces render
+Runtime's canonical `managed_economic_lifecycle` evidence; managed-job replay
+is a separate MCP read model. The distinction prevents replay from
+manufacturing session history or giving a job projection a second lifecycle
+owner.
 
 ### Codex App MCP projection
 
@@ -188,21 +211,21 @@ configuration, environment, credentials, or timeout inputs.
 
 Production composition creates the Runtime `ManagedJobApplicationService`,
 uses the persistent `.kiln/managed-jobs` owner, canonical governance status,
-and a candidate-admission-only configured-agent catalog. It creates one
-project-scoped Runtime SQLite economic commitment authority and recovers that
-authority before job recovery. The application boundary refreshes canonical
-eligibility for every submission, resolves the configured policy and
-narrow-only route constraints, and persists the V7 precommit record with its
-`economicAttemptId` and pinned `adoptedDecisionAt` before snapshot adoption.
-Only after atomic commitment and the durable dispatch fence may Runtime resolve
-the committed account revision, materialize the exact adapter, and execute the
-job. Typed settlement reconciles capacity; missing, rejected, timed-out, or
-otherwise ambiguous post-fence settlement remains pending. `kiln_managed_agent_replay`
-joins the V7 `jobId` and `economicAttemptId` to the durable Runtime SQLite
-authority through a Runtime port. It projects that evidence as available,
-unavailable, or unprojectable; it neither duplicates the authority/store nor
-synthesizes a RuntimeSession or cockpit event. The MCP adapter never selects a
-route. Capability
+and a candidate-admission-only configured-agent catalog. Economic profiles use
+one project-scoped Runtime SQLite commitment authority and recover that
+authority before job recovery. Native-harness profiles instead persist an
+exact route acknowledgement and use the managed-job store's single Runtime
+fence immediately before adapter/process materialization. The application
+boundary refreshes canonical eligibility for every submission and persists the
+V9 precommit record before any external effect. Economic jobs then adopt,
+commit, fence, execute, and settle; native-harness jobs fence, execute through
+the canonical harness adapter, and fail closed on restart without silently
+redispatching. `kiln_managed_agent_replay` joins economic V9 jobs to the
+durable Runtime SQLite authority through a Runtime port and returns native V9
+route/fence evidence directly from the job owner. It projects evidence as
+available, unavailable, or unprojectable; it neither duplicates the
+authority/store nor synthesizes a RuntimeSession or cockpit event. The MCP
+adapter never selects a route. Capability
 inspection projects safe configured-agent identity, optional role/display
 name, availability,
 provider family, admission profile, and stable action; it does not expose route
@@ -479,6 +502,54 @@ fields as human-readable details and keep the full object available for replay
 and audit. Managed invocation transcript and diagnostic resources also embed
 the snapshot summary, so `resource_read` does not need live route health or
 provider catalog state to explain what happened.
+
+### Claude private plan artifacts
+
+The Claude `foundation-readonly-plan` route may admit one version-bound
+ephemeral harness capability:
+`claude-code-private-plan-artifacts-v1`, for Claude Code `2.1.220`. The
+capability names the relative artifact directory `plans` beneath the selected
+pooled `CLAUDE_CONFIG_DIR`; it is not a generic home-directory convention and
+is unavailable when executable discovery reports another or unknown version.
+The pooled account selected by the session registry remains the authentication
+owner. Kiln never copies its credentials, projects its home, or exposes raw
+artifact paths or contents.
+
+Before a plan run, the Claude wrapper snapshots only that admitted directory.
+In a `finally` path for success, failure, cancellation, or timeout, it detects
+created, modified, and deleted plan artifacts, restores the snapshot, and
+deletes newly created artifacts. Runtime receives only typed, redacted evidence:
+the delta counts, a digest, and the cleanup/unexpected-delta status. Missing
+evidence, failed cleanup, or an observed delta outside the admitted capability
+fails the invocation with a cleanup diagnostic. This evidence is allowed
+ephemeral harness state; it is never workspace-change or `writeEvidence`.
+
+Claude assistant prose is child-produced and therefore untrusted. Runtime
+handoffs label a prose or structured child summary as `child-untrusted` and
+carry the runtime-derived private cleanup evidence separately. A workspace
+change remains a denied write under `foundation-readonly-plan`; private plan
+artifact cleanup does not broaden workspace authority.
+
+The wrapper owns a keyed process-local lease for the canonical selected config
+directory and an exclusive durable lock file,
+`.kiln-claude-private-plan-artifacts.lock`, inside that same physical
+directory. The lock is created with `wx`, mode `0600`, and a path-free
+`{schema,pid,token}` document. Together they cover snapshot, child execution,
+and cleanup as one critical section, so pooled sessions for the same physical
+home cannot observe or restore one another's plan state; different homes do not
+block one another, including across independent Kiln processes. Existing,
+orphaned, symlink, or special lock entries fail closed with an unavailable
+repair diagnostic; Kiln never steals a lock without a durable snapshot. The
+owner token and lock-file identity are verified before unlink, and a selected
+root replacement leaves the lock for operator repair rather than risking an
+outside deletion.
+
+The selected config directory and its admitted `plans` root must be physical,
+canonical, non-symlink directories. Snapshot and cleanup reject files,
+symlinks, special entries, root identity replacement, and path escapes. Cleanup
+never recursively removes an unknown root and restores baseline files through
+same-directory temporary files followed by rename; an unsafe identity or
+cleanup failure is terminal evidence, not a best-effort deletion.
 
 ## Authority Profiles
 
@@ -781,10 +852,14 @@ Recovery checkpoints reference the economic commitment and dispatch fence by
 immutable identifiers. They never duplicate the account lease held by the
 SQLite economic authority.
 
-Managed-job V7 is the sole persisted contract and contains the objective plus
-the canonical terminal Runtime handoff. Pre-V7 records fail closed as corrupt
-state; the operator-approved reset in issue #43 removed the only local records
-that required the retired readers.
+Managed-job V9 is the sole persisted contract and contains the objective plus
+the canonical terminal Runtime handoff. Its dispatch branch is explicit:
+economic records carry policy/candidate evidence, while native-harness records
+carry only exact credentialless route identity, a stable versioned
+acknowledgement, and optional fence. Runtime rejects a native-harness profile
+that advertises runtime-selected credentials before governance, persistence,
+adapter, credential, process, or account-authority work. Pre-V9 records fail
+closed as corrupt state; no compatibility reader remains.
 The model-facing route catalog includes each healthy route's timeout budget.
 Parent agents should route broad repository review, long reasoning, or
 multi-file analysis to a child route with enough admitted time, or split work
@@ -844,37 +919,51 @@ Policy execution has three distinct contracts:
 2. `ManagedEconomicCandidateSet` carries non-economically admitted route
    descriptors and Runtime-owned rejection evidence. Its only rejection stage
    is `managed-candidate-admission`, with reasons `not-in-policy`,
-   `caller-constraint-excluded`, `non-economic-admission-failed`, and
-   `economic-capability-unverified`.
+   `caller-constraint-excluded`, `non-economic-admission-failed`,
+   `economic-capability-unverified`, or `deliberation-denied`.
 3. `ManagedCommittedInvocationRequest` is the only contract accepted by the
    deferred adapter boundary. It requires the durable commitment and dispatch
    fence, exact route/provider/model and capability revision, account or
    accountless identity, tariff, envelope, and reservation evidence.
 
-Candidate collection cannot construct an adapter, resolve a credential, launch
-a process, acquire a lease, reserve capacity, or call a provider. A new managed
-job is persisted as V7 with policy/revision and constraints, a namespaced
-`economicAttemptId`, and pinned `adoptedDecisionAt`, but without a selected
-`routeId` or `providerId`. Core then adopts an immutable economic snapshot whose
-policy, candidate set, price/rate evidence, and full contents are bound by
-canonical sorted SHA-256 digests. Runtime accepts no pre-V7 managed-job record
-and never infers a new economic attempt from retired state.
+Every economic candidate also persists a `profileAuthorityDigest`. Core computes
+it from a canonical data-only projection of every field in `request.authority`;
+tool names are normalized, while filesystem paths, resource URIs, and
+secret-shaped values are represented only by digests. The economic
+`candidateSetDigest` commits each profile digest. After the dispatch fence,
+Runtime and the operator CLI recompute the digest from the exact execution
+profile before adapter materialization; a mismatch fails closed as an
+`identity-revision-conflict` and leaves the fenced settlement pending.
 
-Runtime acquires the commitment synchronously from its single-owner SQLite
-authority in one immediate transaction. That transaction revalidates the
-adopted revision and digests, applies exact route capacity, atomically selects
-an account-backed or accountless identity, and persists replayable decision,
-reservation, and rejection evidence. Exact replay returns the prior commitment;
-intent or revision drift fails closed. A distinct dispatch fence precedes any
-provider effect. Pre-fence interim failure releases the commitment before
-terminal projection, while fenced or unprovably settled work remains
-capacity-consuming through recovery and explicit reconciliation. SQLite is the
+Candidate collection cannot construct an adapter, resolve a credential, launch
+a process, acquire a lease, reserve capacity, or call a provider. A new
+economic managed job is persisted in V9 with policy/revision and constraints, a
+namespaced `economicAttemptId`, and pinned `adoptedDecisionAt`, but without a
+selected `routeId` or `providerId`. A native-harness job instead persists its
+exact route identity and versioned acknowledgement, with no economic fields.
+Core then adopts an immutable economic snapshot whose policy, candidate set,
+price/rate evidence, and full contents are bound by canonical sorted SHA-256
+digests. Runtime accepts no pre-V9 managed-job record and never infers a new
+economic attempt from retired state.
+
+Runtime acquires the commitment synchronously from the user-scoped SQLite ledger
+in one immediate transaction. The ledger uses a single writer for managed-job
+and Gateway account capacity and affinity, while economic commitments remain
+project-namespaced. Each participant is fenced by kind, recovery domain, and
+owner generation/configuration revision. The transaction revalidates the
+adopted revision and digests, atomically selects an account-bound or
+accountless identity, and persists replayable decision, reservation, and
+rejection evidence. Exact replay returns the prior commitment; intent or
+revision drift fails closed. A distinct dispatch fence precedes any provider
+effect. Pre-fence interim failure releases the commitment before terminal
+projection, while fenced or unprovably settled work remains capacity-consuming
+through recovery, settlement, and explicit reconciliation. SQLite is the
 commitment authority; managed-job JSON is its projection.
 
-The former direct managed-invocation account-only writer is not a compatibility
-path. Direct account-leased invocation outside the managed economic job path
-fails closed. Model Gateway ingress continues to use its separate
-`LocalModelGatewayStore` until Roadmap 02 Slice 5 convergence.
+The former direct managed-invocation account-only writer and separate Gateway
+lease authority are not compatibility paths. Direct account-leased invocation
+outside Runtime admission fails closed. The replay store owns only replay,
+cooldown, and evidence retention, never account capacity or affinity.
 
 For a retained non-policy invocation, the runtime maps the configured input to
 a `ManagedAgentInvocationRequest` using configured route defaults for adapter,

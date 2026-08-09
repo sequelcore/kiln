@@ -1362,8 +1362,21 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
           routeSource: "explicit-managed-route",
           providerId: "openai",
           model: "gpt-5.4-mini",
-          adapter,
           surface: "direct-provider",
+          capability: {
+            identity: { routeId: "openai-direct-readonly", revision: "test-v1" },
+            target: { providerId: "openai", modelId: "gpt-5.4-mini" },
+            adapter: { kind: "direct-provider", capabilityId: "openai-direct", capabilityVersion: "test-v1" },
+            authorityCeiling: "read_only",
+            toolNames: ["read"],
+            supportsRecursion: true,
+            supportsAttachments: false,
+            supportsWrite: false,
+            proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+            capacity: { kind: "accountless" },
+            settlement: { kind: "not-required" },
+          },
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:openai-direct-readonly:foundation-readonly-plan",

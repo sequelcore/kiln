@@ -11,9 +11,6 @@ import {
   defineManagedAccountLeaseEvidence,
   assertManagedAgentResultHandoffContract,
   evaluateManagedAgentAdmission,
-  getManagedAgentCrossHarnessInvocationCapability,
-  listManagedAgentCrossHarnessInvocationCapabilities,
-  supportsManagedAgentCrossHarnessProvider,
 } from "../../src/agents/managed-invocation/index.js";
 import type {
   ManagedAgentInvocationRequest,
@@ -550,20 +547,11 @@ describe("managed agent invocation contracts", () => {
       attachmentId: "attachment:codex:session-parent",
       evidenceId: "evidence:codex:session-parent",
     });
-    expect(snapshot.invocationCapabilityEvidence).toEqual({
-      decision: "admitted",
-      reason: "cross-harness-managed-invocation",
-      adapterEvidence: {
-        adapterDescriptorId: "adapter:codex-oauth:cli-harness",
-        adapterId: "kiln-managed-invocation",
-      },
-    });
     expect(defineManagedAgentInvocationRecord({
       ...makeCompletedRecordInput(),
       capabilitySnapshot: snapshot,
     }).capabilitySnapshot).toMatchObject({
       callerIdentity: snapshot.callerIdentity,
-      invocationCapabilityEvidence: snapshot.invocationCapabilityEvidence,
     });
   });
 
@@ -593,35 +581,7 @@ describe("managed agent invocation contracts", () => {
         surface: "gateway",
         attachmentId: "attachment:kiln-runtime:gateway:session-parent",
       },
-      invocationCapabilityEvidence: {
-        decision: "admitted",
-        reason: "runtime-adapter-admitted",
-      },
     });
-  });
-
-  it("owns the cross-harness managed invocation support matrix", () => {
-    expect(listManagedAgentCrossHarnessInvocationCapabilities()).toEqual([
-      {
-        harness: "claude",
-        adapterId: "kiln-managed-invocation",
-        supportedProviderIds: ["codex-oauth", "opencode-go", "opencode-zen", "openrouter"],
-      },
-      {
-        harness: "codex",
-        adapterId: "kiln-managed-invocation",
-        supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
-      },
-      {
-        harness: "opencode",
-        adapterId: "kiln-managed-invocation",
-        supportedProviderIds: ["codex-oauth"],
-      },
-    ]);
-
-    expect(getManagedAgentCrossHarnessInvocationCapability("codex").adapterId).toBe("kiln-managed-invocation");
-    expect(supportsManagedAgentCrossHarnessProvider("codex", "opencode-go")).toBe(true);
-    expect(supportsManagedAgentCrossHarnessProvider("codex", "codex-oauth")).toBe(false);
   });
 
   it("rejects malformed caller identity and runtime capability evidence", () => {
@@ -656,39 +616,6 @@ describe("managed agent invocation contracts", () => {
         attachmentId: "attachment:legacy",
       },
     })).toThrow("Unsupported managed invocation caller identity kind: legacy");
-    expect(() => defineManagedAgentCapabilitySnapshot({
-      ...snapshot,
-      invocationCapabilityEvidence: {
-        decision: "allowed" as "admitted",
-        reason: "policy-admitted",
-        adapterEvidence: {
-          adapterDescriptorId: "adapter:codex-oauth:cli-harness",
-          adapterId: "kiln-managed-invocation",
-        },
-      },
-    })).toThrow("Unsupported managed invocation capability decision: allowed");
-    expect(() => defineManagedAgentCapabilitySnapshot({
-      ...snapshot,
-      invocationCapabilityEvidence: {
-        decision: "denied",
-        reason: " ",
-        adapterEvidence: {
-          adapterDescriptorId: "adapter:codex-oauth:cli-harness",
-          adapterId: "kiln-managed-invocation",
-        },
-      },
-    })).toThrow("Managed invocation capability decision reason is required");
-    expect(() => defineManagedAgentCapabilitySnapshot({
-      ...snapshot,
-      invocationCapabilityEvidence: {
-        decision: "admitted",
-        reason: "adapter-missing",
-        adapterEvidence: {
-          adapterDescriptorId: " ",
-          adapterId: "kiln-managed-invocation",
-        },
-      },
-    })).toThrow("Managed invocation capability adapter descriptor id is required");
   });
 
   it("marks writable default resource leases as pending cleanup obligations", () => {

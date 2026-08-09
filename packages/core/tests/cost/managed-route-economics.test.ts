@@ -5,6 +5,8 @@ import {
   compareManagedEconomicAmounts,
   createManagedEconomicSettlement,
   digestManagedEconomicValue,
+  digestManagedEconomicProfileAuthority,
+  projectManagedEconomicProfileAuthority,
   deriveManagedEconomicMinimumReservation,
   narrowManagedEconomicExecutionAlternatives,
   selectManagedEconomicExecutionAlternative,
@@ -19,6 +21,7 @@ import {
   type ManagedEconomicSelectionRequest,
   type ManagedEconomicSettlement,
 } from "../../src/cost/managed-route-economics.js";
+import type { ManagedAgentAuthorityProfile } from "../../src/agents/managed-invocation/index.js";
 
 const CURRENT_AT = "2026-07-29T12:00:00.000Z";
 
@@ -251,10 +254,11 @@ function adoptedSnapshotInput(): ManagedEconomicAdoptedSnapshotInput {
         sourceIdentity: "managed-route-config",
         providerId: selected.identity.route.providerId,
         modelId: selected.identity.route.modelId,
-        adapterCapabilityId: selected.identity.route.adapterCapabilityId,
-        adapterCapabilityVersion: selected.identity.route.adapterCapabilityVersion,
-        accountPolicy: { kind: "accountless" },
-      },
+         adapterCapabilityId: selected.identity.route.adapterCapabilityId,
+         adapterCapabilityVersion: selected.identity.route.adapterCapabilityVersion,
+         accountPolicy: { kind: "accountless" },
+         profileAuthorityDigest: "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+       },
       route,
       comparisonDomain: selected.comparisonDomain,
       priorityRank: selected.priorityRank,
@@ -324,6 +328,86 @@ describe("managed route economics", () => {
     expect(digestManagedEconomicValue(left)).toMatch(/^sha256:[a-f0-9]{64}$/u);
   });
 
+  it("commits the complete authority projection without persisting raw paths", () => {
+    const authority: ManagedAgentAuthorityProfile = {
+      authorityProfileId: "authority:route-a:foundation-readonly-plan",
+      permissionProfile: "read-only",
+      toolAuthority: {
+        allowedToolNames: ["grep", "read", "grep"],
+        writeAllowed: false,
+        networkAllowed: true,
+      },
+      workingDirectory: { path: "C:\\synthetic\\workspace", mode: "read-only" },
+      timeoutMs: 300000,
+      timeoutSource: "default",
+      credentialRoute: { mode: "credentialless" },
+      memoryScope: { scope: { kind: "project", id: "synthetic" }, access: "read-only" },
+      readAuthority: {
+        workspace: {
+          allowedPaths: ["C:\\synthetic\\workspace"],
+          deniedPaths: ["C:\\synthetic\\workspace\\.git"],
+        },
+      },
+    };
+    const reordered: ManagedAgentAuthorityProfile = {
+      ...authority,
+      toolAuthority: { ...authority.toolAuthority, allowedToolNames: ["read", "grep"] },
+    };
+    const changed: ManagedAgentAuthorityProfile = {
+      ...authority,
+      toolAuthority: { ...authority.toolAuthority, networkAllowed: false },
+    };
+    const authorityWithEvidence: ManagedAgentAuthorityProfile = {
+      ...authority,
+      writeAuthority: {
+        profile: "foundation-propose-writes",
+        scope: {
+          workspace: {
+            mode: "propose",
+            allowedPaths: ["C:\\synthetic\\workspace"],
+            deniedPaths: ["C:\\synthetic\\workspace\\.git"],
+          },
+          memory: { mode: "none", operations: [] },
+          artifacts: {
+            mode: "propose",
+            resourceUris: ["kiln://synthetic/resources/allowed"],
+            retention: "session",
+          },
+          tools: { allowedToolNames: ["read"], deniedToolNames: [] },
+        },
+        approval: {
+          mode: "required-before-apply",
+          evidenceRequired: true,
+          evidenceUris: ["kiln://synthetic/evidence/one"],
+        },
+      },
+    };
+    const changedEvidence: ManagedAgentAuthorityProfile = {
+      ...authorityWithEvidence,
+      writeAuthority: {
+        ...authorityWithEvidence.writeAuthority!,
+        approval: {
+          ...authorityWithEvidence.writeAuthority!.approval,
+          evidenceUris: ["kiln://synthetic/evidence/two"],
+        },
+      },
+    };
+
+    const digest = digestManagedEconomicProfileAuthority(authority);
+    expect(digest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(digestManagedEconomicProfileAuthority(reordered)).toBe(digest);
+    expect(digestManagedEconomicProfileAuthority(changed)).not.toBe(digest);
+    const projection = JSON.stringify(projectManagedEconomicProfileAuthority(authority));
+    expect(projection).not.toContain("synthetic\\\\workspace");
+    expect(projection).toContain("sha256:");
+
+    const evidenceProjection = JSON.stringify(projectManagedEconomicProfileAuthority(authorityWithEvidence));
+    expect(evidenceProjection).not.toContain("kiln://synthetic/resources/allowed");
+    expect(evidenceProjection).not.toContain("kiln://synthetic/evidence/one");
+    expect(digestManagedEconomicProfileAuthority(changedEvidence))
+      .not.toBe(digestManagedEconomicProfileAuthority(authorityWithEvidence));
+  });
+
   it("adopts a complete immutable economic snapshot with canonical digests", () => {
     const input = adoptedSnapshotInput();
     const snapshot = adoptManagedEconomicSnapshot(input);
@@ -338,6 +422,17 @@ describe("managed route economics", () => {
     expect(snapshot).toEqual(reordered);
     expect(snapshot.candidateSetDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(snapshot.snapshotDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    const authorityRevision = adoptManagedEconomicSnapshot({
+      ...input,
+      routes: [{
+        ...input.routes[0]!,
+        admittedIdentity: {
+          ...input.routes[0]!.admittedIdentity,
+          profileAuthorityDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      }],
+    });
+    expect(authorityRevision.candidateSetDigest).not.toBe(snapshot.candidateSetDigest);
     expect(Object.isFrozen(snapshot)).toBe(true);
     expect(Object.isFrozen(snapshot.routes)).toBe(true);
     expect(Object.isFrozen(snapshot.routes[0]?.priceEvidence.identity.evidence)).toBe(true);

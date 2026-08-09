@@ -553,6 +553,7 @@ describe("managed agent route catalog", () => {
       registry: createRegistry("codex"),
       surface: "gui",
       isProviderAvailable: () => true,
+      userHome: cwd,
     }, {
       reloadConfig: () => currentConfig,
       discoverProviderModels: async () => observedProviderModels({ codex: ["gpt-5.3-codex-spark"] }),
@@ -578,6 +579,7 @@ describe("managed agent route catalog", () => {
       registry: createRegistry("codex"),
       surface: "gui",
       isProviderAvailable: () => true,
+      userHome: cwd,
     }, {
       reloadConfig: () => currentConfig,
       discoverProviderModels: async () => observedProviderModels({ codex: ["gpt-5.3-codex-spark"] }),

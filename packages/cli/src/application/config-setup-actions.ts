@@ -126,9 +126,9 @@ async function syncNativeProjections(
   }
 
   const disabledHarnesses = [] as const;
-  const permissionResult = await syncNativePermissionProjections(kilnYaml, projectPath, { disabledHarnesses });
+  const permissionResult = await syncNativePermissionProjections(kilnYaml, projectPath, { disabledHarnesses, userHome });
   const hookResult = await syncNativeHookProjections(projectPath, join(projectPath, ".kiln"), { disabledHarnesses });
-  const agentResult = await syncNativeAgentProjections(projectPath, { disabledHarnesses });
+  const agentResult = await syncNativeAgentProjections(projectPath, { disabledHarnesses, userHome });
   const skillResult = await syncNativeSkillProjections(projectPath, {
     disabledHarnesses,
     skillConfig: kilnYaml.skills,

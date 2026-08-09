@@ -1,6 +1,7 @@
 import type {
   ExecutionSessionEvent,
   ExecutionSessionRunOptions,
+  ExecutionSessionEphemeralHarnessStateEvidence,
   ProviderExecutionRequestedAuthority,
 } from "@kilnai/core";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
@@ -8,6 +9,10 @@ import type { OperatorSurfaceController } from "../operator/operator-surface-con
 export interface CliSession {
   run(options: ExecutionSessionRunOptions): AsyncIterable<ExecutionSessionEvent>;
   dispose(): Promise<void>;
+  /** Harness identity observed by the session during its current run. */
+  readonly observedHarnessVersion?: string;
+  /** Optional drain for terminal evidence finalized by dispose during cancel/timeout. */
+  drainEphemeralHarnessStateEvidence?(): readonly ExecutionSessionEphemeralHarnessStateEvidence[];
 }
 
 export interface CliSessionFactoryContext {
@@ -24,6 +29,13 @@ export interface CliSessionFactoryContext {
    */
   readonly structuredOutput?: {
     readonly schema: Readonly<Record<string, unknown>>;
+  };
+  /** Version-bound private plan artifact capability for Claude plan runs. */
+  readonly privatePlanArtifactCapability?: {
+    readonly capabilityId: "claude-code-private-plan-artifacts-v1";
+    readonly harness: "claude-code";
+    readonly version: "2.1.220" | "2.1.226";
+    readonly relativeDirectory: "plans";
   };
 }
 

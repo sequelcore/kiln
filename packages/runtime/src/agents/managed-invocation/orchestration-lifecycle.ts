@@ -1,6 +1,7 @@
 import { posix, resolve, win32 } from "node:path";
 import {
   buildManagedAgentOrchestrationResultEvidence,
+  admitManagedRoute,
   digestManagedEconomicValue,
   defineManagedAgentInvocationRequest,
   type ManagedAgentAdmissionDecision,
@@ -25,7 +26,9 @@ import {
   type ManagedInvocationToolRoute,
 } from "./runtime-tool/index.js";
 import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js";
+import { deriveManagedInvocationCallerAuthority } from "./caller-capability-policy.js";
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
+import type { ManagedInvocationExecutableRoute } from "./runtime-tool/types.js";
 
 const ORCHESTRATION_CONTEXT_MODE = "isolated";
 
@@ -92,6 +95,7 @@ interface PreparedOrchestrationChild {
 }
 
 interface ExecutableOrchestrationChild extends PreparedOrchestrationChild {
+  readonly route: ManagedInvocationExecutableRoute;
   readonly request: ManagedAgentInvocationRequest;
   readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
   readonly abortSignal?: AbortSignal;
@@ -222,7 +226,7 @@ export async function runManagedAgentOrchestrationLifecycle(
               profile: dispatched.profile,
               requestedBy: input.managedInvocation.requestedBy ?? input.orchestrationRequest.requestedBy,
               requestSource: input.managedInvocation.requestSource ?? input.orchestrationRequest.requestSource,
-              requestedAuthority: input.requestedAuthority ?? "audited",
+              requestedAuthority: input.requestedAuthority ?? (input.callerIdentity ? "audited" : "read_only"),
               admissionProfile: input.profile,
             }),
           });
@@ -298,10 +302,19 @@ async function prepareOrchestrationEconomicDispatch(
   input: ManagedAgentOrchestrationLifecycleInput,
   entry: PreparedOrchestrationChild,
 ): Promise<PreparedOrchestrationChild & {
+  readonly route: ManagedInvocationExecutableRoute;
   readonly economicDispatch?: NonNullable<ManagedAgentRuntimeInvocationLifecycleOptions["economicDispatch"]>;
   readonly abortSignal?: AbortSignal;
 }> {
-  if (!entry.economicCandidateSet) return entry;
+  admitOrchestrationRoute(input, entry);
+  if (!entry.economicCandidateSet) {
+    const adapter = await entry.route.createAdapter?.();
+    if (!adapter) throw new Error("managed_orchestration_adapter_unavailable");
+    if (!orchestrationAdapterMatchesRouteCapability(adapter, entry.route)) {
+      throw new Error("managed_orchestration_route_capability_adapter_mismatch");
+    }
+    return { ...entry, route: { ...entry.route, adapter } };
+  }
   if (entry.economicCandidateSet.candidates.length === 0) {
     throw new ManagedEconomicCommitmentUnavailableError(entry.economicCandidateSet);
   }
@@ -348,6 +361,10 @@ async function prepareOrchestrationEconomicDispatch(
     preparation.recordExecutionSettlementPending("committed-route-mismatch");
     throw new Error(`Managed orchestration economic commitment does not match selected route '${entry.route.routeId}'.`);
   }
+  if (!orchestrationAdapterMatchesRouteCapability(preparation.adapter, entry.route)) {
+    preparation.recordExecutionSettlementPending("committed-route-adapter-mismatch");
+    throw new Error("managed_orchestration_route_capability_adapter_mismatch");
+  }
   return {
     ...entry,
     ...(selectedCandidate.deliberationResolution
@@ -365,6 +382,65 @@ async function prepareOrchestrationEconomicDispatch(
   };
 }
 
+function admitOrchestrationRoute(
+  input: ManagedAgentOrchestrationLifecycleInput,
+  entry: PreparedOrchestrationChild,
+): void {
+  const route = entry.route;
+  if (!route.capability || !route.capability.identity || !route.capability.target || !route.capability.adapter) {
+    throw new Error("managed_orchestration_route_capability_missing");
+  }
+  if (route.capability.identity.routeId !== route.routeId
+    || route.capability.target.providerId !== route.providerId
+    || route.capability.target.modelId !== route.model) {
+    throw new Error("managed_orchestration_route_capability_identity_mismatch");
+  }
+  if (route.capability.capacity.kind === "policy-bound" && !entry.economicCandidateSet) {
+    throw new Error("managed_orchestration_policy_bound_capacity_requires_economic_commitment");
+  }
+  const requestedAuthority = input.requestedAuthority === undefined || input.requestedAuthority === "auto"
+    ? input.callerIdentity ? "audited" : "read_only"
+    : input.requestedAuthority;
+  const decision = admitManagedRoute({
+    route: route.capability,
+    work: {
+      evaluatedAt: new Date().toISOString(),
+      profile: input.profile,
+      requestedAuthority,
+      requiredToolNames: entry.profile.allowedToolNames,
+      requiresRecursion: false,
+      requiresAttachments: route.externalRuntimeAttachment !== undefined,
+      requiresWrite: entry.profile.writeAllowed === true,
+      ...(route.externalRuntimeAttachment ? { requestedExternalRuntimeAttachment: route.externalRuntimeAttachment } : {}),
+      minimumProof: "configured",
+    },
+    caller: deriveManagedInvocationCallerAuthority({
+      ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
+      routeAllowedToolNames: entry.profile.allowedToolNames,
+    }),
+  });
+  if (decision.status !== "admitted") {
+    throw new Error(`managed_orchestration_route_admission_denied:${decision.reasons.map((reason) => reason.code).join(",")}`);
+  }
+}
+
+function orchestrationAdapterMatchesRouteCapability(
+  adapter: ManagedInvocationExecutableRoute["adapter"],
+  route: ManagedInvocationToolRoute,
+): boolean {
+  const modes = adapter.descriptor.supportedExecutionModes;
+  if (modes.length !== 1 || adapter.descriptor.providerId !== route.providerId) return false;
+  const [mode] = modes;
+  const capabilityKind = adapter.descriptor.adapterKind === "direct"
+    ? mode === "direct-provider" ? "direct-provider" : undefined
+    : adapter.descriptor.adapterKind === "harness"
+      ? mode === "local-harness" ? "native-harness"
+        : mode === "cli-harness" ? "cli-harness"
+          : mode === "remote-harness" ? "governed-external-runtime" : undefined
+      : undefined;
+  return capabilityKind === route.capability.adapter.kind;
+}
+
 async function runOrchestrationBatch(input: {
   readonly service: NonNullable<ManagedInvocationToolOptions["invocationService"]>;
   readonly entries: readonly ExecutableOrchestrationChild[];
@@ -372,10 +448,7 @@ async function runOrchestrationBatch(input: {
   readonly lifecycleObserver?: ManagedAgentOrchestrationLifecycleObserver;
 }): Promise<readonly ManagedAgentOrchestrationLifecycleChildRecord[]> {
   const startResults = await Promise.allSettled(input.entries.map(async ({ request, route, economicDispatch, abortSignal }) => {
-    const adapter = route.adapter;
-    if (!adapter) {
-      throw new Error("economic_commitment_unavailable");
-    }
+    const { adapter } = route;
     const startResult = await input.service.start(request, adapter, {
       routeId: route.routeId,
       routeSource: route.routeSource,
@@ -570,10 +643,7 @@ function selectOrchestrationRoute(
     return profile !== undefined
       && profile.workingDirectory.mode === workingDirectoryMode
       && (workingDirectoryMode !== "isolated-worktree" || profile.workingDirectoryLease !== undefined)
-      && (route.adapter !== undefined
-        ? route.adapter.descriptor.lifecycle.exposesStart && route.adapter.descriptor.lifecycle.exposesTerminal
-        : allowEconomicAdapterlessRoute
-          && route.economicCapability?.status === "verified");
+      && (route.createAdapter !== undefined || (allowEconomicAdapterlessRoute && route.economicCapability?.status === "verified"));
   });
   if (matches.length === 1) {
     return matches[0]!;
@@ -620,17 +690,14 @@ function buildOrchestrationChildInvocationRequest(input: {
   readonly deliberationIntent?: ManagedAgentInvocationRequest["providerRoute"]["deliberationIntent"];
   readonly deliberationResolution?: DeliberationResolution;
   readonly dependencyRecords: readonly ManagedAgentInvocationRecord[];
-  readonly route: ManagedInvocationToolRoute;
+  readonly route: ManagedInvocationExecutableRoute;
   readonly profile: ManagedInvocationRouteProfile;
   readonly requestedBy: string;
   readonly requestSource: string;
   readonly requestedAuthority: ManagedAgentRequestedAuthority;
   readonly admissionProfile: ManagedAgentAdmissionProfile;
 }): ManagedAgentInvocationRequest {
-  const adapter = input.route.adapter;
-  if (!adapter) {
-    throw new Error("economic_commitment_unavailable");
-  }
+  const { adapter } = input.route;
   const invocationId = sanitizeInvocationId(input.childId);
   const workingDirectory = resolveOrchestrationWorkingDirectory(input.profile, invocationId);
   const authority: ManagedAgentAuthorityProfile = {

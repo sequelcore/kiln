@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ManagedAgentAuthorityProfile } from "../agents/managed-invocation/index.js";
 
 export type ManagedEconomicConfidence = "high" | "medium" | "low";
 
@@ -377,6 +378,8 @@ export interface ManagedEconomicAdmittedCandidateIdentity {
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
   readonly accountPolicy: ManagedEconomicAdoptedAccountPolicy;
+  /** Digest of the complete, secret/path-free execution authority projection. */
+  readonly profileAuthorityDigest: string;
 }
 
 /** Config-owned route evidence before Runtime attaches current account evidence. */
@@ -1566,6 +1569,83 @@ export function digestManagedEconomicValue(value: unknown): string {
     .digest("hex")}`;
 }
 
+/**
+ * Returns the data-only authority evidence committed by an economic candidate.
+ *
+ * Filesystem paths, URI-like resource references, and secret-shaped values are
+ * represented by digests rather than copied into candidate evidence. Tool
+ * allow-lists are sorted and deduplicated because their order is not an
+ * authority semantic. This projection intentionally enumerates the authority
+ * contract instead of serializing a class or adapter object.
+ */
+export function projectManagedEconomicProfileAuthority(
+  authority: ManagedAgentAuthorityProfile,
+): Readonly<Record<string, unknown>> {
+  return projectManagedEconomicAuthorityValue(authority, "authority") as Readonly<Record<string, unknown>>;
+}
+
+/** Computes the V9 per-candidate authority identity. */
+export function digestManagedEconomicProfileAuthority(
+  authority: ManagedAgentAuthorityProfile,
+): string {
+  return digestManagedEconomicValue(projectManagedEconomicProfileAuthority(authority));
+}
+
+function projectManagedEconomicAuthorityValue(value: unknown, key: string): unknown {
+  if (typeof value === "string") {
+    if (isManagedEconomicAuthorityToolListKey(key)) {
+      return value.trim();
+    }
+    if (isManagedEconomicAuthoritySensitiveKey(key)) {
+      return digestManagedEconomicValue({
+        kind: "managed-profile-authority-sensitive-value",
+        value: normalizeManagedEconomicAuthoritySensitiveValue(value),
+      });
+    }
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || value === null) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    const projected = value.map((entry) => projectManagedEconomicAuthorityValue(entry, key));
+    if (isManagedEconomicAuthorityToolListKey(key)) {
+      return [...new Set(projected.filter((entry): entry is string => typeof entry === "string"))]
+        .sort(compareStableStrings);
+    }
+    return projected;
+  }
+  if (typeof value !== "object") {
+    return undefined;
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  const projected: Record<string, unknown> = {};
+  for (const childKey of Object.keys(record).sort(compareStableStrings)) {
+    const child = record[childKey];
+    if (child === undefined) continue;
+    const projectedChild = projectManagedEconomicAuthorityValue(child, childKey);
+    if (projectedChild !== undefined) projected[childKey] = projectedChild;
+  }
+  return projected;
+}
+
+function isManagedEconomicAuthorityToolListKey(key: string): boolean {
+  return key === "allowedToolNames" || key === "deniedToolNames";
+}
+
+function isManagedEconomicAuthoritySensitiveKey(key: string): boolean {
+  return key === "path"
+    || key === "allowedPaths"
+    || key === "deniedPaths"
+    || key === "resourceUris"
+    || key === "evidenceUris"
+    || /(?:secret|token|password|api[-_]?key)/iu.test(key);
+}
+
+function normalizeManagedEconomicAuthoritySensitiveValue(value: string): string {
+  return value.trim().replaceAll("\\", "/").replace(/\/{2,}/gu, "/");
+}
+
 export function digestManagedEconomicCandidateSet(
   candidates: readonly ManagedEconomicAdmittedCandidateIdentity[],
 ): string {
@@ -1736,6 +1816,7 @@ function validateManagedEconomicAdoptedRoute(
     [admittedIdentity.adapterCapabilityId, "admitted adapter capability id"],
     [admittedIdentity.adapterCapabilityVersion, "admitted adapter capability version"],
   ] as const) requireIdentity(value, label);
+  requireDigest(admittedIdentity.profileAuthorityDigest, "admitted profile authority digest");
   requireAllowed(admittedIdentity.accountPolicy.kind, ["accountless", "account-bound"], "account policy applicability");
   if (admittedIdentity.accountPolicy.kind === "account-bound") {
     requireIdentity(admittedIdentity.accountPolicy.accountPolicyId, "admitted account policy id");

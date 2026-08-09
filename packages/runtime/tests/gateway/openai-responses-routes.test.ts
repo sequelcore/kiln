@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import { createAccountPolicyId, createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import {
   OPENAI_RESPONSES_RAW_BODY_MAX_BYTES,
@@ -47,16 +48,16 @@ type ConfigOverrides = Partial<OpenAIResponsesIngressConfig> & {
 function config(overrides: ConfigOverrides = {}) {
   const { execute: executeOverride, predispatch, ...ingressOverrides } = overrides;
   const execute = vi.fn(executeOverride ?? (async () => ({ result: textResult })));
+  const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `openai-test-${crypto.randomUUID()}`, configurationRevision: "test" });
   const catalog = vi.fn(async (input) => {
     await predispatch?.();
-    return [{ account: createAccountRef("account-1"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }];
+    return { accountPolicyId: createAccountPolicyId("gateway:test"), candidates: [{ candidate: { account: createAccountRef("account-1"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } }] };
   });
   const evidence = vi.fn(async () => undefined);
   const affinityRead = vi.fn(async () => undefined);
   const invocationPorts: GovernedOneRoundInvocationPorts = {
     candidateCatalog: { list: catalog },
-    affinityStore: { read: affinityRead, write: async () => undefined },
-    accountLease: { acquire: async () => ({ leaseId: "lease-1" }), release: async () => undefined },
+    accountCapacityAuthority: authority,
     attemptEvidence: { record: evidence },
     dispatcherResolver: { resolve: async () => ({ dispatchOneRound: async (input) => (await execute(input)).result }) },
   };
@@ -72,7 +73,7 @@ function config(overrides: ConfigOverrides = {}) {
     namespaceCorrelation: namespace,
     compatibilityEvidence: { record },
     invocationPorts,
-    createAttemptId: () => "attempt-server-1",
+    createAttemptId: () => `attempt-server-${crypto.randomUUID()}`,
     createResponseId: () => "resp_server_1",
     ...ingressOverrides,
   };
@@ -353,9 +354,7 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(fixture.catalog).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({ sessionId: "ns:tenant:session-1", turnId: "ns:tenant:turn-1" }),
     }));
-    expect(fixture.evidence).toHaveBeenCalledWith(expect.objectContaining({
-      attemptId: "attempt-server-1",
-    }));
+    expect(fixture.evidence).toHaveBeenCalledWith(expect.objectContaining({ attemptId: expect.stringMatching(/^attempt-server-/) }));
 
     const contradiction = await app.request(request(body({ client_metadata: { session_id: "another-session" } }), { "session-id": "native-session" }));
     expect(contradiction.status).toBe(400);
@@ -410,10 +409,8 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     const app = createOpenAIResponsesRoutes(fixture.value);
     expect((await app.request(request(body(), { "session-id": "raw-a" }))).status).toBe(200);
     expect((await app.request(request(body(), { "session-id": "raw-b" }))).status).toBe(200);
-    expect(fixture.affinityRead.mock.calls.map(([input]) => input.key)).toEqual([
-      "openai-responses:session:trusted:raw-a",
-      "openai-responses:session:trusted:raw-b",
-    ]);
+    // Affinity is resolved atomically inside the managed-account authority.
+    expect(fixture.execute).toHaveBeenCalledTimes(2);
   });
 
   it("records optional degradation and performs required preflight before execute", async () => {

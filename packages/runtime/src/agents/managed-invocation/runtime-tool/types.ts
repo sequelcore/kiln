@@ -16,6 +16,7 @@ import type {
   ManagedAgentMemoryScope,
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
+  RouteCapability,
   ManagedAgentResultField,
   ManagedAgentRouteSource,
   ManagedAgentWorkingDirectory,
@@ -31,6 +32,7 @@ import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtim
 import type { ManagedAgentRuntimeAdapter, RuntimeManagedAgentInvocationService } from "../index.js";
 import type {
   ManagedEconomicDispatchPreparation,
+  ManagedEconomicDispatchPrepareInput,
   ManagedEconomicLifecycleEventPort,
 } from "../economic-dispatch-coordinator.js";
 import type { ManagedEconomicCandidateSet } from "./economic-candidate-collection.js";
@@ -77,13 +79,12 @@ export interface ManagedInvocationToolRoute {
   readonly routeSource: ManagedAgentRouteSource;
   readonly providerId: string;
   readonly model?: string;
+  /** Canonical, data-only admission envelope. No adapter is materialized here. */
+  readonly capability: RouteCapability;
   readonly deliberationCapabilities?: ModelDeliberationCapabilities;
   readonly voiceProfile?: string;
-  /**
-   * Fixed-route execution only. Economic policy candidates must not carry an
-   * adapter across the precommit boundary.
-   */
-  readonly adapter?: ManagedAgentRuntimeAdapter;
+  /** Materialized only after capability admission (and economic commitment when required). */
+  readonly createAdapter?: () => Promise<ManagedAgentRuntimeAdapter | undefined>;
   readonly economicCapability?: ManagedEconomicRouteCapability;
   readonly createCommittedAdapter?: (
     request: ManagedCommittedInvocationRequest,
@@ -143,8 +144,9 @@ export interface ManagedInvocationToolOptions {
       readonly parentSessionId: string;
       readonly parentTurnId: string;
       readonly abortSignal?: AbortSignal;
-      readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
-    }): Promise<ManagedEconomicDispatchPreparation>;
+       readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
+       readonly validateExecutionProfile?: ManagedEconomicDispatchPrepareInput["validateExecutionProfile"];
+     }): Promise<ManagedEconomicDispatchPreparation>;
   };
 }
 

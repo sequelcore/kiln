@@ -677,6 +677,11 @@ describe("run command builtin tool wiring", () => {
     }
 
     expect(input).not.toHaveProperty("budgetAdmission");
+    expect(input.callerIdentity).toEqual({
+      kind: "kiln-runtime",
+      surface: "run",
+      attachmentId: "kiln-runtime:run",
+    });
     expect(input.orchestrationRequest.parentSessionId).not.toBe("cli-run");
     expect(input.orchestrationRequest.orchestrationId).toContain(input.orchestrationRequest.parentSessionId);
   });
@@ -1844,14 +1849,31 @@ function parallelManagedInvocation() {
       routeId: "codex-isolated",
       providerId: "codex",
       model: "gpt-5.5",
-      adapter: {
+      capability: {
+        identity: { routeId: "codex-isolated", revision: "test-v1" },
+        target: { providerId: "codex", modelId: "gpt-5.5" },
+        adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
+        authorityCeiling: "destructive",
+        toolNames: ["read", "grep", "apply-patch"],
+        supportsRecursion: true,
+        supportsAttachments: false,
+        supportsWrite: true,
+        proof: {
+          status: "configured",
+          source: "run-builtin-tools-test",
+          provenProfiles: ["foundation-apply-approved-writes"],
+        },
+        capacity: { kind: "accountless" },
+        settlement: { kind: "not-required" },
+      },
+      createAdapter: async () => ({
         descriptor: {
           lifecycle: {
             exposesStart: true,
             exposesTerminal: true,
           },
         },
-      },
+      }),
       profiles: {
         "foundation-apply-approved-writes": {
           workingDirectory: {

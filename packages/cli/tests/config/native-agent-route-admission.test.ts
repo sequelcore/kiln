@@ -1,0 +1,91 @@
+import { describe, expect, it, vi } from "vitest";
+import { createNativeAgentRouteAdmissionResolver } from "../../src/config/native-agent-route-admission.js";
+
+const capability = {
+  identity: { routeId: "route-alpha", revision: "v1" },
+  target: { providerId: "codex", modelId: "gpt-5.3-codex-spark" },
+  adapter: { kind: "cli-harness" as const, capabilityId: "adapter-alpha", capabilityVersion: "v1" },
+  authorityCeiling: "read_only" as const,
+  toolNames: ["read"], supportsRecursion: false, supportsAttachments: false, supportsWrite: false,
+  proof: { status: "configured" as const, source: "test", provenProfiles: ["foundation-readonly-plan" as const] },
+  capacity: { kind: "accountless" as const }, settlement: { kind: "not-required" as const },
+};
+
+const agent = {
+  name: "planner", role: "planner", goal: "plan", routeId: "route-alpha",
+  providerRoute: { providerId: "codex", model: "gpt-5.3-codex-spark" },
+  tools: ["read"],
+} as const;
+
+describe("native agent route admission", () => {
+  it("projects from canonical candidate-admission routes without execution composition", async () => {
+    const createRegistry = vi.fn(() => ({ registry: {} as never }));
+    const discoverProviderModels = vi.fn(async () => ({}));
+    const resolveRoutes = vi.fn(async (_config, context) => {
+      expect(context).toMatchObject({ cwd: "/repo", surface: "operator", includeUnavailableRoutes: true, compositionMode: "candidate-admission" });
+      expect(context).not.toHaveProperty("managedAccountComposition");
+      expect(context).not.toHaveProperty("directAdapterFactory");
+      return { managedInvocation: { routes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark", capability }] } };
+    });
+
+    const resolver = await createNativeAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => ({}) as never,
+      createRegistry,
+      discoverProviderModels,
+      resolveRoutes: resolveRoutes as never,
+    });
+
+    expect(resolver.resolve(agent as never)).toMatchObject({ status: "admitted", route: { identity: { routeId: "route-alpha" } } });
+    expect(createRegistry).toHaveBeenCalledTimes(1);
+    expect(discoverProviderModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns unresolved for an absent canonical route and unavailable for an unhealthy route", async () => {
+    const create = (resolution: unknown) => createNativeAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => ({}) as never,
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: async () => ({}),
+      resolveRoutes: async () => resolution as never,
+    });
+    expect((await create({ managedInvocation: { routes: [] } })).resolve(agent as never)).toMatchObject({ status: "unresolved" });
+    expect((await create({ managedInvocation: { routes: [], unavailableRoutes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark" }] } })).resolve(agent as never)).toMatchObject({ status: "unavailable" });
+  });
+
+  it("admits a unique provider/model route without routeId and rejects ambiguous selection", async () => {
+    const create = (routes: readonly unknown[]) => createNativeAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => ({}) as never,
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: async () => ({}),
+      resolveRoutes: async () => ({ managedInvocation: { routes } }) as never,
+    });
+    const withoutRouteId = { ...agent, routeId: undefined };
+    const canonicalRoute = { routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark", capability };
+    expect((await create([canonicalRoute])).resolve(withoutRouteId as never)).toMatchObject({ status: "admitted" });
+    expect((await create([canonicalRoute, { ...canonicalRoute, routeId: "route-beta" }])).resolve(withoutRouteId as never)).toMatchObject({ status: "unresolved" });
+    expect((await create([canonicalRoute, { ...canonicalRoute, routeId: "route-beta" }])).resolve(agent as never)).toMatchObject({ status: "admitted", route: { identity: { routeId: "route-alpha" } } });
+  });
+
+  it("rejects a native-harness route whose capacity is runtime-selected", async () => {
+    const resolver = await createNativeAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => ({}) as never,
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: async () => ({}),
+      resolveRoutes: async () => ({
+        managedInvocation: {
+          routes: [{
+            routeId: "route-alpha",
+            providerId: "codex",
+            model: "gpt-5.3-codex-spark",
+            capability: { ...capability, capacity: { kind: "policy-bound", accountPolicyId: "managed-codex" } },
+          }],
+        },
+      }) as never,
+    });
+
+    expect(resolver.resolve(agent as never)).toEqual({
+      status: "unavailable",
+      routeId: "route-alpha",
+      reasons: [{ code: "capacity-policy-mismatch" }],
+    });
+  });
+});

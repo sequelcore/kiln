@@ -64,13 +64,38 @@ describe("config setup actions", () => {
 
   it("installs the control-plane MCP globally while keeping project MCP projection project-specific", async () => {
     const userHome = join(tempDir, "home");
+    mkdirSync(join(tempDir, ".kiln", "agents"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "agents", "synthetic-agent.md"), [
+      "---",
+      "name: synthetic-agent",
+      "role: Synthetic setup agent",
+      "goal: Verify synthetic home propagation.",
+      "tier: fast",
+      "---",
+      "",
+      "Use only the synthetic harness home.",
+      "",
+    ].join("\n"), "utf-8");
+
+    vi.stubEnv("CLAUDE_CONFIG_DIR", join(tempDir, "ambient-claude"));
+    vi.stubEnv("CODEX_HOME", join(tempDir, "ambient-codex"));
+    vi.stubEnv("OPENCODE_CONFIG_DIR", join(tempDir, "ambient-opencode"));
+    const startedAt = Date.now();
     const result = await executeConfigSetupAction({
       projectPath: tempDir,
       action: "sync-native-projections",
       userHome,
     });
+    const elapsedMs = Date.now() - startedAt;
 
     expect(result.status).toBe("applied");
+    expect(elapsedMs).toBeLessThan(10_000);
+    expect(existsSync(join(userHome, ".codex", "config.toml"))).toBe(true);
+    expect(existsSync(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
+    expect(existsSync(join(userHome, ".claude", "agents", "synthetic-agent.md"))).toBe(true);
+    expect(existsSync(join(userHome, ".config", "opencode", "agents", "synthetic-agent.md"))).toBe(true);
+    expect(existsSync(join(userHome, ".codex", "agents", "adversarial-reviewer.toml"))).toBe(false);
+    expect(existsSync(join(tempDir, "ambient-codex", "config.toml"))).toBe(false);
     const claudeGlobal = JSON.parse(readFileSync(join(userHome, ".claude.json"), "utf8"));
     expect(claudeGlobal.mcpServers["kiln-control-plane"]).toEqual({
       type: "stdio",

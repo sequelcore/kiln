@@ -15,6 +15,7 @@ import type { TraceSpan } from "./trace.js";
 import type { ExecutionCostEvidence } from "../cost/index.js";
 export type {
   ExecutionSessionCostTrackingMode,
+  ExecutionSessionEphemeralHarnessStateEvidence,
   ExecutionSessionBindingEvidence,
   ExecutionSessionEvent,
   ExecutionSessionRunOptions,

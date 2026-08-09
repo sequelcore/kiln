@@ -331,9 +331,8 @@ function eligibleManagedOrchestrationRoutes(
     return routeProfile !== undefined
       && routeProfile.workingDirectory.mode !== "workspace-write"
       && (routeProfile.workingDirectory.mode !== "isolated-worktree" || routeProfile.workingDirectoryLease !== undefined)
-      && (route.adapter !== undefined
-        ? route.adapter.descriptor.lifecycle.exposesStart && route.adapter.descriptor.lifecycle.exposesTerminal
-        : options.economicDispatch !== undefined && route.economicCapability?.status === "verified");
+      && (route.createAdapter !== undefined
+        || (options.economicDispatch !== undefined && route.economicCapability?.status === "verified"));
   });
 }
 

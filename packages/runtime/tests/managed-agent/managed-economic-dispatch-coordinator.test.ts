@@ -191,6 +191,36 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
   });
 
+  it("fails closed on a post-fence authority digest mismatch before adapter creation", async () => {
+    const economicAuthority = authority();
+    const createAdapter = vi.fn(async () => ({ descriptor: {} }) as never);
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter,
+    });
+
+    await expect(coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: {} as never,
+      admissionProfile: "foundation-readonly-plan",
+      validateExecutionProfile: async () => {
+        throw new Error("identity-revision-conflict: managed profile authority changed");
+      },
+    })).rejects.toThrow("identity-revision-conflict");
+    expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
+    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      expect.any(String),
+      "post-fence-profile-authority-mismatch",
+    );
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+    expect(createAdapter).not.toHaveBeenCalled();
+  });
+
   it("releases a commitment when its configured lifecycle timeout is invalid", async () => {
     const economicAuthority = authority();
     const coordinator = new ManagedEconomicDispatchCoordinator({

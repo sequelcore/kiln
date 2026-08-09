@@ -7,7 +7,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { appendExecutionIdentity, resolveExecutionIdentity, type ExecutionSessionEvent } from "@kilnai/core";
+import {
+  appendExecutionIdentity,
+  resolveExecutionIdentity,
+  type ExecutionSessionEphemeralHarnessStateEvidence,
+  type ExecutionSessionEvent,
+} from "@kilnai/core";
 import type {
   SessionCapabilities,
   SessionRunOptions,
@@ -19,6 +24,10 @@ import { resolveTurnPrompt } from "./preamble-builder.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
+import {
+  createClaudePrivatePlanArtifactTracker,
+  type ClaudePrivatePlanArtifactCapability,
+} from "./claude-private-plan-artifacts.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
@@ -67,6 +76,8 @@ export interface ClaudeSessionConfig {
     readonly executable: string;
     readonly version: string;
   };
+  /** Enabled only by the version-proven Claude read-only plan route. */
+  readonly privatePlanArtifactCapability?: ClaudePrivatePlanArtifactCapability;
 }
 
 function derivePermissionPolicy(
@@ -134,11 +145,15 @@ interface MutableCapabilities {
 
 export class ClaudeSession implements IKilnSession {
   readonly sessionId: string;
+  private _observedHarnessVersion: string | undefined;
 
   private readonly _capabilities: MutableCapabilities & Omit<SessionCapabilities, "supportedTools">;
   private abortController: AbortController | null = null;
   private activeQuery: Query | null = null;
   private readonly queryClosures = new WeakMap<Query, Promise<void>>();
+  private activePrivatePlanArtifactTracker: ReturnType<typeof createClaudePrivatePlanArtifactTracker> = undefined;
+  private pendingEphemeralHarnessStateEvidence: ExecutionSessionEphemeralHarnessStateEvidence[] = [];
+  private disposeRequested = false;
 
   constructor(private readonly config: ClaudeSessionConfig) {
     this.sessionId = config.runtimeSessionId ?? randomUUID();
@@ -168,8 +183,15 @@ export class ClaudeSession implements IKilnSession {
     return this.sessionId;
   }
 
+  get observedHarnessVersion(): string | undefined {
+    return this._observedHarnessVersion;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
+
+    if (this.disposeRequested) return;
+    this._observedHarnessVersion = undefined;
 
     const abortController = new AbortController();
     this.abortController = abortController;
@@ -186,72 +208,122 @@ export class ClaudeSession implements IKilnSession {
     if (this.config.env) Object.assign(env, this.config.env);
     if (options.env) Object.assign(env, options.env);
 
-    const { systemPrompt: baseSystemPrompt, userPrompt } = resolveTurnPrompt({
-      prompt: options.prompt,
-      promptKind: options.promptKind,
-      task: this.config.task,
-      fallbackSystemPrompt: this.config.systemPrompt,
-      explicitSystem: options.system,
-    });
+    if (
+      this.config.privatePlanArtifactCapability !== undefined
+      && this.config.permissionMode !== "plan"
+    ) {
+      throw new Error("Claude private plan artifacts require native Claude plan mode");
+    }
+    const privatePlanArtifactTracker = this.config.privatePlanArtifactCapability === undefined
+      ? undefined
+      : createClaudePrivatePlanArtifactTracker({
+          capability: this.config.privatePlanArtifactCapability,
+          // Only the selected pooled home is authoritative. Do not fall back
+          // to process.env, which may point at the operator's ambient account.
+          selectedConfigDir: this.config.env?.CLAUDE_CONFIG_DIR,
+        });
+    if (this.config.privatePlanArtifactCapability !== undefined && privatePlanArtifactTracker === undefined) {
+      throw new Error("Claude private plan artifacts require a selected pooled CLAUDE_CONFIG_DIR");
+    }
+    this.activePrivatePlanArtifactTracker = privatePlanArtifactTracker;
 
-    const sdkOptions: Options = {
-      abortController,
-      systemPrompt: {
-        type: "preset",
-        preset: "claude_code",
-        append: appendExecutionIdentity(
-          appendConstraintMetadataToSystemPrompt(
-            baseSystemPrompt,
-            this.config.nativeRules,
-            this.config.constraintInstructions,
-          ),
-          resolveExecutionIdentity({
-            configuredProvider: "claude-code",
-            configuredModel: this.config.model,
-          }),
-        ),
-      },
-      mcpServers: this.config.mcpServers,
-      cwd: options.cwd ?? this.config.cwd,
-      env,
-      includePartialMessages: false,
-      permissionMode: this.config.permissionMode ?? "default",
-      allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
-      settingSources: ["project"],
-      model: this.config.model,
-      ...(this.config.sessionLedgerOwner === "host" ? { persistSession: false } : {}),
-      ...(this.config.structuredOutputSchema ? {
-        outputFormat: {
-          type: "json_schema" as const,
-          schema: this.config.structuredOutputSchema,
-        },
-      } : {}),
-      ...(this.config.harnessExecutable ? { pathToClaudeCodeExecutable: this.config.harnessExecutable } : {}),
-      stderr: (data: string) => {
-        process.stderr.write(data);
-      },
-    };
-
+    let userPrompt!: string;
+    let sdkOptions!: Options;
     let continuationSessionId: string | undefined;
-    if (this.config.continuationSessionId !== undefined) {
-      try {
-        const store = new SessionStore(this.config.cwd);
-        const providerThread = await store.findProviderThread(this.config.continuationSessionId, "claude");
-        if (providerThread) {
-          continuationSessionId = providerThread.nativeSessionId;
-          const resumeOptions: Options = { ...sdkOptions, sessionId: continuationSessionId };
-          Object.assign(sdkOptions, resumeOptions);
+    try {
+      await privatePlanArtifactTracker?.snapshot();
+
+      const promptResolution = resolveTurnPrompt({
+        prompt: options.prompt,
+        promptKind: options.promptKind,
+        task: this.config.task,
+        fallbackSystemPrompt: this.config.systemPrompt,
+        explicitSystem: options.system,
+      });
+      userPrompt = promptResolution.userPrompt;
+
+      sdkOptions = {
+        abortController,
+        systemPrompt: {
+          type: "preset",
+          preset: "claude_code",
+          append: appendExecutionIdentity(
+            appendConstraintMetadataToSystemPrompt(
+              promptResolution.systemPrompt,
+              this.config.nativeRules,
+              this.config.constraintInstructions,
+            ),
+            resolveExecutionIdentity({
+              configuredProvider: "claude-code",
+              configuredModel: this.config.model,
+            }),
+          ),
+        },
+        mcpServers: this.config.mcpServers,
+        cwd: options.cwd ?? this.config.cwd,
+        env,
+        includePartialMessages: false,
+        permissionMode: this.config.permissionMode ?? "default",
+        allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
+        settingSources: ["project"],
+        model: this.config.model,
+        ...(this.config.sessionLedgerOwner === "host" ? { persistSession: false } : {}),
+        ...(this.config.structuredOutputSchema ? {
+          outputFormat: {
+            type: "json_schema" as const,
+            schema: this.config.structuredOutputSchema,
+          },
+        } : {}),
+        ...(this.config.harnessExecutable ? { pathToClaudeCodeExecutable: this.config.harnessExecutable } : {}),
+        stderr: (data: string) => {
+          process.stderr.write(data);
+        },
+      };
+
+      if (this.config.continuationSessionId !== undefined) {
+        try {
+          const store = new SessionStore(this.config.cwd);
+          const providerThread = await store.findProviderThread(this.config.continuationSessionId, "claude");
+          if (providerThread) {
+            continuationSessionId = providerThread.nativeSessionId;
+            const resumeOptions: Options = { ...sdkOptions, sessionId: continuationSessionId };
+            Object.assign(sdkOptions, resumeOptions);
+          }
+        } catch {
+          console.error("[SessionStore] Resume lookup failed, continuing without resume");
         }
-      } catch {
-        console.error("[SessionStore] Resume lookup failed, continuing without resume");
       }
+    } catch (error) {
+      try {
+        if (privatePlanArtifactTracker !== undefined) {
+          this.queueEphemeralHarnessStateEvidence(await privatePlanArtifactTracker.finalize());
+        }
+      } finally {
+        if (this.activePrivatePlanArtifactTracker === privatePlanArtifactTracker) {
+          this.activePrivatePlanArtifactTracker = undefined;
+        }
+        this.abortController = null;
+      }
+      throw error;
     }
 
-    const queryInstance: Query = query({
-      prompt: userPrompt,
-      options: sdkOptions,
-    });
-    this.activeQuery = queryInstance;
+    // A dispose during snapshot/setup owns cleanup and must not allow a query
+    // to start after that lease has been released.
+    if (this.disposeRequested) {
+      try {
+        if (privatePlanArtifactTracker !== undefined) {
+          this.queueEphemeralHarnessStateEvidence(await privatePlanArtifactTracker.finalize());
+        }
+      } finally {
+        if (this.activePrivatePlanArtifactTracker === privatePlanArtifactTracker) {
+          this.activePrivatePlanArtifactTracker = undefined;
+        }
+        this.abortController = null;
+      }
+      return;
+    }
+
+    let queryInstance: Query | null = null;
 
     let initReceived = false;
     let initializedModel: string | undefined;
@@ -265,11 +337,17 @@ export class ClaudeSession implements IKilnSession {
     });
 
     try {
+      queryInstance = query({
+        prompt: userPrompt,
+        options: sdkOptions,
+      });
+      this.activeQuery = queryInstance;
       for await (const message of queryInstance) {
         if (message.type === "system" && message.subtype === "init") {
           initReceived = true;
           initializedModel = normalizedOptionalText(message.model);
           initializedHarnessVersion = normalizedOptionalText(message.claude_code_version);
+          this._observedHarnessVersion = initializedHarnessVersion;
           if (Array.isArray(message.tools)) {
             this._capabilities.supportedTools = [...message.tools];
           }
@@ -485,18 +563,64 @@ export class ClaudeSession implements IKilnSession {
         isRetryable: false,
       };
     } finally {
-      await this.closeQuery(queryInstance);
+      let queryCloseError: unknown;
+      try {
+        await this.closeQuery(queryInstance);
+      } catch (error) {
+        queryCloseError = error;
+      }
+      if (privatePlanArtifactTracker !== undefined) {
+        const evidence = await privatePlanArtifactTracker.finalize();
+        this.queueEphemeralHarnessStateEvidence(evidence);
+        yield { type: "ephemeral_harness_state", evidence };
+        this.pendingEphemeralHarnessStateEvidence = this.pendingEphemeralHarnessStateEvidence.filter(
+          (candidate) => candidate !== evidence,
+        );
+      }
+      if (this.activePrivatePlanArtifactTracker === privatePlanArtifactTracker) {
+        this.activePrivatePlanArtifactTracker = undefined;
+      }
       if (this.activeQuery === queryInstance) {
         this.activeQuery = null;
       }
       this.abortController = null;
+      if (queryCloseError !== undefined) {
+        throw queryCloseError;
+      }
     }
   }
 
   async dispose(): Promise<void> {
+    this.disposeRequested = true;
     this.abortController?.abort();
     this.abortController = null;
-    await this.closeQuery(this.activeQuery);
+    try {
+      await this.closeQuery(this.activeQuery);
+    } finally {
+      const tracker = this.activePrivatePlanArtifactTracker;
+      if (tracker !== undefined) {
+        this.queueEphemeralHarnessStateEvidence(await tracker.finalize());
+      }
+    }
+  }
+
+  drainEphemeralHarnessStateEvidence(): readonly ExecutionSessionEphemeralHarnessStateEvidence[] {
+    const evidence = this.pendingEphemeralHarnessStateEvidence;
+    this.pendingEphemeralHarnessStateEvidence = [];
+    return evidence;
+  }
+
+  private queueEphemeralHarnessStateEvidence(
+    evidence: ExecutionSessionEphemeralHarnessStateEvidence,
+  ): void {
+    if (this.pendingEphemeralHarnessStateEvidence.some((candidate) =>
+      candidate.capabilityId === evidence.capabilityId
+      && candidate.artifactDigest === evidence.artifactDigest
+      && candidate.cleanupStatus === evidence.cleanupStatus
+    )) {
+      return;
+    }
+    this.pendingEphemeralHarnessStateEvidence.push(evidence);
   }
 
   private closeQuery(query: Query | null): Promise<void> {

@@ -8,9 +8,10 @@ SQLite authority for route reservations, account selection when applicable,
 dispatch fencing, release, recovery, and reconciliation. Job JSON is a durable
 projection of that authority, not a second commitment store.
 
-This boundary is distinct from generic runtime resource leases and from Model
-Gateway ingress. The latter continues to use `LocalModelGatewayStore` until
-Roadmap 02 Slice 5 converges the two authorities.
+This boundary is shared by managed jobs and Model Gateway ingress. One
+user-scoped physical SQLite ledger is the sole writer for account capacity and
+affinity. Economic commitments are project-namespaced within that ledger, so a
+project cannot consume or recover another project's work.
 
 ## Adopted Input
 
@@ -28,17 +29,23 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-Managed-job V7 is the only persisted representation. It durably creates a
-namespaced `economicAttemptId` and `adoptedDecisionAt` before adoption or
-commitment. Pre-V7 records fail closed and are never upgraded into a new
-economic attempt by inference.
+Managed-job V9 is the only persisted representation. Its discriminated
+`dispatch.kind` is either `economic` or `native-harness`. The economic branch
+durably creates a namespaced `economicAttemptId` and `adoptedDecisionAt` before
+adoption or commitment. The native-harness branch stores only its exact
+credentialless route/provider/model, stable versioned route acknowledgement,
+and optional Runtime dispatch fence; it never creates an economic policy,
+account, quota, price, candidate, reservation, or settlement record. Pre-V9
+records fail closed and are never upgraded by inference.
 
 ## Atomic Commitment
 
-One process-scoped Runtime SQLite authority is created per project runtime. It
-claims a single live owner generation, migrates through a versioned
-`PRAGMA user_version` schema, refuses newer schemas, and executes commitment
-acquisition synchronously in one `BEGIN IMMEDIATE` transaction.
+Runtime owns one user-scoped SQLite ledger and executes commitment acquisition
+synchronously in one `BEGIN IMMEDIATE` transaction. Each participant is keyed
+by its kind, recovery domain, and owner generation/configuration revision;
+stale writers cannot settle, release, or replace newer work. The ledger uses a
+versioned `PRAGMA user_version` schema, refuses newer schemas, and permits only
+rolling compatible schema changes.
 
 The transaction:
 
@@ -47,7 +54,8 @@ The transaction:
 2. revalidates the adopted policy, candidate-set, snapshot, route, capability,
    tariff, and account evidence;
 3. applies deterministic route ranking and persists rejection evidence;
-4. checks exact route ceilings against already consuming commitments;
+4. checks project-namespaced economic commitments and shared account capacity
+   against already consuming commitments;
 5. selects and reserves either one eligible configured account or the explicit
    accountless identity; and
 6. persists the decision, reservation, optional account lease, and commitment
@@ -74,9 +82,10 @@ or selected identity evidence returns explicit conflict or drift evidence.
 
 ## Dispatch And Release
 
-Commitment state and account-lease lifecycle are separate contracts. The
-commitment is initially held. Runtime writes a distinct dispatch fence before
-adapter construction, credential materialization, process launch, or provider
+Commitment state and account-lease lifecycle are separate contracts. Runtime
+must hold the economic commitment and account capacity before adapter or
+credential materialization. It writes the distinct dispatch fence after that
+recoverable preparation and immediately before process launch or provider
 effects. The fence does not finalize or release an account lease and forbids
 route or account reassignment.
 
@@ -111,25 +120,28 @@ capacity-consuming and carry sanitized settlement or reconciliation evidence.
 They remain held until an authoritative settlement is recorded; startup recovery
 only classifies unresolved work conservatively and never fabricates a release.
 
-An economic monetary or credit ceiling is Kiln-local and applies to one
-configured route (`selected_route_id`). It does not pool or share capacity by
-account, credit scheme, or policy: two configured routes that resolve to the
-same account each hold their own independent ceiling. Operators who need a
-shared account-wide budget must configure that constraint outside these
-per-route ceilings.
+Economic commitments are project-namespaced. Account capacity and affinity are
+shared across the managed-job and Gateway participants for the same configured
+capacity identity; neither participant may overwrite affinity or delete another
+participant's live reservation.
 
 ## Recovery
 
 Startup first recovers the SQLite authority and then recovers managed jobs.
-Recovery queries the exact `(jobId, economicAttemptId)`:
+Economic recovery queries the exact `(jobId, economicAttemptId)`:
 
-- `absent` may be committed from the persisted V7 intent;
+- `absent` may be committed from the persisted V9 economic intent;
 - a historical V6 held commitment from the interim no-dispatch path is released
   directly from its durable job and economic-attempt identity without
   re-adopting config;
 - a dispatch-fenced, settlement-pending, release-failed, or leaked commitment
   remains conservatively fenced; and
 - conflicting identity or revision evidence fails closed.
+
+Native-harness recovery does not query or recreate an economic commitment. Any
+queued or dispatch-fenced native-harness job found after restart becomes
+`interrupted`; Runtime never silently redispatches work whose external process
+state cannot be proven.
 
 A crash between SQLite commit and job projection therefore recovers and
 releases the exact durable commitment instead of selecting again. Migrated
@@ -153,18 +165,18 @@ construction and dispatch.
 
 ## Local Guarantees
 
-The authority is Kiln-local and project-local. It makes no provider-global,
-subscription-global, or multi-runtime capacity claim. Database, WAL, and SHM
+The ledger is user-scoped and Kiln-local. It makes no provider-global,
+subscription-global, or multi-user capacity claim. Database, WAL, and SHM
 artifacts are owner-only on POSIX systems. Projected and operator-visible
 evidence excludes secrets, raw provider payloads, exception details,
 machine-specific paths, and derived affinity keys. Runtime persists only the
 opaque derived affinity key inside its owner-restricted SQLite authority so
 continuity can be enforced.
 
-The former managed-invocation account-only writer and port are deleted. Direct
-account-leased invocation outside the managed economic job path fails closed;
-there is no compatibility writer. Model Gateway ingress remains a separate
-`LocalModelGatewayStore` consumer until Roadmap 02 Slice 5.
+The former managed-invocation account-only writer and the separate Gateway
+lease authority are deleted. Direct account-leased invocation outside Runtime
+admission fails closed. Replay storage owns only replay, cooldown, and evidence
+retention; it cannot reserve capacity, select an account, or commit affinity.
 
 ## Non-Goals
 
@@ -172,4 +184,5 @@ there is no compatibility writer. Model Gateway ingress remains a separate
 - No quota evasion, inferred credit, overage, or economic fallback.
 - No provider dispatch in Roadmap issue #34 internal Slice 4 / issue #37.
 - No remote or provider-global capacity coordination.
-- No cross-path capacity or affinity exclusivity before Roadmap 02 Slice 5.
+- No provider-global capacity, affinity, or account ownership claim.
+- No incompatible rolling schema migration or legacy authority reader.

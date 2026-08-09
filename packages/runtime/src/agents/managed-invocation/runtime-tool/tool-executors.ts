@@ -95,10 +95,11 @@ export async function executeManagedInvocationTool(
     return preparedResult.result;
   }
   const { prepared } = preparedResult;
+  const { adapter } = prepared.route;
   const startedAt = Date.now();
   const startResult = await service.start(
     prepared.request,
-    prepared.route.adapter,
+    adapter,
     prepared.capabilitySnapshotInput,
     {
       ...prepared.lifecycleOptions,
@@ -253,6 +254,7 @@ export async function executeManagedInvocationStartTool(
     return preparedResult.result;
   }
   const { prepared } = preparedResult;
+  const { adapter } = prepared.route;
   let terminalPublicationEnabled = true;
   let markStartSessionEventsReady = (): void => {};
   const startSessionEventsReady = new Promise<void>((resolve) => {
@@ -280,7 +282,7 @@ export async function executeManagedInvocationStartTool(
   try {
     startResult = await service.start(
       prepared.request,
-      prepared.route.adapter,
+      adapter,
       prepared.capabilitySnapshotInput,
       {
         ...prepared.lifecycleOptions,

@@ -1,7 +1,7 @@
 # 04 - Cross-Harness Integration
 
 Status: Active integration track
-Execution: Blocked - Model Gateway live activation and managed lease correctness must close first.
+Execution: Blocked - live Model Gateway activation and cross-harness proof remain; shared lease correctness is implemented with portable tests.
 Created: 2026-07-23
 
 ## Objective
@@ -21,6 +21,15 @@ job state belongs to Roadmap 02; gateway service lifecycle, provider identity,
 and entitlement evidence belong to Roadmap 03. This track maps harness-native
 observations onto that shared contract; it does not create a second identity,
 account-selection, or lifecycle owner.
+
+Core owns pure `RouteCapability` values. Runtime is the only composition and
+authority boundary: it admits capabilities, commits economic work, materializes
+deferred adapter mechanisms, and dispatches. A caller can narrow a candidate
+set but cannot broaden it; an encoder is transport-only. Harness and native
+adapters project Runtime results and report unavailable or unresolved evidence
+explicitly. They do not maintain route matrices, allowlists, or a legacy
+Gateway authority. Issue #65 implements this route-authority slice in code and
+portable tests; it is not a live harness or provider proof.
 
 ## Scope
 
@@ -87,8 +96,10 @@ make protocol startup and inspection independent from managed Runtime
 composition so an existing live owner cannot abort the MCP handshake. Then
 mount the harness-neutral control-plane catalog on one authenticated,
 project-scoped Operator Gateway Streamable HTTP endpoint and make every stdio
-adapter a thin client of that owner. Preserve the economic authority's
-single-live-owner fencing; do not replace it with multi-process SQLite writers.
+adapter a thin client of that owner. The user-scoped Runtime ledger remains the
+single writer for shared account capacity and affinity; commitments remain
+project-namespaced. Do not replace it with adapter-local or multi-process
+SQLite writers.
 
 Exit gate: a harness adapter can be removed without changing canonical route
 policy, and background job lifecycle is represented in Kiln events, never in
@@ -238,8 +249,8 @@ of bare action strings.
 
 Status: Deferred.
 
-Reopen only when capability matrices and projection benchmarks show that thin
-or dynamic adapters reduce meaningful duplication without weakening native
+Reopen only when projection benchmarks show that thin or dynamic adapters reduce
+meaningful duplication without weakening native
 discovery, offline behavior, permissions, or rollback. A qualifying benchmark
 compares direct-provider and native-harness execution on representative task
 classes (UI/computer-use, code implementation, research, review, mechanical

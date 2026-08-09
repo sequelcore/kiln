@@ -140,6 +140,23 @@ export interface ExecutionSessionStructuredOutputHarnessEvidence {
   readonly version: string;
 }
 
+/**
+ * Version-bound, redacted evidence for ephemeral state owned by a native
+ * harness. The capability admits the location, while the evidence deliberately
+ * omits the selected harness home, raw paths, and artifact contents.
+ */
+export interface ExecutionSessionEphemeralHarnessStateEvidence {
+  readonly capabilityId: "claude-code-private-plan-artifacts-v1";
+  readonly harness: "claude-code";
+  readonly artifactCount: number;
+  readonly createdCount: number;
+  readonly modifiedCount: number;
+  readonly deletedCount: number;
+  readonly artifactDigest: string;
+  readonly cleanupStatus: "completed" | "failed";
+  readonly unexpectedDelta: boolean;
+}
+
 export type ExecutionSessionEvent = (
   | { readonly type: "text_delta"; readonly content: string; readonly isThinking?: boolean }
   /** Native structured result emitted independently of assistant prose. */
@@ -151,6 +168,11 @@ export type ExecutionSessionEvent = (
       /** Provider-reported model identities that actually served the run. */
       readonly providerModelIds?: readonly string[];
       readonly harness?: ExecutionSessionStructuredOutputHarnessEvidence;
+    }
+  | {
+      /** Runtime-owned, redacted state that may be ephemeral to the harness. */
+      readonly type: "ephemeral_harness_state";
+      readonly evidence: ExecutionSessionEphemeralHarnessStateEvidence;
     }
   | {
       readonly type: "tool_use";

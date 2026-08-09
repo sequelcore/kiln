@@ -95,7 +95,31 @@ describe("native-agent-projection", () => {
       errors: [],
       outcomes: [],
     });
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project");
     expect(writeFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit userHome to the agent loader and never falls back to the OS home", async () => {
+    const userHome = "/synthetic/user-home";
+    loadAgentDefinitionsMock.mockImplementation(async (_projectPath: string, options: { userHome?: string }) => {
+      expect(options).toEqual({ userHome });
+      return [{
+        name: "synthetic-agent",
+        role: "Synthetic agent",
+        goal: "Prove native projection isolation",
+        tier: "fast",
+        instructions: "Use the synthetic home.",
+        scope: "project",
+      }];
+    });
+
+    const result = await syncNativeAgentProjections("/workspace/project", { userHome });
+
+    expect(result.errors).toEqual([]);
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project", { userHome });
+    expect(homedirMock).not.toHaveBeenCalled();
+    expect(fsMocks.files.has(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
+    expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "synthetic-agent.toml"))).toBe(false);
   });
 
   it("agentToClaudeMd() generates correct frontmatter + body", () => {
@@ -201,7 +225,7 @@ describe("native-agent-projection", () => {
     expect(md).not.toContain("model:");
   });
 
-  it("sync projects a strict Codex route only to compatible native Codex config", async () => {
+  it("reports an unresolved strict route instead of inferring admission from the Codex encoder", async () => {
     loadAgentDefinitionsMock.mockResolvedValue([
       {
         name: "reviewer",
@@ -223,10 +247,12 @@ describe("native-agent-projection", () => {
       claude: true,
       codex: true,
       opencode: true,
-      synced: 1,
+      synced: 0,
       errors: [],
     });
-    expect(fsMocks.files.get(join("/home/tester", ".codex", "agents", "reviewer.toml"))).toContain('model = "gpt-5.5"');
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "codex-agent:reviewer", status: "skipped", reason: expect.stringContaining("proof-unknown") }),
+    ]));
     expect(fsMocks.files.has(join("/home/tester", ".claude", "agents", "reviewer.md"))).toBe(false);
     expect(fsMocks.files.has(join("/home/tester", ".config", "opencode", "agents", "reviewer.md"))).toBe(false);
   });
@@ -250,7 +276,7 @@ describe("native-agent-projection", () => {
     expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
   });
 
-  it("sync projects a strict OpenCode route only to compatible native OpenCode config", async () => {
+  it("does not infer an OpenCode projection from its model encoder", async () => {
     loadAgentDefinitionsMock.mockResolvedValue([
       {
         name: "scout",
@@ -269,14 +295,12 @@ describe("native-agent-projection", () => {
     const result = await syncNativeAgentProjections("/workspace/project");
 
     expect(result.errors).toHaveLength(0);
-    expect(result.synced).toBe(1);
-    expect(fsMocks.files.get(join("/home/tester", ".config", "opencode", "agents", "scout.md"))).toContain(
-      "model: opencode-go/deepseek-v4-flash",
-    );
+    expect(result.synced).toBe(0);
+    expect(result.outcomes).toEqual(expect.arrayContaining([expect.objectContaining({ targetId: "opencode-agent:scout", status: "skipped" })]));
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(false);
   });
 
-  it("removes an owned native file when a strict route becomes incompatible with that harness", async () => {
+  it("removes unchanged fully-owned projections when a route becomes unresolved", async () => {
     loadAgentDefinitionsMock.mockResolvedValueOnce([
       {
         name: "scout",
@@ -309,14 +333,160 @@ describe("native-agent-projection", () => {
     const second = await syncNativeAgentProjections("/workspace/project");
 
     expect(second.errors).toHaveLength(0);
-    expect(second.synced).toBe(1);
-    expect(unlinkSyncMock).toHaveBeenCalledWith(join("/home/tester", ".codex", "agents", "scout.toml"));
+    expect(second.synced).toBe(0);
+    expect(unlinkSyncMock).toHaveBeenCalledTimes(3);
+    expect(second.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "claude-agent:scout", status: "removed" }),
+      expect.objectContaining({ targetId: "codex-agent:scout", status: "removed" }),
+      expect.objectContaining({ targetId: "opencode-agent:scout", status: "removed" }),
+    ]));
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(false);
 
     const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
       targets: Record<string, unknown>;
     };
-    expect(Object.keys(state.targets).sort()).toEqual(["opencode-agent:scout"]);
+    expect(state.targets).toEqual({});
+  });
+
+  it("adopts a legacy unchanged agent snapshot before safe unavailable removal", async () => {
+    const agent = {
+      name: "planner",
+      role: "Planning specialist",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning" as const,
+      instructions: "Plan first.",
+      scope: "project" as const,
+    };
+    loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
+    await syncNativeAgentProjections("/workspace/project");
+    const statePath = join("/workspace/project", ".kiln", "install-state.json");
+    const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
+      targets: Record<string, Record<string, unknown>>;
+    };
+    const target = state.targets["codex-agent:planner"]!;
+    delete target.projectionKind;
+    delete target.harness;
+    delete target.sourceIdentity;
+    target.installedContentHash = target.contentHash;
+    fsMocks.files.set(statePath, JSON.stringify(state));
+    loadAgentDefinitionsMock.mockResolvedValueOnce([{
+      ...agent,
+      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+    }]);
+
+    const result = await syncNativeAgentProjections("/workspace/project");
+
+    expect(result.errors).toHaveLength(0);
+    expect(unlinkSyncMock).toHaveBeenCalledWith(join("/home/tester", ".codex", "agents", "planner.toml"));
+    const migrated = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
+      targets: Record<string, unknown>;
+    };
+    expect(migrated.targets).not.toHaveProperty("codex-agent:planner");
+  });
+
+  it("blocks and preserves true drift when an unavailable projection is managed", async () => {
+    const agent = {
+      name: "planner",
+      role: "Planning specialist",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning" as const,
+      instructions: "Plan first.",
+      scope: "project" as const,
+    };
+    loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
+    await syncNativeAgentProjections("/workspace/project");
+
+    const codexPath = join("/home/tester", ".codex", "agents", "planner.toml");
+    fsMocks.files.set(codexPath, "operator drift\n");
+    loadAgentDefinitionsMock.mockResolvedValueOnce([{
+      ...agent,
+      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+    }]);
+
+    const result = await syncNativeAgentProjections("/workspace/project", { force: true });
+
+    expect(result.codex).toBe(false);
+    expect(result.errors).toContain(
+      "Codex agent \"planner\" failed: managed file drift detected: file content",
+    );
+    expect(fsMocks.files.get(codexPath)).toBe("operator drift\n");
+    expect(unlinkSyncMock).not.toHaveBeenCalledWith(codexPath);
+  });
+
+  it("preserves unmanaged files when an unavailable agent cannot be removed", async () => {
+    const codexPath = join("/home/tester", ".codex", "agents", "planner.toml");
+    fsMocks.files.set(codexPath, "operator-owned\n");
+    loadAgentDefinitionsMock.mockResolvedValue([{
+      name: "planner",
+      role: "Planning specialist",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning" as const,
+      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+      instructions: "Plan first.",
+      scope: "project" as const,
+    }]);
+
+    const result = await syncNativeAgentProjections("/workspace/project");
+
+    expect(result.errors).toHaveLength(0);
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+    expect(fsMocks.files.get(codexPath)).toBe("operator-owned\n");
+  });
+
+  it("plans unavailable projection removal without mutating files or install state", async () => {
+    const agent = {
+      name: "planner",
+      role: "Planning specialist",
+      goal: "Produce a verified implementation plan",
+      tier: "reasoning" as const,
+      instructions: "Plan first.",
+      scope: "project" as const,
+    };
+    loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
+    await syncNativeAgentProjections("/workspace/project");
+    const statePath = join("/workspace/project", ".kiln", "install-state.json");
+    const before = fsMocks.files.get(statePath);
+    vi.clearAllMocks();
+    unlinkSyncMock.mockImplementation((path: string) => fsMocks.files.delete(path));
+    existsSyncMock.mockImplementation((path: string) => fsMocks.files.has(path));
+    readFileSyncMock.mockImplementation((path: string) => fsMocks.files.get(path) ?? "");
+    loadAgentDefinitionsMock.mockResolvedValueOnce([{
+      ...agent,
+      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+    }]);
+
+    const result = await syncNativeAgentProjections("/workspace/project", { dryRun: true });
+
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "codex-agent:planner", status: "planned" }),
+    ]));
+    expect(unlinkSyncMock).not.toHaveBeenCalled();
+    expect(fsMocks.files.get(statePath)).toBe(before);
+  });
+
+  it("removes unchanged projections for an agent omitted from the current catalog", async () => {
+    loadAgentDefinitionsMock.mockResolvedValueOnce([{
+      name: "retired",
+      role: "Retired agent",
+      goal: "No longer configured",
+      tier: "fast" as const,
+      instructions: "Retired.",
+      scope: "project" as const,
+    }]);
+    await syncNativeAgentProjections("/workspace/project");
+
+    loadAgentDefinitionsMock.mockResolvedValueOnce([]);
+    const result = await syncNativeAgentProjections("/workspace/project");
+
+    expect(result.errors).toHaveLength(0);
+    expect(unlinkSyncMock).toHaveBeenCalledTimes(3);
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "opencode-agent:retired", status: "removed" }),
+    ]));
+    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+      targets: Record<string, unknown>;
+    };
+    expect(state.targets).toEqual({});
   });
 
   it("write failure marks correct target as false and captures error", async () => {
@@ -363,7 +533,7 @@ describe("native-agent-projection", () => {
 
     expect(result.errors).toHaveLength(0);
     const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
-      targets: Record<string, { projectionKind?: string; managedFields: string[] }>;
+      targets: Record<string, { projectionKind?: string; managedFields: string[]; harness?: string; sourceIdentity?: string }>;
     };
     expect(Object.keys(state.targets).sort()).toEqual([
       "claude-agent:planner",
@@ -373,6 +543,8 @@ describe("native-agent-projection", () => {
     expect(state.targets["codex-agent:planner"]).toMatchObject({
       projectionKind: "file",
       managedFields: ["$file"],
+      harness: "codex",
+      sourceIdentity: "agent:planner",
     });
   });
 

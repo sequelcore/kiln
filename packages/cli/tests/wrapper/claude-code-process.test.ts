@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: vi.fn(),
@@ -6,6 +10,10 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 import { query as mockedQuery } from "@anthropic-ai/claude-agent-sdk";
 import { ClaudeSession } from "../../src/wrapper/claude-code-process.js";
 import type { ClaudeSessionConfig } from "../../src/wrapper/claude-code-process.js";
+import {
+  CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
+  CLAUDE_PRIVATE_PLAN_ARTIFACT_LOCK_FILE,
+} from "../../src/wrapper/claude-private-plan-artifacts.js";
 import type { ExecutionSessionEvent } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
@@ -525,5 +533,179 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect(events.filter((event) => event.type === "error")).toEqual([]);
     expect(events.find((event) => event.type === "completed"))
       .toMatchObject({ outcome: "cancelled" });
+  });
+
+  it("emits redacted private plan cleanup evidence and restores the selected pooled home", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "kiln-claude-process-home-"));
+    const plansDir = join(configDir, "plans");
+    const baseline = join(plansDir, "baseline.md");
+    const authSibling = join(configDir, "credentials.json");
+    try {
+      await mkdir(plansDir, { recursive: true });
+      await writeFile(baseline, "before\n", "utf8");
+      await writeFile(authSibling, "synthetic-secret\n", "utf8");
+      (mockedQuery as unknown as { mockImplementationOnce: (implementation: (input: unknown) => unknown) => void })
+        .mockImplementationOnce((input: unknown) => {
+          const config = input as { options?: { env?: Record<string, string | undefined> } };
+          const selectedConfigDir = config.options?.env?.CLAUDE_CONFIG_DIR;
+          return (async function* () {
+            await writeFile(join(selectedConfigDir!, "plans", "created.md"), "new\n", "utf8");
+            await writeFile(baseline, "after\n", "utf8");
+            yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+          })();
+        });
+
+      const session = new ClaudeSession(baseConfig({
+        permissionMode: "plan",
+        env: { CLAUDE_CONFIG_DIR: configDir },
+        privatePlanArtifactCapability: CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
+        sessionLedgerOwner: "host",
+      }));
+      const events = await collectEvents(session.run({ prompt: "plan", cwd: process.cwd() }));
+      const evidenceEvent = events.find((event) => event.type === "ephemeral_harness_state");
+
+      expect(evidenceEvent).toMatchObject({
+        type: "ephemeral_harness_state",
+        evidence: {
+          capabilityId: "claude-code-private-plan-artifacts-v1",
+          artifactCount: 2,
+          createdCount: 1,
+          modifiedCount: 1,
+          deletedCount: 0,
+          cleanupStatus: "completed",
+          unexpectedDelta: false,
+        },
+      });
+      expect(JSON.stringify(evidenceEvent)).not.toContain(configDir);
+      expect(JSON.stringify(evidenceEvent)).not.toContain("baseline.md");
+      await expect(readFile(baseline, "utf8")).resolves.toBe("before\n");
+      await expect(readFile(join(plansDir, "created.md"), "utf8")).rejects.toThrow();
+      await expect(readFile(authSibling, "utf8")).resolves.toBe("synthetic-secret\n");
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("finalizes private plan cleanup when SDK query construction throws synchronously", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "kiln-claude-process-startup-"));
+    const plansDir = join(configDir, "plans");
+    const baseline = join(plansDir, "baseline.md");
+    const created = join(plansDir, "startup-created.md");
+    try {
+      await mkdir(plansDir, { recursive: true });
+      await writeFile(baseline, "before\n", "utf8");
+      (mockedQuery as unknown as { mockImplementationOnce: (implementation: (input: unknown) => unknown) => void })
+        .mockImplementationOnce((input: unknown) => {
+          const config = input as { options?: { env?: Record<string, string | undefined> } };
+          const selectedConfigDir = config.options?.env?.CLAUDE_CONFIG_DIR;
+          writeFileSync(join(selectedConfigDir!, "plans", "startup-created.md"), "created\n", "utf8");
+          writeFileSync(baseline, "modified\n", "utf8");
+          throw new Error("synthetic query construction failure");
+        });
+
+      const session = new ClaudeSession(baseConfig({
+        permissionMode: "plan",
+        env: { CLAUDE_CONFIG_DIR: configDir },
+        privatePlanArtifactCapability: CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
+        sessionLedgerOwner: "host",
+      }));
+      const events = await collectEvents(session.run({ prompt: "plan", cwd: process.cwd() }));
+      const evidenceEvent = events.find((event) => event.type === "ephemeral_harness_state");
+
+      expect(events).toContainEqual({
+        type: "error",
+        code: "SDK_ERROR",
+        message: "synthetic query construction failure",
+        isRetryable: false,
+      });
+      expect(evidenceEvent).toMatchObject({
+        type: "ephemeral_harness_state",
+        evidence: {
+          artifactCount: 2,
+          createdCount: 1,
+          modifiedCount: 1,
+          deletedCount: 0,
+          cleanupStatus: "completed",
+          unexpectedDelta: false,
+        },
+      });
+      await expect(readFile(baseline, "utf8")).resolves.toBe("before\n");
+      await expect(readFile(created, "utf8")).rejects.toThrow();
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("finalizes private plan cleanup when a pooled plan session is disposed in flight", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "kiln-claude-process-cancel-"));
+    const plansDir = join(configDir, "plans");
+    const baseline = join(plansDir, "baseline.md");
+    const created = join(plansDir, "cancelled.md");
+    try {
+      await mkdir(plansDir, { recursive: true });
+      await writeFile(baseline, "before\n", "utf8");
+      const fixture = pendingQueryFixture();
+      (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void })
+        .mockReturnValueOnce(fixture.query);
+      const session = new ClaudeSession(baseConfig({
+        permissionMode: "plan",
+        env: { CLAUDE_CONFIG_DIR: configDir },
+        privatePlanArtifactCapability: CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
+        sessionLedgerOwner: "host",
+      }));
+      const eventsPromise = collectEvents(session.run({ prompt: "plan", cwd: process.cwd() }));
+      await vi.waitFor(() => expect(fixture.next).toHaveBeenCalledTimes(1));
+      await writeFile(created, "cancelled\n", "utf8");
+      await session.dispose();
+      const events = await eventsPromise;
+      const evidenceEvent = events.find((event) => event.type === "ephemeral_harness_state");
+
+      expect(evidenceEvent).toMatchObject({
+        type: "ephemeral_harness_state",
+        evidence: {
+          artifactCount: 1,
+          createdCount: 1,
+          modifiedCount: 0,
+          deletedCount: 0,
+          cleanupStatus: "completed",
+        },
+      });
+      await expect(readFile(created, "utf8")).rejects.toThrow();
+      await expect(readFile(baseline, "utf8")).resolves.toBe("before\n");
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not retain a private plan lock when disposed before setup", async () => {
+    const configDir = await mkdtemp(join(tmpdir(), "kiln-claude-process-disposed-before-setup-"));
+    const lockPath = join(configDir, CLAUDE_PRIVATE_PLAN_ARTIFACT_LOCK_FILE);
+    try {
+      await mkdir(join(configDir, "plans"), { recursive: true });
+      const session = new ClaudeSession(baseConfig({
+        permissionMode: "plan",
+        env: { CLAUDE_CONFIG_DIR: configDir },
+        privatePlanArtifactCapability: CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
+        sessionLedgerOwner: "host",
+      }));
+
+      await session.dispose();
+      await collectEvents(session.run({ prompt: "plan", cwd: process.cwd() }));
+
+      await expect(readFile(lockPath, "utf8")).rejects.toThrow();
+    } finally {
+      await rm(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when private plan capability is not native plan mode or has no pooled home", async () => {
+    const session = new ClaudeSession(baseConfig({
+      permissionMode: "default",
+      privatePlanArtifactCapability: CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
+      sessionLedgerOwner: "host",
+    }));
+
+    await expect(collectEvents(session.run({ prompt: "plan", cwd: process.cwd() })))
+      .rejects.toThrow("native Claude plan mode");
   });
 });

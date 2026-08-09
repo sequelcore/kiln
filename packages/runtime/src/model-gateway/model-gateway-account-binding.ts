@@ -44,6 +44,8 @@ export function createModelGatewayCredentialRevisionId(
 export interface ModelGatewayBoundCandidate {
   readonly binding: ModelGatewayAccountBinding;
   readonly candidate: ModelGatewayAccountCandidate;
+  readonly capacityIdentity: string;
+  readonly credentialRevisionId: string;
   readonly usageEvidence: ModelGatewayBoundUsageEvidence;
   readonly capacity: { readonly maxConcurrency: number; readonly reservedAffinitySlots: number };
 }
@@ -56,9 +58,10 @@ export interface BuildModelGatewayBoundCandidatesInput {
   readonly executionAccounts: readonly ModelGatewayExecutionAccountIdentity[];
   readonly usage: readonly ProviderUsageSnapshot[];
   readonly now?: Date;
-  readonly configureCapacity?: (accountRef: ModelGatewayAccountCandidate["account"], capacity: { readonly maxConcurrency: number; readonly reservedAffinitySlots: number }) => void;
-  readonly pressure: (accountRef: ModelGatewayAccountCandidate["account"]) => number;
-  readonly reservedForNewWork: (accountRef: ModelGatewayAccountCandidate["account"]) => boolean;
+  /** Optional static signal; durable capacity pressure is computed by the authority. */
+  readonly pressure?: (accountRef: ModelGatewayAccountCandidate["account"]) => number;
+  /** Legacy callers may provide a hint; the account authority remains decisive. */
+  readonly reservedForNewWork?: (accountRef: ModelGatewayAccountCandidate["account"]) => boolean;
 }
 
 export function createModelGatewayBoundAccountRef(
@@ -93,18 +96,19 @@ export function buildModelGatewayBoundCandidates(
     if (execution === undefined) return [];
     const account = createModelGatewayBoundAccountRef(config, execution);
     const capacity = Object.freeze({ maxConcurrency: config.maxConcurrency, reservedAffinitySlots: config.reservedAffinitySlots });
-    input.configureCapacity?.(account, capacity);
     const usage = input.usage.find((entry) => entry.provider === config.providerId && entry.credentialId === config.credentialId);
     const usageEvidence = deriveUsageHealth(usage, input.now ?? new Date());
     return [{
       binding: Object.freeze({ accountId: config.id, providerId: config.providerId, credentialId: config.credentialId, execution }),
+      capacityIdentity: createModelGatewayCapacityIdentity(config),
+      credentialRevisionId: createModelGatewayCredentialRevisionId({ providerId: config.providerId, credentialId: config.credentialId, execution }),
       candidate: Object.freeze({
         account,
         route,
         health: usageEvidence.health,
         leaseCapacity: "available",
-        pressure: input.pressure(account),
-        reservedForNewWork: input.reservedForNewWork(account),
+        pressure: input.pressure?.(account) ?? 0,
+        reservedForNewWork: input.reservedForNewWork?.(account) ?? false,
       }),
       usageEvidence,
       capacity,
@@ -137,4 +141,8 @@ function deriveUsageHealth(usage: ProviderUsageSnapshot | undefined, now: Date):
       exhaustionReason: usage.exhaustionReason,
     },
   });
+}
+
+export function createModelGatewayCapacityIdentity(account: Pick<ModelGatewayAccountConfig, "id" | "providerId">): string {
+  return `configured:${account.providerId}:${account.id}`;
 }

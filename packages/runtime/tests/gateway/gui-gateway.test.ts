@@ -241,7 +241,7 @@ function makeGuiRuntimeAuthorityObserver() {
   };
 }
 
-function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
+function makeManagedInvocationOptions(): ManagedInvocationToolOptions & { readonly routeAdapter: ManagedAgentRuntimeAdapter } {
   const adapter: ManagedAgentRuntimeAdapter = {
     descriptor: defineManagedAgentAdapterDescriptor({
       adapterDescriptorId: "adapter:opencode:harness",
@@ -326,8 +326,21 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
       routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "openai/gpt-4o:free",
-      adapter,
       surface: "cli-harness",
+      capability: {
+        identity: { routeId: "opencode-readonly", revision: "test-v1" },
+        target: { providerId: "opencode", modelId: "openai/gpt-4o:free" },
+        adapter: { kind: "cli-harness", capabilityId: "opencode-harness", capabilityVersion: "test-v1" },
+        authorityCeiling: "read_only",
+        toolNames: ["read", "grep", "glob"],
+        supportsRecursion: true,
+        supportsAttachments: false,
+        supportsWrite: false,
+        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+        capacity: { kind: "accountless" },
+        settlement: { kind: "not-required" },
+      },
+      createAdapter: async () => adapter,
       profiles: {
         "foundation-readonly-plan": {
           authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
@@ -353,6 +366,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
     }],
     requestedBy: "assistant",
     requestSource: "gui",
+    routeAdapter: adapter,
   };
 }
 
@@ -469,7 +483,20 @@ function makeManagedWriteConflictFixture(): {
       routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "opencode-default-model",
-      adapter: writeAdapter,
+      capability: {
+        identity: { routeId: "opencode-approved-write", revision: "test-v1" },
+        target: { providerId: "opencode", modelId: "opencode-default-model" },
+        adapter: { kind: "cli-harness", capabilityId: "opencode-approved-write", capabilityVersion: "test-v1" },
+        authorityCeiling: "destructive",
+        toolNames: ["read", "grep", "apply-patch"],
+        supportsRecursion: true,
+        supportsAttachments: false,
+        supportsWrite: true,
+        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-apply-approved-writes"] },
+        capacity: { kind: "accountless" },
+        settlement: { kind: "not-required" },
+      },
+      createAdapter: async () => writeAdapter,
       profiles: {
         "foundation-apply-approved-writes": {
           authorityProfileId: "authority:opencode:approved-write",
@@ -662,7 +689,20 @@ function makeManagedDirtyWorktreeReviewFixture(): {
       routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "opencode-default-model",
-      adapter,
+      capability: {
+        identity: { routeId: "opencode-isolated-write", revision: "test-v1" },
+        target: { providerId: "opencode", modelId: "opencode-default-model" },
+        adapter: { kind: "cli-harness", capabilityId: "opencode-isolated-write", capabilityVersion: "test-v1" },
+        authorityCeiling: "destructive",
+        toolNames: ["read", "grep", "apply-patch"],
+        supportsRecursion: true,
+        supportsAttachments: false,
+        supportsWrite: true,
+        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-apply-approved-writes"] },
+        capacity: { kind: "accountless" },
+        settlement: { kind: "not-required" },
+      },
+      createAdapter: async () => adapter,
       profiles: {
         "foundation-apply-approved-writes": {
           authorityProfileId: "authority:opencode:isolated-write",
@@ -2762,6 +2802,11 @@ describe("startGuiGateway static mount", () => {
           routes: [{
             ...route,
             routeId: "opencode-readonly-visual-without-network",
+            capability: {
+              ...route.capability,
+              identity: { ...route.capability.identity, routeId: "opencode-readonly-visual-without-network" },
+              toolNames: ["read", "grep", "glob", "web_search", "browser_observe"],
+            },
             profiles: {
               "foundation-readonly-plan": {
                 ...profile,
@@ -2840,14 +2885,23 @@ describe("startGuiGateway static mount", () => {
     const runtimeMetadata = managedToolResult.metadata;
     const runtimePresentationIntent = runtimeMetadata?.presentationIntent;
     expect(managedToolResult.isError).toBe(true);
+    const canonicalAdmissionDenied = expectedMetadata.routeId === "opencode-readonly";
     expect(runtimeMetadata).toMatchObject({
       toolName: "managed_agent.start",
       kind: "managed-invocation",
       profile: "foundation-readonly-plan",
-      status: "unavailable",
-      ...expectedMetadata,
+      ...(canonicalAdmissionDenied
+        ? {
+            status: "denied",
+            admissionReasons: [
+              { code: "missing-tool", requiredToolName: "web_search" },
+              { code: "missing-tool", requiredToolName: "browser_observe" },
+            ],
+          }
+        : { status: "unavailable", ...expectedMetadata }),
     });
-    expect(runtimePresentationIntent).toMatchObject({
+    if (canonicalAdmissionDenied) expect(runtimePresentationIntent).toBeUndefined();
+    else expect(runtimePresentationIntent).toMatchObject({
       source: "managed_agent.start",
       rows: [
         expect.objectContaining({
@@ -2967,8 +3021,15 @@ describe("startGuiGateway static mount", () => {
           toolName: "managed_agent.start",
           kind: "managed-invocation",
           profile: "foundation-readonly-plan",
-          status: "unavailable",
-          ...expectedMetadata,
+          ...(canonicalAdmissionDenied
+            ? {
+                status: "denied",
+                admissionReasons: [
+                  { code: "missing-tool", requiredToolName: "web_search" },
+                  { code: "missing-tool", requiredToolName: "browser_observe" },
+                ],
+              }
+            : { status: "unavailable", ...expectedMetadata }),
         },
       });
       expect(completedPayload?.metadata).toEqual(runtimeMetadata);
@@ -3905,7 +3966,7 @@ describe("startGuiGateway static mount", () => {
     let abortObserved = false;
     const sessionEventSink = { publish: vi.fn() };
     const cancellableAdapter: ManagedAgentRuntimeAdapter = {
-      descriptor: baseRoute.adapter.descriptor,
+      descriptor: baseManagedInvocation.routeAdapter.descriptor,
       invoke: async ({ abortSignal }) => {
         if (!abortSignal.aborted) {
           await new Promise<void>((resolve) => {
@@ -3986,7 +4047,7 @@ describe("startGuiGateway static mount", () => {
           sessionEventSink,
           routes: [{
             ...controlRoute,
-            adapter: cancellableAdapter,
+            createAdapter: async () => cancellableAdapter,
           }],
         }),
         operatorTransport: {
@@ -4127,7 +4188,7 @@ describe("startGuiGateway static mount", () => {
     let startedInvocationId = "";
     const sessionEventSink = { publish: vi.fn() };
     const promptableAdapter: ManagedAgentRuntimeAdapter = {
-      descriptor: baseRoute.adapter.descriptor,
+      descriptor: baseManagedInvocation.routeAdapter.descriptor,
       invoke: async ({ request: adapterRequest, admission }) => {
         await new Promise<void>((resolve) => {
           completeChild = resolve;
@@ -4223,7 +4284,7 @@ describe("startGuiGateway static mount", () => {
           sessionEventSink,
           routes: [{
             ...controlRoute,
-            adapter: promptableAdapter,
+            createAdapter: async () => promptableAdapter,
           }],
         }),
         operatorTransport: {
@@ -4353,7 +4414,7 @@ describe("startGuiGateway static mount", () => {
     let startedInvocationId = "";
     let completeChild!: () => void;
     const joinableAdapter: ManagedAgentRuntimeAdapter = {
-      descriptor: baseRoute.adapter.descriptor,
+      descriptor: baseManagedInvocation.routeAdapter.descriptor,
       invoke: async ({ request: adapterRequest, admission }) => {
         await new Promise<void>((resolve) => {
           completeChild = resolve;
@@ -4448,7 +4509,7 @@ describe("startGuiGateway static mount", () => {
           invocationService,
           routes: [{
             ...controlRoute,
-            adapter: joinableAdapter,
+            createAdapter: async () => joinableAdapter,
           }],
         }),
         operatorTransport: {
@@ -4855,7 +4916,7 @@ describe("startGuiGateway static mount", () => {
     let startedInvocationId = "";
     let completeChild!: () => void;
     const terminalAdapter: ManagedAgentRuntimeAdapter = {
-      descriptor: baseRoute.adapter.descriptor,
+      descriptor: baseManagedInvocation.routeAdapter.descriptor,
       invoke: async ({ request: adapterRequest, admission }) => {
         await new Promise<void>((resolve) => {
           completeChild = resolve;
@@ -4966,7 +5027,7 @@ describe("startGuiGateway static mount", () => {
           invocationService,
           routes: [{
             ...controlRoute,
-            adapter: terminalAdapter,
+            createAdapter: async () => terminalAdapter,
           }],
         }),
         operatorTransport: {

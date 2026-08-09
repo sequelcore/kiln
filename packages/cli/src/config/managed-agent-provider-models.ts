@@ -1,4 +1,5 @@
 import type {
+  ManagedAgentAdmissionProfile,
   ProviderModelEvidence,
   ProviderModelEligibilityDecision,
   ProviderModelEligibilityRequirements,
@@ -15,6 +16,8 @@ import {
 export interface ManagedAgentProviderModelCatalogDiagnostic {
   readonly catalogDiagnosticEvidence: ProviderModelEvidence;
   readonly catalogDiagnosticDecision: ProviderModelEligibilityDecision;
+  /** Adapter-enforced profiles discovered with the provider/model catalog. */
+  readonly provenProfiles: readonly ManagedAgentAdmissionProfile[];
 }
 
 export type ManagedAgentProviderModelCatalogDiagnostics = Readonly<
@@ -75,6 +78,9 @@ function catalogDiagnostics(
     {
       catalogDiagnosticEvidence: route,
       catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedAgentCatalogRequirements(observedAt), []),
+      provenProfiles: providerId === "codex"
+        ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
+        : ["foundation-readonly-plan"],
     },
   ]));
 }

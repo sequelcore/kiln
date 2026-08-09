@@ -13,7 +13,10 @@ import {
   type OperatorRuntimeSessionOpenInput,
   type OperatorRuntimeService,
 } from "../../src/application/operator-runtime-service.js";
-import type { OperatorProjectManagedJobApplicationComposition } from "../../src/application/operator-project-managed-jobs.js";
+import type {
+  OperatorProjectManagedAgentSummary,
+  OperatorProjectManagedJobApplicationComposition,
+} from "../../src/application/operator-project-managed-jobs.js";
 import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace-resolution.js";
 
 const SECRET = new TextEncoder().encode("operator-runtime-service-test-secret-32-bytes");
@@ -101,7 +104,9 @@ describe("createOperatorRuntimeService", () => {
 
   it("uses harness-specific inspection rooted to the verified project without returning the raw root", async () => {
     const project = adoptedProject("inspection");
-    const { service, claims } = await openedService(project, "claude", "inspect-session");
+    const { service, claims } = await openedService(project, "claude", "inspect-session", {
+      userHome: join(project.canonicalRoot, "home"),
+    });
 
     const response = await service.onMcpRequest(mcpInput(claims, "tools/call", {
       name: "kiln_status_inspect",
@@ -112,6 +117,14 @@ describe("createOperatorRuntimeService", () => {
     expect(response.status).toBe(200);
     expect(body).toContain('"harness":"claude"');
     expect(body).not.toContain(project.canonicalRoot);
+    await service.close();
+  });
+
+  it("reports the current bridge projection through capability inspection", async () => {
+    const project = adoptedProject("capability-inspection");
+    const { service, claims } = await openedService(project, "claude", "capability-inspect-session", {
+      userHome: join(project.canonicalRoot, "home"),
+    });
 
     const capability = await service.onMcpRequest(mcpInput(claims, "tools/call", {
       name: "kiln_capability_inspect",
@@ -120,6 +133,57 @@ describe("createOperatorRuntimeService", () => {
     const capabilityBody = await capability.text();
     expect(capabilityBody).toContain('"bridgeProjection":"current"');
     expect(capabilityBody).not.toContain("KILN_BRIDGE_PROJECTION_UNRESOLVED");
+    await service.close();
+  });
+
+  it("projects the canonical configured-agent summaries through capability inspection", async () => {
+    const project = adoptedProject("managed-agent-capability");
+    const configuredAgents: readonly OperatorProjectManagedAgentSummary[] = [
+      {
+        configuredAgentProfileId: "global-planner",
+        availability: "admitted",
+        providerFamily: "codex-oauth",
+        admissionProfileId: "foundation-readonly-plan",
+      },
+      {
+        configuredAgentProfileId: "global-reviewer",
+        availability: "unavailable",
+        providerFamily: "opencode-go",
+        admissionProfileId: "foundation-readonly-plan",
+        diagnostic: "route_unavailable",
+        operatorAction: "Restore the configured managed route.",
+      },
+      {
+        configuredAgentProfileId: "global-scout",
+        availability: "unresolved",
+        admissionProfileId: "foundation-readonly-plan",
+        diagnostic: "eligibility_unresolved",
+        operatorAction: "Refresh canonical route eligibility evidence.",
+      },
+    ];
+    const createComposition = vi.fn(async () => composition(vi.fn(), undefined, configuredAgents));
+    const service = createOperatorRuntimeService({
+      sessionSecret: SECRET,
+      createComposition,
+      nowEpochSeconds: () => 100,
+    });
+    const claims = await openClaims(service, project, "codex", "managed-agent-capability-session");
+
+    const response = await service.onMcpRequest(mcpInput(claims, "tools/call", {
+      name: "kiln_capability_inspect",
+      arguments: {},
+    }));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"configuredAgentProfileId":"global-planner"');
+    expect(body).toContain('"availability":"admitted"');
+    expect(body).toContain('"configuredAgentProfileId":"global-reviewer"');
+    expect(body).toContain('"diagnostic":"route_unavailable"');
+    expect(body).toContain('"configuredAgentProfileId":"global-scout"');
+    expect(body).toContain('"diagnostic":"eligibility_unresolved"');
+    expect(body).not.toContain("model");
+    expect(createComposition).toHaveBeenCalledTimes(1);
     await service.close();
   });
 
@@ -539,12 +603,16 @@ function managedStatusInput(claims: OperatorSessionClaims): OperatorRuntimeMcpRe
   return mcpInput(claims, "tools/call", { name: "kiln_managed_agent_status", arguments: { jobId: "job-1" } });
 }
 
-function composition(close = vi.fn(), observeCaller?: (callerId: string) => void): OperatorProjectManagedJobApplicationComposition {
+function composition(
+  close = vi.fn(),
+  observeCaller?: (callerId: string) => void,
+  configuredAgents: readonly OperatorProjectManagedAgentSummary[] = [],
+): OperatorProjectManagedJobApplicationComposition {
   const unavailable = async (): Promise<never> => { throw Object.assign(new Error("unavailable"), { code: "unknown_job" }); };
   return {
     service: {} as OperatorProjectManagedJobApplicationComposition["service"],
     application: {
-      submit: unavailable,
+      accept: unavailable,
       getStatus: async (identity) => {
         observeCaller?.(identity.callerId);
         return unavailable();
@@ -553,7 +621,7 @@ function composition(close = vi.fn(), observeCaller?: (callerId: string) => void
       cancel: unavailable,
       getReplay: unavailable,
     },
-    configuredAgents: [],
+    configuredAgents,
     close,
   };
 }

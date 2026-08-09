@@ -217,6 +217,7 @@ export function createEconomicRouteProofAdoption(input: EconomicRouteProofInput)
         adapterCapabilityId: "direct-provider",
         adapterCapabilityVersion: "1",
         accountPolicy: { kind: "account-bound", accountPolicyId: `${input.providerId}-accounts` },
+        profileAuthorityDigest: `sha256:${"9".repeat(64)}`,
       },
       route,
       comparisonDomain,

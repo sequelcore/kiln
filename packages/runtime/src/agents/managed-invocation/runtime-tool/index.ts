@@ -48,6 +48,7 @@ export {
 } from "./session-event-publishing.js";
 export {
   collectManagedEconomicCandidates,
+  digestManagedEconomicCandidateProfileAuthority,
 } from "./economic-candidate-collection.js";
 export type {
   ManagedEconomicCandidateDescriptor,

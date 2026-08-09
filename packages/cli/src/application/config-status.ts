@@ -31,7 +31,6 @@ import {
 import {
   listHarnessIntegrationCapabilities,
   HARNESSES_WITH_NATIVE_PROJECTION,
-  resolveHarnessRouteCapability,
   type HarnessIntegrationId,
 } from "../config/harness-integration-capabilities.js";
 import {
@@ -41,6 +40,8 @@ import {
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
+import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
+import { resolveProjectionPathWithin } from "../config/native-projection-paths.js";
 import { stripJsonComments } from "../config/json-comments.js";
 import {
   classifyNativeRouteIntegrity,
@@ -50,6 +51,10 @@ import {
 } from "../config/native-route-integrity.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
+import {
+  createNativeAgentRouteAdmissionResolver,
+  type NativeAgentRouteAdmissionResolver,
+} from "../config/native-agent-route-admission.js";
 import { projectContextPath } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import {
@@ -62,11 +67,18 @@ import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
 import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-projection.js";
 import { readMcpRuntimeState } from "../config/mcp-runtime-state.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
+import type { RouteAdmissionDecision } from "@kilnai/core";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
   readonly now?: Date;
   readonly userHome?: string;
+}
+
+export interface ReadConfigStatusViewOptions {
+  readonly userHome?: string;
+  readonly createNativeAgentRouteAdmissionResolver?:
+    (projectPath: string) => Promise<NativeAgentRouteAdmissionResolver>;
 }
 
 interface ConfigLoadState {
@@ -76,17 +88,18 @@ interface ConfigLoadState {
 
 interface NativeAgentProjectionSummary {
   readonly target: string;
-  readonly status: "projected" | "omitted";
+  readonly status: "projected" | "unavailable" | "unresolved";
   readonly nativeModel?: string;
-  readonly reason?: string;
+  readonly reason?: unknown;
+  readonly admission?: RouteAdmissionDecision;
 }
 
 interface AgentInvocationCapabilitySummary {
   readonly target: HarnessIntegrationId;
-  readonly status: "native-supported" | "adapter-supported" | "unsupported";
+  readonly status: "admitted" | "unavailable" | "unresolved";
   readonly nativeModel?: string;
-  readonly adapterId?: "kiln-managed-invocation";
-  readonly reason?: string;
+  readonly reasons?: unknown;
+  readonly decision?: RouteAdmissionDecision;
 }
 
 export async function readConfigStatusSnapshot(
@@ -253,11 +266,12 @@ function mcpProjectionPointer(harness: NativeMcpHarness, serverId: string): stri
 export async function readConfigStatusView(
   snapshot: KilnConfigStatusSnapshot,
   view: KilnConfigReadView,
+  options: ReadConfigStatusViewOptions = {},
 ): Promise<KilnConfigReadResult> {
   return {
     view,
     snapshot,
-    value: await projectConfigView(snapshot, view),
+    value: await projectConfigView(snapshot, view, options),
   };
 }
 
@@ -429,8 +443,9 @@ async function readProjectionSnapshots(
       if (isGlobalInstructionShimTargetId(target.targetId)) {
         continue;
       }
-      const routeIntegrity = readNativeRouteIntegrity(target, effectiveConfig);
-      const status = readNativeProjectionStatus(target);
+      const safeHarnessPath = isNativeHarnessFileProjectionPath(target, userHome ?? homedir());
+      const routeIntegrity = safeHarnessPath ? readNativeRouteIntegrity(target, effectiveConfig) : undefined;
+      const status = safeHarnessPath ? readNativeProjectionStatus(target) : "drifted";
       projections.push({
         targetId: target.targetId,
         path: target.filePath,
@@ -457,6 +472,17 @@ function isGlobalInstructionShimTargetId(targetId: string): boolean {
   return targetId === "codex-global-instructions"
     || targetId === "claude-global-instructions"
     || targetId === "opencode-global-instructions";
+}
+
+function isNativeHarnessFileProjectionPath(
+  target: NativeProjectionTargetState,
+  userHome: string,
+): boolean {
+  const harness = (["claude", "codex", "opencode"] as const)
+    .find((candidate) => target.targetId.startsWith(`${candidate}-skill:`)
+      || target.targetId.startsWith(`${candidate}-agent:`));
+  return harness === undefined
+    || resolveProjectionPathWithin(resolveNativeHarnessDir(harness, userHome), target.filePath) !== undefined;
 }
 
 function readNativeProjectionStatus(target: NativeProjectionTargetState): KilnProjectionTargetSnapshot["status"] {
@@ -610,7 +636,11 @@ function nativeRouteFromTarget(
   return undefined;
 }
 
-async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnConfigReadView): Promise<unknown> {
+async function projectConfigView(
+  snapshot: KilnConfigStatusSnapshot,
+  view: KilnConfigReadView,
+  options: ReadConfigStatusViewOptions,
+): Promise<unknown> {
   const config = snapshot.effectiveConfig as unknown as KilnYaml | undefined;
   switch (view) {
     case "effective":
@@ -629,7 +659,7 @@ async function projectConfigView(snapshot: KilnConfigStatusSnapshot, view: KilnC
         deliberationPolicy: config?.deliberationPolicy,
       };
     case "agents":
-      return readAgentIndexes(snapshot.project.rootPath);
+      return readAgentIndexes(snapshot.project.rootPath, options);
     case "skills":
       return snapshot.skills ?? { entries: [] };
     case "permissions":
@@ -760,8 +790,11 @@ function uniqueSetupActions(actions: readonly KilnConfigSetupAction[]): readonly
   return filtered.length > 0 ? [...new Set(filtered)] : ["none"];
 }
 
-async function readAgentIndexes(projectPath: string): Promise<unknown> {
-  const agents = await loadAgentDefinitions(projectPath);
+async function readAgentIndexes(projectPath: string, options: ReadConfigStatusViewOptions): Promise<unknown> {
+  const agents = await loadAgentDefinitions(projectPath, options.userHome === undefined ? undefined : { userHome: options.userHome });
+  const createRouteAdmissionResolver = options.createNativeAgentRouteAdmissionResolver
+    ?? createNativeAgentRouteAdmissionResolver;
+  const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath);
   return {
     agents: agents.map((agent) => ({
       id: agent.name,
@@ -772,20 +805,24 @@ async function readAgentIndexes(projectPath: string): Promise<unknown> {
       skills: agent.skills,
       taskAffinity: agent.taskAffinity,
       routeId: agent.routeId,
-      nativeProjections: nativeAgentProjectionSummaries(agent),
-      invocationCapabilities: agentInvocationCapabilitySummaries(agent),
+      nativeProjections: nativeAgentProjectionSummaries(agent, routeAdmissionResolver),
+      invocationCapabilities: agentInvocationCapabilitySummaries(agent, routeAdmissionResolver),
     })),
   };
 }
 
-function nativeAgentProjectionSummaries(agent: KilnAgentDefinition): readonly NativeAgentProjectionSummary[] {
+function nativeAgentProjectionSummaries(
+  agent: KilnAgentDefinition,
+  routeAdmissionResolver: Awaited<ReturnType<typeof createNativeAgentRouteAdmissionResolver>>,
+): readonly NativeAgentProjectionSummary[] {
   return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
-    const decision = decideNativeAgentProjection({ agent, harness: target });
-    if (decision.kind === "omit") {
+    const decision = decideNativeAgentProjection({ agent, harness: target, admission: routeAdmissionResolver.resolve(agent) });
+    if (decision.kind !== "project") {
       return {
         target,
-        status: "omitted",
+        status: decision.kind,
         reason: decision.reason,
+        admission: decision.admission,
       };
     }
     return {
@@ -796,39 +833,31 @@ function nativeAgentProjectionSummaries(agent: KilnAgentDefinition): readonly Na
   });
 }
 
-function agentInvocationCapabilitySummaries(agent: KilnAgentDefinition): readonly AgentInvocationCapabilitySummary[] {
+function agentInvocationCapabilitySummaries(
+  agent: KilnAgentDefinition,
+  routeAdmissionResolver: Awaited<ReturnType<typeof createNativeAgentRouteAdmissionResolver>>,
+): readonly AgentInvocationCapabilitySummary[] {
   if (!agent.providerRoute) {
     return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => ({
       target,
-      status: "native-supported",
+      status: "admitted",
     }));
   }
 
   return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
-    const capability = resolveHarnessRouteCapability({
-      harness: target,
-      providerId: agent.providerRoute?.providerId ?? "",
-      model: agent.providerRoute?.model,
-    });
-    if (capability.kind === "native-supported") {
+    const decision = decideNativeAgentProjection({ agent, harness: target, admission: routeAdmissionResolver.resolve(agent) });
+    if (decision.kind === "project") {
       return {
         target,
-        status: capability.kind,
-        nativeModel: capability.nativeModel,
-      };
-    }
-    if (capability.kind === "adapter-supported") {
-      return {
-        target,
-        status: capability.kind,
-        adapterId: capability.adapterId,
-        reason: capability.reason,
+        status: "admitted",
+        ...(decision.nativeModel ? { nativeModel: decision.nativeModel } : {}),
       };
     }
     return {
       target,
-      status: capability.kind,
-      reason: capability.reason,
+      status: decision.kind,
+      reasons: decision.reason,
+      decision: decision.admission,
     };
   });
 }
@@ -869,10 +898,6 @@ function projectHarnessCapability(capability: ReturnType<typeof listHarnessInteg
     nativeConfigImport: capability.nativeConfigImport ? "supported" : "unsupported",
     mcpRuntimeTools: capability.mcpRuntimeTools ? "supported" : "unsupported",
     hooks: capability.hooks ? "supported" : "unsupported",
-    crossHarnessManagedInvocation: {
-      adapterId: capability.crossHarnessManagedInvocation.adapterId,
-      supportedProviderIds: capability.crossHarnessManagedInvocation.supportedProviderIds,
-    },
   };
 }
 

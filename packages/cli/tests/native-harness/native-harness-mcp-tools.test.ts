@@ -63,7 +63,6 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
       nativeConfigImport: "supported",
       mcpRuntimeTools: "supported",
       hooks: "supported",
-      crossHarnessManagedInvocation: { adapterId: "kiln-managed-invocation", supportedProviderIds: ["opencode-go"] },
     }],
     ...overrides,
   };
@@ -99,13 +98,13 @@ function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord
       surface: "direct-provider" as const,
       adapterCapabilityId: "opencode-go-direct",
       adapterCapabilityVersion: "1",
+      profileAuthorityDigest: `sha256:${"9".repeat(64)}`,
     }],
     rejections: [],
   };
   return {
-    version: 7,
+    version: 9,
     id: "managed-job-0001",
-    economicAttemptId: "economic-attempt:test-0001",
     adoptedDecisionAt: OBSERVED_AT,
     state,
     objective: "Inspect bounded work.",
@@ -113,10 +112,14 @@ function managedJob(overrides: Partial<ManagedJobRecord> = {}): ManagedJobRecord
     callerId: "trusted-codex-user",
     configuredAgentProfileId: "scout",
     admissionProfileId: "foundation-readonly-plan",
-    economicPolicyId: "economy-policy",
-    economicPolicyRevision: "revision-001",
-    constraints: {},
-    candidateSet,
+    dispatch: {
+      kind: "economic",
+      economicAttemptId: "economic-attempt:test-0001",
+      economicPolicyId: "economy-policy",
+      economicPolicyRevision: "revision-001",
+      constraints: {},
+      candidateSet,
+    },
     governanceSource: "kiln-governance",
     admissionId: "admission-001",
     requestFingerprint: `sha256:${"a".repeat(64)}`,
@@ -174,7 +177,7 @@ describe("NativeHarnessMcpTools", () => {
       harness,
       inspection: createNativeHarnessInspectionService({ harness }),
       managedJobs: {
-        submit: async () => managedJob(),
+        accept: async () => managedJob(),
         getStatus: async () => managedJob(),
         getResult: async () => ({ jobId: "managed-job-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }),
         cancel: async () => managedJob(),
@@ -238,12 +241,12 @@ describe("NativeHarnessMcpTools", () => {
     expect(JSON.stringify(tool?.inputSchema)).not.toContain("foundation-readonly-plan");
   });
 
-  it("projects only trusted request identity into the canonical managed-job submit", async () => {
-    const submitted: unknown[] = [];
+  it("projects only trusted request identity into the canonical managed-job acceptance", async () => {
+    const accepted: unknown[] = [];
     const server = new CodexMcpTools({
       inspection: createNativeHarnessInspectionService({ harness: "codex" }),
       managedJobs: {
-        submit: async (input) => { submitted.push(input); return managedJob(); },
+        accept: async (input) => { accepted.push(input); return managedJob(); },
         getStatus: async () => managedJob(),
         getResult: async () => ({ jobId: "managed-job-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", handoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] } }),
         cancel: async () => managedJob({ state: "cancelled", diagnostic: "cancelled" }),
@@ -253,15 +256,20 @@ describe("NativeHarnessMcpTools", () => {
     });
 
     const result = await server.callTool("kiln_managed_agent_invoke", { objective: "  inspect bounded work  ", configuredAgentProfileId: "scout", idempotencyKey: "retry-1" });
-    expect(submitted).toEqual([{ objective: "inspect bounded work", configuredAgentProfileId: "scout", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
-    expect(result.structuredContent).toMatchObject({ job: { id: "managed-job-0001", routeId: "route-go" }, evidence: { callerId: "trusted-codex-user", requestId: "trusted-request" } });
+    expect(accepted).toEqual([{ objective: "inspect bounded work", configuredAgentProfileId: "scout", idempotencyKey: "retry-1", callerId: "trusted-codex-user" }]);
+    expect(result.structuredContent).toMatchObject({
+      accepted: true,
+      completionChannel: "status-result-replay",
+      job: { id: "managed-job-0001", routeId: "route-go", state: "succeeded" },
+      evidence: { callerId: "trusted-codex-user", requestId: "trusted-request" },
+    });
     expect(JSON.stringify(result)).not.toContain("objective");
   });
 
-  it("projects a failed V7 job without fabricating route or provider identity", async () => {
+  it("projects a failed V9 job without fabricating route or provider identity", async () => {
     const server = new CodexMcpTools({
       managedJobs: {
-        submit: async () => managedEconomicJob(),
+        accept: async () => managedEconomicJob(),
         getStatus: async () => managedEconomicJob(),
         getResult: async () => ({
           jobId: "managed-job-economic-0001",
@@ -297,8 +305,12 @@ describe("NativeHarnessMcpTools", () => {
 
     expect(result.structuredContent).toMatchObject({
       job: {
-        economicPolicyId: "economy-policy",
-        economicPolicyRevision: "revision-001",
+        dispatch: {
+          kind: "economic",
+          economicPolicyId: "economy-policy",
+          economicPolicyRevision: "revision-001",
+          constraints: {},
+        },
         diagnostic: {
           code: "economic_commitment_unavailable",
           operatorAction: "Wait until the configured economic commitment authority is available.",
@@ -313,7 +325,7 @@ describe("NativeHarnessMcpTools", () => {
     const calls: unknown[] = [];
     const server = new CodexMcpTools({
       managedJobs: {
-        submit: async () => managedJob({ state: "running" }),
+        accept: async () => managedJob({ state: "running" }),
         getStatus: async () => managedJob({ state: "running" }),
         getResult: async () => ({ jobId: "managed-job-0001", availability: "failed", lifecycleState: "cancelled", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", diagnostic: "cancelled" }),
         cancel: async (input, jobId) => { calls.push({ operation: "cancel", input, jobId }); return managedJob({ state: "cancelled", diagnostic: "cancelled" }); },
@@ -333,21 +345,24 @@ describe("NativeHarnessMcpTools", () => {
               { sequence: 3, state: "cancelled", observedAt: OBSERVED_AT, diagnostic: "cancelled" },
             ],
             resultAvailability: "failed",
-            economic: {
-              availability: "available",
-              snapshot: {
-                evidenceVersion: 1,
-                status: "dispatch-fenced",
-                policyId: "economy-policy",
-                policyRevision: "revision-001",
-                policyDigest: `sha256:${"a".repeat(64)}`,
-                commitmentId: "commitment-safe-001",
-                reservationId: "reservation-safe-001",
-                dispatchFenceId: "fence-safe-001",
-                selectedRoute: { routeId: "route-go", providerId: "opencode-go", modelId: "go-test", adapterCapabilityId: "opencode-direct", adapterCapabilityVersion: "1" },
-                selectedAccount: { kind: "account-bound", capacityIdentity: "pool-safe", creditPosture: "committed", overagePosture: "disabled" },
-                settlementKind: "charged",
-                settlementAuthority: "configured",
+            dispatch: {
+              kind: "economic",
+              economic: {
+                availability: "available",
+                snapshot: {
+                  evidenceVersion: 1,
+                  status: "dispatch-fenced",
+                  policyId: "economy-policy",
+                  policyRevision: "revision-001",
+                  policyDigest: `sha256:${"a".repeat(64)}`,
+                  commitmentId: "commitment-safe-001",
+                  reservationId: "reservation-safe-001",
+                  dispatchFenceId: "fence-safe-001",
+                  selectedRoute: { routeId: "route-go", providerId: "opencode-go", modelId: "go-test", adapterCapabilityId: "opencode-direct", adapterCapabilityVersion: "1" },
+                  selectedAccount: { kind: "account-bound", capacityIdentity: "pool-safe", creditPosture: "committed", overagePosture: "disabled" },
+                  settlementKind: "charged",
+                  settlementAuthority: "configured",
+                },
               },
             },
           };
@@ -364,14 +379,37 @@ describe("NativeHarnessMcpTools", () => {
       { operation: "replay", input: { callerId: "trusted-codex-user" }, jobId: "managed-job-0001" },
     ]);
     expect(cancelled.structuredContent).toMatchObject({ operation: "managed-agent-cancel", job: { state: "cancelled" } });
-    expect(replay.structuredContent).toMatchObject({ operation: "managed-agent-replay", replay: { availability: "available", lifecycle: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }], economic: { availability: "available", snapshot: { evidenceVersion: 1, status: "dispatch-fenced", policyDigest: `sha256:${"a".repeat(64)}`, commitmentId: "commitment-safe-001", reservationId: "reservation-safe-001", dispatchFenceId: "fence-safe-001", selectedRoute: { routeId: "route-go", adapterCapabilityId: "opencode-direct" }, settlementKind: "charged", settlementAuthority: "configured" } } } });
+    expect(replay.structuredContent).toMatchObject({
+      operation: "managed-agent-replay",
+      replay: {
+        availability: "available",
+        lifecycle: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }],
+        dispatch: {
+          kind: "economic",
+          economic: {
+            availability: "available",
+            snapshot: {
+              evidenceVersion: 1,
+              status: "dispatch-fenced",
+              policyDigest: `sha256:${"a".repeat(64)}`,
+              commitmentId: "commitment-safe-001",
+              reservationId: "reservation-safe-001",
+              dispatchFenceId: "fence-safe-001",
+              selectedRoute: { routeId: "route-go", adapterCapabilityId: "opencode-direct" },
+              settlementKind: "charged",
+              settlementAuthority: "configured",
+            },
+          },
+        },
+      },
+    });
     expect(JSON.stringify(replay)).not.toMatch(/objective|prompt|transcript|provider payload|credential|accountRef|amount/iu);
     await expect(server.callTool("kiln_managed_agent_cancel", { jobId: "managed-job-0001", reason: "override" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
   });
 
   it("rejects unknown invoke fields and malformed status or result identifiers before the application owner", async () => {
     let calls = 0;
-    const server = new CodexMcpTools({ managedJobs: { submit: async () => { calls++; return managedJob(); }, getStatus: async () => { calls++; return managedJob(); }, getResult: async () => { calls++; return { jobId: "managed-job-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }; }, cancel: async () => { calls++; return managedJob(); }, getReplay: async () => { calls++; return { jobId: "managed-job-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }; } } });
+    const server = new CodexMcpTools({ managedJobs: { accept: async () => { calls++; return managedJob(); }, getStatus: async () => { calls++; return managedJob(); }, getResult: async () => { calls++; return { jobId: "managed-job-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }; }, cancel: async () => { calls++; return managedJob(); }, getReplay: async () => { calls++; return { jobId: "managed-job-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }; } } });
     await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", provider: "opencode-go" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", admissionProfileId: "foundation-readonly-plan" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_managed_agent_status", { jobId: "not valid" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
@@ -380,7 +418,7 @@ describe("NativeHarnessMcpTools", () => {
   });
 
   it("maps application diagnostics without exposing internal error text", async () => {
-    const server = new CodexMcpTools({ managedJobs: { submit: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "provider_rejected" }); }, getStatus: async () => managedJob(), getResult: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "result_corrupt" }); }, cancel: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "invocation_failed" }); }, getReplay: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "job_persistence_corrupt" }); } } });
+    const server = new CodexMcpTools({ managedJobs: { accept: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "provider_rejected" }); }, getStatus: async () => managedJob(), getResult: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "result_corrupt" }); }, cancel: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "invocation_failed" }); }, getReplay: async () => { throw Object.assign(new Error("C:\\secrets\\provider payload"), { code: "job_persistence_corrupt" }); } } });
     const result = await server.callTool("kiln_managed_agent_invoke", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key" });
     expect(result).toMatchObject({ isError: true, structuredContent: { error: { code: "provider_rejected" } } });
     expect(JSON.stringify(result)).not.toContain("secrets");
@@ -390,7 +428,7 @@ describe("NativeHarnessMcpTools", () => {
     const reads: unknown[] = [];
     const server = new CodexMcpTools({
       managedJobs: {
-        submit: async () => managedJob(),
+        accept: async () => managedJob(),
         getStatus: async () => managedJob(),
         getResult: async (input, jobId) => {
           reads.push({ input, jobId });
@@ -728,7 +766,7 @@ describe("NativeHarnessMcpTools", () => {
   it("rejects malformed status, projection, route, and capability evidence without leaking it", async () => {
     const malformed = snapshot({
       projections: [{ targetId: "codex", path: "C:\\secret", kind: "native", status: "current", routeIntegrity: { routeStatus: "unknown", credentialStatus: "valid", classification: "x" } }] as KilnConfigStatusSnapshot["projections"],
-      harnessCapabilities: [{ harness: "codex", displayName: "Codex", runtimeConfigInjection: "supported", nativeProjection: "install-state", nativeConfigImport: "supported", mcpRuntimeTools: 7, hooks: "supported", crossHarnessManagedInvocation: { adapterId: "a", supportedProviderIds: [] } }] as KilnConfigStatusSnapshot["harnessCapabilities"],
+      harnessCapabilities: [{ harness: "codex", displayName: "Codex", runtimeConfigInjection: "supported", nativeProjection: "install-state", nativeConfigImport: "supported", mcpRuntimeTools: 7, hooks: "supported" }] as KilnConfigStatusSnapshot["harnessCapabilities"],
     });
 
     const result = await createServer(malformed).callTool("kiln_status_inspect", {});

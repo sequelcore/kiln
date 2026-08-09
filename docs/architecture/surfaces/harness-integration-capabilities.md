@@ -186,6 +186,29 @@ passes process-scoped startup overrides for model, approval, sandbox, and
 related execution flags. This is not a claim that standalone Codex reads Kiln
 global config directly.
 
+Claude's admitted read-only plan route has one narrower version-bound
+capability, `claude-code-private-plan-artifacts-v1`, proven for the exact
+Claude Code versions `2.1.220` and `2.1.226`. Its relative location is `plans`
+beneath the selected pooled `CLAUDE_CONFIG_DIR`; the route does not infer a
+generic Claude home or copy authentication state. Kiln snapshots and restores
+only that location around a plan run, then emits redacted counts, digest, and
+cleanup status as ephemeral harness evidence. A different or unknown
+executable version leaves the route unavailable; the admitted versions are an
+explicit list, not a range. This capability is not workspace write authority
+and does not enter canonical `writeEvidence`. The wrapper serializes snapshot,
+execution, and cleanup with a keyed process-local lease plus an exclusive durable
+`.kiln-claude-private-plan-artifacts.lock` created with `wx` inside the
+canonical selected home; its mode is `0600` and its document contains only
+`schema`, `pid`, and `token`. Different homes do not block, and independent
+Kiln processes sharing a selected home fail closed while that lock exists.
+Orphan locks are not stolen because no durable snapshot exists; the typed
+unavailable result includes the operator repair action. The owner token and
+lock identity are verified before unlink. The selected config directory and
+`plans` root must remain physical, canonical, non-symlink directories; identity
+replacement or unsafe descendants fail cleanup closed, and restoration uses
+same-directory temporary files plus rename without recursive deletion of an
+unknown root.
+
 Codex runtime output can include non-fatal native diagnostics that are not turn
 failures. The wrapper must classify those diagnostics at the adapter boundary
 and keep the canonical session stream focused on real failures, completed

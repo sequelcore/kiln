@@ -13,6 +13,7 @@ import {
 } from "@kilnai/runtime";
 import { NativeHarnessMcpTools, type ManagedJobApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
+import { readConfigStatusSnapshot } from "./config-status.js";
 import {
   createOperatorProjectManagedJobApplicationComposition,
   type OperatorProjectManagedJobApplicationComposition,
@@ -87,6 +88,7 @@ export interface OperatorRuntimeServiceOptions {
   }) => Promise<OperatorProjectManagedJobApplicationComposition>;
   readonly registry?: ProjectRuntimeRegistry<OperatorProjectManagedJobApplicationComposition>;
   readonly sdkLoader?: () => Promise<OperatorRuntimeMcpSdk>;
+  readonly userHome?: string;
 }
 
 export interface OperatorRuntimeService {
@@ -316,6 +318,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
         session,
         registry,
         sdkLoader,
+        userHome: options.userHome,
         requestId: `operator-runtime:${session.sessionId}:${++requestSequence}`,
       });
     } finally {
@@ -365,6 +368,7 @@ async function handleMcpRequest(input: {
   readonly registry: ProjectRuntimeRegistry<OperatorProjectManagedJobApplicationComposition>;
   readonly sdkLoader: () => Promise<OperatorRuntimeMcpSdk>;
   readonly requestId: string;
+  readonly userHome?: string;
 }): Promise<Response> {
   let sdk: OperatorRuntimeMcpSdk;
   try {
@@ -379,7 +383,14 @@ async function handleMcpRequest(input: {
     inspection: createNativeHarnessInspectionService({
       harness: input.session.harness,
       readProjectRoot: async () => ({ status: "resolved", rootPath: input.session.canonicalRoot }),
+      ...(input.userHome !== undefined ? {
+        readStatus: (options) => readConfigStatusSnapshot({ ...options, userHome: input.userHome }),
+      } : {}),
       readBridgeProjection: async () => "current",
+      readManagedAgents: async () => (await input.registry.ensure({
+        canonicalRoot: input.session.canonicalRoot,
+        binding: input.session.binding,
+      })).configuredAgents,
     }),
     managedJobs,
     requestIdentity: () => ({
@@ -422,7 +433,7 @@ function createLazyManagedJobPort(
       binding: session.binding,
     })).application;
   return {
-    submit: async (value) => (await application()).submit(value),
+    accept: async (value, callerIdentity) => (await application()).accept(value, callerIdentity),
     getStatus: async (identity, jobId) => (await application()).getStatus(identity, jobId),
     getResult: async (identity, jobId) => (await application()).getResult(identity, jobId),
     cancel: async (identity, jobId) => (await application()).cancel(identity, jobId),

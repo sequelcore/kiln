@@ -38,6 +38,14 @@ function route(input: {
     routeSource: "explicit-managed-route",
     providerId: input.providerId,
     ...(input.model ? { model: input.model } : {}),
+    capability: {
+      identity: { routeId: input.routeId, revision: "test-v1" },
+      target: { providerId: input.providerId, modelId: input.model ?? "default" },
+      adapter: { kind: "direct-provider", capabilityId: `${input.providerId}-direct`, capabilityVersion: "1" },
+      authorityCeiling: "read_only", toolNames: ["read"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
+      proof: { status: "live-proven", source: "test", freshness: "fresh", observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", provenProfiles: ["foundation-readonly-plan"] },
+      capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+    },
     ...(input.capability
       ? {
           economicCapability: {
@@ -417,7 +425,7 @@ describe("managed economic candidate admission", () => {
                   },
                 },
               } as never,
-              adapter: { descriptor: {} } as never,
+              adapter: { descriptor: { providerId: "codex-oauth", adapterKind: "direct", supportedExecutionModes: ["direct-provider"] } } as never,
               recordExecutionSettlementPending,
               createExecutionSettlement: () => ({} as never),
               registerEconomicSettlement: () => undefined,

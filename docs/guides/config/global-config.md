@@ -688,18 +688,24 @@ decision.
 Unconfigured builtin agents are therefore absent from the schema-v2 managed
 catalog. A project or global definition, including an override with the same
 name as a builtin, is admitted only with a valid `economicPolicyId`.
-Policy agents are exposed to native managed-job submission through the V7
-record. V7 persists the policy id/revision, normalized narrowing constraints,
-governance evidence, admitted candidate set, `economicAttemptId`, objective,
-and adopted decision time before the atomic commitment transaction. The
-selected route, reservation, optional account lease, and dispatch fence remain
-SQLite-authoritative rather than duplicated into the job projection. Pre-V7
-records are unsupported. #34 internal Slice 5 dispatches committed work
-only after the durable fence, materializes the exact committed adapter and
-credential identity, and requires typed settlement. Unknown or incomplete
-provider outcomes remain capacity-consuming until authoritative settlement or
-audited operator reconciliation; Kiln does not invent a hidden `routeId` or a
-safe release.
+Policy agents are exposed to native managed-job submission through the V9
+record. V9 uses an explicit `dispatch.kind` branch: `economic` persists the
+policy id/revision, normalized narrowing constraints, governance evidence,
+admitted candidate set, `economicAttemptId`, objective, and adopted decision
+time before the atomic commitment transaction; `native-harness` persists only
+the exact route/provider/model identity, a versioned credentialless route
+acknowledgement, and the optional dispatch fence. The selected route,
+reservation, optional account lease, and dispatch fence remain
+SQLite-authoritative rather than duplicated into the job projection. Pre-V9
+records are unsupported. Native-harness managed routes must use
+`credentials.mode: credentialless`; `runtime-selected` is rejected before
+adapter, credential, process, or account-authority materialization. #34
+internal Slice 5 dispatches committed work only after the durable fence,
+materializes the exact committed adapter and credential identity for economic
+routes, and requires typed settlement. Unknown or incomplete provider
+outcomes remain capacity-consuming until authoritative settlement or audited
+operator reconciliation; Kiln does not invent a hidden `routeId` or a safe
+release.
 Non-managed session-turn budgeting remains owned by its existing configuration
 until its separate migration closes.
 
@@ -947,6 +953,8 @@ managedAgents:
         invokeUrl: https://remote.example.test/managed-agent/invoke
         cancelUrl: https://remote.example.test/managed-agent/cancel
         authTokenEnv: KILN_CODEX_CLOUD_TOKEN
+      credentials:
+        mode: credentialless
       tools:
         allowed:
           - read
@@ -955,8 +963,8 @@ managedAgents:
         writes: false
 ```
 
-Remote harness routes are currently read-only. They must expose provider
-limitations as capability evidence and use configured route proof instead of
+Remote harness routes are currently read-only and credentialless. They must
+expose provider limitations as capability evidence and use configured route proof instead of
 claiming live provider/tool proof from endpoint configuration alone. The runtime
 validates returned records against the admitted identity and capability
 snapshot; mismatched route, model, adapter, execution mode, authority, or

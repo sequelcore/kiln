@@ -1,26 +1,35 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { loadSkillMdIndex, renderSkillMarkdown, resolveKilnCoreBuiltinSkills } from "@kilnai/core";
-import {
-  createNativeProjectionFileSnapshot,
-  detectNativeProjectionFileDrift,
-  readNativeProjectionInstallState,
-  removeNativeProjectionTargetState,
-  upsertNativeProjectionTargetState,
-  writeNativeProjectionInstallState,
-  type NativeProjectionInstallState,
-  type NativeProjectionTargetState,
-} from "./native-projection-state.js";
+import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { backupNativeProjectionFile } from "./native-projection-backup.js";
 import {
   describeProjectionDrift,
   isNativeProjectionHarnessDisabled,
-  type ProjectionOutcome,
   type NativeProjectionSyncOptions,
+  type ProjectionOutcome,
 } from "./native-projection-policy.js";
-import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
+import {
+  createNativeProjectionFileSnapshot,
+  detectNativeProjectionFileDrift,
+  adoptLegacyNativeProjectionFile,
+  isFullyOwnedNativeProjectionFile,
+  type NativeProjectionInstallState,
+  type NativeProjectionTargetState,
+  nativeProjectionFileMatchesDesired,
+  readNativeProjectionInstallState,
+  removeNativeProjectionTargetState,
+  upsertNativeProjectionTargetState,
+  writeNativeProjectionInstallState,
+} from "./native-projection-state.js";
 import { NATIVE_SKILL_TARGETS } from "./native-skill-targets.js";
+import {
+  canonicalSkillKey,
+  isSafeProjectionPathComponent,
+  isSafeProjectionRelativePath,
+  resolveProjectionPathWithin,
+} from "./native-projection-paths.js";
 
 export interface NativeSkillProjectionResult {
   claude: boolean;
@@ -41,10 +50,10 @@ export function discoverSkillDirs(projectPath: string, userHome = os.homedir()):
   const projectSkillsDir = join(projectPath, ".kiln", "skills");
 
   try {
-    for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true })) {
+    for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const sourceDir = join(globalSkillsDir, entry.name);
       if (entry.isDirectory() && isCanonicalSkillDirectory(sourceDir, entry.name)) {
-        discovered.set(entry.name, sourceDir);
+        discovered.set(canonicalSkillKey(entry.name), sourceDir);
       }
     }
   } catch {
@@ -52,10 +61,10 @@ export function discoverSkillDirs(projectPath: string, userHome = os.homedir()):
   }
 
   try {
-    for (const entry of readdirSync(projectSkillsDir, { withFileTypes: true })) {
+    for (const entry of readdirSync(projectSkillsDir, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const sourceDir = join(projectSkillsDir, entry.name);
       if (entry.isDirectory() && isCanonicalSkillDirectory(sourceDir, entry.name)) {
-        discovered.set(entry.name, sourceDir);
+        discovered.set(canonicalSkillKey(entry.name), sourceDir);
       }
     }
   } catch {
@@ -66,19 +75,24 @@ export function discoverSkillDirs(projectPath: string, userHome = os.homedir()):
 }
 
 function isCanonicalSkillDirectory(skillDir: string, directoryName: string): boolean {
+  if (!isSafeProjectionPathComponent(directoryName)) return false;
   try {
     const skillFile = readdirSync(skillDir, { withFileTypes: true })
       .find((entry) => entry.isFile() && entry.name.toLowerCase() === "skill.md");
     if (!skillFile) {
       return false;
     }
-    return loadSkillMdIndex(join(skillDir, skillFile.name)).name === directoryName;
+    const skillName = loadSkillMdIndex(join(skillDir, skillFile.name)).name;
+    return isSafeProjectionPathComponent(skillName)
+      && canonicalSkillKey(skillName) === canonicalSkillKey(directoryName);
   } catch {
     return false;
   }
 }
 
 interface SkillProjectionSource {
+  readonly skillName: string;
+  readonly sourceIdentity: string;
   readonly sourceDir?: string;
   readonly files?: readonly {
     readonly fileName: string;
@@ -92,14 +106,27 @@ export function discoverSkillProjectionSources(
   userHome = os.homedir(),
 ): Map<string, SkillProjectionSource> {
   const discovered = new Map<string, SkillProjectionSource>();
-  for (const [skillName, sourceDir] of discoverSkillDirs(projectPath, userHome)) {
-    discovered.set(skillName, { sourceDir });
+  for (const [directoryName, sourceDir] of discoverSkillDirs(projectPath, userHome)) {
+    const skillName = readSkillDirectoryName(sourceDir) ?? directoryName;
+    if (!isSafeProjectionPathComponent(skillName)) continue;
+    const origin = resolveProjectionPathWithin(
+      join(projectPath, ".kiln", "skills"),
+      sourceDir,
+    ) ? "project" : "user";
+    discovered.set(canonicalSkillKey(skillName), {
+      skillName,
+      sourceIdentity: `${origin}:${canonicalSkillKey(skillName)}`,
+      sourceDir,
+    });
   }
-  addFlatSkillProjectionSources(discovered, join(userHome, ".kiln", "skills"), false);
-  addFlatSkillProjectionSources(discovered, join(projectPath, ".kiln", "skills"), true);
+  addFlatSkillProjectionSources(discovered, join(userHome, ".kiln", "skills"), "user", false);
+  addFlatSkillProjectionSources(discovered, join(projectPath, ".kiln", "skills"), "project", true);
   for (const skill of resolveKilnCoreBuiltinSkills(skillConfig?.builtin)) {
-    if (!discovered.has(skill.name)) {
-      discovered.set(skill.name, {
+    if (!isSafeProjectionPathComponent(skill.name)) continue;
+    if (!discovered.has(canonicalSkillKey(skill.name))) {
+      discovered.set(canonicalSkillKey(skill.name), {
+        skillName: skill.name,
+        sourceIdentity: `builtin:${canonicalSkillKey(skill.name)}`,
         files: [{ fileName: "SKILL.md", content: renderSkillMarkdown(skill) }],
       });
     }
@@ -110,16 +137,24 @@ export function discoverSkillProjectionSources(
 function addFlatSkillProjectionSources(
   discovered: Map<string, SkillProjectionSource>,
   root: string,
+  origin: "user" | "project",
   override: boolean,
 ): void {
   try {
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
+    for (const entry of readdirSync(root, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
       const filePath = join(root, entry.name);
       try {
         const index = loadSkillMdIndex(filePath);
-        if (override || !discovered.has(index.name)) {
-          discovered.set(index.name, {
+        if (!isSafeProjectionPathComponent(index.name)
+          || !isSafeProjectionPathComponent(entry.name)) {
+          continue;
+        }
+        const key = canonicalSkillKey(index.name);
+        if (override || !discovered.has(key)) {
+          discovered.set(key, {
+            skillName: index.name,
+            sourceIdentity: `${origin}:${key}`,
             files: [{ fileName: entry.name, content: readFileSync(filePath, "utf-8") }],
           });
         }
@@ -129,6 +164,16 @@ function addFlatSkillProjectionSources(
     }
   } catch {
     // Missing or unreadable registries contribute no flat skill sources.
+  }
+}
+
+function readSkillDirectoryName(sourceDir: string): string | undefined {
+  try {
+    const skillFile = readdirSync(sourceDir, { withFileTypes: true })
+      .find((entry) => entry.isFile() && entry.name.toLowerCase() === "skill.md");
+    return skillFile ? loadSkillMdIndex(join(sourceDir, skillFile.name)).name : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -183,7 +228,7 @@ export async function syncNativeSkillProjections(
     if (isNativeProjectionHarnessDisabled(options, target.key)) {
       const skippedSkills = [...skillSources.keys()];
       outcomes.push(...(skippedSkills.length > 0 ? skippedSkills : ["managed-skills"]).map((skillName) => ({
-        targetId: `${target.key}-skill:${skillName}`,
+        targetId: `${target.key}-skill:${canonicalSkillKey(skillName)}`,
         path: skillName === "managed-skills" ? target.dir : join(target.dir, skillName),
         status: "skipped" as const,
         reason: `${target.name} harness is disabled`,
@@ -214,19 +259,51 @@ export async function syncNativeSkillProjections(
       errors.push(...pruneResult.errors);
     }
 
-    for (const [skillName, source] of skillSources) {
-      const targetSkillDir = join(target.dir, skillName);
+    for (const source of skillSources.values()) {
+      const skillName = source.skillName;
+      if (!isSafeProjectionPathComponent(skillName)) {
+        setTargetFailed(target.key);
+        const reason = `unsafe skill path component: ${skillName}`;
+        errors.push(`${target.name} skill "${skillName}" failed: ${reason}`);
+        outcomes.push({
+          targetId: `${target.key}-skill:${canonicalSkillKey(skillName)}`,
+          path: target.dir,
+          status: "blocked",
+          reason,
+        });
+        continue;
+      }
+      const targetSkillDir = resolveProjectionPathWithin(target.dir, join(target.dir, skillName));
+      if (!targetSkillDir) {
+        setTargetFailed(target.key);
+        const reason = `skill target escapes harness root: ${skillName}`;
+        errors.push(`${target.name} skill "${skillName}" failed: ${reason}`);
+        outcomes.push({
+          targetId: `${target.key}-skill:${canonicalSkillKey(skillName)}`,
+          path: join(target.dir, skillName),
+          status: "blocked",
+          reason,
+        });
+        continue;
+      }
 
       try {
         if (!options.dryRun) mkdirSync(targetSkillDir, { recursive: true });
         const sourceFiles = source.files ?? readSkillSourceFiles(source.sourceDir);
         let skillFailed = false;
         for (const sourceFile of sourceFiles) {
-          const targetFile = join(targetSkillDir, sourceFile.fileName);
+          if (!isSafeProjectionRelativePath(sourceFile.fileName)) {
+            throw new Error(`unsafe skill resource path: ${sourceFile.fileName}`);
+          }
+          const targetFile = resolveProjectionPathWithin(target.dir, join(targetSkillDir, sourceFile.fileName));
+          if (!targetFile) {
+            throw new Error(`skill resource escapes harness root: ${sourceFile.fileName}`);
+          }
           const fileResult = syncSkillFile({
             target,
             skillName,
             fileName: sourceFile.fileName,
+            sourceIdentity: source.sourceIdentity,
             content: sourceFile.content,
             targetFile,
             kilnDir,
@@ -256,7 +333,7 @@ export async function syncNativeSkillProjections(
           `${target.name} skill "${skillName}" failed: ${reason}`,
         );
         outcomes.push({
-          targetId: `${target.key}-skill:${skillName}`,
+          targetId: `${target.key}-skill:${canonicalSkillKey(skillName)}`,
           path: targetSkillDir,
           status: "failed",
           reason,
@@ -298,14 +375,21 @@ function pruneStaleSkillProjections(input: {
     if (separator <= 0) continue;
     const skillName = relativeTarget.slice(0, separator);
     const fileName = relativeTarget.slice(separator + 1);
-    const source = input.skillSources.get(skillName);
+    if (!isSafeProjectionPathComponent(skillName) || !isSafeProjectionRelativePath(fileName)
+      || !resolveProjectionPathWithin(input.target.dir, state.filePath)) {
+      const reason = "unsafe managed skill projection path";
+      errors.push(`${input.target.name} stale skill "${skillName}" file "${fileName}" failed: ${reason}`);
+      outcomes.push({ targetId, path: state.filePath, status: "blocked", reason });
+      continue;
+    }
+    const source = input.skillSources.get(canonicalSkillKey(skillName));
     if (source) {
-      let currentFiles = currentFilesBySkill.get(skillName);
+      let currentFiles = currentFilesBySkill.get(canonicalSkillKey(skillName));
       if (!currentFiles) {
         try {
           currentFiles = (source.files ?? readSkillSourceFiles(source.sourceDir))
             .map((file) => file.fileName);
-          currentFilesBySkill.set(skillName, currentFiles);
+          currentFilesBySkill.set(canonicalSkillKey(skillName), currentFiles);
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           errors.push(
@@ -314,6 +398,17 @@ function pruneStaleSkillProjections(input: {
           outcomes.push({ targetId, path: state.filePath, status: "failed", reason });
           continue;
         }
+      }
+      const canonicalTargetId = `${prefix}${canonicalSkillKey(skillName)}/${fileName}`;
+      if (targetId !== canonicalTargetId && currentFiles.includes(fileName)) {
+        if (!input.options.dryRun) installState = removeNativeProjectionTargetState(installState, targetId);
+        outcomes.push({
+          targetId,
+          path: state.filePath,
+          status: input.options.dryRun ? "planned" : "removed",
+          reason: "remove stale case-only install-state entry",
+        });
+        continue;
       }
       if (currentFiles.includes(fileName)) continue;
       if (currentFiles.some((currentFile) => currentFile.toLowerCase() === fileName.toLowerCase())) {
@@ -389,6 +484,9 @@ function readSkillSourceFilesRecursive(sourceRoot: string, currentDir: string): 
   return readdirSync(currentDir, { withFileTypes: true })
     .sort((left, right) => left.name.localeCompare(right.name))
     .flatMap((entry) => {
+      if (!isSafeProjectionPathComponent(entry.name)) {
+        throw new Error(`unsafe skill resource path: ${entry.name}`);
+      }
       const sourcePath = join(currentDir, entry.name);
       if (entry.isDirectory()) {
         return readSkillSourceFilesRecursive(sourceRoot, sourcePath);
@@ -407,23 +505,111 @@ function syncSkillFile(input: {
   readonly target: {
     readonly key: "claude" | "codex" | "opencode";
     readonly name: string;
+    readonly dir: string;
   };
   readonly skillName: string;
   readonly fileName: string;
+  readonly sourceIdentity: string;
   readonly content: string | Uint8Array;
   readonly targetFile: string;
   readonly kilnDir: string;
   readonly installState: NativeProjectionInstallState;
   readonly options: NativeSkillProjectionOptions;
 }): SkillFileSyncResult {
-  const targetId = `${input.target.key}-skill:${input.skillName}/${input.fileName}`;
+  const targetId = `${input.target.key}-skill:${canonicalSkillKey(input.skillName)}/${input.fileName}`;
+  const expectedIdentity = {
+    targetId,
+    filePath: input.targetFile,
+    harness: input.target.key,
+    sourceIdentity: `${input.sourceIdentity}/${input.fileName}`,
+  } as const;
   try {
     if (existsSync(input.targetFile)) {
+      const currentContent = readFileSync(input.targetFile);
+      const historicalTarget = input.installState.targets[targetId];
+      if (historicalTarget && !isFullyOwnedNativeProjectionFile(historicalTarget, expectedIdentity)) {
+        const adopted = adoptLegacyNativeProjectionFile({
+          target: historicalTarget,
+          currentContent,
+          expected: expectedIdentity,
+          harnessRoot: input.target.dir,
+        });
+        if (adopted && nativeProjectionFileMatchesDesired({
+          target: adopted,
+          currentContent,
+          desiredContent: input.content,
+          expected: expectedIdentity,
+        })) {
+          if (input.options.dryRun) {
+            return {
+              ok: true,
+              outcome: {
+                targetId,
+                path: input.targetFile,
+                status: "unchanged",
+                reason: "reconciled legacy managed skill file snapshot",
+              },
+            };
+          }
+          return {
+            ok: true,
+            snapshot: adopted,
+            outcome: {
+              targetId,
+              path: input.targetFile,
+              status: "unchanged",
+              reason: "reconciled legacy managed skill file snapshot",
+            },
+          };
+        }
+        if (!adopted && !input.options.force) {
+          const reason = "managed projection identity mismatch";
+          return {
+            ok: false,
+            error: reason,
+            outcome: { targetId, path: input.targetFile, status: "blocked", reason },
+          };
+        }
+      }
       const drift = detectNativeProjectionFileDrift({
         targetId,
         state: input.installState,
-        currentContent: readFileSync(input.targetFile),
+        currentContent,
       });
+      if (drift && nativeProjectionFileMatchesDesired({
+        target: input.installState.targets[targetId],
+        currentContent,
+        desiredContent: input.content,
+        expected: expectedIdentity,
+      })) {
+        if (input.options.dryRun) {
+          return {
+            ok: true,
+            outcome: {
+              targetId,
+              path: input.targetFile,
+              status: "unchanged",
+              reason: "reconciled managed skill file snapshot",
+            },
+          };
+        }
+        return {
+          ok: true,
+          snapshot: createNativeProjectionFileSnapshot({
+            targetId,
+            filePath: input.targetFile,
+            content: input.content,
+            harness: expectedIdentity.harness,
+            sourceIdentity: expectedIdentity.sourceIdentity,
+          }),
+          outcome: {
+            targetId,
+            path: input.targetFile,
+            status: "unchanged",
+            reason: "reconciled managed skill file snapshot",
+          },
+        };
+      }
       if (drift && !input.options.force) {
         return {
           ok: false,
@@ -457,6 +643,8 @@ function syncSkillFile(input: {
         targetId,
         filePath: input.targetFile,
         content: input.content,
+        harness: expectedIdentity.harness,
+        sourceIdentity: expectedIdentity.sourceIdentity,
       }),
       outcome: { targetId, path: input.targetFile, status: "written" },
     };

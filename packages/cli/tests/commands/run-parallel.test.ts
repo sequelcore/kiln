@@ -359,7 +359,24 @@ function createManagedInvocation(input: {
       providerId: "codex",
       model: "gpt-5.5",
       surface: "cli-harness",
-      adapter: createAdapter({
+      capability: {
+        identity: { routeId: "test-write", revision: "test-v1" },
+        target: { providerId: "codex", modelId: "gpt-5.5" },
+        adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
+        authorityCeiling: "destructive",
+        toolNames: ["read", "grep", "apply-patch"],
+        supportsRecursion: true,
+        supportsAttachments: false,
+        supportsWrite: true,
+        proof: {
+          status: "configured",
+          source: "run-parallel-test",
+          provenProfiles: ["foundation-apply-approved-writes"],
+        },
+        capacity: { kind: "accountless" },
+        settlement: { kind: "not-required" },
+      },
+      createAdapter: async () => createAdapter({
         failOrdinals: input.failOrdinals ?? new Set(),
         recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
       }),

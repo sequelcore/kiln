@@ -8,9 +8,20 @@ import {
   ManagedJobApplicationService,
   RuntimeManagedAgentInvocationService,
   SqliteManagedAccountLeaseAuthority,
+  type ManagedJobRecord,
 } from "@kilnai/runtime";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
 
 /**
  * Shared between the `config-status.js` mock (still the sole source of
@@ -141,6 +152,7 @@ vi.mock("../../src/application/config-status.js", () => ({
 import {
   createOperatorProjectManagedJobApplicationComposition,
   createOperatorProjectManagedJobApplicationService,
+  OperatorProjectManagedJobDispatcher,
   summarizeOperatorProjectManagedAgents,
 } from "../../src/application/operator-project-managed-jobs.js";
 import { readConfigStatusSnapshot } from "../../src/application/config-status.js";
@@ -154,6 +166,49 @@ describe("operator project managed-job production composition", () => {
     await expect(createOperatorProjectManagedJobApplicationComposition({
       projectPath: undefined,
     } as never)).rejects.toMatchObject({ code: "project_identity_unavailable" });
+  });
+
+  it("coalesces dispatch by job id, drains active work, and turns worker failures terminal", async () => {
+    const dispatch = deferred<ManagedJobRecord>();
+    const failed = {
+      ...({} as ManagedJobRecord),
+      id: "job-async-0001",
+      state: "failed" as const,
+    };
+    const service = {
+      dispatch: vi.fn(async () => dispatch.promise),
+      failDispatch: vi.fn(async () => failed),
+    };
+    const dispatcher = new OperatorProjectManagedJobDispatcher(service);
+
+    const first = dispatcher.dispatch("job-async-0001");
+    const duplicate = dispatcher.dispatch("job-async-0001");
+    expect(first).toBe(duplicate);
+    await vi.waitFor(() => expect(service.dispatch).toHaveBeenCalledOnce());
+    expect(service.dispatch).toHaveBeenCalledOnce();
+
+    let drained = false;
+    const close = dispatcher.close().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    dispatch.resolve(failed);
+    await expect(close).resolves.toBeUndefined();
+    expect(drained).toBe(true);
+
+    const rejected = {
+      ...({} as ManagedJobRecord),
+      id: "job-async-0002",
+      state: "queued" as const,
+    };
+    const failedDispatcher = new OperatorProjectManagedJobDispatcher({
+      dispatch: vi.fn(async () => { throw new Error("worker failure"); }),
+      failDispatch: vi.fn(async () => ({ ...rejected, state: "failed" as const })),
+    });
+    await expect(failedDispatcher.dispatch(rejected.id)).resolves.toMatchObject({
+      id: rejected.id,
+      state: "failed",
+    });
+    await failedDispatcher.close();
   });
 
   it("rejects canonical governance evidence bound to a different project", async () => {
@@ -170,14 +225,14 @@ describe("operator project managed-job production composition", () => {
         ...candidate,
         project: { ...candidate.project, rootPath: resolve(projectRoot, "other-project") },
       });
-      await expect(composition.application.submit({
+      await expect(composition.application.accept({
         objective: "Reject cross-project governance evidence.",
         configuredAgentProfileId: "missing-agent",
         callerId: "claude-native-harness",
         idempotencyKey: "cross-project-governance-proof",
       })).rejects.toMatchObject({ code: "governance_unavailable" });
     } finally {
-      composition.close();
+      await composition.close();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
@@ -208,7 +263,7 @@ describe("operator project managed-job production composition", () => {
         discoverProviderModels: async () => ({}),
         projectPath: projectRoot,
       });
-      composition.close();
+      await composition.close();
 
       expect(recoverInvocations).not.toHaveBeenCalled();
       expect(recoverInterrupted).toHaveBeenCalledOnce();
@@ -276,12 +331,46 @@ describe("operator project managed-job production composition", () => {
     });
   });
 
+  it("does not admit a native-harness agent through a runtime-selected route", () => {
+    const nativeRoute = {
+      routeId: "claude-runtime-selected",
+      routeSource: "explicit-managed-route" as const,
+      providerId: "claude",
+      model: "claude-sonnet-5",
+      capability: {
+        identity: { routeId: "claude-runtime-selected", revision: "configured-v1" },
+        target: { providerId: "claude", modelId: "claude-sonnet-5" },
+        adapter: { kind: "cli-harness" as const, capabilityId: "managed:claude-runtime-selected", capabilityVersion: "v1" },
+        authorityCeiling: "read_only" as const,
+        toolNames: ["read"],
+        supportsRecursion: true,
+        supportsAttachments: true,
+        supportsWrite: false,
+        proof: { status: "configured" as const, source: "provider-adapter-catalog" as const, provenProfiles: ["foundation-readonly-plan" as const] },
+        capacity: { kind: "policy-bound" as const, accountPolicyId: "managed-claude" },
+        settlement: { kind: "not-required" as const },
+      },
+      profiles: { "foundation-readonly-plan": {} },
+    };
+
+    expect(summarizeOperatorProjectManagedAgents([
+      { name: "native-reviewer", role: "Native reviewer" },
+    ], {
+      routes: [nativeRoute],
+      agentCatalog: [{ name: "native-reviewer", routeId: nativeRoute.routeId }],
+    } as never)).toMatchObject([{
+      configuredAgentProfileId: "native-reviewer",
+      availability: "unavailable",
+      diagnostic: "route_unavailable",
+    }]);
+  });
+
   it("uses the real application owner and fails a missing configured profile before provider execution", async () => {
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
     const service = await createOperatorProjectManagedJobApplicationService({ projectPath: REPOSITORY_ROOT, discoverProviderModels: async () => ({}) });
-    await expect(service.submit({
+    await expect(service.accept({
       objective: "Bounded production composition proof.",
       configuredAgentProfileId: "missing-agent",
       callerId: "codex-app",

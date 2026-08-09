@@ -101,6 +101,11 @@ export type {
   ManagedEconomicCommitmentState,
   ManagedEconomicRouteCapacity,
   SqliteManagedAccountLeaseAuthorityOptions,
+  SharedAccountCapacityParticipantKind,
+  AccountCapacityAcquireInput,
+  AccountCapacityAcquireResult,
+  AccountCapacityRecord,
+  AccountCapacitySettlement,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 
 export {
@@ -115,7 +120,7 @@ export {
 export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-store.js";
 export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "./model-gateway/governed-ingress-executor.js";
 export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
-export type { LocalModelGatewayStoreAccount, LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
+export type { LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
 export { createModelGatewayIngress } from "./model-gateway/model-gateway-ingress.js";
 export type { ModelGatewayIngressHandle, ModelGatewayIngressOptions } from "./model-gateway/model-gateway-ingress.js";
 export {
@@ -169,9 +174,7 @@ export type {
   CodexOAuthSseLimits,
 } from "./model-gateway/codex-oauth-model-turn-dispatcher.js";
 export type {
-  GovernedOneRoundAccountLease,
   GovernedOneRoundAffinityPolicy,
-  GovernedOneRoundAffinityStore,
   GovernedOneRoundAttemptEvidence,
   GovernedOneRoundAttemptEvidenceSink,
   GovernedOneRoundAttemptPhase,
@@ -441,8 +444,13 @@ export type {
   ManagedInvocationToolRoute,
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
-export { collectManagedEconomicCandidates } from "./agents/managed-invocation/index.js";
 export {
+  collectManagedEconomicCandidates,
+  digestManagedEconomicCandidateProfileAuthority,
+} from "./agents/managed-invocation/index.js";
+export {
+  MANAGED_JOB_SCHEMA_VERSION,
+  MANAGED_JOB_RECOVERY_POLICY,
   FilesystemManagedJobStore,
   InMemoryManagedJobStore,
   ManagedJobApplicationError,
@@ -457,9 +465,15 @@ export type {
   ManagedJobEconomicReplay,
   ManagedJobEconomicReplayPort,
   ManagedJobEconomicCommitmentPort,
+  ManagedJobExecutionContext,
   ManagedJobGovernanceEvidence,
   ManagedJobGovernancePort,
   ManagedJobProfile,
+  ManagedJobNativeHarnessAcknowledgement,
+  ManagedJobNativeHarnessFenceResult,
+  ManagedJobNativeHarnessExecutionPort,
+  ManagedJobNativeHarnessProfile,
+  ManagedJobNativeHarnessRoute,
   ManagedJobProfilePort,
   ManagedJobProjectPort,
   ManagedJobLifecycleEntry,
@@ -469,6 +483,7 @@ export type {
   ManagedJobResult,
   ManagedJobResultAvailability,
   ManagedJobResultQuery,
+  ManagedJobRouteResolutionContext,
   ManagedJobState,
   ManagedJobStore,
   ManagedJobSubmission,

@@ -166,7 +166,7 @@ export function createManagedInvocationToolCallMetadataResolver(
       return undefined;
     }
     const route = routeResolution.route;
-    if (!route.adapter) {
+    if (!route.createAdapter && route.economicCapability?.status !== "verified") {
       return undefined;
     }
     const profileDefaults = route.profiles[parsed.input.profile];
@@ -180,12 +180,12 @@ export function createManagedInvocationToolCallMetadataResolver(
       routeId: route.routeId,
       providerRoute: {
         providerId: route.providerId,
-        surface: route.surface ?? route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+        surface: route.surface ?? "configured",
         ...(parsed.input.providerRoute.model ?? route.model ? { model: parsed.input.providerRoute.model ?? route.model } : {}),
         ...(parsed.input.providerRoute.deliberationIntent ? { deliberationIntent: parsed.input.providerRoute.deliberationIntent } : {}),
       },
-      adapterKind: route.adapter.descriptor.adapterKind,
-      executionMode: route.adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+      adapterKind: route.capability.adapter.kind === "direct-provider" ? "direct" : "harness",
+      executionMode: route.surface ?? "cli-harness",
       requestedAuthority: resolveManagedInvocationRequestedAuthority(parsed.input.requestedAuthority),
       authorityProfileId: profileDefaults.authorityProfileId,
       task: parsed.input.task,

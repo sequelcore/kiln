@@ -4,6 +4,8 @@ import type {
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentInvocationRequest,
   ManagedAgentLifecycleState,
+  ManagedAgentAdmissionProfile,
+  RouteCapability,
   StructuredExecutionResult,
 } from "@kilnai/core";
 import {
@@ -522,7 +524,12 @@ function makeSurfaceOptions(
         routeSource: "explicit-managed-route",
         providerId: "opencode",
         model: "opencode-default-model",
-        adapter,
+        capability: {
+          identity: { routeId: "opencode-readonly", revision: "test-v1" }, target: { providerId: "opencode", modelId: "opencode-default-model" },
+          adapter: { kind: "cli-harness", capabilityId: "test:opencode", capabilityVersion: "v1" }, authorityCeiling: "audited", toolNames: ["read", "grep", "glob"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
+          proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+        },
+        createAdapter: async () => adapter,
         profiles: {
           "foundation-readonly-plan": {
             authorityProfileId: "authority:opencode:readonly",
@@ -548,10 +555,36 @@ function makeSurfaceOptions(
   };
 }
 
+function makeRouteCapability(input: {
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly model: string;
+  readonly profiles: readonly ManagedAgentAdmissionProfile[];
+  readonly toolNames?: readonly string[];
+  readonly supportsWrite?: boolean;
+  readonly adapterKind?: RouteCapability["adapter"]["kind"];
+  readonly externalRuntimeAttachment?: RouteCapability["externalRuntimeAttachment"];
+}): RouteCapability {
+  return {
+    identity: { routeId: input.routeId, revision: "test-v1" },
+    target: { providerId: input.providerId, modelId: input.model },
+    adapter: { kind: input.adapterKind ?? "cli-harness", capabilityId: `test:${input.providerId}`, capabilityVersion: "v1" },
+    authorityCeiling: input.supportsWrite ? "destructive" : "audited",
+    toolNames: input.toolNames ?? ["read", "grep", "glob"],
+    supportsRecursion: true,
+    supportsAttachments: input.externalRuntimeAttachment !== undefined,
+    supportsWrite: input.supportsWrite ?? false,
+    ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
+    proof: { status: "configured", source: "test", provenProfiles: input.profiles },
+    capacity: { kind: "accountless" },
+    settlement: { kind: "not-required" },
+  };
+}
+
 function makeManagedRoute(
   routeId: string,
   model: string,
-  adapter = makeAdapter(),
+  createAdapter: () => Promise<ManagedAgentRuntimeAdapter | undefined> = async () => makeAdapter(),
   providerId = "opencode",
 ) {
   return {
@@ -559,7 +592,8 @@ function makeManagedRoute(
     routeSource: "explicit-managed-route" as const,
     providerId,
     model,
-    adapter,
+    capability: makeRouteCapability({ routeId, providerId, model, profiles: ["foundation-readonly-plan"] }),
+    createAdapter,
     surface: "cli-harness",
     taskSuitability: [
       {
@@ -607,7 +641,7 @@ describe("managed invocation runtime tool", () => {
           attachmentId: "attachment:codex:test",
           evidenceId: "evidence:codex:test",
         },
-        routes: [makeManagedRoute("opencode-go-readonly", "kimi-k2.7-code", adapter, "opencode-go")],
+        routes: [makeManagedRoute("opencode-go-readonly", "kimi-k2.7-code", async () => adapter, "opencode-go")],
       },
     });
     const session = makeSession();
@@ -639,7 +673,6 @@ describe("managed invocation runtime tool", () => {
         readonly authoritySnapshot?: Record<string, unknown>;
         readonly capabilitySnapshot?: {
           readonly callerIdentity?: unknown;
-          readonly invocationCapabilityEvidence?: unknown;
           readonly providerRoute?: Record<string, unknown>;
           readonly authorityProfile?: Record<string, unknown>;
         };
@@ -673,14 +706,6 @@ describe("managed invocation runtime tool", () => {
           attachmentId: "attachment:codex:test",
           evidenceId: "evidence:codex:test",
         },
-        invocationCapabilityEvidence: {
-          decision: "admitted",
-          reason: "cross-harness-managed-invocation",
-          adapterEvidence: {
-            adapterDescriptorId: "adapter:opencode-go:cli-harness",
-            adapterId: "kiln-managed-invocation",
-          },
-        },
         providerRoute: {
           providerId: "opencode-go",
           model: "kimi-k2.7-code",
@@ -699,7 +724,7 @@ describe("managed invocation runtime tool", () => {
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
-  it("denies unsupported external caller routes before adapter invocation", async () => {
+  it("admits external callers through the selected route capability", async () => {
     const adapter = makeAdapter();
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
@@ -709,7 +734,7 @@ describe("managed invocation runtime tool", () => {
           attachmentId: "attachment:codex:test",
           evidenceId: "evidence:codex:test",
         },
-        routes: [makeManagedRoute("opencode-readonly", "opencode-go/kimi-k2.7-code", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "opencode-go/kimi-k2.7-code", async () => adapter)],
       },
     });
     const session = makeSession();
@@ -735,14 +760,11 @@ describe("managed invocation runtime tool", () => {
       readonly metadata: Record<string, unknown>;
     };
 
-    expect(result.isError).toBe(true);
-    expect(result.output).toContain("Managed invocation denied");
+    expect(result.isError).toBe(false);
     expect(result.metadata).toMatchObject({
-      status: "denied",
-      callerIdentity: { kind: "external-harness", harness: "codex" },
-      invocationCapabilityEvidence: { decision: "denied" },
+      status: "completed",
     });
-    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
   it("normalizes managed invocation options to one shared runtime service", () => {
@@ -1454,7 +1476,7 @@ describe("managed invocation runtime tool", () => {
 
   it("admits invocation when required read paths are covered by read authority", async () => {
     const adapter = makeAdapter();
-    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", adapter);
+    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [{
@@ -1691,7 +1713,7 @@ describe("managed invocation runtime tool", () => {
 
   it("normalizes direct runtime tool credential route ids before admission", async () => {
     const adapter = makeAdapter();
-    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", adapter);
+    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [{
@@ -1753,7 +1775,7 @@ describe("managed invocation runtime tool", () => {
 
   it("backs fallback runtime tool services with sandbox lease evidence", async () => {
     const adapter = makeAdapter();
-    const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
+    const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", async () => adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         invocationService: makeObservedRuntimeInvocationService({
@@ -1905,7 +1927,7 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         invocationService,
-        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter)],
       },
     });
     const session = makeSession();
@@ -2003,7 +2025,7 @@ describe("managed invocation runtime tool", () => {
             published.push(...events);
           }),
         },
-        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter)],
       },
     });
     const session = makeSession();
@@ -2044,7 +2066,7 @@ describe("managed invocation runtime tool", () => {
 
   it("shares fallback sandbox services across nonblocking lifecycle tools", async () => {
     const { adapter, terminal } = makeDeferredAdapter();
-    const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
+    const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", async () => adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         invocationService: makeObservedRuntimeInvocationService({
@@ -2193,7 +2215,7 @@ describe("managed invocation runtime tool", () => {
 
   it("cancels fallback sandbox lifecycle invocations with lease cleanup evidence", async () => {
     const { adapter, terminal } = makeAbortableDeferredAdapter();
-    const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", adapter);
+    const route = makeManagedRoute("opencode-sandbox", "opencode-default-model", async () => adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         invocationService: makeObservedRuntimeInvocationService({
@@ -2336,7 +2358,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-apply-approved-writes": {
               authorityProfileId: "authority:opencode:approved-write",
@@ -2491,7 +2514,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-apply-approved-writes": {
               authorityProfileId: "authority:opencode:approved-write",
@@ -2645,7 +2669,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-apply-approved-writes": {
               authorityProfileId: "authority:opencode:approved-write",
@@ -3526,7 +3551,7 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         invocationService,
-        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter)],
       },
     });
     const session = makeSession();
@@ -4892,7 +4917,7 @@ describe("managed invocation runtime tool", () => {
     "Direct provider managed invocation finished without final handoff text. Inspect the transcript resource before recording governed evidence.",
   ])("fails a visual phase child completion when the handoff is not substantive evidence: %s", async (summary) => {
     const adapter = makeAdapterWithHandoff(summary);
-    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", adapter);
+    const route = makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter);
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [{
@@ -5126,7 +5151,7 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("destructive requested authority cannot select read-only managed profile");
+    expect(result.output).toContain("authority-exceeds-route-ceiling");
     expect(requestApproval).not.toHaveBeenCalled();
     expect(adapter.invoke).not.toHaveBeenCalled();
   });
@@ -5166,13 +5191,11 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("lacks required tools: web_search, browser_observe");
-    expect(result.metadata.missingRequiredTools).toEqual(["web_search", "browser_observe"]);
-    expect(result.metadata.presentationIntent?.rows?.[0]).toMatchObject({
-      status: "unavailable",
-      substantiveEvidence: false,
-      failureReason: "Missing required route tools: web_search, browser_observe",
-    });
+    expect(result.output).toContain("missing-tool, missing-tool");
+    expect(result.metadata.admissionReasons).toEqual([
+      { code: "missing-tool", requiredToolName: "web_search" },
+      { code: "missing-tool", requiredToolName: "browser_observe" },
+    ]);
     expect(adapter.invoke).not.toHaveBeenCalled();
   });
 
@@ -5185,7 +5208,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-readonly-visual-without-network", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-readonly-plan"], toolNames: ["read", "web_search", "browser_observe"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly-visual-without-network",
@@ -5289,19 +5313,12 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("lacks required tools: web_search, browser_observe");
-    expect(result.metadata.status).toBe("unavailable");
-    expect(result.metadata.missingRequiredTools).toEqual(["web_search", "browser_observe"]);
-    expect(result.metadata.presentationIntent).toMatchObject({
-      source: "managed_agent.start",
-      rows: [
-        expect.objectContaining({
-          status: "unavailable",
-          substantiveEvidence: false,
-          failureReason: "Missing required route tools: web_search, browser_observe",
-        }),
-      ],
-    });
+    expect(result.output).toContain("missing-tool, missing-tool");
+    expect(result.metadata.status).toBe("denied");
+    expect(result.metadata.admissionReasons).toEqual([
+      { code: "missing-tool", requiredToolName: "web_search" },
+      { code: "missing-tool", requiredToolName: "browser_observe" },
+    ]);
     expect(session.sessionEvents).toEqual([]);
     expect(adapter.invoke).not.toHaveBeenCalled();
   });
@@ -5315,7 +5332,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-readonly-visual-without-network", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-readonly-plan"], toolNames: ["read", "web_search", "browser_observe"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly-visual-without-network",
@@ -5439,7 +5457,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-apply-approved-writes": {
               authorityProfileId: "authority:opencode:approved-write",
@@ -5627,7 +5646,7 @@ describe("managed invocation runtime tool", () => {
     };
 
     expect(result.isError).toBe(true);
-    expect(result.output).toContain("destructive requested authority cannot select read-only managed profile");
+    expect(result.output).toContain("authority-exceeds-route-ceiling");
     expect(adapter.invoke).not.toHaveBeenCalled();
     expect(session.sessionEvents).toEqual([]);
   });
@@ -5651,7 +5670,8 @@ describe("managed invocation runtime tool", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: makeRouteCapability({ routeId: "opencode-propose-writes", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-propose-writes"], toolNames: ["read", "grep", "edit"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-propose-writes": {
               authorityProfileId: "authority:opencode:propose-writes",
@@ -5752,7 +5772,7 @@ describe("managed invocation runtime tool", () => {
     }));
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "model-a", async () => adapter)],
         contextResolver,
       },
     });
@@ -5838,7 +5858,7 @@ describe("managed invocation runtime tool", () => {
     }));
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "model-a", async () => adapter)],
         contextResolver,
       },
     });
@@ -5914,7 +5934,7 @@ describe("managed invocation runtime tool", () => {
     const contextResolver = vi.fn();
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "model-a", async () => adapter)],
         contextResolver,
       },
     });
@@ -5956,7 +5976,7 @@ describe("managed invocation runtime tool", () => {
     const contextResolver = vi.fn();
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "model-a", async () => adapter)],
         contextResolver,
       },
     });
@@ -6020,7 +6040,7 @@ describe("managed invocation runtime tool", () => {
     }));
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
-        routes: [makeManagedRoute("opencode-readonly", "model-a", adapter)],
+        routes: [makeManagedRoute("opencode-readonly", "model-a", async () => adapter)],
         contextResolver,
       },
     });
@@ -6198,8 +6218,8 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [
-          makeManagedRoute("opencode-readonly", "model-heavy", slowAdapter),
-          makeManagedRoute("opencode-scout-readonly", "model-fast", fastAdapter),
+          makeManagedRoute("opencode-readonly", "model-heavy", async () => slowAdapter),
+          makeManagedRoute("opencode-scout-readonly", "model-fast", async () => fastAdapter),
         ],
         agentCatalog: [{
           name: "scout",
@@ -6258,8 +6278,8 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [
-          makeManagedRoute("opencode-readonly", "model-heavy", slowAdapter),
-          makeManagedRoute("opencode-scout-readonly", "model-fast", fastAdapter),
+          makeManagedRoute("opencode-readonly", "model-heavy", async () => slowAdapter),
+          makeManagedRoute("opencode-scout-readonly", "model-fast", async () => fastAdapter),
         ],
         agentCatalog: [{
           name: "scout",
@@ -6371,7 +6391,7 @@ describe("managed invocation runtime tool", () => {
     const surface = createAttachedRuntimeBuiltinToolSurface({
       managedInvocation: {
         routes: [
-          makeManagedRoute("opencode-readonly", "model-heavy", adapter),
+          makeManagedRoute("opencode-readonly", "model-heavy", async () => adapter),
         ],
         agentCatalog: [{
           name: "scout",
@@ -6430,7 +6450,6 @@ describe("managed invocation runtime tool", () => {
         readonly canonicalizedForbiddenInputFields?: readonly string[];
         readonly capabilitySnapshot?: {
           readonly callerIdentity?: unknown;
-          readonly invocationCapabilityEvidence?: unknown;
           readonly childIdentity?: {
             readonly requestedAgentProfile?: string;
             readonly admittedAgentProfile?: string;
@@ -6455,10 +6474,6 @@ describe("managed invocation runtime tool", () => {
     expect(result.metadata.capabilitySnapshot?.childIdentity?.requestedAgentProfile).toBeUndefined();
     expect(result.metadata.capabilitySnapshot?.childIdentity?.admittedAgentProfile).toBeUndefined();
     expect(result.metadata.capabilitySnapshot?.callerIdentity).toMatchObject({ kind: "kiln-runtime" });
-    expect(result.metadata.capabilitySnapshot?.invocationCapabilityEvidence).toMatchObject({
-      decision: "admitted",
-      reason: "kiln-runtime-caller",
-    });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
@@ -6625,7 +6640,7 @@ describe("managed invocation runtime tool", () => {
 
   it("returns provider-readable managed transcript URIs when artifact persistence is not configured", async () => {
     const managedInvocation = withManagedInvocationService({
-      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", makeAdapter())],
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => makeAdapter())],
     });
     const surface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: {
@@ -6687,7 +6702,7 @@ describe("managed invocation runtime tool", () => {
 
   it("scopes shared managed invocation resource tools to the executing runtime session", async () => {
     const managedInvocation = withManagedInvocationService({
-      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", makeAdapter())],
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => makeAdapter())],
     });
     const surface = createAttachedRuntimeBuiltinToolSurface({ managedInvocation });
     const sessionA = makeSession("session-a");
@@ -6733,7 +6748,7 @@ describe("managed invocation runtime tool", () => {
 
   it("exposes timeout diagnostic resources with effective timeout evidence", async () => {
     const managedInvocation = withManagedInvocationService({
-      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", makeTimedOutAdapter())],
+      routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => makeTimedOutAdapter())],
     });
     const surface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: {
@@ -6871,8 +6886,15 @@ describe("managed invocation runtime tool", () => {
       supportedExecutionModes: ["remote-harness"],
     });
     const route = {
-      ...makeManagedRoute("codex-cloud-remote-readonly", "gpt-5.5", adapter),
+      ...makeManagedRoute("codex-cloud-remote-readonly", "gpt-5.5", async () => adapter, "codex-cloud"),
       providerId: "codex-cloud",
+      capability: makeRouteCapability({
+        routeId: "codex-cloud-remote-readonly",
+        providerId: "codex-cloud",
+        model: "gpt-5.5",
+        profiles: ["foundation-readonly-plan"],
+        adapterKind: "governed-external-runtime",
+      }),
       surface: "remote-harness",
       providerModelProof: {
         status: "configured" as const,
@@ -7041,7 +7063,8 @@ describe("managed invocation runtime tool", () => {
             routeSource: "explicit-managed-route",
             providerId: "mcp-external-runtime",
             model: "external-runtime-fixture",
-            adapter,
+            capability: makeRouteCapability({ routeId: "external-runtime-mcp-only", providerId: "mcp-external-runtime", model: "external-runtime-fixture", profiles: ["foundation-readonly-plan"], toolNames: externalRuntimeToolNames }),
+            createAdapter: async () => adapter,
             profiles: {
               "foundation-readonly-plan": {
                 authorityProfileId: "authority:external-runtime-mcp-only:foundation-readonly-plan",
@@ -7158,7 +7181,8 @@ describe("managed invocation runtime tool", () => {
             routeSource: "explicit-managed-route",
             providerId: "mcp-external-runtime",
             model: "external-runtime-fixture",
-            adapter,
+            capability: makeRouteCapability({ routeId: "external-runtime-attached", providerId: "mcp-external-runtime", model: "external-runtime-fixture", profiles: ["foundation-readonly-plan"], externalRuntimeAttachment: routeAttachment }),
+            createAdapter: async () => adapter,
             ...(routeAttachment ? { externalRuntimeAttachment: routeAttachment } : {}),
             profiles: {
               "foundation-readonly-plan": {
@@ -7252,13 +7276,9 @@ describe("managed invocation runtime tool", () => {
         };
 
         expect(result.isError).toBe(true);
-        expect(result.metadata.errorCode).toBe("external_runtime_attachment_mismatch");
-        expect(result.output).toContain("mcp-external-runtime:instance-a");
-        expect(result.output).toContain("mcp-external-runtime:instance-b");
-        expect(result.metadata.requestedAttachment).toEqual({ kind: "external-runtime", runtimeId: "mcp-external-runtime", attachmentId: "instance-b" });
-        expect(result.metadata.routeAttachment).toEqual(ATTACHED_ROUTE_ATTACHMENT);
+        expect(result.metadata.admissionReasons).toEqual([{ code: "external-runtime-attachment-mismatch" }]);
         expect(adapter.invoke).not.toHaveBeenCalled();
-        expect(session.sessionEvents.map((event) => event.kind)).toEqual(["agent_invocation_requested", "agent_invocation_failed"]);
+        expect(session.sessionEvents).toEqual([]);
       });
 
       it(`${toolName} denies with external_runtime_attachment_missing when the route declares an attachment and the dispatch omits it, without invoking the adapter`, async () => {
@@ -7305,7 +7325,10 @@ describe("managed invocation runtime tool", () => {
         };
 
         expect(result.isError).toBe(true);
-        expect(result.metadata.errorCode).toBe("external_runtime_attachment_unsupported_route");
+        expect(result.metadata.admissionReasons).toEqual([
+          { code: "attachments-not-supported-by-route" },
+          { code: "external-runtime-attachment-unsupported-route" },
+        ]);
         expect(adapter.invoke).not.toHaveBeenCalled();
       });
 
@@ -7476,12 +7499,7 @@ describe("managed invocation runtime tool", () => {
         };
 
         expect(result.isError).toBe(true);
-        expect(result.metadata.errorCode).toBe("external_runtime_attachment_mismatch");
-        expect(result.metadata.requestedAttachment).toEqual({
-          kind: "external-runtime",
-          runtimeId: "mcp-external-runtime",
-          attachmentId: " instance-a",
-        });
+        expect(result.metadata.admissionReasons).toEqual([{ code: "external-runtime-attachment-mismatch" }]);
         expect(adapter.invoke).not.toHaveBeenCalled();
       });
 
@@ -7502,12 +7520,7 @@ describe("managed invocation runtime tool", () => {
         };
 
         expect(result.isError).toBe(true);
-        expect(result.metadata.errorCode).toBe("external_runtime_attachment_mismatch");
-        expect(result.metadata.requestedAttachment).toEqual({
-          kind: "external-runtime",
-          runtimeId: "mcp-external-runtime ",
-          attachmentId: "instance-a",
-        });
+        expect(result.metadata.admissionReasons).toEqual([{ code: "external-runtime-attachment-mismatch" }]);
         expect(adapter.invoke).not.toHaveBeenCalled();
       });
 
@@ -7616,10 +7629,105 @@ describe("managed invocation runtime tool", () => {
     });
   });
 
-  describe("composed caller-capability wiring (executor + policy)", () => {
+  describe("route capability materialization invariants", () => {
+    it.each([
+      ["route id", (route: ReturnType<typeof makeManagedRoute>) => ({ ...route.capability, identity: { ...route.capability.identity, routeId: "different-route" } })],
+      ["provider", (route: ReturnType<typeof makeManagedRoute>) => ({ ...route.capability, target: { ...route.capability.target, providerId: "different-provider" } })],
+      ["model", (route: ReturnType<typeof makeManagedRoute>) => ({ ...route.capability, target: { ...route.capability.target, modelId: "different-model" } })],
+    ] as const)("rejects a capability %s mismatch before creating an adapter", async (_kind, mutateCapability) => {
+      const adapter = makeAdapter();
+      const createAdapter = vi.fn(async () => adapter);
+      const baseRoute = makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter);
+      const surface = createAttachedRuntimeBuiltinToolSurface({
+        managedInvocation: {
+          routes: [{ ...baseRoute, capability: mutateCapability(baseRoute), createAdapter }],
+        },
+      });
+
+      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        routeId: "opencode-readonly",
+        profile: "foundation-readonly-plan",
+        providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+        task: "Inspect capability binding.",
+      }, {
+        session: makeSession(),
+        toolCall: { id: "tool-call-route-capability-mismatch", name: "managed_agent.invoke", input: {} },
+      }) as { readonly isError: boolean; readonly metadata: { readonly errorCode?: string } };
+
+      expect(result.isError).toBe(true);
+      expect(result.metadata.errorCode).toBe("route_capability_identity_mismatch");
+      expect(createAdapter).not.toHaveBeenCalled();
+      expect(adapter.invoke).not.toHaveBeenCalled();
+    });
+
+    it("rejects a materialized adapter provider mismatch before invocation", async () => {
+      const adapter = makeAdapter({ providerId: "different-provider" });
+      const createAdapter = vi.fn(async () => adapter);
+      const baseRoute = makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter);
+      const surface = createAttachedRuntimeBuiltinToolSurface({
+        managedInvocation: { routes: [{ ...baseRoute, createAdapter }] },
+      });
+
+      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        routeId: "opencode-readonly",
+        profile: "foundation-readonly-plan",
+        providerRoute: { providerId: "opencode", model: "opencode-default-model" },
+        task: "Inspect adapter binding.",
+      }, {
+        session: makeSession(),
+        toolCall: { id: "tool-call-adapter-capability-mismatch", name: "managed_agent.invoke", input: {} },
+      }) as { readonly isError: boolean; readonly metadata: { readonly errorCode?: string } };
+
+      expect(result.isError).toBe(true);
+      expect(result.metadata.errorCode).toBe("route_capability_adapter_mismatch");
+      expect(createAdapter).toHaveBeenCalledTimes(1);
+      expect(adapter.invoke).not.toHaveBeenCalled();
+    });
+
+    it("admits a remote harness only for a governed external-runtime capability", async () => {
+      const adapter = makeAdapter({
+        adapterDescriptorId: "adapter:codex-cloud:remote-harness",
+        providerId: "codex-cloud",
+        supportedExecutionModes: ["remote-harness"],
+      });
+      const createAdapter = vi.fn(async () => adapter);
+      const baseRoute = makeManagedRoute("codex-cloud-remote-readonly", "gpt-5.5", async () => adapter, "codex-cloud");
+      const surface = createAttachedRuntimeBuiltinToolSurface({
+        managedInvocation: {
+          routes: [{
+            ...baseRoute,
+            capability: makeRouteCapability({
+              routeId: "codex-cloud-remote-readonly",
+              providerId: "codex-cloud",
+              model: "gpt-5.5",
+              profiles: ["foundation-readonly-plan"],
+              adapterKind: "governed-external-runtime",
+            }),
+            createAdapter,
+          }],
+        },
+      });
+
+      const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+        routeId: "codex-cloud-remote-readonly",
+        profile: "foundation-readonly-plan",
+        providerRoute: { providerId: "codex-cloud", model: "gpt-5.5" },
+        task: "Inspect remote adapter binding.",
+      }, {
+        session: makeSession(),
+        toolCall: { id: "tool-call-remote-capability-match", name: "managed_agent.invoke", input: {} },
+      }) as { readonly isError: boolean };
+
+      expect(result.isError).toBe(false);
+      expect(createAdapter).toHaveBeenCalledTimes(1);
+      expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("composed caller authority admission", () => {
     it("denies kiln-runtime caller with parentEffectiveRequestedAuthority=read_only + childRequestedAuthority=destructive at the executor level", async () => {
       // This test proves that the composed wiring — from attachment identity
-      // through the executor into evaluateManagedInvocationCallerCapability —
+      // through the executor into canonical route admission —
       // denies a destructive child dispatched from a read_only parent.
       // The pure-policy unit tests cover the policy function; this test
       // proves the executor/attachment composition does not bypass it.
@@ -7632,7 +7740,7 @@ describe("managed invocation runtime tool", () => {
             attachmentId: "attachment:run:plan-mode",
             parentEffectiveRequestedAuthority: "read_only",
           },
-          routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", adapter)],
+          routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter)],
         },
       });
       const session = makeSession();
@@ -7654,17 +7762,16 @@ describe("managed invocation runtime tool", () => {
 
       expect(result.isError).toBe(true);
       expect(result.output).toContain("Managed invocation denied");
-      expect(result.output).toContain("authority-narrowing-required");
+      expect(result.output).toContain("authority-exceeds-caller-ceiling");
       expect(result.metadata).toMatchObject({
         status: "denied",
         callerIdentity: expect.objectContaining({
           kind: "kiln-runtime",
           parentEffectiveRequestedAuthority: "read_only",
         }),
-        invocationCapabilityEvidence: {
-          decision: "denied",
-          reason: "authority-narrowing-required",
-        },
+        admissionReasons: expect.arrayContaining([
+          expect.objectContaining({ code: "authority-exceeds-caller-ceiling" }),
+        ]),
       });
       expect(adapter.invoke).not.toHaveBeenCalled();
     });

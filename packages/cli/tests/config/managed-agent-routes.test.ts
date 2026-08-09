@@ -462,9 +462,9 @@ describe("resolveManagedInvocationToolOptions", () => {
     }]);
     expect(result.managedInvocation?.routes).toHaveLength(1);
     expect(result.managedInvocation?.routes[0]?.routeSource).toBe("explicit-managed-route");
-    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
-      adapterKind: "harness",
-      providerId: "codex",
+    expect(result.managedInvocation?.routes[0]?.capability).toMatchObject({
+      target: { providerId: "codex", modelId: "gpt-5.3-codex-spark" },
+      adapter: { kind: "cli-harness" },
     });
     expect(result.managedInvocation?.routes[0]?.taskSuitability).toEqual(
       expect.arrayContaining([
@@ -532,6 +532,10 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.managedInvocation?.invocationService).toBeDefined();
     expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:openai:primary");
+    expect(result.managedInvocation?.routes.find((route) => route.routeId === "openai-readonly")?.capability.capacity).toEqual({
+      kind: "policy-bound",
+      accountPolicyId: "managed-openai",
+    });
   });
 
   // Roadmap 01 Slice 3.1 (F6) - the route's declared external-runtime
@@ -719,7 +723,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           mode: "resources",
         },
       },
-    }), route!.adapter, {
+    }), await route!.createAdapter!(), {
       routeId: route!.routeId,
       routeSource: route!.routeSource,
     });
@@ -777,7 +781,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.invocationServiceKey).not.toContain(" credential-route:openai:primary ");
   });
 
-  it("does not create a managed invocation service for credentialless routes without lease-backed resources", async () => {
+  it("creates an invocation service for credentialless routes without lease-backed resources", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
         id: "codex-readonly",
@@ -796,8 +800,10 @@ describe("resolveManagedInvocationToolOptions", () => {
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
     });
 
-    expect(result.managedInvocation?.invocationService).toBeUndefined();
+    expect(result.managedInvocation?.invocationService).toBeDefined();
     expect(result.managedInvocation?.invocationServiceKey).toBeUndefined();
+    expect(result.managedInvocation?.economicDispatch).toBeUndefined();
+    expect(result.managedInvocation?.workspaceRoot).toBeUndefined();
   });
 
   it("admits direct sandbox working-directory routes with a shared sandbox lease manager", async () => {
@@ -946,14 +952,9 @@ describe("resolveManagedInvocationToolOptions", () => {
       ]),
     );
     expect(JSON.stringify(result.managedInvocation?.routes[0]?.taskSuitability)).not.toContain("\"source\":\"live-proof\"");
-    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
-      adapterKind: "harness",
-      providerId: "codex-cloud",
-      supportedExecutionModes: ["remote-harness"],
-      limitations: [
-        "Remote harness reports aggregate token classes only.",
-        "Remote harness cannot expose local live terminal streaming.",
-      ],
+    expect(result.managedInvocation?.routes[0]?.capability).toMatchObject({
+      target: { providerId: "codex-cloud" },
+      adapter: { kind: "governed-external-runtime" },
     });
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
       workingDirectory: {
@@ -1746,7 +1747,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.routeHealth[0]).toMatchObject({
       routeId: "claude-write",
       available: false,
-      reason: "Provider 'claude' does not have live-proven write evidence support.",
+      reason: "Provider 'claude' model 'default' is a moving alias and cannot carry live-proof admission.",
     });
   });
 
@@ -1800,12 +1801,40 @@ describe("resolveManagedInvocationToolOptions", () => {
       }),
     });
 
-    // The route still fails, but on the live-proof allowlist rather than on
-    // executable binding.  Claude stays fail-closed until its own live proof.
     expect(result.routeHealth[0]).toMatchObject({
       routeId: "claude-readonly",
+      available: true,
+    });
+  });
+
+  it("fails closed when the observed Claude version lacks the admitted private plan artifact capability", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "claude-readonly",
+        kind: "harness",
+        provider: "claude",
+        model: "claude-sonnet-5",
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      resolveClaudeExecutable: () => ({
+        path: "C:/tools/claude.exe",
+        evidence: {
+          executable: "<operator-harness>/claude.exe",
+          version: "2.1.221",
+        },
+      }),
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth[0]).toMatchObject({
       available: false,
-      reason: "Provider 'claude' model 'claude-fable-5[1m]' does not have live-proven read-only managed result handoff support for foundation-readonly-plan.",
+      reason: "Claude Code executable version lacks the admitted private plan artifact-location capability.",
     });
   });
 
@@ -1983,21 +2012,10 @@ describe("resolveManagedInvocationToolOptions", () => {
       profiles: ["foundation-apply-approved-writes"],
       available: true,
     }]);
-    expect(result.managedInvocation?.routes[0]?.adapter.descriptor).toMatchObject({
-      supportedProfiles: [
-        "foundation-readonly-plan",
-        "foundation-propose-writes",
-        "foundation-apply-approved-writes",
-        "foundation-memory-write-proposals",
-      ],
-      writeAuthority: {
-        proposalSupported: true,
-        approvedApplySupported: true,
-        rollbackEvidence: true,
-        cleanupEvidence: true,
-        scopeReduction: true,
-      },
-    });
+    expect(result.managedInvocation?.routes[0]?.capability.proof.provenProfiles).toEqual([
+      "foundation-apply-approved-writes",
+    ]);
+    expect(result.managedInvocation?.routes[0]?.capability.supportsWrite).toBe(true);
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"]).toMatchObject({
       authorityProfileId: "authority:codex-approved-write:foundation-apply-approved-writes",
       permissionProfile: "apply-approved-writes",

@@ -7,13 +7,17 @@ import {
 } from "@kilnai/core";
 import {
   collectManagedEconomicCandidates,
+  digestManagedEconomicCandidateProfileAuthority,
   FilesystemManagedJobStore,
   ManagedJobApplicationError,
   ManagedJobApplicationService,
+  type ManagedJobNativeHarnessProfile,
+  type ManagedJobNativeHarnessRoute,
   type ManagedJobRecord,
   type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
 } from "@kilnai/runtime";
+import type { ManagedAgentCallerAttachmentIdentity } from "@kilnai/core";
 import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
@@ -162,16 +166,75 @@ export interface OperatorProjectManagedJobApplicationComposition {
   readonly application: OperatorProjectManagedJobApplicationPort;
   readonly configuredAgents: readonly OperatorProjectManagedAgentSummary[];
   /** Releases the process-owned economic authority so a restart can reclaim it immediately. */
-  close(): void;
+  close(): Promise<void>;
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
 export interface OperatorProjectManagedJobApplicationPort {
-  submit(input: unknown): Promise<ManagedJobRecord>;
+  accept(input: unknown, callerIdentity?: ManagedAgentCallerAttachmentIdentity): Promise<ManagedJobRecord>;
   getStatus(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
   getResult(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobResultQuery>;
   cancel(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
   getReplay(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobReplayQuery>;
+}
+
+interface ManagedJobDispatchApplication {
+  dispatch(jobId: string, context?: { readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity }): Promise<ManagedJobRecord>;
+  failDispatch(jobId: string, error: unknown): Promise<ManagedJobRecord | undefined>;
+}
+
+/**
+ * Project-owned async dispatch lifecycle. Acceptance is durable and fast;
+ * this owner is the only place that starts a Runtime commit and it keeps the
+ * active promise alive until the project composition is drained.
+ */
+export class OperatorProjectManagedJobDispatcher {
+  private readonly active = new Map<string, Promise<ManagedJobRecord | undefined>>();
+  private closed = false;
+  private closePromise: Promise<void> | undefined;
+
+  constructor(private readonly application: ManagedJobDispatchApplication) {}
+
+  dispatch(
+    jobId: string,
+    callerIdentity?: ManagedAgentCallerAttachmentIdentity,
+  ): Promise<ManagedJobRecord | undefined> {
+    const existing = this.active.get(jobId);
+    if (existing) return existing;
+    if (this.closed) return Promise.resolve(undefined);
+    const task = Promise.resolve()
+      .then(() => this.application.dispatch(jobId, callerIdentity ? { callerIdentity } : undefined))
+      .catch((error: unknown) => this.application.failDispatch(jobId, error))
+      .catch(() => undefined);
+    this.active.set(jobId, task);
+    task.then(
+      () => this.remove(jobId, task),
+      () => this.remove(jobId, task),
+    );
+    return task;
+  }
+
+  /** Starts dispatch without exposing a completion promise to the caller. */
+  enqueue(jobId: string, callerIdentity?: ManagedAgentCallerAttachmentIdentity): void {
+    this.dispatch(jobId, callerIdentity).then(() => undefined, () => undefined);
+  }
+
+  async drain(): Promise<void> {
+    while (this.active.size > 0) {
+      await Promise.all([...this.active.values()]);
+    }
+  }
+
+  close(): Promise<void> {
+    if (this.closePromise) return this.closePromise;
+    this.closed = true;
+    this.closePromise = this.drain();
+    return this.closePromise;
+  }
+
+  private remove(jobId: string, task: Promise<ManagedJobRecord | undefined>): void {
+    if (this.active.get(jobId) === task) this.active.delete(jobId);
+  }
 }
 
 export async function createOperatorProjectManagedJobApplicationComposition(
@@ -192,7 +255,10 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     server.enabled && server.admission?.state === "admitted");
   const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
   const governance = createOperatorProjectGovernanceReader(root.rootPath);
-  const freshManagedInvocation = async (): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
+  const freshManagedInvocation = async (
+    compositionMode: "execution" | "candidate-admission" = "candidate-admission",
+    managedAccountComposition?: ReturnType<typeof createManagedAccountRuntimeComposition>,
+  ): Promise<NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>> => {
     let config: ManagedAgentRouteConfigSource | undefined;
     try {
       config = loadOperatorProjectManagedRouteConfig(root.rootPath);
@@ -205,7 +271,8 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       cwd: root.rootPath,
       registry,
       surface: "operator",
-      compositionMode: "candidate-admission",
+      compositionMode,
+      ...(managedAccountComposition ? { managedAccountComposition } : {}),
       directAdapterFactory: createManagedDirectProviderAdapterFactory({
         builtinToolOptions: createSessionBuiltinToolOptions(),
         canonicalMcpServers: admittedMcpServers,
@@ -224,22 +291,24 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     return current;
   };
   const managedInvocation = await freshManagedInvocation();
+  // The acknowledgement is durable evidence for this composition's exact
+  // route admission. Capture it once, never regenerate it per profile lookup.
+  const nativeHarnessAcknowledgedAt = new Date().toISOString();
   const initialConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
   if (!initialConfig) {
     throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
   }
   const managedAccountComposition = createManagedAccountRuntimeComposition(initialConfig, root.rootPath);
-  if (!managedAccountComposition) {
-    throw new ManagedJobApplicationError("route_unavailable", "Configure the managed economic account authority.");
-  }
-  const economicDispatch = createManagedEconomicDispatchComposition(
-    initialConfig,
-    root.rootPath,
-    managedInvocation.routes,
-    managedAccountComposition,
-  );
-  const commitmentRecovery = managedAccountComposition.authority.createManagedJobCommitmentRecoveryPort();
-  const economicReplay = managedAccountComposition.authority.createManagedJobReplayInspectionPort();
+  const economicDispatch = managedAccountComposition
+    ? createManagedEconomicDispatchComposition(
+        initialConfig,
+        root.rootPath,
+        managedInvocation.routes,
+        managedAccountComposition,
+      )
+    : undefined;
+  const commitmentRecovery = managedAccountComposition?.authority.createManagedJobCommitmentRecoveryPort();
+  const economicReplay = managedAccountComposition?.authority.createManagedJobReplayInspectionPort();
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
@@ -270,11 +339,18 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     profiles: {
       resolve: async (id) => {
         const agent = findAgent(await loadAgentDefinitions(root.rootPath), id);
-        if (!agent?.economicPolicyId) return undefined;
+        if (!agent) return undefined;
         const current = await freshManagedInvocation();
         const catalogEntry = current.agentCatalog?.find(
           (candidate) => candidate.name === agent.name,
         );
+        if (!agent.economicPolicyId) {
+          const nativeRoute = resolveNativeHarnessRouteForAgent(agent, current.routes);
+          if (!nativeRoute || !catalogEntry?.routeId) return undefined;
+          const admissionProfileId = agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID;
+          if (!nativeRoute.profiles[admissionProfileId]) return undefined;
+          return createNativeHarnessProfile(agent.name, admissionProfileId, nativeRoute, nativeHarnessAcknowledgedAt);
+        }
         if (
           !catalogEntry?.economicPolicyId
           || !catalogEntry.economicPolicyRevision
@@ -282,6 +358,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           return undefined;
         }
         return {
+          kind: "economic" as const,
           id: agent.name,
           economicPolicyId: catalogEntry.economicPolicyId,
           economicPolicyRevision: catalogEntry.economicPolicyRevision,
@@ -297,8 +374,22 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       },
     },
     routes: {
-      resolve: async (profile) => {
-        const current = await freshManagedInvocation();
+      resolve: async (profile, context) => {
+        const current = await freshManagedInvocation(
+          context?.compositionMode ?? "candidate-admission",
+          context?.compositionMode === "execution" ? managedAccountComposition : undefined,
+        );
+        if (profile.kind === "native-harness") {
+          const route = current.routes.find((candidate) =>
+            candidate.routeId === profile.routeId
+            && candidate.providerId === profile.providerId
+            && candidate.model === profile.model);
+          if (!route || !route.profiles[profile.admissionProfileId] || route.capability.identity.revision !== profile.routeRevision) {
+            return undefined;
+          }
+          if (route.capability.capacity.kind !== "accountless") return undefined;
+          return nativeHarnessRouteFromProfile(profile, route);
+        }
         return collectManagedEconomicCandidates({
           economicPolicyId: profile.economicPolicyId,
           economicPolicyRevision: profile.economicPolicyRevision,
@@ -318,11 +409,15 @@ export async function createOperatorProjectManagedJobApplicationComposition(
                 },
               }
             : {}),
+          ...(context?.invocationId ? { invocationId: context.invocationId } : {}),
         }, current.routes, current.unavailableRoutes);
       },
     },
-    economicAdoption: {
+    ...(managedAccountComposition ? { economicAdoption: {
       adopt: async (job) => {
+        if (job.dispatch.kind !== "economic") {
+          throw new ManagedJobApplicationError("identity-revision-conflict", "Restore the persisted economic managed dispatch.");
+        }
         const currentConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
         if (!currentConfig) {
           throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
@@ -331,11 +426,11 @@ export async function createOperatorProjectManagedJobApplicationComposition(
         if (!currentComposition || currentComposition.authority !== managedAccountComposition.authority) {
           throw new ManagedJobApplicationError("route_unavailable", "Restore the process-owned managed economic authority.");
         }
-        return projectManagedEconomicJobAdoption(currentConfig, job, currentComposition.routing);
+        return projectManagedEconomicJobAdoption(currentConfig, job as Parameters<typeof projectManagedEconomicJobAdoption>[1], currentComposition.routing);
       },
-    },
-    economicCommitment: {
-      query: (input) => commitmentRecovery.query(input),
+    } } : {}),
+    ...(managedAccountComposition ? { economicCommitment: {
+      query: (input) => commitmentRecovery!.query(input),
       acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
       releasePreFence: (jobId, economicAttemptId) => {
         managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
@@ -343,20 +438,131 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       recordReleaseFailure: (input) => {
         managedAccountComposition.authority.recordCommitmentReleaseFailure(input);
       },
+    } } : {}),
+    ...(economicReplay ? { economicReplay } : {}),
+    ...(economicDispatch ? { economicDispatch: economicDispatch.coordinator } : {}),
+    nativeHarnessExecution: {
+      execute: async ({ job, route, callerIdentity }) => {
+        const execution = await freshManagedInvocation("execution", managedAccountComposition);
+        const currentRoute = execution.routes.find((candidate) =>
+          candidate.routeId === route.routeId
+          && candidate.providerId === route.providerId
+          && candidate.model === route.model);
+        const profile = currentRoute?.profiles[job.admissionProfileId];
+        const invocationService = execution.invocationService;
+        if (
+          !currentRoute
+          || !profile
+          || !invocationService
+          || currentRoute.capability.identity.revision !== route.routeRevision
+          || currentRoute.capability.target.providerId !== route.providerId
+          || currentRoute.capability.target.modelId !== route.model
+          || currentRoute.capability.adapter.capabilityId !== route.adapterCapabilityId
+          || currentRoute.capability.adapter.capabilityVersion !== route.adapterCapabilityVersion
+          || currentRoute.capability.capacity.kind !== "accountless"
+          || !currentRoute.createAdapter
+        ) {
+          throw new ManagedJobApplicationError("route_unavailable", "Restore the exact admitted native-harness Runtime route.");
+        }
+        const adapter = await currentRoute.createAdapter();
+        if (!adapter) throw new ManagedJobApplicationError("route_unavailable", "Materialize the exact admitted native-harness adapter after the dispatch fence.");
+        const request = defineManagedAgentInvocationRequest({
+          invocationId: `managed-job:${job.id}`,
+          agentId: job.configuredAgentProfileId,
+          parentSessionId: job.parent?.invocationId ?? job.id,
+          parentTurnId: job.parent?.turnId ?? job.id,
+          profile: job.admissionProfileId,
+          requestedBy: job.callerId,
+          requestSource: OPERATOR_MANAGED_JOB_SOURCE,
+          providerRoute: {
+            providerId: route.providerId,
+            surface: currentRoute.surface ?? "cli-harness",
+            model: route.model,
+          },
+          adapterKind: adapter.descriptor.adapterKind,
+          executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
+          requestedAuthority: "read_only",
+          authority: {
+            authorityProfileId: profile.authorityProfileId,
+            permissionProfile: profile.permissionProfile,
+            toolAuthority: {
+              allowedToolNames: profile.allowedToolNames,
+              writeAllowed: profile.writeAllowed ?? false,
+              networkAllowed: profile.networkAllowed ?? false,
+            },
+            workingDirectory: profile.workingDirectory,
+            timeoutMs: profile.timeoutMs,
+            credentialRoute: profile.credentialRoute,
+            memoryScope: profile.memoryScope,
+            ...(profile.readAuthority ? { readAuthority: profile.readAuthority } : {}),
+            ...(profile.writeAuthority ? { writeAuthority: profile.writeAuthority } : {}),
+          },
+          input: { summary: job.objective },
+        });
+        const started = await invocationService.start(request, adapter, {
+          capturedAt: new Date().toISOString(),
+          routeId: currentRoute.routeId,
+          routeSource: currentRoute.routeSource,
+          ...(callerIdentity ? { callerIdentity } : {}),
+          ...(currentRoute.externalRuntimeAttachment ? { externalRuntimeAttachment: currentRoute.externalRuntimeAttachment } : {}),
+          ...(currentRoute.providerModelProof ? { providerModelProof: currentRoute.providerModelProof } : {}),
+        });
+        if (started.status !== "started") {
+          throw new ManagedJobApplicationError("admission_denied", "Review the exact admitted native-harness Runtime authority.");
+        }
+        const joined = await invocationService.join(request.invocationId);
+        if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
+          throw new ManagedJobApplicationError("invocation_failed", "Inspect durable native-harness Runtime terminal evidence.");
+        }
+        return {
+          runtimeInvocationId: joined.record.invocationId,
+          completedAt: new Date().toISOString(),
+          resultHandoff: joined.record.resultHandoff,
+        };
+      },
     },
-    economicReplay,
-    economicDispatch: economicDispatch.coordinator,
     economicExecution: {
       execute: async ({ job, preparation }) => {
-        const selected = preparation.commitment.reservation.selectedIdentity.route;
-        const route = managedInvocation.routes.find((candidate) =>
+        const selectedIdentity = preparation.commitment.reservation.selectedIdentity;
+        const selected = selectedIdentity.route;
+        const selectedCandidate = job.dispatch.kind === "economic"
+          ? job.dispatch.candidateSet.candidates.find((candidate) =>
+              candidate.routeId === selected.routeId
+              && candidate.providerId === selected.providerId
+              && candidate.model === selected.modelId)
+          : undefined;
+        if (!selectedCandidate) {
+          throw new ManagedJobApplicationError(
+            "identity-revision-conflict",
+            "Restore the exact selected managed economic candidate before execution.",
+          );
+        }
+        const execution = await freshManagedInvocation("execution", managedAccountComposition);
+        const route = execution.routes.find((candidate) =>
           candidate.routeId === selected.routeId
           && candidate.providerId === selected.providerId
           && candidate.model === selected.modelId);
-        const profile = route?.profiles[job.admissionProfileId];
-        const invocationService = managedInvocation.invocationService;
-        if (!route || !profile || !invocationService) {
+        if (
+          !route
+          || route.economicCapability?.status !== "verified"
+          || route.economicCapability?.adapterCapabilityId !== selected.adapterCapabilityId
+          || route.economicCapability?.adapterCapabilityVersion !== selected.adapterCapabilityVersion
+        ) {
           throw new ManagedJobApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
+        }
+        const profile = route.profiles[job.admissionProfileId];
+        const invocationService = execution.invocationService;
+        if (!profile || !invocationService) {
+          throw new ManagedJobApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
+        }
+        if (
+          selectedCandidate.profileAuthorityDigest
+          !== digestManagedEconomicCandidateProfileAuthority(profile, `managed-job:${job.id}`)
+        ) {
+          throw new ManagedJobApplicationError(
+            "identity-revision-conflict",
+            "Restore the exact selected managed economic execution authority.",
+          );
         }
         const request = defineManagedAgentInvocationRequest({
           invocationId: `managed-job:${job.id}`,
@@ -428,9 +634,19 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     commitmentRecovery,
     store: managedJobStore,
   });
-  await service.recoverInterrupted();
+  const dispatcher = new OperatorProjectManagedJobDispatcher(service);
+  const recoveredJobs = await service.recoverInterrupted();
+  for (const job of recoveredJobs) {
+    if (job.dispatch.kind === "economic" && (job.state === "queued" || job.state === "running")) {
+      dispatcher.enqueue(job.id);
+    }
+  }
   const application: OperatorProjectManagedJobApplicationPort = {
-    submit: (input) => service.start(input),
+    accept: async (input, callerIdentity) => {
+      const job = await service.accept(input);
+      dispatcher.enqueue(job.id, callerIdentity);
+      return job;
+    },
     getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
     getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
     cancel: (input, jobId) => service.cancel({ project, callerId: input.callerId }, jobId),
@@ -440,7 +656,81 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     service,
     application,
     configuredAgents: summarizeOperatorProjectManagedAgents(configuredAgents, managedInvocation),
-    close: () => { closeManagedAccountRuntimeComposition(root.rootPath); },
+    close: async () => {
+      await dispatcher.close();
+      closeManagedAccountRuntimeComposition(root.rootPath);
+    },
+  };
+}
+
+type OperatorManagedInvocationRoute = NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number];
+
+function resolveNativeHarnessRouteForAgent(
+  agent: KilnAgentDefinition,
+  routes: readonly OperatorManagedInvocationRoute[],
+): OperatorManagedInvocationRoute | undefined {
+  const route = routes.find((candidate) =>
+    (agent.routeId ? candidate.routeId === agent.routeId : true)
+    && (!agent.providerRoute || candidate.providerId === agent.providerRoute.providerId)
+    && (!agent.providerRoute?.model || candidate.model === agent.providerRoute.model));
+  if (!route || !route.model || !isNativeHarnessAdapterKind(route.capability.adapter.kind)) return undefined;
+  if (route.capability.capacity.kind !== "accountless") return undefined;
+  if (agent.providerRoute && route.providerId !== agent.providerRoute.providerId) return undefined;
+  if (agent.providerRoute?.model && route.model !== agent.providerRoute.model) return undefined;
+  return route;
+}
+
+function isNativeHarnessAdapterKind(kind: string): boolean {
+  return kind === "native-harness" || kind === "cli-harness" || kind === "governed-external-runtime";
+}
+
+function createNativeHarnessProfile(
+  id: string,
+  admissionProfileId: ManagedJobNativeHarnessProfile["admissionProfileId"],
+  route: OperatorManagedInvocationRoute,
+  acknowledgedAt: string,
+): ManagedJobNativeHarnessProfile {
+  const acknowledgement = {
+    version: 1 as const,
+    source: "managed-route-admission" as const,
+    credentialMode: "credentialless" as const,
+    acknowledgedAt,
+    routeId: route.routeId,
+    routeRevision: route.capability.identity.revision,
+    providerId: route.providerId,
+    model: route.model!,
+    admissionProfileId,
+    adapterCapabilityId: route.capability.adapter.capabilityId,
+    adapterCapabilityVersion: route.capability.adapter.capabilityVersion,
+  };
+  return {
+    kind: "native-harness",
+    id,
+    admissionProfileId,
+    routeId: route.routeId,
+    routeRevision: route.capability.identity.revision,
+    providerId: route.providerId,
+    model: route.model!,
+    adapterCapabilityId: route.capability.adapter.capabilityId,
+    adapterCapabilityVersion: route.capability.adapter.capabilityVersion,
+    acknowledgement,
+  };
+}
+
+function nativeHarnessRouteFromProfile(
+  profile: ManagedJobNativeHarnessProfile,
+  route: OperatorManagedInvocationRoute,
+): ManagedJobNativeHarnessRoute {
+  return {
+    kind: "native-harness",
+    admissionProfileId: profile.admissionProfileId,
+    routeId: route.routeId,
+    routeRevision: route.capability.identity.revision,
+    providerId: route.providerId,
+    model: route.model!,
+    adapterCapabilityId: route.capability.adapter.capabilityId,
+    adapterCapabilityVersion: route.capability.adapter.capabilityVersion,
+    acknowledgement: profile.acknowledgement,
   };
 }
 
@@ -455,13 +745,31 @@ export function summarizeOperatorProjectManagedAgents(
   resolution: ManagedInvocationRouteResolution["managedInvocation"],
 ): readonly OperatorProjectManagedAgentSummary[] {
   return configuredAgents.flatMap((agent): readonly OperatorProjectManagedAgentSummary[] => {
-    if (!agent.economicPolicyId) return [];
     const base = {
       configuredAgentProfileId: agent.name,
       ...(agent.displayName ? { displayName: agent.displayName } : {}),
       ...(agent.role ? { role: agent.role } : {}),
       admissionProfileId: REQUIRED_ADMISSION_PROFILE_ID,
     };
+    if (!agent.economicPolicyId) {
+      const nativeRoute = resolveNativeHarnessRouteForAgent(agent, resolution?.routes ?? []);
+      const admissionProfileId = agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID;
+      if (nativeRoute?.profiles[admissionProfileId]) {
+        return [{
+          ...base,
+          admissionProfileId,
+          availability: "admitted",
+          providerFamily: nativeRoute.providerId,
+        }];
+      }
+      return [{
+        ...base,
+        admissionProfileId,
+        availability: "unavailable",
+        diagnostic: "route_unavailable",
+        operatorAction: "Restore the exact configured native-harness route and its read-only admission profile.",
+      }];
+    }
     const catalogEntry = resolution?.agentCatalog?.find(
       (candidate) =>
         candidate.name === agent.name

@@ -83,6 +83,11 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly abortSignal?: AbortSignal;
   readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
+  /** Runs after the durable fence and before any adapter materialization. */
+  readonly validateExecutionProfile?: (input: {
+    readonly commitment: ManagedEconomicCommitment;
+    readonly dispatchFenceId: string;
+  }) => void | Promise<void>;
 }
 
 export type ManagedEconomicDispatchPreparation =
@@ -147,18 +152,33 @@ export class ManagedEconomicDispatchCoordinator {
       this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;
     }
+    let dispatchFenced = false;
     try {
       throwManagedEconomicAbort(lifecycle.signal);
       this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
+      dispatchFenced = true;
       input.lifecycleEvents?.record({
         transition: "dispatch-fenced",
         policy: policy(),
         commitment: result.record.commitment,
         dispatchFenceId,
       });
+      await input.validateExecutionProfile?.({
+        commitment: result.record.commitment,
+        dispatchFenceId,
+      });
     } catch (error) {
       lifecycle.dispose();
-      this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+      if (dispatchFenced) {
+        this.options.authority.recordExecutionSettlementPending(
+          input.jobId,
+          input.economicAttemptId,
+          dispatchFenceId,
+          "post-fence-profile-authority-mismatch",
+        );
+      } else {
+        this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+      }
       throw error;
     }
 
@@ -198,7 +218,9 @@ export class ManagedEconomicDispatchCoordinator {
       if (!adapter) throw new Error("Committed managed route has no executable adapter.");
     } catch (error) {
       lifecycle.signal.removeEventListener("abort", onAbort);
-      recordSettlementPending("post-fence-adapter-materialization-failed");
+      recordSettlementPending(lifecycle.signal.aborted
+        ? "registered-execution-settlement-missing"
+        : "post-fence-adapter-materialization-failed");
       lifecycle.dispose();
       throw error;
     }

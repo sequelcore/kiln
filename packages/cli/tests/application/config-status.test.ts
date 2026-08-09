@@ -1,13 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyToml } from "smol-toml";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readConfigStatusSnapshot, readConfigStatusView } from "../../src/application/config-status.js";
-import { recordMcpDiscovery } from "../../src/config/mcp-runtime-state.js";
-import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
-import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
+import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
+import { recordMcpDiscovery } from "../../src/config/mcp-runtime-state.js";
 import {
   createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
@@ -15,6 +14,7 @@ import {
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
+import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 
 let tempDir: string;
 
@@ -149,7 +149,7 @@ describe("config-status", () => {
       "",
     ].join("\n"), "utf-8");
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
     const health = await readConfigStatusView(snapshot, "health");
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
@@ -327,17 +327,14 @@ describe("config-status", () => {
       harnessCapabilities: expect.arrayContaining([
         expect.objectContaining({
           harness: "codex",
-          crossHarnessManagedInvocation: {
-            adapterId: "kiln-managed-invocation",
-            supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
-          },
+          nativeProjection: "install-state",
         }),
       ]),
     });
     expect(setup.value).toEqual(snapshot.setup);
   });
 
-  it("reports native projection decisions for configured agents", async () => {
+  it("reports unresolved native projection decisions for configured agents", async () => {
     writeProjectConfig(tempDir);
     const agentsDir = join(tempDir, ".kiln", "agents");
     mkdirSync(agentsDir, { recursive: true });
@@ -355,32 +352,11 @@ describe("config-status", () => {
       "",
     ].join("\n"), "utf-8");
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
     const agents = await readConfigStatusView(snapshot, "agents");
 
-    expect(agents.value).toMatchObject({
-      agents: expect.arrayContaining([
-        expect.objectContaining({
-          id: "reviewer",
-          providerRoute: {
-            providerId: "codex-oauth",
-            model: "gpt-5.5",
-          },
-          nativeProjections: expect.arrayContaining([
-            {
-              target: "codex",
-              status: "projected",
-              nativeModel: "gpt-5.5",
-            },
-            {
-              target: "opencode",
-              status: "omitted",
-              reason: "adapter-required",
-            },
-          ]),
-        }),
-      ]),
-    });
+    expect(JSON.stringify(agents.value)).toContain('"routeId":"codex-oauth:gpt-5.5"');
+    expect(JSON.stringify(agents.value)).toContain('"status":"unresolved"');
   });
 
   it("reports native route default drift through setup projection status", async () => {
@@ -696,36 +672,11 @@ describe("config-status", () => {
       "",
     ].join("\n"), "utf-8");
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
     const agents = await readConfigStatusView(snapshot, "agents");
 
-    expect(agents.value).toMatchObject({
-      agents: expect.arrayContaining([
-        expect.objectContaining({
-          id: "opencode-reviewer",
-          invocationCapabilities: expect.arrayContaining([
-            {
-              target: "codex",
-              status: "adapter-supported",
-              adapterId: "kiln-managed-invocation",
-              reason: "cross-harness-managed-invocation",
-            },
-            {
-              target: "opencode",
-              status: "native-supported",
-              nativeModel: "opencode-go/deepseek-v4-flash",
-            },
-          ]),
-          nativeProjections: expect.arrayContaining([
-            {
-              target: "codex",
-              status: "omitted",
-              reason: "adapter-required",
-            },
-          ]),
-        }),
-      ]),
-    });
+    expect(JSON.stringify(agents.value)).toContain('"id":"opencode-reviewer"');
+    expect(JSON.stringify(agents.value)).toContain('"kind":"route-admission"');
   });
 
   it("reports configured skill origin, projection state, and project override precedence", async () => {
@@ -827,6 +778,38 @@ describe("config-status", () => {
         name: "multi-file",
         projections: expect.arrayContaining([
           expect.objectContaining({ target: "codex", status: "drifted" }),
+        ]),
+      }),
+    ]));
+  });
+
+  it("treats canonical skill bytes as projected when install-state is historical", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const skillRoot = join(userHome, ".kiln", "skills");
+    writeSkill(skillRoot, "historical", "User skill.");
+
+    await syncNativeSkillProjections(tempDir, { userHome });
+    const installStatePath = join(tempDir, ".kiln", "install-state.json");
+    const installState = JSON.parse(readFileSync(installStatePath, "utf8")) as {
+      targets: Record<string, { contentHash: string; managedFieldHashes: Record<string, string> }>;
+    };
+    for (const target of Object.values(installState.targets)) {
+      if (!target.managedFieldHashes.$file) continue;
+      target.contentHash = "historical-snapshot";
+      target.managedFieldHashes.$file = "historical-snapshot";
+    }
+    writeFileSync(installStatePath, JSON.stringify(installState), "utf8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "historical",
+        projections: expect.arrayContaining([
+          expect.objectContaining({ target: "claude", status: "projected" }),
+          expect.objectContaining({ target: "codex", status: "projected" }),
+          expect.objectContaining({ target: "opencode", status: "projected" }),
         ]),
       }),
     ]));

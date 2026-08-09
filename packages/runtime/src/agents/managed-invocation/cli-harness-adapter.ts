@@ -16,6 +16,7 @@ import {
 } from "@kilnai/core";
 import type {
   ExecutionSessionEvent,
+  ExecutionSessionEphemeralHarnessStateEvidence,
   ManagedAgentAdapterDescriptor,
   ManagedAgentAdapterWriteAuthorityDescriptor,
   ManagedAgentInvocationRecord,
@@ -58,6 +59,13 @@ export interface ManagedCliHarnessAdapterConfig {
   readonly resourceReader?: ManagedInvocationResourceReader;
   readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   readonly deliberationCapabilities?: ModelDeliberationCapabilities;
+  /** Runtime may trust this evidence only when the route admitted this exact capability. */
+  readonly privatePlanArtifactCapability?: {
+    readonly capabilityId: "claude-code-private-plan-artifacts-v1";
+    readonly harness: "claude-code";
+    readonly version: "2.1.220" | "2.1.226";
+    readonly relativeDirectory: "plans";
+  };
 }
 
 export interface ManagedCliHarnessFilesystemBoundaryConfig {
@@ -71,6 +79,8 @@ interface CollectedCliHarnessEvidence {
   readonly structuredOutputs: Extract<ExecutionSessionEvent, { readonly type: "structured_output" }>[];
   readonly fileChanges: Extract<ExecutionSessionEvent, { readonly type: "file_changed" }>[];
   readonly writeDecisions: Extract<ExecutionSessionEvent, { readonly type: "write_decision" }>[];
+  readonly ephemeralHarnessState: ExecutionSessionEphemeralHarnessStateEvidence[];
+  disposeFailed: boolean;
   readonly usage: {
     inputTokens?: number;
     outputTokens?: number;
@@ -104,6 +114,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
   private readonly resourceReader?: ManagedInvocationResourceReader;
   private readonly builtinToolsProvider?: () => ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
   private readonly deliberationCapabilities?: ModelDeliberationCapabilities;
+  private readonly privatePlanArtifactCapability?: ManagedCliHarnessAdapterConfig["privatePlanArtifactCapability"];
 
   constructor(config: ManagedCliHarnessAdapterConfig) {
     this.providerId = requireText(config.providerId, "Managed CLI harness provider id is required");
@@ -116,6 +127,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     this.resourceReader = config.resourceReader;
     this.builtinToolsProvider = config.builtinToolsProvider;
     this.deliberationCapabilities = config.deliberationCapabilities;
+    this.privatePlanArtifactCapability = config.privatePlanArtifactCapability;
     const writeAuthority = config.writeAuthority !== undefined
       ? defineManagedAgentAdapterWriteAuthorityDescriptor(config.writeAuthority)
       : undefined;
@@ -198,6 +210,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       kilnSessionId: childSessionId,
       permissionPolicy: permissionPolicyFromAuthority(request, this.providerId),
       ...(deliberationResolution ? { deliberationResolution } : {}),
+      ...(this.privatePlanArtifactCapability ? {
+        privatePlanArtifactCapability: this.privatePlanArtifactCapability,
+      } : {}),
       ...(request.input.handoff ? {
         structuredOutput: { schema: STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA },
       } : {}),
@@ -217,7 +232,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
 
     if (typeof raced === "symbol" && raced === CANCELLED) {
       runPromise.catch(() => undefined);
-      await session.dispose();
+      await this.disposeSession(session, collected);
       const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
       const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
       if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
@@ -229,16 +244,42 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         filesystemChanges,
         readOnlyFilesystemViolation,
       });
+      const privatePlanVersionMismatch = privatePlanArtifactVersionMismatch(
+        this.privatePlanArtifactCapability,
+        session.observedHarnessVersion,
+      );
+      const admittedEphemeralState = admittedEphemeralHarnessState(
+        this.privatePlanArtifactCapability,
+        session.observedHarnessVersion,
+        collected,
+      );
+      const cleanupFailure = hasPrivatePlanCleanupFailure(
+        this.privatePlanArtifactCapability,
+        collected,
+        admittedEphemeralState,
+      );
+      const privatePlanFailure = privatePlanVersionMismatch || cleanupFailure;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input, childSessionId),
-        lifecycleState: "cancelled",
+        lifecycleState: privatePlanFailure ? "failed" : "cancelled",
+        ...(privatePlanFailure ? {
+          diagnostics: [{
+            uri: managedInvocationUri(
+              request.invocationId,
+              privatePlanVersionMismatch ? "diagnostics" : "private-plan-artifacts-cleanup",
+            ),
+            kind: privatePlanVersionMismatch ? "failure" as const : "cleanup" as const,
+          }],
+        } : {}),
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
           provenance: runtimeGeneratedHandoffProvenance(this.model),
           summary: "Managed CLI harness invocation cancelled.",
+          ...(this.providerId === "claude" ? { summaryAuthority: "runtime-derived" as const } : {}),
           resourceUris: writeEvidence.resultResourceUris,
           memoryWriteProposalUris: [],
+          ...(admittedEphemeralState.length > 0 ? { ephemeralHarnessState: admittedEphemeralState } : {}),
         },
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
@@ -246,7 +287,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
 
     if (typeof raced === "symbol") {
       runPromise.catch(() => undefined);
-      await session.dispose();
+      await this.disposeSession(session, collected);
       const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
       const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
       if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
@@ -258,13 +299,36 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         filesystemChanges,
         readOnlyFilesystemViolation,
       });
+      const privatePlanVersionMismatch = privatePlanArtifactVersionMismatch(
+        this.privatePlanArtifactCapability,
+        session.observedHarnessVersion,
+      );
+      const admittedEphemeralState = admittedEphemeralHarnessState(
+        this.privatePlanArtifactCapability,
+        session.observedHarnessVersion,
+        collected,
+      );
+      const cleanupFailure = hasPrivatePlanCleanupFailure(
+        this.privatePlanArtifactCapability,
+        collected,
+        admittedEphemeralState,
+      );
+      const privatePlanFailure = privatePlanVersionMismatch || cleanupFailure;
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input, childSessionId),
-        lifecycleState: "timed_out",
-        diagnostics: [{
-          uri: managedInvocationUri(request.invocationId, "timeout"),
-          kind: "timeout",
-        }],
+        lifecycleState: privatePlanFailure ? "failed" : "timed_out",
+        diagnostics: [privatePlanFailure
+          ? {
+              uri: managedInvocationUri(
+                request.invocationId,
+                privatePlanVersionMismatch ? "diagnostics" : "private-plan-artifacts-cleanup",
+              ),
+              kind: privatePlanVersionMismatch ? "failure" as const : "cleanup" as const,
+            }
+          : {
+              uri: managedInvocationUri(request.invocationId, "timeout"),
+              kind: "timeout" as const,
+            }],
         transcript: transcriptPointer(request.invocationId),
         usage: usageReport(collected.usage),
         resultHandoff: {
@@ -273,17 +337,19 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
             timeoutMs: request.authority.timeoutMs,
             childSessionId,
           }),
+          ...(this.providerId === "claude" ? { summaryAuthority: "runtime-derived" as const } : {}),
           resourceUris: [
             managedInvocationUri(request.invocationId, "timeout"),
             ...writeEvidence.resultResourceUris,
           ],
           memoryWriteProposalUris: [],
+          ...(admittedEphemeralState.length > 0 ? { ephemeralHarnessState: admittedEphemeralState } : {}),
         },
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     }
 
-    await session.dispose();
+    await this.disposeSession(session, collected);
     const filesystemChanges = await collectFilesystemBoundaryChanges(filesystemSnapshot);
     const readOnlyFilesystemViolation = request.authority.writeAuthority === undefined && filesystemChanges.length > 0;
     if (readOnlyFilesystemViolation && this.filesystemBoundary?.restoreReadOnlyViolations === true) {
@@ -295,13 +361,22 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       filesystemChanges,
       readOnlyFilesystemViolation,
     });
-    const nativeStructuredOutput = collected.structuredOutputs.length === 1
+    const privatePlanVersionMismatch = privatePlanArtifactVersionMismatch(
+      this.privatePlanArtifactCapability,
+      session.observedHarnessVersion,
+    );
+    const ephemeralHarnessState = admittedEphemeralHarnessState(
+      this.privatePlanArtifactCapability,
+      session.observedHarnessVersion,
+      collected,
+    );
+    const nativeStructuredOutput = !privatePlanVersionMismatch && collected.structuredOutputs.length === 1
       ? collected.structuredOutputs[0]
       : undefined;
     const textFallback = collected.structuredOutputs.length === 0
       ? collected.textParts.join("")
       : undefined;
-    const parsedStructuredResult = request.input.handoff
+    const parsedStructuredResult = request.input.handoff && !privatePlanVersionMismatch
       ? parseCliHarnessStructuredResult(nativeStructuredOutput?.value ?? textFallback)
       : undefined;
     const structuredResult = parsedStructuredResult === undefined
@@ -312,19 +387,24 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       nativeStructuredOutput,
       structuredResult !== undefined && nativeStructuredOutput === undefined,
     );
-    const nativeHandoffFailure = claudeNativeHandoffFailure(
-      this.providerId,
-      request,
-      structuredResult,
-      provenance,
-      this.admittedProviderModelId,
-    );
+    const nativeHandoffFailure = privatePlanVersionMismatch
+      ? privatePlanArtifactVersionFailure(this.privatePlanArtifactCapability, session.observedHarnessVersion)
+      : claudeNativeHandoffFailure(
+          this.providerId,
+          request,
+          structuredResult,
+          provenance,
+          this.admittedProviderModelId,
+        );
     const lifecycleState = resolveLifecycleState(
       request,
       collected,
       writeEvidence,
       structuredResult,
       nativeHandoffFailure,
+      this.privatePlanArtifactCapability,
+      privatePlanVersionMismatch,
+      ephemeralHarnessState,
     );
     const rawSummary = collected.error !== undefined
       ? summarizeResult(request, collected, writeEvidence)
@@ -332,14 +412,30 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         ?? structuredResult?.summary
         ?? summarizeResult(request, collected, writeEvidence);
     const summary = redactWorkspaceRoot(rawSummary, cwd);
+    const cleanupFailure = hasPrivatePlanCleanupFailure(
+      this.privatePlanArtifactCapability,
+      collected,
+      ephemeralHarnessState,
+    );
+    const privatePlanFailure = privatePlanVersionMismatch || cleanupFailure;
+    const childSummaryUsed = !privatePlanVersionMismatch
+      && nativeHandoffFailure === undefined
+      && (structuredResult !== undefined || (textFallback?.trim().length ?? 0) > 0);
     return defineManagedAgentInvocationRecord({
       ...this.baseRecord(input, childSessionId),
-      lifecycleState,
-      ...(lifecycleState === "failed"
+      lifecycleState: privatePlanFailure ? "failed" : lifecycleState,
+      ...((privatePlanFailure || lifecycleState === "failed")
         ? {
           diagnostics: [{
-            uri: managedInvocationUri(request.invocationId, "diagnostics"),
-            kind: "failure" as const,
+            uri: managedInvocationUri(
+              request.invocationId,
+              privatePlanVersionMismatch || !cleanupFailure ? "diagnostics" : "private-plan-artifacts-cleanup",
+            ),
+            kind: privatePlanVersionMismatch
+              ? "failure" as const
+              : cleanupFailure
+                ? "cleanup" as const
+                : "failure" as const,
           }],
         }
         : {}),
@@ -348,11 +444,15 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       resultHandoff: {
         provenance,
         summary,
+        ...(this.providerId === "claude"
+          ? { summaryAuthority: childSummaryUsed ? "child-untrusted" as const : "runtime-derived" as const }
+          : {}),
         resourceUris: [
           managedInvocationUri(request.invocationId, "transcript"),
           ...writeEvidence.resultResourceUris,
         ],
         memoryWriteProposalUris: [],
+        ...(ephemeralHarnessState.length > 0 ? { ephemeralHarnessState } : {}),
         ...(structuredResult ? { structuredResult } : {}),
       },
       ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
@@ -424,6 +524,10 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
         collected.structuredOutputs.push(event);
         continue;
       }
+      if (event.type === "ephemeral_harness_state") {
+        appendEphemeralHarnessState(collected.ephemeralHarnessState, event.evidence);
+        continue;
+      }
       if (event.type === "cost_update") {
         collected.usage.inputTokens = event.inputTokens ?? collected.usage.inputTokens;
         collected.usage.outputTokens = event.outputTokens ?? collected.usage.outputTokens;
@@ -450,6 +554,22 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
     }
 
     return collected;
+  }
+
+  private async disposeSession(
+    session: CliSession,
+    collected: CollectedCliHarnessEvidence,
+  ): Promise<void> {
+    try {
+      await session.dispose();
+    } catch (error) {
+      collected.disposeFailed = true;
+      if (this.privatePlanArtifactCapability === undefined) {
+        throw error;
+      }
+    } finally {
+      collectDisposedSessionEvidence(session, collected);
+    }
   }
 }
 
@@ -488,8 +608,31 @@ function createEmptyCollectedEvidence(): CollectedCliHarnessEvidence {
     structuredOutputs: [],
     fileChanges: [],
     writeDecisions: [],
+    ephemeralHarnessState: [],
+    disposeFailed: false,
     usage: {},
   };
+}
+
+function appendEphemeralHarnessState(
+  target: ExecutionSessionEphemeralHarnessStateEvidence[],
+  evidence: ExecutionSessionEphemeralHarnessStateEvidence,
+): void {
+  const duplicate = target.some((candidate) =>
+    candidate.capabilityId === evidence.capabilityId
+    && candidate.artifactDigest === evidence.artifactDigest
+    && candidate.cleanupStatus === evidence.cleanupStatus,
+  );
+  if (!duplicate) target.push(evidence);
+}
+
+function collectDisposedSessionEvidence(
+  session: CliSession,
+  collected: CollectedCliHarnessEvidence,
+): void {
+  for (const evidence of session.drainEphemeralHarnessStateEvidence?.() ?? []) {
+    appendEphemeralHarnessState(collected.ephemeralHarnessState, evidence);
+  }
 }
 
 function collectWriteEvidence(input: {
@@ -501,9 +644,11 @@ function collectWriteEvidence(input: {
   readonly evidence: readonly ManagedAgentWriteEvidence[];
   readonly resultResourceUris: readonly string[];
 } {
+  const readOnlyFileChangeViolation = input.request.authority.writeAuthority === undefined
+    && (input.readOnlyFilesystemViolation || input.collected.fileChanges.length > 0);
   const writeEvidence = collectManagedAgentLiveWriteEvidence({
     request: input.request,
-    fileChanges: input.readOnlyFilesystemViolation
+    fileChanges: readOnlyFileChangeViolation
       ? []
       : mergeFileChanges(input.collected.fileChanges, input.filesystemChanges),
   });
@@ -518,13 +663,15 @@ function collectWriteEvidence(input: {
         reason: decision.reason,
         resourceUris: decision.resourceUris,
       })),
-      ...(input.readOnlyFilesystemViolation
+      ...(readOnlyFileChangeViolation
         ? [{
           source: "tool-result" as const,
           status: "denied" as const,
           providerRequestId: "filesystem-boundary-1",
           actor: "kiln-filesystem-boundary",
-          reason: `Live harness modified files during read-only invocation: ${input.filesystemChanges.map((change) => change.path).join(", ")}`,
+          reason: input.readOnlyFilesystemViolation
+            ? "Live harness modified files during read-only invocation."
+            : "Live harness reported a workspace change during a read-only invocation.",
         }]
         : []),
     ],
@@ -683,6 +830,9 @@ function resolveLifecycleState(
   writeEvidence: ReturnType<typeof collectWriteEvidence>,
   structuredResult: StructuredExecutionResult | undefined,
   nativeHandoffFailure: string | undefined,
+  privatePlanArtifactCapability: ManagedCliHarnessAdapterConfig["privatePlanArtifactCapability"],
+  privatePlanVersionMismatch: boolean,
+  ephemeralHarnessState: readonly ExecutionSessionEphemeralHarnessStateEvidence[],
 ): ManagedAgentInvocationRecord["lifecycleState"] {
   if (collected.error !== undefined) {
     return isCancellationError(collected.error) ? "cancelled" : "failed";
@@ -693,6 +843,12 @@ function resolveLifecycleState(
   if (nativeHandoffFailure !== undefined) {
     return "failed";
   }
+  if (privatePlanVersionMismatch) {
+    return "failed";
+  }
+  if (hasPrivatePlanCleanupFailure(privatePlanArtifactCapability, collected, ephemeralHarnessState)) {
+    return "failed";
+  }
   if (requiresApprovedWorkspaceWriteEvidence(request) && !hasCompletedWorkspaceWriteEvidence(writeEvidence)) {
     return "failed";
   }
@@ -700,6 +856,48 @@ function resolveLifecycleState(
     return "failed";
   }
   return "completed";
+}
+
+function admittedEphemeralHarnessState(
+  capability: ManagedCliHarnessAdapterConfig["privatePlanArtifactCapability"],
+  observedHarnessVersion: string | undefined,
+  collected: CollectedCliHarnessEvidence,
+): readonly ExecutionSessionEphemeralHarnessStateEvidence[] {
+  if (capability === undefined || privatePlanArtifactVersionMismatch(capability, observedHarnessVersion)) return [];
+  return collected.ephemeralHarnessState.filter((evidence) => evidence.capabilityId === capability.capabilityId);
+}
+
+function privatePlanArtifactVersionMismatch(
+  capability: ManagedCliHarnessAdapterConfig["privatePlanArtifactCapability"],
+  observedHarnessVersion: string | undefined,
+): boolean {
+  return capability !== undefined && observedHarnessVersion !== capability.version;
+}
+
+function privatePlanArtifactVersionFailure(
+  capability: ManagedCliHarnessAdapterConfig["privatePlanArtifactCapability"],
+  observedHarnessVersion: string | undefined,
+): string {
+  if (capability === undefined) {
+    return "Managed Claude invocation failed: private plan capability admission is unavailable.";
+  }
+  const observed = observedHarnessVersion === undefined ? "missing" : `'${observedHarnessVersion}'`;
+  return `Managed Claude invocation failed: observed Claude Code version ${observed} does not match the exact admitted Claude private plan capability version '${capability.version}'.`;
+}
+
+function hasPrivatePlanCleanupFailure(
+  capability: ManagedCliHarnessAdapterConfig["privatePlanArtifactCapability"],
+  collected: CollectedCliHarnessEvidence,
+  admittedEvidence: readonly ExecutionSessionEphemeralHarnessStateEvidence[],
+): boolean {
+  if (collected.disposeFailed) return true;
+  const unadmittedEvidence = collected.ephemeralHarnessState.some((evidence) =>
+    capability === undefined || evidence.capabilityId !== capability.capabilityId,
+  );
+  if (unadmittedEvidence) return true;
+  if (capability === undefined) return false;
+  return admittedEvidence.length !== 1
+    || admittedEvidence.some((evidence) => evidence.cleanupStatus === "failed" || evidence.unexpectedDelta);
 }
 
 function redactStructuredExecutionWorkspace(

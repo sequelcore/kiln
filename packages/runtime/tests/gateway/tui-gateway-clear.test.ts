@@ -185,8 +185,21 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
       routeSource: "explicit-managed-route",
       providerId: "opencode",
       model: "openai/gpt-4o:free",
-      adapter,
       surface: "cli-harness",
+      capability: {
+        identity: { routeId: "opencode-readonly", revision: "test-v1" },
+        target: { providerId: "opencode", modelId: "openai/gpt-4o:free" },
+        adapter: { kind: "cli-harness", capabilityId: "opencode-harness", capabilityVersion: "test-v1" },
+        authorityCeiling: "read_only",
+        toolNames: ["read", "grep", "glob"],
+        supportsRecursion: true,
+        supportsAttachments: false,
+        supportsWrite: false,
+        proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+        capacity: { kind: "accountless" },
+        settlement: { kind: "not-required" },
+      },
+      createAdapter: async () => adapter,
       profiles: {
         "foundation-readonly-plan": {
           authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",

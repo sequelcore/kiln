@@ -1,8 +1,3 @@
-import {
-  getManagedAgentCrossHarnessInvocationCapability,
-  type ManagedAgentCrossHarnessAdapterId,
-} from "@kilnai/core";
-
 export const HARNESSES_WITH_NATIVE_PROJECTION = ["claude", "codex", "opencode"] as const;
 
 export type HarnessIntegrationId = typeof HARNESSES_WITH_NATIVE_PROJECTION[number];
@@ -28,36 +23,7 @@ export interface NativeProjectionCapability {
   readonly managedByInstallState: boolean;
 }
 
-export interface CrossHarnessManagedInvocationCapability {
-  readonly adapterId: ManagedAgentCrossHarnessAdapterId;
-  readonly supportedProviderIds: readonly string[];
-}
-
 export type NativeAgentModelEncoder = (model: string) => string;
-
-export type HarnessRouteCapability =
-  | {
-    readonly kind: "native-supported";
-    readonly harness: HarnessIntegrationId;
-    readonly providerId: string;
-    readonly model: string;
-    readonly nativeModel: string;
-  }
-  | {
-    readonly kind: "adapter-supported";
-    readonly harness: HarnessIntegrationId;
-    readonly providerId: string;
-    readonly model: string;
-    readonly adapterId: "kiln-managed-invocation";
-    readonly reason: "cross-harness-managed-invocation";
-  }
-  | {
-    readonly kind: "unsupported";
-    readonly harness: HarnessIntegrationId;
-    readonly providerId: string;
-    readonly model?: string;
-    readonly reason: "missing-model" | "unsupported-provider";
-  };
 
 export interface HarnessIntegrationCapability {
   readonly harness: HarnessIntegrationId;
@@ -67,7 +33,6 @@ export interface HarnessIntegrationCapability {
   readonly nativeConfigImport: boolean;
   readonly mcpRuntimeTools: boolean;
   readonly hooks: boolean;
-  readonly crossHarnessManagedInvocation: CrossHarnessManagedInvocationCapability;
 }
 
 const NATIVE_PROJECTION_CAPABILITY: NativeProjectionCapability = {
@@ -91,7 +56,6 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeConfigImport: supportsNativeConfigImport("claude"),
     mcpRuntimeTools: true,
     hooks: true,
-    crossHarnessManagedInvocation: getManagedAgentCrossHarnessInvocationCapability("claude"),
   },
   codex: {
     harness: "codex",
@@ -105,7 +69,6 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeConfigImport: supportsNativeConfigImport("codex"),
     mcpRuntimeTools: true,
     hooks: true,
-    crossHarnessManagedInvocation: getManagedAgentCrossHarnessInvocationCapability("codex"),
   },
   opencode: {
     harness: "opencode",
@@ -119,7 +82,6 @@ const HARNESS_INTEGRATION_CAPABILITIES: Record<HarnessIntegrationId, HarnessInte
     nativeConfigImport: supportsNativeConfigImport("opencode"),
     mcpRuntimeTools: true,
     hooks: true,
-    crossHarnessManagedInvocation: getManagedAgentCrossHarnessInvocationCapability("opencode"),
   },
 };
 
@@ -167,51 +129,4 @@ export function encodeNativeAgentModel(
 ): string | undefined {
   const encoder = NATIVE_AGENT_MODEL_ENCODERS[harness][providerId];
   return encoder ? encoder(model) : undefined;
-}
-
-export function resolveHarnessRouteCapability(input: {
-  readonly harness: HarnessIntegrationId;
-  readonly providerId: string;
-  readonly model?: string;
-}): HarnessRouteCapability {
-  const providerId = input.providerId.trim();
-  const model = input.model?.trim();
-  if (!model) {
-    return {
-      kind: "unsupported",
-      harness: input.harness,
-      providerId,
-      reason: "missing-model",
-    };
-  }
-
-  const nativeModel = encodeNativeAgentModel(input.harness, providerId, model);
-  if (nativeModel) {
-    return {
-      kind: "native-supported",
-      harness: input.harness,
-      providerId,
-      model,
-      nativeModel,
-    };
-  }
-
-  if (getHarnessIntegrationCapability(input.harness).crossHarnessManagedInvocation.supportedProviderIds.includes(providerId)) {
-    return {
-      kind: "adapter-supported",
-      harness: input.harness,
-      providerId,
-      model,
-      adapterId: "kiln-managed-invocation",
-      reason: "cross-harness-managed-invocation",
-    };
-  }
-
-  return {
-    kind: "unsupported",
-    harness: input.harness,
-    providerId,
-    model,
-    reason: "unsupported-provider",
-  };
 }

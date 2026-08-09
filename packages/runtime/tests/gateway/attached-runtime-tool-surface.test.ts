@@ -238,6 +238,31 @@ function makeManagedAdapter(summary = "Managed child completed governed work."):
   };
 }
 
+function managedRouteCapability(input: {
+  readonly routeId: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly toolNames: readonly string[];
+  readonly profile?: "foundation-readonly-plan" | "foundation-apply-approved-writes";
+  readonly write?: boolean;
+  readonly externalRuntimeAttachment?: { readonly kind: "external-runtime"; readonly runtimeId: string; readonly attachmentId: string };
+}) {
+  return {
+    identity: { routeId: input.routeId, revision: "test-v1" },
+    target: { providerId: input.providerId, modelId: input.modelId },
+    adapter: { kind: "cli-harness" as const, capabilityId: `${input.providerId}-harness`, capabilityVersion: "test-v1" },
+    authorityCeiling: input.write ? "destructive" as const : "read_only" as const,
+    toolNames: input.toolNames,
+    supportsRecursion: true,
+    supportsAttachments: input.externalRuntimeAttachment !== undefined,
+    supportsWrite: input.write === true,
+    ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
+    proof: { status: "configured" as const, source: "test-fixture", provenProfiles: [input.profile ?? "foundation-readonly-plan"] },
+    capacity: { kind: "accountless" as const },
+    settlement: { kind: "not-required" as const },
+  };
+}
+
 function makeFailedManagedAdapter(): ManagedAgentRuntimeAdapter {
   return {
     descriptor: makeManagedDescriptor(),
@@ -433,7 +458,8 @@ describe("attached runtime builtin tool surface", () => {
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -560,7 +586,8 @@ describe("attached runtime builtin tool surface", () => {
           routeSource: "explicit-managed-route",
            providerId: "opencode",
            model: "opencode-default-model",
-           adapter,
+           capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read"], externalRuntimeAttachment: routeAttachment }),
+           createAdapter: async () => adapter,
            externalRuntimeAttachment: routeAttachment,
           profiles: {
             "foundation-readonly-plan": {
@@ -640,13 +667,8 @@ describe("attached runtime builtin tool surface", () => {
     expect(wrongAttachment).toMatchObject({
       isError: true,
       metadata: {
-        errorCode: "external_runtime_attachment_mismatch",
-        requestedAttachment: {
-          kind: "external-runtime",
-          runtimeId: routeAttachment.runtimeId,
-          attachmentId: "instance-b",
-        },
-        routeAttachment,
+        status: "denied",
+        admissionReasons: [{ code: "external-runtime-attachment-mismatch" }],
       },
     });
     expect(adapter.invoke).not.toHaveBeenCalled();
@@ -1812,7 +1834,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -1924,7 +1947,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob", "web_search", "browser_session_start"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -2071,7 +2095,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "analysis-model",
-            adapter,
+            capability: managedRouteCapability({ routeId: "opencode-analysis-readonly", providerId: "opencode", modelId: "analysis-model", toolNames: ["read", "grep", "glob"] }),
+            createAdapter: async () => adapter,
             profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob"]) },
           },
           {
@@ -2079,7 +2104,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "general-model",
-            adapter,
+            capability: managedRouteCapability({ routeId: "opencode-general-readonly", providerId: "opencode", modelId: "general-model", toolNames: ["read", "grep", "glob", "bash"] }),
+            createAdapter: async () => adapter,
             taskSuitability: [{
               task: "test-writing",
               level: "capable",
@@ -2093,7 +2119,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "verification-model",
-            adapter,
+            capability: managedRouteCapability({ routeId: "opencode-verification-readonly", providerId: "opencode", modelId: "verification-model", toolNames: ["read", "grep", "glob", "bash"] }),
+            createAdapter: async () => adapter,
             taskSuitability: [{
               task: "test-writing",
               level: "preferred",
@@ -2207,7 +2234,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -2295,7 +2323,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "opencode",
           model: "opencode-default-model",
-          adapter,
+          capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -2399,7 +2428,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeId: "opencode-provider-default",
           routeSource: "explicit-managed-route",
           providerId: "opencode",
-          adapter,
+          model: "opencode-default-model",
+          capability: managedRouteCapability({ routeId: "opencode-provider-default", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-readonly-plan": {
               authorityProfileId: "authority:opencode:readonly",
@@ -2447,7 +2478,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     };
 
     expect(result.isError).toBe(false);
-    expect(output.managedInvocationRequest?.providerRoute?.model).toBeUndefined();
+    expect(output.managedInvocationRequest?.providerRoute?.model).toBe("opencode-default-model");
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
   });
 
@@ -2485,7 +2516,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "model-without-browser",
-            adapter,
+            capability: managedRouteCapability({ routeId: "opencode-visual-without-browser", providerId: "opencode", modelId: "model-without-browser", toolNames: ["read", "grep", "glob"] }),
+            createAdapter: async () => adapter,
             profiles: {
               "foundation-readonly-plan": {
                 authorityProfileId: "authority:opencode:readonly-without-browser",
@@ -2512,7 +2544,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             routeSource: "explicit-managed-route",
             providerId: "opencode",
             model: "model-with-browser",
-            adapter,
+            capability: managedRouteCapability({ routeId: "opencode-visual-browser-readonly", providerId: "opencode", modelId: "model-with-browser", toolNames: ["read", "grep", "glob", "web_search", "browser_session_start"] }),
+            createAdapter: async () => adapter,
             profiles: {
               "foundation-readonly-plan": {
                 authorityProfileId: "authority:opencode:readonly-browser",
@@ -3224,7 +3257,20 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
         routeSource: "explicit-managed-route" as const,
         providerId: "opencode",
         model: "opencode-default-model",
-        adapter: makeManagedAdapter(),
+        capability: {
+          identity: { routeId: "opencode-readonly", revision: "test-v1" },
+          target: { providerId: "opencode", modelId: "opencode-default-model" },
+          adapter: { kind: "cli-harness", capabilityId: "opencode-harness", capabilityVersion: "test-v1" },
+          authorityCeiling: "read_only",
+          toolNames: ["read", "grep", "glob"],
+          supportsRecursion: true,
+          supportsAttachments: false,
+          supportsWrite: false,
+          proof: { status: "configured", source: "test-fixture", provenProfiles: ["foundation-readonly-plan"] },
+          capacity: { kind: "accountless" },
+          settlement: { kind: "not-required" },
+        },
+        createAdapter: async () => makeManagedAdapter(),
         profiles: {
           "foundation-readonly-plan": {
             authorityProfileId: "authority:opencode:readonly",
@@ -3523,7 +3569,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           routeSource: "explicit-managed-route",
           providerId: "opencode-go",
           model: "kimi-k2.6",
-          adapter,
+          capability: managedRouteCapability({ routeId: "opencode-go-frontend-approved-write", providerId: "opencode-go", modelId: "kimi-k2.6", toolNames: ["read", "grep", "glob", "write"], profile: "foundation-apply-approved-writes", write: true }),
+          createAdapter: async () => adapter,
           profiles: {
             "foundation-apply-approved-writes": {
               authorityProfileId: "authority:opencode-go:frontend",

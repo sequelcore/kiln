@@ -27,6 +27,7 @@ export interface NativeHarnessInspectionPort {
   readProjectRoot?: () => Promise<NativeHarnessProjectRootResolution>;
   now?: () => Date;
   managedAgents?: readonly NativeHarnessManagedAgentSummary[];
+  readManagedAgents?: () => Promise<readonly NativeHarnessManagedAgentSummary[]>;
 }
 
 export interface NativeHarnessManagedAgentSummary {
@@ -107,10 +108,6 @@ export interface NativeHarnessCapabilityResult {
     readonly nativeProjection: string;
     readonly nativeConfigImport: string;
     readonly hooks: string;
-    readonly crossHarnessManagedInvocation: {
-      readonly adapterId: string;
-      readonly supportedProviderIds: readonly string[];
-    };
     readonly bridgeProjection: BridgeProjectionState | "unresolved";
     readonly managedAgents: readonly NativeHarnessManagedAgentSummary[];
   };
@@ -228,6 +225,15 @@ export function createNativeHarnessInspectionService(
       if ("diagnostic" in result) return unresolvedCapability(result.diagnostic, now(), port.harness);
       const diagnostics = diagnosticsFor(result.snapshot);
       const capabilityDiagnostics: NativeHarnessDiagnostic[] = [];
+      let managedAgents = port.managedAgents ?? [];
+      if (port.readManagedAgents) {
+        try {
+          managedAgents = await port.readManagedAgents();
+        } catch {
+          managedAgents = [];
+          capabilityDiagnostics.push(diagnosticFor("KILN_MANAGED_AGENTS_READ_FAILED"));
+        }
+      }
       const capability = result.snapshot.harnessCapabilities.find((entry) => entry.harness === port.harness);
       let bridgeProjection: BridgeProjectionState | "unresolved" = "unresolved";
       try {
@@ -248,9 +254,8 @@ export function createNativeHarnessInspectionService(
           nativeProjection: capability?.nativeProjection ?? "unresolved",
           nativeConfigImport: capability?.nativeConfigImport ?? "unresolved",
           hooks: capability?.hooks ?? "unresolved",
-          crossHarnessManagedInvocation: capability?.crossHarnessManagedInvocation ?? { adapterId: "unresolved", supportedProviderIds: [] },
           bridgeProjection,
-          managedAgents: projectManagedAgents(port.managedAgents ?? []),
+          managedAgents: projectManagedAgents(managedAgents),
         },
         diagnostics: [...diagnostics, ...capabilityDiagnostics],
       };
@@ -323,7 +328,6 @@ function unresolvedCapability(diagnostic: NativeHarnessDiagnostic, now: Date, ha
       nativeProjection: "unresolved",
       nativeConfigImport: "unresolved",
       hooks: "unresolved",
-      crossHarnessManagedInvocation: { adapterId: "unresolved", supportedProviderIds: [] },
       bridgeProjection: "unresolved",
       managedAgents: [],
     },
@@ -374,6 +378,7 @@ function diagnosticFor(code: string, targetId?: string): NativeHarnessDiagnostic
     KILN_PROJECTION_DRIFTED: { message: "A Kiln projection has drifted.", operatorAction: "Review the reported setup recommendation before trusting that projection." },
     KILN_BRIDGE_READ_FAILED: { message: "The native bridge declaration could not be read safely.", operatorAction: "Verify the generated project-local MCP declaration, then retry." },
     KILN_BRIDGE_PROJECTION_UNRESOLVED: { message: "Native bridge capability is not fully provable from observed projection evidence.", operatorAction: "Verify the global MCP declaration and harness capability before relying on it." },
+    KILN_MANAGED_AGENTS_READ_FAILED: { message: "Configured managed-agent capability could not be read safely.", operatorAction: "Repair canonical managed-agent route evidence, then retry the read-only inspection." },
     KILN_INTERNAL_ADAPTER_FAILURE: { message: "Native-harness inspection could not initialize safely.", operatorAction: "Restart the read-only bridge after reviewing Kiln setup diagnostics." },
   };
   const base = diagnostics[code] ?? { message: "Native-harness inspection failed safely.", operatorAction: "Retry the read-only inspection after reviewing Kiln setup diagnostics." };

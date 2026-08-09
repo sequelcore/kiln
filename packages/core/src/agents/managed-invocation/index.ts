@@ -5,6 +5,11 @@ import type { WorkClassification } from "../work-classification.js";
 import { admitDeliberationForExecution, defineDeliberationLevelId } from "../deliberation-policy.js";
 import type { DeliberationIntent, DeliberationResolution, UnsupportedDeliberationPolicy } from "../deliberation-policy.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
+import type { ExecutionSessionEphemeralHarnessStateEvidence } from "../../events/execution-session-event.js";
+import {
+  compareManagedAgentExternalRuntimeAttachment,
+  type ManagedAgentExternalRuntimeAttachmentIdentity,
+} from "./external-runtime-attachment.js";
 import { defineManagedAgentReadAuthority } from "./read-authority.js";
 import type { ManagedAgentReadAuthority } from "./read-authority.js";
 import {
@@ -44,6 +49,8 @@ export * from "./read-authority.js";
 export * from "./write-integration.js";
 export * from "./orchestration.js";
 export * from "./coordination-policy.js";
+export * from "./external-runtime-attachment.js";
+export * from "./route-capability.js";
 
 export const MANAGED_AGENT_ADMISSION_PROFILES = [
   "foundation-readonly-plan",
@@ -351,117 +358,6 @@ export type ManagedAgentCallerAttachmentIdentity =
     readonly evidenceId: string;
   };
 
-export type ManagedAgentExternalHarnessId = Extract<
-  ManagedAgentCallerAttachmentIdentity,
-  { readonly kind: "external-harness" }
->["harness"];
-
-// Roadmap 01 Slice 3.1 - External-runtime target identity. Answers "which
-// physical external-runtime instance must the child drive", not "who called
-// Kiln" (that is ManagedAgentCallerAttachmentIdentity, above - different
-// producer, lifetime, consumer, and cardinality; see docs/roadmap/01 Slice 3
-// design review, issue #6). Deliberately three fields only: runtimeId and
-// attachmentId. No displayName/version/pid/port/free-form metadata -
-// discovery is a non-goal for this slice.
-export interface ManagedAgentExternalRuntimeAttachmentIdentity {
-  readonly kind: "external-runtime";
-  readonly runtimeId: string;
-  readonly attachmentId: string;
-}
-
-export type ManagedAgentExternalRuntimeAttachmentComparison =
-  | "matched"
-  | "both-absent"
-  | "missing"
-  | "mismatch"
-  | "unsupported-route";
-
-/**
- * Compares the route's declared external-runtime attachment against the
- * dispatch's requested attachment. Exact case-sensitive equality only - no
- * normalisation, no fallback to "the only attached instance".
- */
-export function compareManagedAgentExternalRuntimeAttachment(
-  routeAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
-  requestedAttachment: ManagedAgentExternalRuntimeAttachmentIdentity | undefined,
-): ManagedAgentExternalRuntimeAttachmentComparison {
-  if (!routeAttachment && !requestedAttachment) {
-    return "both-absent";
-  }
-  if (routeAttachment && !requestedAttachment) {
-    return "missing";
-  }
-  if (!routeAttachment && requestedAttachment) {
-    return "unsupported-route";
-  }
-  return routeAttachment!.runtimeId === requestedAttachment!.runtimeId
-    && routeAttachment!.attachmentId === requestedAttachment!.attachmentId
-    ? "matched"
-    : "mismatch";
-}
-
-export type ManagedAgentCrossHarnessAdapterId = "kiln-managed-invocation";
-
-export interface ManagedAgentCrossHarnessInvocationCapability {
-  readonly harness: ManagedAgentExternalHarnessId;
-  readonly adapterId: ManagedAgentCrossHarnessAdapterId;
-  readonly supportedProviderIds: readonly string[];
-}
-
-const CROSS_HARNESS_INVOCATION_CAPABILITIES = {
-  claude: {
-    harness: "claude",
-    adapterId: "kiln-managed-invocation",
-    supportedProviderIds: ["codex-oauth", "opencode-go", "opencode-zen", "openrouter"],
-  },
-  codex: {
-    harness: "codex",
-    adapterId: "kiln-managed-invocation",
-    supportedProviderIds: ["opencode-go", "opencode-zen", "openrouter"],
-  },
-  opencode: {
-    harness: "opencode",
-    adapterId: "kiln-managed-invocation",
-    supportedProviderIds: ["codex-oauth"],
-  },
-} as const satisfies Record<ManagedAgentExternalHarnessId, ManagedAgentCrossHarnessInvocationCapability>;
-
-export function listManagedAgentCrossHarnessInvocationCapabilities(): readonly ManagedAgentCrossHarnessInvocationCapability[] {
-  return [
-    CROSS_HARNESS_INVOCATION_CAPABILITIES.claude,
-    CROSS_HARNESS_INVOCATION_CAPABILITIES.codex,
-    CROSS_HARNESS_INVOCATION_CAPABILITIES.opencode,
-  ];
-}
-
-export function getManagedAgentCrossHarnessInvocationCapability(
-  harness: ManagedAgentExternalHarnessId,
-): ManagedAgentCrossHarnessInvocationCapability {
-  return CROSS_HARNESS_INVOCATION_CAPABILITIES[harness];
-}
-
-export function supportsManagedAgentCrossHarnessProvider(
-  harness: ManagedAgentExternalHarnessId,
-  providerId: string,
-): boolean {
-  return getManagedAgentCrossHarnessInvocationCapability(harness).supportedProviderIds.includes(providerId);
-}
-
-export type ManagedAgentInvocationCapabilityDecision =
-  | "admitted"
-  | "denied";
-
-export interface ManagedAgentInvocationCapabilityAdapterEvidence {
-  readonly adapterDescriptorId: string;
-  readonly adapterId: string;
-}
-
-export interface ManagedAgentInvocationCapabilityEvidence {
-  readonly decision: ManagedAgentInvocationCapabilityDecision;
-  readonly reason: string;
-  readonly adapterEvidence: ManagedAgentInvocationCapabilityAdapterEvidence;
-}
-
 export type ManagedAgentChildAuthorityProof =
   | "proven"
   | "inferred"
@@ -530,7 +426,6 @@ export interface ManagedAgentCapabilitySnapshot {
   readonly routeSource: ManagedAgentRouteSource;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
   readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
-  readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof: ManagedAgentProviderModelProofSnapshot;
   readonly providerRoute: ManagedAgentProviderRoute;
@@ -552,7 +447,6 @@ export interface ManagedAgentCapabilitySnapshotInput {
   readonly routeSource: ManagedAgentRouteSource;
   readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
   readonly externalRuntimeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
-  readonly invocationCapabilityEvidence?: ManagedAgentInvocationCapabilityEvidence;
   readonly routeHealth?: ManagedAgentRouteHealthSnapshot;
   readonly providerModelProof?: ManagedAgentProviderModelProofSnapshot;
   readonly authorityEvidence?: ManagedAgentAuthorityEvidence;
@@ -624,8 +518,12 @@ export interface ManagedAgentCoordinationUsageReport {
 export interface ManagedAgentResultHandoff {
   readonly provenance: ManagedAgentResultHandoffProvenance;
   readonly summary: string;
+  /** Child-produced summaries are evidence, not authority. */
+  readonly summaryAuthority?: "runtime-derived" | "child-untrusted";
   readonly resourceUris: readonly string[];
   readonly memoryWriteProposalUris: readonly string[];
+  /** Runtime-derived evidence for state that is ephemeral to a native harness. */
+  readonly ephemeralHarnessState?: readonly ExecutionSessionEphemeralHarnessStateEvidence[];
   readonly structuredResult?: StructuredExecutionResult;
   readonly verificationUsage?: VerificationUsageReport;
 }
@@ -1204,9 +1102,6 @@ export function defineManagedAgentCapabilitySnapshot(input: ManagedAgentCapabili
     ...(input.externalRuntimeAttachment !== undefined
       ? { externalRuntimeAttachment: requireExternalRuntimeAttachmentIdentity(input.externalRuntimeAttachment) }
       : {}),
-    ...(input.invocationCapabilityEvidence !== undefined
-      ? { invocationCapabilityEvidence: requireInvocationCapabilityEvidence(input.invocationCapabilityEvidence) }
-      : {}),
     routeHealth: {
       status: requireRouteHealthStatus(input.routeHealth.status),
       reason: requireText(input.routeHealth.reason, "Managed capability snapshot route health reason is required"),
@@ -1306,31 +1201,6 @@ function requireCallerHarness(
     return harness;
   }
   throw new Error(`Unsupported managed invocation caller harness: ${String(harness)}`);
-}
-
-function requireInvocationCapabilityEvidence(
-  input: ManagedAgentInvocationCapabilityEvidence,
-): ManagedAgentInvocationCapabilityEvidence {
-  return {
-    decision: requireInvocationCapabilityDecision(input.decision),
-    reason: requireText(input.reason, "Managed invocation capability decision reason is required"),
-    adapterEvidence: {
-      adapterDescriptorId: requireText(
-        input.adapterEvidence.adapterDescriptorId,
-        "Managed invocation capability adapter descriptor id is required",
-      ),
-      adapterId: requireText(input.adapterEvidence.adapterId, "Managed invocation capability adapter id is required"),
-    },
-  };
-}
-
-function requireInvocationCapabilityDecision(
-  decision: ManagedAgentInvocationCapabilityDecision,
-): ManagedAgentInvocationCapabilityDecision {
-  if (decision === "admitted" || decision === "denied") {
-    return decision;
-  }
-  throw new Error(`Unsupported managed invocation capability decision: ${String(decision)}`);
 }
 
 export function buildManagedAgentAuthorityEvidence(input: {
@@ -1704,9 +1574,6 @@ export function buildManagedAgentCapabilitySnapshot(
     routeSource: input.routeSource,
     ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
     ...(input.externalRuntimeAttachment ? { externalRuntimeAttachment: input.externalRuntimeAttachment } : {}),
-    ...(input.invocationCapabilityEvidence
-      ? { invocationCapabilityEvidence: input.invocationCapabilityEvidence }
-      : {}),
     routeHealth: input.routeHealth ?? {
       status: "healthy",
       reason: "Route descriptor admitted by managed invocation policy.",
@@ -2416,14 +2283,73 @@ function requireResultHandoff(input: ManagedAgentResultHandoff): ManagedAgentRes
   return {
     provenance: requireResultHandoffProvenance(input.provenance),
     summary: requireText(input.summary, "Managed invocation result handoff summary is required"),
+    ...(input.summaryAuthority !== undefined
+      ? { summaryAuthority: requireSummaryAuthority(input.summaryAuthority) }
+      : {}),
     resourceUris: input.resourceUris.map((uri) => requireText(uri, "Managed invocation result resource uri is required")),
     memoryWriteProposalUris: input.memoryWriteProposalUris.map((uri) => requireText(uri, "Managed invocation memory proposal uri is required")),
+    ...(input.ephemeralHarnessState !== undefined
+      ? { ephemeralHarnessState: input.ephemeralHarnessState.map(requireEphemeralHarnessStateEvidence) }
+      : {}),
     ...(input.structuredResult !== undefined
       ? { structuredResult: defineStructuredExecutionResult(input.structuredResult) }
       : {}),
     ...(input.verificationUsage !== undefined
       ? { verificationUsage: defineVerificationUsageReport(input.verificationUsage) }
       : {}),
+  };
+}
+
+function requireSummaryAuthority(
+  value: ManagedAgentResultHandoff["summaryAuthority"],
+): NonNullable<ManagedAgentResultHandoff["summaryAuthority"]> {
+  if (value === "runtime-derived" || value === "child-untrusted") {
+    return value;
+  }
+  throw new Error(`Unsupported managed invocation summary authority: ${String(value)}`);
+}
+
+function requireEphemeralHarnessStateEvidence(
+  input: ExecutionSessionEphemeralHarnessStateEvidence,
+): ExecutionSessionEphemeralHarnessStateEvidence {
+  if (input.capabilityId !== "claude-code-private-plan-artifacts-v1") {
+    throw new Error(`Unsupported managed ephemeral harness capability: ${String(input.capabilityId)}`);
+  }
+  if (input.harness !== "claude-code") {
+    throw new Error(`Unsupported managed ephemeral harness: ${String(input.harness)}`);
+  }
+  for (const [name, value] of [
+    ["artifactCount", input.artifactCount],
+    ["createdCount", input.createdCount],
+    ["modifiedCount", input.modifiedCount],
+    ["deletedCount", input.deletedCount],
+  ] as const) {
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`Managed ephemeral harness ${name} must be a non-negative integer`);
+    }
+  }
+  if (input.artifactCount !== input.createdCount + input.modifiedCount + input.deletedCount) {
+    throw new Error("Managed ephemeral harness artifact count must equal its delta counts");
+  }
+  if (!/^[a-f0-9]{64}$/u.test(input.artifactDigest)) {
+    throw new Error("Managed ephemeral harness artifact digest must be a SHA-256 digest");
+  }
+  if (input.cleanupStatus !== "completed" && input.cleanupStatus !== "failed") {
+    throw new Error(`Unsupported managed ephemeral harness cleanup status: ${String(input.cleanupStatus)}`);
+  }
+  if (typeof input.unexpectedDelta !== "boolean") {
+    throw new Error("Managed ephemeral harness unexpected delta must be boolean");
+  }
+  return {
+    capabilityId: input.capabilityId,
+    harness: input.harness,
+    artifactCount: input.artifactCount,
+    createdCount: input.createdCount,
+    modifiedCount: input.modifiedCount,
+    deletedCount: input.deletedCount,
+    artifactDigest: input.artifactDigest,
+    cleanupStatus: input.cleanupStatus,
+    unexpectedDelta: input.unexpectedDelta,
   };
 }
 

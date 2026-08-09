@@ -3,12 +3,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  createNativeProjectionSnapshot,
   createNativeProjectionFileSnapshot,
-  detectNativeProjectionFileDrift,
+  createNativeProjectionSnapshot,
+  adoptLegacyNativeProjectionFile,
   detectNativeProjectionDrift,
+  detectNativeProjectionFileDrift,
   emptyNativeProjectionInstallState,
+  isFullyOwnedNativeProjectionFile,
   mergeManagedFields,
+  nativeProjectionFileMatchesDesired,
   readNativeProjectionInstallState,
   removeNativeProjectionTargetState,
   stripManagedFields,
@@ -99,6 +102,185 @@ describe("native projection install state", () => {
       state,
       currentContent: Uint8Array.from([0, 255, 17, 35]),
     })).toEqual({ targetId: target.targetId, driftedFields: ["$file"] });
+  });
+
+  it("recognizes canonical bytes for a fully-owned file despite a stale snapshot", () => {
+    const target = createNativeProjectionFileSnapshot({
+      targetId: "codex-skill:planner/SKILL.md",
+      filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
+      content: "historical\n",
+      harness: "codex",
+      sourceIdentity: "skill:planner/SKILL.md",
+    });
+
+    expect(isFullyOwnedNativeProjectionFile(target)).toBe(true);
+    expect(nativeProjectionFileMatchesDesired({
+      target,
+      currentContent: Buffer.from("canonical\n", "utf8"),
+      desiredContent: "canonical\n",
+      expected: {
+        targetId: target.targetId,
+        filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
+        harness: "codex",
+        sourceIdentity: "skill:planner/SKILL.md",
+      },
+    })).toBe(true);
+    expect(nativeProjectionFileMatchesDesired({
+      target,
+      currentContent: "operator drift\n",
+      desiredContent: "canonical\n",
+      expected: {
+        targetId: target.targetId,
+        filePath: target.filePath,
+        harness: "codex",
+        sourceIdentity: "skill:planner/SKILL.md",
+      },
+    })).toBe(false);
+
+    expect(nativeProjectionFileMatchesDesired({
+      target,
+      currentContent: "canonical\n",
+      desiredContent: "canonical\n",
+      expected: {
+        targetId: target.targetId,
+        filePath: target.filePath,
+        harness: "claude",
+        sourceIdentity: "skill:planner/SKILL.md",
+      },
+    })).toBe(false);
+    expect(nativeProjectionFileMatchesDesired({
+      target,
+      currentContent: "canonical\n",
+      desiredContent: "canonical\n",
+      expected: {
+        targetId: target.targetId,
+        filePath: target.filePath.replace("planner", "other"),
+        harness: "codex",
+        sourceIdentity: "skill:planner/SKILL.md",
+      },
+    })).toBe(false);
+    expect(nativeProjectionFileMatchesDesired({
+      target,
+      currentContent: "canonical\n",
+      desiredContent: "canonical\n",
+      expected: {
+        targetId: "codex-skill:other/SKILL.md",
+        filePath: target.filePath,
+        harness: "codex",
+        sourceIdentity: "skill:planner/SKILL.md",
+      },
+    })).toBe(false);
+
+    const documentTarget = createNativeProjectionSnapshot({
+      targetId: "codex-config",
+      filePath: "C:/Users/test/.codex/config.toml",
+      document: { model: "gpt-5.4" },
+      managedFields: ["model"],
+    });
+    expect(isFullyOwnedNativeProjectionFile(documentTarget)).toBe(false);
+  });
+
+  it("adopts a legacy file snapshot when historical bytes still match", () => {
+    const historical = createNativeProjectionFileSnapshot({
+      targetId: "codex-skill:planner/SKILL.md",
+      filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
+      content: "historical\n",
+    });
+    const legacy = {
+      ...historical,
+      projectionKind: undefined,
+      installedContentHash: historical.contentHash,
+    };
+    const adopted = adoptLegacyNativeProjectionFile({
+      target: legacy,
+      currentContent: "historical\n",
+      expected: {
+        targetId: historical.targetId,
+        filePath: historical.filePath,
+        harness: "codex",
+        sourceIdentity: "user:planner/SKILL.md",
+      },
+      harnessRoot: "C:/Users/test/.codex/skills",
+    });
+
+    expect(adopted).toMatchObject({
+      targetId: historical.targetId,
+      filePath: historical.filePath,
+      projectionKind: "file",
+      harness: "codex",
+      sourceIdentity: "user:planner/SKILL.md",
+      managedFields: ["$file"],
+    });
+    expect(adopted?.contentHash).toBe(historical.contentHash);
+
+    const sparseLegacy = { ...legacy, projectionKind: "file" as const };
+    delete (sparseLegacy as { managedFields?: unknown }).managedFields;
+    delete (sparseLegacy as { managedFieldHashes?: unknown }).managedFieldHashes;
+    expect(adoptLegacyNativeProjectionFile({
+      target: sparseLegacy,
+      currentContent: "historical\n",
+      expected: {
+        targetId: historical.targetId,
+        filePath: historical.filePath,
+        harness: "codex",
+        sourceIdentity: "user:planner/SKILL.md",
+      },
+      harnessRoot: "C:/Users/test/.codex/skills",
+    })).toMatchObject({ projectionKind: "file" });
+  });
+
+  it("does not adopt canonical bytes when every historical hash disagrees", () => {
+    const historical = createNativeProjectionFileSnapshot({
+      targetId: "codex-skill:planner/SKILL.md",
+      filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
+      content: "historical\n",
+    });
+
+    expect(adoptLegacyNativeProjectionFile({
+      target: { ...historical, projectionKind: undefined, installedContentHash: historical.contentHash },
+      currentContent: "canonical\n",
+      expected: {
+        targetId: historical.targetId,
+        filePath: historical.filePath,
+        harness: "codex",
+        sourceIdentity: "user:planner/SKILL.md",
+      },
+      harnessRoot: "C:/Users/test/.codex/skills",
+    })).toBeUndefined();
+  });
+
+  it("rejects legacy content drift, explicit identity mismatch, and paths outside the root", () => {
+    const historical = createNativeProjectionFileSnapshot({
+      targetId: "codex-skill:planner/SKILL.md",
+      filePath: "C:/Users/test/.codex/skills/planner/SKILL.md",
+      content: "historical\n",
+    });
+    const legacy = { ...historical, projectionKind: undefined, installedContentHash: historical.contentHash };
+    const expected = {
+      targetId: historical.targetId,
+      filePath: historical.filePath,
+      harness: "codex" as const,
+      sourceIdentity: "user:planner/SKILL.md",
+    };
+
+    expect(adoptLegacyNativeProjectionFile({
+      target: legacy,
+      currentContent: "operator drift\n",
+      expected,
+      harnessRoot: "C:/Users/test/.codex/skills",
+    })).toBeUndefined();
+    expect(adoptLegacyNativeProjectionFile({
+      target: { ...legacy, sourceIdentity: "project:planner/SKILL.md" },
+      currentContent: "canonical\n",
+      expected,
+      harnessRoot: "C:/Users/test/.codex/skills",
+    })).toBeUndefined();
+    expect(adoptLegacyNativeProjectionFile({
+      target: { ...legacy, filePath: "C:/Users/test/outside/SKILL.md" },
+      currentContent: "canonical\n",
+      expected,
+      harnessRoot: "C:/Users/test/.codex/skills",
+    })).toBeUndefined();
   });
 
   it("merges managed fields without clobbering unmanaged native keys", () => {

@@ -39,6 +39,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest,
       managedInvocation,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       lifecycleObserver: {
         onAdmissionResolved: ({ request, decision }) => {
           admissions.push(`${request.invocationId}:${decision.status}`);
@@ -102,6 +104,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       }),
       managedInvocation: createManagedInvocation(),
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     });
 
     expect(result.orchestrationResult).toMatchObject({
@@ -126,6 +130,11 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       routeId: "test-write-secondary",
       providerId: "codex",
       model: "kimi-k2.7",
+      capability: {
+        ...primaryRoute.capability,
+        identity: { ...primaryRoute.capability.identity, routeId: "test-write-secondary" },
+        target: { providerId: "codex", modelId: "kimi-k2.7" },
+      },
     };
 
     const result = await runManagedAgentOrchestrationLifecycle({
@@ -159,6 +168,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         routes: [primaryRoute, secondaryRoute],
       },
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     });
 
     expect(result.orchestrationResult.childResults.map((child) => child.routeId)).toEqual([
@@ -200,6 +211,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         requestObserver: (request) => observedInvocations.push(request.invocationId),
       }),
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     });
 
     expect(observedInvocations).toEqual(["blocked-team-test:child:1"]);
@@ -233,13 +246,24 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       }),
       managedInvocation: createManagedInvocation(),
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     })).rejects.toThrow("unknown agent profile 'invented-agent'");
   });
 
   it("executes non-mutating review through a read-only route without a worktree lease", async () => {
     const managedInvocation = createReadOnlyManagedInvocation();
     const primaryRoute = managedInvocation.routes[0]!;
-    const secondaryRoute = { ...primaryRoute, routeId: "test-read-only-secondary", model: "gpt-5.6-terra" };
+    const secondaryRoute = {
+      ...primaryRoute,
+      routeId: "test-read-only-secondary",
+      model: "gpt-5.6-terra",
+      capability: {
+        ...primaryRoute.capability,
+        identity: { ...primaryRoute.capability.identity, routeId: "test-read-only-secondary" },
+        target: { ...primaryRoute.capability.target, modelId: "gpt-5.6-terra" },
+      },
+    };
     const result = await runManagedAgentOrchestrationLifecycle({
       orchestrationRequest: buildManagedAgentReviewSwarmOrchestrationRequest({
         orchestrationId: "review-read-only-test",
@@ -293,6 +317,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({ failOrdinals: new Set([2]) }),
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     });
 
     expect(result.orchestrationResult.status).toBe("partial");
@@ -308,6 +334,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: request(2),
       managedInvocation: createManagedInvocation({ recoveredOrdinals: new Set([2]) }),
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     });
 
     expect(result.orchestrationResult.status).toBe("completed");
@@ -324,6 +352,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("durable economic commitment");
 
@@ -342,6 +372,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: request(2),
       managedInvocation,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       lifecycleObserver: {
         onAdmissionResolved: () => undefined,
         onTerminal: ({ request, record }) => {
@@ -397,6 +429,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         invocationService: fakeService as unknown as RuntimeManagedAgentInvocationService,
       },
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     })).rejects.toThrow("Managed orchestration child start failed");
 
     expect(joined).toBe(true);
@@ -412,6 +446,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         deniedPaths: ["c:\\repo\\.git"],
       }),
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     });
 
     expect(result.childRecords[0]?.record?.authority.writeAuthority?.scope.workspace.allowedPaths).toEqual([
@@ -449,20 +485,16 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         }],
       },
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       lifecycleObserver: {
         onAdmissionResolved: ({ decision }) => {
           decisions.push(decision);
         },
       },
-    })).rejects.toThrow(/externalRuntimeAttachment\.missing/);
+    })).rejects.toThrow("external-runtime-attachment-unsupported-route");
 
-    expect(decisions.length).toBeGreaterThan(0);
-    for (const decision of decisions) {
-      expect(decision).toMatchObject({
-        status: "denied",
-        missingCapabilities: ["externalRuntimeAttachment.missing"],
-      });
-    }
+    expect(decisions).toEqual([]);
     expect(observedRequests).toEqual([]);
     expect(managedInvocation.invocationService?.list()).toEqual([]);
   });
@@ -475,6 +507,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         routes: [],
       },
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
     })).rejects.toThrow("Managed orchestration requires an isolated-worktree");
   });
 
@@ -547,6 +581,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         economicDispatch: { prepare: preparation },
       },
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
 
@@ -563,6 +599,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("already dispatch-fenced");
 
@@ -577,6 +615,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         orchestrationRequest: economicRequest(2),
         managedInvocation: managedInvocation.options,
         profile: "foundation-apply-approved-writes",
+        callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+        requestedAuthority: "audited",
         economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
       });
 
@@ -612,6 +652,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("synthetic second preparation failure");
 
@@ -647,6 +689,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       }),
       managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     });
 
@@ -661,6 +705,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
       orchestrationRequest: economicRequest(2),
       managedInvocation: managedInvocation.options,
       profile: "foundation-apply-approved-writes",
+      callerIdentity: { kind: "kiln-runtime", surface: "test", attachmentId: "attachment:test", parentEffectiveRequestedAuthority: "destructive" },
+      requestedAuthority: "audited",
       economicAdoptedDecisionAt: "2026-08-01T00:00:00.000Z",
     })).rejects.toThrow("already dispatch-fenced");
 
@@ -738,7 +784,20 @@ function createManagedInvocation(input: {
       providerId: "codex",
       model: "gpt-5.5",
       surface: "cli-harness",
+      capability: {
+        identity: { routeId: "test-write", revision: "test-v1" },
+        target: { providerId: "codex", modelId: "gpt-5.5" },
+        adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
+        authorityCeiling: "destructive", toolNames: ["read", "grep", "apply-patch"], supportsRecursion: true, supportsAttachments: false, supportsWrite: true,
+        proof: { status: "configured", source: "test", provenProfiles: ["foundation-apply-approved-writes"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+      },
       adapter: createAdapter({
+        failOrdinals: input.failOrdinals ?? new Set(),
+        recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
+        holdOrdinals: input.holdOrdinals ?? new Set(),
+        ...(input.requestObserver ? { requestObserver: input.requestObserver } : {}),
+      }),
+      createAdapter: async () => createAdapter({
         failOrdinals: input.failOrdinals ?? new Set(),
         recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
         holdOrdinals: input.holdOrdinals ?? new Set(),
@@ -930,10 +989,20 @@ function createReadOnlyManagedInvocation(): ManagedInvocationToolOptions {
       providerId: "codex",
       model: "gpt-5.5",
       surface: "cli-harness",
+      capability: {
+        identity: { routeId: "test-read-only", revision: "test-v1" },
+        target: { providerId: "codex", modelId: "gpt-5.5" },
+        adapter: { kind: "cli-harness", capabilityId: "codex-cli", capabilityVersion: "1" },
+        authorityCeiling: "audited", toolNames: ["read", "grep"], supportsRecursion: true, supportsAttachments: false, supportsWrite: false,
+        proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
+      },
       adapter: createAdapter({
         failOrdinals: new Set(),
         recoveredOrdinals: new Set(),
         holdOrdinals: new Set(),
+      }),
+      createAdapter: async () => createAdapter({
+        failOrdinals: new Set(), recoveredOrdinals: new Set(), holdOrdinals: new Set(),
       }),
       profiles: {
         "foundation-readonly-plan": {

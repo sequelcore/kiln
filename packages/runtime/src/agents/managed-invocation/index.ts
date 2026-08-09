@@ -146,6 +146,7 @@ export {
   MANAGED_AGENT_STATUS_TOOL,
   MANAGED_AGENT_STATUS_TOOL_NAME,
   collectManagedEconomicCandidates,
+  digestManagedEconomicCandidateProfileAuthority,
   ManagedCommittedRouteMismatchError,
 } from "./runtime-tool/index.js";
 export type {
@@ -167,7 +168,7 @@ export type {
   ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,
 } from "./runtime-tool/index.js";
-export { evaluateManagedInvocationCallerCapability } from "./caller-capability-policy.js";
+export { deriveManagedInvocationCallerAuthority } from "./caller-capability-policy.js";
 export { ManagedEconomicDispatchCoordinator } from "./economic-dispatch-coordinator.js";
 export type {
   ManagedEconomicDispatchAdoption,
@@ -177,7 +178,6 @@ export type {
   ManagedEconomicDispatchPrepareInput,
   ManagedEconomicLifecycleEventPort,
 } from "./economic-dispatch-coordinator.js";
-export type { ManagedInvocationCallerCapabilityInput } from "./caller-capability-policy.js";
 export { ManagedAgentRuntimeAdmissionError } from "./errors.js";
 
 export { ManagedAgentLeaseAcquireError, ManagedAgentWorktreeReviewRequiredError } from "./lease-errors.js";

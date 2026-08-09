@@ -1,7 +1,10 @@
 import { CredentialPool, type Credential } from "@kilnai/core";
 import { describe, expect, it, vi } from "vitest";
 import { PooledHarnessSession } from "../../src/wrapper/pooled-harness-session.js";
-import type { ExecutionSessionEvent } from "@kilnai/core";
+import type {
+  ExecutionSessionEphemeralHarnessStateEvidence,
+  ExecutionSessionEvent,
+} from "@kilnai/core";
 import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "../../src/wrapper/session.js";
 
 const CAPABILITIES: SessionCapabilities = {
@@ -21,12 +24,16 @@ class MockSession implements IKilnSession {
   readonly sessionId: string;
   readonly providerSessionId = undefined;
   readonly capabilities = CAPABILITIES;
+  readonly observedHarnessVersion?: string;
 
   constructor(
     sessionId: string,
     private readonly events: readonly ExecutionSessionEvent[],
+    private pendingEvidence: readonly ExecutionSessionEphemeralHarnessStateEvidence[] = [],
+    observedHarnessVersion?: string,
   ) {
     this.sessionId = sessionId;
+    this.observedHarnessVersion = observedHarnessVersion;
   }
 
   async *run(_options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
@@ -36,6 +43,12 @@ class MockSession implements IKilnSession {
   }
 
   async dispose(): Promise<void> {}
+
+  drainEphemeralHarnessStateEvidence(): readonly ExecutionSessionEphemeralHarnessStateEvidence[] {
+    const evidence = this.pendingEvidence;
+    this.pendingEvidence = [];
+    return evidence;
+  }
 }
 
 describe("PooledHarnessSession", () => {
@@ -67,6 +80,22 @@ describe("PooledHarnessSession", () => {
       { type: "text_delta", content: "default output" },
     ]);
     expect(session.sessionId).toBe("kiln-tui:session-1");
+  });
+
+  it("retains the observed inner harness version after the pooled session is disposed", async () => {
+    const session = new PooledHarnessSession({
+      provider: "claude-code",
+      pool: new CredentialPool<{ homeDir: string }>("claude-code"),
+      createSession: () => new MockSession("pooled-session", []),
+      createDefaultSession: () => new MockSession("default-session", [
+        { type: "text_delta", content: "output" },
+      ], [], "2.1.226"),
+    });
+
+    await collect(session.run({ prompt: "inspect" }));
+    await session.dispose();
+
+    expect(session.observedHarnessVersion).toBe("2.1.226");
   });
 
   it("rotates to the next wrapper home after a 429 and discards failed-attempt events", async () => {
@@ -125,6 +154,35 @@ describe("PooledHarnessSession", () => {
       { type: "text_delta", content: "default output" },
     ]);
     expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it("forwards evidence finalized by the selected pooled session during disposal", async () => {
+    const pool = new CredentialPool<{ homeDir: string }>("codex", {
+      credentials: [credential("selected", "C:/codex/selected")],
+    });
+    const evidence: ExecutionSessionEphemeralHarnessStateEvidence = {
+      capabilityId: "claude-code-private-plan-artifacts-v1",
+      harness: "claude-code",
+      artifactCount: 1,
+      createdCount: 1,
+      modifiedCount: 0,
+      deletedCount: 0,
+      artifactDigest: "a".repeat(64),
+      cleanupStatus: "completed",
+      unexpectedDelta: false,
+    };
+    const session = new PooledHarnessSession({
+      provider: "codex",
+      pool,
+      createSession: () => new MockSession("selected-session", [], [evidence]),
+      createDefaultSession: () => new MockSession("default-session", []),
+    });
+
+    await collect(session.run({ prompt: "do work" }));
+    await session.dispose();
+
+    expect(session.drainEphemeralHarnessStateEvidence?.()).toEqual([evidence]);
+    expect(session.drainEphemeralHarnessStateEvidence?.()).toEqual([]);
   });
 });
 

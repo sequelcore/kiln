@@ -70,7 +70,8 @@ function snapshot(): ManagedEconomicAdoptedSnapshot {
         providerId: route.providerId, modelId: route.modelId,
         adapterCapabilityId: route.adapterCapabilityId,
         adapterCapabilityVersion: route.adapterCapabilityVersion,
-        accountPolicy: { kind: "accountless" } },
+        accountPolicy: { kind: "accountless" },
+        profileAuthorityDigest: `sha256:${"9".repeat(64)}` },
       route, comparisonDomain: domain, priorityRank: 0, priceEvidence,
       rateSchedule: { unitRates: rates, auxiliaryCharges },
       executionEnvelope: { kind: "bounded", digest: route.envelopeDigest, limits: [{
@@ -256,6 +257,20 @@ describe("managed economic commitment authority", () => {
       state: "settlement-pending",
       lease: { lifecycleState: "held" },
     });
+  });
+
+  it("shares physical account capacity with account-only gateway acquisition in both orders", () => {
+    const adopted = accountSnapshot(); const { route, candidate } = accountCapacity(adopted);
+    const economic = create();
+    expect(economic.acquireCommitment({ ...input(adopted), routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }] })).toMatchObject({ status: "committed" });
+    expect(economic.acquireAccountCapacity({ runtimeInvocationId: "gateway-after-economic", intentFingerprint: `sha256:${"a".repeat(64)}`, accountPolicyId: "managed-policy", route, candidates: [candidate] }))
+      .toMatchObject({ status: "unavailable" });
+
+    const gateway = create();
+    expect(gateway.acquireAccountCapacity({ runtimeInvocationId: "gateway-before-economic", intentFingerprint: `sha256:${"b".repeat(64)}`, accountPolicyId: "managed-policy", route, candidates: [candidate] }))
+      .toMatchObject({ status: "acquired" });
+    expect(gateway.acquireCommitment({ ...input(adopted), routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }] }))
+      .toMatchObject({ status: "denied" });
   });
 
   it("persists exact final-unit denial evidence and replays it without partial reservation", () => {

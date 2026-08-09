@@ -3,21 +3,26 @@
 Status: Active delivery track
 Execution: Slices 1–4 are complete. Issue #34 closeout is divided into `#34-S5` through `#34-S8`, deliberately distinct from this roadmap's Slice 5 and Slice 6. `#34-S5` makes Runtime SQLite economic commitment the sole selection authority and persists the dispatch fence before adapter or credential materialization. `#34-S6` defines the versioned canonical lifecycle evidence. `#34-S7` proves its portable, cross-surface projection. `#34-S8` adds the managed-job replay evidence join.
 
+Implementation update: Slice 5 is complete in issue #39 with portable SQLite
+and Runtime tests. It establishes the shared user-scoped ledger for Gateway and
+managed capacity/affinity, but does not claim a live provider proof.
+
 The canonical `managed_economic_lifecycle` session event now requires `evidenceVersion: 1`; there is no compatibility reader. Rejections are typed, secret-free, and staged as `economic-selection`, `account-selection`, `local-capacity`, or `commitment-conflict`. One portable fixture covers the seven lifecycle transitions, every rejection stage, malformed-version rejection, and secret-shaped negative evidence. Gateway projection is total: malformed evidence is explicit `unprojectableEvidence`, including the former `readOptionalStringList`, `readWorktreeReview`, and `readWorktreeConflict` residuals, rather than silently dropped.
 
-CLI (`kiln managed-agent list`), TUI, and GUI render the shared session-event cockpit projection; the SDK exports the same contract. Native is explicitly excluded from this #34 surface scope and remains unwired. Managed-job V7 does not synthesize RuntimeSession or cockpit events: its replay is MCP-only. `kiln_managed_agent_replay` reads the durable Runtime SQLite authority through a port and exact `jobId` plus `economicAttemptId` join, without a second store or authority; unavailable or unprojectable evidence remains explicit.
+CLI (`kiln managed-agent list`), TUI, and GUI render the shared session-event cockpit projection; the SDK exports the same contract. Native remains excluded from this #34 cockpit-event scope, but the provider-neutral managed-job V9 MCP contract now admits explicit `native-harness` routes. Managed jobs do not synthesize RuntimeSession or cockpit events: economic replay joins the durable Runtime SQLite authority by `jobId` plus `economicAttemptId`, while native replay returns its exact route acknowledgement and dispatch fence from the single job owner. Unavailable or unprojectable evidence remains explicit.
 
-The real SQLite coordinator proof rejects Codex at its economic ceiling, selects OpenCode, persists the fence before adapter construction, and shows zero Codex adapter, credential, quota, MCP, process, and provider activity. The proof makes no cheapest/free claim, no provider-global exclusivity claim, and performs no live/provider spend. Issue #39 is unblocked only by this #34 closeout; its convergence work is not implemented by it.
+The real SQLite coordinator proof rejects Codex at its economic ceiling, selects OpenCode, persists the fence before adapter construction, and shows zero Codex adapter, credential, quota, MCP, process, and provider activity. The proof makes no cheapest/free claim, no provider-global exclusivity claim, and performs no live/provider spend. Issue #34 supplied the economic commitment consumed by the shared account authority later implemented in issue #39.
 
 Closeout verification passed 43 scripts, 324 Gateway-contracts tests, 11 tools tests, 3,800 Core tests, 3,242 Runtime tests (5 skipped) plus Bun SQLite checks, canonical CLI tests, 71 SDK tests, 67 Widget tests, 62 TUI tests, 49 Native tests, no Studio tests, and 506 GUI tests. The dependency-ordered build covered 11 workspaces; canonical typecheck, `git diff --check`, and independent review reported no High or Medium findings.
 Created: 2026-07-23
 
-> Managed jobs dispatch only through an issue #34 economic commitment. Runtime
-> atomically selects and reserves one route/account identity, persists the
-> dispatch fence before adapter or credential materialization, and accepts only
-> typed settlement bound to that identity and fence. Missing or ambiguous
-> post-fence settlement remains capacity-consuming. This is Kiln-local
-> reservation authority, not provider-global exclusivity.
+> Economic managed jobs dispatch only through an issue #34 economic commitment.
+> Native-harness managed jobs use the same Runtime-owned precommit/fence/replay
+> boundary but carry no economic policy, account, quota, price, candidate, or
+> settlement evidence. Runtime persists the exact route acknowledgement and
+> fences before adapter/process materialization; native work interrupted by a
+> restart is never silently redispatched. This is Kiln-local authority, not
+> provider-global exclusivity.
 
 ## Objective
 
@@ -143,10 +148,11 @@ reservations and ceilings without claiming free execution without evidence.
 
 Core now adopts one immutable economic snapshot with canonical sorted SHA-256
 digests over the policy, candidate set, price/rate evidence, and full decision
-basis. Managed-job V7 is the sole persisted contract and durably pins a
-namespaced `economicAttemptId`, `adoptedDecisionAt`, objective, and canonical
-terminal handoff. The operator-approved reset in issue #43 retired every
-pre-V7 reader without a compatibility path.
+basis. Managed-job V9 is the sole persisted contract. Its economic branch
+durably pins a namespaced `economicAttemptId`, while its native-harness branch
+pins exact route identity and a versioned acknowledgement without economic
+fields. The operator-approved reset retired every pre-V9 reader without a
+compatibility path.
 
 One project-runtime SQLite writer performs route capacity, account-backed or
 accountless selection, reservation, and commitment synchronously in one
@@ -203,17 +209,23 @@ merge:
   tests previously asserted against. This is a deliberately bounded piece of
   `#34-S6` (Runtime + one representative consumer only). `#34-S7` and
   `#34-S8` completed the portable fixture, active-surface/SDK parity, and the
-  exact V7-to-MCP authority replay join described above.
+exact economic V9-to-MCP authority replay join described above; native-harness
+V9 replay remains a direct exact-route projection without economic authority.
 
 ### Slice 5 - Cross-Path Account Authority Convergence
 
-Status: Queued after managed economic commitment and dispatch proof.
+Status: Implemented in issue #39; portable SQLite and Runtime tests prove the
+shared-authority contract. Live provider proof is not claimed.
 
-Unify capacity and affinity authority when Model Gateway ingress and managed
-jobs target the same configured accounts. Replace the ingress
-`LocalModelGatewayStore` lease deletion and last-writer-wins affinity behavior
-with the same stable-capacity, settlement-conservative, fenced semantics,
-without importing gateway process recovery into managed invocation.
+One user-scoped physical SQLite ledger is now the single writer when Model
+Gateway ingress and managed jobs target the same configured capacity identity.
+Economic commitments remain project-namespaced. Participant ownership is keyed
+by kind, recovery domain, and owner generation/configuration revision, so stale
+participants cannot release, settle, or overwrite newer work. Accountless and
+account-bound selections remain explicit. Dispatch fencing, typed settlement,
+conservative recovery, and affinity CAS apply to both participants. The replay
+store retains replay, cooldown, and evidence only; it has no capacity, affinity,
+or commitment authority.
 
 ### Slice 6 - Governed Structured Write Approval
 
@@ -274,10 +286,12 @@ approval-consumption tests before its bounded disposable-repository live proof.
 
 ## Completion Criteria
 
-Managed jobs have deterministic, explainable, replayable economic route and
-account-backed or accountless commitment, fenced dispatch, typed settlement,
-and conservative recovery with no harness-specific policy owner.
+Managed jobs and Gateway ingress share deterministic, explainable, replayable
+account capacity and affinity authority. Economic commitments remain
+project-namespaced; account-bound or accountless commitment, fenced dispatch,
+typed settlement, and conservative recovery have no harness-specific policy
+owner. This is Kiln-local only, not provider-global coordination.
 Structured/headless approved writes remain unavailable until Slice 6 supplies
 canonical approval evidence; fail-closed structured output is the required
-interim behavior. Model Gateway authority convergence remains Roadmap 02 Slice
-5.
+interim behavior. Live provider verification remains separate from the
+portable implementation proof.
