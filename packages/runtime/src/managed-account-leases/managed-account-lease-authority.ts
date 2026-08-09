@@ -25,11 +25,14 @@ import {
   type ManagedEconomicQuotaEvidence,
   type ManagedEconomicSelectionDecision,
   type ManagedEconomicSettlement,
+  type ManagedEconomicEvidenceIdentity,
+  type SessionManagedEconomicRejection,
   validateManagedEconomicSettlement,
   type ModelGatewayAccountEconomicsConfig,
   selectManagedEconomicExecutionAlternative,
   validateManagedEconomicAdoptedSnapshot,
 } from "@kilnai/core";
+import { projectManagedEconomicDenialRejections } from "./managed-economic-denial-rejections.js";
 import type { ManagedAgentProviderRoute } from "@kilnai/core";
 import type { ModelGatewayBoundUsageEvidence } from "../model-gateway/model-gateway-account-binding.js";
 
@@ -474,6 +477,19 @@ export class SqliteManagedAccountLeaseAuthority {
     return used <= BigInt(ceiling.atoms) ? "available" : "exhausted";
   }
 
+  #reservationExceedsCeiling(
+    requested: readonly ManagedEconomicAmount[],
+    ceiling: ManagedEconomicAmount,
+  ): boolean {
+    let reserved = 0n;
+    for (const amount of requested) {
+      const scaled = amountInScale(amount, ceiling);
+      if (scaled === null) return false;
+      reserved += scaled;
+    }
+    return reserved > BigInt(ceiling.atoms);
+  }
+
   #insertEconomicLease(
     input: ManagedEconomicCommitmentAcquireInput,
     commitmentId: string,
@@ -689,10 +705,12 @@ export class SqliteManagedAccountLeaseAuthority {
         const local = capacities.get(adopted.route.routeId);
         if (!local) throw new TypeError(`Missing local capacity for economic route ${adopted.route.routeId}.`);
         if (adopted.route.accountPolicyId === null) {
+          const reservationExceedsCeiling = adopted.ceiling.kind === "finite"
+            && this.#reservationExceedsCeiling(reservationAmounts(adopted), adopted.ceiling.amount);
           const capacity = adopted.ceiling.kind === "finite"
             ? this.#hasEconomicCapacity(adopted.route.routeId, adopted.ceiling.amount, reservationAmounts(adopted))
             : "available";
-          if (capacity !== "available") {
+          if (capacity !== "available" && !reservationExceedsCeiling) {
             authorityRejections.push({
               stage: "local-capacity", routeId: adopted.route.routeId,
               reason: capacity === "exhausted" ? "route-capacity-exhausted" : "comparison-domain-incompatible",
@@ -724,10 +742,12 @@ export class SqliteManagedAccountLeaseAuthority {
         });
         authorityRejections.push({ stage: "account-selection", routeId: adopted.route.routeId, rejections: selection.rejections });
         if (!selection.selected) continue;
+        const reservationExceedsCeiling = adopted.ceiling.kind === "finite"
+          && this.#reservationExceedsCeiling(reservationAmounts(adopted), adopted.ceiling.amount);
         const capacity = adopted.ceiling.kind === "finite"
           ? this.#hasEconomicCapacity(adopted.route.routeId, adopted.ceiling.amount, reservationAmounts(adopted))
           : "available";
-        if (capacity !== "available") {
+        if (capacity !== "available" && !reservationExceedsCeiling) {
           authorityRejections.push({
             stage: "local-capacity", routeId: adopted.route.routeId,
             reason: capacity === "exhausted" ? "route-capacity-exhausted" : "comparison-domain-incompatible",
@@ -767,7 +787,7 @@ export class SqliteManagedAccountLeaseAuthority {
         alternatives,
       });
       if (decision.kind === "denied") {
-        const evidence = { decision, authorityRejections } satisfies ManagedEconomicAuthorityDecisionEvidence;
+        const evidence = { evidenceVersion: 1, policy: policyEvidence(input.snapshot), decision, authorityRejections } satisfies ManagedEconomicAuthorityDecisionEvidence;
         this.#insertCommitmentDecision(input, evidence);
         return { status: "denied", decision, evidence, replay: false };
       }
@@ -821,7 +841,7 @@ export class SqliteManagedAccountLeaseAuthority {
         selected.identity.route.routeId,
         selected.identity.account.kind === "account-bound" ? selected.identity.account.capacityIdentity : null,
         JSON.stringify(amounts), this.#ownerId, this.#ownerGeneration, leaseId, null,
-        JSON.stringify({ decision, authorityRejections }), JSON.stringify(commitment),
+        JSON.stringify({ evidenceVersion: 1, policy: policyEvidence(input.snapshot), decision, authorityRejections } satisfies ManagedEconomicAuthorityDecisionEvidence), JSON.stringify(commitment),
       );
       return resultFromCommitmentRow(this.#requiredCommitmentRow(input.jobId, input.economicAttemptId), this.#rowForOptionalLease(leaseId), false);
     });
@@ -955,6 +975,42 @@ export class SqliteManagedAccountLeaseAuthority {
         return row.state === "held" ? "committed" : "dispatch-fenced";
       },
     };
+  }
+
+  createManagedJobReplayInspectionPort(): ManagedEconomicReplayInspectionPort {
+    return { inspect: ({ jobId, economicAttemptId }) => this.#transaction(() => {
+      this.#heartbeat();
+      const row = this.#commitmentRow(jobId, economicAttemptId);
+      if (row === null) return undefined;
+      const decision = parseAuthorityDecisionEvidence(row.decision_json);
+      if (row.state === "denied") {
+        if (decision.decision.kind !== "denied") throw new Error("Managed economic denied replay evidence is unprojectable.");
+        return {
+          evidenceVersion: 1, status: "denied", policyId: decision.policy.policyId, policyRevision: decision.policy.policyRevision, policyDigest: decision.policy.policyDigest,
+          rejections: projectManagedEconomicDenialRejections({ status: "denied", decision: decision.decision, evidence: decision, replay: true }),
+        };
+      }
+      if (decision.decision.kind !== "selected" || row.commitment_json === null) {
+        throw new Error("Managed economic replay evidence is unprojectable.");
+      }
+      const commitment = JSON.parse(row.commitment_json) as { commitmentId?: unknown; reservation?: { reservationId?: unknown; selectedIdentity?: { route?: unknown; account?: unknown } } };
+      const route = commitment.reservation?.selectedIdentity?.route;
+      const account = commitment.reservation?.selectedIdentity?.account;
+      const selectedRoute = projectSanitizedReplayRoute(route);
+      const selectedAccount = projectSanitizedReplayAccount(account);
+      if (!selectedRoute || !selectedAccount || typeof commitment.commitmentId !== "string" || typeof commitment.reservation?.reservationId !== "string") {
+        throw new Error("Managed economic replay commitment evidence is unprojectable.");
+      }
+      const settlement = row.settlement_json === null ? undefined : JSON.parse(row.settlement_json) as { kind?: unknown };
+      if (settlement !== undefined && !isReplaySettlement(settlement)) throw new Error("Managed economic replay settlement evidence is unprojectable.");
+      return {
+        evidenceVersion: 1, status: row.state, policyId: decision.policy.policyId, policyRevision: decision.policy.policyRevision, policyDigest: decision.policy.policyDigest,
+        commitmentId: commitment.commitmentId, reservationId: commitment.reservation.reservationId,
+        ...(row.dispatch_fence_id !== null ? { dispatchFenceId: row.dispatch_fence_id } : {}),
+        selectedRoute, selectedAccount,
+        ...(settlement ? { settlementKind: settlement.kind, ...(settlement.evidence ? { settlementAuthority: settlement.evidence.authority } : {}) } : {}),
+      };
+    }) };
   }
 
   recoverCommitments(
@@ -1222,8 +1278,45 @@ export type ManagedEconomicAuthorityRejection =
     };
 
 export interface ManagedEconomicAuthorityDecisionEvidence {
+  readonly evidenceVersion: 1;
+  readonly policy: { readonly policyId: string; readonly policyRevision: string; readonly policyDigest: string };
   readonly decision: ManagedEconomicSelectionDecision;
   readonly authorityRejections: readonly ManagedEconomicAuthorityRejection[];
+}
+
+/** Read-only authority evidence safe to expose through managed-job replay. */
+export type ManagedEconomicReplayEvidence =
+  | {
+      readonly evidenceVersion: 1;
+      readonly status: "denied";
+      readonly policyId: string;
+      readonly policyRevision: string;
+      readonly policyDigest: string;
+      readonly rejections: readonly SessionManagedEconomicRejection[];
+    }
+  | {
+      readonly evidenceVersion: 1;
+      readonly status: Exclude<ManagedEconomicCommitmentState, "denied">;
+      readonly policyId: string;
+      readonly policyRevision: string;
+      readonly policyDigest: string;
+      readonly commitmentId: string;
+      readonly reservationId: string;
+      readonly dispatchFenceId?: string;
+      readonly selectedRoute: {
+        readonly routeId: string; readonly providerId: string; readonly modelId: string;
+        readonly adapterCapabilityId: string; readonly adapterCapabilityVersion: string;
+      };
+      readonly selectedAccount: { readonly kind: "accountless" } | {
+        readonly kind: "account-bound"; readonly capacityIdentity: string;
+        readonly creditPosture: "disabled" | "committed"; readonly overagePosture: "disabled" | "committed";
+      };
+      readonly settlementKind?: ManagedEconomicSettlement["kind"];
+      readonly settlementAuthority?: ManagedEconomicEvidenceIdentity["authority"];
+    };
+
+export interface ManagedEconomicReplayInspectionPort {
+  inspect(input: { readonly jobId: string; readonly economicAttemptId: string }): ManagedEconomicReplayEvidence | undefined;
 }
 
 export type ManagedEconomicCommitmentAcquireResult =
@@ -1356,7 +1449,98 @@ function requirePersistedFence(row: CommitmentRow): string {
 }
 
 function parseAuthorityDecisionEvidence(value: string): ManagedEconomicAuthorityDecisionEvidence {
-  return JSON.parse(value) as ManagedEconomicAuthorityDecisionEvidence;
+  const parsed: unknown = JSON.parse(value);
+  if (!isManagedEconomicAuthorityDecisionEvidence(parsed)) {
+    throw new Error("Managed economic authority decision evidence is unprojectable.");
+  }
+
+  return parsed;
+}
+
+function isManagedEconomicAuthorityDecisionEvidence(value: unknown): value is ManagedEconomicAuthorityDecisionEvidence {
+  return typeof value === "object" && value !== null
+    && (value as { evidenceVersion?: unknown }).evidenceVersion === 1
+    && isPolicyEvidence((value as { policy?: unknown }).policy)
+    && typeof (value as { decision?: unknown }).decision === "object"
+    && (value as { decision?: { kind?: unknown } }).decision?.kind !== undefined
+    && Array.isArray((value as { authorityRejections?: unknown }).authorityRejections);
+}
+
+function isPolicyEvidence(value: unknown): value is ManagedEconomicAuthorityDecisionEvidence["policy"] {
+  return typeof value === "object" && value !== null
+    && typeof (value as { policyId?: unknown }).policyId === "string"
+    && typeof (value as { policyRevision?: unknown }).policyRevision === "string"
+    && /^sha256:[a-f0-9]{64}$/u.test(String((value as { policyDigest?: unknown }).policyDigest));
+}
+
+function policyEvidence(snapshot: ManagedEconomicAdoptedSnapshot): ManagedEconomicAuthorityDecisionEvidence["policy"] {
+  return { policyId: snapshot.policy.policyId, policyRevision: snapshot.policy.policyRevision, policyDigest: snapshot.policy.policyDigest };
+}
+
+function projectSanitizedReplayRoute(value: unknown): Extract<ManagedEconomicReplayEvidence, { readonly status: ManagedEconomicCommitmentState }>["selectedRoute"] | undefined {
+  if (!isRecordWithExactKeys(value, MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS)
+    || !["routeId", "providerId", "modelId", "adapterCapabilityId", "adapterCapabilityVersion", "authBillingChannel", "executionMode", "serviceTier", "rateCardId", "rateCardRevision", "priceEvidenceDigest", "unit", "contextClass", "cacheClass", "auxiliaryScheduleDigest", "envelopeDigest"].every((key) => typeof value[key] === "string")
+    || (value.accountPolicyId !== null && typeof value.accountPolicyId !== "string")
+    || !isPosture(value.fallbackPosture) || !isPosture(value.overagePosture) || typeof value.scheme !== "object" || value.scheme === null) return undefined;
+  return {
+    routeId: value.routeId as string, providerId: value.providerId as string, modelId: value.modelId as string,
+    adapterCapabilityId: value.adapterCapabilityId as string, adapterCapabilityVersion: value.adapterCapabilityVersion as string,
+  };
+}
+
+function projectSanitizedReplayAccount(value: unknown): Extract<ManagedEconomicReplayEvidence, { readonly status: ManagedEconomicCommitmentState }>["selectedAccount"] | undefined {
+  if (!isRecordWithExactKeys(value, ["kind"])) {
+    if (!isRecordWithAllowedKeys(value, ["kind", "capacityIdentity", "accountRef", "credentialRevision", "creditPosture", "overagePosture", "quotaEvidence"])) return undefined;
+    if (value.kind !== "account-bound" || typeof value.capacityIdentity !== "string"
+      || typeof value.accountRef !== "string" || typeof value.credentialRevision !== "string"
+      || !isPosture(value.creditPosture) || !isPosture(value.overagePosture)) return undefined;
+    return { kind: "account-bound", capacityIdentity: value.capacityIdentity, creditPosture: value.creditPosture, overagePosture: value.overagePosture };
+  }
+  return value.kind === "accountless" ? { kind: "accountless" } : undefined;
+}
+
+function isRecordWithExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    && Object.keys(value).length === keys.length
+    && Object.keys(value).every((key) => keys.includes(key));
+}
+
+function isRecordWithAllowedKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && Object.keys(value).every((key) => keys.includes(key));
+}
+
+function isPosture(value: unknown): value is "disabled" | "committed" {
+  return value === "disabled" || value === "committed";
+}
+
+const MANAGED_ECONOMIC_ROUTE_IDENTITY_KEYS = [
+  "routeId", "providerId", "modelId", "adapterCapabilityId", "adapterCapabilityVersion",
+  "authBillingChannel", "executionMode", "serviceTier", "accountPolicyId", "fallbackPosture",
+  "overagePosture", "rateCardId", "rateCardRevision", "priceEvidenceDigest", "unit", "scheme",
+  "contextClass", "cacheClass", "auxiliaryScheduleDigest", "envelopeDigest",
+] as const;
+
+function isReplaySettlement(value: unknown): value is Pick<ManagedEconomicSettlement, "kind"> & { readonly evidence?: ManagedEconomicEvidenceIdentity | null } {
+  if (typeof value !== "object" || value === null) return false;
+  const kind = (value as { kind?: unknown }).kind;
+  if (!isManagedEconomicSettlementKind(kind)) return false;
+  if (typeof (value as { reservationId?: unknown }).reservationId !== "string"
+    || typeof (value as { dispatchFenceId?: unknown }).dispatchFenceId !== "string") return false;
+  const evidence = (value as { evidence?: unknown }).evidence;
+  return evidence === undefined || evidence === null || (typeof evidence === "object" && evidence !== null
+    && isManagedEconomicEvidenceAuthority((evidence as { authority?: unknown }).authority));
+}
+
+const MANAGED_ECONOMIC_SETTLEMENT_KINDS = new Set<string>([
+  "charged", "estimated", "subscription", "included", "free", "unknown", "pending", "leaked",
+]);
+
+function isManagedEconomicSettlementKind(value: unknown): value is ManagedEconomicSettlement["kind"] {
+  return typeof value === "string" && MANAGED_ECONOMIC_SETTLEMENT_KINDS.has(value);
+}
+
+function isManagedEconomicEvidenceAuthority(value: unknown): value is ManagedEconomicEvidenceIdentity["authority"] {
+  return value === "provider-reported" || value === "configured" || value === "calculated-estimate";
 }
 
 function reservationAmounts(

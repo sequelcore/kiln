@@ -228,6 +228,7 @@ export class NativeHarnessMcpTools {
         providerId: replay.providerId,
         lifecycle: replay.lifecycle,
         resultAvailability: replay.resultAvailability,
+        economic: replay.economic,
         ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
       },
       evidence: {

@@ -333,6 +333,23 @@ describe("NativeHarnessMcpTools", () => {
               { sequence: 3, state: "cancelled", observedAt: OBSERVED_AT, diagnostic: "cancelled" },
             ],
             resultAvailability: "failed",
+            economic: {
+              availability: "available",
+              snapshot: {
+                evidenceVersion: 1,
+                status: "dispatch-fenced",
+                policyId: "economy-policy",
+                policyRevision: "revision-001",
+                policyDigest: `sha256:${"a".repeat(64)}`,
+                commitmentId: "commitment-safe-001",
+                reservationId: "reservation-safe-001",
+                dispatchFenceId: "fence-safe-001",
+                selectedRoute: { routeId: "route-go", providerId: "opencode-go", modelId: "go-test", adapterCapabilityId: "opencode-direct", adapterCapabilityVersion: "1" },
+                selectedAccount: { kind: "account-bound", capacityIdentity: "pool-safe", creditPosture: "committed", overagePosture: "disabled" },
+                settlementKind: "charged",
+                settlementAuthority: "configured",
+              },
+            },
           };
         },
       },
@@ -347,8 +364,8 @@ describe("NativeHarnessMcpTools", () => {
       { operation: "replay", input: { callerId: "trusted-codex-user" }, jobId: "managed-job-0001" },
     ]);
     expect(cancelled.structuredContent).toMatchObject({ operation: "managed-agent-cancel", job: { state: "cancelled" } });
-    expect(replay.structuredContent).toMatchObject({ operation: "managed-agent-replay", replay: { availability: "available", lifecycle: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }] } });
-    expect(JSON.stringify(replay)).not.toMatch(/objective|prompt|transcript|provider payload/iu);
+    expect(replay.structuredContent).toMatchObject({ operation: "managed-agent-replay", replay: { availability: "available", lifecycle: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }], economic: { availability: "available", snapshot: { evidenceVersion: 1, status: "dispatch-fenced", policyDigest: `sha256:${"a".repeat(64)}`, commitmentId: "commitment-safe-001", reservationId: "reservation-safe-001", dispatchFenceId: "fence-safe-001", selectedRoute: { routeId: "route-go", adapterCapabilityId: "opencode-direct" }, settlementKind: "charged", settlementAuthority: "configured" } } } });
+    expect(JSON.stringify(replay)).not.toMatch(/objective|prompt|transcript|provider payload|credential|accountRef|amount/iu);
     await expect(server.callTool("kiln_managed_agent_cancel", { jobId: "managed-job-0001", reason: "override" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
   });
 

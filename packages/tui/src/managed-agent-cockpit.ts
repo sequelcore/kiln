@@ -176,6 +176,7 @@ function formatEconomicAttemptCockpitLines(
         attempt.transition,
         route,
         attempt.settlementKind,
+        ...(attempt.rejections ?? []).map((rejection) => `rejection:${rejection.stage}:${rejection.reason}`),
       ].filter((part): part is string => part !== undefined).join("  ");
     }),
   ];

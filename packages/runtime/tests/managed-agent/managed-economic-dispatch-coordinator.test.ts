@@ -1,10 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ManagedEconomicCommitment, ManagedEconomicPolicyIdentity, ManagedEconomicSettlement } from "@kilnai/core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  adoptManagedEconomicSnapshot,
+  digestManagedEconomicValue,
+  type ManagedEconomicCommitment,
+  type ManagedEconomicPolicyIdentity,
+  type ManagedEconomicSettlement,
+} from "@kilnai/core";
 import {
   ManagedEconomicDispatchCoordinator,
+  type ManagedEconomicDispatchAdoption,
   type ManagedEconomicDispatchAuthorityPort,
   type ManagedEconomicLifecycleEventPort,
 } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
+import { appendManagedEconomicLifecycleSessionEvent } from "../../src/agents/managed-invocation/session-events.js";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import { RuntimeSession } from "../../src/session/runtime-session.js";
+import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
 
 function policy(): ManagedEconomicPolicyIdentity {
   return {
@@ -224,7 +239,15 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     const lifecycleEvents = recordingLifecycleEvents();
     const createAdapter = vi.fn();
     const economicAuthority: ManagedEconomicDispatchAuthorityPort = {
-      acquire: vi.fn(() => ({ status: "denied", rejected: [] } as never)),
+      acquire: vi.fn(() => ({
+        status: "denied",
+        replay: false,
+        decision: { kind: "denied", rejected: [] },
+        evidence: {
+          decision: { kind: "denied", rejected: [] },
+          authorityRejections: [],
+        },
+      })),
       releasePreFence: vi.fn(),
       fenceDispatch: vi.fn(),
       settleExecution: vi.fn(),
@@ -248,6 +271,104 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(prepared).toMatchObject({ status: "denied" });
     expect(lifecycleEvents.transitions).toEqual(["denied"]);
     expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(createAdapter).not.toHaveBeenCalled();
+  });
+
+  it("projects the authority decision's staged denial evidence without account internals", async () => {
+    const records: Array<Record<string, unknown>> = [];
+    const createAdapter = vi.fn();
+    const economicAuthority: ManagedEconomicDispatchAuthorityPort = {
+      acquire: vi.fn(() => ({
+        status: "denied",
+        replay: false,
+        decision: {
+          kind: "denied",
+          rejected: [{
+            stage: "economic-selection",
+            reason: "ceiling-exceeded",
+            alternativeIdentity: {
+              route: { routeId: "route-codex" },
+              account: {
+                kind: "account-bound",
+                capacityIdentity: "secret-capacity",
+                accountRef: "secret-account-ref",
+                credentialRevision: "secret-credential-revision",
+              },
+            },
+          }],
+        },
+        evidence: {
+          decision: {
+            kind: "denied",
+            rejected: [{
+              stage: "economic-selection",
+              reason: "ceiling-exceeded",
+              alternativeIdentity: {
+                route: { routeId: "route-codex" },
+                account: {
+                  kind: "account-bound",
+                  capacityIdentity: "secret-capacity",
+                  accountRef: "secret-account-ref",
+                  credentialRevision: "secret-credential-revision",
+                },
+              },
+            }],
+          },
+          authorityRejections: [
+            {
+              stage: "account-selection",
+              routeId: "route-opencode",
+              rejections: [
+                { account: "secret-account-a", reason: "lease-conflict" },
+                { account: "secret-account-b", reason: "lease-conflict" },
+                { account: "secret-account-c", reason: "unhealthy" },
+              ],
+            },
+            {
+              stage: "local-capacity",
+              routeId: "route-opencode",
+              reason: "route-capacity-exhausted",
+            },
+          ],
+        },
+      } as never)),
+      releasePreFence: vi.fn(),
+      fenceDispatch: vi.fn(),
+      settleExecution: vi.fn(),
+      recordExecutionSettlementPending: vi.fn(),
+    };
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter,
+    });
+
+    const prepared = await coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: { snapshot: { policy: policy() } } as never,
+      admissionProfile: "foundation-readonly-plan",
+      lifecycleEvents: {
+        record: (input) => records.push(input as unknown as Record<string, unknown>),
+      },
+    });
+
+    expect(prepared).toMatchObject({ status: "denied" });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      transition: "denied",
+      rejections: [
+        { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+        { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+        { stage: "account-selection", routeId: "route-opencode", reason: "unhealthy", count: 1 },
+        { stage: "local-capacity", routeId: "route-opencode", reason: "route-capacity-exhausted" },
+      ],
+    });
+    const serialized = JSON.stringify(records[0]);
+    expect(serialized).not.toContain("secret-account");
+    expect(serialized).not.toContain("secret-capacity");
+    expect(serialized).not.toContain("secret-credential");
     expect(createAdapter).not.toHaveBeenCalled();
   });
 
@@ -409,6 +530,189 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
   });
 
+  it("selects OpenCode without constructing or charging a ceiling-rejected Codex route", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-no-spend-"));
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: join(root, "authority.sqlite"),
+      ownerId: "no-spend-proof-owner",
+      now: () => Date.parse("2026-08-02T12:00:00.000Z"),
+    });
+    try {
+      const adoption = accountlessCompetingRoutes();
+      const jobId = "job-no-spend-proof";
+      const economicAttemptId = "economic-attempt-no-spend-proof";
+      const session = new RuntimeSession({
+        appName: "managed-economic-no-spend-proof",
+        tenantId: "synthetic-tenant",
+        userId: "synthetic-user",
+        systemPrompt: "Synthetic no-spend proof.",
+        sessionId: "session-no-spend-proof",
+      });
+      const order: string[] = [];
+      const materializeCodexCredential = vi.fn();
+      const reserveCodexQuota = vi.fn();
+      const createCodexMcpConnection = vi.fn();
+      const spawnCodexProcess = vi.fn();
+      const invokeCodexProvider = vi.fn();
+      const constructCodexAdapter = vi.fn(async () => {
+        materializeCodexCredential();
+        reserveCodexQuota();
+        createCodexMcpConnection();
+        spawnCodexProcess();
+        invokeCodexProvider();
+        throw new Error("The rejected Codex route must never be constructed.");
+      });
+      const materializeOpenCodeCredential = vi.fn();
+      const invokeOpenCodeProvider = vi.fn();
+      const constructOpenCodeAdapter = vi.fn(async (commitment: ManagedEconomicCommitment) => {
+        materializeOpenCodeCredential();
+        return new ManagedDirectProviderRuntimeAdapter({
+          providerId: "opencode-go",
+          model: "open-model",
+          provider: {
+            name: "synthetic-opencode-provider",
+            createMessage: async () => {
+              invokeOpenCodeProvider();
+              throw new Error("This proof does not invoke providers.");
+            },
+            streamMessage: async function* () {
+              invokeOpenCodeProvider();
+              throw new Error("This proof does not invoke providers.");
+            },
+          },
+          tools: [],
+          builtinTools: new Map(),
+          economicIdentity: commitment.reservation.selectedIdentity,
+        });
+      });
+      const fenceDispatch = vi.fn((fenceJobId: string, fenceAttemptId: string, fenceId: string) => {
+        order.push("fence");
+        return authority.fenceDispatch(fenceJobId, fenceAttemptId, fenceId);
+      });
+      const createAdapter = vi.fn(async ({ commitment }: { readonly commitment: ManagedEconomicCommitment }) => {
+        order.push(`adapter:${commitment.reservation.selectedIdentity.route.providerId}`);
+        if (commitment.reservation.selectedIdentity.route.providerId === "codex-oauth") {
+          return constructCodexAdapter();
+        }
+        return constructOpenCodeAdapter(commitment);
+      });
+      const coordinator = new ManagedEconomicDispatchCoordinator({
+        authority: {
+          acquire: (request) => authority.acquireCommitment(request),
+          releasePreFence: (releaseJobId, releaseAttemptId) => authority.releaseCommitmentPreFence(releaseJobId, releaseAttemptId),
+          fenceDispatch,
+          settleExecution: (settleJobId, settleAttemptId, fenceId, settlement) =>
+            authority.settleExecution(settleJobId, settleAttemptId, fenceId, settlement),
+          recordExecutionSettlementPending: (pendingJobId, pendingAttemptId, fenceId, reason) =>
+            authority.recordExecutionSettlementPending(pendingJobId, pendingAttemptId, fenceId, reason),
+        },
+        resolveLifecycleTimeoutMs: () => 5_000,
+        createAdapter,
+      });
+
+      const prepared = await coordinator.prepare({
+        jobId,
+        economicAttemptId,
+        intentFingerprint: digestManagedEconomicValue({ proof: "no-spend" }),
+        adoption,
+        admissionProfile: "foundation-readonly-plan",
+        lifecycleEvents: {
+          record: (input) => appendManagedEconomicLifecycleSessionEvent({
+            session,
+            workspaceRoot: root,
+            jobId,
+            economicAttemptId,
+            ...input,
+          }),
+        },
+      });
+
+      if (prepared.status !== "prepared") throw new Error("Expected the eligible OpenCode route to be prepared.");
+      expect(prepared.commitment.reservation.selectedIdentity.route).toMatchObject({
+        routeId: "route-opencode", providerId: "opencode-go",
+      });
+      expect(prepared.commitment.rejected).toContainEqual(expect.objectContaining({
+        stage: "economic-selection", reason: "ceiling-exceeded",
+        alternativeIdentity: expect.objectContaining({ route: expect.objectContaining({ routeId: "route-codex" }) }),
+      }));
+      expect(order).toEqual(["fence", "adapter:opencode-go"]);
+      expect(fenceDispatch).toHaveBeenCalledOnce();
+      expect(createAdapter).toHaveBeenCalledOnce();
+      expect(constructOpenCodeAdapter).toHaveBeenCalledOnce();
+      expect(materializeOpenCodeCredential).toHaveBeenCalledOnce();
+      expect(constructCodexAdapter).not.toHaveBeenCalled();
+      expect(materializeCodexCredential).not.toHaveBeenCalled();
+      expect(reserveCodexQuota).not.toHaveBeenCalled();
+      expect(createCodexMcpConnection).not.toHaveBeenCalled();
+      expect(spawnCodexProcess).not.toHaveBeenCalled();
+      expect(invokeCodexProvider).not.toHaveBeenCalled();
+      expect(invokeOpenCodeProvider).not.toHaveBeenCalled();
+
+      const settlement = prepared.createExecutionSettlement({
+        actualIdentity: prepared.commitment.reservation.selectedIdentity,
+        usage: { kind: "complete", units: [{ atoms: "20", scale: 0, unit: "input-token", scheme: { kind: "unit" } }] },
+        evidence: {
+          sourceIdentity: "synthetic-opencode-usage",
+          sourceRevision: "revision-1",
+          sourceDigest: digestManagedEconomicValue({ proof: "opencode-settlement" }),
+          observedAt: "2026-08-02T12:00:00.000Z",
+          validUntil: "2026-08-02T12:05:00.000Z",
+          confidence: "high",
+          authority: "configured",
+        },
+      });
+      prepared.registerEconomicSettlement(Promise.resolve(settlement));
+      await vi.waitFor(() => expect(authority.createManagedJobReplayInspectionPort().inspect({ jobId, economicAttemptId }))
+        .toMatchObject({ evidenceVersion: 1, status: "released", selectedRoute: { routeId: "route-opencode" } }));
+      expect(session.sessionEvents.map((event) => event.kind)).toEqual([
+        "managed_economic_lifecycle", "managed_economic_lifecycle", "managed_economic_lifecycle",
+      ]);
+      for (const event of session.sessionEvents) {
+        expect(event).toMatchObject({ evidenceVersion: 1 });
+      }
+      expect(session.sessionEvents.at(0)).toMatchObject({ transition: "held" });
+      expect(session.sessionEvents.at(1)).toMatchObject({ transition: "dispatch-fenced" });
+      expect(session.sessionEvents.at(2)).toMatchObject({ transition: "released" });
+    } finally {
+      authority.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps capacity consumed by an earlier accountless commitment as a local-capacity rejection", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-capacity-proof-"));
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: join(root, "authority.sqlite"),
+      ownerId: "capacity-proof-owner",
+      now: () => Date.parse("2026-08-02T12:00:00.000Z"),
+    });
+    try {
+      const adoption = accountlessCodexRouteAtCeiling();
+      const request = {
+        intentFingerprint: digestManagedEconomicValue({ proof: "capacity" }),
+        ...adoption,
+      };
+      expect(authority.acquireCommitment({
+        ...request,
+        jobId: "job-capacity-first",
+        economicAttemptId: "economic-attempt-capacity-first",
+      })).toMatchObject({ status: "committed", record: { state: "held" } });
+      const denied = authority.acquireCommitment({
+        ...request,
+        jobId: "job-capacity-second",
+        economicAttemptId: "economic-attempt-capacity-second",
+      });
+      if (denied.status !== "denied") throw new Error("Expected the consumed route capacity to deny a second commitment.");
+      expect(denied.decision.rejected).toEqual([]);
+      expect(denied.evidence.authorityRejections).toEqual([{
+        stage: "local-capacity", routeId: "route-codex", reason: "route-capacity-exhausted",
+      }]);
+    } finally {
+      authority.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   function settlement(dispatchFenceId: string): ManagedEconomicSettlement {
     return {
       kind: "subscription",
@@ -428,3 +732,81 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     };
   }
 });
+
+function accountlessCompetingRoutes(codexCeilingAtoms = "0"): ManagedEconomicDispatchAdoption {
+  const codex = createEconomicRouteProofAdoption({
+    providerId: "codex-oauth",
+    routeId: "route-codex",
+    modelId: "codex-model",
+    priceKind: "metered",
+    quotaEvidence: { kind: "missing" },
+    quotaRequirement: "optional",
+  });
+  const openCode = createEconomicRouteProofAdoption({
+    providerId: "opencode-go",
+    routeId: "route-opencode",
+    modelId: "open-model",
+    priceKind: "metered",
+    quotaEvidence: { kind: "missing" },
+    quotaRequirement: "optional",
+  });
+  const comparisonDomain = codex.snapshot.routes[0]!.comparisonDomain;
+  const accountless = (candidate: typeof codex.snapshot.routes[number]) => ({
+    ...candidate,
+    admittedIdentity: { ...candidate.admittedIdentity, accountPolicy: { kind: "accountless" as const } },
+    route: { ...candidate.route, accountPolicyId: null },
+    comparisonDomain,
+  });
+  const routes = [
+    {
+      ...accountless(codex.snapshot.routes[0]!),
+      ceiling: {
+        kind: "finite" as const,
+        amount: { atoms: codexCeilingAtoms, scale: 2, unit: "currency", scheme: { kind: "currency" as const, currency: "USD" } },
+      },
+    },
+    accountless(openCode.snapshot.routes[0]!),
+  ];
+  const snapshot = adoptManagedEconomicSnapshot({
+    policy: { ...codex.snapshot.policy, comparisonDomains: [comparisonDomain] },
+    adoptedAt: codex.snapshot.adoptedAt,
+    adoptedDecisionAt: codex.snapshot.adoptedDecisionAt,
+    callerConstraints: {},
+    routes,
+  });
+  return {
+    snapshot,
+    expectation: {
+      policyId: snapshot.policy.policyId,
+      policyRevision: snapshot.policy.policyRevision,
+      candidateSetDigest: snapshot.candidateSetDigest,
+      admittedCandidates: snapshot.routes.map((route) => route.admittedIdentity),
+      callerConstraints: snapshot.callerConstraints,
+    },
+    routeCapacity: snapshot.routes.map(({ route }) => ({ routeId: route.routeId })),
+  };
+}
+
+function accountlessCodexRouteAtCeiling(): ManagedEconomicDispatchAdoption {
+  const competing = accountlessCompetingRoutes("100");
+  const route = competing.snapshot.routes.find((candidate) => candidate.route.routeId === "route-codex");
+  if (route === undefined) throw new Error("Synthetic Codex route is required.");
+  const snapshot = adoptManagedEconomicSnapshot({
+    policy: competing.snapshot.policy,
+    adoptedAt: competing.snapshot.adoptedAt,
+    adoptedDecisionAt: competing.snapshot.adoptedDecisionAt,
+    callerConstraints: competing.snapshot.callerConstraints,
+    routes: [route],
+  });
+  return {
+    snapshot,
+    expectation: {
+      policyId: snapshot.policy.policyId,
+      policyRevision: snapshot.policy.policyRevision,
+      candidateSetDigest: snapshot.candidateSetDigest,
+      admittedCandidates: snapshot.routes.map((candidate) => candidate.admittedIdentity),
+      callerConstraints: snapshot.callerConstraints,
+    },
+    routeCapacity: [{ routeId: "route-codex" }],
+  };
+}

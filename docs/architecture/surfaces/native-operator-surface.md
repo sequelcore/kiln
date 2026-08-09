@@ -41,6 +41,12 @@ Shared target, benchmark, and read-only projection contracts live in
 consume the same canonical event projections instead of maintaining private
 operator surface models.
 
+Issue #34 does not promote or wire the native surface. Its economic lifecycle
+evidence is rendered only by the active CLI, TUI, and GUI session-event
+surfaces, with SDK contract-export parity. Native remains an explicitly
+excluded consumer until a dedicated native-surface roadmap or ADR admits
+implementation and validation.
+
 The native package may define native-specific readiness and shell contracts. It
 must not import `@kilnai/core` or `@kilnai/runtime` implementation modules.
 Runtime facts must arrive through gateway/operator contracts or shared

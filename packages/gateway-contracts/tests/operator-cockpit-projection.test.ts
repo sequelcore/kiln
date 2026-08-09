@@ -14,8 +14,48 @@ import {
   MANAGED_ACCOUNT_LEASE_FIXTURE,
   managedAccountLeaseEvents,
 } from "./fixtures/managed-account-lease.js";
+import {
+  MANAGED_ECONOMIC_LIFECYCLE_FIXTURE,
+  managedEconomicLifecycleEvents,
+  managedEconomicLifecycleUnprojectableEvents,
+} from "./fixtures/managed-economic-lifecycle.js";
 
 describe("operator cockpit read-only projection", () => {
+  it("projects the shared complete managed economic lifecycle and preserves invalid evidence as sanitized rejections", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-08T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.instanceId,
+        label: "Synthetic managed economic runtime",
+        kind: "local",
+      }],
+      events: [...managedEconomicLifecycleEvents, ...managedEconomicLifecycleUnprojectableEvents],
+    });
+
+    expect(projection.economicAttempts.find((attempt) => (
+      attempt.economicAttemptId === MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.economicAttemptId
+    ))).toEqual(expect.objectContaining({
+      jobId: MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.jobId,
+      transition: "released",
+      eventCount: 7,
+      rejections: expect.arrayContaining([
+        expect.objectContaining({ stage: "economic-selection" }),
+        expect.objectContaining({ stage: "account-selection" }),
+        expect.objectContaining({ stage: "local-capacity" }),
+        expect.objectContaining({ stage: "commitment-conflict" }),
+      ]),
+    }));
+    expect(projection.unprojectableEvidence).toEqual([
+      expect.objectContaining({ eventId: "economic-lifecycle:event:8", field: "evidenceVersion" }),
+      expect.objectContaining({ eventId: "economic-lifecycle:event:9", field: "evidenceVersion" }),
+      expect.objectContaining({ eventId: "economic-lifecycle:event:10", field: "evidenceVersion" }),
+      expect.objectContaining({ eventId: "economic-lifecycle:event:11", field: "rejections" }),
+    ]);
+    expect(JSON.stringify(projection)).not.toContain("secret-account-shaped-value");
+    expect(JSON.stringify(projection)).not.toContain("secret-credential-shaped-value");
+    expect(JSON.stringify(projection)).not.toContain("synthetic\\\\private-path");
+  });
+
   it("projects the shared canonical managed account lease fixture", () => {
     const projection = projectOperatorCockpitReadOnlyView({
       projectedAt: "2026-07-28T12:01:00.000Z",
@@ -2007,6 +2047,7 @@ describe("operator cockpit read-only projection", () => {
       payload: {
         instanceId: "economic:instance:1",
         sessionId: "economic:session:1",
+        evidenceVersion: 1,
         jobId: "managed-economic-job:fixture",
         economicAttemptId: "economic-attempt:fixture:1",
         transition: "held",
@@ -2035,6 +2076,7 @@ describe("operator cockpit read-only projection", () => {
       payload: {
         instanceId: "economic:instance:1",
         sessionId: "economic:session:1",
+        evidenceVersion: 1,
         jobId: "managed-economic-job:fixture",
         economicAttemptId: "economic-attempt:fixture:1",
         transition: "released",
@@ -2043,8 +2085,8 @@ describe("operator cockpit read-only projection", () => {
         policyDigest: "sha256:fixture-policy-digest",
         commitmentId: "fixture-commitment",
         reservationId: "fixture-reservation",
-        settlementKind: "charge",
-        settlementAuthority: "authoritative",
+        settlementKind: "charged",
+        settlementAuthority: "provider-reported",
       },
     };
 
@@ -2069,11 +2111,43 @@ describe("operator cockpit read-only projection", () => {
         modelId: "gpt-test",
       },
       selectedAccount: { kind: "accountless" },
-      settlementKind: "charge",
-      settlementAuthority: "authoritative",
+      settlementKind: "charged",
+      settlementAuthority: "provider-reported",
       eventCount: 2,
     });
     expect(projection.invocations).toHaveLength(0);
+  });
+
+  it("rejects legacy or incomplete settlement evidence without silently projecting it", () => {
+    const basePayload = {
+      instanceId: "economic:instance:1",
+      sessionId: "economic:session:1",
+      evidenceVersion: 1,
+      jobId: "managed-economic-job:settlement-contract",
+      economicAttemptId: "economic-attempt:settlement-contract:1",
+      transition: "released",
+      policyId: "fixture-policy",
+      policyRevision: "1",
+      policyDigest: "sha256:fixture-policy-digest",
+    };
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-06T12:01:00.000Z",
+      attachTargets: [{ instanceId: "economic:instance:1", label: "Synthetic economic runtime", kind: "local" }],
+      events: [
+        { eventId: "economic:settlement:legacy", kilnSessionId: "economic:session:1", sequence: 1, timestamp: "2026-08-06T12:00:00.000Z", kind: "managed_economic_lifecycle", payload: { ...basePayload, settlementKind: "charge", settlementAuthority: "authoritative" } },
+        { eventId: "economic:settlement:orphan-authority", kilnSessionId: "economic:session:1", sequence: 2, timestamp: "2026-08-06T12:00:01.000Z", kind: "managed_economic_lifecycle", payload: { ...basePayload, settlementAuthority: "configured" } },
+        { eventId: "economic:settlement:pending-authority", kilnSessionId: "economic:session:1", sequence: 3, timestamp: "2026-08-06T12:00:02.000Z", kind: "managed_economic_lifecycle", payload: { ...basePayload, settlementKind: "pending", settlementAuthority: "configured" } },
+      ],
+    });
+
+    expect(projection.economicAttempts).toHaveLength(1);
+    expect(projection.economicAttempts[0]).not.toHaveProperty("settlementKind");
+    expect(projection.economicAttempts[0]).not.toHaveProperty("settlementAuthority");
+    expect(projection.unprojectableEvidence).toEqual([
+      expect.objectContaining({ eventId: "economic:settlement:legacy", field: "settlementKind" }),
+      expect.objectContaining({ eventId: "economic:settlement:orphan-authority", field: "settlementKind" }),
+      expect.objectContaining({ eventId: "economic:settlement:pending-authority", field: "settlementAuthority" }),
+    ]);
   });
 
   describe("unprojectable evidence", () => {
@@ -2097,6 +2171,7 @@ describe("operator cockpit read-only projection", () => {
         payload: {
           instanceId: "economic:instance:1",
           sessionId: "economic:session:1",
+          evidenceVersion: 1,
           jobId: "managed-economic-job:fixture",
           economicAttemptId: "economic-attempt:fixture:1",
           transition: "held",
@@ -2123,6 +2198,131 @@ describe("operator cockpit read-only projection", () => {
         reason: "missing-required-field",
         field: "policyDigest",
       }]);
+    });
+
+    it.each([
+      ["missing", undefined, "missing-required-field"],
+      ["malformed", "1", "contract-violation"],
+      ["unsupported", 2, "unsupported-version"],
+    ] as const)("rejects a %s economic evidence version without compatibility inference", (_label, evidenceVersion, reason) => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [economicEvent(1, { evidenceVersion })],
+      });
+
+      expect(projection.economicAttempts).toHaveLength(0);
+      expect(projection.unprojectableEvidence).toEqual([{
+        eventId: "economic:event:1",
+        sequence: 1,
+        kind: "managed_economic_lifecycle",
+        reason,
+        field: "evidenceVersion",
+      }]);
+    });
+
+    it("projects typed staged denials without account-shaped evidence", () => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [economicEvent(1, {
+          transition: "denied",
+          rejections: [
+            { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+            { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+            { stage: "local-capacity", routeId: "route-opencode", reason: "route-capacity-exhausted" },
+            { stage: "commitment-conflict", reason: "identity-revision-conflict" },
+          ],
+        })],
+      });
+
+      expect(projection.economicAttempts[0]).toMatchObject({
+        transition: "denied",
+        rejections: [
+          { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+          { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+          { stage: "local-capacity", routeId: "route-opencode", reason: "route-capacity-exhausted" },
+          { stage: "commitment-conflict", reason: "identity-revision-conflict" },
+        ],
+      });
+      const serialized = JSON.stringify(projection);
+      expect(serialized).not.toContain("accountRef");
+      expect(serialized).not.toContain("credentialRevision");
+    });
+
+    it("rejects account-shaped fields in staged denial evidence", () => {
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [economicEvent(1, {
+          transition: "denied",
+          rejections: [{
+            stage: "account-selection",
+            routeId: "route-opencode",
+            reason: "lease-conflict",
+            count: 1,
+            accountRef: "secret-account-ref",
+          }],
+        })],
+      });
+
+      expect(projection.economicAttempts).toHaveLength(1);
+      expect(projection.economicAttempts[0]?.rejections).toBeUndefined();
+      expect(projection.unprojectableEvidence).toEqual([{
+        eventId: "economic:event:1",
+        sequence: 1,
+        kind: "managed_economic_lifecycle",
+        reason: "contract-violation",
+        field: "rejections",
+      }]);
+      expect(JSON.stringify(projection)).not.toContain("secret-account-ref");
+    });
+
+    it("projects the exact Runtime economic identity shapes and rejects malformed or secret-shaped variants", () => {
+      const route = {
+        routeId: "route-opencode",
+        providerId: "opencode-go",
+        modelId: "go-test",
+        adapterCapabilityId: "opencode-adapter",
+        adapterCapabilityVersion: "1",
+      };
+      const account = {
+        kind: "account-bound",
+        capacityIdentity: "capacity:opencode:1",
+        creditPosture: "committed",
+        overagePosture: "disabled",
+      };
+      const projection = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-06T12:01:00.000Z",
+        attachTargets,
+        events: [
+          economicEvent(1, { selectedRoute: route, selectedAccount: account }),
+          economicEvent(2, {
+            selectedRoute: { ...route, credential: "secret-route-credential" },
+            selectedAccount: { kind: "accountless", accountRef: "secret-account-reference" },
+          }),
+          economicEvent(3, {
+            selectedRoute: { ...route, adapterCapabilityVersion: undefined },
+            selectedAccount: { kind: "account-bound", capacityIdentity: account.capacityIdentity },
+          }),
+        ],
+      });
+
+      expect(projection.economicAttempts).toHaveLength(1);
+      expect(projection.economicAttempts[0]).toMatchObject({
+        selectedRoute: route,
+        selectedAccount: account,
+        eventCount: 3,
+      });
+      expect(projection.unprojectableEvidence).toEqual([
+        expect.objectContaining({ eventId: "economic:event:2", field: "selectedRoute" }),
+        expect.objectContaining({ eventId: "economic:event:2", field: "selectedAccount" }),
+        expect.objectContaining({ eventId: "economic:event:3", field: "selectedRoute" }),
+        expect.objectContaining({ eventId: "economic:event:3", field: "selectedAccount" }),
+      ]);
+      const serialized = JSON.stringify(projection);
+      expect(serialized).not.toContain("secret-route-credential");
+      expect(serialized).not.toContain("secret-account-reference");
     });
 
     it("rejects an unrecognized transition instead of projecting it as a rendered string", () => {
@@ -2215,6 +2415,71 @@ describe("operator cockpit read-only projection", () => {
         },
       };
     }
+
+    it("accepts absent optional evidence lists but rejects present malformed lists without retaining values", () => {
+      const resourceLease = {
+        leaseId: "lease:optional-lists",
+        createdAt: "2026-08-07T12:00:00.000Z",
+        healthStatus: "healthy",
+        cleanupStatus: "not-required",
+        workingDirectoryPath: "/synthetic/workspace",
+        workingDirectoryMode: "workspace-write",
+        resourceUris: [],
+        diagnosticUris: [],
+      };
+      const absent = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-07T12:01:00.000Z",
+        attachTargets,
+        events: [managedInvocationEvent(1, "agent_invocation_completed", {
+          managedInvocationEvidence: { lifecycle: {} },
+        })],
+      });
+      const malformed = projectOperatorCockpitReadOnlyView({
+        projectedAt: "2026-08-07T12:01:00.000Z",
+        attachTargets,
+        events: [
+          managedInvocationEvent(1, "agent_invocation_completed", {
+            managedInvocationEvidence: {
+              lifecycle: { sourceResourceUris: ["kiln://safe", 7] },
+              resultHandoff: { resourceUris: "secret-list-shaped-value" },
+              writeEvidence: [{ resourceUris: ["kiln://safe", false] }],
+            },
+          }),
+          managedInvocationEvent(2, "agent_invocation_failed", {
+            managedInvocationPhaseCompletion: { evidenceToRecord: ["kiln://safe", {}] },
+          }),
+          managedInvocationEvent(3, "agent_invocation_failed", {
+            managedInvocationEvidence: { lifecycle: { resourceLease: { ...resourceLease, worktreeReview: "malformed" } } },
+          }),
+          managedInvocationEvent(4, "agent_invocation_failed", {
+            managedInvocationEvidence: { lifecycle: { resourceLease: { ...resourceLease, worktreeConflict: "malformed" } } },
+          }),
+          managedInvocationEvent(5, "agent_invocation_completed", {
+            managedInvocationEvidence: { resultHandoff: { memoryWriteProposalUris: ["kiln://safe", 7] } },
+          }),
+          managedInvocationEvent(6, "agent_invocation_failed", {
+            managedInvocationPhaseCompletion: { requiredToolNames: ["resource_read", 7] },
+          }),
+          managedInvocationEvent(7, "agent_invocation_failed", {
+            managedInvocationPhaseCompletion: { sourceResourceUris: ["kiln://safe", 7] },
+          }),
+        ],
+      });
+
+      expect(absent.unprojectableEvidence).toEqual([]);
+      expect(malformed.unprojectableEvidence.map((rejection) => rejection.field)).toEqual([
+        "managedInvocationEvidence.lifecycle.sourceResourceUris",
+        "resultHandoff.resourceUris",
+        "managedInvocationEvidence.writeEvidence.resourceUris",
+        "managedInvocationPhaseCompletion.evidenceToRecord",
+        "resourceLease.worktreeReview",
+        "resourceLease.worktreeConflict",
+        "resultHandoff.memoryWriteProposalUris",
+        "managedInvocationPhaseCompletion.requiredToolNames",
+        "managedInvocationPhaseCompletion.sourceResourceUris",
+      ]);
+      expect(JSON.stringify(malformed)).not.toContain("secret-list-shaped-value");
+    });
 
     describe("prompt admission", () => {
       it("is not a rejection when the event kind carries no prompt admission evidence", () => {

@@ -1236,6 +1236,7 @@ describe("operator cockpit read-only view state", () => {
         timestamp: "2026-08-06T12:00:00.000Z",
         kind: "managed_economic_lifecycle",
         payload: {
+          evidenceVersion: 1,
           instanceId: "economic-view:instance:1",
           sessionId: "economic-view:session:1",
           jobId: "managed-economic-job:fixture",

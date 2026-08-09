@@ -511,6 +511,12 @@ function EconomicAttemptCard(props: { readonly attempt: OperatorCockpitEconomicA
             <dd className="truncate">{attempt.reason}</dd>
           </div>
         ) : null}
+        {attempt.rejections?.map((rejection, index) => (
+          <div key={`${rejection.stage}:${rejection.reason}:${"routeId" in rejection ? rejection.routeId : ""}:${"count" in rejection ? rejection.count : ""}:${index}`} className="min-w-0 sm:col-span-2">
+            <dt className="sr-only">Rejection</dt>
+            <dd className="truncate">rejection {rejection.stage}: {rejection.reason}</dd>
+          </div>
+        ))}
       </dl>
     </article>
   );

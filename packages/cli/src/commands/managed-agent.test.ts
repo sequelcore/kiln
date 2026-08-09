@@ -19,6 +19,11 @@ import {
   MANAGED_ACCOUNT_LEASE_FIXTURE,
   managedAccountLeaseEvents,
 } from "../../../gateway-contracts/tests/fixtures/managed-account-lease.js";
+import {
+  MANAGED_ECONOMIC_LIFECYCLE_FIXTURE,
+  managedEconomicLifecycleEvents,
+  managedEconomicLifecycleUnprojectableEvents,
+} from "../../../gateway-contracts/tests/fixtures/managed-economic-lifecycle.js";
 
 const roots: string[] = [];
 
@@ -237,6 +242,7 @@ describe("managed-agent command", () => {
       payload: {
         instanceId: "local",
         sessionId: "session-1",
+        evidenceVersion: 1,
         jobId: "managed-economic-job:cli-fixture",
         economicAttemptId: "economic-attempt:cli-fixture:1",
         transition: "held",
@@ -285,6 +291,7 @@ describe("managed-agent command", () => {
       payload: {
         instanceId: "local",
         sessionId: "session-1",
+        evidenceVersion: 1,
         jobId: "managed-economic-job:cli-fixture",
         economicAttemptId: "economic-attempt:cli-fixture:1",
         transition: "held",
@@ -306,6 +313,31 @@ describe("managed-agent command", () => {
     expect(output).toContain("missing-required-field");
     expect(output).toContain("field:policyDigest");
     expect(output).not.toContain("Economic attempts:");
+  });
+
+  it("renders shared staged economic rejections and sanitized degraded evidence", async () => {
+    const root = await tempRoot();
+    const transcriptStore = new TranscriptStore(root);
+    for (const event of [...managedEconomicLifecycleEvents, ...managedEconomicLifecycleUnprojectableEvents]) {
+      await transcriptStore.append(MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.sessionId, {
+        ...event,
+        payload: { ...event.payload, instanceId: "local" },
+      });
+    }
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "list",
+      ["--session", MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.sessionId],
+      { projectPath: root, projectedAt: () => "2026-08-08T12:01:00.000Z" },
+    );
+
+    const output = log.mock.calls[0]?.[0] as string;
+    expect(output).toContain("rejection:economic-selection:ceiling-exceeded");
+    expect(output).toContain("Unprojectable evidence (4) - this view is incomplete:");
+    expect(output).not.toContain("secret-account-shaped-value");
+    expect(output).not.toContain("secret-credential-shaped-value");
   });
 
   it("prints canonical managed account lease evidence without local policy reconstruction", async () => {

@@ -2543,7 +2543,7 @@ describe("operator event presentation", () => {
       transition: "released",
       policyId: "fixture-policy",
       policyRevision: "1",
-      settlementKind: "charge",
+      settlementKind: "charged",
     });
     expect(released.title).toBe("Economic reservation released");
     expect(released.tone).toBe("success");
@@ -2569,12 +2569,12 @@ describe("operator event presentation", () => {
       policyDigest: "sha256:fixture-policy-digest",
       credentialFileIdentity: "a".repeat(64),
       rawProviderResponse: "sk-live-should-never-surface",
-      operatorHomePath: "/Users/someone/.kiln/credentials",
+      operatorHomePath: "/Users/operator/.kiln/credentials",
     });
 
     const serialized = JSON.stringify(presentation);
     expect(serialized).not.toContain("sk-live-should-never-surface");
-    expect(serialized).not.toContain("/Users/someone/.kiln/credentials");
+    expect(serialized).not.toContain("/Users/operator/.kiln/credentials");
     expect(serialized).not.toContain("a".repeat(64));
     expect(presentation.details.map((item) => item.label)).toEqual([
       "Job",

@@ -464,6 +464,7 @@ function formatEconomicAttemptRow(attempt: OperatorCockpitEconomicAttemptProject
     attempt.selectedAccount ? `account:${attempt.selectedAccount.kind}` : undefined,
     attempt.settlementKind ? `settlement:${attempt.settlementKind}` : undefined,
     attempt.reason ? `reason:${attempt.reason}` : undefined,
+    ...(attempt.rejections ?? []).map((rejection) => `rejection:${rejection.stage}:${rejection.reason}`),
   ].filter((part): part is string => part !== undefined).join("  ");
 }
 

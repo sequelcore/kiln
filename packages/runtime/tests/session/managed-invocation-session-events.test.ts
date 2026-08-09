@@ -1318,6 +1318,12 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
       ...(commitment ? { dispatchFenceId: "managed-economic-dispatch:fence-a" } : {}),
       ...(settlement ? { settlement } : {}),
       ...(transition === "settlement-pending" ? { reason: "postcommit-request-realization-failed" } : {}),
+      ...(transition === "denied" ? {
+        rejections: [
+          { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+          { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+        ],
+      } : {}),
     });
 
     expect(events).toHaveLength(1);
@@ -1329,7 +1335,16 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
       economicAttemptId: "economic-attempt-a",
       policyId: "policy-a",
       policyRevision: "revision-1",
+      evidenceVersion: 1,
     });
+    if (transition === "denied") {
+      expect(event).toMatchObject({
+        rejections: [
+          { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+          { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+        ],
+      });
+    }
     if (commitment) {
       expect(event).toMatchObject({
         selectedRoute: {
@@ -1350,5 +1365,97 @@ describe("appendManagedEconomicLifecycleSessionEvent", () => {
     expect(serialized).not.toContain("credentialRevision");
     expect(serialized).not.toContain("C:/workspace/kiln");
     expect(session.sessionEvents).toEqual(events);
+  });
+
+  it("projects runtime-emitted canonical settlement kinds and evidence authorities through Gateway", () => {
+    const session = makeSession("session-economic-settlement-projection");
+    const commitment = makeEconomicCommitment();
+    const identity = commitment.reservation.selectedIdentity;
+    const units = [{ atoms: "20", scale: 0, unit: "input-token", scheme: { kind: "unit" as const } }];
+    const settlements: readonly ManagedEconomicSettlement[] = [
+      {
+        kind: "charged",
+        reservationId: "reservation-a",
+        dispatchFenceId: "managed-economic-dispatch:fence-charged",
+        actualIdentity: identity,
+        units,
+        charge: { atoms: "1", scale: 2, unit: "currency", scheme: { kind: "currency", currency: "USD" } },
+        evidence: {
+          sourceIdentity: "provider-usage",
+          sourceRevision: "usage-charged",
+          sourceDigest: `sha256:${"a".repeat(64)}`,
+          observedAt: "2026-08-01T00:00:00.000Z",
+          validUntil: "2026-08-01T01:00:00.000Z",
+          confidence: "high",
+          authority: "provider-reported",
+        },
+      },
+      {
+        kind: "estimated",
+        reservationId: "reservation-a",
+        dispatchFenceId: "managed-economic-dispatch:fence-estimated",
+        actualIdentity: identity,
+        units,
+        estimate: { atoms: "1", scale: 2, unit: "currency", scheme: { kind: "currency", currency: "USD" } },
+        evidence: {
+          sourceIdentity: "configured-rate",
+          sourceRevision: "rate-estimated",
+          sourceDigest: `sha256:${"b".repeat(64)}`,
+          observedAt: "2026-08-01T00:00:00.000Z",
+          validUntil: "2026-08-01T01:00:00.000Z",
+          confidence: "medium",
+          authority: "calculated-estimate",
+        },
+      },
+      {
+        kind: "free",
+        reservationId: "reservation-a",
+        dispatchFenceId: "managed-economic-dispatch:fence-free",
+        actualIdentity: identity,
+        units,
+        evidence: {
+          sourceIdentity: "configured-policy",
+          sourceRevision: "policy-free",
+          sourceDigest: `sha256:${"c".repeat(64)}`,
+          observedAt: "2026-08-01T00:00:00.000Z",
+          validUntil: "2026-08-01T01:00:00.000Z",
+          confidence: "high",
+          authority: "configured",
+        },
+      },
+    ];
+    const events = settlements.flatMap((settlement, index) => appendManagedEconomicLifecycleSessionEvent({
+      session,
+      workspaceRoot: "C:/workspace/kiln",
+      jobId: `job-settlement-${index}`,
+      economicAttemptId: `economic-attempt-settlement-${index}`,
+      transition: "released",
+      policy: makeEconomicPolicy(),
+      commitment,
+      dispatchFenceId: settlement.dispatchFenceId,
+      settlement,
+    }));
+    const replayed = normalizeManagedAgentOperatorReplayEvents(events.map((event) =>
+      toOperatorSessionEventFrame(event, {
+        eventId: event.eventId,
+        sequence: event.sequence,
+        instanceId: "local-test",
+      }).event), { defaultInstanceId: "local-test" });
+
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-01T00:00:01.000Z",
+      attachTargets: [{ instanceId: "local-test", label: "Local test", kind: "local" }],
+      events: replayed,
+    });
+
+    expect(projection.economicAttempts.map((attempt) => ({
+      settlementKind: attempt.settlementKind,
+      settlementAuthority: attempt.settlementAuthority,
+    }))).toEqual([
+      { settlementKind: "charged", settlementAuthority: "provider-reported" },
+      { settlementKind: "estimated", settlementAuthority: "calculated-estimate" },
+      { settlementKind: "free", settlementAuthority: "configured" },
+    ]);
+    expect(projection.unprojectableEvidence).toEqual([]);
   });
 });

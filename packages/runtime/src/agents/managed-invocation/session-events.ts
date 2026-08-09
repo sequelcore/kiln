@@ -26,6 +26,7 @@ import type {
   SessionAgentInvocationEvidence,
   SessionEventSource,
   SessionManagedEconomicAccountIdentity,
+  SessionManagedEconomicRejection,
   SessionManagedEconomicLifecycleTransition,
   SessionManagedEconomicRouteIdentity,
 } from "@kilnai/core";
@@ -224,6 +225,7 @@ export interface AppendManagedEconomicLifecycleSessionEventInput {
   readonly dispatchFenceId?: string;
   readonly settlement?: ManagedEconomicSettlement;
   readonly reason?: string;
+  readonly rejections?: readonly SessionManagedEconomicRejection[];
   readonly timestamp?: Date;
 }
 
@@ -241,6 +243,7 @@ export function appendManagedEconomicLifecycleSessionEvent(
     timestamp: input.timestamp ?? new Date(),
     jobId: input.jobId,
     economicAttemptId: input.economicAttemptId,
+    evidenceVersion: 1,
     ...(input.invocationId !== undefined ? { invocationId: input.invocationId } : {}),
     transition: input.transition,
     policyId: input.policy.policyId,
@@ -256,6 +259,7 @@ export function appendManagedEconomicLifecycleSessionEvent(
     ...(input.settlement ? { settlementKind: input.settlement.kind } : {}),
     ...(settlementAuthority !== undefined ? { settlementAuthority } : {}),
     ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    ...(input.transition === "denied" ? { rejections: input.rejections ?? [] } : {}),
   }), input.workspaceRoot);
   input.session.appendSessionEvents([event]);
   return [event];

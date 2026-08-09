@@ -13,6 +13,11 @@ import {
   managedAccountLeaseEvents,
 } from "../../gateway-contracts/tests/fixtures/managed-account-lease.js";
 import {
+  MANAGED_ECONOMIC_LIFECYCLE_FIXTURE,
+  managedEconomicLifecycleEvents,
+  managedEconomicLifecycleUnprojectableEvents,
+} from "../../gateway-contracts/tests/fixtures/managed-economic-lifecycle.js";
+import {
   EMPTY_TUI_MANAGED_AGENT_VIEW_STATE,
   EMPTY_TUI_OPERATOR_WORKSPACE_HOME,
   appendManagedAgentSessionEvent,
@@ -690,6 +695,7 @@ describe("TUI managed-agent cockpit projection", () => {
     const held = event("evt-economic-held", 1, "managed_economic_lifecycle", {
       instanceId: "local-tui",
       sessionId: "session-1",
+      evidenceVersion: 1,
       jobId: "managed-economic-job:tui-fixture",
       economicAttemptId: "economic-attempt:tui-fixture:1",
       transition: "held",
@@ -729,6 +735,7 @@ describe("TUI managed-agent cockpit projection", () => {
     const malformed = event("evt-economic-malformed", 1, "managed_economic_lifecycle", {
       instanceId: "local-tui",
       sessionId: "session-1",
+      evidenceVersion: 1,
       jobId: "managed-economic-job:tui-fixture",
       economicAttemptId: "economic-attempt:tui-fixture:1",
       transition: "not-a-real-transition",
@@ -765,5 +772,21 @@ describe("TUI managed-agent cockpit projection", () => {
       projectTuiOperatorWorkspaceState([]).cockpitView.managedAgents,
     );
     expect(lines.some((line) => line.includes("unprojectable"))).toBe(false);
+  });
+
+  it("renders the shared economic lifecycle stages and its degraded evidence", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-08T12:01:00.000Z",
+      attachTargets: [{ instanceId: MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.instanceId, label: "Synthetic", kind: "local" }],
+      events: [...managedEconomicLifecycleEvents, ...managedEconomicLifecycleUnprojectableEvents],
+    });
+    const view = createOperatorCockpitReadOnlyViewState({ projection, viewState: {} });
+    const lines = formatManagedAgentCockpitLines(view.managedAgents, view.economicAttempts, view.unprojectableEvidence);
+
+    expect(view.economicAttempts.find((attempt) => attempt.jobId === MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.jobId)?.rejections)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ stage: "economic-selection" })]));
+    expect(view.unprojectableEvidence).toHaveLength(4);
+    expect(lines.join("\n")).toContain("rejection:economic-selection:ceiling-exceeded");
+    expect(lines.join("\n")).toContain("unprojectable evidence (4) - view incomplete:");
   });
 });

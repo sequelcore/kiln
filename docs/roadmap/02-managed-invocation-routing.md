@@ -1,13 +1,15 @@
 # 02 - Managed Invocation Routing
 
 Status: Active delivery track
-Execution: Slices 1, 2, 3, and 4 complete. Issue #34 internal Slice 5 dispatch enforcement delivered, then independently reviewed: two High findings (a profile-less `managed_agent_invoke` call bypassing economic commitment entirely; adapter/credential materialization before any commitment existed) plus five Medium/Low findings, all closed - see the internal-Slice-5 remediation note below. Issue #34 internal Slice 6 (durable lifecycle, replay, cross-surface projection) has a second bounded piece delivered beyond the Slice 5 remediation's Runtime-to-Gateway-contracts frame boundary: Gateway-contracts now carries a typed `managed_economic_lifecycle` wire contract, shared presentation (title/tone/details) for all seven lifecycle transitions, and a top-level `economicAttempts` collection folded into the same `OperatorCockpitReadOnlyProjection`/`ViewState` that CLI, GUI, and TUI all read. All three active surfaces render it: `kiln managed-agent list` (CLI), the TUI sidebar cockpit, and the GUI `ManagedAgentCockpitPanel` (which additionally required a fix to its inbound WebSocket Zod schema, `GuiSessionEventSchema` in `ws-client.ts`, that was silently dropping the event kind before this change). Native is out of active development and was left unwired.
+Execution: Slices 1–4 are complete. Issue #34 closeout is divided into `#34-S5` through `#34-S8`, deliberately distinct from this roadmap's Slice 5 and Slice 6. `#34-S5` makes Runtime SQLite economic commitment the sole selection authority and persists the dispatch fence before adapter or credential materialization. `#34-S6` defines the versioned canonical lifecycle evidence. `#34-S7` proves its portable, cross-surface projection. `#34-S8` adds the managed-job replay evidence join.
 
-Two further bounded pieces landed after that. First, recovery-checkpoint economic evidence: `ManagedAgentRuntimeEconomicDispatchCheckpoint` (Runtime `recovery-store.ts`, still `version: 2`) now carries the full `ManagedEconomicReservation`, not just its four ID strings - structurally validated on read (not re-deriving Core's economic-domain rules) and optional so checkpoints persisted before this field existed still validate on restart. Second, the session-event `jobId`-to-`invocationId` join: `invocationId` is now computed once, from `context` alone, at the top of `prepareManagedInvocationRequest` in `runtime-tool.ts` (the function at the center of the internal-Slice-5 H1/H2 findings) instead of ~460 lines later inside the recursive "already-admitted" call, and is threaded onto `CanonicalManagedEconomicLifecycleEvent`/`OperatorCockpitEconomicAttemptProjection` as an optional, best-effort cross-reference. The change is a pure hoist - identical value, no behavior change to the non-economic path - proven by the full existing suite passing unchanged, plus a new assertion in `economic-route-capability-admission.test.ts` showing the recorded event's `invocationId` survives even when the recursive realization that would normally reach that computation fails. CLI/TUI/GUI rendering was deliberately not changed to nest `economicAttempts` under an invocation yet: older sessions won't have `invocationId` on their events, and that UI decision is separate from this plumbing change.
+The canonical `managed_economic_lifecycle` session event now requires `evidenceVersion: 1`; there is no compatibility reader. Rejections are typed, secret-free, and staged as `economic-selection`, `account-selection`, `local-capacity`, or `commitment-conflict`. One portable fixture covers the seven lifecycle transitions, every rejection stage, malformed-version rejection, and secret-shaped negative evidence. Gateway projection is total: malformed evidence is explicit `unprojectableEvidence`, including the former `readOptionalStringList`, `readWorktreeReview`, and `readWorktreeConflict` residuals, rather than silently dropped.
 
-A fifth and sixth piece landed in `6b03a0a8` and `ce4a228b`: projection totality. The operator cockpit projection previously discarded any event whose evidence body violated its own declared contract - silently, with no rejection, counter, or diagnostic - so a degraded cockpit was indistinguishable from a complete one and the Slice 6 replay termination rule was unfalsifiable. `OperatorCockpitEvidenceRejection` and `unprojectableEvidence` now name that residual, carrying the offending field's name but never its value, and separating evidence that is merely absent from evidence that is present and malformed. Both were an unnamed `null` before, which is why neither was testable. The economic path was made total first (`transition` narrowed to the `OperatorManagedEconomicLifecycleTransition` union that `frames.ts` already defined and the projection was discarding; the `addPrimitiveItems` denylist dump deleted from `economicLifecyclePresentation` so unanticipated payload fields can no longer reach an operator without a decision), then the ten composite readers outside the economic class followed. CLI, TUI, and GUI all render a non-empty rejection list as a visible degraded state. See `docs/architecture/surfaces/native-operator-surface.md` for the three-disposition contract.
+CLI (`kiln managed-agent list`), TUI, and GUI render the shared session-event cockpit projection; the SDK exports the same contract. Native is explicitly excluded from this #34 surface scope and remains unwired. Managed-job V7 does not synthesize RuntimeSession or cockpit events: its replay is MCP-only. `kiln_managed_agent_replay` reads the durable Runtime SQLite authority through a port and exact `jobId` plus `economicAttemptId` join, without a second store or authority; unavailable or unprojectable evidence remains explicit.
 
-Still outstanding: managed-job V7 unification (a structurally separate headless/CLI job-queue subsystem, explicitly out of scope - see the Slice 6 plan); the canonical `managed-economic-lifecycle` fixture, versioned envelope fields, and the `stage` rejection discriminator (Slice 6 items 1-3); cross-surface fixture parity (item 4), which is blocked on an unratified scope decision for Native/SDK/MCP; and two named residuals of the projection work itself - `readOptionalStringList` still discards malformed items and non-array values silently across 8 call sites, and `readWorktreeReview`/`readWorktreeConflict` remain unconverted. Roadmap Slice 5 (this doc's Slice 5, Cross-Path Account Authority Convergence, issue #39) is **not** yet unblocked: its ratified entry gates require internal Slice 5 and Slice 6 closeout recorded on #34, and neither is recorded.
+The real SQLite coordinator proof rejects Codex at its economic ceiling, selects OpenCode, persists the fence before adapter construction, and shows zero Codex adapter, credential, quota, MCP, process, and provider activity. The proof makes no cheapest/free claim, no provider-global exclusivity claim, and performs no live/provider spend. Issue #39 is unblocked only by this #34 closeout; its convergence work is not implemented by it.
+
+Closeout verification passed 43 scripts, 324 Gateway-contracts tests, 11 tools tests, 3,800 Core tests, 3,242 Runtime tests (5 skipped) plus Bun SQLite checks, canonical CLI tests, 71 SDK tests, 67 Widget tests, 62 TUI tests, 49 Native tests, no Studio tests, and 506 GUI tests. The dependency-ordered build covered 11 workspaces; canonical typecheck, `git diff --check`, and independent review reported no High or Medium findings.
 Created: 2026-07-23
 
 > Managed jobs dispatch only through an issue #34 economic commitment. Runtime
@@ -133,7 +135,7 @@ binding, structured privacy checks, and replayed usage assertions.
 
 ### Slice 4 - Economic Route Policy
 
-Status: Implemented in issue #37 under issue #34 internal Slice 4.
+Status: Implemented in issue #37 under `#34-S4`.
 
 Represent quota class, subscription class, metered-cost class, and comparable
 cost separately. Explain why an eligible job used Codex or OpenCode. Add explicit
@@ -162,12 +164,12 @@ route when used by an economic policy; runtime-selected account policy remains
 supported. A committed route mismatch emits sanitized evidence before adapter
 construction.
 
-Issue #34 internal Slice 5 wires committed dispatch and typed settlement for
+Issue #34 `#34-S5` wires committed dispatch and typed settlement for
 managed jobs and policy-bearing managed runtime/orchestration calls. That
-internal sequence is separate from Roadmap 02 Slice 5 below, which converges
+issue sequence is separate from Roadmap 02 Slice 5 below, which converges
 the managed-job authority with Model Gateway ingress.
 
-**Internal Slice 5 remediation.** Delivery commit `1c4f0f19` shipped without a
+**`#34-S5` remediation.** Delivery commit `1c4f0f19` shipped without a
 PR or independent review. A subsequent independent review found the managed
 dispatch surface was strictly weaker after that commit than before it: a
 `managed_agent_invoke` call omitting `agentProfile` - which the tool's own
@@ -199,9 +201,9 @@ merge:
   across the Runtime persistence boundary and the Gateway-contracts frame
   boundary - not the fixture-local instrumentation the three provider proof
   tests previously asserted against. This is a deliberately bounded piece of
-  internal Slice 6 (Runtime + one representative consumer only); the full
-  cross-surface `managed-economic-lifecycle` fixture and CLI/GUI/TUI/Native/
-  SDK/MCP presentation parity remain unstarted.
+  `#34-S6` (Runtime + one representative consumer only). `#34-S7` and
+  `#34-S8` completed the portable fixture, active-surface/SDK parity, and the
+  exact V7-to-MCP authority replay join described above.
 
 ### Slice 5 - Cross-Path Account Authority Convergence
 

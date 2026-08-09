@@ -3,9 +3,11 @@ import type { ExecutionSessionToolResultResourceLink } from "./execution-session
 import type { ContextUsageProjection } from "./context-usage-projection.js";
 import type { VerifiedEfficiencyEvidenceProjection } from "../efficiency/verified-efficiency-evidence.js";
 import type {
+  ManagedEconomicCoreRejectionReason,
   ManagedEconomicEvidenceIdentity,
   ManagedEconomicSettlement,
 } from "../cost/managed-route-economics.js";
+import type { ModelGatewayAccountRejectionReason } from "../agents/model-gateway/index.js";
 
 import type {
   ManagedAgentAdapterKind,
@@ -588,6 +590,39 @@ export type SessionManagedEconomicLifecycleTransition =
   | "denied" | "held" | "dispatch-fenced" | "settlement-pending"
   | "release-failed" | "leaked" | "released";
 
+export type SessionManagedEconomicAccountSelectionRejectionReason = ModelGatewayAccountRejectionReason;
+
+export type SessionManagedEconomicLocalCapacityRejectionReason =
+  | "route-capacity-exhausted"
+  | "comparison-domain-incompatible";
+
+export type SessionManagedEconomicCommitmentConflictReason =
+  | "idempotency-conflict"
+  | "identity-revision-conflict";
+
+/** Sanitized denial evidence; account and credential internals never cross this boundary. */
+export type SessionManagedEconomicRejection =
+  | {
+      readonly stage: "economic-selection";
+      readonly routeId: string;
+      readonly reason: ManagedEconomicCoreRejectionReason;
+    }
+  | {
+      readonly stage: "account-selection";
+      readonly routeId: string;
+      readonly reason: SessionManagedEconomicAccountSelectionRejectionReason;
+      readonly count: number;
+    }
+  | {
+      readonly stage: "local-capacity";
+      readonly routeId: string;
+      readonly reason: SessionManagedEconomicLocalCapacityRejectionReason;
+    }
+  | {
+      readonly stage: "commitment-conflict";
+      readonly reason: SessionManagedEconomicCommitmentConflictReason;
+    };
+
 export interface SessionManagedEconomicRouteIdentity {
   readonly routeId: string;
   readonly providerId: string;
@@ -605,6 +640,7 @@ export interface SessionManagedEconomicAccountIdentity {
 
 export interface CanonicalManagedEconomicLifecycleEvent
   extends SessionEventEnvelope<"managed_economic_lifecycle"> {
+  readonly evidenceVersion: 1;
   readonly jobId: string;
   readonly economicAttemptId: string;
   /**
@@ -626,6 +662,7 @@ export interface CanonicalManagedEconomicLifecycleEvent
   readonly settlementKind?: ManagedEconomicSettlement["kind"];
   readonly settlementAuthority?: ManagedEconomicEvidenceIdentity["authority"];
   readonly reason?: string;
+  readonly rejections?: readonly SessionManagedEconomicRejection[];
 }
 
 export interface CanonicalContinuityDecidedEvent extends SessionEventEnvelope<"continuity_decided"> {

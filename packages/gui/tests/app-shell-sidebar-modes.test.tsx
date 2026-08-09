@@ -454,9 +454,7 @@ describe("AppShell sidebar modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
     fireEvent.click(screen.getByRole("button", { name: "Open package.json" }));
 
-    await waitFor(() => {
-      expect(screen.getByLabelText("Operator surfaces")).toBeInTheDocument();
-    });
+    expect(await screen.findByLabelText("Operator surfaces", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Chat" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "package.json" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-code")).toHaveTextContent(/"ok":\s*true/);

@@ -43,7 +43,7 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
     now: () => Date.parse(DECISION_AT),
   });
   try {
-    const adoption = createAdoption(input);
+    const adoption = createEconomicRouteProofAdoption(input);
     const session = new RuntimeSession({
       appName: "economic-route-proof",
       tenantId: "proof-tenant",
@@ -126,7 +126,8 @@ export async function proveEconomicRouteLifecycle(input: EconomicRouteProofInput
   }
 }
 
-function createAdoption(input: EconomicRouteProofInput) {
+/** Builds completed, synthetic adoption evidence for focused economic-route tests. */
+export function createEconomicRouteProofAdoption(input: EconomicRouteProofInput) {
   const evidence = configuredEvidence(input.providerId);
   const scheme = { kind: "currency" as const, currency: "USD" };
   const unitRates = input.priceKind === "metered"

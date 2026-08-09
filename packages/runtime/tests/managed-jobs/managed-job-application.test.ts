@@ -255,6 +255,36 @@ describe("ManagedJobApplicationService V7 record", () => {
     expect(Object.keys(options)).not.toContain("runtime");
   });
 
+  it("joins replay evidence by the persisted job and economic attempt without changing lifecycle", async () => {
+    const inspect = vi.fn(() => ({
+      evidenceVersion: 1 as const,
+      status: "denied" as const,
+      policyId: "economy-policy",
+      policyRevision: "revision-001",
+      policyDigest: `sha256:${"a".repeat(64)}`,
+      rejections: [{ stage: "economic-selection" as const, routeId: "codex-primary", reason: "quota-evidence-missing" }],
+    }));
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      economicReplay: { inspect },
+    });
+    const job = await service.submit(submission);
+    await expect(service.getReplay(query, job.id)).resolves.toMatchObject({
+      lifecycleState: "failed",
+      economic: { availability: "available", snapshot: { status: "denied", policyId: "economy-policy", rejections: [{ stage: "economic-selection" }] } },
+    });
+    expect(inspect).toHaveBeenCalledWith({ jobId: job.id, economicAttemptId: job.economicAttemptId });
+  });
+
+  it("makes missing or corrupt authority replay evidence visibly unavailable", async () => {
+    const unavailable = new ManagedJobApplicationService({ ...createOptions(), economicReplay: { inspect: () => undefined } });
+    const missing = await unavailable.submit(submission);
+    await expect(unavailable.getReplay(query, missing.id)).resolves.toMatchObject({ economic: { availability: "unavailable", reason: "evidence-not-found" } });
+    const corrupt = new ManagedJobApplicationService({ ...createOptions(), economicReplay: { inspect: () => { throw new Error("malformed"); } } });
+    const job = await corrupt.submit(submission);
+    await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ economic: { availability: "unavailable", reason: "evidence-unprojectable" } });
+  });
+
   it("persists one V7 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();

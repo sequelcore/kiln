@@ -14,7 +14,7 @@ vi.mock("node:os", async (importOriginal) => {
   };
 });
 
-import { runAuth } from "../../../src/commands/auth.js";
+import { runAuth } from "../../src/commands/auth.js";
 
 function openCodeCredential(id: string, tier: "go" | "zen", apiKey: string) {
   return {

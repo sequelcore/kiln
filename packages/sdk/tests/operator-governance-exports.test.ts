@@ -14,6 +14,11 @@ import {
   MANAGED_ACCOUNT_LEASE_FIXTURE,
   managedAccountLeaseEvents,
 } from "../../gateway-contracts/tests/fixtures/managed-account-lease.js";
+import {
+  MANAGED_ECONOMIC_LIFECYCLE_FIXTURE,
+  managedEconomicLifecycleEvents,
+  managedEconomicLifecycleUnprojectableEvents,
+} from "../../gateway-contracts/tests/fixtures/managed-economic-lifecycle.js";
 
 describe("SDK operator governance exports", () => {
   it("projects the canonical replay without a surface-local interpretation", () => {
@@ -78,5 +83,23 @@ describe("SDK operator governance exports", () => {
       lifecycleState: MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState,
       selectionReason: MANAGED_ACCOUNT_LEASE_FIXTURE.selectionReason,
     });
+  });
+
+  it("exports the canonical economic lifecycle projection without a second SDK interpretation", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-08T12:01:00.000Z",
+      attachTargets: [{
+        instanceId: MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.instanceId,
+        label: "Synthetic managed economic runtime",
+        kind: "local",
+      }],
+      events: [...managedEconomicLifecycleEvents, ...managedEconomicLifecycleUnprojectableEvents],
+    });
+
+    expect(projection.economicAttempts[0]).toMatchObject({
+      transition: "released",
+      rejections: expect.arrayContaining([expect.objectContaining({ stage: "commitment-conflict" })]),
+    });
+    expect(projection.unprojectableEvidence).toHaveLength(4);
   });
 });

@@ -166,6 +166,12 @@ Managed-job V7 is the only supported persisted record. The operator explicitly
 discarded the terminal pre-V7 local store in issue #43; Runtime rejects every
 other record version rather than retaining a migration or recovery reader.
 
+V7 remains the managed-job record, not a producer of `RuntimeSession` or
+cockpit events. Session-event surfaces render Runtime's canonical
+`managed_economic_lifecycle` evidence; managed-job replay is a separate MCP
+read model. The distinction prevents replay from manufacturing session history
+or giving a job projection a second lifecycle owner.
+
 ### Codex App MCP projection
 
 The project-local Codex App MCP adapter exposes exactly
@@ -191,8 +197,12 @@ narrow-only route constraints, and persists the V7 precommit record with its
 Only after atomic commitment and the durable dispatch fence may Runtime resolve
 the committed account revision, materialize the exact adapter, and execute the
 job. Typed settlement reconciles capacity; missing, rejected, timed-out, or
-otherwise ambiguous post-fence settlement remains pending. The MCP adapter
-never selects a route. Capability
+otherwise ambiguous post-fence settlement remains pending. `kiln_managed_agent_replay`
+joins the V7 `jobId` and `economicAttemptId` to the durable Runtime SQLite
+authority through a Runtime port. It projects that evidence as available,
+unavailable, or unprojectable; it neither duplicates the authority/store nor
+synthesizes a RuntimeSession or cockpit event. The MCP adapter never selects a
+route. Capability
 inspection projects safe configured-agent identity, optional role/display
 name, availability,
 provider family, admission profile, and stable action; it does not expose route
@@ -749,6 +759,12 @@ route/account revision and persists the dispatch fence before Runtime may
 resolve credentials or materialize the adapter. A replay of an already-fenced
 commitment never dispatches again. Typed settlement preserves provider units,
 provider-reported charge, and calculated estimate as distinct evidence.
+Canonical `managed_economic_lifecycle` session evidence is versioned at
+`evidenceVersion: 1` with no compatibility reader. Its secret-free rejection
+evidence names exactly one stage: `economic-selection`, `account-selection`,
+`local-capacity`, or `commitment-conflict`. A portable shared fixture covers
+all lifecycle transitions and every stage; malformed evidence fails closed at
+the Gateway projection boundary rather than being silently discarded.
 Rejected, timed-out, cancelled, missing, or otherwise unknown settlement
 remains capacity-consuming until durable recovery or operator reconciliation
 proves a terminal outcome.

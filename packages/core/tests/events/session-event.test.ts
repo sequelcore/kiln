@@ -508,6 +508,39 @@ describe("session event envelope", () => {
     expect(events.map((event) => event.kind)).toEqual(kinds);
   });
 
+  it("requires versioned staged economic denial evidence", () => {
+    const event = createSessionEvent({
+      kind: "managed_economic_lifecycle",
+      kilnSessionId: "kiln-session-economic",
+      sequence: 1,
+      jobId: "job-economic",
+      economicAttemptId: "economic-attempt-economic",
+      transition: "denied",
+      evidenceVersion: 1,
+      policyId: "policy-economic",
+      policyRevision: "revision-economic",
+      policyDigest: `sha256:${"e".repeat(64)}`,
+      rejections: [
+        { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+        { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+        { stage: "local-capacity", routeId: "route-opencode", reason: "route-capacity-exhausted" },
+        { stage: "commitment-conflict", reason: "identity-revision-conflict" },
+      ],
+    });
+
+    expect(event).toMatchObject({
+      kind: "managed_economic_lifecycle",
+      evidenceVersion: 1,
+      transition: "denied",
+      rejections: [
+        { stage: "economic-selection", routeId: "route-codex", reason: "ceiling-exceeded" },
+        { stage: "account-selection", routeId: "route-opencode", reason: "lease-conflict", count: 2 },
+        { stage: "local-capacity", routeId: "route-opencode", reason: "route-capacity-exhausted" },
+        { stage: "commitment-conflict", reason: "identity-revision-conflict" },
+      ],
+    });
+  });
+
   it("sorts by sequence and tie-breakers (timestamp, then eventId)", () => {
     const events = [
       createSessionEvent({

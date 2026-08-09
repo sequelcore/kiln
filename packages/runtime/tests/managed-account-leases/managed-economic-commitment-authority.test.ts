@@ -333,6 +333,68 @@ describe("managed economic commitment authority", () => {
       }] } });
   });
 
+  it("projects real SQLite denied, held, fenced, pending, and released evidence without secrets", () => {
+    const authority = create();
+    const first = authority.acquireCommitment(input());
+    if (first.status !== "committed") throw new Error("Expected a commitment.");
+    const inspect = authority.createManagedJobReplayInspectionPort();
+    expect(inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" })).toMatchObject({
+      evidenceVersion: 1, status: "held", policyId: "policy", policyRevision: "revision-1",
+      policyDigest: `sha256:${"1".repeat(64)}`, commitmentId: first.record.commitment.commitmentId,
+      reservationId: first.record.commitment.reservation.reservationId,
+      selectedRoute: { routeId: "route-direct", providerId: "provider", modelId: "model", adapterCapabilityId: "direct", adapterCapabilityVersion: "1" },
+      selectedAccount: { kind: "accountless" },
+    });
+    authority.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    expect(inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" })).toMatchObject({ status: "dispatch-fenced", dispatchFenceId: "fence-a" });
+    authority.recordExecutionSettlementPending("job-a", "economic-attempt-a", "fence-a", "awaiting settlement");
+    expect(inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" })).toMatchObject({ status: "settlement-pending", settlementKind: "unknown" });
+    authority.settleExecution("job-a", "economic-attempt-a", "fence-a", {
+      kind: "free", reservationId: first.record.commitment.reservation.reservationId, dispatchFenceId: "fence-a",
+      actualIdentity: first.record.commitment.reservation.selectedIdentity, units: [],
+      evidence: snapshot().routes[0]!.priceEvidence.identity.evidence,
+    });
+    const released = inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" });
+    expect(released).toMatchObject({ status: "released", settlementKind: "free", settlementAuthority: "configured" });
+    expect(JSON.stringify(released)).not.toMatch(/accountRef|credentialRevision|amount/iu);
+
+    const denied = authority.acquireCommitment({ ...input(), jobId: "job-b", economicAttemptId: "economic-attempt-b" });
+    expect(denied).toMatchObject({ status: "committed" });
+    const capacityDenied = authority.acquireCommitment({ ...input(), jobId: "job-c", economicAttemptId: "economic-attempt-c" });
+    expect(capacityDenied).toMatchObject({ status: "denied" });
+    expect(inspect.inspect({ jobId: "job-c", economicAttemptId: "economic-attempt-c" })).toMatchObject({
+      status: "denied", policyId: "policy", policyDigest: `sha256:${"1".repeat(64)}`,
+      rejections: [{ stage: "local-capacity", routeId: "route-direct", reason: "route-capacity-exhausted" }],
+    });
+  });
+
+  it("fails visibly for legacy or malformed durable decision evidence", () => {
+    const authority = create();
+    expect(authority.acquireCommitment(input())).toMatchObject({ status: "committed" });
+    const database = new Database(join(roots.at(-1)!, "authority.sqlite"), { strict: true });
+    database.query("UPDATE economic_commitments SET decision_json=? WHERE job_id=?").run(JSON.stringify({ decision: { kind: "selected" }, authorityRejections: [] }), "job-a");
+    database.close();
+    expect(() => authority.createManagedJobReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
+      .toThrow(/unprojectable/u);
+  });
+
+  it("fails closed rather than projecting injected route or account secrets", () => {
+    const authority = create();
+    expect(authority.acquireCommitment(input())).toMatchObject({ status: "committed" });
+    const database = new Database(join(roots.at(-1)!, "authority.sqlite"), { strict: true });
+    const row = database.query<{ commitment_json: string }, [string]>("SELECT commitment_json FROM economic_commitments WHERE job_id=?")
+      .get("job-a");
+    if (!row) throw new Error("Expected commitment row.");
+    const corrupted = JSON.parse(row.commitment_json) as { reservation: { selectedIdentity: { route: Record<string, unknown>; account: Record<string, unknown> } } };
+    corrupted.reservation.selectedIdentity.route.secret = "route-secret";
+    corrupted.reservation.selectedIdentity.account.accountRef = "configured:injected";
+    corrupted.reservation.selectedIdentity.account.credentialRevision = "revision-secret";
+    database.query("UPDATE economic_commitments SET commitment_json=? WHERE job_id=?").run(JSON.stringify(corrupted), "job-a");
+    database.close();
+    expect(() => authority.createManagedJobReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
+      .toThrow(/unprojectable/u);
+  });
+
   it("returns typed rejection evidence when an in-flight reservation is incompatible with the route ceiling", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-incompatible-capacity-"));
     roots.push(root);

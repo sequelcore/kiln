@@ -8,9 +8,11 @@ import {
   type ManagedEconomicSettlement,
   type ManagedEconomicExecutionReport,
   type ManagedAgentAdmissionProfile,
+  type SessionManagedEconomicRejection,
   type SessionManagedEconomicLifecycleTransition,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeAdapter } from "./index.js";
+import { projectManagedEconomicDenialRejections } from "../../managed-account-leases/managed-economic-denial-rejections.js";
 import type {
   ManagedEconomicCommitmentAcquireResult,
   ManagedEconomicCommitmentRecord,
@@ -56,6 +58,7 @@ export interface ManagedEconomicLifecycleEventPort {
     readonly dispatchFenceId?: string;
     readonly settlement?: ManagedEconomicSettlement;
     readonly reason?: string;
+    readonly rejections?: readonly SessionManagedEconomicRejection[];
   }): void;
 }
 
@@ -117,7 +120,11 @@ export class ManagedEconomicDispatchCoordinator {
       ...input.adoption,
     });
     if (result.status !== "committed") {
-      input.lifecycleEvents?.record({ transition: "denied", policy: policy() });
+      input.lifecycleEvents?.record({
+        transition: "denied",
+        policy: policy(),
+        rejections: projectManagedEconomicDenialRejections(result),
+      });
       return { status: "denied", result };
     }
     if (result.record.state !== "held") {

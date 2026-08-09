@@ -2,12 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   FilesystemManagedJobStore,
   ManagedJobApplicationService,
   RuntimeManagedAgentInvocationService,
   SqliteManagedAccountLeaseAuthority,
 } from "@kilnai/runtime";
+
+const REPOSITORY_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
 /**
  * Shared between the `config-status.js` mock (still the sole source of
@@ -277,7 +280,7 @@ describe("operator project managed-job production composition", () => {
     const recoverInterrupted = vi
       .spyOn(ManagedJobApplicationService.prototype, "recoverInterrupted")
       .mockResolvedValue([]);
-    const service = await createOperatorProjectManagedJobApplicationService({ projectPath: process.cwd(), discoverProviderModels: async () => ({}) });
+    const service = await createOperatorProjectManagedJobApplicationService({ projectPath: REPOSITORY_ROOT, discoverProviderModels: async () => ({}) });
     await expect(service.submit({
       objective: "Bounded production composition proof.",
       configuredAgentProfileId: "missing-agent",

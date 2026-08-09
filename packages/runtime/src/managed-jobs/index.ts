@@ -17,6 +17,7 @@ import type {
 } from "../agents/managed-invocation/economic-dispatch-coordinator.js";
 import type {
   ManagedEconomicCommitmentAcquireResult,
+  ManagedEconomicReplayEvidence,
   ManagedEconomicRouteCapacity,
 } from "../managed-account-leases/managed-account-lease-authority.js";
 
@@ -180,8 +181,16 @@ export interface ManagedJobReplayQuery {
   readonly providerId?: string;
   readonly lifecycle: readonly ManagedJobLifecycleEntry[];
   readonly resultAvailability: ManagedJobResultAvailability;
+  readonly economic: ManagedJobEconomicReplay;
   readonly diagnostic?: ManagedJobDiagnosticCode;
 }
+
+export type ManagedJobEconomicReplay =
+  | { readonly availability: "available"; readonly snapshot: ManagedEconomicReplayEvidence }
+  | {
+      readonly availability: "unavailable";
+      readonly reason: "authority-unavailable" | "evidence-not-found" | "evidence-unprojectable";
+    };
 
 export interface ManagedJobProjectPort { resolve(): Promise<TrustedManagedJobProject>; }
 export interface ManagedJobGovernancePort {
@@ -198,6 +207,9 @@ export interface ManagedJobCommitmentRecoveryPort {
     readonly jobId: string;
     readonly economicAttemptId: string;
   }): ManagedJobCommitmentRecoveryState;
+}
+export interface ManagedJobEconomicReplayPort {
+  inspect(input: { readonly jobId: string; readonly economicAttemptId: string }): ManagedEconomicReplayEvidence | undefined;
 }
 export interface ManagedJobEconomicAdoption {
   readonly snapshot: ManagedEconomicAdoptedSnapshot;
@@ -247,6 +259,7 @@ export interface ManagedJobApplicationOptions {
   readonly commitmentRecovery?: ManagedJobCommitmentRecoveryPort;
   readonly economicAdoption?: ManagedJobEconomicAdoptionPort;
   readonly economicCommitment?: ManagedJobEconomicCommitmentPort;
+  readonly economicReplay?: ManagedJobEconomicReplayPort;
   readonly economicDispatch?: ManagedEconomicDispatchCoordinator;
   readonly economicExecution?: ManagedJobEconomicExecutionPort;
   readonly clock?: () => Date;
@@ -400,7 +413,19 @@ export class ManagedJobApplicationService {
 
   async getReplay(context: TrustedManagedJobQueryContext, id: string): Promise<ManagedJobReplayQuery> {
     const job = await this.getStatus(context, id);
-    return replayQuery(job, "available", job.lifecycle);
+    return replayQuery(job, "available", job.lifecycle, undefined, this.economicReplay(job));
+  }
+
+  private economicReplay(job: ManagedJobRecord): ManagedJobEconomicReplay {
+    if (!this.options.economicReplay) return { availability: "unavailable", reason: "authority-unavailable" };
+    try {
+      const snapshot = this.options.economicReplay.inspect({ jobId: job.id, economicAttemptId: job.economicAttemptId });
+      return snapshot === undefined
+        ? { availability: "unavailable", reason: "evidence-not-found" }
+        : { availability: "available", snapshot };
+    } catch {
+      return { availability: "unavailable", reason: "evidence-unprojectable" };
+    }
   }
 
   async recoverInterrupted(): Promise<readonly ManagedJobRecord[]> {
@@ -922,7 +947,7 @@ function resultQuery(job: ManagedJobRecord, availability: ManagedJobResultAvaila
     ...(diagnostic ? { diagnostic } : {}),
   };
 }
-function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery["availability"], lifecycle: readonly ManagedJobLifecycleEntry[], diagnostic?: ManagedJobDiagnosticCode): ManagedJobReplayQuery {
+function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery["availability"], lifecycle: readonly ManagedJobLifecycleEntry[], diagnostic?: ManagedJobDiagnosticCode, economic: ManagedJobEconomicReplay = { availability: "unavailable", reason: "authority-unavailable" }): ManagedJobReplayQuery {
   const resultAvailability: ManagedJobResultAvailability = job.state === "queued" || job.state === "running"
     ? "pending"
     : job.state === "succeeded"
@@ -937,6 +962,7 @@ function replayQuery(job: ManagedJobRecord, availability: ManagedJobReplayQuery[
     ...(job.result && { routeId: job.result.routeId, providerId: job.result.providerId }),
     lifecycle,
     resultAvailability,
+    economic,
     ...(diagnostic ? { diagnostic } : {}),
   };
 }

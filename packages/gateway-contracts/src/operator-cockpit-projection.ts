@@ -2,6 +2,7 @@ import type {
   OperatorManagedAgentExternalRuntimeAttachmentIdentity,
   OperatorManagedAgentResourceLeaseSnapshot,
   OperatorManagedEconomicAccountIdentity,
+  OperatorManagedEconomicRejection,
   OperatorManagedEconomicEvidenceAuthority,
   OperatorManagedEconomicLifecycleTransition,
   OperatorManagedEconomicRouteIdentity,
@@ -413,6 +414,7 @@ export interface OperatorCockpitEconomicAttemptProjection {
   readonly settlementKind?: OperatorManagedEconomicSettlementKind;
   readonly settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
   readonly reason?: string;
+  readonly rejections?: readonly OperatorManagedEconomicRejection[];
   readonly eventCount: number;
   readonly latestEventId: string;
 }
@@ -544,6 +546,7 @@ interface EconomicAttemptAccumulator {
   settlementKind?: OperatorManagedEconomicSettlementKind;
   settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
   reason?: string;
+  rejections?: readonly OperatorManagedEconomicRejection[];
   eventCount: number;
   latestEventId: string;
 }
@@ -824,12 +827,32 @@ export function projectOperatorCockpitReadOnlyView(
         attempt.commitmentId = readString(payload.commitmentId) ?? attempt.commitmentId;
         attempt.reservationId = readString(payload.reservationId) ?? attempt.reservationId;
         attempt.dispatchFenceId = readString(payload.dispatchFenceId) ?? attempt.dispatchFenceId;
-        attempt.selectedRoute = readManagedEconomicRoute(payload.selectedRoute) ?? attempt.selectedRoute;
-        attempt.selectedAccount = readManagedEconomicAccount(payload.selectedAccount) ?? attempt.selectedAccount;
-        attempt.settlementKind = readManagedEconomicSettlementKind(payload.settlementKind) ?? attempt.settlementKind;
-        attempt.settlementAuthority = readManagedEconomicEvidenceAuthority(payload.settlementAuthority)
-          ?? attempt.settlementAuthority;
+        const selectedRoute = readManagedEconomicRoute(payload.selectedRoute);
+        if (isEvidenceRejection(selectedRoute)) {
+          pushEvidenceRejection(unprojectableEvidence, event, selectedRoute);
+        } else if (selectedRoute !== undefined) {
+          attempt.selectedRoute = selectedRoute;
+        }
+        const selectedAccount = readManagedEconomicAccount(payload.selectedAccount);
+        if (isEvidenceRejection(selectedAccount)) {
+          pushEvidenceRejection(unprojectableEvidence, event, selectedAccount);
+        } else if (selectedAccount !== undefined) {
+          attempt.selectedAccount = selectedAccount;
+        }
+        const settlement = readManagedEconomicSettlement(payload);
+        if (isEvidenceRejection(settlement)) {
+          pushEvidenceRejection(unprojectableEvidence, event, settlement);
+        } else if (settlement !== null) {
+          attempt.settlementKind = settlement.kind;
+          attempt.settlementAuthority = settlement.authority;
+        }
         attempt.reason = readString(payload.reason) ?? attempt.reason;
+        const rejectionsResult = readManagedEconomicRejections(payload.rejections, transition);
+        if (rejectionsResult && isEvidenceRejection(rejectionsResult)) {
+          pushEvidenceRejection(unprojectableEvidence, event, rejectionsResult);
+        } else if (rejectionsResult !== null) {
+          attempt.rejections = rejectionsResult;
+        }
       }
     }
 
@@ -1106,6 +1129,15 @@ interface EconomicAttemptRejectionCause {
 function readEconomicAttemptCore(
   payload: Record<string, unknown>,
 ): EconomicAttemptCore | EconomicAttemptRejectionCause {
+  if (payload.evidenceVersion === undefined) {
+    return { reason: "missing-required-field", field: "evidenceVersion" };
+  }
+  if (typeof payload.evidenceVersion !== "number" || !Number.isInteger(payload.evidenceVersion)) {
+    return { reason: "contract-violation", field: "evidenceVersion" };
+  }
+  if (payload.evidenceVersion !== 1) {
+    return { reason: "unsupported-version", field: "evidenceVersion" };
+  }
   const jobId = readString(payload.jobId);
   if (!jobId) return { reason: "missing-required-field", field: "jobId" };
   const economicAttemptId = readString(payload.economicAttemptId);
@@ -1120,6 +1152,97 @@ function readEconomicAttemptCore(
   const transition = readManagedEconomicTransition(payload.transition);
   if (!transition) return { reason: "invalid-discriminator", field: "transition" };
   return { jobId, economicAttemptId, transition, policyId, policyRevision, policyDigest };
+}
+
+function readManagedEconomicRejections(
+  value: unknown,
+  transition: OperatorManagedEconomicLifecycleTransition,
+): readonly OperatorManagedEconomicRejection[] | EvidenceRejectionCause | null {
+  if (value === undefined) {
+    return transition === "denied"
+      ? evidenceRejection("missing-required-field", "rejections")
+      : null;
+  }
+  if (transition !== "denied" || !Array.isArray(value)) {
+    return evidenceRejection("contract-violation", "rejections");
+  }
+
+  const rejections: OperatorManagedEconomicRejection[] = [];
+  for (const rejection of value) {
+    const record = asRecord(rejection);
+    const stage = record.stage;
+    if (stage === "economic-selection") {
+      const routeId = readString(record.routeId);
+      if (!hasOnlyKeys(record, ["stage", "routeId", "reason"])
+        || !routeId || !isManagedEconomicCoreRejectionReason(record.reason)) {
+        return evidenceRejection("contract-violation", "rejections");
+      }
+      rejections.push({ stage, routeId, reason: record.reason });
+      continue;
+    }
+    if (stage === "account-selection") {
+      const routeId = readString(record.routeId);
+      if (!hasOnlyKeys(record, ["stage", "routeId", "reason", "count"])
+        || !routeId || !isManagedEconomicAccountSelectionRejectionReason(record.reason)
+        || !isPositiveInteger(record.count)) {
+        return evidenceRejection("contract-violation", "rejections");
+      }
+      rejections.push({ stage, routeId, reason: record.reason, count: record.count });
+      continue;
+    }
+    if (stage === "local-capacity") {
+      const routeId = readString(record.routeId);
+      if (!hasOnlyKeys(record, ["stage", "routeId", "reason"])
+        || !routeId || !isManagedEconomicLocalCapacityRejectionReason(record.reason)) {
+        return evidenceRejection("contract-violation", "rejections");
+      }
+      rejections.push({ stage, routeId, reason: record.reason });
+      continue;
+    }
+    if (stage === "commitment-conflict" && hasOnlyKeys(record, ["stage", "reason"])
+      && isManagedEconomicCommitmentConflictReason(record.reason)) {
+      rejections.push({ stage, reason: record.reason });
+      continue;
+    }
+    return evidenceRejection("contract-violation", "rejections");
+  }
+  return rejections;
+}
+
+function hasOnlyKeys(record: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(record).every((key) => allowed.includes(key));
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isManagedEconomicCoreRejectionReason(
+  value: unknown,
+): value is Extract<OperatorManagedEconomicRejection, { readonly stage: "economic-selection" }>["reason"] {
+  return value === "quota-evidence-missing" || value === "quota-evidence-stale"
+    || value === "price-evidence-missing" || value === "price-evidence-stale"
+    || value === "comparison-domain-incompatible" || value === "execution-envelope-unbounded"
+    || value === "ceiling-exceeded";
+}
+
+function isManagedEconomicAccountSelectionRejectionReason(
+  value: unknown,
+): value is Extract<OperatorManagedEconomicRejection, { readonly stage: "account-selection" }>["reason"] {
+  return value === "unhealthy" || value === "incompatible-route" || value === "reserved-for-new-work"
+    || value === "lease-conflict" || value === "dispatcher-unavailable";
+}
+
+function isManagedEconomicLocalCapacityRejectionReason(
+  value: unknown,
+): value is Extract<OperatorManagedEconomicRejection, { readonly stage: "local-capacity" }>["reason"] {
+  return value === "route-capacity-exhausted" || value === "comparison-domain-incompatible";
+}
+
+function isManagedEconomicCommitmentConflictReason(
+  value: unknown,
+): value is Extract<OperatorManagedEconomicRejection, { readonly stage: "commitment-conflict" }>["reason"] {
+  return value === "idempotency-conflict" || value === "identity-revision-conflict";
 }
 
 function getOrCreateEconomicAttempt(
@@ -1206,6 +1329,7 @@ function projectEconomicAttempt(input: EconomicAttemptAccumulator): OperatorCock
     ...(input.settlementKind !== undefined ? { settlementKind: input.settlementKind } : {}),
     ...(input.settlementAuthority !== undefined ? { settlementAuthority: input.settlementAuthority } : {}),
     ...(input.reason !== undefined ? { reason: input.reason } : {}),
+    ...(input.rejections !== undefined ? { rejections: input.rejections } : {}),
     eventCount: input.eventCount,
     latestEventId: input.latestEventId,
   };
@@ -1723,7 +1847,9 @@ function readResourceLease(
   const diagnosticUris = readRequiredStringList(lease.diagnosticUris);
   if (!diagnosticUris) return evidenceRejection("contract-violation", "resourceLease.diagnosticUris");
   const worktreeReview = readWorktreeReview(lease.worktreeReview);
+  if (worktreeReview && isEvidenceRejection(worktreeReview)) return worktreeReview;
   const worktreeConflict = readWorktreeConflict(lease.worktreeConflict);
+  if (worktreeConflict && isEvidenceRejection(worktreeConflict)) return worktreeConflict;
   return {
     leaseId,
     createdAt,
@@ -1738,45 +1864,88 @@ function readResourceLease(
   };
 }
 
-function readManagedEconomicRoute(value: unknown): OperatorManagedEconomicRouteIdentity | undefined {
+function readManagedEconomicRoute(
+  value: unknown,
+): OperatorManagedEconomicRouteIdentity | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
   const route = asRecord(value);
+  const fields = ["routeId", "providerId", "modelId", "adapterCapabilityId", "adapterCapabilityVersion"];
+  if (!hasOnlyKeys(route, fields)) return evidenceRejection("contract-violation", "selectedRoute");
   const routeId = readString(route.routeId);
   const providerId = readString(route.providerId);
   const modelId = readString(route.modelId);
   const adapterCapabilityId = readString(route.adapterCapabilityId);
   const adapterCapabilityVersion = readString(route.adapterCapabilityVersion);
   if (!routeId || !providerId || !modelId || !adapterCapabilityId || !adapterCapabilityVersion) {
-    return undefined;
+    return evidenceRejection("missing-required-field", "selectedRoute");
   }
   return { routeId, providerId, modelId, adapterCapabilityId, adapterCapabilityVersion };
 }
 
-function readManagedEconomicAccount(value: unknown): OperatorManagedEconomicAccountIdentity | undefined {
+function readManagedEconomicAccount(
+  value: unknown,
+): OperatorManagedEconomicAccountIdentity | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
   const account = asRecord(value);
   const kind = account.kind;
   if (kind !== "account-bound" && kind !== "accountless") {
-    return undefined;
+    return evidenceRejection("invalid-discriminator", "selectedAccount");
   }
-  const capacityIdentity = readString(account.capacityIdentity) ?? undefined;
+  if (kind === "accountless") {
+    return hasOnlyKeys(account, ["kind"])
+      ? { kind }
+      : evidenceRejection("contract-violation", "selectedAccount");
+  }
+  const fields = ["kind", "capacityIdentity", "creditPosture", "overagePosture"];
+  if (!hasOnlyKeys(account, fields)) return evidenceRejection("contract-violation", "selectedAccount");
+  const capacityIdentity = readString(account.capacityIdentity);
   const creditPosture = account.creditPosture;
   const overagePosture = account.overagePosture;
+  if (!capacityIdentity || (creditPosture !== "disabled" && creditPosture !== "committed")
+    || (overagePosture !== "disabled" && overagePosture !== "committed")) {
+    return evidenceRejection("missing-required-field", "selectedAccount");
+  }
   return {
     kind,
-    ...(capacityIdentity !== undefined ? { capacityIdentity } : {}),
-    ...(creditPosture === "disabled" || creditPosture === "committed" ? { creditPosture } : {}),
-    ...(overagePosture === "disabled" || overagePosture === "committed" ? { overagePosture } : {}),
+    capacityIdentity,
+    creditPosture,
+    overagePosture,
   };
 }
 
+function readManagedEconomicSettlement(
+  payload: Record<string, unknown>,
+): { readonly kind: OperatorManagedEconomicSettlementKind; readonly authority?: OperatorManagedEconomicEvidenceAuthority }
+  | EvidenceRejectionCause
+  | null {
+  const hasKind = payload.settlementKind !== undefined;
+  const hasAuthority = payload.settlementAuthority !== undefined;
+  if (!hasKind && !hasAuthority) return null;
+  if (!hasKind) return evidenceRejection("contract-violation", "settlementKind");
+
+  const kind = readManagedEconomicSettlementKind(payload.settlementKind);
+  if (!kind) return evidenceRejection("invalid-discriminator", "settlementKind");
+  if (!hasAuthority) return { kind };
+
+  const authority = readManagedEconomicEvidenceAuthority(payload.settlementAuthority);
+  if (!authority || kind === "pending" || kind === "leaked") {
+    return evidenceRejection("contract-violation", "settlementAuthority");
+  }
+  return { kind, authority };
+}
+
 function readManagedEconomicSettlementKind(value: unknown): OperatorManagedEconomicSettlementKind | undefined {
-  return value === "charge" || value === "estimate" || value === "subscription"
+  return value === "charged" || value === "estimated" || value === "subscription"
     || value === "included" || value === "free" || value === "unknown"
+    || value === "pending" || value === "leaked"
     ? value
     : undefined;
 }
 
 function readManagedEconomicEvidenceAuthority(value: unknown): OperatorManagedEconomicEvidenceAuthority | undefined {
-  return value === "authoritative" || value === "unknown" ? value : undefined;
+  return value === "provider-reported" || value === "configured" || value === "calculated-estimate"
+    ? value
+    : undefined;
 }
 
 function readAccountLease(
@@ -1969,9 +2138,16 @@ function applyManagedInvocationEvidence(
   }
 
   const lifecycle = asRecord(evidence.lifecycle);
-  const sourceResourceUris = readOptionalStringList(lifecycle.sourceResourceUris);
-  addSourceResourceUris(invocation, sourceResourceUris);
-  addEvidenceResourceUris(invocation, sourceResourceUris);
+  const sourceResourceUris = readOptionalStringList(
+    lifecycle.sourceResourceUris,
+    "managedInvocationEvidence.lifecycle.sourceResourceUris",
+  );
+  if (isEvidenceRejection(sourceResourceUris)) {
+    pushEvidenceRejection(unprojectableEvidence, event, sourceResourceUris);
+  } else {
+    addSourceResourceUris(invocation, sourceResourceUris);
+    addEvidenceResourceUris(invocation, sourceResourceUris);
+  }
 
   const transcriptResult = readInvocationTranscript(evidence.transcript);
   if (transcriptResult && isEvidenceRejection(transcriptResult)) {
@@ -1997,7 +2173,12 @@ function applyManagedInvocationEvidence(
     addEvidenceResourceUris(invocation, [diagnostic.uri]);
   }
 
-  addEvidenceResourceUris(invocation, readWriteEvidenceResourceUris(evidence.writeEvidence));
+  const writeEvidenceResourceUris = readWriteEvidenceResourceUris(evidence.writeEvidence);
+  if (isEvidenceRejection(writeEvidenceResourceUris)) {
+    pushEvidenceRejection(unprojectableEvidence, event, writeEvidenceResourceUris);
+  } else {
+    addEvidenceResourceUris(invocation, writeEvidenceResourceUris);
+  }
 
   const lease = invocation.resourceLease;
   if (lease) {
@@ -2058,8 +2239,13 @@ function readInvocationResultHandoff(
     return evidenceRejection("contract-violation", "resultHandoff");
   }
   const summary = readString(value.summary) ?? undefined;
-  const resourceUris = readOptionalStringList(value.resourceUris);
-  const memoryWriteProposalUris = readOptionalStringList(value.memoryWriteProposalUris);
+  const resourceUris = readOptionalStringList(value.resourceUris, "resultHandoff.resourceUris");
+  if (isEvidenceRejection(resourceUris)) return resourceUris;
+  const memoryWriteProposalUris = readOptionalStringList(
+    value.memoryWriteProposalUris,
+    "resultHandoff.memoryWriteProposalUris",
+  );
+  if (isEvidenceRejection(memoryWriteProposalUris)) return memoryWriteProposalUris;
   if (!summary && resourceUris.length === 0 && memoryWriteProposalUris.length === 0) {
     return null;
   }
@@ -2118,9 +2304,12 @@ function readManagedInvocationPhaseActionFields(
   if (!isRecordValue(value)) {
     return evidenceRejection("contract-violation", fieldPrefix);
   }
-  const evidenceToRecord = readOptionalStringList(value.evidenceToRecord);
-  const requiredToolNames = readOptionalStringList(value.requiredToolNames);
-  const sourceResourceUris = readOptionalStringList(value.sourceResourceUris);
+  const evidenceToRecord = readOptionalStringList(value.evidenceToRecord, `${fieldPrefix}.evidenceToRecord`);
+  if (isEvidenceRejection(evidenceToRecord)) return evidenceToRecord;
+  const requiredToolNames = readOptionalStringList(value.requiredToolNames, `${fieldPrefix}.requiredToolNames`);
+  if (isEvidenceRejection(requiredToolNames)) return requiredToolNames;
+  const sourceResourceUris = readOptionalStringList(value.sourceResourceUris, `${fieldPrefix}.sourceResourceUris`);
+  if (isEvidenceRejection(sourceResourceUris)) return sourceResourceUris;
   const status = readString(value.status) ?? undefined;
   const reason = readString(value.reason) ?? undefined;
   const nextTool = readString(value.nextTool) ?? undefined;
@@ -2153,16 +2342,19 @@ function readManagedInvocationPhaseActionFields(
   };
 }
 
-function readWriteEvidenceResourceUris(value: unknown): readonly string[] {
-  if (!Array.isArray(value)) {
+function readWriteEvidenceResourceUris(value: unknown): readonly string[] | EvidenceRejectionCause {
+  if (value === undefined) {
     return [];
   }
-  return value.flatMap((item) => {
-    if (!isRecordValue(item)) {
-      return [];
-    }
-    return readOptionalStringList(item.resourceUris);
-  });
+  if (!Array.isArray(value)) return evidenceRejection("contract-violation", "managedInvocationEvidence.writeEvidence");
+  const resourceUris: string[] = [];
+  for (const item of value) {
+    if (!isRecordValue(item)) return evidenceRejection("contract-violation", "managedInvocationEvidence.writeEvidence");
+    const itemResourceUris = readOptionalStringList(item.resourceUris, "managedInvocationEvidence.writeEvidence.resourceUris");
+    if (isEvidenceRejection(itemResourceUris)) return itemResourceUris;
+    resourceUris.push(...itemResourceUris);
+  }
+  return resourceUris;
 }
 
 function readManagedOrchestrationAdoptionGate(
@@ -2314,11 +2506,12 @@ function readDiagnosticKind(value: unknown): OperatorCockpitInvocationDiagnostic
   return undefined;
 }
 
-function readOptionalStringList(value: unknown): readonly string[] {
-  if (!Array.isArray(value)) {
-    return [];
+function readOptionalStringList(value: unknown, field: string): readonly string[] | EvidenceRejectionCause {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => readString(item) === null)) {
+    return evidenceRejection("contract-violation", field);
   }
-  return value.flatMap((item) => readString(item) ? [readString(item)!] : []);
+  return value as readonly string[];
 }
 
 function addEvidenceResourceUris(
@@ -2343,17 +2536,16 @@ function addSourceResourceUris(
   }
 }
 
-function readWorktreeReview(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["worktreeReview"] | undefined {
-  if (!isRecordValue(value)) {
-    return undefined;
-  }
+function readWorktreeReview(
+  value: unknown,
+): OperatorManagedAgentResourceLeaseSnapshot["worktreeReview"] | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecordValue(value)) return evidenceRejection("contract-violation", "resourceLease.worktreeReview");
   const status = value.status === "required" ? value.status : null;
   const reason = value.reason === "dirty-worktree-preserved" ? value.reason : null;
   const resourceUris = readRequiredStringList(value.resourceUris);
   const diagnosticUris = readRequiredStringList(value.diagnosticUris);
-  if (!status || !reason || !resourceUris || !diagnosticUris) {
-    return undefined;
-  }
+  if (!status || !reason || !resourceUris || !diagnosticUris) return evidenceRejection("contract-violation", "resourceLease.worktreeReview");
   return {
     status,
     reason,
@@ -2362,10 +2554,11 @@ function readWorktreeReview(value: unknown): OperatorManagedAgentResourceLeaseSn
   };
 }
 
-function readWorktreeConflict(value: unknown): OperatorManagedAgentResourceLeaseSnapshot["worktreeConflict"] | undefined {
-  if (!isRecordValue(value)) {
-    return undefined;
-  }
+function readWorktreeConflict(
+  value: unknown,
+): OperatorManagedAgentResourceLeaseSnapshot["worktreeConflict"] | EvidenceRejectionCause | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecordValue(value)) return evidenceRejection("contract-violation", "resourceLease.worktreeConflict");
   const status = value.status === "blocked" ? value.status : null;
   const reason = value.reason === "same-checkout-write-conflict" || value.reason === "isolated-worktree-path-conflict"
     ? value.reason
@@ -2389,9 +2582,7 @@ function readWorktreeConflict(value: unknown): OperatorManagedAgentResourceLease
     || !retryAfterInvocationIds
     || !resourceUris
     || !diagnosticUris
-  ) {
-    return undefined;
-  }
+  ) return evidenceRejection("contract-violation", "resourceLease.worktreeConflict");
   return {
     status,
     reason,

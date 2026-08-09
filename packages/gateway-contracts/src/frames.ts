@@ -730,11 +730,62 @@ export interface OperatorManagedEconomicAccountIdentity {
 }
 
 export type OperatorManagedEconomicSettlementKind =
-  | "charge" | "estimate" | "subscription" | "included" | "free" | "unknown";
+  | "charged" | "estimated" | "subscription" | "included" | "free" | "unknown" | "pending" | "leaked";
 
-export type OperatorManagedEconomicEvidenceAuthority = "authoritative" | "unknown";
+export type OperatorManagedEconomicEvidenceAuthority =
+  | "provider-reported"
+  | "configured"
+  | "calculated-estimate";
+
+export type OperatorManagedEconomicCoreRejectionReason =
+  | "quota-evidence-missing"
+  | "quota-evidence-stale"
+  | "price-evidence-missing"
+  | "price-evidence-stale"
+  | "comparison-domain-incompatible"
+  | "execution-envelope-unbounded"
+  | "ceiling-exceeded";
+
+export type OperatorManagedEconomicAccountSelectionRejectionReason =
+  | "unhealthy"
+  | "incompatible-route"
+  | "reserved-for-new-work"
+  | "lease-conflict"
+  | "dispatcher-unavailable";
+
+export type OperatorManagedEconomicLocalCapacityRejectionReason =
+  | "route-capacity-exhausted"
+  | "comparison-domain-incompatible";
+
+export type OperatorManagedEconomicCommitmentConflictReason =
+  | "idempotency-conflict"
+  | "identity-revision-conflict";
+
+// Mirrors Core's sanitized SessionManagedEconomicRejection without importing Core.
+export type OperatorManagedEconomicRejection =
+  | {
+      readonly stage: "economic-selection";
+      readonly routeId: string;
+      readonly reason: OperatorManagedEconomicCoreRejectionReason;
+    }
+  | {
+      readonly stage: "account-selection";
+      readonly routeId: string;
+      readonly reason: OperatorManagedEconomicAccountSelectionRejectionReason;
+      readonly count: number;
+    }
+  | {
+      readonly stage: "local-capacity";
+      readonly routeId: string;
+      readonly reason: OperatorManagedEconomicLocalCapacityRejectionReason;
+    }
+  | {
+      readonly stage: "commitment-conflict";
+      readonly reason: OperatorManagedEconomicCommitmentConflictReason;
+    };
 
 export interface OperatorManagedEconomicLifecycleEventPayload extends Record<string, unknown> {
+  readonly evidenceVersion: 1;
   readonly jobId: string;
   readonly economicAttemptId: string;
   /** Best-effort cross-reference to a managed-agent invocation; absent on older events. */
@@ -751,6 +802,7 @@ export interface OperatorManagedEconomicLifecycleEventPayload extends Record<str
   readonly settlementKind?: OperatorManagedEconomicSettlementKind;
   readonly settlementAuthority?: OperatorManagedEconomicEvidenceAuthority;
   readonly reason?: string;
+  readonly rejections?: readonly OperatorManagedEconomicRejection[];
 }
 
 export interface OperatorSessionEvent {

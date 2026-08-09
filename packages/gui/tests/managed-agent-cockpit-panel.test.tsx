@@ -14,6 +14,11 @@ import {
   MANAGED_ACCOUNT_LEASE_FIXTURE,
   managedAccountLeaseEvents,
 } from "../../gateway-contracts/tests/fixtures/managed-account-lease.js";
+import {
+  MANAGED_ECONOMIC_LIFECYCLE_FIXTURE,
+  managedEconomicLifecycleEvents,
+  managedEconomicLifecycleUnprojectableEvents,
+} from "../../gateway-contracts/tests/fixtures/managed-economic-lifecycle.js";
 
 describe("ManagedAgentCockpitPanel", () => {
   it("renders canonical managed account lease evidence", () => {
@@ -606,6 +611,7 @@ describe("ManagedAgentCockpitPanel", () => {
         payload: {
           instanceId: "gui-economic:instance:1",
           sessionId: "gui-economic:session:1",
+          evidenceVersion: 1,
           jobId: "managed-economic-job:gui-fixture",
           economicAttemptId: "economic-attempt:gui-fixture:1",
           transition: "held",
@@ -651,6 +657,7 @@ describe("ManagedAgentCockpitPanel", () => {
         payload: {
           instanceId: "gui-economic:instance:1",
           sessionId: "gui-economic:session:1",
+          evidenceVersion: 1,
           jobId: "managed-economic-job:gui-fixture",
           economicAttemptId: "economic-attempt:gui-fixture:1",
           transition: "not-a-real-transition",
@@ -676,5 +683,25 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText(/invalid-discriminator/)).toBeVisible();
     expect(screen.queryByText("Economic attempts")).toBeNull();
     expect(document.body.textContent).not.toContain("not-a-real-transition");
+  });
+
+  it("renders shared staged rejection evidence and degraded lifecycle evidence", () => {
+    const projection = projectOperatorCockpitReadOnlyView({
+      projectedAt: "2026-08-08T12:01:00.000Z",
+      attachTargets: [{ instanceId: MANAGED_ECONOMIC_LIFECYCLE_FIXTURE.instanceId, label: "Synthetic", kind: "local" }],
+      events: [...managedEconomicLifecycleEvents, ...managedEconomicLifecycleUnprojectableEvents],
+    });
+    const view = createOperatorCockpitReadOnlyViewState({ projection, viewState: {} });
+    render(
+      <ManagedAgentCockpitPanel
+        viewState={view.managedAgents}
+        economicAttempts={view.economicAttempts}
+        unprojectableEvidence={view.unprojectableEvidence}
+      />,
+    );
+
+    expect(screen.getByText("rejection economic-selection: ceiling-exceeded")).toBeVisible();
+    expect(screen.getByLabelText("Unprojectable evidence")).toBeVisible();
+    expect(document.body.textContent).not.toContain("secret-account-shaped-value");
   });
 });

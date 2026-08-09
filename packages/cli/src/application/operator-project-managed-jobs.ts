@@ -239,6 +239,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     managedAccountComposition,
   );
   const commitmentRecovery = managedAccountComposition.authority.createManagedJobCommitmentRecoveryPort();
+  const economicReplay = managedAccountComposition.authority.createManagedJobReplayInspectionPort();
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
@@ -343,6 +344,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
         managedAccountComposition.authority.recordCommitmentReleaseFailure(input);
       },
     },
+    economicReplay,
     economicDispatch: economicDispatch.coordinator,
     economicExecution: {
       execute: async ({ job, preparation }) => {
