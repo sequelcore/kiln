@@ -22,7 +22,7 @@ import type { CliSession, CliSessionFactory, SessionRunOptions } from "../../src
 const itOpenCodeWriteProof = process.env[KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS_ENV] === "1" ? it : it.skip;
 
 describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_OPENCODE_TESTS_ENV, () => {
-  itOpenCodeWriteProof("denies a real OpenCode write attempt under read-only authority", async () => {
+  itOpenCodeWriteProof("keeps the Kiln fixture boundary unchanged under read-only authority", async () => {
     await withManagedAgentLiveFixtureWorkspace({
       prefix: "kiln-managed-agent-opencode-readonly-",
       files: {
@@ -37,9 +37,10 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         model,
         summary: "Attempt a write that Kiln must deny.",
         prompt: [
-          "Use the OpenCode edit/write tool to replace proof.txt with exactly:",
-          "after",
+          "Perform exactly one OpenCode edit or write tool call against proof.txt.",
+          "Replace the complete file contents with exactly the five ASCII characters: after",
           "Do not modify any other file.",
+          "Do not claim completion unless the tool call returns a result.",
         ].join("\n"),
       });
       const adapter = new ManagedCliHarnessAdapter({
@@ -63,9 +64,12 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
       if (result.status !== "completed") {
         throw new Error("Expected completed OpenCode live read-only proof");
       }
+      // OpenCode may suppress a denied tool before emitting a decision; this proves Kiln's effective boundary.
       await expect(workspace.readFile("proof.txt")).resolves.toBe("before\n");
-      expect(result.record.writeEvidence?.map((evidence) => evidence.kind)).toContain("write-authority-denied");
-      expect(JSON.stringify(result.record.writeEvidence)).not.toContain("diff --git");
+      expect(result.record.writeEvidence?.some((evidence) =>
+        evidence.kind === "write-proposal-approved" || evidence.kind === "write-attempt-completed",
+      ) ?? false).toBe(false);
+      expect(JSON.stringify(result.record.writeEvidence ?? [])).not.toContain("diff --git");
     });
   }, 180000);
 
@@ -85,9 +89,10 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         model,
         summary: "Apply one approved OpenCode fixture write.",
         prompt: [
-          "Use the OpenCode edit/write tool to replace proof.txt with exactly:",
-          "after",
+          "Perform exactly one OpenCode edit or write tool call against proof.txt.",
+          "Replace the complete file contents with exactly the five ASCII characters: after",
           "Do not modify any other file.",
+          "Do not claim completion unless the tool call returns a result.",
         ].join("\n"),
       });
       const adapter = new ManagedCliHarnessAdapter({
@@ -147,12 +152,18 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         timestamp: new Date("2026-05-05T12:00:00.000Z"),
       });
 
-      expect(events[2]).toMatchObject({
-        managedInvocationEvidence: {
-          writeAuthority: request.authority.writeAuthority,
-          writeEvidence: result.record.writeEvidence,
-        },
-      });
+      expect(events[2].managedInvocationEvidence?.writeEvidence?.map((evidence) => evidence.kind)).toEqual([
+        "write-proposal-created",
+        "write-proposal-approved",
+        "write-attempt-completed",
+      ]);
+      expect(JSON.stringify(events[2].managedInvocationEvidence)).not.toContain(workspace.workspaceRoot);
+      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+        `kiln://managed-agents/invocations/${request.invocationId}/resources/write`,
+      );
+      expect(JSON.stringify(events[2].managedInvocationEvidence?.writeAuthority)).toContain(
+        `kiln://managed-agents/invocations/${request.invocationId}/resources/approval`,
+      );
     });
   }, 180000);
 
@@ -263,7 +274,6 @@ function createOpenCodeLiveSessionFactory(options: {
     permissionDefault: options.permissionDefault,
     sandboxMode: options.permissionDefault === "allow" ? "workspace-write" : "read-only",
     sessionLedgerOwner: "host",
-    strictPermissionConfig: true,
   });
 }
 

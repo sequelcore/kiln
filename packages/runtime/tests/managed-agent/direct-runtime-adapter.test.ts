@@ -1079,8 +1079,8 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       };
     });
     const adapter = new ManagedDirectProviderRuntimeAdapter({
-      providerId: "codex-oauth",
-      model: "gpt-test",
+      providerId: "opencode-go",
+      model: "kimi-k2.6",
       provider,
       tools: [WRITE_TOOL],
       builtinTools: new Map([["write", writeTool]]),
@@ -1103,9 +1103,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         agentId: "direct-write:foundation-apply-approved-writes",
         profile: "foundation-apply-approved-writes",
         providerRoute: {
-          providerId: "codex-oauth",
+          providerId: "opencode-go",
           surface: "direct-provider",
-          model: "gpt-test",
+          model: "kimi-k2.6",
         },
         authority: {
           ...request().authority,

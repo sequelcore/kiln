@@ -154,6 +154,7 @@ describe("OpenCode runtime config injection", () => {
     expect(JSON.parse(content)).toEqual({
       model: "openai/gpt-4o:free",
       permission: {
+        "*": "ask",
         edit: "deny",
         bash: "allow",
         webfetch: "ask",
@@ -170,6 +171,7 @@ describe("OpenCode runtime config injection", () => {
 
     expect(JSON.parse(content)).toEqual({
       permission: {
+        "*": "allow",
         edit: "allow",
         bash: "allow",
         webfetch: "allow",
@@ -183,7 +185,7 @@ describe("OpenCode runtime config injection", () => {
       {
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           theme: "system",
-          permission: { edit: "allow" },
+          permission: { "*": "ask", edit: "allow", read: "ask" },
           experimental: { unrelated: true },
         }),
       },
@@ -193,6 +195,7 @@ describe("OpenCode runtime config injection", () => {
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toEqual({
       theme: "system",
       permission: {
+        "*": "deny",
         edit: "deny",
         bash: "deny",
         webfetch: "deny",
@@ -235,6 +238,7 @@ describe("OpenCodeSession.run() integration", () => {
     return {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: sessionId } }),
+        update: vi.fn().mockResolvedValue({ data: { id: sessionId } }),
         prompt: vi.fn().mockResolvedValue({ data: { info: { cost, stopReason } } }),
         messages: vi.fn().mockResolvedValue({ data: [] }),
         abort: vi.fn().mockResolvedValue(undefined),
@@ -248,7 +252,7 @@ describe("OpenCodeSession.run() integration", () => {
     };
   }
 
-  it("run() shapes config.update permission payload from translated native tool/command rules", async () => {
+  it("run() owns exact session permission rules instead of merging ambient config", async () => {
     const mock = makeMockClient("ses_perm", [
       {
         directory: "/tmp",
@@ -273,16 +277,21 @@ describe("OpenCodeSession.run() integration", () => {
       // consume
     }
 
-    const firstUpdateCall = mock.config.update.mock.calls[0]?.[0] as {
-      config?: {
-        permission?: { edit?: string; bash?: string; webfetch?: string };
-      };
-    } | undefined;
-    expect(firstUpdateCall?.config?.permission).toEqual({
-      edit: "deny",
-      bash: "allow",
-      webfetch: "allow",
-    });
+    const expectedPermission = [
+      { permission: "*", pattern: "*", action: "ask" },
+      { permission: "edit", pattern: "*", action: "deny" },
+      { permission: "bash", pattern: "*", action: "allow" },
+      { permission: "webfetch", pattern: "*", action: "allow" },
+    ];
+    expect(mock.session.create).toHaveBeenCalledWith(
+      expect.objectContaining({ permission: expectedPermission }),
+      { throwOnError: true },
+    );
+    expect(mock.session.update).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: "ses_perm", permission: expectedPermission }),
+      { throwOnError: true },
+    );
+    expect(mock.config.update.mock.calls.some(([call]) => call?.config?.permission !== undefined)).toBe(false);
   });
 
   it("run() appends deterministic translated constraint instructions into prompt payload", async () => {
@@ -765,6 +774,7 @@ describe("OpenCodeSession.run() integration", () => {
     const mock = {
       session: {
         create: vi.fn().mockResolvedValue({ data: { id: "ses_mcp_source" } }),
+        update: vi.fn().mockResolvedValue({ data: { id: "ses_mcp_source" } }),
         prompt: vi.fn().mockResolvedValue({ data: { info: { cost: 0.002 } } }),
         abort: vi.fn().mockResolvedValue(undefined),
       },
@@ -1291,6 +1301,7 @@ describe("OpenCodeSession.run() integration", () => {
         session: {
           create: vi.fn().mockResolvedValue({ data: { id: "should-not-be-used" } }),
           get: vi.fn().mockResolvedValue({ data: { id: "oc-abc", time: { created: 1234567890 } } }),
+          update: vi.fn().mockResolvedValue({ data: { id: "oc-abc" } }),
           prompt: vi.fn().mockResolvedValue({ data: { info: { cost: 0, stopReason: "end_turn" } } }),
           abort: vi.fn().mockResolvedValue(undefined),
         },

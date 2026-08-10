@@ -21,7 +21,11 @@ import { resolveNativeCliExecutable } from "./native-cli-executable.js";
 interface OpencodeClientShape {
   session: {
     create(
-      params: { directory?: string },
+      params: { directory?: string; permission?: OpenCodePermissionRule[] },
+      options?: { throwOnError?: boolean },
+    ): Promise<{ data?: { id: string } }>;
+    update(
+      params: { sessionID: string; directory?: string; permission?: OpenCodePermissionRule[] },
       options?: { throwOnError?: boolean },
     ): Promise<{ data?: { id: string } }>;
     get(
@@ -70,6 +74,7 @@ interface OpencodeClientShape {
     update(options?: {
       config?: {
         permission?: {
+          "*"?: "ask" | "allow" | "deny";
           edit?: "ask" | "allow" | "deny";
           bash?: "ask" | "allow" | "deny";
           webfetch?: "ask" | "allow" | "deny";
@@ -143,7 +148,6 @@ export interface OpenCodeSessionConfig {
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
-  readonly strictPermissionConfig?: boolean;
 }
 
 const OPENCODE_SANDBOX_WARNING =
@@ -190,9 +194,16 @@ function collectRuntimeWarnings(config: OpenCodeSessionConfig): string[] {
 type OpenCodePermissionValue = "ask" | "allow" | "deny";
 
 interface OpenCodePermissionPayload {
+  "*": OpenCodePermissionValue;
   edit: OpenCodePermissionValue;
   bash: OpenCodePermissionValue;
   webfetch: OpenCodePermissionValue;
+}
+
+interface OpenCodePermissionRule {
+  readonly permission: string;
+  readonly pattern: string;
+  readonly action: OpenCodePermissionValue;
 }
 
 function toOpenCodePermissionValue(action: KilnPermissionAction): OpenCodePermissionValue {
@@ -254,12 +265,21 @@ function toPermissionPayload(config: OpenCodeSessionConfig): OpenCodePermissionP
     approval === "never" ? "allow" : approval === "untrusted" ? "deny" : "ask";
   return applyGranularPermissionOverrides(
     {
+      "*": permValue,
       edit: permValue,
       bash: permValue,
       webfetch: permValue,
     },
     config.nativeRules,
   );
+}
+
+function toSessionPermissionRules(config: OpenCodeSessionConfig): OpenCodePermissionRule[] {
+  return Object.entries(toPermissionPayload(config)).map(([permission, action]) => ({
+    permission,
+    pattern: "*",
+    action,
+  }));
 }
 
 function asJsonObject(value: unknown, label: string): Record<string, unknown> {
@@ -300,7 +320,8 @@ function mergeOpenCodeRuntimeConfig(
   runtime: Record<string, unknown>,
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...base, ...runtime };
-  for (const field of ["permission", "mcp", "experimental"]) {
+  // Permission is session authority, so ambient rules must not survive beside Kiln's wildcard policy.
+  for (const field of ["mcp", "experimental"]) {
     const value = mergeRecordField(base, runtime, field);
     if (value !== undefined) {
       merged[field] = value;
@@ -594,21 +615,6 @@ export class OpenCodeSession implements IKilnSession {
       const client = asOpencodeClient(createOpencodeClient({ baseUrl }));
 
       if (!isResumingTurn) {
-        const permissionPayload = toPermissionPayload(this._config);
-        await client.config
-          .update({
-            config: { permission: permissionPayload },
-            directory: cwd,
-          })
-          .catch((err: unknown) => {
-            if (this._config.strictPermissionConfig === true) {
-              throw err;
-            }
-            console.debug(
-              `[opencode] config.update failed: ${err instanceof Error ? err.message : String(err)}`,
-            );
-          });
-
         const mcpEntry = buildOpenCodeMcpEntry(this._config);
         if (mcpEntry !== undefined) {
           await client.config
@@ -652,12 +658,21 @@ export class OpenCodeSession implements IKilnSession {
           this._remoteSessionId = getResult.data!.id;
         } else {
           const createResult = await client.session.create(
-            { directory: cwd },
+            { directory: cwd, permission: toSessionPermissionRules(this._config) },
             { throwOnError: true },
           );
           this._remoteSessionId = createResult.data!.id;
         }
       }
+
+      await client.session.update(
+        {
+          sessionID: this._remoteSessionId!,
+          directory: cwd,
+          permission: toSessionPermissionRules(this._config),
+        },
+        { throwOnError: true },
+      );
 
       this._eventAbortController = new AbortController();
       const eventStreamPromise = client.global.event({
