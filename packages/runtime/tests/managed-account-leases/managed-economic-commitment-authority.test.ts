@@ -215,18 +215,31 @@ describe("managed economic commitment authority", () => {
       units: [{ atoms: "7", scale: 0, unit: "input-token", scheme: { kind: "unit" as const } }],
       evidence: snapshot().routes[0]!.priceEvidence.identity.evidence,
     };
+    const released = authority.settleExecution(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      settlement,
+    );
+    expect(released).toMatchObject({ state: "released", settlement });
     expect(authority.settleExecution(
       "job-a",
       "economic-attempt-a",
       "fence-a",
       settlement,
     )).toMatchObject({ state: "released", settlement });
-    expect(authority.settleExecution(
+    expect(authority.recordExecutionSettlementPending(
       "job-a",
       "economic-attempt-a",
       "fence-a",
-      settlement,
-    )).toMatchObject({ state: "released", settlement });
+      "managed job observed execution failure after terminal settlement",
+    )).toEqual(released);
+    expect(() => authority.recordExecutionSettlementPending(
+      "job-a",
+      "economic-attempt-a",
+      "fence-conflict",
+      "conflicting durable fence",
+    )).toThrow("does not own the durable dispatch fence");
     expect(authority.acquireCommitment({
       ...input(),
       jobId: "job-c",
@@ -561,6 +574,34 @@ describe("managed economic commitment authority", () => {
       jobId: "job-a", economicAttemptId: "economic-attempt-a",
     })).toBe("committed");
     expect(restarted.releaseCommitmentPreFence("job-a", "economic-attempt-a").state).toBe("released");
+  });
+
+  it("does not replay a terminal settlement-pending report from a foreign owner", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-terminal-owner-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const first = createAt(path, "owner-a", () => 1_000);
+    const acquired = first.acquireCommitment(input());
+    if (acquired.status !== "committed") throw new Error("fixture");
+    first.fenceDispatch("job-a", "economic-attempt-a", "fence-a");
+    first.settleExecution("job-a", "economic-attempt-a", "fence-a", {
+      kind: "free",
+      reservationId: acquired.record.commitment.reservation.reservationId,
+      dispatchFenceId: "fence-a",
+      actualIdentity: acquired.record.commitment.reservation.selectedIdentity,
+      units: [],
+      evidence: snapshot().routes[0]!.priceEvidence.identity.evidence,
+    });
+    first.close();
+    authorities.splice(authorities.indexOf(first), 1);
+
+    const foreign = createAt(path, "owner-b", () => 2_000);
+    expect(() => foreign.recordExecutionSettlementPending(
+      "job-a",
+      "economic-attempt-a",
+      "fence-a",
+      "foreign terminal replay",
+    )).toThrow("terminal settlement is not owned");
   });
 
   it("recovers a post-fence restart conservatively without freeing capacity", () => {

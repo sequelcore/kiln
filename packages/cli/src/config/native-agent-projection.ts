@@ -26,7 +26,7 @@ import {
 } from "./native-projection-policy.js";
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
 import { decideNativeAgentProjection, type NativeAgentProjectionDecision } from "./native-agent-projection-decision.js";
-import { createNativeAgentRouteAdmissionResolver } from "./native-agent-route-admission.js";
+import { createManagedAgentRouteAdmissionResolver } from "./managed-agent-route-admission.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -249,7 +249,7 @@ export async function syncNativeAgentProjections(
   }
   const defaultAdmissionResolver = options.resolveRouteAdmission || !agents.some((agent) => agent.providerRoute)
     ? undefined
-    : await createNativeAgentRouteAdmissionResolver(projectPath);
+    : await createManagedAgentRouteAdmissionResolver(projectPath);
   const resolveRouteAdmission = options.resolveRouteAdmission
     ?? ((input) => defaultAdmissionResolver?.resolve(input.agent));
 

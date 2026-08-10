@@ -52,9 +52,9 @@ import {
 import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
 import {
-  createNativeAgentRouteAdmissionResolver,
-  type NativeAgentRouteAdmissionResolver,
-} from "../config/native-agent-route-admission.js";
+  createManagedAgentRouteAdmissionResolver,
+  type ManagedAgentRouteAdmissionResolver,
+} from "../config/managed-agent-route-admission.js";
 import { projectContextPath } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import {
@@ -77,8 +77,8 @@ export interface ReadConfigStatusOptions {
 
 export interface ReadConfigStatusViewOptions {
   readonly userHome?: string;
-  readonly createNativeAgentRouteAdmissionResolver?:
-    (projectPath: string) => Promise<NativeAgentRouteAdmissionResolver>;
+  readonly createManagedAgentRouteAdmissionResolver?:
+    (projectPath: string) => Promise<ManagedAgentRouteAdmissionResolver>;
 }
 
 interface ConfigLoadState {
@@ -97,7 +97,6 @@ interface NativeAgentProjectionSummary {
 interface AgentInvocationCapabilitySummary {
   readonly target: HarnessIntegrationId;
   readonly status: "admitted" | "unavailable" | "unresolved";
-  readonly nativeModel?: string;
   readonly reasons?: unknown;
   readonly decision?: RouteAdmissionDecision;
 }
@@ -792,8 +791,8 @@ function uniqueSetupActions(actions: readonly KilnConfigSetupAction[]): readonly
 
 async function readAgentIndexes(projectPath: string, options: ReadConfigStatusViewOptions): Promise<unknown> {
   const agents = await loadAgentDefinitions(projectPath, options.userHome === undefined ? undefined : { userHome: options.userHome });
-  const createRouteAdmissionResolver = options.createNativeAgentRouteAdmissionResolver
-    ?? createNativeAgentRouteAdmissionResolver;
+  const createRouteAdmissionResolver = options.createManagedAgentRouteAdmissionResolver
+    ?? createManagedAgentRouteAdmissionResolver;
   const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath);
   return {
     agents: agents.map((agent) => ({
@@ -813,7 +812,7 @@ async function readAgentIndexes(projectPath: string, options: ReadConfigStatusVi
 
 function nativeAgentProjectionSummaries(
   agent: KilnAgentDefinition,
-  routeAdmissionResolver: Awaited<ReturnType<typeof createNativeAgentRouteAdmissionResolver>>,
+  routeAdmissionResolver: Awaited<ReturnType<typeof createManagedAgentRouteAdmissionResolver>>,
 ): readonly NativeAgentProjectionSummary[] {
   return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
     const decision = decideNativeAgentProjection({ agent, harness: target, admission: routeAdmissionResolver.resolve(agent) });
@@ -835,7 +834,7 @@ function nativeAgentProjectionSummaries(
 
 function agentInvocationCapabilitySummaries(
   agent: KilnAgentDefinition,
-  routeAdmissionResolver: Awaited<ReturnType<typeof createNativeAgentRouteAdmissionResolver>>,
+  routeAdmissionResolver: Awaited<ReturnType<typeof createManagedAgentRouteAdmissionResolver>>,
 ): readonly AgentInvocationCapabilitySummary[] {
   if (!agent.providerRoute) {
     return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => ({
@@ -845,21 +844,29 @@ function agentInvocationCapabilitySummaries(
   }
 
   return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
-    const decision = decideNativeAgentProjection({ agent, harness: target, admission: routeAdmissionResolver.resolve(agent) });
-    if (decision.kind === "project") {
+    const decision = routeAdmissionResolver.resolve(agent) ?? unresolvedInvocationAdmission(agent);
+    if (decision.status === "admitted") {
       return {
         target,
         status: "admitted",
-        ...(decision.nativeModel ? { nativeModel: decision.nativeModel } : {}),
+        decision,
       };
     }
     return {
       target,
-      status: decision.kind,
-      reasons: decision.reason,
-      decision: decision.admission,
+      status: decision.status,
+      reasons: decision.reasons,
+      decision,
     };
   });
+}
+
+function unresolvedInvocationAdmission(agent: KilnAgentDefinition): RouteAdmissionDecision {
+  return {
+    status: "unresolved",
+    routeId: agent.routeId ?? `${agent.providerRoute?.providerId ?? "unresolved"}:${agent.providerRoute?.model ?? "unresolved"}`,
+    reasons: [{ code: "proof-unknown" }],
+  };
 }
 
 function skillProjectionRecommendations(

@@ -20,6 +20,7 @@ const routeCatalogTrace = vi.hoisted(() => ({
 }));
 const adapterTrace = vi.hoisted(() => ({
   createCalls: 0,
+  requests: [] as Array<{ readonly route: unknown; readonly accountBinding: unknown; readonly committedRequest: unknown }>,
   adapter: {
     descriptor: {
       adapterKind: "direct",
@@ -72,8 +73,9 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
   const actual = await importOriginal<typeof import("../../src/config/managed-agent-direct-adapters.js")>();
   return {
     ...actual,
-    createManagedDirectProviderAdapterFactory: vi.fn(() => async () => {
+    createManagedDirectProviderAdapterFactory: vi.fn(() => async (route, accountBinding, _abortSignal, committedRequest) => {
       adapterTrace.createCalls += 1;
+      adapterTrace.requests.push({ route, accountBinding, committedRequest });
       return adapterTrace.adapter as never;
     }),
   };
@@ -175,6 +177,42 @@ function accountlessEconomicConfig(): KilnGlobalConfig {
   };
 }
 
+/** A provider-free OpenCode Go route used to prove the direct-provider path without live credentials. */
+function accountlessOpenCodeGoEconomicConfig(): KilnGlobalConfig {
+  const configured = accountlessEconomicConfig();
+  return {
+    ...configured,
+    managedAgents: {
+      ...configured.managedAgents!,
+      routes: configured.managedAgents!.routes.map((route) => ({
+        ...route,
+        id: "opencode-go-direct",
+        provider: "opencode-go",
+        model: "kimi-k2.6",
+        credentials: { mode: "credentialless" as const, economicsRouteId: "opencode-go-policy" },
+      })),
+      economicPolicies: configured.managedAgents!.economicPolicies!.map((policy) => ({
+        ...policy,
+        candidates: policy.candidates.map((candidate) => ({ ...candidate, routeId: "opencode-go-direct" })),
+      })),
+    },
+    modelGateway: {
+      ...configured.modelGateway!,
+      principals: configured.modelGateway!.principals.map((principal) => ({
+        ...principal,
+        virtualModelIds: ["opencode-go-policy"],
+      })),
+      virtualModels: configured.modelGateway!.virtualModels.map((model) => ({
+        ...model,
+        id: "opencode-go-policy",
+        providerId: "opencode-go",
+        providerModelId: "kimi-k2.6",
+        economics: { ...model.economics, adapterCapabilityId: "opencode-go-direct" },
+      })),
+    },
+  };
+}
+
 describe("native-harness managed-route runtime config authority (#56 S1)", () => {
   const tempDirs: string[] = [];
   const isolatedEnvKeys = ["XDG_CONFIG_HOME", "HOME", "USERPROFILE"] as const;
@@ -197,6 +235,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     routeCatalogTrace.mutateExecutionProfileAuthority = false;
     routeCatalogTrace.executionRefreshCount = 0;
     adapterTrace.createCalls = 0;
+    adapterTrace.requests.length = 0;
     adapterTrace.adapter.invoke.mockClear();
   });
 
@@ -336,6 +375,91 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         managedAccountComposition: expect.any(Object),
       });
       expect(routeCatalogTrace.catalogs[executionIndex]?.managedInvocation?.invocationService).toBeDefined();
+    } finally {
+      await composition.close();
+      start.mockRestore();
+      join.mockRestore();
+    }
+  });
+
+  it("admits, commits, dispatches, and replays the exact credentialless opencode-go direct route", async () => {
+    useIsolatedGlobalConfigHome();
+    writeGlobalConfig(accountlessOpenCodeGoEconomicConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
+    const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockResolvedValue({
+      status: "completed",
+      record: {
+        invocationId: "managed-job-opencode-go",
+        lifecycleState: "completed",
+        resultHandoff: {
+          provenance: {
+            delivery: "native-structured-output",
+            configuredModelId: "kimi-k2.6",
+            primaryObservedModelId: "kimi-k2.6",
+            observedModelIds: ["kimi-k2.6"],
+          },
+          summary: "Synthetic OpenCode Go managed execution completed.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+      },
+    } as never);
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
+    });
+    try {
+      // Candidate admission must not construct an adapter or touch a credential binding.
+      expect(adapterTrace.createCalls).toBe(0);
+      expect(adapterTrace.requests).toEqual([]);
+
+      const accepted = await composition.application.accept({
+        objective: "Prove deterministic OpenCode Go managed dispatch.",
+        configuredAgentProfileId: "economic-worker",
+        callerId: "codex-app",
+        idempotencyKey: "opencode-go-managed-regression",
+      });
+      expect(accepted).toMatchObject({
+        state: "queued",
+        dispatch: { kind: "economic", candidateSet: { candidates: [{ routeId: "opencode-go-direct", providerId: "opencode-go", model: "kimi-k2.6" }] } },
+      });
+
+      await composition.close();
+      const status = await composition.application.getStatus({ callerId: "codex-app" }, accepted.id);
+      const result = await composition.application.getResult({ callerId: "codex-app" }, accepted.id);
+      const replay = await composition.application.getReplay({ callerId: "codex-app" }, accepted.id);
+      expect(status).toMatchObject({
+        state: "succeeded",
+        result: { runtimeInvocationId: "managed-job-opencode-go", routeId: "opencode-go-direct", providerId: "opencode-go" },
+      });
+      expect(result).toMatchObject({
+        availability: "available",
+        routeId: "opencode-go-direct",
+        providerId: "opencode-go",
+        handoff: { summary: "Synthetic OpenCode Go managed execution completed." },
+      });
+      expect(replay).toMatchObject({
+        lifecycleState: "succeeded",
+        routeId: "opencode-go-direct",
+        providerId: "opencode-go",
+        resultAvailability: "available",
+        dispatch: { kind: "economic" },
+      });
+      expect(adapterTrace.createCalls).toBe(1);
+      expect(adapterTrace.requests).toMatchObject([{
+        route: { id: "opencode-go-direct", provider: "opencode-go", model: "kimi-k2.6" },
+        accountBinding: undefined,
+        committedRequest: { commitment: { reservation: { selectedIdentity: { route: { routeId: "opencode-go-direct", providerId: "opencode-go", modelId: "kimi-k2.6" } } } } },
+      }]);
+      expect(start).toHaveBeenCalledWith(expect.objectContaining({
+        invocationId: `managed-job:${accepted.id}`,
+        providerRoute: { providerId: "opencode-go", surface: "direct-provider", model: "kimi-k2.6" },
+      }), adapterTrace.adapter, expect.anything(), expect.anything());
+      expect(join).toHaveBeenCalledWith(`managed-job:${accepted.id}`);
+      const projections = JSON.stringify([status, result, replay]);
+      expect(projections).not.toContain("credential");
+      expect(projections).not.toMatch(/accountRef|credentialRevision|api[_-]?key/iu);
     } finally {
       await composition.close();
       start.mockRestore();

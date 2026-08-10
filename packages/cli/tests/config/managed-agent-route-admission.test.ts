@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createNativeAgentRouteAdmissionResolver } from "../../src/config/native-agent-route-admission.js";
+import { createManagedAgentRouteAdmissionResolver } from "../../src/config/managed-agent-route-admission.js";
 
 const capability = {
   identity: { routeId: "route-alpha", revision: "v1" },
@@ -17,7 +17,7 @@ const agent = {
   tools: ["read"],
 } as const;
 
-describe("native agent route admission", () => {
+describe("managed agent route admission", () => {
   it("projects from canonical candidate-admission routes without execution composition", async () => {
     const createRegistry = vi.fn(() => ({ registry: {} as never }));
     const discoverProviderModels = vi.fn(async () => ({}));
@@ -28,7 +28,7 @@ describe("native agent route admission", () => {
       return { managedInvocation: { routes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark", capability }] } };
     });
 
-    const resolver = await createNativeAgentRouteAdmissionResolver("/repo", {
+    const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
       loadConfig: async () => ({}) as never,
       createRegistry,
       discoverProviderModels,
@@ -41,7 +41,7 @@ describe("native agent route admission", () => {
   });
 
   it("returns unresolved for an absent canonical route and unavailable for an unhealthy route", async () => {
-    const create = (resolution: unknown) => createNativeAgentRouteAdmissionResolver("/repo", {
+    const create = (resolution: unknown) => createManagedAgentRouteAdmissionResolver("/repo", {
       loadConfig: async () => ({}) as never,
       createRegistry: () => ({ registry: {} as never }),
       discoverProviderModels: async () => ({}),
@@ -52,7 +52,7 @@ describe("native agent route admission", () => {
   });
 
   it("admits a unique provider/model route without routeId and rejects ambiguous selection", async () => {
-    const create = (routes: readonly unknown[]) => createNativeAgentRouteAdmissionResolver("/repo", {
+    const create = (routes: readonly unknown[]) => createManagedAgentRouteAdmissionResolver("/repo", {
       loadConfig: async () => ({}) as never,
       createRegistry: () => ({ registry: {} as never }),
       discoverProviderModels: async () => ({}),
@@ -65,8 +65,8 @@ describe("native agent route admission", () => {
     expect((await create([canonicalRoute, { ...canonicalRoute, routeId: "route-beta" }])).resolve(agent as never)).toMatchObject({ status: "admitted", route: { identity: { routeId: "route-alpha" } } });
   });
 
-  it("rejects a native-harness route whose capacity is runtime-selected", async () => {
-    const resolver = await createNativeAgentRouteAdmissionResolver("/repo", {
+  it("admits a policy-bound route and defers capacity selection to runtime", async () => {
+    const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
       loadConfig: async () => ({}) as never,
       createRegistry: () => ({ registry: {} as never }),
       discoverProviderModels: async () => ({}),
@@ -82,10 +82,12 @@ describe("native agent route admission", () => {
       }) as never,
     });
 
-    expect(resolver.resolve(agent as never)).toEqual({
-      status: "unavailable",
-      routeId: "route-alpha",
-      reasons: [{ code: "capacity-policy-mismatch" }],
+    expect(resolver.resolve(agent as never)).toMatchObject({
+      status: "admitted",
+      route: {
+        identity: { routeId: "route-alpha" },
+        capacity: { kind: "policy-bound", accountPolicyId: "managed-codex" },
+      },
     });
   });
 });

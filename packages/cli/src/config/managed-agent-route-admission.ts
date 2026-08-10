@@ -14,11 +14,11 @@ import type { ManagedInvocationRouteResolution } from "./managed-agent-routes.js
 import type { SessionRegistry } from "../wrapper/session-registry.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
 
-export interface NativeAgentRouteAdmissionResolver {
+export interface ManagedAgentRouteAdmissionResolver {
   resolve(agent: KilnAgentDefinition): RouteAdmissionDecision | undefined;
 }
 
-export interface CreateNativeAgentRouteAdmissionResolverOptions {
+export interface CreateManagedAgentRouteAdmissionResolverOptions {
   readonly loadConfig?: typeof loadKilnConfig;
   readonly createRegistry?: () => { readonly registry: SessionRegistry };
   readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
@@ -26,14 +26,14 @@ export interface CreateNativeAgentRouteAdmissionResolverOptions {
 }
 
 /**
- * Resolves native projection admission from canonical, data-only managed routes.
+ * Resolves canonical admission from data-only managed routes.
  * Candidate admission deliberately excludes execution composition, adapters, and
  * account credentials; capacity-backed routes defer to their atomic reservation.
  */
-export async function createNativeAgentRouteAdmissionResolver(
+export async function createManagedAgentRouteAdmissionResolver(
   projectPath: string,
-  options: CreateNativeAgentRouteAdmissionResolverOptions = {},
-): Promise<NativeAgentRouteAdmissionResolver> {
+  options: CreateManagedAgentRouteAdmissionResolverOptions = {},
+): Promise<ManagedAgentRouteAdmissionResolver> {
   const loadConfig = options.loadConfig ?? loadKilnConfig;
   const createRegistry = options.createRegistry ?? (() => createDefaultRegistry());
   const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
@@ -48,13 +48,13 @@ export async function createNativeAgentRouteAdmissionResolver(
       includeUnavailableRoutes: true,
       compositionMode: "candidate-admission",
     });
-    return { resolve: (agent) => resolveNativeAgentRouteAdmission(agent, resolution) };
+    return { resolve: (agent) => resolveManagedAgentRouteAdmission(agent, resolution) };
   } catch {
     return { resolve: (agent) => unresolved(agent) };
   }
 }
 
-function resolveNativeAgentRouteAdmission(
+function resolveManagedAgentRouteAdmission(
   agent: KilnAgentDefinition,
   resolution: ManagedInvocationRouteResolution,
 ): RouteAdmissionDecision | undefined {
@@ -76,9 +76,6 @@ function resolveNativeAgentRouteAdmission(
       && candidate.model === modelId,
     );
     return unavailableRoute ? unavailable(agent) : unresolved(agent);
-  }
-  if (route.capability.capacity.kind !== "accountless") {
-    return unavailable(agent, route.routeId, { code: "capacity-policy-mismatch" });
   }
   const profile = (agent.authorityProfile ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
   const requestedAuthority = profile === "foundation-readonly-plan" ? "read_only" : "destructive";

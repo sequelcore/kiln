@@ -659,6 +659,15 @@ managed tool options, capability snapshots, session events, replay, CLI status,
 and GUI/TUI cockpit state. It is not written into the YAML schema and must not
 be guessed by runtime services.
 
+Managed invocation capability and native file projection are separate
+projections of the same canonical route admission. A policy-bound direct route
+can be `admitted` for invocation because Runtime selects and leases its account
+atomically after durable economic commitment, while remaining `unavailable`
+for native projection with `capacity-policy-mismatch`; a generated harness file
+cannot represent or enforce that Runtime capacity contract. Config status must
+report both facts instead of using native projection eligibility as the route
+catalog for managed invocation.
+
 Remote harness routes are explicit managed-agent route overrides. Projection
 requires HTTPS invoke and cancel endpoints, a portable auth-token environment
 name when authentication is configured, `surface: remote-harness`,

@@ -1059,6 +1059,12 @@ export class SqliteManagedAccountLeaseAuthority {
       if (row.dispatch_fence_id !== dispatchFenceId) {
         throw new Error("Managed economic settlement does not own the durable dispatch fence.");
       }
+      if (row.state === "released") {
+        if (row.owner_id !== this.#ownerId || row.owner_generation !== this.#ownerGeneration) {
+          throw new Error("Managed economic terminal settlement is not owned by this authority.");
+        }
+        return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
+      }
       if (row.state === "settlement-pending") {
         return recordFromCommitmentRow(row, this.#rowForOptionalLease(row.lease_id));
       }

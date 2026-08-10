@@ -228,6 +228,22 @@ conservative recovery, and affinity CAS apply to both participants. The replay
 store retains replay, cooldown, and evidence only; it has no capacity, affinity,
 or commitment authority.
 
+The OpenCode Go managed-job follow-through is also implemented. Canonical
+status reports policy-bound direct routes as invocable even when they are not
+representable as native harness files. OpenCode uses provider-specific optional
+quota evidence with required subscription price evidence. Explicit provider
+usage-limit rejection is typed as `provider_quota_exhausted`, settles with zero
+generated token units, and releases the shared account lease; ambiguous
+post-fence failure remains conservatively settlement-pending.
+
+A bounded read-only live proof on 2026-08-09 completed through the production
+managed-job composition on `opencode-go-frontend-visual-readonly`: durable
+acceptance, economic commitment, exact account binding, direct-provider
+dispatch, structured result, status/result/replay, subscription settlement,
+and lease release all agreed, with no workspace change. This proves that exact
+route at that observation time; it is not a provider-global availability or
+future-quota claim.
+
 ### Slice 6 - Governed Structured Write Approval
 
 Status: Research deferred behind Slice 5. Implementation requires an explicit

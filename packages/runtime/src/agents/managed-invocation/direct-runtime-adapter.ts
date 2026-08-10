@@ -28,6 +28,7 @@ import {
   defineManagedAgentInvocationRecord,
   EventBus,
   extractText,
+  isManagedAgentProviderQuotaFailure,
   SandboxPolicy,
   STRUCTURED_EXECUTION_RESULT_JSON_SCHEMA,
   defineStructuredExecutionResult,
@@ -297,6 +298,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       throw new Error("Managed direct adapter cannot report economics without a committed identity.");
     }
     const tokenClasses = record.usage?.tokenClasses ?? [];
+    const providerRejectedBeforeResponse = record.diagnostics?.some(
+      (diagnostic) => diagnostic.classification === "provider_quota_exhausted",
+    ) ?? false;
     const units = tokenClasses.flatMap((usage) => {
       if (usage.value === "unknown") return [];
       return [{
@@ -310,7 +314,17 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       .filter((usage) => usage.value === "unknown")
       .map((usage) => usage.name)
       .sort();
-    const usage: ManagedEconomicExecutionReport["usage"] = tokenClasses.length === 0
+    const usage: ManagedEconomicExecutionReport["usage"] = providerRejectedBeforeResponse
+      ? {
+          kind: "complete",
+          units: (["input", "output", "cache_read", "cache_write"] as const).map((name) => ({
+            atoms: "0",
+            scale: 0,
+            unit: managedEconomicUsageUnit(name),
+            scheme: { kind: "unit" as const },
+          })),
+        }
+      : tokenClasses.length === 0
       ? {
           kind: "incomplete",
           knownUnits: units,
@@ -575,6 +589,8 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           },
         });
       }
+      const failureSummary = formatDirectProviderFailure(err, request.providerRoute);
+      const providerQuotaExhausted = isDirectProviderQuotaFailure(err, failureSummary);
       return defineManagedAgentInvocationRecord({
         ...this.baseRecord(input),
         lifecycleState: "failed",
@@ -584,11 +600,14 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         diagnostics: [{
           uri: managedInvocationUri(request.invocationId, "failure"),
           kind: "failure",
+          ...(providerQuotaExhausted
+            ? { classification: "provider_quota_exhausted" as const }
+            : {}),
         }],
         usage: unknownRuntimeUsage(),
         resultHandoff: {
           provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
-          summary: formatDirectProviderFailure(err, request.providerRoute),
+          summary: failureSummary,
           resourceUris: [managedInvocationUri(request.invocationId, "failure")],
           memoryWriteProposalUris: [],
         },
@@ -1144,6 +1163,19 @@ function formatDirectProviderFailure(
     providerRoute.deliberationIntent ? `deliberation ${providerRoute.deliberationIntent.mode}` : undefined,
   ].filter((part): part is string => part !== undefined).join(", ");
   return `Direct provider managed invocation failed for ${route}. ${formatManagedProviderError(error)}`;
+}
+
+function isDirectProviderQuotaFailure(error: unknown, failureSummary: string): boolean {
+  const errorSignal = error instanceof AllCredentialsExhaustedError
+    ? {
+        code: error.lastOutcome?.type.replaceAll("-", "_"),
+        message: error.message,
+      }
+    : error instanceof Error
+      ? error
+      : undefined;
+  return isManagedAgentProviderQuotaFailure(errorSignal)
+    || isManagedAgentProviderQuotaFailure({ message: failureSummary });
 }
 
 function formatManagedProviderError(error: unknown): string {

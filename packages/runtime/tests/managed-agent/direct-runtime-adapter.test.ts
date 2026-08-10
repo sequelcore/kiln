@@ -339,6 +339,94 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     }));
   });
 
+  it("settles explicit provider quota rejection with complete zero usage", async () => {
+    const provider: ProviderAdapter = {
+      name: "opencode-go",
+      createMessage: vi.fn(async () => {
+        throw new AllCredentialsExhaustedError(
+          new Error("provider rejected request"),
+          { type: "quota-exceeded" },
+        );
+      }),
+      streamMessage: async function* (): AsyncGenerator<never> {
+        return;
+      },
+    };
+    const childRequest = request({
+      providerRoute: { providerId: "opencode-go", surface: "direct-provider", model: "kimi-k2.6" },
+    });
+    const economicIdentity = {
+      route: {
+        routeId: "opencode-go:foundation-readonly-plan",
+        providerId: "opencode-go",
+        modelId: "kimi-k2.6",
+        accountPolicyId: "opencode-go-subscription",
+      },
+      account: { kind: "accountless" as const },
+    } as never;
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "opencode-go",
+      model: "kimi-k2.6",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+      economicIdentity,
+      now: () => new Date("2026-08-01T12:00:00.000Z"),
+    });
+    const subscriptionSettlement = { kind: "subscription" } as never;
+    const createExecutionSettlement = vi.fn(() => subscriptionSettlement);
+    const registerEconomicSettlement = vi.fn();
+    const service = new RuntimeManagedAgentInvocationService();
+
+    const started = await service.start(childRequest, adapter, snapshotInputFor(childRequest), {
+      economicDispatch: {
+        commitment: {
+          commitmentId: "commitment-direct-quota",
+          reservation: {
+            reservationId: "reservation-direct-quota",
+            jobId: "job-direct-quota",
+            economicAttemptId: "economic-attempt-direct-quota",
+            policy: {} as never,
+            selectedIdentity: economicIdentity,
+            priceIdentity: null,
+            envelope: { kind: "bounded", digest: `sha256:${"a".repeat(64)}`, limits: [] },
+            amounts: [],
+            authorityRevision: `sha256:${"b".repeat(64)}`,
+          },
+          rejected: [],
+          notSelected: [],
+        },
+        dispatchFenceId: "dispatch-fence-direct-quota",
+        recordExecutionSettlementPending: vi.fn(),
+        createExecutionSettlement,
+        registerEconomicSettlement,
+      },
+    });
+    expect(started.status).toBe("started");
+    const completed = await service.join(childRequest.invocationId);
+    expect(completed).toMatchObject({
+      status: "completed",
+      record: {
+        diagnostics: [{ classification: "provider_quota_exhausted" }],
+      },
+    });
+
+    await vi.waitFor(() => expect(registerEconomicSettlement).toHaveBeenCalledOnce());
+    await expect(registerEconomicSettlement.mock.calls[0]?.[0]).resolves.toBe(subscriptionSettlement);
+    expect(createExecutionSettlement).toHaveBeenCalledWith(expect.objectContaining({
+      actualIdentity: economicIdentity,
+      usage: {
+        kind: "complete",
+        units: [
+          { atoms: "0", scale: 0, unit: "input-token", scheme: { kind: "unit" } },
+          { atoms: "0", scale: 0, unit: "output-token", scheme: { kind: "unit" } },
+          { atoms: "0", scale: 0, unit: "cache-read-token", scheme: { kind: "unit" } },
+          { atoms: "0", scale: 0, unit: "cache-write-token", scheme: { kind: "unit" } },
+        ],
+      },
+    }));
+  });
+
   it("projects the managed handoff contract into the child prompt and accepts its structured result", async () => {
     const structuredResult = {
       version: "structured-execution-result-v1",
@@ -1130,6 +1218,48 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     }]);
   });
 
+  it("classifies explicit provider usage limits without changing direct-provider failure evidence", async () => {
+    const provider: ProviderAdapter = {
+      name: "opencode-go",
+      createMessage: vi.fn(async () => {
+        throw new AllCredentialsExhaustedError(
+          new Error("Weekly usage limit reached"),
+          { type: "rate-limited", resetAt: Date.parse("2026-08-01T12:30:00.000Z") },
+        );
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "opencode-go",
+      model: "kimi-k2.6",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+      providerRoute: {
+        providerId: "opencode-go",
+        surface: "direct-provider",
+        model: "kimi-k2.6",
+      },
+    }), adapter);
+
+    expect(result.status).toBe("completed");
+    if (result.status !== "completed") {
+      throw new Error("expected completed");
+    }
+    expect(result.record.lifecycleState).toBe("failed");
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/failure",
+      kind: "failure",
+      classification: "provider_quota_exhausted",
+    }]);
+    expect(result.record.resultHandoff?.summary).toContain(
+      "Direct provider managed invocation failed for provider opencode-go, model kimi-k2.6.",
+    );
+  });
+
   it("records credential pool exhaustion with provider, model, and last outcome details", async () => {
     const provider: ProviderAdapter = {
       name: "openai",
@@ -1166,6 +1296,10 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(result.record.resultHandoff?.summary).toContain("model gpt-5.4-mini");
     expect(result.record.resultHandoff?.summary).toContain("last outcome rate-limited until 2026-05-19T23:30:00.000Z");
     expect(result.record.resultHandoff?.summary).toContain("last error model endpoint returned 429");
+    expect(result.record.diagnostics).toEqual([{
+      uri: "kiln://managed-agents/invocations/inv-direct-1/resources/failure",
+      kind: "failure",
+    }]);
   });
 
   it("returns a timed-out invocation record when the child runtime exceeds authority timeout", async () => {

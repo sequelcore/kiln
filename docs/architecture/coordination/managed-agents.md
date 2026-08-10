@@ -951,6 +951,15 @@ price/rate evidence, and full contents are bound by canonical sorted SHA-256
 digests. Runtime accepts only V10 after its one-time V9 migration and never infers a new
 economic attempt from retired state.
 
+Policy-bound direct routes remain eligible during this data-only admission.
+Capacity selection is deferred to the Runtime SQLite commitment transaction;
+native projection may independently reject the same route because it cannot
+carry that capacity authority. OpenCode Go subscription routes use a dedicated
+economic policy with required configured price evidence and optional quota
+evidence, because OpenCode exposes the account credential but no authoritative
+remaining-quota snapshot to this Runtime. Unknown quota never enables overage
+or credit and does not imply unlimited capacity.
+
 Runtime acquires the commitment synchronously from the user-scoped SQLite ledger
 in one immediate transaction. The ledger uses a single writer for managed-job
 and Gateway account capacity and affinity, while economic commitments remain
@@ -964,6 +973,14 @@ effect. Pre-fence interim failure releases the commitment before terminal
 projection, while fenced or unprovably settled work remains capacity-consuming
 through recovery, settlement, and explicit reconciliation. SQLite is the
 commitment authority; managed-job JSON is its projection.
+
+An explicit provider quota rejection is different from an ambiguous failed
+execution. When the provider rejects before producing a response and the
+canonical diagnostic classifies `provider_quota_exhausted`, the direct adapter
+reports complete zero token units. Subscription, included, or free economics
+then settle terminally and release account capacity. Missing responses with no
+explicit quota signal keep incomplete usage and remain `settlement-pending`;
+Kiln does not fabricate zero usage merely to free a lease.
 
 The former direct managed-invocation account-only writer and separate Gateway
 lease authority are not compatibility paths. Direct account-leased invocation

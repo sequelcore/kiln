@@ -679,6 +679,65 @@ describe("config-status", () => {
     expect(JSON.stringify(agents.value)).toContain('"kind":"route-admission"');
   });
 
+  it("reports canonical direct-route admission independently from native projection", async () => {
+    writeProjectConfig(tempDir);
+    const agentsDir = join(tempDir, ".kiln", "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(join(agentsDir, "opencode-reviewer.md"), [
+      "---",
+      "name: opencode-reviewer",
+      "role: OpenCode review specialist",
+      "goal: Review implementation quality through OpenCode",
+      "tier: reasoning",
+      "providerRoute:",
+      "  providerId: opencode-go",
+      "  model: deepseek-v4-flash",
+      "---",
+      "Review only.",
+      "",
+    ].join("\n"), "utf-8");
+    const admission = {
+      status: "admitted" as const,
+      route: {
+        identity: { routeId: "opencode-review", revision: "v1" },
+        target: { providerId: "opencode-go", modelId: "deepseek-v4-flash" },
+        adapter: { kind: "direct-provider" as const, capabilityId: "opencode-go-direct", capabilityVersion: "v1" },
+        authorityCeiling: "read_only" as const,
+        toolNames: [],
+        supportsRecursion: false,
+        supportsAttachments: false,
+        supportsWrite: false,
+        proof: { status: "configured" as const, source: "test", provenProfiles: ["foundation-readonly-plan" as const] },
+        capacity: { kind: "policy-bound" as const, accountPolicyId: "managed-opencode-go" },
+        settlement: { kind: "managed-economic-selection" as const, contractVersion: "managed-economic-v1" as const, policyIds: ["managed-opencode-go"], pendingSettlement: "required" as const, recovery: "required" as const },
+      },
+      effectiveAuthority: "read_only" as const,
+      allowedToolNames: [],
+    };
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
+    const agents = await readConfigStatusView(snapshot, "agents", {
+      userHome: join(tempDir, "home"),
+      createManagedAgentRouteAdmissionResolver: async () => ({ resolve: () => admission }),
+    });
+    const agent = (agents.value as {
+      agents: readonly {
+        id: string;
+        nativeProjections: readonly unknown[];
+        invocationCapabilities: readonly unknown[];
+      }[];
+    }).agents.find((candidate) => candidate.id === "opencode-reviewer");
+
+    expect(agent?.nativeProjections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "unavailable", reason: { kind: "route-admission", reasons: [{ code: "capacity-policy-mismatch" }] } }),
+    ]));
+    expect(agent?.invocationCapabilities).toEqual([
+      expect.objectContaining({ target: "claude", status: "admitted" }),
+      expect.objectContaining({ target: "codex", status: "admitted" }),
+      expect.objectContaining({ target: "opencode", status: "admitted" }),
+    ]);
+  });
+
   it("reports configured skill origin, projection state, and project override precedence", async () => {
     writeProjectConfig(tempDir);
     const userHome = join(tempDir, "home");
