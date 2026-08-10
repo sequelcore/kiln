@@ -245,6 +245,17 @@ const nativeHarnessRoute: ManagedJobNativeHarnessRoute = {
   acknowledgement: nativeHarnessProfile.acknowledgement,
 };
 
+const nativeDeliberationResolution = {
+  status: "exact" as const,
+  selectedLevel: "high",
+  source: "route" as const,
+  capabilityEvidence: {
+    sourceIdentity: "opencode-cli-model-catalog",
+    sourceRevision: "1.18.16:catalog-test",
+    observedAt: "2026-08-10T00:00:00.000Z",
+  },
+};
+
 function nativeStoredJob(input: {
   readonly id: string;
   readonly state: "queued" | "running";
@@ -256,7 +267,7 @@ function nativeStoredJob(input: {
     ...(input.dispatchFenceId ? { dispatchFenceId: input.dispatchFenceId } : {}),
   };
   return {
-    version: 11,
+    version: 12,
     id: input.id,
     adoptedDecisionAt: updatedAt,
     state: input.state,
@@ -293,7 +304,7 @@ async function dispatchAccepted(
   return accepted;
 }
 
-describe("ManagedJobApplicationService V11 record", () => {
+describe("ManagedJobApplicationService V12 record", () => {
   it("holds approved-write work awaiting approval and never dispatches it without an attached receipt", async () => {
     const execute = vi.fn();
     const service = new ManagedJobApplicationService({
@@ -311,7 +322,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     });
 
     const accepted = await service.accept(submission);
-    expect(accepted).toMatchObject({ version: 11, state: "awaiting_approval" });
+    expect(accepted).toMatchObject({ version: 12, state: "awaiting_approval" });
     await expect(service.attachWriteApproval(query, accepted.id, "approval-000001")).rejects.toMatchObject({
       code: "admission_denied",
     });
@@ -447,7 +458,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     });
   });
 
-  it("accepts a durable queued V11 record before dispatch and exposes completion through status/result", async () => {
+  it("accepts a durable queued V12 record before dispatch and exposes completion through status/result", async () => {
     const execution = deferred<{
       readonly runtimeInvocationId: string;
       readonly completedAt: string;
@@ -671,7 +682,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     });
 
     expect(job).toMatchObject({
-      version: 11,
+      version: 12,
       state: "succeeded",
       dispatch: {
         kind: "native-harness",
@@ -698,6 +709,130 @@ describe("ManagedJobApplicationService V11 record", () => {
         dispatchFenceId: "native-harness-dispatch:dispatch-000000001",
       },
     });
+  });
+
+  it("commits an evidence-backed native deliberation resolution before the dispatch fence and replays it", async () => {
+    const acknowledgement = {
+      ...nativeHarnessAcknowledgement,
+      deliberationResolution: nativeDeliberationResolution,
+    };
+    const profileWithDeliberation: ManagedJobNativeHarnessProfile = {
+      ...nativeHarnessProfile,
+      acknowledgement,
+      deliberationResolution: nativeDeliberationResolution,
+    };
+    const routeWithDeliberation: ManagedJobNativeHarnessRoute = {
+      ...nativeHarnessRoute,
+      acknowledgement,
+      deliberationResolution: nativeDeliberationResolution,
+    };
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async (id) => id === profileWithDeliberation.id ? profileWithDeliberation : undefined },
+      routes: { resolve: async () => routeWithDeliberation },
+    });
+
+    const accepted = await service.accept({
+      ...submission,
+      configuredAgentProfileId: profileWithDeliberation.id,
+      idempotencyKey: "native-deliberation-commit",
+    });
+    expect(accepted).toMatchObject({
+      state: "queued",
+      dispatch: {
+        kind: "native-harness",
+        deliberationResolution: nativeDeliberationResolution,
+        acknowledgement: { deliberationResolution: nativeDeliberationResolution },
+      },
+    });
+
+    await expect(service.getReplay(query, accepted.id)).resolves.toMatchObject({
+      dispatch: { kind: "native-harness", deliberationResolution: nativeDeliberationResolution },
+    });
+  });
+
+  it("accepts refreshed native deliberation observation time when revision identity is unchanged", async () => {
+    const acknowledgement = {
+      ...nativeHarnessAcknowledgement,
+      deliberationResolution: nativeDeliberationResolution,
+    };
+    const profileWithDeliberation: ManagedJobNativeHarnessProfile = {
+      ...nativeHarnessProfile,
+      acknowledgement,
+      deliberationResolution: nativeDeliberationResolution,
+    };
+    const routeWithRefreshedObservation: ManagedJobNativeHarnessRoute = {
+      ...nativeHarnessRoute,
+      acknowledgement,
+      deliberationResolution: {
+        ...nativeDeliberationResolution,
+        capabilityEvidence: {
+          ...nativeDeliberationResolution.capabilityEvidence,
+          observedAt: "2026-08-10T01:00:00.000Z",
+        },
+      },
+    };
+    const execution = vi.fn(async () => ({
+      runtimeInvocationId: "runtime-invocation-refreshed-deliberation",
+      completedAt: now.toISOString(),
+      resultHandoff: {
+        provenance: {
+          delivery: "native-structured-output" as const,
+          configuredModelId: "claude-sonnet-5",
+          primaryObservedModelId: "claude-sonnet-5",
+          observedModelIds: ["claude-sonnet-5"],
+          harness: { id: "claude", executable: "claude", version: "2.1.226" },
+        },
+        summary: "Refreshed evidence accepted.",
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async () => profileWithDeliberation },
+      routes: { resolve: async () => routeWithRefreshedObservation },
+      nativeHarnessExecution: { execute: execution },
+    });
+
+    const job = await dispatchAccepted(service, {
+      ...submission,
+      configuredAgentProfileId: profileWithDeliberation.id,
+      idempotencyKey: "native-deliberation-observation-refresh",
+    });
+
+    expect(job.state).toBe("succeeded");
+    expect(execution).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed before route resolution when native deliberation evidence is incomplete", async () => {
+    const invalidResolution = {
+      status: "exact" as const,
+      selectedLevel: "high",
+      source: "route" as const,
+      capabilityEvidence: {
+        sourceIdentity: "opencode-cli-model-catalog",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
+    };
+    const invalidProfile = {
+      ...nativeHarnessProfile,
+      deliberationResolution: invalidResolution,
+      acknowledgement: { ...nativeHarnessAcknowledgement, deliberationResolution: invalidResolution },
+    } as unknown as ManagedJobNativeHarnessProfile;
+    const resolveRoute = vi.fn(async () => nativeHarnessRoute);
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async () => invalidProfile },
+      routes: { resolve: resolveRoute },
+    });
+
+    await expect(service.accept({
+      ...submission,
+      configuredAgentProfileId: invalidProfile.id,
+      idempotencyKey: "native-deliberation-invalid-evidence",
+    })).rejects.toMatchObject({ code: "profile_unavailable" });
+    expect(resolveRoute).not.toHaveBeenCalled();
   });
 
   it("persists sanitized terminal failure evidence identically in status, result, replay, and lifecycle", async () => {
@@ -1243,7 +1378,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     const job = await dispatchAccepted(service, submission);
 
     expect(job).toMatchObject({
-      version: 11,
+      version: 12,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       dispatch: {
@@ -1338,7 +1473,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ dispatch: { kind: "economic", economic: { availability: "unavailable", reason: "evidence-unprojectable" } } });
   });
 
-  it("persists one V11 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
+  it("persists one V12 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();
     const selectedCommitment = {
@@ -1418,7 +1553,7 @@ describe("ManagedJobApplicationService V11 record", () => {
 
     const completed = await dispatchAccepted(service, submission);
     expect(completed).toMatchObject({
-      version: 11,
+      version: 12,
       state: "succeeded",
       objective: submission.objective,
       result: {
@@ -1497,7 +1632,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     }));
   });
 
-  it("returns the persisted V11 attempt identity and decision time on a later replay", async () => {
+  it("returns the persisted V12 attempt identity and decision time on a later replay", async () => {
     let currentTime = now;
     const store = new InMemoryManagedJobStore();
     const service = new ManagedJobApplicationService(createOptions({
@@ -1511,7 +1646,7 @@ describe("ManagedJobApplicationService V11 record", () => {
 
     expect(replay).toEqual(first);
     expect(replay).toMatchObject({
-      version: 11,
+      version: 12,
       dispatch: { kind: "economic", economicAttemptId: "economic-attempt:attempt-000000001" },
       adoptedDecisionAt: now.toISOString(),
     });
@@ -1591,7 +1726,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     });
   });
 
-  it("preserves V11 idempotency across a filesystem restart", async () => {
+  it("preserves V12 idempotency across a filesystem restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v9-"));
     try {
       const first = new ManagedJobApplicationService(createOptions({
@@ -1608,7 +1743,7 @@ describe("ManagedJobApplicationService V11 record", () => {
         await readFile(join(root, "managed-jobs.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 11 });
+      expect(persisted[0]).toMatchObject({ version: 12 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1626,7 +1761,7 @@ describe("ManagedJobApplicationService V11 record", () => {
     }
   });
 
-  it("fails closed for corrupt V11 candidate evidence", async () => {
+  it("fails closed for corrupt V12 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-corrupt-"));
     try {
       const service = new ManagedJobApplicationService(createOptions({

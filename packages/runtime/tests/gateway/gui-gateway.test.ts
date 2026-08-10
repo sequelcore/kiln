@@ -33,6 +33,7 @@ import {
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
+  resolveOpenCodeExecutable,
   markGuiProviderDiscoveryStale,
   probeCodexCliModelReadiness,
   projectGuiProviderModelDiscovery,
@@ -6036,12 +6037,26 @@ describe("projectGuiOperatorModels", () => {
 describe("discoverOpencodeCliModelDiscovery", () => {
   afterEach(() => {
     vi.mocked(execFileSync).mockReturnValue("");
+    vi.unstubAllGlobals();
   });
 
-  it("discovers local OpenCode CLI models from the models command", async () => {
+  it("probes an npm OpenCode command shim with the platform-required shell mode", () => {
     vi.mocked(execFileSync).mockImplementation((command) => {
-      const text = String(command);
-      if (text.includes("--version")) {
+      if (String(command).toLowerCase().endsWith("opencode.cmd")) return "opencode 1.18.16";
+      throw new Error("not this candidate");
+    });
+
+    expect(resolveOpenCodeExecutable()).toMatchObject({ evidence: { version: "1.18.16" } });
+    const shimCall = vi.mocked(execFileSync).mock.calls.find(([command]) =>
+      String(command).toLowerCase().endsWith("opencode.cmd"));
+    expect(shimCall?.[2]).toEqual(expect.objectContaining({
+      shell: process.platform === "win32",
+    }));
+  });
+
+  it("discovers only enabled OpenCode variants through its local structured model API", async () => {
+    vi.mocked(execFileSync).mockImplementation((_command, args) => {
+      if (args?.includes("--version")) {
         return "opencode 1.0.0";
       }
       return "";
@@ -6056,21 +6071,103 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       proc.stderr = new EventEmitter();
       proc.kill = vi.fn();
       queueMicrotask(() => {
-        proc.stdout.emit("data", Buffer.from("opencode/big-pickle\nanthropic/claude-sonnet-4-6\n"));
-        proc.emit("close", 0);
+        proc.stdout.emit("data", Buffer.from("opencode server listening on http://127.0.0.1:43123\n"));
       });
       return proc as never;
     });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      data: [
+        {
+          id: "gpt-5.4",
+          providerID: "opencode",
+          enabled: true,
+          variants: [
+            { id: "none", body: { enableThinking: false } },
+            { id: "minimal", body: { modelParams: { reasoning_effort: "minimal" } } },
+            { id: "low", body: { reasoningEffort: "low" } },
+            { id: "medium", body: { thinkingConfig: { thinkingLevel: "medium" } } },
+            { id: "xhigh", body: { reasoning: { effort: "xhigh" } } },
+            { id: "max", body: { enable_thinking: true, thinking_budget: 32000 } },
+            { id: "high", body: { reasoningEffort: "low" } },
+            { id: "high", body: { reasoningEffort: "high", thinking: { type: "disabled" } } },
+            { id: "high", body: { textVerbosity: "high" } },
+          ],
+        },
+        {
+          id: "disabled-model",
+          providerID: "opencode",
+          enabled: false,
+          variants: [{ id: "high" }],
+        },
+      ],
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
 
     await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
-      models: ["opencode/big-pickle", "anthropic/claude-sonnet-4-6"],
+      models: ["opencode/gpt-5.4"],
       status: "available",
-      reason: "OpenCode CLI models discovered.",
+      reason: "OpenCode CLI models discovered through its local model API.",
       authState: "authenticated",
+      modelCapabilities: {
+        "opencode/gpt-5.4": {
+          deliberation: {
+            provider: "opencode",
+            model: "opencode/gpt-5.4",
+            levels: [
+              { id: "none" },
+              { id: "minimal" },
+              { id: "low" },
+              { id: "medium" },
+              { id: "xhigh" },
+              { id: "max" },
+            ],
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "opencode-cli-model-catalog",
+              sourceRevision: expect.stringMatching(/^1\.0\.0:[a-f0-9]{16}$/u),
+            },
+          },
+        },
+      },
     });
-    expect(spawn).toHaveBeenCalledWith(expect.any(String), ["models"], expect.objectContaining({
+    expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/api\/model$/u), expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    }));
+    expect(spawn).toHaveBeenCalledWith(expect.any(String), ["serve", "--hostname=127.0.0.1", "--port=0"], expect.objectContaining({
       stdio: ["ignore", "pipe", "pipe"],
     }));
+  });
+
+  it("revises OpenCode capability evidence when variant reasoning semantics change", async () => {
+    vi.mocked(execFileSync).mockImplementation((_command, args) => args?.includes("--version") ? "opencode 1.0.0" : "");
+    vi.mocked(spawn).mockImplementation(() => {
+      const proc = new EventEmitter() as EventEmitter & {
+        stdout: EventEmitter;
+        stderr: EventEmitter;
+        kill: ReturnType<typeof vi.fn>;
+      };
+      proc.stdout = new EventEmitter();
+      proc.stderr = new EventEmitter();
+      proc.kill = vi.fn();
+      queueMicrotask(() => proc.stdout.emit("data", Buffer.from("opencode server listening on http://127.0.0.1:43123\n")));
+      return proc as never;
+    });
+    let budget = 16000;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      data: [{
+        id: "reasoning-model",
+        providerID: "provider",
+        enabled: true,
+        variants: [{ id: "high", body: { enable_thinking: true, thinking_budget: budget } }],
+      }],
+    }), { status: 200 })));
+
+    const first = await discoverOpencodeCliModelDiscovery();
+    budget = 32000;
+    const second = await discoverOpencodeCliModelDiscovery();
+
+    expect(first.modelCapabilities?.["provider/reasoning-model"]?.deliberation.evidence.sourceRevision)
+      .not.toBe(second.modelCapabilities?.["provider/reasoning-model"]?.deliberation.evidence.sourceRevision);
   });
 
   it("diagnoses missing OpenCode CLI executable", async () => {
@@ -6086,10 +6183,9 @@ describe("discoverOpencodeCliModelDiscovery", () => {
     });
   });
 
-  it("diagnoses OpenCode CLI models command failure after the executable is found", async () => {
-    vi.mocked(execFileSync).mockImplementation((command) => {
-      const text = String(command);
-      if (text.includes("--version")) {
+  it("diagnoses OpenCode local model server failure after the executable is found", async () => {
+    vi.mocked(execFileSync).mockImplementation((_command, args) => {
+      if (args?.includes("--version")) {
         return "opencode 1.0.0";
       }
       return "";
@@ -6110,15 +6206,14 @@ describe("discoverOpencodeCliModelDiscovery", () => {
     await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
       models: [],
       status: "endpoint_error",
-      reason: "OpenCode CLI models command failed.",
+      reason: "OpenCode CLI model server failed.",
       authState: "unknown",
     });
   });
 
-  it("diagnoses an empty OpenCode CLI model list", async () => {
-    vi.mocked(execFileSync).mockImplementation((command) => {
-      const text = String(command);
-      if (text.includes("--version")) {
+  it("diagnoses an empty OpenCode structured model list", async () => {
+    vi.mocked(execFileSync).mockImplementation((_command, args) => {
+      if (args?.includes("--version")) {
         return "opencode 1.0.0";
       }
       return "";
@@ -6133,16 +6228,16 @@ describe("discoverOpencodeCliModelDiscovery", () => {
       proc.stderr = new EventEmitter();
       proc.kill = vi.fn();
       queueMicrotask(() => {
-        proc.stdout.emit("data", Buffer.from("\n  \n"));
-        proc.emit("close", 0);
+        proc.stdout.emit("data", Buffer.from("opencode server listening on http://127.0.0.1:43123\n"));
       });
       return proc as never;
     });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })));
 
     await expect(discoverOpencodeCliModelDiscovery()).resolves.toMatchObject({
       models: [],
       status: "empty_model_list",
-      reason: "OpenCode CLI returned an empty model list.",
+      reason: "OpenCode local model API returned an empty model list.",
       authState: "unknown",
     });
   });

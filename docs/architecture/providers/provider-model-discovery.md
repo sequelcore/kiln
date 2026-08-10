@@ -296,10 +296,14 @@ Wrapper providers:
   reports ordered supported levels and are bound to the resolved Claude Code
   executable version
 - `codex` discovers local Codex CLI models from the local Codex model surface
-- `opencode` discovers local OpenCode CLI models from the OpenCode command
-  surface. These model IDs are provider-prefixed exactly as OpenCode reports
-  them, for example `opencode/minimax-m2.5-free` or
-  `opencode-go/minimax-m2.5`.
+- `opencode` resolves one exact OpenCode CLI executable and version, starts its
+  loopback model service, and reads the structured, account-visible
+  `/api/model` catalog. Model IDs remain provider-prefixed exactly as OpenCode
+  reports them, for example `opencode/minimax-m2.5-free`. Deliberation is
+  projected only for enabled exact models whose canonical variant IDs match
+  recognized reasoning semantics. Capability evidence binds the executable
+  version and a safe digest of those semantics; arbitrary variants and catalog
+  labels without matching semantics are not authority.
 
 Subscription-auth providers:
 

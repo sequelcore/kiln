@@ -252,7 +252,7 @@ describe("OpenCodeSession.run() integration", () => {
     };
   }
 
-  it.each(["exact", "clamped"] as const)("rejects %s deliberation before creating a client or network session", async (status) => {
+  it.each(["exact", "clamped"] as const)("sends %s deliberation as the discovered native variant", async (status) => {
     const mock = makeMockClient("ses_deliberation", [], 0);
     const resolution: DeliberationResolution = {
       status,
@@ -265,16 +265,78 @@ describe("OpenCodeSession.run() integration", () => {
         observedAt: "2026-08-10T00:00:00.000Z",
       },
     };
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
     const session = new OpenCodeSession(baseConfig());
+
+    for await (const _event of session.run({ prompt: "send variant", deliberationResolution: resolution })) {
+      // consume
+    }
+
+    expect(mock.session.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({ variant: "high" }),
+      expect.anything(),
+    );
+  });
+
+  it("uses the discovery-bound managed executable instead of ambient CLI resolution", () => {
+    const session = new OpenCodeSession(baseConfig({ harnessExecutable: "C:/operator/opencode.exe" }));
+    expect((session as unknown as { _findOpencodePath(): string })._findOpencodePath()).toBe("C:/operator/opencode.exe");
+  });
+
+  it("rejects discovery-bound executable version drift before serve spawn", () => {
+    const session = new OpenCodeSession(baseConfig({
+      harnessExecutable: process.execPath,
+      harnessEvidence: { executable: "<operator-harness>/opencode", version: "0.0.0-drift" },
+    }));
+
+    expect(() => (session as unknown as { _assertBoundHarnessVersion(path: string): void })
+      ._assertBoundHarnessVersion(process.execPath))
+      .toThrow("OpenCode executable version changed after capability discovery");
+  });
+
+  it("rejects a resolved native variant without capability evidence before creating a client or network session", async () => {
+    const mock = makeMockClient("ses_invalid_deliberation", [], 0);
+    const session = new OpenCodeSession(baseConfig());
+    const resolution: DeliberationResolution = {
+      status: "exact",
+      selectedLevel: defineDeliberationLevelId("high"),
+      source: "operator",
+    };
 
     await expect((async () => {
       for await (const _event of session.run({ prompt: "must not send", deliberationResolution: resolution })) {
         // consume
       }
-    })()).rejects.toThrow("OpenCode session cannot transport resolved deliberation level 'high'.");
+    })()).rejects.toThrow("Executable deliberation requires capability evidence identity and revision.");
     expect(createOpencodeClient).not.toHaveBeenCalled();
     expect(mock.session.create).not.toHaveBeenCalled();
     expect(mock.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it("uses the session-bound resolution when the caller does not override it", async () => {
+    const mock = makeMockClient("ses_bound_deliberation", [], 0);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+    const session = new OpenCodeSession(baseConfig({
+      deliberationResolution: {
+        status: "exact",
+        selectedLevel: defineDeliberationLevelId("medium"),
+        source: "task",
+        capabilityEvidence: {
+          sourceIdentity: "opencode/model-catalog",
+          sourceRevision: "test-r1",
+          observedAt: "2026-08-10T00:00:00.000Z",
+        },
+      },
+    }));
+
+    for await (const _event of session.run({ prompt: "bound variant" })) {
+      // consume
+    }
+
+    expect(mock.session.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({ variant: "medium" }),
+      expect.anything(),
+    );
   });
 
   it("does not add a variant for omitted or defaulted deliberation", async () => {

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   defineManagedAgentWriteEvidence,
   digestManagedEconomicValue,
+  admitDeliberationForExecution,
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicAdoptedSnapshotExpectation,
   type ManagedAgentAdmissionProfile,
@@ -31,7 +32,7 @@ import type {
 } from "../managed-account-leases/managed-account-lease-authority.js";
 
 export const MANAGED_JOB_STATES = ["awaiting_approval", "queued", "running", "succeeded", "failed", "timed_out", "interrupted", "cancelled"] as const;
-export const MANAGED_JOB_SCHEMA_VERSION = 11 as const;
+export const MANAGED_JOB_SCHEMA_VERSION = 12 as const;
 /** Recovery is deliberately pre-fence-only for economic work and never
  * resumes an external native-harness process after a process restart. */
 export const MANAGED_JOB_RECOVERY_POLICY = {
@@ -171,7 +172,25 @@ export interface ManagedJobNativeHarnessAcknowledgement {
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
+  /** Exact native override admitted from versioned route capability evidence. */
+  readonly deliberationResolution?: ManagedJobNativeDeliberationResolution;
 }
+
+/** Durable execution subset of Core's exact/clamped deliberation resolution. */
+export type ManagedJobNativeDeliberationResolution =
+  | {
+      readonly status: "exact";
+      readonly selectedLevel: string;
+      readonly source: DeliberationResolution["source"];
+      readonly capabilityEvidence: NonNullable<DeliberationResolution["capabilityEvidence"]>;
+    }
+  | {
+      readonly status: "clamped";
+      readonly selectedLevel: string;
+      readonly source: DeliberationResolution["source"];
+      readonly reason: "preferred-level-outside-bounds";
+      readonly capabilityEvidence: NonNullable<DeliberationResolution["capabilityEvidence"]>;
+    };
 
 export interface ManagedJobNativeHarnessProfile {
   readonly kind: "native-harness";
@@ -184,6 +203,7 @@ export interface ManagedJobNativeHarnessProfile {
   readonly adapterCapabilityId: string;
   readonly adapterCapabilityVersion: string;
   readonly acknowledgement: ManagedJobNativeHarnessAcknowledgement;
+  readonly deliberationResolution?: ManagedJobNativeDeliberationResolution;
 }
 
 export type ManagedJobProfile = ManagedJobEconomicProfile | ManagedJobNativeHarnessProfile;
@@ -213,6 +233,7 @@ export type ManagedJobDispatch =
       readonly adapterCapabilityId: string;
       readonly adapterCapabilityVersion: string;
       readonly acknowledgement: ManagedJobNativeHarnessAcknowledgement;
+      readonly deliberationResolution?: ManagedJobNativeDeliberationResolution;
       readonly dispatchFenceId?: string;
     };
 
@@ -324,6 +345,7 @@ export interface ManagedJobReplayQuery {
         readonly adapterCapabilityId: string;
         readonly adapterCapabilityVersion: string;
         readonly acknowledgement: ManagedJobNativeHarnessAcknowledgement;
+        readonly deliberationResolution?: ManagedJobNativeDeliberationResolution;
         readonly dispatchFenceId?: string;
       };
   readonly diagnostic?: ManagedJobDiagnosticCode;
@@ -450,7 +472,7 @@ export class ManagedJobApplicationService {
   }
 
   /**
-   * Accepts and durably reserves governed V11 work without crossing an
+   * Accepts and durably reserves governed V12 work without crossing an
    * economic/native dispatch boundary. Completion is observed through the
    * status, result, and replay queries after the project owner schedules the
    * returned job.
@@ -636,6 +658,7 @@ export class ManagedJobApplicationService {
       adapterCapabilityId: resolved.adapterCapabilityId,
       adapterCapabilityVersion: resolved.adapterCapabilityVersion,
       acknowledgement: resolved.acknowledgement,
+      ...(resolved.deliberationResolution ? { deliberationResolution: resolved.deliberationResolution } : {}),
     };
     const requestFingerprint = digestManagedEconomicValue({
       kind: dispatch.kind,
@@ -660,7 +683,11 @@ export class ManagedJobApplicationService {
           admissionProfileId: dispatch.acknowledgement.admissionProfileId,
           adapterCapabilityId: dispatch.acknowledgement.adapterCapabilityId,
           adapterCapabilityVersion: dispatch.acknowledgement.adapterCapabilityVersion,
+          ...(dispatch.acknowledgement.deliberationResolution
+            ? { deliberationResolution: dispatch.acknowledgement.deliberationResolution }
+            : {}),
         },
+        ...(dispatch.deliberationResolution ? { deliberationResolution: dispatch.deliberationResolution } : {}),
       },
       parent: request.parent,
     });
@@ -737,6 +764,7 @@ export class ManagedJobApplicationService {
       const route: ManagedJobNativeHarnessRoute = {
         ...resolvedRoute,
         acknowledgement: job.dispatch.acknowledgement,
+        ...(job.dispatch.deliberationResolution ? { deliberationResolution: job.dispatch.deliberationResolution } : {}),
       };
       return await this.commitNativeHarnessAttempt(
         job as ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> },
@@ -847,6 +875,7 @@ export class ManagedJobApplicationService {
         adapterCapabilityId: job.dispatch.adapterCapabilityId,
         adapterCapabilityVersion: job.dispatch.adapterCapabilityVersion,
         acknowledgement: job.dispatch.acknowledgement,
+        ...(job.dispatch.deliberationResolution ? { deliberationResolution: job.dispatch.deliberationResolution } : {}),
         ...(job.dispatch.dispatchFenceId ? { dispatchFenceId: job.dispatch.dispatchFenceId } : {}),
       };
     }
@@ -1107,7 +1136,7 @@ export class ManagedJobApplicationService {
     }
   }
 
-  /** Re-checks the persisted V11 candidate identity before and after fencing. */
+  /** Re-checks the persisted V12 candidate identity before and after fencing. */
   private async validateCurrentEconomicCandidateIdentity(job: ManagedJobRecord): Promise<void> {
     const dispatch = economicDispatchOf(job);
     let profile: ManagedJobProfile | undefined;
@@ -1122,13 +1151,13 @@ export class ManagedJobApplicationService {
     } catch {
       throw new ManagedJobApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V11 managed economic candidate identity before execution.",
+        "Restore the exact V12 managed economic candidate identity before execution.",
       );
     }
     if (!isManagedEconomicCandidateSet(resolved) || !sameManagedEconomicCandidateSet(dispatch.candidateSet, resolved)) {
       throw new ManagedJobApplicationError(
         "identity-revision-conflict",
-        "Restore the exact V11 managed economic candidate identity before execution.",
+        "Restore the exact V12 managed economic candidate identity before execution.",
       );
     }
   }
@@ -1412,7 +1441,7 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
   if (isRecord(value) && value.version !== MANAGED_JOB_SCHEMA_VERSION) {
     throw new ManagedJobApplicationError(
       "job_persistence_corrupt",
-      "Reset the managed-job store; only canonical V11 records are supported.",
+      "Reset the managed-job store; only canonical V12 records are supported.",
     );
   }
   const allowed = [
@@ -1829,7 +1858,7 @@ function isValidNativeHarnessAcknowledgement(value: unknown): value is ManagedJo
   return isRecord(value)
     && hasOnly(value, [
       "version", "source", "credentialMode", "acknowledgedAt", "routeId", "routeRevision", "providerId", "model",
-      "admissionProfileId", "adapterCapabilityId", "adapterCapabilityVersion",
+      "admissionProfileId", "adapterCapabilityId", "adapterCapabilityVersion", "deliberationResolution",
     ])
     && value.version === 1
     && value.source === "managed-route-admission"
@@ -1841,7 +1870,31 @@ function isValidNativeHarnessAcknowledgement(value: unknown): value is ManagedJo
     && isBoundedOpaqueIdentity(value.model)
     && isManagedAgentAdmissionProfile(value.admissionProfileId)
     && isIdentifier(value.adapterCapabilityId)
-    && isIdentifier(value.adapterCapabilityVersion);
+    && isIdentifier(value.adapterCapabilityVersion)
+    && (value.deliberationResolution === undefined || isValidNativeDeliberationResolution(value.deliberationResolution));
+}
+function isValidNativeDeliberationResolution(value: unknown): value is ManagedJobNativeDeliberationResolution {
+  if (!isRecord(value) || !isIdentifier(value.selectedLevel) || !isDeliberationSource(value.source) || !isRecord(value.capabilityEvidence)) {
+    return false;
+  }
+  const evidence = value.capabilityEvidence;
+  if (!hasOnly(evidence, ["sourceIdentity", "sourceRevision", "observedAt"])
+    || !isBoundedOpaqueIdentity(evidence.sourceIdentity)
+    || !isBoundedOpaqueIdentity(evidence.sourceRevision)
+    || !isIso(evidence.observedAt)) return false;
+  if (value.status === "exact" && hasOnly(value, ["status", "selectedLevel", "source", "capabilityEvidence"])) {
+    try { return admitDeliberationForExecution(value as unknown as DeliberationResolution) !== undefined; } catch { return false; }
+  }
+  if (value.status === "clamped"
+    && value.reason === "preferred-level-outside-bounds"
+    && hasOnly(value, ["status", "selectedLevel", "source", "reason", "capabilityEvidence"])) {
+    try { return admitDeliberationForExecution(value as unknown as DeliberationResolution) !== undefined; } catch { return false; }
+  }
+  return false;
+}
+function isDeliberationSource(value: unknown): value is DeliberationResolution["source"] {
+  return value === "operator" || value === "work-item" || value === "agent-profile" || value === "route"
+    || value === "task" || value === "project" || value === "provider-default";
 }
 function isValidNativeHarnessProfile(profile: ManagedJobNativeHarnessProfile): boolean {
   return profile.kind === "native-harness"
@@ -1854,20 +1907,22 @@ function isValidNativeHarnessProfile(profile: ManagedJobNativeHarnessProfile): b
     && isIdentifier(profile.adapterCapabilityId)
     && isIdentifier(profile.adapterCapabilityVersion)
     && isValidNativeHarnessAcknowledgement(profile.acknowledgement)
+    && (profile.deliberationResolution === undefined || isValidNativeDeliberationResolution(profile.deliberationResolution))
     && profile.acknowledgement.routeId === profile.routeId
     && profile.acknowledgement.routeRevision === profile.routeRevision
     && profile.acknowledgement.providerId === profile.providerId
     && profile.acknowledgement.model === profile.model
     && profile.acknowledgement.admissionProfileId === profile.admissionProfileId
     && profile.acknowledgement.adapterCapabilityId === profile.adapterCapabilityId
-    && profile.acknowledgement.adapterCapabilityVersion === profile.adapterCapabilityVersion;
+    && profile.acknowledgement.adapterCapabilityVersion === profile.adapterCapabilityVersion
+    && sameNativeDeliberationResolution(profile.deliberationResolution, profile.acknowledgement.deliberationResolution);
 }
 function isValidNativeHarnessRoute(value: unknown): value is ManagedJobNativeHarnessRoute {
   return isRecord(value)
     && value.kind === "native-harness"
     && hasOnly(value, [
       "kind", "admissionProfileId", "routeId", "routeRevision", "providerId", "model",
-      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement",
+      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "deliberationResolution",
     ])
     && isManagedAgentAdmissionProfile(value.admissionProfileId)
     && isIdentifier(value.routeId)
@@ -1877,13 +1932,15 @@ function isValidNativeHarnessRoute(value: unknown): value is ManagedJobNativeHar
     && isIdentifier(value.adapterCapabilityId)
     && isIdentifier(value.adapterCapabilityVersion)
     && isValidNativeHarnessAcknowledgement(value.acknowledgement)
+    && (value.deliberationResolution === undefined || isValidNativeDeliberationResolution(value.deliberationResolution))
     && value.acknowledgement.routeId === value.routeId
     && value.acknowledgement.routeRevision === value.routeRevision
     && value.acknowledgement.providerId === value.providerId
     && value.acknowledgement.model === value.model
     && value.acknowledgement.admissionProfileId === value.admissionProfileId
     && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
-    && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion;
+    && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion
+    && sameNativeDeliberationResolution(value.deliberationResolution, value.acknowledgement.deliberationResolution);
 }
 function sameNativeHarnessRoute(left: ManagedJobNativeHarnessProfile, right: ManagedJobNativeHarnessRoute): boolean {
   return left.admissionProfileId === right.admissionProfileId
@@ -1893,7 +1950,8 @@ function sameNativeHarnessRoute(left: ManagedJobNativeHarnessProfile, right: Man
     && left.model === right.model
     && left.adapterCapabilityId === right.adapterCapabilityId
     && left.adapterCapabilityVersion === right.adapterCapabilityVersion
-    && sameNativeHarnessAcknowledgement(left.acknowledgement, right.acknowledgement);
+    && sameNativeHarnessAcknowledgement(left.acknowledgement, right.acknowledgement)
+    && sameNativeDeliberationResolution(left.deliberationResolution, right.deliberationResolution);
 }
 function sameNativeHarnessAcknowledgement(
   left: ManagedJobNativeHarnessAcknowledgement,
@@ -1909,7 +1967,20 @@ function sameNativeHarnessAcknowledgement(
     && left.model === right.model
     && left.admissionProfileId === right.admissionProfileId
     && left.adapterCapabilityId === right.adapterCapabilityId
-    && left.adapterCapabilityVersion === right.adapterCapabilityVersion;
+    && left.adapterCapabilityVersion === right.adapterCapabilityVersion
+    && sameNativeDeliberationResolution(left.deliberationResolution, right.deliberationResolution);
+}
+function sameNativeDeliberationResolution(
+  left: ManagedJobNativeDeliberationResolution | undefined,
+  right: ManagedJobNativeDeliberationResolution | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.status === right.status
+    && left.selectedLevel === right.selectedLevel
+    && left.source === right.source
+    && left.capabilityEvidence.sourceIdentity === right.capabilityEvidence.sourceIdentity
+    && left.capabilityEvidence.sourceRevision === right.capabilityEvidence.sourceRevision
+    && (left.status !== "clamped" || right.status !== "clamped" || left.reason === right.reason);
 }
 function sameNativeHarnessDispatchRoute(
   dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }>,
@@ -1922,7 +1993,8 @@ function sameNativeHarnessDispatchRoute(
     && dispatch.admissionProfileId === route.admissionProfileId
     && dispatch.adapterCapabilityId === route.adapterCapabilityId
     && dispatch.adapterCapabilityVersion === route.adapterCapabilityVersion
-    && sameNativeHarnessAcknowledgement(dispatch.acknowledgement, route.acknowledgement);
+    && sameNativeHarnessAcknowledgement(dispatch.acknowledgement, route.acknowledgement)
+    && sameNativeDeliberationResolution(dispatch.deliberationResolution, route.deliberationResolution);
 }
 function isValidNativeHarnessDispatch(value: unknown): value is Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> {
   return isRecord(value)
@@ -1935,6 +2007,7 @@ function isValidNativeHarnessDispatch(value: unknown): value is Extract<ManagedJ
     && isIdentifier(value.adapterCapabilityId)
     && isIdentifier(value.adapterCapabilityVersion)
     && isValidNativeHarnessAcknowledgement(value.acknowledgement)
+    && (value.deliberationResolution === undefined || isValidNativeDeliberationResolution(value.deliberationResolution))
     && (value.dispatchFenceId === undefined || isNativeHarnessDispatchFenceId(value.dispatchFenceId))
     && value.acknowledgement.routeId === value.routeId
     && value.acknowledgement.routeRevision === value.routeRevision
@@ -1942,14 +2015,15 @@ function isValidNativeHarnessDispatch(value: unknown): value is Extract<ManagedJ
     && value.acknowledgement.model === value.model
     && value.acknowledgement.admissionProfileId === value.admissionProfileId
     && value.acknowledgement.adapterCapabilityId === value.adapterCapabilityId
-    && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion;
+    && value.acknowledgement.adapterCapabilityVersion === value.adapterCapabilityVersion
+    && sameNativeDeliberationResolution(value.deliberationResolution, value.acknowledgement.deliberationResolution);
 }
 function isValidManagedJobDispatch(value: unknown): value is ManagedJobDispatch {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "native-harness") {
     return hasOnly(value, [
       "kind", "routeId", "routeRevision", "providerId", "model", "admissionProfileId",
-      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "dispatchFenceId",
+      "adapterCapabilityId", "adapterCapabilityVersion", "acknowledgement", "deliberationResolution", "dispatchFenceId",
     ]) && isValidNativeHarnessDispatch(value);
   }
   if (value.kind !== "economic") return false;

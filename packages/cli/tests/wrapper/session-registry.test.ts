@@ -340,7 +340,7 @@ describe("SessionRegistry", () => {
       expect(transports).toMatchObject({
         claude: "native-level",
         codex: "native-level",
-        opencode: "none",
+        opencode: "native-level",
         "codex-oauth": "native-level",
         "opencode-go": "none",
         "opencode-zen": "none",

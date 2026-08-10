@@ -50,8 +50,23 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     })),
     discoverOpencodeCliModelDiscovery: vi.fn(async () => ({
       models: ["opencode/minimax-m2.5-free"],
+      modelCapabilities: {
+        "opencode/minimax-m2.5-free": {
+          deliberation: {
+            provider: "opencode",
+            model: "opencode/minimax-m2.5-free",
+            levels: [{ id: "low" }, { id: "high" }],
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "opencode-cli-model-catalog",
+              sourceRevision: "1.18.16:catalog-fixture",
+              observedAt: "2026-08-10T00:00:00.000Z",
+            },
+          },
+        },
+      },
       status: "available",
-      reason: "OpenCode CLI models discovered.",
+      reason: "OpenCode CLI models discovered through its local model API.",
       authState: "authenticated",
     })),
   };
@@ -71,6 +86,17 @@ describe("discoverManagedAgentProviderModels", () => {
       eligible: false,
       reasons: expect.arrayContaining(["missing-configured-evidence"]),
       route: { providerId: "opencode", providerModelId: "opencode/minimax-m2.5-free" },
+    });
+    expect(discovered.opencode?.["opencode/minimax-m2.5-free"]?.deliberationCapabilities).toEqual({
+      provider: "opencode",
+      model: "opencode/minimax-m2.5-free",
+      levels: [{ id: "low" }, { id: "high" }],
+      supportsAdaptive: false,
+      evidence: {
+        sourceIdentity: "opencode-cli-model-catalog",
+        sourceRevision: "1.18.16:catalog-fixture",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
     });
     expect(discovered.claude?.["claude-sonnet-live-exact"]?.catalogDiagnosticDecision).toMatchObject({
       eligible: false,

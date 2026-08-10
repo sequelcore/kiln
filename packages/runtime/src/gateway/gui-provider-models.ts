@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
   OPENCODE_BASE_URL,
@@ -1786,15 +1787,52 @@ function extractProviderModelIds(
   }));
 }
 
-export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {
-  const executable = findExecutable([
+export interface OpenCodeExecutableResolution {
+  readonly path: string;
+  readonly evidence: {
+    readonly executable: string;
+    readonly version: string;
+  };
+}
+
+export function resolveOpenCodeExecutable(): OpenCodeExecutableResolution | undefined {
+  const probe = resolveExecutable([
     "opencode",
     "opencode.exe",
     ...homeExecutableCandidates([
       ".bun\\bin\\opencode.exe",
       "AppData\\Roaming\\npm\\opencode.cmd",
     ]),
-  ]);
+  ], (candidate) => candidate.version !== undefined);
+  if (probe?.version === undefined) return undefined;
+  const executableName = probe.path.replaceAll("\\", "/").split("/").at(-1) ?? "opencode";
+  return {
+    path: probe.path,
+    evidence: {
+      executable: `<operator-harness>/${executableName}`,
+      version: probe.version,
+    },
+  };
+}
+
+const OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+const OPENCODE_CANONICAL_DELIBERATION_VARIANTS = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly GuiDeliberationLevelId[];
+
+interface OpenCodeModelCatalogProcess {
+  readonly url: string;
+  readonly close: () => void;
+}
+
+export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {
+  const executable = resolveOpenCodeExecutable();
   if (!executable) {
     return unavailableCliProviderDiscovery(
       "cli_missing",
@@ -1803,73 +1841,292 @@ export async function discoverOpencodeCliModelDiscovery(): Promise<GuiCliProvide
     );
   }
   try {
-    const { spawn } = await import("node:child_process");
-    return await new Promise<GuiCliProviderModelDiscovery>((resolve) => {
-      const proc = spawn(executable, ["models"], {
-        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable),
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      });
-      let output = "";
-      let settled = false;
-      const finish = (result: GuiCliProviderModelDiscovery): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        resolve(result);
-      };
-      const timer = setTimeout(() => {
-        proc.kill();
-        finish(unavailableCliProviderDiscovery(
-          "endpoint_timeout",
-          "OpenCode CLI models command timed out.",
-          "unknown",
-        ));
-      }, 5_000);
-      proc.stdout.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-      proc.stderr.on("data", () => undefined);
-      proc.on("error", () => {
-        finish(unavailableCliProviderDiscovery(
+    const server = await startOpenCodeModelCatalogServer(executable.path);
+    try {
+      const response = await readOpenCodeModelCatalog(server.url);
+      if (!response.ok) {
+        return unavailableCliProviderDiscovery(
           "endpoint_error",
-          "OpenCode CLI models command failed.",
+          "OpenCode local model API failed.",
           "unknown",
-        ));
-      });
-      proc.on("close", (code: number | null) => {
-        if (code !== 0) {
-          finish(unavailableCliProviderDiscovery(
-            "endpoint_error",
-            "OpenCode CLI models command failed.",
+        );
+      }
+      const payload = await response.json();
+      const entries = asRecord(payload)?.data;
+      if (!Array.isArray(entries)) {
+        return unavailableCliProviderDiscovery(
+          "endpoint_error",
+          "OpenCode local model API returned an invalid model catalog.",
+          "unknown",
+        );
+      }
+      const observedAt = new Date().toISOString();
+      const sourceRevision = openCodeCatalogSourceRevision(executable.evidence.version, entries);
+      const discovered = extractOpenCodeCliModelCatalog(entries, sourceRevision, observedAt);
+      return discovered.models.length > 0
+        ? {
+            models: discovered.models,
+            ...(discovered.modelCapabilities ? { modelCapabilities: discovered.modelCapabilities } : {}),
+            status: "available",
+            reason: "OpenCode CLI models discovered through its local model API.",
+            authState: "authenticated",
+          }
+        : unavailableCliProviderDiscovery(
+            "empty_model_list",
+            "OpenCode local model API returned an empty model list.",
             "unknown",
-          ));
-          return;
-        }
-        const models = normalizeModelIds(output.split("\n"));
-        finish(models.length > 0
-          ? {
-              models,
-              status: "available",
-              reason: "OpenCode CLI models discovered.",
-              authState: "authenticated",
-            }
-          : unavailableCliProviderDiscovery(
-              "empty_model_list",
-              "OpenCode CLI returned an empty model list.",
-              "unknown",
-            ));
-      });
-    });
+          );
+    } finally {
+      server.close();
+    }
   } catch {
     return unavailableCliProviderDiscovery(
       "endpoint_error",
-      "OpenCode CLI models command failed.",
+      "OpenCode CLI model server failed.",
       "unknown",
     );
   }
+}
+
+function extractOpenCodeCliModelCatalog(
+  entries: readonly unknown[],
+  sourceRevision: string,
+  observedAt: string,
+): {
+  readonly models: string[];
+  readonly modelCapabilities?: Readonly<Record<string, GuiProviderModelCapabilities>>;
+} {
+  const models: string[] = [];
+  const modelCapabilities: Record<string, GuiProviderModelCapabilities> = {};
+  for (const entry of entries) {
+    const record = asRecord(entry);
+    const id = readString(record?.id)?.trim();
+    const providerId = readString(record?.providerID)?.trim();
+    if (!id || !providerId || record?.enabled !== true) continue;
+    const model = `${providerId}/${id}`;
+    models.push(model);
+    const variantIds = new Set(extractOpenCodeDeliberationVariants(record.variants).map(({ id }) => id));
+    const levels = OPENCODE_CANONICAL_DELIBERATION_VARIANTS
+      .filter((variant) => variantIds.has(variant as GuiDeliberationLevelId))
+      .map((id) => ({ id: id as GuiDeliberationLevelId }));
+    if (levels.length === 0) continue;
+    modelCapabilities[model] = {
+      deliberation: {
+        provider: "opencode",
+        model,
+        levels,
+        // OpenCode variants are named request overlays. The catalog does not
+        // define a provider-side adaptive selection policy for Kiln to invoke.
+        supportsAdaptive: false,
+        evidence: {
+          sourceIdentity: "opencode-cli-model-catalog",
+          sourceRevision,
+          observedAt,
+        },
+      },
+    };
+  }
+  return {
+    models: normalizeModelIds(models),
+    ...(Object.keys(modelCapabilities).length > 0 ? { modelCapabilities } : {}),
+  };
+}
+
+interface OpenCodeDeliberationVariantEvidence {
+  readonly id: GuiDeliberationLevelId;
+  readonly semantics: readonly Readonly<Record<string, boolean | number | string>>[];
+}
+
+function extractOpenCodeDeliberationVariants(value: unknown): readonly OpenCodeDeliberationVariantEvidence[] {
+  if (!Array.isArray(value)) return [];
+  const variants: OpenCodeDeliberationVariantEvidence[] = [];
+  for (const variant of value) {
+    const record = asRecord(variant);
+    const id = readDeliberationLevelId(record?.id);
+    if (!id || !OPENCODE_CANONICAL_DELIBERATION_VARIANTS.includes(
+      id as (typeof OPENCODE_CANONICAL_DELIBERATION_VARIANTS)[number],
+    )) {
+      continue;
+    }
+    const semantics = openCodeVariantReasoningSemantics(record);
+    if (!openCodeVariantSemanticsMatchLevel(id, semantics)) continue;
+    if (!variants.some((candidate) => candidate.id === id)) variants.push({ id, semantics });
+  }
+  return variants;
+}
+
+function openCodeVariantReasoningSemantics(
+  variant: Readonly<Record<string, unknown>> | undefined,
+): readonly Readonly<Record<string, boolean | number | string>>[] {
+  if (!variant) return [];
+  const semantics: Array<Readonly<Record<string, boolean | number | string>>> = [];
+  for (const container of [variant.body, variant.settings]) {
+    const record = asRecord(container);
+    if (!record) continue;
+    for (const field of ["reasoningEffort", "reasoning_effort", "effort"] as const) {
+      const value = readDeliberationLevelId(record[field]);
+      if (value) semantics.push({ kind: "effort", field, value });
+    }
+    const reasoning = asRecord(record.reasoning);
+    const reasoningEffort = readDeliberationLevelId(reasoning?.effort);
+    if (reasoningEffort) semantics.push({ kind: "effort", field: "reasoning.effort", value: reasoningEffort });
+    const reasoningConfig = asRecord(record.reasoningConfig);
+    const maxReasoningEffort = readDeliberationLevelId(reasoningConfig?.maxReasoningEffort);
+    if (maxReasoningEffort) {
+      semantics.push({ kind: "effort", field: "reasoningConfig.maxReasoningEffort", value: maxReasoningEffort });
+    }
+    const reasoningConfigType = readString(reasoningConfig?.type)?.trim().toLowerCase();
+    if (reasoningConfigType === "enabled" || reasoningConfigType === "adaptive" || reasoningConfigType === "disabled") {
+      semantics.push({ kind: "toggle", field: "reasoningConfig.type", value: reasoningConfigType });
+    }
+    const modelParams = asRecord(record.modelParams);
+    const modelParamsEffort = readDeliberationLevelId(modelParams?.reasoning_effort);
+    if (modelParamsEffort) {
+      semantics.push({ kind: "effort", field: "modelParams.reasoning_effort", value: modelParamsEffort });
+    }
+    const outputConfigEffort = readDeliberationLevelId(asRecord(modelParams?.output_config)?.effort);
+    if (outputConfigEffort) {
+      semantics.push({ kind: "effort", field: "modelParams.output_config.effort", value: outputConfigEffort });
+    }
+    const thinking = asRecord(record.thinking) ?? asRecord(record.thinkingConfig);
+    const thinkingLevel = readDeliberationLevelId(thinking?.thinkingLevel);
+    if (thinkingLevel) semantics.push({ kind: "effort", field: "thinking.thinkingLevel", value: thinkingLevel });
+    const thinkingType = readString(thinking?.type)?.trim().toLowerCase();
+    if (thinkingType === "enabled" || thinkingType === "adaptive" || thinkingType === "disabled") {
+      semantics.push({ kind: "toggle", field: "thinking.type", value: thinkingType });
+    }
+    for (const [field, value] of [
+      ["thinking.budgetTokens", thinking?.budgetTokens],
+      ["thinking.thinkingBudget", thinking?.thinkingBudget],
+      ["reasoning.max_tokens", reasoning?.max_tokens],
+      ["reasoningConfig.budgetTokens", reasoningConfig?.budgetTokens],
+      ["thinking_budget", record.thinking_budget],
+      ["thinkingBudget", record.thinkingBudget],
+    ] as const) {
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+        semantics.push({ kind: "budget", field, value });
+      }
+    }
+    if (typeof record.enable_thinking === "boolean") {
+      semantics.push({ kind: "toggle", field: "enable_thinking", value: record.enable_thinking });
+    }
+    if (typeof record.enableThinking === "boolean") {
+      semantics.push({ kind: "toggle", field: "enableThinking", value: record.enableThinking });
+    }
+    const thinkingMode = readString(asRecord(record.chat_template_kwargs)?.thinking_mode)?.trim().toLowerCase();
+    if (thinkingMode === "enabled" || thinkingMode === "disabled") {
+      semantics.push({ kind: "toggle", field: "chat_template_kwargs.thinking_mode", value: thinkingMode });
+    }
+  }
+  return semantics;
+}
+
+function openCodeVariantSemanticsMatchLevel(
+  id: GuiDeliberationLevelId,
+  semantics: readonly Readonly<Record<string, boolean | number | string>>[],
+): boolean {
+  const effortValues = semantics
+    .filter((entry) => entry.kind === "effort")
+    .map((entry) => entry.value);
+  const explicitlyEnabled = semantics.some((entry) =>
+    (entry.kind === "toggle" && (entry.value === true || entry.value === "enabled" || entry.value === "adaptive"))
+    || (entry.kind === "budget" && typeof entry.value === "number" && entry.value > 0));
+  const explicitlyDisabled = semantics.some((entry) =>
+    (entry.kind === "toggle" && (entry.value === false || entry.value === "disabled"))
+    || (entry.kind === "budget" && entry.value === 0));
+  if (effortValues.length > 0) {
+    return effortValues.every((value) => value === id)
+      && (id === "none" ? !explicitlyEnabled : !explicitlyDisabled);
+  }
+  return id === "none" ? explicitlyDisabled && !explicitlyEnabled : explicitlyEnabled && !explicitlyDisabled;
+}
+
+function openCodeCatalogSourceRevision(executableVersion: string, entries: readonly unknown[]): string {
+  // Snapshot only capability-relevant, non-secret fields. Headers and request
+  // bodies can carry credentials and must never become durable evidence.
+  const snapshot = entries.flatMap((entry) => {
+    const record = asRecord(entry);
+    const id = readString(record?.id)?.trim();
+    const providerId = readString(record?.providerID)?.trim();
+    if (!id || !providerId || record?.enabled !== true) return [];
+    return [{
+      model: `${providerId}/${id}`,
+      variants: [...extractOpenCodeDeliberationVariants(record.variants)]
+        .sort((left, right) => left.id.localeCompare(right.id)),
+    }];
+  }).sort((left, right) => left.model.localeCompare(right.model));
+  const digest = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex").slice(0, 16);
+  return `${executableVersion}:${digest}`;
+}
+
+async function startOpenCodeModelCatalogServer(executable: string): Promise<OpenCodeModelCatalogProcess> {
+  const { spawn } = await import("node:child_process");
+  return await new Promise<OpenCodeModelCatalogProcess>((resolve, reject) => {
+    const proc = spawn(executable, ["serve", "--hostname=127.0.0.1", "--port=0"], {
+      shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable),
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let settled = false;
+    const close = () => {
+      if (process.platform === "win32" && typeof proc.pid === "number") {
+        try {
+          execFileSync("taskkill.exe", ["/PID", String(proc.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+          return;
+        } catch {
+          // Fall back to Node's process handle if the platform helper is unavailable.
+        }
+      }
+      try {
+        proc.kill();
+      } catch {
+        // The child may have exited after publishing its listening URL.
+      }
+    };
+    const finish = (result: OpenCodeModelCatalogProcess | Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (result instanceof Error) {
+        close();
+        reject(result);
+      } else {
+        resolve(result);
+      }
+    };
+    const timeout = setTimeout(() => finish(new Error("OpenCode local model server timed out.")), OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS);
+    // OpenCode's SDK uses this same child-owned ephemeral-port handshake. It
+    // removes the close-and-rebind window of reserving a port in the parent.
+    let stdout = "";
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+      for (const line of stdout.split(/\r?\n/u)) {
+        if (!line.startsWith("opencode server listening")) continue;
+        const url = /\bon\s+(http:\/\/127\.0\.0\.1:\d+)\b/u.exec(line)?.[1];
+        if (url) {
+          finish({ url, close });
+          return;
+        }
+      }
+    });
+    proc.stderr?.on("data", () => undefined);
+    proc.on("error", () => finish(new Error("OpenCode local model server failed.")));
+    proc.on("close", () => finish(new Error("OpenCode local model server exited before becoming ready.")));
+  });
+}
+
+async function readOpenCodeModelCatalog(serverUrl: string): Promise<Response> {
+  const deadline = Date.now() + OPENCODE_MODEL_DISCOVERY_TIMEOUT_MS;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return await fetch(`${serverUrl}/api/model`, { signal: AbortSignal.timeout(1_000) });
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  throw lastError ?? new Error("OpenCode local model API did not become ready.");
 }
 
 /**
@@ -2467,6 +2724,7 @@ function resolveExecutable(
       const output = execFileSync(candidate, ["--version"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
+        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(candidate),
       });
       const probe: ExecutableProbe = { path: candidate, version: output.match(CLI_VERSION_PATTERN)?.[0] };
       if (accept(probe)) {

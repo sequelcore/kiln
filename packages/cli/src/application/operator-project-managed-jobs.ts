@@ -5,6 +5,8 @@ import {
   createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
   digestManagedEconomicValue,
+  resolveDeliberation,
+  type DeliberationResolution,
 } from "@kilnai/core";
 import {
   collectManagedEconomicCandidates,
@@ -17,6 +19,7 @@ import {
   type ManagedAgentRuntimeInvocationProgressEvent,
   type ManagedJobNativeHarnessProfile,
   type ManagedJobNativeHarnessRoute,
+  type ManagedJobNativeDeliberationResolution,
   type ManagedJobRecord,
   type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
@@ -371,7 +374,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           if (!nativeRoute || !catalogEntry?.routeId) return undefined;
           const admissionProfileId = agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID;
           if (!nativeRoute.profiles[admissionProfileId]) return undefined;
-          return createNativeHarnessProfile(agent.name, admissionProfileId, nativeRoute, nativeHarnessAcknowledgedAt);
+          return createNativeHarnessProfile(agent, admissionProfileId, nativeRoute, nativeHarnessAcknowledgedAt);
         }
         if (
           !catalogEntry?.economicPolicyId
@@ -410,7 +413,9 @@ export async function createOperatorProjectManagedJobApplicationComposition(
             return undefined;
           }
           if (route.capability.capacity.kind !== "accountless") return undefined;
-          return nativeHarnessRouteFromProfile(profile, route);
+          const agent = findAgent(await loadAgentDefinitions(root.rootPath), profile.id);
+          if (!agent) return undefined;
+          return nativeHarnessRouteFromProfile(profile, route, agent);
         }
         return collectManagedEconomicCandidates({
           economicPolicyId: profile.economicPolicyId,
@@ -473,6 +478,10 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           && candidate.model === route.model);
         const profile = currentRoute?.profiles[job.admissionProfileId];
         const invocationService = execution.invocationService;
+        const agent = findAgent(await loadAgentDefinitions(root.rootPath), job.configuredAgentProfileId);
+        const currentDeliberation = agent && currentRoute
+          ? resolveNativeHarnessDeliberation(agent, currentRoute)
+          : undefined;
         if (
           !currentRoute
           || !profile
@@ -484,6 +493,12 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           || currentRoute.capability.adapter.capabilityVersion !== route.adapterCapabilityVersion
           || currentRoute.capability.capacity.kind !== "accountless"
           || !currentRoute.createAdapter
+          || !agent
+          || currentDeliberation?.status === "denied"
+          || !sameNativeHarnessDeliberationResolution(
+            route.deliberationResolution,
+            toNativeHarnessDeliberationResolution(currentDeliberation),
+          )
         ) {
           throw new ManagedJobApplicationError("route_unavailable", "Restore the exact admitted native-harness Runtime route.");
         }
@@ -501,6 +516,11 @@ export async function createOperatorProjectManagedJobApplicationComposition(
             providerId: route.providerId,
             surface: currentRoute.surface ?? "cli-harness",
             model: route.model,
+            // Equality with the committed Runtime subset above proves this Core
+            // resolution is the exact admitted level and capability evidence.
+            ...(currentDeliberation?.status === "exact" || currentDeliberation?.status === "clamped"
+              ? { deliberationResolution: currentDeliberation }
+              : {}),
           },
           adapterKind: adapter.descriptor.adapterKind,
           executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
@@ -926,11 +946,15 @@ function isNativeHarnessAdapterKind(kind: string): boolean {
 }
 
 function createNativeHarnessProfile(
-  id: string,
+  agent: KilnAgentDefinition,
   admissionProfileId: ManagedJobNativeHarnessProfile["admissionProfileId"],
   route: OperatorManagedInvocationRoute,
   acknowledgedAt: string,
-): ManagedJobNativeHarnessProfile {
+): ManagedJobNativeHarnessProfile | undefined {
+  const resolvedDeliberation = resolveNativeHarnessDeliberation(agent, route);
+  if (resolvedDeliberation?.status === "denied") return undefined;
+  const deliberationResolution = toNativeHarnessDeliberationResolution(resolvedDeliberation);
+  if ((resolvedDeliberation?.status === "exact" || resolvedDeliberation?.status === "clamped") && !deliberationResolution) return undefined;
   const acknowledgement = {
     version: 1 as const,
     source: "managed-route-admission" as const,
@@ -943,10 +967,11 @@ function createNativeHarnessProfile(
     admissionProfileId,
     adapterCapabilityId: route.capability.adapter.capabilityId,
     adapterCapabilityVersion: route.capability.adapter.capabilityVersion,
+    ...(deliberationResolution ? { deliberationResolution } : {}),
   };
   return {
     kind: "native-harness",
-    id,
+    id: agent.name,
     admissionProfileId,
     routeId: route.routeId,
     routeRevision: route.capability.identity.revision,
@@ -955,13 +980,20 @@ function createNativeHarnessProfile(
     adapterCapabilityId: route.capability.adapter.capabilityId,
     adapterCapabilityVersion: route.capability.adapter.capabilityVersion,
     acknowledgement,
+    ...(deliberationResolution ? { deliberationResolution } : {}),
   };
 }
 
 function nativeHarnessRouteFromProfile(
   profile: ManagedJobNativeHarnessProfile,
   route: OperatorManagedInvocationRoute,
-): ManagedJobNativeHarnessRoute {
+  agent: KilnAgentDefinition,
+): ManagedJobNativeHarnessRoute | undefined {
+  const resolvedDeliberation = resolveNativeHarnessDeliberation(agent, route);
+  if (resolvedDeliberation?.status === "denied") return undefined;
+  const deliberationResolution = toNativeHarnessDeliberationResolution(resolvedDeliberation);
+  if ((resolvedDeliberation?.status === "exact" || resolvedDeliberation?.status === "clamped") && !deliberationResolution) return undefined;
+  if (!sameNativeHarnessDeliberationResolution(profile.deliberationResolution, deliberationResolution)) return undefined;
   return {
     kind: "native-harness",
     admissionProfileId: profile.admissionProfileId,
@@ -972,7 +1004,57 @@ function nativeHarnessRouteFromProfile(
     adapterCapabilityId: route.capability.adapter.capabilityId,
     adapterCapabilityVersion: route.capability.adapter.capabilityVersion,
     acknowledgement: profile.acknowledgement,
+    ...(deliberationResolution ? { deliberationResolution } : {}),
   };
+}
+
+function resolveNativeHarnessDeliberation(
+  agent: KilnAgentDefinition,
+  route: OperatorManagedInvocationRoute,
+): DeliberationResolution | undefined {
+  const intent = agent.providerRoute?.deliberationIntent;
+  if (!intent) return undefined;
+  const resolution = resolveDeliberation({
+    intent,
+    source: "agent-profile",
+    ...(route.deliberationCapabilities ? { capabilities: route.deliberationCapabilities } : {}),
+  });
+  return resolution;
+}
+
+function toNativeHarnessDeliberationResolution(
+  resolution: DeliberationResolution | undefined,
+): ManagedJobNativeDeliberationResolution | undefined {
+  if (resolution === undefined || (resolution.status !== "exact" && resolution.status !== "clamped")) return undefined;
+  if (resolution.status === "clamped") {
+    if (resolution.reason !== "preferred-level-outside-bounds") return undefined;
+    return {
+      status: "clamped",
+      selectedLevel: resolution.selectedLevel,
+      source: resolution.source,
+      reason: resolution.reason,
+      capabilityEvidence: resolution.capabilityEvidence!,
+    };
+  }
+  return {
+    status: "exact",
+    selectedLevel: resolution.selectedLevel,
+    source: resolution.source,
+    capabilityEvidence: resolution.capabilityEvidence!,
+  };
+}
+
+function sameNativeHarnessDeliberationResolution(
+  left: ManagedJobNativeDeliberationResolution | undefined,
+  right: ManagedJobNativeDeliberationResolution | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.status === right.status
+    && left.selectedLevel === right.selectedLevel
+    && left.source === right.source
+    && left.capabilityEvidence.sourceIdentity === right.capabilityEvidence.sourceIdentity
+    && left.capabilityEvidence.sourceRevision === right.capabilityEvidence.sourceRevision
+    && (left.status !== "clamped" || (right.status === "clamped" && left.reason === right.reason));
 }
 
 function selectAdmissionProfile(

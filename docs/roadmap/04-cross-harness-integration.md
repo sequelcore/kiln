@@ -117,22 +117,32 @@ untouched.
 
 #### Pending deliberation and global configuration activation
 
-Status: Blocked by [issue #47](https://github.com/sequelcore/kiln/issues/47).
+Status: Native CLI code complete under
+[issue #68](https://github.com/sequelcore/kiln/issues/68); direct Go/Zen blocked
+by [issue #47](https://github.com/sequelcore/kiln/issues/47).
 
 OpenCode Go/Zen deliberation remains at provider default. OpenCode 1.18.16 can
 lower declared OpenAI-compatible effort variants, but undeclared variants can
 still be omitted silently and the Go/Zen gateways do not provide a revisioned,
 deterministic supported-level and protocol contract across eligible upstreams.
-Kiln must retain `deliberationTransport: none` for direct and native OpenCode;
-explicit unsupported requests fail closed and task rules configured with
-`onUnsupported: omit` send no guessed level.
+Kiln retains `deliberationTransport: none` for these direct providers.
+
+Native OpenCode uses the exact 1.18.16 CLI's structured, account-visible model
+catalog as a separate authority. Canonical variants with verified reasoning
+semantics are bound to executable-version plus catalog-digest evidence and
+lower through the SDK `variant` field only after Core admission. Explicit
+unsupported requests fail closed and task rules configured with
+`onUnsupported: omit` send no guessed level. The current account exposes no
+eligible native variants, so the live dispatch gate remains pending without
+weakening admission.
 
 The operator's global provider-neutral task policy is already configured and
-requires no speculative OpenCode `byRoute` rule. Reopen activation only after
-issue #47's revisioned capability and live-conformance gates pass.
-Then verify every configured OpenCode route against the existing task policy,
-add a route-wide override only if reproducible Sequel benchmarks require one,
-and confirm global-instruction and repo-shim dry runs remain unchanged.
+requires no speculative OpenCode `byRoute` rule. Activate only native exact
+routes that discovery admits; reopen direct activation after issue #47's
+revisioned capability and live-conformance gates pass. Then verify every
+configured OpenCode route against the existing task policy, add a route-wide
+override only if reproducible Sequel benchmarks require one, and confirm
+global-instruction and repo-shim dry runs remain unchanged.
 
 ### Slice 2 - Cross-Harness Dogfood
 
@@ -194,11 +204,11 @@ identity, diagnostics, privacy-safe durable evidence, and exact config restore.
 Deliberation follow-through is code complete. Runtime and CLI now share Agent
 SDK `0.3.226`; authenticated `supportedModels()` effort metadata is preserved
 with Claude Code executable-version evidence, and admitted levels lower through
-`Options.effort`. Native OpenCode remains fail-closed rather than inheriting
-this capability. A bounded Claude `low` live probe on 2026-08-10 was rejected by
-the active account's weekly quota before completion, so the new effort path is
-not yet live-promoted even though its deterministic discovery, lowering, and
-cross-surface tests pass.
+`Options.effort`. Native OpenCode uses its own version-bound catalog evidence
+rather than inheriting this capability. A bounded Claude `low` live probe on
+2026-08-10 was rejected by the active account's weekly quota before completion,
+so the new effort path is not yet live-promoted even though its deterministic
+discovery, lowering, and cross-surface tests pass.
 
 Exit gate: Claude Code subscription and Anthropic API usage cannot be confused
 in route selection or status, and native-harness routes expose an explicit

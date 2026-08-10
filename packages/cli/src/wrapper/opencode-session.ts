@@ -42,6 +42,7 @@ interface OpencodeClientShape {
         sessionID: string;
         parts?: Array<{ type: "text"; text: string }>;
         model?: { providerID: string; modelID: string };
+        variant?: string;
         directory?: string;
       },
       options?: { throwOnError?: boolean },
@@ -153,6 +154,10 @@ export interface OpenCodeSessionConfig {
   readonly permissionPolicy?: KilnPermissionPolicy;
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
+  readonly deliberationResolution?: import("@kilnai/core").DeliberationResolution;
+  /** Discovery-bound binary for managed routes; ambient resolution is forbidden when set. */
+  readonly harnessExecutable?: string;
+  readonly harnessEvidence?: { readonly executable: string; readonly version: string };
 }
 
 const OPENCODE_SANDBOX_WARNING =
@@ -555,12 +560,9 @@ export class OpenCodeSession implements IKilnSession {
 
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
-    const admittedDeliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
-    if (admittedDeliberationLevel !== undefined) {
-      throw new Error(
-        `OpenCode session cannot transport resolved deliberation level '${admittedDeliberationLevel}'.`,
-      );
-    }
+    const admittedDeliberationLevel = admitDeliberationForExecution(
+      options.deliberationResolution ?? this._config.deliberationResolution,
+    );
     const startTime = Date.now();
     const abortController = new AbortController();
     this._abortController = abortController;
@@ -744,6 +746,7 @@ export class OpenCodeSession implements IKilnSession {
           {
             sessionID: this._remoteSessionId!,
             ...(nativeModel ? { model: nativeModel } : {}),
+            ...(admittedDeliberationLevel ? { variant: admittedDeliberationLevel } : {}),
             parts: [{
               type: "text",
               text: appendConstraintInstructions(
@@ -1226,6 +1229,7 @@ export class OpenCodeSession implements IKilnSession {
     env?: Record<string, string>,
   ): Promise<number> {
     const opencodePath = this._findOpencodePath();
+    this._assertBoundHarnessVersion(opencodePath);
     const args = ["serve", "--port", String(port)];
     const spawnEnv = buildOpenCodeRuntimeConfigEnv({ ...process.env, ...env }, this._config);
 
@@ -1286,11 +1290,26 @@ export class OpenCodeSession implements IKilnSession {
   }
 
   private _findOpencodePath(): string {
+    if (this._config.harnessExecutable) return this._config.harnessExecutable;
     const homedir = process.env.HOME ?? process.env.USERPROFILE ?? "";
     return resolveNativeCliExecutable({
       command: "opencode",
       fallbackPaths: [`${homedir}\\.bun\\bin\\opencode.exe`],
     });
+  }
+
+  private _assertBoundHarnessVersion(path: string): void {
+    const evidence = this._config.harnessEvidence;
+    if (!evidence) return;
+    const output = execFileSync(path, ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(path),
+    });
+    const observedVersion = output.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/u)?.[0];
+    if (observedVersion !== evidence.version) {
+      throw new Error("OpenCode executable version changed after capability discovery.");
+    }
   }
 
   private _killServeProcess(): void {

@@ -16,6 +16,8 @@ const routeCatalogTrace = vi.hoisted(() => ({
   catalogs: [] as Array<{ readonly managedInvocation?: { readonly invocationService?: unknown } }>,
   mutateExecutionCapabilityVersion: false,
   mutateExecutionProfileAuthority: false,
+  injectNativeDeliberationCapabilities: false,
+  mutateExecutionDeliberationEvidence: false,
   executionRefreshCount: 0,
 }));
 const adapterTrace = vi.hoisted(() => ({
@@ -39,15 +41,58 @@ vi.mock("../../src/config/managed-agent-route-catalog.js", async (importOriginal
     ) => {
       routeCatalogTrace.contexts.push(args[1]);
       const catalog = await actual.createStagedManagedInvocationRouteCatalog(...args);
+      if (routeCatalogTrace.injectNativeDeliberationCapabilities) {
+        const route = catalog.managedInvocation?.routes.find((candidate) => candidate.routeId === "native-codex-deliberation");
+        if (route) {
+          Object.assign(route, {
+            deliberationCapabilities: {
+              provider: "codex",
+              model: "gpt-5.6-codex",
+              levels: [{ id: "low" }, { id: "high" }],
+              supportsAdaptive: false,
+              evidence: {
+                sourceIdentity: "fixture-native-codex-catalog",
+                sourceRevision: routeCatalogTrace.mutateExecutionDeliberationEvidence && args[1].compositionMode === "execution"
+                  ? "revision-2"
+                  : "revision-1",
+                observedAt: FIXTURE_OBSERVED_AT,
+              },
+            },
+          });
+        }
+      }
       if (
-        args[1].compositionMode === "execution"
-        && (routeCatalogTrace.mutateExecutionCapabilityVersion || routeCatalogTrace.mutateExecutionProfileAuthority)
+        routeCatalogTrace.injectNativeDeliberationCapabilities
+        || (
+          args[1].compositionMode === "execution"
+          && (routeCatalogTrace.mutateExecutionCapabilityVersion || routeCatalogTrace.mutateExecutionProfileAuthority)
+        )
       ) {
         const tracedCatalog = {
           ...catalog,
           refreshNow: async () => {
             await catalog.refreshNow();
             routeCatalogTrace.executionRefreshCount += 1;
+            if (routeCatalogTrace.injectNativeDeliberationCapabilities) {
+              const nativeRoute = catalog.managedInvocation?.routes.find((candidate) => candidate.routeId === "native-codex-deliberation");
+              if (nativeRoute) {
+                Object.assign(nativeRoute, {
+                  deliberationCapabilities: {
+                    provider: "codex",
+                    model: "gpt-5.6-codex",
+                    levels: [{ id: "low" }, { id: "high" }],
+                    supportsAdaptive: false,
+                    evidence: {
+                      sourceIdentity: "fixture-native-codex-catalog",
+                      sourceRevision: routeCatalogTrace.mutateExecutionDeliberationEvidence && args[1].compositionMode === "execution"
+                        ? "revision-2"
+                        : "revision-1",
+                      observedAt: FIXTURE_OBSERVED_AT,
+                    },
+                  },
+                });
+              }
+            }
             const route = catalog.managedInvocation?.routes[0];
             if (routeCatalogTrace.mutateExecutionCapabilityVersion && route?.economicCapability) {
               Object.assign(route.economicCapability, {
@@ -144,6 +189,33 @@ function eligibleDirectProviderCatalog(providerId: string, model: string): Manag
   };
 }
 
+function eligibleHarnessProviderCatalog(providerId: "codex", model: string): ManagedAgentProviderModelCatalogDiagnostics {
+  const catalog = normalizeRuntimeProviderDiscoveryCatalog({
+    providerId,
+    family: "codex-harness",
+    harnessId: "codex",
+    reportedProviderId: "codex",
+    discovery: {
+      models: [model],
+      status: "available",
+      reason: "fixture catalog",
+      authState: "authenticated",
+    },
+    observedAt: FIXTURE_OBSERVED_AT,
+    freshness: "fresh",
+  });
+  return {
+    [providerId]: Object.fromEntries(catalog.routes.map((route) => [
+      route.identity.route.providerModelId,
+      {
+        catalogDiagnosticEvidence: route,
+        catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
+        provenProfiles: ["foundation-readonly-plan"],
+      },
+    ])),
+  };
+}
+
 const ECONOMIC_WORKER_AGENT = [
   "---",
   "name: economic-worker",
@@ -168,6 +240,42 @@ const OPENCODE_WRITE_WORKER_AGENT = [
   "---",
   "Regression fixture agent; not used for real work.",
 ].join("\n");
+
+const NATIVE_CODEX_DELIBERATION_AGENT = [
+  "---",
+  "name: native-codex-deliberation-worker",
+  "role: Native deliberation worker",
+  "goal: Execute only with the discovered deliberation level.",
+  "tier: reasoning",
+  "mode: managed-child",
+  "routeId: native-codex-deliberation",
+  "providerRoute:",
+  "  providerId: codex",
+  "  model: gpt-5.6-codex",
+  "  deliberationLevel: high",
+  "---",
+  "Regression fixture agent; not used for real work.",
+].join("\n");
+
+function nativeCodexDeliberationConfig(): KilnGlobalConfig {
+  return {
+    version: "1",
+    managedAgents: {
+      enabled: true,
+      routes: [{
+        id: "native-codex-deliberation",
+        kind: "harness",
+        provider: "codex",
+        model: "gpt-5.6-codex",
+        profiles: ["foundation-readonly-plan"],
+        workingDirectory: "project",
+        tools: { allowed: ["read"], network: false, writes: false },
+        memory: { access: "read-only" },
+        credentials: { mode: "credentialless" },
+      }],
+    },
+  };
+}
 
 function accountlessEconomicConfig(): KilnGlobalConfig {
   const configured = economicConfig();
@@ -270,6 +378,8 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     routeCatalogTrace.catalogs.length = 0;
     routeCatalogTrace.mutateExecutionCapabilityVersion = false;
     routeCatalogTrace.mutateExecutionProfileAuthority = false;
+    routeCatalogTrace.injectNativeDeliberationCapabilities = false;
+    routeCatalogTrace.mutateExecutionDeliberationEvidence = false;
     routeCatalogTrace.executionRefreshCount = 0;
     adapterTrace.createCalls = 0;
     adapterTrace.requests.length = 0;
@@ -349,6 +459,82 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         .toEqual({ type: "string", minLength: 1, maxLength: 200 });
     } finally {
       await composition.close();
+    }
+  });
+
+  it("persists exact native deliberation evidence through status and replay", async () => {
+    useIsolatedGlobalConfigHome();
+    routeCatalogTrace.injectNativeDeliberationCapabilities = true;
+    writeGlobalConfig(nativeCodexDeliberationConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', {
+      "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT,
+    });
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
+    });
+    try {
+      expect(composition.configuredAgents.find((agent) => agent.configuredAgentProfileId === "native-codex-deliberation-worker")).toMatchObject({
+        configuredAgentProfileId: "native-codex-deliberation-worker",
+        availability: "admitted",
+      });
+      const accepted = await composition.application.accept({
+        objective: "Persist admitted native deliberation.",
+        configuredAgentProfileId: "native-codex-deliberation-worker",
+        callerId: "codex-native-harness",
+        idempotencyKey: "native-deliberation-persistence",
+      });
+      const expected = {
+        status: "exact",
+        selectedLevel: "high",
+        source: "agent-profile",
+        capabilityEvidence: {
+          sourceIdentity: "fixture-native-codex-catalog",
+          sourceRevision: "revision-1",
+          observedAt: FIXTURE_OBSERVED_AT,
+        },
+      };
+      expect(accepted.dispatch).toMatchObject({
+        kind: "native-harness",
+        deliberationResolution: expected,
+        acknowledgement: { deliberationResolution: expected },
+      });
+      await expect(composition.application.getStatus({ callerId: "codex-native-harness" }, accepted.id))
+        .resolves.toMatchObject({ dispatch: { deliberationResolution: expected } });
+      await expect(composition.application.getReplay({ callerId: "codex-native-harness" }, accepted.id))
+        .resolves.toMatchObject({ dispatch: { deliberationResolution: expected } });
+    } finally {
+      await composition.close();
+    }
+  });
+
+  it("fails closed before adapter creation when native deliberation evidence drifts", async () => {
+    useIsolatedGlobalConfigHome();
+    routeCatalogTrace.injectNativeDeliberationCapabilities = true;
+    routeCatalogTrace.mutateExecutionDeliberationEvidence = true;
+    writeGlobalConfig(nativeCodexDeliberationConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', {
+      "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT,
+    });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
+    });
+    try {
+      const accepted = await composition.application.accept({
+        objective: "Reject changed native deliberation evidence.",
+        configuredAgentProfileId: "native-codex-deliberation-worker",
+        callerId: "codex-native-harness",
+        idempotencyKey: "native-deliberation-drift",
+      });
+      await composition.close();
+      await expect(composition.application.getStatus({ callerId: "codex-native-harness" }, accepted.id))
+        .resolves.toMatchObject({ state: "failed", diagnostic: "invocation_failed" });
+      expect(start).not.toHaveBeenCalled();
+    } finally {
+      await composition.close();
+      start.mockRestore();
     }
   });
 

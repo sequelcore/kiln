@@ -43,7 +43,9 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   ConfiguredManagedAccountRuntime,
   resolveClaudeCodeExecutable,
+  resolveOpenCodeExecutable,
   type ClaudeCodeExecutableResolution,
+  type OpenCodeExecutableResolution,
   ManagedCliHarnessAdapter,
   ManagedCommittedRouteMismatchError,
   ManagedEconomicDispatchCoordinator,
@@ -168,6 +170,7 @@ export interface ResolveManagedInvocationToolOptionsContext {
    * one canonical resolver shared with model discovery.
    */
   readonly resolveClaudeExecutable?: () => ClaudeCodeExecutableResolution | undefined;
+  readonly resolveOpenCodeExecutable?: () => OpenCodeExecutableResolution | undefined;
   readonly providerModelEligibility?: ManagedAgentProviderModelCatalogDiagnostics;
   readonly includeUnavailableRoutes?: boolean;
   readonly directAdapterFactory?: (
@@ -1258,7 +1261,9 @@ async function resolveRouteConfig(
   // managed child to the operator's installed harness or keep the route closed.
   const harnessExecutable = routeConfig.provider === "claude"
     ? (context.resolveClaudeExecutable ?? resolveClaudeCodeExecutable)()
-    : undefined;
+    : routeConfig.provider === "opencode"
+      ? (context.resolveOpenCodeExecutable ?? resolveOpenCodeExecutable)()
+      : undefined;
   if (routeConfig.provider === "claude" && harnessExecutable === undefined) {
     return unhealthy(
       baseHealth,
@@ -1288,6 +1293,12 @@ async function resolveRouteConfig(
   const canonicalAdmission = deriveCanonicalManagedRouteAdmission(catalogEntry.entry, routeConfig, model);
   if (!canonicalAdmission.eligible) {
     return unhealthy(baseHealth, managedEligibilityUnavailableReason(routeConfig.provider, model, canonicalAdmission));
+  }
+  if (routeConfig.provider === "opencode" && harnessExecutable === undefined) {
+    return unhealthy(
+      baseHealth,
+      "OpenCode executable was not found; a managed OpenCode child must run the binary whose catalog admitted this route.",
+    );
   }
 
   const privatePlanArtifactCapability = routeConfig.provider === "claude"
@@ -1321,7 +1332,8 @@ async function resolveRouteConfig(
       providerId: routeConfig.provider,
       model,
       ...(routeConfig.provider === "claude" ? { admittedProviderModelId: model } : {}),
-      ...(routeConfig.provider === "claude" && catalogEntry.entry.deliberationCapabilities
+      ...((routeConfig.provider === "claude" || routeConfig.provider === "opencode")
+        && catalogEntry.entry.deliberationCapabilities
         ? { deliberationCapabilities: catalogEntry.entry.deliberationCapabilities }
         : {}),
       factory: createHarnessSessionFactory(
@@ -1844,7 +1856,7 @@ function managedDeliberationCapabilitiesByRoute(
   const observedAt = new Date().toISOString();
   for (const route of routes) {
     if (!route.model || !route.credentials) continue;
-    if (route.provider === "claude") {
+    if (route.provider === "claude" || route.provider === "opencode") {
       const discoveredCapabilities = providerModelEligibility?.[route.provider]?.[route.model]?.deliberationCapabilities;
       if (
         discoveredCapabilities
@@ -2148,7 +2160,7 @@ function createHarnessSessionFactory(
   provider: ProviderId,
   model: string,
   context: ResolveManagedInvocationToolOptionsContext,
-  harnessExecutable: ClaudeCodeExecutableResolution | undefined,
+  harnessExecutable: ClaudeCodeExecutableResolution | OpenCodeExecutableResolution | undefined,
   privatePlanArtifactCapability: ClaudePrivatePlanArtifactCapability | undefined,
 ): CliSessionFactory {
   return (systemPrompt, cwd, factoryContext) => {

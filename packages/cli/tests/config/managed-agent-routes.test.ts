@@ -125,9 +125,11 @@ function withDiscoveredDeliberation(
           levels: [{ id: "low" }, { id: "high" }],
           defaultLevel: "high",
           supportsAdaptive: true,
-          evidence: {
-            sourceIdentity: "claude-code-model-catalog",
-            sourceRevision: "2.1.226",
+        evidence: {
+            sourceIdentity: provider === "claude"
+              ? "claude-code-model-catalog"
+              : "opencode-cli-model-catalog",
+            sourceRevision: provider === "claude" ? "2.1.226" : "1.18.16:catalog-fixture",
             observedAt: FIXTURE_OBSERVED_AT,
           },
         },
@@ -1895,6 +1897,32 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it("keeps a managed OpenCode route closed when its discovered executable is unavailable", async () => {
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "opencode-readonly",
+        kind: "harness",
+        provider: "opencode",
+        model: "opencode/minimax-m2.5-free",
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      resolveOpenCodeExecutable: () => undefined,
+    });
+
+    expect(result.managedInvocation).toBeUndefined();
+    expect(result.routeHealth[0]).toMatchObject({
+      routeId: "opencode-readonly",
+      available: false,
+      reason: "OpenCode executable was not found; a managed OpenCode child must run the binary whose catalog admitted this route.",
+    });
+  });
+
   it("projects only the exact discovered Claude deliberation capability into a managed route", async () => {
     let capturedResolution: DeliberationResolution | undefined;
     const result = await resolveManagedInvocationToolOptions(baseConfig({
@@ -2015,6 +2043,128 @@ describe("resolveManagedInvocationToolOptions", () => {
         path: "C:/tools/claude.exe",
         evidence: { executable: "<operator-harness>/claude.exe", version: "2.1.226" },
       }),
+    });
+
+    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toBeUndefined();
+  });
+
+  it("projects exact native OpenCode discovery into the managed harness without gateway fallback", async () => {
+    let capturedResolution: DeliberationResolution | undefined;
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "opencode-readonly",
+        kind: "harness",
+        provider: "opencode",
+        model: "opencode/gpt-5.4",
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistryWithCapturedHarnessRun("opencode", (options) => {
+        capturedResolution ??= options.deliberationResolution;
+      }, (config) => {
+        capturedResolution = config.deliberationResolution;
+      }),
+      surface: "gui",
+      providerModelEligibility: withDiscoveredDeliberation(
+        observedProviderModels({ opencode: ["opencode/gpt-5.4"] }),
+        "opencode",
+        "opencode/gpt-5.4",
+      ),
+    });
+
+    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toMatchObject({
+      provider: "opencode",
+      model: "opencode/gpt-5.4",
+      levels: [{ id: "low" }, { id: "high" }],
+      evidence: {
+        sourceIdentity: "opencode-cli-model-catalog",
+        sourceRevision: "1.18.16:catalog-fixture",
+      },
+    });
+
+    const route = result.managedInvocation?.routes[0];
+    const profile = route?.profiles["foundation-readonly-plan"];
+    expect(route).toBeDefined();
+    expect(profile).toBeDefined();
+    await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
+      defineManagedAgentInvocationRequest({
+        invocationId: "opencode-deliberation-route-1",
+        agentId: "opencode-readonly:foundation-readonly-plan",
+        parentSessionId: "opencode-parent-session",
+        parentTurnId: "opencode-parent-session:turn:1",
+        profile: "foundation-readonly-plan",
+        requestedBy: "assistant",
+        requestSource: "test",
+        providerRoute: {
+          providerId: "opencode",
+          surface: "cli-harness",
+          model: "opencode/gpt-5.4",
+          deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
+        },
+        adapterKind: "harness",
+        executionMode: "cli-harness",
+        authority: {
+          authorityProfileId: profile!.authorityProfileId,
+          permissionProfile: profile!.permissionProfile,
+          toolAuthority: {
+            allowedToolNames: profile!.allowedToolNames,
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+          workingDirectory: profile!.workingDirectory,
+          timeoutMs: profile!.timeoutMs,
+          credentialRoute: profile!.credentialRoute,
+          memoryScope: profile!.memoryScope,
+        },
+        input: { summary: "Inspect the native OpenCode deliberation route." },
+      }),
+      await route!.createAdapter!(),
+      { routeId: route!.routeId, routeSource: route!.routeSource },
+    );
+
+    expect(capturedResolution).toMatchObject({
+      status: "exact",
+      selectedLevel: "low",
+      capabilityEvidence: {
+        sourceIdentity: "opencode-cli-model-catalog",
+        sourceRevision: "1.18.16:catalog-fixture",
+      },
+    });
+  });
+
+  it("does not substitute model-gateway deliberation for missing native OpenCode discovery", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      ...baseConfig({
+        routes: [{
+          id: "opencode-readonly",
+          kind: "harness",
+          provider: "opencode",
+          model: "opencode/gpt-5.4",
+          profiles: ["foundation-readonly-plan"],
+          tools: { allowed: ["read"], writes: false },
+        }],
+      }),
+      modelGateway: {
+        ...MANAGED_OPENAI_MODEL_GATEWAY,
+        virtualModels: [{
+          ...MANAGED_OPENAI_MODEL_GATEWAY.virtualModels[0],
+          id: "managed-opencode-native",
+          providerId: "opencode",
+          providerModelId: "opencode/gpt-5.4",
+          deliberation: {
+            levels: ["low", "high"],
+            supportsAdaptive: false,
+            evidenceRevision: "gateway-must-not-authorize-native",
+          },
+        }],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("opencode"),
+      surface: "gui",
+      providerModelEligibility: observedProviderModels({ opencode: ["opencode/gpt-5.4"] }),
     });
 
     expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toBeUndefined();

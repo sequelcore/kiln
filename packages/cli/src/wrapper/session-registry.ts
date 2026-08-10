@@ -1257,7 +1257,9 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
     },
     {
       id: "opencode",
-      deliberationTransport: "none",
+      // The execution boundary still sends a variant only after Core admits
+      // exact model-scoped evidence; this advertises the verified transport.
+      deliberationTransport: "native-level",
       costTier: "medium",
       capabilities: {
         mcp: true,
@@ -1291,7 +1293,13 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           translationWarnings: translated.warnings,
           continuationSessionId: (config as { continuationSessionId?: string }).continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
+          deliberationResolution: config.deliberationResolution,
+          harnessExecutable: config.harnessExecutable,
+          harnessEvidence: config.harnessEvidence,
         });
+        // The admitted variant belongs to the ambient accountless catalog.
+        // Do not substitute a pooled credential home after admission.
+        if (config.deliberationResolution) return createSession(config.env);
         return createPooledHarnessSession(
           "opencode",
           (auth) => createSession(withHarnessHomeEnv("opencode", config.env, auth)),

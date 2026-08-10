@@ -81,15 +81,36 @@ official OpenCode client uses the OpenAI-compatible chat-completions protocol;
 Kiln does not treat a client-specific session header as required provider
 authority.
 
-Kiln therefore keeps `opencode-go`, `opencode-zen`, and native OpenCode CLI
-deliberation transport at `none`. DeepSeek, GLM, Kimi, Qwen, and MiniMax routes
-use provider defaults until OpenCode publishes and serves a direct,
-revisioned capability contract whose protocol and supported levels work across
-every eligible upstream for that route. Kiln does send the official bounded
-OpenCode request identity headers, while account leasing and gateway affinity
-preserve the supported continuity boundary. Silently accepting an undeclared
-CLI variant, or admitting a level that works only on part of a gateway pool,
-is not support.
+Kiln therefore keeps direct `opencode-go` and `opencode-zen` deliberation
+transport at `none`. DeepSeek, GLM, Kimi, Qwen, and MiniMax direct routes use
+provider defaults until OpenCode publishes and serves a revisioned capability
+contract whose protocol and supported levels work across every eligible
+upstream for that route. Kiln does send the official bounded OpenCode request
+identity headers, while account leasing and gateway affinity preserve the
+supported continuity boundary. Admitting a level that works only on part of a
+gateway pool is not support.
+
+Native OpenCode CLI is a separate, executable-scoped contract delivered by
+issue #68. Kiln resolves the exact CLI and version, starts that executable's
+loopback model service, and reads the authenticated `/api/model` catalog. Only
+enabled exact provider/model entries with canonical variant IDs and matching
+reasoning, thinking, toggle, or budget semantics become deliberation
+capabilities. Their evidence revision binds the executable version and a safe
+digest of those semantics. Core admission occurs before SDK client creation;
+exact or clamped levels lower through `session.prompt.variant`, while defaulted
+or omitted resolutions send no variant. Missing, mismatched, or changed
+evidence fails closed. This does not authorize OpenCode's embedded Task agent
+to inherit the parent variant. Managed native OpenCode deliberation remains an
+accountless route: it revalidates and executes against the same ambient harness
+configuration used for discovery and never substitutes a pooled credential
+home after admission. The bound executable version is re-probed immediately
+before the child process starts.
+
+On 2026-08-10 the operator upgraded OpenCode CLI and `@opencode-ai/sdk` to
+1.18.16. A bounded local discovery probe returned 366 enabled catalog models
+and zero eligible deliberation variants for the active account. The discovery
+and fail-closed path are proven without a provider call; live variant execution
+remains unavailable until the active account exposes an eligible exact model.
 
 OpenCode's official model documentation describes variants as provider-
 specific request overlays and points to Models.dev for built-in metadata. Its
