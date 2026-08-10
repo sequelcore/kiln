@@ -601,6 +601,7 @@ export async function resolveManagedInvocationToolOptions(
   const deliberationCapabilitiesByRoute = managedDeliberationCapabilitiesByRoute(
     config,
     routeConfigs.map((projection) => projection.routeConfig),
+    context.providerModelEligibility,
   );
   for (const routeConfig of routeConfigs) {
     routeIndex += 1;
@@ -1320,6 +1321,9 @@ async function resolveRouteConfig(
       providerId: routeConfig.provider,
       model,
       ...(routeConfig.provider === "claude" ? { admittedProviderModelId: model } : {}),
+      ...(routeConfig.provider === "claude" && catalogEntry.entry.deliberationCapabilities
+        ? { deliberationCapabilities: catalogEntry.entry.deliberationCapabilities }
+        : {}),
       factory: createHarnessSessionFactory(
         routeConfig.provider as ProviderId,
         model,
@@ -1834,11 +1838,23 @@ async function resolveDirectRouteConfig(
 function managedDeliberationCapabilitiesByRoute(
   config: ManagedAgentRouteConfigSource,
   routes: readonly KilnManagedAgentRouteConfig[],
+  providerModelEligibility: ManagedAgentProviderModelCatalogDiagnostics | undefined,
 ): ReadonlyMap<string, ModelDeliberationCapabilities> {
   const capabilities = new Map<string, ModelDeliberationCapabilities>();
   const observedAt = new Date().toISOString();
   for (const route of routes) {
     if (!route.model || !route.credentials) continue;
+    if (route.provider === "claude") {
+      const discoveredCapabilities = providerModelEligibility?.[route.provider]?.[route.model]?.deliberationCapabilities;
+      if (
+        discoveredCapabilities
+        && discoveredCapabilities.provider === route.provider
+        && discoveredCapabilities.model === route.model
+      ) {
+        capabilities.set(route.id, discoveredCapabilities);
+      }
+      continue;
+    }
     const gatewayRouteId = route.credentials.mode === "runtime-selected"
       ? route.credentials.accountPolicyId
       : route.credentials.economicsRouteId;
@@ -2146,6 +2162,9 @@ function createHarnessSessionFactory(
       },
       model,
       sessionLedgerOwner: "host",
+      ...(factoryContext?.deliberationResolution
+        ? { deliberationResolution: factoryContext.deliberationResolution }
+        : {}),
       ...(harnessExecutable
         ? {
             harnessExecutable: harnessExecutable.path,

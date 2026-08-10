@@ -867,6 +867,7 @@ function wireOperatorTransport(
     providerLabel,
     (event) => activityStreamer.forward(event),
     () => activeOperatorSurface,
+    () => input.transport.sessionManager.getDeliberationTransport?.() ?? "none",
   );
   const eventBus = input.transport.eventBus ?? new EventBus(100);
   const orchestrator = new RuntimeSessionOrchestrator({

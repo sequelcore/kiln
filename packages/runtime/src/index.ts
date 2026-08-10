@@ -913,7 +913,13 @@ export { verifyHmacSha256 } from "./utils/hmac.js";
 
 // Execution Backends
 export { CliSubscriptionExecutor } from "./execution/cli-subscription-executor.js";
-export type { CliSessionFactory, CliSessionFactoryContext, CliSession } from "./execution/cli-subscription-executor.js";
+export type {
+  CliSessionFactory,
+  CliSessionFactoryContext,
+  CliSession,
+  CliDeliberationTransport,
+  CliDeliberationTransportSource,
+} from "./execution/cli-subscription-executor.js";
 
 // Context-usage projection (runtime normalization boundary)
 export {

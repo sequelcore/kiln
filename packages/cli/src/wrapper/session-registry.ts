@@ -23,6 +23,7 @@ import {
   type OperatorSurfaceController,
   type RuntimeBudgetAdmissionPort,
   type RuntimeExecutionEnvelope,
+  type CliDeliberationTransport,
 } from "@kilnai/runtime";
 import { ClaudeSession, type ClaudeSessionConfig } from "./claude-code-process.js";
 import type { ClaudePrivatePlanArtifactCapability } from "./claude-private-plan-artifacts.js";
@@ -144,6 +145,7 @@ export interface SessionRequirements {
 
 export interface SessionProviderDescriptor {
   readonly id: ProviderId;
+  readonly deliberationTransport: CliDeliberationTransport;
   readonly capabilities: SessionCapabilities;
   readonly costTier: "low" | "medium" | "high";
   readonly isAvailable?: () => boolean;
@@ -1105,6 +1107,9 @@ function createDirectProviderDescriptor(
 ): SessionProviderDescriptor {
   return {
     id: provider,
+    deliberationTransport: provider === "codex-oauth" || provider === "anthropic" || provider === "openai"
+      ? "native-level"
+      : "none",
     costTier: DIRECT_PROVIDER_COST_TIERS[provider],
     capabilities: buildDirectProviderCapabilities(provider),
     ...(isAvailable ? { isAvailable } : {}),
@@ -1142,6 +1147,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
     opencodeZenProvider,
     {
       id: "claude",
+      deliberationTransport: "native-level",
       costTier: "high",
       capabilities: {
         mcp: true,
@@ -1178,6 +1184,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           continuationSessionId: config.continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
+          deliberationResolution: config.deliberationResolution,
           structuredOutputSchema: config.structuredOutputSchema,
           harnessExecutable: config.harnessExecutable,
           harnessEvidence: config.harnessEvidence,
@@ -1193,6 +1200,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
     },
     {
       id: "codex",
+      deliberationTransport: "native-level",
       costTier: "low",
       capabilities: {
         mcp: true,
@@ -1249,6 +1257,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
     },
     {
       id: "opencode",
+      deliberationTransport: "none",
       costTier: "medium",
       capabilities: {
         mcp: true,

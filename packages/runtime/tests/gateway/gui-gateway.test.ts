@@ -910,6 +910,50 @@ describe("startGuiGateway static mount", () => {
     });
   });
 
+  it("projects exact Claude CLI deliberation capabilities into operator discovery", () => {
+    const discovery = buildGuiOperatorDiscoveryResults({
+      claudeModels: ["claude-sonnet-5"],
+      claudeDiscovery: {
+        models: ["claude-sonnet-5"],
+        modelCapabilities: {
+          "claude-sonnet-5": {
+            deliberation: {
+              provider: "claude",
+              model: "claude-sonnet-5",
+              levels: [{ id: "low" }, { id: "high" }],
+              supportsAdaptive: true,
+              evidence: {
+                sourceIdentity: "claude-code-model-catalog",
+                sourceRevision: "2.1.226",
+                observedAt: "2026-08-10T00:00:00.000Z",
+              },
+            },
+          },
+        },
+        status: "available",
+        reason: "Claude Code models discovered through the Agent SDK control plane.",
+        authState: "authenticated",
+      },
+      opencodeModels: [],
+      codexModels: [],
+    });
+
+    expect(discovery.find((entry) => entry.provider === "claude")).toMatchObject({
+      available: true,
+      models: ["claude-sonnet-5"],
+      modelCapabilities: {
+        "claude-sonnet-5": {
+          deliberation: {
+            provider: "claude",
+            model: "claude-sonnet-5",
+            levels: [{ id: "low" }, { id: "high" }],
+            evidence: { sourceRevision: "2.1.226" },
+          },
+        },
+      },
+    });
+  });
+
   it("uses structured discovery reasons when rejecting provider switches", () => {
     const discovery = buildGuiOperatorDiscoveryResults({
       opencodeModels: [],

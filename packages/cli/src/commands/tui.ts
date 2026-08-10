@@ -876,6 +876,7 @@ export async function makeMultiProviderSessionFactory(
     factory: policyAwareFactory,
     managedInvocation: managedInvocationWithTranscriptSink,
     getProvider: () => currentProvider ?? "",
+    getDeliberationTransport: () => registry.list().find((provider) => provider.id === currentProvider)?.deliberationTransport ?? "none",
     setProvider: (newProvider: string) => {
       if (providers.includes(newProvider as ProviderId)) {
         currentProvider = newProvider as ProviderId;
@@ -981,6 +982,7 @@ export interface MultiProviderSessionManager {
   readonly factory: CliSessionFactory;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   getProvider: () => string;
+  getDeliberationTransport: () => import("@kilnai/runtime").CliDeliberationTransport;
   setProvider: (provider: string) => void;
   getModel: () => string;
   setModel: (model: string) => void;

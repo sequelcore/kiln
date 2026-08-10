@@ -14,6 +14,22 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     })),
     discoverClaudeCliModelDiscovery: vi.fn(async () => ({
       models: ["claude-sonnet-live-exact"],
+      modelCapabilities: {
+        "claude-sonnet-live-exact": {
+          deliberation: {
+            provider: "claude",
+            model: "claude-sonnet-live-exact",
+            levels: [{ id: "low" }, { id: "high" }],
+            defaultLevel: "high",
+            supportsAdaptive: true,
+            evidence: {
+              sourceIdentity: "claude-code-model-catalog",
+              sourceRevision: "2.1.226",
+              observedAt: "2026-08-10T00:00:00.000Z",
+            },
+          },
+        },
+      },
       status: "available",
       reason: "Claude Code models discovered through the Agent SDK control plane.",
       authState: "authenticated",
@@ -61,6 +77,18 @@ describe("discoverManagedAgentProviderModels", () => {
       reasons: expect.arrayContaining(["missing-configured-evidence"]),
       route: { providerId: "claude", providerModelId: "claude-sonnet-live-exact" },
     });
+    expect(discovered.claude?.["claude-sonnet-live-exact"]?.deliberationCapabilities).toEqual({
+      provider: "claude",
+      model: "claude-sonnet-live-exact",
+      levels: [{ id: "low" }, { id: "high" }],
+      defaultLevel: "high",
+      supportsAdaptive: true,
+      evidence: {
+        sourceIdentity: "claude-code-model-catalog",
+        sourceRevision: "2.1.226",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
+    });
     expect(discovered["codex-oauth"]?.["gpt-5.5"]?.catalogDiagnosticDecision).toMatchObject({
       eligible: false,
       reasons: expect.arrayContaining(["missing-configured-evidence"]),
@@ -96,5 +124,33 @@ describe("discoverManagedAgentProviderModels", () => {
       route: expect.objectContaining({ providerId: "opencode", providerModelId: model }),
       reasons: expect.arrayContaining(["missing-configured-evidence"]),
     })));
+  });
+
+  it("drops discovered deliberation evidence whose model identity does not match its catalog entry", async () => {
+    vi.mocked(discoverClaudeCliModelDiscovery).mockResolvedValueOnce({
+      models: ["claude-sonnet-live-exact"],
+      modelCapabilities: {
+        "claude-sonnet-live-exact": {
+          deliberation: {
+            provider: "claude",
+            model: "claude-opus-other-exact",
+            levels: [{ id: "high" }],
+            supportsAdaptive: false,
+            evidence: {
+              sourceIdentity: "claude-code-model-catalog",
+              sourceRevision: "2.1.226",
+              observedAt: "2026-08-10T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      status: "available",
+      reason: "Claude Code models discovered through the Agent SDK control plane.",
+      authState: "authenticated",
+    });
+
+    const discovered = await discoverManagedAgentProviderModels();
+
+    expect(discovered.claude?.["claude-sonnet-live-exact"]?.deliberationCapabilities).toBeUndefined();
   });
 });

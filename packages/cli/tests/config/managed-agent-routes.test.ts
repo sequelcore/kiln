@@ -8,6 +8,7 @@ import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
+  type DeliberationResolution,
   type ManagedAgentInvocationRequest,
   type ProviderModelEvidenceFreshness,
   type ProviderModelEligibilityRequirements,
@@ -104,6 +105,37 @@ function managedCatalogRequirements(): ProviderModelEligibilityRequirements {
   };
 }
 
+function withDiscoveredDeliberation(
+  diagnostics: ManagedAgentProviderModelCatalogDiagnostics,
+  provider: string,
+  model: string,
+): ManagedAgentProviderModelCatalogDiagnostics {
+  const entry = diagnostics[provider]?.[model];
+  if (!entry) throw new Error(`Missing fixture diagnostic for ${provider}/${model}.`);
+  return {
+    ...diagnostics,
+    [provider]: {
+      ...diagnostics[provider],
+      [model]: {
+        ...entry,
+        provenProfiles: ["foundation-readonly-plan"],
+        deliberationCapabilities: {
+          provider,
+          model,
+          levels: [{ id: "low" }, { id: "high" }],
+          defaultLevel: "high",
+          supportsAdaptive: true,
+          evidence: {
+            sourceIdentity: "claude-code-model-catalog",
+            sourceRevision: "2.1.226",
+            observedAt: FIXTURE_OBSERVED_AT,
+          },
+        },
+      },
+    },
+  };
+}
+
 const COMMON_OBSERVED_PROVIDER_MODELS = observedProviderModels({
   claude: [
     "default",
@@ -132,6 +164,7 @@ function createRegistryForProviders(
 ): SessionRegistry {
   const descriptors: SessionProviderDescriptor[] = providers.map(({ provider, available = true }) => ({
     id: provider,
+    deliberationTransport: provider === "claude" || provider === "codex" ? "native-level" : "none",
     costTier: "low",
     capabilities: {
       mcp: false,
@@ -177,10 +210,16 @@ function createRegistryForProviders(
 
 function createRegistryWithCapturedHarnessRun(
   provider: ProviderId,
-  captureRun: (options: { readonly system?: string; readonly prompt: string }) => void,
+  captureRun: (options: {
+    readonly system?: string;
+    readonly prompt: string;
+    readonly deliberationResolution?: DeliberationResolution;
+  }) => void,
+  captureConfig?: (config: ProviderCreateConfig) => void,
 ): SessionRegistry {
   const descriptor: SessionProviderDescriptor = {
     id: provider,
+    deliberationTransport: provider === "claude" || provider === "codex" ? "native-level" : "none",
     costTier: "low",
     capabilities: {
       mcp: false,
@@ -195,36 +234,43 @@ function createRegistryWithCapturedHarnessRun(
       permissionPolicy: READONLY_POLICY,
     },
     isAvailable: () => true,
-    create: (_config: ProviderCreateConfig) => ({
-      sessionId: `${provider}-session`,
-      capabilities: {
-        mcp: false,
-        streaming: true,
-        resumable: false,
-        resume: false,
-        costTrackingMode: "computed",
-        supportedTools: [],
-        maxContextTokens: null,
-        priority: 1,
-        fallbackTo: null,
-        permissionPolicy: READONLY_POLICY,
-      },
-      async *run(options: { readonly system?: string; readonly prompt: string }) {
-        captureRun(options);
-        yield {
-          type: "text_delta" as const,
-          content: options.system?.includes("Harness resource body.") ? "Harness context read." : "Harness context missing.",
-        };
-        yield {
-          type: "completed" as const,
-          totalUsd: 0,
-          durationMs: 1,
-          isError: false,
-          isPreflightCrash: false,
-        };
-      },
-      async dispose() {},
-    }),
+    create: (config: ProviderCreateConfig) => {
+      captureConfig?.(config);
+      return {
+        sessionId: `${provider}-session`,
+        capabilities: {
+          mcp: false,
+          streaming: true,
+          resumable: false,
+          resume: false,
+          costTrackingMode: "computed",
+          supportedTools: [],
+          maxContextTokens: null,
+          priority: 1,
+          fallbackTo: null,
+          permissionPolicy: READONLY_POLICY,
+        },
+        async *run(options: {
+          readonly system?: string;
+          readonly prompt: string;
+          readonly deliberationResolution?: DeliberationResolution;
+        }) {
+          captureRun(options);
+          yield {
+            type: "text_delta" as const,
+            content: options.system?.includes("Harness resource body.") ? "Harness context read." : "Harness context missing.",
+          };
+          yield {
+            type: "completed" as const,
+            totalUsd: 0,
+            durationMs: 1,
+            isError: false,
+            isPreflightCrash: false,
+          };
+        },
+        async dispose() {},
+      };
+    },
   };
   return new SessionRegistry([descriptor]);
 }
@@ -1847,6 +1893,131 @@ describe("resolveManagedInvocationToolOptions", () => {
       routeId: "claude-readonly",
       available: true,
     });
+  });
+
+  it("projects only the exact discovered Claude deliberation capability into a managed route", async () => {
+    let capturedResolution: DeliberationResolution | undefined;
+    const result = await resolveManagedInvocationToolOptions(baseConfig({
+      routes: [{
+        id: "claude-readonly",
+        kind: "harness",
+        provider: "claude",
+        model: "claude-fable-5[1m]",
+        profiles: ["foundation-readonly-plan"],
+        tools: { allowed: ["read"], writes: false },
+      }],
+    }), {
+      cwd: "C:/repo",
+      registry: createRegistryWithCapturedHarnessRun("claude", (options) => {
+        capturedResolution ??= options.deliberationResolution;
+      }, (config) => {
+        capturedResolution = config.deliberationResolution;
+      }),
+      surface: "gui",
+      providerModelEligibility: withDiscoveredDeliberation(
+        COMMON_OBSERVED_PROVIDER_MODELS,
+        "claude",
+        "claude-fable-5[1m]",
+      ),
+      resolveClaudeExecutable: () => ({
+        path: "C:/tools/claude.exe",
+        evidence: { executable: "<operator-harness>/claude.exe", version: "2.1.226" },
+      }),
+    });
+
+    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toEqual({
+      provider: "claude",
+      model: "claude-fable-5[1m]",
+      levels: [{ id: "low" }, { id: "high" }],
+      defaultLevel: "high",
+      supportsAdaptive: true,
+      evidence: {
+        sourceIdentity: "claude-code-model-catalog",
+        sourceRevision: "2.1.226",
+        observedAt: FIXTURE_OBSERVED_AT,
+      },
+    });
+
+    const route = result.managedInvocation?.routes[0];
+    const profile = route?.profiles["foundation-readonly-plan"];
+    expect(route).toBeDefined();
+    expect(profile).toBeDefined();
+    await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
+      defineManagedAgentInvocationRequest({
+        invocationId: "claude-deliberation-route-1",
+        agentId: "claude-readonly:foundation-readonly-plan",
+        parentSessionId: "claude-parent-session",
+        parentTurnId: "claude-parent-session:turn:1",
+        profile: "foundation-readonly-plan",
+        requestedBy: "assistant",
+        requestSource: "test",
+        providerRoute: {
+          providerId: "claude",
+          surface: "cli-harness",
+          model: "claude-fable-5[1m]",
+          deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
+        },
+        adapterKind: "harness",
+        executionMode: "cli-harness",
+        authority: {
+          authorityProfileId: profile!.authorityProfileId,
+          permissionProfile: profile!.permissionProfile,
+          toolAuthority: {
+            allowedToolNames: profile!.allowedToolNames,
+            writeAllowed: false,
+            networkAllowed: false,
+          },
+          workingDirectory: profile!.workingDirectory,
+          timeoutMs: profile!.timeoutMs,
+          credentialRoute: profile!.credentialRoute,
+          memoryScope: profile!.memoryScope,
+        },
+        input: { summary: "Inspect the deliberation route." },
+      }),
+      await route!.createAdapter!(),
+      { routeId: route!.routeId, routeSource: route!.routeSource },
+    );
+
+    expect(capturedResolution).toMatchObject({
+      status: "exact",
+      selectedLevel: "low",
+      capabilityEvidence: { sourceRevision: "2.1.226" },
+    });
+  });
+
+  it("does not substitute configured gateway deliberation for missing Claude discovery evidence", async () => {
+    const result = await resolveManagedInvocationToolOptions({
+      ...baseConfig({
+        routes: [{
+          id: "claude-readonly",
+          kind: "harness",
+          provider: "claude",
+          model: "claude-fable-5[1m]",
+          profiles: ["foundation-readonly-plan"],
+          tools: { allowed: ["read"], writes: false },
+        }],
+      }),
+      modelGateway: {
+        ...MANAGED_OPENAI_MODEL_GATEWAY,
+        virtualModels: [{
+          ...MANAGED_OPENAI_MODEL_GATEWAY.virtualModels[0],
+          id: "managed-claude",
+          providerId: "claude",
+          providerModelId: "claude-fable-5[1m]",
+        }],
+      },
+    }, {
+      cwd: "C:/repo",
+      registry: createRegistry("claude"),
+      surface: "gui",
+      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      resolveClaudeExecutable: () => ({
+        path: "C:/tools/claude.exe",
+        evidence: { executable: "<operator-harness>/claude.exe", version: "2.1.226" },
+      }),
+    });
+
+    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toBeUndefined();
   });
 
   it("fails closed when the observed Claude version lacks the admitted private plan artifact capability", async () => {

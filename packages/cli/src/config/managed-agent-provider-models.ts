@@ -1,10 +1,13 @@
 import type {
   ManagedAgentAdmissionProfile,
+  ModelDeliberationCapabilities,
   ProviderModelEvidence,
   ProviderModelEligibilityDecision,
   ProviderModelEligibilityRequirements,
 } from "@kilnai/core";
 import { deriveProviderModelEligibility } from "@kilnai/core";
+import { defineDeliberationLevelId } from "@kilnai/core";
+import type { GuiModelDeliberationCapabilities } from "@kilnai/gateway-contracts";
 import {
   discoverCodexCliModelDiscovery,
   discoverClaudeCliModelDiscovery,
@@ -18,6 +21,8 @@ export interface ManagedAgentProviderModelCatalogDiagnostic {
   readonly catalogDiagnosticDecision: ProviderModelEligibilityDecision;
   /** Adapter-enforced profiles discovered with the provider/model catalog. */
   readonly provenProfiles: readonly ManagedAgentAdmissionProfile[];
+  /** Exact model-scoped deliberation evidence returned by Runtime discovery. */
+  readonly deliberationCapabilities?: ModelDeliberationCapabilities;
 }
 
 export type ManagedAgentProviderModelCatalogDiagnostics = Readonly<
@@ -60,7 +65,9 @@ export async function discoverManagedAgentProviderModels(): Promise<ManagedAgent
 function catalogDiagnostics(
   providerId: string,
   family: Parameters<typeof normalizeRuntimeProviderDiscoveryCatalog>[0]["family"],
-  discovery: Parameters<typeof normalizeRuntimeProviderDiscoveryCatalog>[0]["discovery"],
+  discovery: Parameters<typeof normalizeRuntimeProviderDiscoveryCatalog>[0]["discovery"] & {
+    readonly modelCapabilities?: Readonly<Record<string, { readonly deliberation?: GuiModelDeliberationCapabilities }>>;
+  },
   observedAt: string,
   harnessId?: string,
   reportedProviderId?: string,
@@ -73,16 +80,44 @@ function catalogDiagnostics(
     discovery,
     ...(harnessId && reportedProviderId ? { harnessId, reportedProviderId } : {}),
   });
-  return Object.fromEntries(catalog.routes.map((route) => [
-    route.identity.route.providerModelId,
-    {
+  return Object.fromEntries(catalog.routes.map((route) => {
+    const model = route.identity.route.providerModelId;
+    const deliberationCapabilities = discoveredDeliberationCapabilities(
+      providerId,
+      model,
+      discovery.modelCapabilities?.[model]?.deliberation,
+    );
+    return [
+      model,
+      {
       catalogDiagnosticEvidence: route,
       catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedAgentCatalogRequirements(observedAt), []),
       provenProfiles: providerId === "codex"
         ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
         : ["foundation-readonly-plan"],
-    },
-  ]));
+        ...(deliberationCapabilities ? { deliberationCapabilities } : {}),
+      },
+    ];
+  }));
+}
+
+function discoveredDeliberationCapabilities(
+  providerId: string,
+  model: string,
+  discovery: GuiModelDeliberationCapabilities | undefined,
+): ModelDeliberationCapabilities | undefined {
+  if (!discovery || discovery.provider !== providerId || discovery.model !== model) return undefined;
+  return {
+    provider: discovery.provider,
+    model: discovery.model,
+    levels: discovery.levels.map((level) => ({
+      id: defineDeliberationLevelId(level.id),
+      ...(level.nativeId ? { nativeId: level.nativeId } : {}),
+    })),
+    ...(discovery.defaultLevel ? { defaultLevel: defineDeliberationLevelId(discovery.defaultLevel) } : {}),
+    supportsAdaptive: discovery.supportsAdaptive,
+    evidence: discovery.evidence,
+  };
 }
 
 function managedAgentCatalogRequirements(observedAt: string): ProviderModelEligibilityRequirements {

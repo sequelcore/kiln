@@ -59,15 +59,13 @@ model catalog. OpenCode Go and Zen `/models` responses prove availability but
 do not include effort metadata. `models.dev` names variants, but that alone is
 not executable evidence for Kiln's direct provider.
 
-The OpenCode checkout was fast-forwarded to current `dev` commit
-`3016830e2534` and version 1.18.11 on 2026-08-03. It passes `--variant` into
-the session and merges the selected variant into provider options. For
-`@ai-sdk/openai-compatible`, the transform keys those options by provider id
-(`opencode-go`), while the native OpenAI Chat lowering still reads the
-`openai` namespace. Preparing the request with the current source proves the
-result: `{ opencode-go: { reasoningEffort: "high" } }` omits
-`reasoning_effort`, while the same option under `openai` emits it. A live
-OpenCode CLI run accepted `--variant high` but reported zero reasoning tokens.
+The original 2026-08-03 OpenCode 1.18.11 investigation found a provider-option
+namespace mismatch. That finding is not a current blanket CLI limitation.
+OpenCode 1.18.16 constructs OpenAI-compatible models with the provider id used
+by its variant options, and captured upstream wire evidence shows declared
+`high` and `max` variants reaching `reasoning_effort`. Unknown variants are
+still silently omitted, however, and provider-specific toggle and budget
+protocols do not share that transport.
 
 The Go gateway itself parses `reasoningEffort`, `reasoning_effort`, or
 `reasoning.effort`, and its OpenAI-compatible path can preserve the wire field.
@@ -83,14 +81,15 @@ official OpenCode client uses the OpenAI-compatible chat-completions protocol;
 Kiln does not treat a client-specific session header as required provider
 authority.
 
-Kiln therefore keeps `opencode-go` and `opencode-zen` deliberation transport at
-`none`. DeepSeek, GLM, Kimi, Qwen, and MiniMax routes use provider defaults until
-OpenCode publishes and serves a direct, revisioned capability contract whose
-supported levels work across every eligible upstream for that route. Kiln does
-send `x-opencode-client` for attribution, while account leasing and the
-gateway's own routing preserve the supported continuity boundary. Silently accepting a CLI variant that
-does not reach the protocol, or admitting a level that works only on part of a
-gateway pool, is not support.
+Kiln therefore keeps `opencode-go`, `opencode-zen`, and native OpenCode CLI
+deliberation transport at `none`. DeepSeek, GLM, Kimi, Qwen, and MiniMax routes
+use provider defaults until OpenCode publishes and serves a direct,
+revisioned capability contract whose protocol and supported levels work across
+every eligible upstream for that route. Kiln does send the official bounded
+OpenCode request identity headers, while account leasing and gateway affinity
+preserve the supported continuity boundary. Silently accepting an undeclared
+CLI variant, or admitting a level that works only on part of a gateway pool,
+is not support.
 
 OpenCode's official model documentation describes variants as provider-
 specific request overlays and points to Models.dev for built-in metadata. Its
@@ -99,6 +98,15 @@ the current `/models` response establishes availability without a revisioned
 effort guarantee. Those documents do not override the failed executable proof:
 https://opencode.ai/docs/models/
 https://opencode.ai/docs/go/
+
+Claude Code is a separate native-harness transport. Its authenticated Agent
+SDK model catalog reports effort support and ordered effort levels per model,
+and the SDK lowers an admitted level through `Options.effort`. Kiln does not
+infer those levels from a Claude family name and does not use `thinking` or the
+deprecated thinking-token budget as an effort substitute. Capability evidence
+is bound to the discovered executable version; models that omit effort support
+remain at provider default or fail closed according to the requested policy.
+https://platform.claude.com/docs/en/build-with-claude/effort
 
 ## Limitations
 

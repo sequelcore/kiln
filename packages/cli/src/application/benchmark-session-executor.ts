@@ -16,6 +16,7 @@ import {
 import {
   getProjectContextArtifactCache,
   ProviderModelRouteHealthStore,
+  discoverClaudeCliModelDiscovery,
   discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery,
@@ -438,6 +439,12 @@ async function resolveBenchmarkDeliberation(input: {
       provider,
       model,
       (await discoverCodexCliModelDiscovery()).modelCapabilities?.[model]?.deliberation,
+    );
+  } else if (provider === "claude") {
+    capabilities = materializeDeliberationCapabilities(
+      provider,
+      model,
+      (await discoverClaudeCliModelDiscovery()).modelCapabilities?.[model]?.deliberation,
     );
   } else if (provider === "opencode") {
     capabilities = materializeDeliberationCapabilities(

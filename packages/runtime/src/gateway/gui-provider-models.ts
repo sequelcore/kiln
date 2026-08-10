@@ -33,6 +33,8 @@ import { normalizeRuntimeProviderDiscoveryCatalog } from "./provider-model-adapt
 const KNOWN_GUI_PROVIDER_IDS = new Set<string>(GUI_PROVIDER_DISPLAY_ORDER);
 
 export interface GuiCliOperatorModelDiscovery {
+  readonly claudeModels: string[];
+  readonly claudeDiscovery: GuiCliProviderModelDiscovery;
   readonly opencodeModels: string[];
   readonly opencodeDiscovery: GuiCliProviderModelDiscovery;
   readonly codexModels: string[];
@@ -100,7 +102,15 @@ export async function discoverGuiCliOperatorModels(
 ): Promise<GuiCliOperatorModelDiscovery> {
   const discoverOpencode = providerAvailability === undefined || providerAvailability.opencode === true;
   const discoverCodex = providerAvailability === undefined || providerAvailability.codex === true;
-  const [opencodeDiscovery, codexDiscovery] = await Promise.all([
+  const discoverClaude = providerAvailability === undefined || providerAvailability.claude === true;
+  const [claudeDiscovery, opencodeDiscovery, codexDiscovery] = await Promise.all([
+    discoverClaude
+      ? discoverClaudeCliModelDiscovery()
+      : Promise.resolve(unavailableCliProviderDiscovery(
+          "cli_missing",
+          "Claude Code CLI is unavailable in this runtime.",
+          "not_required",
+        )),
     discoverOpencode
       ? discoverOpencodeCliModelDiscovery()
       : Promise.resolve(unavailableCliProviderDiscovery(
@@ -117,6 +127,8 @@ export async function discoverGuiCliOperatorModels(
         )),
   ]);
   return {
+    claudeModels: claudeDiscovery.models,
+    claudeDiscovery,
     opencodeModels: opencodeDiscovery.models,
     opencodeDiscovery,
     codexModels: codexDiscovery.models,
@@ -133,6 +145,8 @@ export async function resolveGuiOperatorDiscoveryResults(
     discoverGuiDirectProviderModelDiscovery(providerAvailability, process.env, routeHealthStore),
   ]);
   return buildGuiOperatorDiscoveryResults({
+    claudeModels: cliModels.claudeModels,
+    claudeDiscovery: cliModels.claudeDiscovery,
     opencodeModels: cliModels.opencodeModels,
     opencodeDiscovery: cliModels.opencodeDiscovery,
     codexModels: cliModels.codexModels,
@@ -143,6 +157,8 @@ export async function resolveGuiOperatorDiscoveryResults(
 }
 
 export function buildGuiOperatorDiscoveryResults(input: {
+  readonly claudeModels?: readonly string[];
+  readonly claudeDiscovery?: GuiCliProviderModelDiscovery;
   readonly opencodeModels: readonly string[];
   readonly opencodeDiscovery?: GuiCliProviderModelDiscovery;
   readonly codexModels: readonly string[];
@@ -152,6 +168,7 @@ export function buildGuiOperatorDiscoveryResults(input: {
   readonly lastCheckedAt?: string;
 }): GuiProviderDiscoveryResult[] {
   const discoveredModelsByProvider: Record<string, readonly string[]> = {
+    ...(input.claudeModels && input.claudeModels.length > 0 ? { claude: input.claudeModels } : {}),
     ...(input.codexModels.length > 0 ? { codex: input.codexModels } : {}),
     ...(input.opencodeModels.length > 0 ? { opencode: input.opencodeModels } : {}),
   };
@@ -167,33 +184,32 @@ export function buildGuiOperatorDiscoveryResults(input: {
     const models = normalizeModelIds(rawModels);
     const availability = input.providerAvailability?.[provider];
 
-    if (provider === "opencode" && input.opencodeDiscovery) {
-      const opencodeModels = normalizeModelIds(input.opencodeDiscovery.models);
-      const available = input.opencodeDiscovery.status === "available" && opencodeModels.length > 0;
-      const status = available ? "available" : input.opencodeDiscovery.status;
+    const cliDiscovery = provider === "claude"
+      ? input.claudeDiscovery
+      : provider === "codex"
+        ? input.codexDiscovery
+        : provider === "opencode"
+          ? input.opencodeDiscovery
+          : undefined;
+    if (cliDiscovery) {
+      const cliModels = normalizeModelIds(cliDiscovery.models);
+      const available = cliDiscovery.status === "available" && cliModels.length > 0;
+      const status = available ? "available" : cliDiscovery.status;
+      const modelCapabilities = available
+        ? filterModelCapabilities(cliDiscovery.modelCapabilities, cliModels)
+        : undefined;
+      const modelRouteHealth = available
+        ? filterModelRouteHealth(cliDiscovery.modelRouteHealth, cliModels)
+        : undefined;
       results.push({
         provider,
         available,
-        models: available ? opencodeModels : [],
+        models: available ? cliModels : [],
+        ...(modelCapabilities ? { modelCapabilities } : {}),
+        ...(modelRouteHealth ? { modelRouteHealth } : {}),
         status,
-        reason: input.opencodeDiscovery.reason,
-        authState: input.opencodeDiscovery.authState,
-        lastCheckedAt,
-      });
-      continue;
-    }
-
-    if (provider === "codex" && input.codexDiscovery) {
-      const codexModels = normalizeModelIds(input.codexDiscovery.models);
-      const available = input.codexDiscovery.status === "available" && codexModels.length > 0;
-      const status = available ? "available" : input.codexDiscovery.status;
-      results.push({
-        provider,
-        available,
-        models: available ? codexModels : [],
-        status,
-        reason: input.codexDiscovery.reason,
-        authState: input.codexDiscovery.authState,
+        reason: cliDiscovery.reason,
+        authState: cliDiscovery.authState,
         lastCheckedAt,
       });
       continue;
@@ -1915,12 +1931,23 @@ export async function discoverClaudeCliModelDiscovery(): Promise<GuiCliProviderM
       options: { permissionMode: "plan", pathToClaudeCodeExecutable: executable.path },
     });
     try {
-      const models = normalizeModelIds((await boundedClaudeSupportedModels(control)).flatMap((model) => [
+      const supportedModels = await boundedClaudeSupportedModels(control);
+      const models = normalizeModelIds(supportedModels.flatMap((model) => [
         model.value,
         ...(model.resolvedModel ? [model.resolvedModel] : []),
       ]));
+      const modelCapabilities = extractClaudeCliModelCapabilities(
+        supportedModels,
+        executable.evidence.version,
+      );
       return models.length > 0
-        ? { models, status: "available", reason: "Claude Code models discovered through the Agent SDK control plane.", authState: "authenticated" }
+        ? {
+            models,
+            ...(modelCapabilities ? { modelCapabilities } : {}),
+            status: "available",
+            reason: "Claude Code models discovered through the Agent SDK control plane.",
+            authState: "authenticated",
+          }
         : unavailableCliProviderDiscovery("empty_model_list", "Claude Code returned an empty model catalog.", "unknown");
     } finally {
       control.close();
@@ -1942,9 +1969,18 @@ async function boundedClaudeSupportedModels(
     readonly supportedModels: () => Promise<readonly {
       readonly value: string;
       readonly resolvedModel?: string;
+      readonly supportsEffort?: boolean;
+      readonly supportedEffortLevels?: readonly string[];
+      readonly supportsAdaptiveThinking?: boolean;
     }[]>;
   },
-): Promise<readonly { readonly value: string; readonly resolvedModel?: string }[]> {
+): Promise<readonly {
+  readonly value: string;
+  readonly resolvedModel?: string;
+  readonly supportsEffort?: boolean;
+  readonly supportedEffortLevels?: readonly string[];
+  readonly supportsAdaptiveThinking?: boolean;
+}[]> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -1957,6 +1993,52 @@ async function boundedClaudeSupportedModels(
     if (timeout !== undefined) clearTimeout(timeout);
   }
 }
+
+function extractClaudeCliModelCapabilities(
+  models: readonly {
+    readonly value: string;
+    readonly resolvedModel?: string;
+    readonly supportsEffort?: boolean;
+    readonly supportedEffortLevels?: readonly string[];
+    readonly supportsAdaptiveThinking?: boolean;
+  }[],
+  executableVersion: string,
+): Readonly<Record<string, GuiProviderModelCapabilities>> | undefined {
+  const capabilities: Record<string, GuiProviderModelCapabilities> = {};
+  for (const model of models) {
+    // Claude's SDK is the authority for this executable. A missing or false
+    // effort flag is not a license to inherit levels from another Claude model.
+    if (model.supportsEffort !== true) continue;
+    const levels = readDeliberationLevelArray(model.supportedEffortLevels)?.filter(
+      (level) => CLAUDE_AGENT_SDK_EFFORT_LEVELS.has(level),
+    );
+    if (!levels || levels.length === 0) continue;
+    for (const modelId of normalizeModelIds([model.value, ...(model.resolvedModel ? [model.resolvedModel] : [])])) {
+      capabilities[modelId] = {
+        deliberation: {
+          provider: "claude",
+          model: modelId,
+          levels: levels.map((id) => ({ id })),
+          supportsAdaptive: model.supportsAdaptiveThinking === true,
+          evidence: {
+            sourceIdentity: "claude-code-model-catalog",
+            sourceRevision: executableVersion,
+            observedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+  }
+  return Object.keys(capabilities).length > 0 ? capabilities : undefined;
+}
+
+const CLAUDE_AGENT_SDK_EFFORT_LEVELS = new Set<GuiDeliberationLevelId>([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 const CODEX_APP_SERVER_INITIALIZE_REQUEST_ID = 1;
 const CODEX_APP_SERVER_MODEL_LIST_REQUEST_ID = 2;

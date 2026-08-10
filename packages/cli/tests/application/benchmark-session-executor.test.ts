@@ -11,6 +11,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   createDefaultRegistry: vi.fn(),
   createSessionBuiltinToolOptions: vi.fn(),
   discoverManagedAgentProviderModels: vi.fn(),
+  discoverClaudeCliModelDiscovery: vi.fn(),
   discoverCodexCliModelDiscovery: vi.fn(),
   discoverGuiDirectProviderModelDiscovery: vi.fn(),
   discoverOpencodeCliModelDiscovery: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 });
 
 vi.mock("@kilnai/runtime", () => ({
+  discoverClaudeCliModelDiscovery: benchmarkExecutorMocks.discoverClaudeCliModelDiscovery,
   discoverCodexCliModelDiscovery: benchmarkExecutorMocks.discoverCodexCliModelDiscovery,
   discoverGuiDirectProviderModelDiscovery: benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery,
   discoverOpencodeCliModelDiscovery: benchmarkExecutorMocks.discoverOpencodeCliModelDiscovery,
@@ -233,6 +235,27 @@ describe("createBenchmarkSessionExecutor", () => {
       artifactResources: { store: {} },
     }));
     benchmarkExecutorMocks.discoverManagedAgentProviderModels.mockResolvedValue({});
+    benchmarkExecutorMocks.discoverClaudeCliModelDiscovery.mockResolvedValue({
+      models: ["claude-sonnet-5"],
+      modelCapabilities: {
+        "claude-sonnet-5": {
+          deliberation: {
+            provider: "claude",
+            model: "claude-sonnet-5",
+            levels: [{ id: "low" }, { id: "high" }],
+            supportsAdaptive: true,
+            evidence: {
+              sourceIdentity: "claude-code-model-catalog",
+              sourceRevision: "2.1.226",
+              observedAt: "2026-08-10T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      status: "available",
+      reason: "test",
+      authState: "authenticated",
+    });
     benchmarkExecutorMocks.discoverCodexCliModelDiscovery.mockResolvedValue({
       models: ["benchmark-model"],
       modelCapabilities: {
@@ -583,6 +606,41 @@ describe("createBenchmarkSessionExecutor", () => {
         deliberationResolution: expectedResolution,
       }],
       sessionConfig: expect.objectContaining({ deliberationResolution: expectedResolution }),
+    }));
+  });
+
+  it("resolves Claude deliberation from the executable-bound catalog", async () => {
+    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
+      { provider: "claude", model: "claude-sonnet-5" },
+    ]);
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        provider: "claude",
+        model: "claude-sonnet-5",
+        deliberationLevel: "low",
+      },
+    });
+
+    const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "claude-deliberation-level",
+      input: "Return exactly one sentence.",
+    }));
+
+    expect(result.metadata?.deliberationResolution).toMatchObject({
+      status: "exact",
+      selectedLevel: "low",
+      capabilityEvidence: {
+        sourceIdentity: "claude-code-model-catalog",
+        sourceRevision: "2.1.226",
+      },
+    });
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
+      routeCandidates: [expect.objectContaining({
+        provider: "claude",
+        model: "claude-sonnet-5",
+        deliberationResolution: expect.objectContaining({ selectedLevel: "low" }),
+      })],
     }));
   });
 

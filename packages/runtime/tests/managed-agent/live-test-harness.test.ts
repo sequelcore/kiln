@@ -128,6 +128,7 @@ describe("managed agent live test harness", () => {
       workspaceRoot: "C:/portable/workspace",
       providerId: "claude",
       model: "claude-sonnet-5",
+      deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
       handoff: {
         roleIntent: "read-only fixture inspector",
         requiredResultFields: ["summary"],
@@ -137,6 +138,11 @@ describe("managed agent live test harness", () => {
     expect(request.input.handoff).toEqual({
       roleIntent: "read-only fixture inspector",
       requiredResultFields: ["summary"],
+    });
+    expect(request.providerRoute.deliberationIntent).toEqual({
+      mode: "fixed",
+      preferredLevel: "low",
+      onUnsupported: "deny",
     });
   });
 

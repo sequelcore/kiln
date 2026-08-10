@@ -66,11 +66,11 @@ const coreSurfaceMocks = vi.hoisted(() => {
 });
 
 const claudeSdkMocks = vi.hoisted(() => ({
-  lastQuery: undefined as { options?: { env?: Record<string, string | undefined> } } | undefined,
+  lastQuery: undefined as { options?: { env?: Record<string, string | undefined>; effort?: string } } | undefined,
 }));
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  query: vi.fn((input: { options?: { env?: Record<string, string | undefined> } }) => {
+  query: vi.fn((input: { options?: { env?: Record<string, string | undefined>; effort?: string } }) => {
     claudeSdkMocks.lastQuery = input;
     return (async function* () {
       yield { type: "result", total_cost_usd: 0, is_error: false };
@@ -113,6 +113,7 @@ import {
   type ProviderId,
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession, KilnPermissionPolicy } from "../../src/wrapper/session.js";
+import type { DeliberationResolution } from "@kilnai/core";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 
 const makeMockSession = (id: string): IKilnSession => ({
@@ -212,6 +213,7 @@ function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistr
       const providerId = id as (typeof ALL_PROVIDER_IDS)[number];
       return {
         id: providerId,
+        deliberationTransport: "none" as const,
         costTier: COST_TIERS[providerId],
         capabilities: CAPABILITIES[providerId],
         create: () => makeMockSession(id),
@@ -330,6 +332,27 @@ describe("SessionRegistry", () => {
       }
     });
 
+    it("declares deliberation transport per executable provider boundary", () => {
+      const transports = Object.fromEntries(
+        createDefaultRegistry().registry.list().map((provider) => [provider.id, provider.deliberationTransport]),
+      );
+
+      expect(transports).toMatchObject({
+        claude: "native-level",
+        codex: "native-level",
+        opencode: "none",
+        "codex-oauth": "native-level",
+        "opencode-go": "none",
+        "opencode-zen": "none",
+        anthropic: "native-level",
+        openai: "native-level",
+        deepseek: "none",
+        openrouter: "none",
+        ollama: "none",
+        lmstudio: "none",
+      });
+    });
+
     it("list() iterates dynamic provider keys", () => {
       const registry = makeRegistry(["openai", "ollama"]);
       const providers = registry.list();
@@ -379,6 +402,32 @@ describe("SessionRegistry", () => {
       }
 
       expect(claudeSdkMocks.lastQuery?.options?.env?.CLAUDE_CONFIG_DIR).toBe(isolatedConfigDir);
+    });
+
+    it("passes an admitted Claude deliberation resolution through the registry", async () => {
+      claudeSdkMocks.lastQuery = undefined;
+      const { registry } = createDefaultRegistry();
+      const deliberationResolution = {
+        status: "exact",
+        selectedLevel: "high",
+        source: "task",
+        capabilityEvidence: {
+          sourceIdentity: "claude-code-model-catalog",
+          sourceRevision: "2.1.226",
+          observedAt: "2026-08-10T00:00:00.000Z",
+        },
+      } as DeliberationResolution;
+      const session = registry.createSession("claude", {
+        task: "test",
+        permissionPolicy: BASE_POLICY,
+        deliberationResolution,
+      });
+
+      for await (const _event of session.run({ prompt: "test", cwd: process.cwd() })) {
+        // Consume the synthetic SDK result so the wrapper constructs its options.
+      }
+
+      expect(claudeSdkMocks.lastQuery?.options?.effort).toBe("high");
     });
 
     it("binds the default Claude session to its native config home for private plan containment", async () => {

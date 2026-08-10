@@ -374,12 +374,12 @@ export function resolveRunProviderModelAdmission(input: {
 }
 
 function modelDiscoveryCanValidateProvider(provider: ProviderId | undefined): provider is ProviderId {
-  return provider === "codex" || provider === "opencode" || isDirectApiProvider(provider);
+  return provider === "claude" || provider === "codex" || provider === "opencode" || isDirectApiProvider(provider);
 }
 
 function requiresCliWrapperModelDiscovery(candidate: RunSessionRouteCandidate): boolean {
   return (
-    (candidate.provider === "codex" || candidate.provider === "opencode")
+    (candidate.provider === "claude" || candidate.provider === "codex" || candidate.provider === "opencode")
     && (candidate.model?.trim().length ?? 0) > 0
   );
 }
@@ -423,6 +423,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
   const cliDiscovery = wrapperCandidates.length > 0
     ? await discoverGuiCliOperatorModels({
         ...getRuntimeProviderAvailability(input.registry),
+        claude: wrapperCandidates.some((candidate) => candidate.provider === "claude"),
         codex: wrapperCandidates.some((candidate) => candidate.provider === "codex"),
         opencode: wrapperCandidates.some((candidate) => candidate.provider === "opencode"),
       })
@@ -439,6 +440,7 @@ async function resolveAdmittedRunRouteCandidates(input: {
     ...directDiscovery,
     ...(cliDiscovery
       ? {
+          claude: cliDiscovery.claudeDiscovery,
           codex: codexDiscovery,
           opencode: cliDiscovery.opencodeDiscovery,
         }

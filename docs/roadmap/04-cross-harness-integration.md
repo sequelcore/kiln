@@ -119,12 +119,13 @@ untouched.
 
 Status: Blocked by [issue #47](https://github.com/sequelcore/kiln/issues/47).
 
-OpenCode Go/Zen deliberation remains at provider default. The current CLI does
-not reliably lower its advertised OpenAI-compatible variant, and the Go gateway
-does not provide a deterministic supported-level contract across its eligible
-upstreams. Kiln must retain `deliberationTransport: none`; explicit unsupported
-requests fail closed and task rules configured with `onUnsupported: omit` send
-no guessed level.
+OpenCode Go/Zen deliberation remains at provider default. OpenCode 1.18.16 can
+lower declared OpenAI-compatible effort variants, but undeclared variants can
+still be omitted silently and the Go/Zen gateways do not provide a revisioned,
+deterministic supported-level and protocol contract across eligible upstreams.
+Kiln must retain `deliberationTransport: none` for direct and native OpenCode;
+explicit unsupported requests fail closed and task rules configured with
+`onUnsupported: omit` send no guessed level.
 
 The operator's global provider-neutral task policy is already configured and
 requires no speculative OpenCode `byRoute` rule. Reopen activation only after
@@ -189,6 +190,15 @@ must acknowledge that enabling `engines.claude` exposes Claude to non-managed
 engine selection surfaces. Prove authenticated SDK catalog discovery, one
 bounded read-only message, native structured handoff, exact model and executable
 identity, diagnostics, privacy-safe durable evidence, and exact config restore.
+
+Deliberation follow-through is code complete. Runtime and CLI now share Agent
+SDK `0.3.226`; authenticated `supportedModels()` effort metadata is preserved
+with Claude Code executable-version evidence, and admitted levels lower through
+`Options.effort`. Native OpenCode remains fail-closed rather than inheriting
+this capability. A bounded Claude `low` live probe on 2026-08-10 was rejected by
+the active account's weekly quota before completion, so the new effort path is
+not yet live-promoted even though its deterministic discovery, lowering, and
+cross-surface tests pass.
 
 Exit gate: Claude Code subscription and Anthropic API usage cannot be confused
 in route selection or status, and native-harness routes expose an explicit

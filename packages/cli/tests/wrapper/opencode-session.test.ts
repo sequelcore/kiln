@@ -6,7 +6,7 @@ import {
 } from "../../src/wrapper/opencode-session.js";
 import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import type { ExecutionSessionEvent } from "@kilnai/core";
+import { defineDeliberationLevelId, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
 
 const createOpencodeClient = vi.fn();
 const viRuntime = vi as typeof vi & { mocked?: <T>(item: T) => T };
@@ -251,6 +251,61 @@ describe("OpenCodeSession.run() integration", () => {
       },
     };
   }
+
+  it.each(["exact", "clamped"] as const)("rejects %s deliberation before creating a client or network session", async (status) => {
+    const mock = makeMockClient("ses_deliberation", [], 0);
+    const resolution: DeliberationResolution = {
+      status,
+      selectedLevel: defineDeliberationLevelId("high"),
+      source: "operator",
+      ...(status === "clamped" ? { reason: "preferred-level-outside-bounds" as const } : {}),
+      capabilityEvidence: {
+        sourceIdentity: "opencode/model-catalog",
+        sourceRevision: "test-r1",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
+    };
+    const session = new OpenCodeSession(baseConfig());
+
+    await expect((async () => {
+      for await (const _event of session.run({ prompt: "must not send", deliberationResolution: resolution })) {
+        // consume
+      }
+    })()).rejects.toThrow("OpenCode session cannot transport resolved deliberation level 'high'.");
+    expect(createOpencodeClient).not.toHaveBeenCalled();
+    expect(mock.session.create).not.toHaveBeenCalled();
+    expect(mock.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it("does not add a variant for omitted or defaulted deliberation", async () => {
+    const mock = makeMockClient("ses_deliberation_defaulted", [
+      {
+        directory: "/tmp",
+        payload: { type: "session.status", properties: { sessionID: "ses_deliberation_defaulted", status: { type: "idle" } } },
+      },
+    ]);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+    const resolution: DeliberationResolution = {
+      status: "defaulted",
+      selectedLevel: defineDeliberationLevelId("medium"),
+      source: "provider-default",
+      capabilityEvidence: {
+        sourceIdentity: "opencode/model-catalog",
+        sourceRevision: "test-r1",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
+    };
+    const session = new OpenCodeSession(baseConfig());
+
+    for await (const _event of session.run({ prompt: "default only", deliberationResolution: resolution })) {
+      // consume
+    }
+
+    expect(mock.session.prompt).toHaveBeenCalledWith(
+      expect.not.objectContaining({ variant: expect.anything() }),
+      expect.anything(),
+    );
+  });
 
   it("run() owns exact session permission rules instead of merging ambient config", async () => {
     const mock = makeMockClient("ses_perm", [

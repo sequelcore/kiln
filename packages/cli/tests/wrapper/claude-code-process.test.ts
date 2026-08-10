@@ -14,7 +14,7 @@ import {
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
   CLAUDE_PRIVATE_PLAN_ARTIFACT_LOCK_FILE,
 } from "../../src/wrapper/claude-private-plan-artifacts.js";
-import type { ExecutionSessionEvent } from "@kilnai/core";
+import type { DeliberationResolution, ExecutionSessionEvent } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
 function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSessionConfig {
@@ -76,6 +76,67 @@ function pendingQueryFixture() {
 }
 
 describe("ClaudeSession implements IKilnSession", () => {
+  it("lowers an evidence-backed admitted deliberation level to the Agent SDK effort option", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })());
+    const deliberationResolution = {
+      status: "exact",
+      selectedLevel: "high",
+      source: "task",
+      capabilityEvidence: {
+        sourceIdentity: "claude-code-model-catalog",
+        sourceRevision: "2.1.226",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
+    } as DeliberationResolution;
+
+    await collectEvents(new ClaudeSession(baseConfig({ deliberationResolution })).run({
+      prompt: "test prompt",
+      cwd: process.cwd(),
+    }));
+
+    const queryCalls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect((queryCalls.at(-1)?.[0] as { options?: { effort?: string } }).options?.effort).toBe("high");
+  });
+
+  it("rejects denied deliberation before it invokes the Agent SDK query", async () => {
+    const deliberationResolution = {
+      status: "denied",
+      source: "task",
+      reason: "capability-unknown",
+    } as DeliberationResolution;
+    const queryCallCount = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+
+    await expect(collectEvents(new ClaudeSession(baseConfig({ deliberationResolution })).run({
+      prompt: "test prompt",
+      cwd: process.cwd(),
+    }))).rejects.toThrow("Denied deliberation cannot execute: capability-unknown.");
+
+    expect((mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(queryCallCount);
+  });
+
+  it("rejects an untransportable discovered level before it invokes the Agent SDK query", async () => {
+    const deliberationResolution = {
+      status: "exact",
+      selectedLevel: "provider-experimental",
+      source: "task",
+      capabilityEvidence: {
+        sourceIdentity: "claude-code-model-catalog",
+        sourceRevision: "2.1.226",
+        observedAt: "2026-08-10T00:00:00.000Z",
+      },
+    } as DeliberationResolution;
+    const queryCallCount = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+
+    await expect(collectEvents(new ClaudeSession(baseConfig({ deliberationResolution })).run({
+      prompt: "test prompt",
+      cwd: process.cwd(),
+    }))).rejects.toThrow("cannot transport resolved deliberation level 'provider-experimental'");
+
+    expect((mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(queryCallCount);
+  });
+
   it("declares implements IKilnSession", () => {
     const session: IKilnSession = new ClaudeSession(baseConfig());
     expect(session).toBeDefined();

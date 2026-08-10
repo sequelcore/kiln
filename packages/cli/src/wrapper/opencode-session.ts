@@ -2,7 +2,12 @@ import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { appendExecutionIdentity, resolveExecutionIdentity, type ExecutionSessionEvent } from "@kilnai/core";
+import {
+  admitDeliberationForExecution,
+  appendExecutionIdentity,
+  resolveExecutionIdentity,
+  type ExecutionSessionEvent,
+} from "@kilnai/core";
 import type {
   SessionCapabilities,
   SessionRunOptions,
@@ -550,6 +555,12 @@ export class OpenCodeSession implements IKilnSession {
 
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
+    const admittedDeliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
+    if (admittedDeliberationLevel !== undefined) {
+      throw new Error(
+        `OpenCode session cannot transport resolved deliberation level '${admittedDeliberationLevel}'.`,
+      );
+    }
     const startTime = Date.now();
     const abortController = new AbortController();
     this._abortController = abortController;

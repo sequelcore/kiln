@@ -290,7 +290,11 @@ their failure modes differ.
 
 Wrapper providers:
 
-- `claude` is model-less when the harness is available
+- `claude` discovers its authenticated model catalog through the Agent SDK
+  control plane. Moving aliases remain unsuitable for exact managed-route
+  admission. Per-model effort capabilities are retained only when the catalog
+  reports ordered supported levels and are bound to the resolved Claude Code
+  executable version
 - `codex` discovers local Codex CLI models from the local Codex model surface
 - `opencode` discovers local OpenCode CLI models from the OpenCode command
   surface. These model IDs are provider-prefixed exactly as OpenCode reports

@@ -8,8 +8,10 @@
 
 import { randomUUID } from "node:crypto";
 import {
+  admitDeliberationForExecution,
   appendExecutionIdentity,
   resolveExecutionIdentity,
+  type DeliberationResolution,
   type ExecutionSessionEphemeralHarnessStateEvidence,
   type ExecutionSessionEvent,
 } from "@kilnai/core";
@@ -31,6 +33,22 @@ import {
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
+type EffortLevel = import("@anthropic-ai/claude-agent-sdk").EffortLevel;
+
+function toClaudeSdkEffort(level: string | undefined): EffortLevel | undefined {
+  switch (level) {
+    case undefined:
+      return undefined;
+    case "low":
+    case "medium":
+    case "high":
+    case "xhigh":
+    case "max":
+      return level;
+    default:
+      throw new Error(`Claude Code cannot transport resolved deliberation level '${level}'.`);
+  }
+}
 
 interface TranslationRuleMetadata {
   readonly category: string;
@@ -63,6 +81,7 @@ export interface ClaudeSessionConfig {
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly model?: string;
+  readonly deliberationResolution?: DeliberationResolution;
   /** Managed-child result schema, enforced by the Agent SDK when present. */
   readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
   /**
@@ -188,9 +207,12 @@ export class ClaudeSession implements IKilnSession {
   }
 
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
-    const { query } = await import("@anthropic-ai/claude-agent-sdk");
-
     if (this.disposeRequested) return;
+    const deliberationLevel = admitDeliberationForExecution(
+      options.deliberationResolution ?? this.config.deliberationResolution,
+    );
+    const sdkEffort = toClaudeSdkEffort(deliberationLevel);
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
     this._observedHarnessVersion = undefined;
 
     const abortController = new AbortController();
@@ -267,6 +289,7 @@ export class ClaudeSession implements IKilnSession {
         allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
         settingSources: ["project"],
         model: this.config.model,
+        ...(sdkEffort ? { effort: sdkEffort } : {}),
         ...(this.config.sessionLedgerOwner === "host" ? { persistSession: false } : {}),
         ...(this.config.structuredOutputSchema ? {
           outputFormat: {

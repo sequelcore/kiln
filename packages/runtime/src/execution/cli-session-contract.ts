@@ -2,6 +2,7 @@ import type {
   ExecutionSessionEvent,
   ExecutionSessionRunOptions,
   ExecutionSessionEphemeralHarnessStateEvidence,
+  DeliberationResolution,
   ProviderExecutionRequestedAuthority,
 } from "@kilnai/core";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
@@ -19,6 +20,8 @@ export interface CliSessionFactoryContext {
   readonly kilnSessionId?: string;
   readonly requestedAuthority?: ProviderExecutionRequestedAuthority;
   readonly operatorSurface?: OperatorSurfaceController;
+  /** Route-admitted deliberation decision forwarded unchanged to the native wrapper. */
+  readonly deliberationResolution?: DeliberationResolution;
   readonly permissionPolicy?: {
     readonly approval: "never" | "on-request" | "on-failure" | "untrusted";
     readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";

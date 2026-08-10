@@ -20,6 +20,7 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  type DeliberationIntent,
 } from "@kilnai/core";
 import type {
   ManagedAgentCapabilitySnapshotInput,
@@ -75,6 +76,7 @@ export interface ManagedAgentLiveHarnessReadOnlyRequestOptions {
   readonly summary?: string;
   readonly prompt?: string;
   readonly handoff?: ManagedAgentInvocationHandoffContract;
+  readonly deliberationIntent?: DeliberationIntent;
 }
 
 export interface ManagedAgentLiveFilesystemAndEvidenceExpectation {
@@ -251,6 +253,7 @@ export function makeManagedAgentLiveHarnessReadOnlyRequest(
       providerId,
       surface: "cli-harness",
       model,
+      ...(options.deliberationIntent ? { deliberationIntent: options.deliberationIntent } : {}),
     },
     adapterKind: "harness",
     executionMode: "cli-harness",

@@ -40,7 +40,7 @@ import {
 } from "@kilnai/core";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
-import type { CliSessionFactory } from "../execution/cli-subscription-executor.js";
+import type { CliDeliberationTransport, CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
@@ -97,6 +97,7 @@ export interface TuiGatewayOptions {
   readonly sessionManager: {
     readonly factory: CliSessionFactory;
     getProvider: () => string;
+    getDeliberationTransport?: () => CliDeliberationTransport;
     setProvider: (provider: string) => void;
     getModel: () => string;
     setModel: (model: string) => void;
@@ -446,6 +447,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     providerLabel,
     (event) => activityStreamer.forward(event),
     () => activeOperatorSurface,
+    () => options.sessionManager.getDeliberationTransport?.() ?? "none",
   );
   const eventBus = options.eventBus ?? new EventBus(100);
   const orchestrator = new RuntimeSessionOrchestrator({

@@ -136,7 +136,7 @@ describe("CliSubscriptionExecutor", () => {
       ]),
     );
     const factory = vi.fn().mockReturnValue({ run, dispose });
-    const executor = new CliSubscriptionExecutor(factory, "codex");
+    const executor = new CliSubscriptionExecutor(factory, "codex", undefined, undefined, "native-level");
 
     await executor.createMessage({
       system: "sys",
@@ -157,6 +157,28 @@ describe("CliSubscriptionExecutor", () => {
       status: "exact",
       selectedLevel: "high",
     });
+  });
+
+  it("defaults to no deliberation transport instead of claiming native support", () => {
+    const factory = vi.fn().mockReturnValue({
+      run: () => eventStream([]),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(new CliSubscriptionExecutor(factory, "opencode").deliberationTransport).toBe("none");
+  });
+
+  it("resolves transport dynamically for the active provider route", () => {
+    const factory = vi.fn().mockReturnValue({
+      run: () => eventStream([]),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    });
+    let transport: "native-level" | "none" = "none";
+    const executor = new CliSubscriptionExecutor(factory, "subscription", undefined, undefined, () => transport);
+
+    expect(executor.deliberationTransport).toBe("none");
+    transport = "native-level";
+    expect(executor.deliberationTransport).toBe("native-level");
   });
 
   it("builds a single-message prompt without labels", async () => {

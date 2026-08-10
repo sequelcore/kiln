@@ -31,6 +31,11 @@ export type {
   ExecutionSessionEventCallback,
 } from "./cli-session-contract.js";
 
+export type CliDeliberationTransport = "native-level" | "none";
+export type CliDeliberationTransportSource =
+  | CliDeliberationTransport
+  | (() => CliDeliberationTransport);
+
 /**
  * CliSubscriptionExecutor — implements ProviderAdapter using CLI subscription binaries.
  *
@@ -42,13 +47,18 @@ export type {
  */
 export class CliSubscriptionExecutor implements ProviderAdapter {
   readonly name: string;
-  readonly deliberationTransport = "native-level" as const;
+
+  get deliberationTransport(): CliDeliberationTransport {
+    const source = this.deliberationTransportSource;
+    return typeof source === "function" ? source() : source;
+  }
 
   constructor(
     private readonly factory: CliSessionFactory,
     providerLabel: string,
     private readonly onEvent?: ExecutionSessionEventCallback,
     private readonly getOperatorSurface?: () => OperatorSurfaceController | undefined,
+    private readonly deliberationTransportSource: CliDeliberationTransportSource = "none",
   ) {
     this.name = `cli-subscription:${providerLabel}`;
   }

@@ -465,6 +465,25 @@ surfaces; that operator-visible scope change requires explicit acknowledgement.
 Native harness provider consumption is reported as outside Kiln's managed
 economic ceiling.
 
+Claude deliberation is admitted from the same authenticated Agent SDK catalog
+used for exact model admission. Kiln retains only model rows that explicitly
+report effort support and ordered effort levels, binds their evidence to the
+resolved Claude Code executable version, and lowers an exact or clamped
+resolution through Agent SDK `Options.effort`. `thinking` and thinking-token
+budgets remain separate controls. Missing, mismatched, or evidence-less
+capabilities fail closed before `query`; moving aliases are not promoted into
+exact managed routes. GUI, TUI, CLI/benchmark, and managed-route projections
+consume this same catalog evidence. Native OpenCode remains transport `none`
+and rejects exact or clamped levels before its SDK client is invoked.
+
+The implementation aligns both Runtime discovery and CLI execution on Agent
+SDK `0.3.226` and the operator-resolved Claude Code `2.1.226`. Deterministic
+tests prove catalog projection, route admission, registry propagation, and SDK
+option construction. The bounded live `low` probe on 2026-08-10 reached Claude
+but the active account returned its weekly-limit error before a model turn
+completed. That attempt is not live promotion evidence and must be repeated
+after the provider quota resets.
+
 The 2026-08-01 operator activation uses Agent SDK `0.3.220` with the
 operator-resolved Claude Code `2.1.220`. Two bounded read-only attempts did not
 constitute provider proof because the live fixture omitted `input.handoff`, so

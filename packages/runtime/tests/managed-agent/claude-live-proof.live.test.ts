@@ -18,6 +18,11 @@ import {
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import type { CliSessionFactory } from "../../src/execution/cli-session-contract.js";
+import {
+  defineDeliberationLevelId,
+  type DeliberationResolution,
+  type ModelDeliberationCapabilities,
+} from "@kilnai/core";
 
 describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LIVE_CLAUDE_TESTS_ENV, () => {
   it("runs a read-only managed child in Claude plan mode without changing the fixture", async () => {
@@ -33,7 +38,13 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
       const discovery = await discoverClaudeCliModelDiscovery();
       expect(discovery.status).toBe("available");
       expect(discovery.models).toContain(model);
+      const deliberationCapabilities = toClaudeDeliberationCapabilities(
+        model,
+        discovery.modelCapabilities?.[model]?.deliberation,
+      );
+      expect(deliberationCapabilities.levels.map((level) => level.id)).toContain("low");
       let observedPermissionMode: "plan" | "default" | undefined;
+      let observedDeliberationResolution: DeliberationResolution | undefined;
       const request = makeManagedAgentLiveHarnessReadOnlyRequest({
         invocationId: "invocation-claude-live-readonly-1",
         workspaceRoot: workspace.workspaceRoot,
@@ -41,6 +52,7 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
         model,
         summary: "Inspect a fixture through Claude Code plan mode.",
         prompt: "Read proof.txt and report its exact contents. Do not write, create, delete, or rename any file.",
+        deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
         handoff: {
           roleIntent: "read-only fixture inspector",
           requiredResultFields: ["summary"],
@@ -50,7 +62,13 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
       const adapter = new ManagedCliHarnessAdapter({
         providerId: "claude",
         model,
-        factory: createClaudeLiveSessionFactory(model, executable, (mode) => { observedPermissionMode = mode; }),
+        factory: createClaudeLiveSessionFactory(
+          model,
+          executable,
+          (mode) => { observedPermissionMode = mode; },
+          (resolution) => { observedDeliberationResolution = resolution; },
+        ),
+        deliberationCapabilities,
         filesystemBoundary: { enabled: true, trackedPaths: [workspace.filePath("proof.txt")], restoreReadOnlyViolations: true },
       });
 
@@ -67,6 +85,11 @@ describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LI
       expect(result.status).toBe("completed");
       expect(result.record.lifecycleState, JSON.stringify(result.record.resultHandoff)).toBe("completed");
       expect(observedPermissionMode).toBe("plan");
+      expect(observedDeliberationResolution).toMatchObject({
+        status: "exact",
+        selectedLevel: "low",
+        capabilityEvidence: deliberationCapabilities.evidence,
+      });
       expect(result.record.resultHandoff?.structuredResult).toMatchObject({
         version: "structured-execution-result-v1",
         status: "completed",
@@ -104,10 +127,12 @@ function createClaudeLiveSessionFactory(
   model: string,
   executable: NonNullable<ReturnType<typeof resolveClaudeCodeExecutable>>,
   observePermissionMode: (mode: "plan" | "default") => void,
+  observeDeliberationResolution: (resolution: DeliberationResolution | undefined) => void,
 ): CliSessionFactory {
   return (systemPrompt, cwd, context) => {
     const permissionMode = context?.permissionPolicy?.approval === "untrusted" ? "plan" : "default";
     observePermissionMode(permissionMode);
+    observeDeliberationResolution(context?.deliberationResolution);
     return new ClaudeSession({
       task: systemPrompt,
       systemPrompt,
@@ -117,8 +142,31 @@ function createClaudeLiveSessionFactory(
       sessionLedgerOwner: "host",
       harnessExecutable: executable.path,
       harnessEvidence: executable.evidence,
+      ...(context?.deliberationResolution ? { deliberationResolution: context.deliberationResolution } : {}),
       ...(context?.structuredOutput ? { structuredOutputSchema: context.structuredOutput.schema } : {}),
     });
+  };
+}
+
+function toClaudeDeliberationCapabilities(
+  model: string,
+  capability: NonNullable<NonNullable<Awaited<ReturnType<typeof discoverClaudeCliModelDiscovery>>["modelCapabilities"]>[string]>["deliberation"],
+): ModelDeliberationCapabilities {
+  if (!capability || capability.provider !== "claude" || capability.model !== model) {
+    throw new Error(`Claude catalog did not return exact deliberation capability evidence for '${model}'.`);
+  }
+  return {
+    provider: capability.provider,
+    model: capability.model,
+    levels: capability.levels.map((level) => ({
+      id: defineDeliberationLevelId(level.id),
+      ...(level.nativeId ? { nativeId: level.nativeId } : {}),
+    })),
+    ...(capability.defaultLevel
+      ? { defaultLevel: defineDeliberationLevelId(capability.defaultLevel) }
+      : {}),
+    supportsAdaptive: capability.supportsAdaptive,
+    evidence: capability.evidence,
   };
 }
 

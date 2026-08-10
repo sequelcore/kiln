@@ -12,6 +12,9 @@ const { execFileSync, installedClaudeOnly } = vi.hoisted(() => {
 const supportedModels = vi.fn(async () => [{
   value: "sonnet",
   resolvedModel: "claude-sonnet-5",
+  supportsEffort: true,
+  supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"],
+  supportsAdaptiveThinking: true,
 }]);
 const close = vi.fn();
 const next = vi.fn();
@@ -54,7 +57,60 @@ describe("discoverClaudeCliModelDiscovery", () => {
       models: ["sonnet", "claude-sonnet-5"],
       status: "available",
       authState: "authenticated",
+      modelCapabilities: {
+        sonnet: {
+          deliberation: {
+            provider: "claude",
+            model: "sonnet",
+            levels: [
+              { id: "low" },
+              { id: "medium" },
+              { id: "high" },
+              { id: "xhigh" },
+              { id: "max" },
+            ],
+            supportsAdaptive: true,
+            evidence: {
+              sourceIdentity: "claude-code-model-catalog",
+              sourceRevision: "2.1.220",
+            },
+          },
+        },
+        "claude-sonnet-5": {
+          deliberation: {
+            model: "claude-sonnet-5",
+            evidence: { sourceRevision: "2.1.220" },
+          },
+        },
+      },
     });
+  });
+
+  it("does not invent deliberation levels when Claude reports no effort support", async () => {
+    supportedModels.mockResolvedValueOnce([{
+      value: "haiku",
+      resolvedModel: "claude-haiku-4-5",
+      supportsEffort: false,
+      supportsAdaptiveThinking: false,
+    }]);
+
+    const discovery = await discoverClaudeCliModelDiscovery();
+
+    expect(discovery.modelCapabilities).toBeUndefined();
+  });
+
+  it("drops catalog effort levels that the bound Agent SDK cannot transport", async () => {
+    supportedModels.mockResolvedValueOnce([{
+      value: "sonnet",
+      resolvedModel: "claude-sonnet-5",
+      supportsEffort: true,
+      supportedEffortLevels: ["low", "provider-experimental"],
+      supportsAdaptiveThinking: true,
+    }]);
+
+    const discovery = await discoverClaudeCliModelDiscovery();
+
+    expect(discovery.modelCapabilities?.["claude-sonnet-5"]?.deliberation?.levels).toEqual([{ id: "low" }]);
   });
 
   it("resolves one shared executable path with portable version evidence", () => {
