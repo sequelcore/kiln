@@ -417,6 +417,18 @@ export class RuntimeSessionOrchestrator {
       }
       const response = await routing.effectiveProvider.createMessage({
         sessionId: session.id,
+        ...(perCallConfig?.providerTransport?.projectId || perCallConfig?.providerTransport?.requestIdPrefix
+          ? {
+              requestIdentity: {
+                ...(perCallConfig.providerTransport.projectId
+                  ? { projectId: perCallConfig.providerTransport.projectId }
+                  : {}),
+                ...(perCallConfig.providerTransport.requestIdPrefix
+                  ? { requestId: `${perCallConfig.providerTransport.requestIdPrefix}:response:${round + 1}` }
+                  : {}),
+              },
+            }
+          : {}),
         system: invocationPromptManifest.finalPrompt,
         messages: conversationProjection.messages,
         tools: toolsForRound,
@@ -428,6 +440,12 @@ export class RuntimeSessionOrchestrator {
           ? { deliberationResolution: routing.deliberationResolution }
           : {}),
         signal: perCallConfig?.abortSignal,
+        ...(perCallConfig?.providerTransport?.watchdog
+          ? { transportWatchdog: perCallConfig.providerTransport.watchdog }
+          : {}),
+        ...(perCallConfig?.providerTransport?.observer
+          ? { transportObserver: perCallConfig.providerTransport.observer }
+          : {}),
         ...(providerExecutionContext ? { executionContext: providerExecutionContext } : {}),
       });
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
@@ -579,6 +597,8 @@ export class RuntimeSessionOrchestrator {
           executionEnvelope,
           toolExecutions,
           preLlmEscalation: escalation,
+          abortSignal: perCallConfig?.abortSignal,
+          providerTransport: perCallConfig?.providerTransport,
         });
       }
 
@@ -648,6 +668,8 @@ export class RuntimeSessionOrchestrator {
           executionEnvelope,
           toolExecutions,
           preLlmEscalation: escalation,
+          abortSignal: perCallConfig?.abortSignal,
+          providerTransport: perCallConfig?.providerTransport,
         });
       }
       const progressiveAdmission = admitProgressivelyMaterializedTools(
@@ -710,6 +732,8 @@ export class RuntimeSessionOrchestrator {
       this.deps.maxTokens,
       buildRuntimeProviderRequestCachePartition(session, routing, perCallConfig, executionEnvelope),
       executionEnvelope?.conversation?.toolResults,
+      perCallConfig?.abortSignal,
+      perCallConfig?.providerTransport,
     );
     const usageTotals = this.telemetry.recordResponse(
       session.id,
@@ -790,6 +814,8 @@ export class RuntimeSessionOrchestrator {
     readonly executionEnvelope?: RuntimeExecutionEnvelope;
     readonly toolExecutions: readonly ToolExecutionSummary[];
     readonly preLlmEscalation?: EscalationSignal;
+    readonly abortSignal?: AbortSignal;
+    readonly providerTransport?: PerCallToolConfig["providerTransport"];
   }): Promise<OrchestrateResult> {
     const fallback = await requestRuntimeSessionFallbackResponse(
       input.routing.effectiveProvider,
@@ -798,6 +824,8 @@ export class RuntimeSessionOrchestrator {
       this.deps.maxTokens,
       input.cachePartition,
       input.executionEnvelope?.conversation?.toolResults,
+      input.abortSignal,
+      input.providerTransport,
     );
     const fallbackUsageTotals = this.telemetry.recordResponse(
       input.session.id,

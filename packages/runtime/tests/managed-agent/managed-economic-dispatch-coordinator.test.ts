@@ -11,6 +11,7 @@ import {
 } from "@kilnai/core";
 import {
   ManagedEconomicDispatchCoordinator,
+  ManagedEconomicLifecycleTimeoutError,
   type ManagedEconomicDispatchAdoption,
   type ManagedEconomicDispatchAuthorityPort,
   type ManagedEconomicLifecycleEventPort,
@@ -526,6 +527,38 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     ));
     expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
     expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
+  });
+
+  it("marks its own lifecycle deadline with a typed timeout reason", async () => {
+    const economicAuthority = authority();
+    let observedSignal: AbortSignal | undefined;
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1,
+      createAdapter: async ({ abortSignal }) => {
+        observedSignal = abortSignal;
+        return { descriptor: {} } as never;
+      },
+    });
+
+    const preparation = await coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: {} as never,
+      admissionProfile: "foundation-readonly-plan",
+    });
+    if (preparation.status !== "prepared") throw new Error("fixture");
+
+    await vi.waitFor(() => expect(observedSignal?.aborted).toBe(true));
+    expect(observedSignal?.reason).toBeInstanceOf(ManagedEconomicLifecycleTimeoutError);
+    expect((observedSignal?.reason as ManagedEconomicLifecycleTimeoutError).timeoutMs).toBe(1);
+    expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
+      "job-a",
+      "economic-attempt-a",
+      preparation.dispatchFenceId,
+      "registered-execution-settlement-missing",
+    );
   });
 
   it("expires a registered settlement that does not resolve", async () => {

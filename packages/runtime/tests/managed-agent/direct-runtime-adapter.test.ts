@@ -18,8 +18,11 @@ import {
 import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,
+  type ManagedAgentRuntimeInvocationLifecycleOptions,
 } from "../../src/agents/managed-invocation/index.js";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
+import { ManagedEconomicLifecycleTimeoutError } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
+import { createInternalConsumedWriteApproval } from "../../src/agents/managed-invocation/internal-consumed-write-approval.js";
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.types.js";
@@ -132,12 +135,71 @@ function snapshotInputFor(
   };
 }
 
+function approvedWriteRequest() {
+  const base = request();
+  return request({
+    agentId: "direct-write:foundation-apply-approved-writes",
+    profile: "foundation-apply-approved-writes",
+    requestedAuthority: "destructive",
+    authorityApproval: { approved: true },
+    authority: {
+      ...base.authority,
+      permissionProfile: "apply-approved-writes",
+      toolAuthority: {
+        allowedToolNames: ["write"],
+        writeAllowed: true,
+        networkAllowed: false,
+      },
+      workingDirectory: { path: "C:/repo", mode: "workspace-write" },
+      writeAuthority: {
+        profile: "foundation-apply-approved-writes",
+        scope: {
+          workspace: { mode: "apply-approved", allowedPaths: ["C:/repo"], deniedPaths: [] },
+          memory: { mode: "none", operations: [] },
+          artifacts: { mode: "none", resourceUris: [], retention: "none" },
+          tools: { allowedToolNames: ["write"], deniedToolNames: [] },
+        },
+        approval: { mode: "required-before-apply", evidenceRequired: true },
+      },
+    },
+  });
+}
+
+function consumedWriteApprovalFor(childRequest: ManagedAgentInvocationRequest) {
+  return createInternalConsumedWriteApproval({
+    approvalId: "managed-write-approval:test-approved-write",
+    state: "consumed",
+    binding: {
+      projectId: "test-project",
+      jobId: childRequest.invocationId.replace(/^managed-job:/u, ""),
+      callerId: childRequest.requestedBy,
+      workItemFingerprint: "a".repeat(64),
+      configuredAgentProfileId: childRequest.agentId,
+      admissionProfileId: "foundation-apply-approved-writes",
+      routeId: snapshotInputFor(childRequest).routeId,
+      providerId: childRequest.providerRoute.providerId,
+      model: childRequest.providerRoute.model ?? "unknown",
+      adapterCapabilityId: "test-adapter",
+      adapterCapabilityVersion: "1",
+      authorityDigest: "b".repeat(64),
+      effectDigest: "c".repeat(64),
+      revisionDigest: "d".repeat(64),
+    },
+    issuedAt: "2026-08-10T00:00:00.000Z",
+    expiresAt: "2099-08-10T00:00:00.000Z",
+    approverId: "operator",
+    consumedAt: "2026-08-10T00:00:01.000Z",
+    consumedBy: childRequest.invocationId,
+  });
+}
+
 function invokeManaged(
   service: RuntimeManagedAgentInvocationService,
   childRequest: ManagedAgentInvocationRequest,
   adapter: ManagedDirectProviderRuntimeAdapter,
+  lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
 ) {
-  return service.invoke(childRequest, adapter, snapshotInputFor(childRequest));
+  return service.invoke(childRequest, adapter, snapshotInputFor(childRequest), lifecycleOptions);
 }
 
 function startManaged(
@@ -149,6 +211,30 @@ function startManaged(
 }
 
 describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("rejects matching consumed-write data when it was not minted by the approval authority bridge", async () => {
+    const provider = providerWithResponses([response("must not execute")]);
+    const childRequest = approvedWriteRequest();
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [],
+      builtinTools: new Map(),
+    });
+
+    await expect(new RuntimeManagedAgentInvocationService().start(
+      childRequest,
+      adapter,
+      snapshotInputFor(childRequest),
+      {
+        consumedWriteApproval: {
+          ...consumedWriteApprovalFor(childRequest),
+        } as never,
+      },
+    )).rejects.toThrow("Consumed managed write approval");
+    expect(provider.createMessage).not.toHaveBeenCalled();
+  });
+
   it("rejects an economic adapter before provider effect when typed settlement ownership is absent", async () => {
     const provider = providerWithResponses([response("must not execute")]);
     const childRequest = request();
@@ -1084,6 +1170,12 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       provider,
       tools: [WRITE_TOOL],
       builtinTools: new Map([["write", writeTool]]),
+      toolAuthority: new Map([["write", {
+        level: 3,
+        allowed: false,
+        requiresApproval: true,
+        reason: "Workspace writes require operator approval",
+      }]]),
       writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
     });
     const service = new RuntimeManagedAgentInvocationService();
@@ -1099,7 +1191,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY,
       });
 
-      const result = await invokeManaged(service, request({
+      const approvedRequest = request({
         agentId: "direct-write:foundation-apply-approved-writes",
         profile: "foundation-apply-approved-writes",
         providerRoute: {
@@ -1155,7 +1247,10 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
           summary: "Apply an approved direct write.",
           prompt: "Write the admitted file and report completion.",
         },
-      }), adapter);
+      });
+      const result = await invokeManaged(service, approvedRequest, adapter, {
+        consumedWriteApproval: consumedWriteApprovalFor(approvedRequest),
+      });
 
       expect(result.status).toBe("completed");
       if (result.status !== "completed") {
@@ -1237,7 +1332,8 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       builtinTools: new Map(),
     });
 
-    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+    const service = new RuntimeManagedAgentInvocationService();
+    const result = await invokeManaged(service, request({
       providerRoute: {
         providerId: "opencode-go",
         surface: "direct-provider",
@@ -1362,6 +1458,91 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     expect(abortObserved).toBe(true);
   });
 
+  it("preserves safe provider transport phase evidence in a timeout diagnostic", async () => {
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn((options) => {
+        options.transportObserver?.onEvent({
+          type: "response_headers",
+          identity: { projectId: "unsafe-project-path", requestId: "unsafe-request" },
+          status: 200,
+        });
+        options.transportObserver?.onEvent({
+          type: "response_first_byte",
+          identity: { projectId: "unsafe-project-path", requestId: "unsafe-request" },
+        });
+        options.transportObserver?.onEvent({
+          type: "response_chunk",
+          identity: { projectId: "unsafe-project-path", requestId: "unsafe-request" },
+        });
+        return new Promise<AgentResponse>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => reject(new Error("provider request aborted")), { once: true });
+        });
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+
+    const service = new RuntimeManagedAgentInvocationService();
+    const result = await invokeManaged(service, request({
+      authority: { ...request().authority, timeoutMs: 1 },
+    }), adapter);
+
+    if (result.status !== "completed") throw new Error("fixture");
+    const evidence = result.record.replayResources?.[0]?.text ?? "";
+    expect(result.record.lifecycleState).toBe("timed_out");
+    expect(evidence).toContain("Provider transport response headers.");
+    expect(evidence).toContain("Provider transport response first byte.");
+    expect(evidence).toContain('Metadata: {"eventType":"response_headers","phase":"headers","status":200}');
+    expect(evidence).not.toContain("unsafe-project-path");
+    expect(evidence).not.toContain("unsafe-request");
+    const transportEventIds = service.status("inv-direct-1")?.progressEvents
+      .filter((event) => event.kind === "provider_transport")
+      .map((event) => event.eventId) ?? [];
+    expect(transportEventIds).toHaveLength(2);
+    expect(new Set(transportEventIds).size).toBe(transportEventIds.length);
+  });
+
+  it("classifies a coordinator-owned lifecycle abort as timeout instead of cancellation", async () => {
+    const lifecycle = new AbortController();
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn((options) => new Promise<AgentResponse>((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("provider request aborted")), { once: true });
+      })),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map(),
+    });
+    const service = new RuntimeManagedAgentInvocationService();
+    const started = await service.start(request(), adapter, snapshotInputFor(request()), {
+      abortSignal: lifecycle.signal,
+    });
+    if (started.status !== "started") throw new Error("fixture");
+
+    lifecycle.abort(new ManagedEconomicLifecycleTimeoutError(100));
+    const result = await service.join("inv-direct-1");
+
+    expect(result).toMatchObject({
+      status: "completed",
+      record: { lifecycleState: "timed_out" },
+    });
+    if (result.status === "completed") {
+      expect(result.record.resultHandoff?.summary).toContain("timed out after 100ms");
+    }
+  });
+
   it("preserves partial child progress evidence when a direct child times out mid-tool", async () => {
     const provider = providerWithResponses([
       response("reading", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]),
@@ -1398,8 +1579,44 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
     ]));
     expect(result.record.replayResources?.[0]?.text).toContain("Progress events:");
     expect(result.record.replayResources?.[0]?.text).toContain("## Progress");
-    expect(result.record.replayResources?.[0]?.text).toContain("Summary: read called");
+    expect(result.record.replayResources?.[0]?.text).toContain("Summary: Tool progress observed before timeout.");
     expect(result.record.replayResources?.[0]?.text).not.toContain("No child runtime progress events were observed before timeout.");
+  });
+
+  it("redacts tool progress payloads from timeout replay evidence", async () => {
+    let providerCalls = 0;
+    const provider: ProviderAdapter = {
+      name: "openai",
+      createMessage: vi.fn((options) => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return Promise.resolve(response("read", [{ id: "tool-1", name: "read", input: { uri: "kiln://docs/a" } }]));
+        }
+        return new Promise<AgentResponse>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => reject(new Error("provider request aborted")), { once: true });
+        });
+      }),
+      streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+    };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({
+      providerId: "openai",
+      model: "gpt-test",
+      provider,
+      tools: [READ_TOOL],
+      builtinTools: new Map([["read", async () => "credential=synthetic-secret C:/private/plan.txt"]]),
+    });
+
+    const result = await invokeManaged(new RuntimeManagedAgentInvocationService(), request({
+      authority: { ...request().authority, timeoutMs: 25 },
+    }), adapter);
+
+    if (result.status !== "completed") throw new Error("fixture");
+    const evidence = result.record.replayResources?.[0]?.text ?? "";
+    expect(result.record.lifecycleState).toBe("timed_out");
+    expect(evidence).toContain("Tool progress observed before timeout.");
+    expect(evidence).not.toContain("synthetic-secret");
+    expect(evidence).not.toContain("C:/private/plan.txt");
+    expect(evidence).not.toContain("credential=");
   });
 
   it("records external cancellation as a cancelled direct-provider invocation with evidence", async () => {

@@ -126,6 +126,14 @@ model because OpenCode permission rules do not prove a hard filesystem
 boundary. Use an authorized `opencode-go` or `opencode-zen` direct-provider
 route for delegated OpenCode capacity only after the exact model's data policy
 is admitted; those execute through Kiln's governed builtin tool boundary.
+OpenCode direct routes share the OpenAI-compatible transport, while Core owns
+the small provider/model-family compatibility layer: official request identity
+headers, streamed usage, model output caps, and schema lowering for model
+families that reject otherwise valid JSON Schema constructs. These are protocol
+compatibility facts, not route authority. Runtime remains the sole owner of
+timeouts, approval consumption, sandboxing, economic fencing, settlement, and
+replay, so CLI, MCP, SDK, GUI, and TUI do not carry provider-specific write
+logic.
 Synthesized child routes use `models.<engine>` when present, then
 the adapter's safe default for that engine. They do not inherit
 `models.default`, because model IDs are provider-specific. Write-capable routes
@@ -186,10 +194,12 @@ Codex OAuth capabilities come from its authenticated model catalog. OpenCode
 Go and Zen currently remain provider-default: their model catalog advertises
 variants, but the CLI does not lower the current OpenAI-compatible variant and
 the direct gateway does not provide a consistent, revisioned effort guarantee
-across eligible upstreams. Direct Kiln calls do not project a per-job
-`x-opencode-session`; account leasing and the OpenCode gateway's own routing
-remain the governing continuity boundaries. Neither mechanism authorizes an
-effort level.
+across eligible upstreams. Direct Kiln calls project the official OpenCode
+request envelope: a child-session identity plus safe project and request
+digests, client identity, user agent, and streaming usage request. These fields
+provide transport correlation only. Account leasing and the OpenCode gateway's
+own routing remain the governing capacity and continuity boundaries; none of
+these headers authorizes an effort level or grants filesystem authority.
 
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from

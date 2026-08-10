@@ -1,5 +1,6 @@
 import { OpenAICompatAdapter } from "./openai-compat.js";
 import type { AgentResponse, CreateMessageOptions } from "../index.js";
+import { safeProviderRequestIdentity } from "../provider-request-identity.js";
 import { OpenCodeAuth, type OpenCodeTier } from "./opencode-auth.js";
 import { KilnError } from "../../engine/errors.js";
 
@@ -41,11 +42,26 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
   }
 
   protected override buildHeaders(
-    options?: { readonly sessionId?: string },
+    options?: { readonly sessionId?: string; readonly requestIdentity?: { readonly projectId?: string; readonly requestId?: string } },
   ): Record<string, string> {
     const headers = super.buildHeaders(options);
+    const identity = safeProviderRequestIdentity(options?.requestIdentity);
     headers["x-opencode-client"] = "kiln";
+    headers["User-Agent"] = "kiln/3.0.0-beta.1";
+    if (options?.sessionId) headers["x-opencode-session"] = options.sessionId;
+    if (identity?.projectId) headers["x-opencode-project"] = identity.projectId;
+    if (identity?.requestId) headers["x-opencode-request"] = identity.requestId;
     return headers;
+  }
+
+  protected override resolveMaxTokens(options: CreateMessageOptions): number {
+    const requested = super.resolveMaxTokens(options);
+    const cap = openCodeModelOutputCap(this.defaultModel);
+    return cap === undefined ? requested : Math.min(requested, cap);
+  }
+
+  protected override projectToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+    return isMoonshotModel(this.defaultModel) ? lowerMoonshotSchema(schema) : schema;
   }
 
   static async fromAuth(opts: {
@@ -65,6 +81,55 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
       defaultModel: opts.defaultModel,
     });
   }
+}
+
+function isMoonshotModel(model: string): boolean {
+  const normalized = model.toLowerCase();
+  return normalized.includes("kimi") || normalized.includes("moonshot");
+}
+
+function openCodeModelOutputCap(model: string): number | undefined {
+  // OpenCode's CLI transport caps Kimi K2.7 Code output requests at 32,000 tokens.
+  return model.toLowerCase().includes("kimi-k2.7-code") ? 32_000 : undefined;
+}
+
+/** Moonshot rejects sibling keywords on $ref and tuple-form array items. */
+function lowerMoonshotSchema(value: unknown): Record<string, unknown> {
+  const projected = lowerMoonshotNode(value);
+  return isRecord(projected) ? projected : {};
+}
+
+function lowerMoonshotNode(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(lowerMoonshotNode);
+  if (!isRecord(value)) return value;
+  if (typeof value.$ref === "string") return { $ref: value.$ref };
+  return Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
+    if (key === "items" && Array.isArray(value.prefixItems)) return [];
+    if (key === "items" && Array.isArray(child)) return [[key, tupleItemsSchema(child)]];
+    if (key === "prefixItems") {
+      if (!Array.isArray(child)) return [];
+      // Moonshot only accepts one uniform item schema. Include both tuple and tail schemas
+      // rather than rejecting valid tuple prefixes when the source also declares `items`.
+      const tail = value.items;
+      const variants = tail === undefined
+        ? child
+        : [...child, ...(Array.isArray(tail) ? tail : [tail])];
+      return [["items", tupleItemsSchema(variants)]];
+    }
+    if (key === "unevaluatedItems") return [];
+    return [[key, lowerMoonshotNode(child)]];
+  }));
+}
+
+function tupleItemsSchema(items: readonly unknown[]): unknown {
+  const projected = items.map(lowerMoonshotNode);
+  if (projected.length === 0) return {};
+  if (projected.length === 1) return projected[0];
+  return { anyOf: projected };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function openCodeBaseUrlForTier(tier: OpenCodeTier): string {

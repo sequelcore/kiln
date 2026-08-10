@@ -83,9 +83,42 @@ export interface ProviderExecutionContext {
   readonly executionScope?: import("../events/session-execution-scope.js").SessionExecutionScope;
 }
 
+/** Stable host-owned identity for one provider request; session affinity is separate. */
+export interface ProviderRequestIdentity {
+  readonly projectId?: string;
+  readonly requestId?: string;
+}
+
+export { safeProviderRequestIdentity } from "./provider-request-identity.js";
+
+/** Timeout limits for one provider transport attempt. Values must be positive milliseconds. */
+export interface ProviderTransportWatchdog {
+  readonly headerTimeoutMs?: number;
+  readonly firstByteTimeoutMs?: number;
+  readonly chunkIdleTimeoutMs?: number;
+}
+
+/**
+ * Safe transport lifecycle evidence. It deliberately excludes headers, request/response bodies,
+ * SSE frames, and provider error text so observers can be persisted without secret disclosure.
+ */
+export type ProviderTransportEvent =
+  | { readonly type: "request_started"; readonly identity?: ProviderRequestIdentity }
+  | { readonly type: "response_headers"; readonly identity?: ProviderRequestIdentity; readonly status: number }
+  | { readonly type: "response_first_byte"; readonly identity?: ProviderRequestIdentity }
+  | { readonly type: "response_chunk"; readonly identity?: ProviderRequestIdentity }
+  | { readonly type: "request_completed"; readonly identity?: ProviderRequestIdentity }
+  | { readonly type: "request_failed"; readonly identity?: ProviderRequestIdentity; readonly phase: "headers" | "first_byte" | "chunk_idle" | "transport" };
+
+/** Host observer for safe provider transport lifecycle evidence. Observer failures are isolated. */
+export interface ProviderTransportObserver {
+  onEvent(event: ProviderTransportEvent): void;
+}
+
 /** Options for creating a message */
 export interface CreateMessageOptions {
   readonly sessionId?: string;
+  readonly requestIdentity?: ProviderRequestIdentity;
   readonly system: string;
   readonly messages: readonly AgentMessage[];
   readonly tools?: readonly ToolDefinition[];
@@ -94,6 +127,8 @@ export interface CreateMessageOptions {
   readonly maxTokens?: number;
   readonly deliberationResolution?: DeliberationResolution;
   readonly signal?: AbortSignal;
+  readonly transportWatchdog?: ProviderTransportWatchdog;
+  readonly transportObserver?: ProviderTransportObserver;
   readonly executionContext?: ProviderExecutionContext;
 }
 

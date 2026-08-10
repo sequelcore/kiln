@@ -105,6 +105,7 @@ describe("OpenCodeAdapter", () => {
 
       await adapter.createMessage({
         sessionId: "session-123",
+        requestIdentity: { projectId: "project-456", requestId: "request-789" },
         system: "test",
         messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
       });
@@ -118,7 +119,12 @@ describe("OpenCodeAdapter", () => {
         }),
       );
       const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
-      expect(new Headers(request.headers).has("x-opencode-session")).toBe(false);
+      const headers = new Headers(request.headers);
+      expect(headers.get("x-opencode-session")).toBe("session-123");
+      expect(headers.get("x-opencode-project")).toBe("project-456");
+      expect(headers.get("x-opencode-request")).toBe("request-789");
+      expect(headers.get("x-opencode-client")).toBe("kiln");
+      expect(headers.get("user-agent")).toBe("kiln/3.0.0-beta.1");
     });
 
     it("uses the official streaming chat path for tool-capable OpenCode Go turns", async () => {
@@ -192,6 +198,7 @@ describe("OpenCodeAdapter", () => {
         tier: "go",
         defaultModel: "kimi-k2.7-code",
       });
+      const events: unknown[] = [];
 
       await expect(adapter.createMessage({
         system: "Use the admitted tool.",
@@ -202,11 +209,133 @@ describe("OpenCodeAdapter", () => {
           inputSchema: { type: "object", properties: {} },
           tags: new Set(["write"]),
         }],
+        transportObserver: { onEvent: (event) => events.push(event) },
       })).resolves.toMatchObject({
         inputTokens: 4,
         outputTokens: 1,
         stopReason: "stop",
       });
+      expect(events).toContainEqual(expect.objectContaining({ type: "request_completed" }));
+    });
+
+    it("lowers Moonshot tool schemas and caps Kimi output tokens to the official catalog limit", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const fetchMock = vi.fn(async () => new Response([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] })}`,
+        `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } })}`,
+        "data: [DONE]",
+        "",
+      ].join("\n")));
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "kimi-k2.7-code" });
+
+      await adapter.createMessage({
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        maxTokens: 999_999,
+        tools: [{
+          name: "tuple",
+          description: "Test Moonshot schema lowering.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              values: { type: "array", prefixItems: [{ type: "string" }, { type: "number" }], unevaluatedItems: false },
+              mixed: { type: "array", prefixItems: [{ type: "string" }], items: { type: "number" } },
+              reusable: { $ref: "#/$defs/value", description: "Must be removed beside ref." },
+            },
+          },
+          tags: new Set(),
+        }],
+      });
+
+      const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body));
+      expect(body.max_tokens).toBe(32_000);
+      expect(body.tools[0].function.parameters.properties.values).toEqual({ type: "array", items: { anyOf: [{ type: "string" }, { type: "number" }] } });
+      expect(body.tools[0].function.parameters.properties.mixed).toEqual({ type: "array", items: { anyOf: [{ type: "string" }, { type: "number" }] } });
+      expect(body.tools[0].function.parameters.properties.reusable).toEqual({ $ref: "#/$defs/value" });
+    });
+
+    it("bounds non-2xx tool-stream bodies and records a safe failure phase", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      globalThis.fetch = vi.fn(async () => new Response("provider failure", { status: 503 })) as unknown as typeof globalThis.fetch;
+      const events: unknown[] = [];
+      const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
+
+      await expect(adapter.createMessage({
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        tools: [{ name: "write", description: "write", inputSchema: { type: "object" }, tags: new Set() }],
+        transportWatchdog: { firstByteTimeoutMs: 100 },
+        transportObserver: { onEvent: (event) => events.push(event) },
+      })).rejects.toThrow("opencode-go API error 503");
+
+      expect(events).toContainEqual(expect.objectContaining({ type: "response_first_byte" }));
+      expect(events).toContainEqual(expect.objectContaining({ type: "request_failed", phase: "headers" }));
+    });
+
+    it("omits unsafe identity values from both OpenCode headers and transport observations", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })));
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      const events: unknown[] = [];
+      const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2" });
+
+      await adapter.createMessage({
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        requestIdentity: { projectId: "../private-project", requestId: "secret value" },
+        transportObserver: { onEvent: (event) => events.push(event) },
+      });
+
+      const headers = new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit).headers);
+      expect(headers.has("x-opencode-project")).toBe(false);
+      expect(headers.has("x-opencode-request")).toBe(false);
+      expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ identity: undefined })]));
+    });
+
+    it("cancels the response body when the first-byte watchdog expires", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        cancel() { cancelled = true; },
+      });
+      globalThis.fetch = vi.fn(async () => new Response(stream)) as unknown as typeof globalThis.fetch;
+      const events: unknown[] = [];
+      const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
+
+      await expect(adapter.createMessage({
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        tools: [{ name: "write", description: "write", inputSchema: { type: "object" }, tags: new Set() }],
+        transportWatchdog: { firstByteTimeoutMs: 5 },
+        transportObserver: { onEvent: (event) => events.push(event) },
+      })).rejects.toThrow("first_byte");
+
+      expect(cancelled).toBe(true);
+      expect(events).toContainEqual(expect.objectContaining({ type: "request_failed", phase: "first_byte" }));
+    });
+
+    it("reports first-byte phase when the caller aborts an open response body", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const stream = new ReadableStream<Uint8Array>({});
+      globalThis.fetch = vi.fn(async () => new Response(stream)) as unknown as typeof globalThis.fetch;
+      const controller = new AbortController();
+      const events: unknown[] = [];
+      const adapter = new OpenCodeAdapter({ apiKey: "sk-test", tier: "go", defaultModel: "glm-5.2", internalRetry: false });
+      const request = adapter.createMessage({
+        system: "test",
+        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+        tools: [{ name: "write", description: "write", inputSchema: { type: "object" }, tags: new Set() }],
+        signal: controller.signal,
+        transportObserver: { onEvent: (event) => events.push(event) },
+      });
+      controller.abort();
+
+      await expect(request).rejects.toBeDefined();
+      expect(events).toContainEqual(expect.objectContaining({ type: "request_failed", phase: "first_byte" }));
     });
 
     it("routes tier 'zen' chat calls through the OpenCode Zen endpoint", async () => {

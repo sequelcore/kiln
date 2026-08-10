@@ -2,7 +2,12 @@ import { projectConversationForModel, sha256ContentIdentity, textPart } from "@k
 import type { ContentPart, ConversationToolResultProjectionPolicy, EffectivePromptManifest, ProviderAdapter, ToolCall } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { ProviderRequestEvidence } from "@kilnai/core";
-import type { OrchestratorDeps, OrchestrateResult, ToolExecutionSummary } from "./runtime-session-orchestrator.types.js";
+import type {
+  OrchestratorDeps,
+  OrchestrateResult,
+  RuntimeProviderTransportConfig,
+  ToolExecutionSummary,
+} from "./runtime-session-orchestrator.types.js";
 import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type OrchestratorResponseUsage, type ProviderRequestCachePartitionInput, type ProviderRequestRegionEvidence } from "./runtime-session-orchestrator-telemetry.js";
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 import { deriveRuntimeTurnOutcome, hasUnrecoverableManagedInvocationFailure } from "./governed-turn-outcome.js";
@@ -118,6 +123,8 @@ export async function requestRuntimeSessionFallbackResponse(
   maxTokens: number | undefined,
   cachePartition?: ProviderRequestCachePartitionInput,
   conversationPolicy?: ConversationToolResultProjectionPolicy,
+  abortSignal?: AbortSignal,
+  providerTransport?: RuntimeProviderTransportConfig,
 ): Promise<{
   readonly parts: readonly ContentPart[];
   readonly toolCalls: readonly ToolCall[];
@@ -143,6 +150,19 @@ export async function requestRuntimeSessionFallbackResponse(
     messages,
     maxTokens,
     toolChoice: { type: "none" },
+    ...(abortSignal ? { signal: abortSignal } : {}),
+    ...(providerTransport?.projectId || providerTransport?.requestIdPrefix
+      ? {
+          requestIdentity: {
+            ...(providerTransport.projectId ? { projectId: providerTransport.projectId } : {}),
+            ...(providerTransport.requestIdPrefix
+              ? { requestId: `${providerTransport.requestIdPrefix}:fallback` }
+              : {}),
+          },
+        }
+      : {}),
+    ...(providerTransport?.watchdog ? { transportWatchdog: providerTransport.watchdog } : {}),
+    ...(providerTransport?.observer ? { transportObserver: providerTransport.observer } : {}),
   });
 
   return {

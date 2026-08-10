@@ -14,6 +14,7 @@ import {
   ManagedJobApplicationService,
   ManagedJobExecutionFailure,
   type ManagedJobExecutionFailureClassification,
+  type ManagedAgentRuntimeInvocationProgressEvent,
   type ManagedJobNativeHarnessProfile,
   type ManagedJobNativeHarnessRoute,
   type ManagedJobRecord,
@@ -464,7 +465,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     writeApprovals: writeApprovalAuthority,
     ...(economicDispatch ? { economicDispatch: economicDispatch.coordinator } : {}),
     nativeHarnessExecution: {
-      execute: async ({ job, route, callerIdentity, abortSignal }) => {
+      execute: async ({ job, route, consumedWriteApproval, callerIdentity, abortSignal }) => {
         const execution = await freshManagedInvocation("execution", managedAccountComposition);
         const currentRoute = execution.routes.find((candidate) =>
           candidate.routeId === route.routeId
@@ -530,13 +531,18 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           ...(currentRoute.providerModelProof ? { providerModelProof: currentRoute.providerModelProof } : {}),
         }, {
           ...(abortSignal ? { abortSignal } : {}),
+          ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
         });
         if (started.status !== "started") {
           throw new ManagedJobApplicationError("admission_denied", "Review the exact admitted native-harness Runtime authority.");
         }
         const joined = await invocationService.join(request.invocationId);
+        const progressEvents = invocationService.status(request.invocationId)?.progressEvents;
         if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
-          throw managedJobExecutionFailure(joined.status === "completed" ? joined.record : undefined);
+          throw managedJobExecutionFailure(
+            joined.status === "completed" ? joined.record : undefined,
+            progressEvents,
+          );
         }
         const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
         return {
@@ -548,7 +554,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       },
     },
     economicExecution: {
-      execute: async ({ job, preparation }) => {
+      execute: async ({ job, preparation, consumedWriteApproval }) => {
         const selectedIdentity = preparation.commitment.reservation.selectedIdentity;
         const selected = selectedIdentity.route;
         const selectedCandidate = job.dispatch.kind === "economic"
@@ -635,6 +641,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           ...(route.providerModelProof ? { providerModelProof: route.providerModelProof } : {}),
         }, {
           abortSignal: preparation.abortSignal,
+          ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
           economicDispatch: {
             commitment: preparation.commitment,
             dispatchFenceId: preparation.dispatchFenceId,
@@ -647,6 +654,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           throw new ManagedJobApplicationError("admission_denied", "Review the exact committed managed Runtime authority.");
         }
         const joined = await invocationService.join(request.invocationId);
+        const progressEvents = invocationService.status(request.invocationId)?.progressEvents;
         if (
           joined.status === "completed"
           && joined.record.lifecycleState === "cancelled"
@@ -655,10 +663,14 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           throw new ManagedJobApplicationError(
             "provider_timeout",
             "Retry the exact admitted managed route after verifying provider availability.",
+            managedJobProviderTimeoutEvidence(joined.record, progressEvents),
           );
         }
         if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
-          throw managedJobExecutionFailure(joined.status === "completed" ? joined.record : undefined);
+          throw managedJobExecutionFailure(
+            joined.status === "completed" ? joined.record : undefined,
+            progressEvents,
+          );
         }
         const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
         return {
@@ -736,11 +748,13 @@ export async function createOperatorProjectManagedJobApplicationComposition(
 
 function managedJobExecutionFailure(
   record: ManagedAgentInvocationRecord | undefined,
+  progressEvents?: readonly ManagedAgentRuntimeInvocationProgressEvent[],
 ): ManagedJobExecutionFailure | ManagedJobApplicationError {
   if (record?.lifecycleState === "timed_out") {
     return new ManagedJobApplicationError(
       "provider_timeout",
       "Retry the exact admitted managed route after verifying provider availability.",
+      managedJobProviderTimeoutEvidence(record, progressEvents),
     );
   }
   const diagnostic = record?.diagnostics?.find((candidate) => candidate.classification !== undefined)
@@ -749,6 +763,46 @@ function managedJobExecutionFailure(
     managedJobFailureClassification(diagnostic?.classification),
     diagnostic?.uri,
   );
+}
+
+function managedJobProviderTimeoutEvidence(
+  record: ManagedAgentInvocationRecord | undefined,
+  progressEvents?: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+) {
+  const diagnosticUri = record?.diagnostics?.find((candidate) => candidate.kind === "timeout")?.uri;
+  const transportPhase = managedJobProviderTransportPhase(progressEvents);
+  return {
+    version: 1 as const,
+    classification: "provider_timeout" as const,
+    ...(diagnosticUri ? { diagnosticUri } : {}),
+    ...(transportPhase ? { transportPhase } : {}),
+  };
+}
+
+function managedJobProviderTransportPhase(
+  progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[] | undefined,
+): "headers" | "first_byte" | "chunk_idle" | "transport" | undefined {
+  let phase: "headers" | "first_byte" | "chunk_idle" | "transport" | undefined;
+  for (const event of progressEvents ?? []) {
+    if (event.kind !== "provider_transport") continue;
+    switch (event.metadata?.eventType) {
+      case "request_failed": {
+        const failedPhase = event.metadata.phase;
+        if (failedPhase === "headers" || failedPhase === "first_byte" || failedPhase === "chunk_idle" || failedPhase === "transport") {
+          phase = failedPhase;
+          break;
+        }
+        phase = "transport";
+        break;
+      }
+      case "request_started": phase = "headers"; break;
+      case "response_headers": phase = "first_byte"; break;
+      case "response_first_byte": phase = "chunk_idle"; break;
+      case "request_completed": phase = undefined; break;
+      default: break;
+    }
+  }
+  return phase;
 }
 
 function managedJobFailureClassification(
@@ -763,6 +817,7 @@ function managedJobFailureClassification(
     || classification === "native_session_error"
     || classification === "write_boundary_violation"
     || classification === "result_handoff_missing"
+    || classification === "provider_timeout"
   ) {
     return classification;
   }

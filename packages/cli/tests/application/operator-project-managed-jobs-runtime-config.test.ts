@@ -586,7 +586,13 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
           toolAuthority: expect.objectContaining({ writeAllowed: true, networkAllowed: false }),
           writeAuthority: expect.objectContaining({ approval: expect.objectContaining({ mode: "required-before-apply" }) }),
         }),
-      }), adapterTrace.adapter, expect.anything(), expect.anything());
+      }), adapterTrace.adapter, expect.anything(), expect.objectContaining({
+        consumedWriteApproval: expect.objectContaining({
+          approvalId: expect.any(String),
+          consumerId: `managed-job:${accepted.id}`,
+          consumedAt: expect.any(String),
+        }),
+      }));
       expect(join).toHaveBeenCalledOnce();
       await expect(composition.application.approveWrite(accepted.id, "2099-08-09T20:05:00.000Z")).rejects.toMatchObject({
         code: "invalid_transition",
@@ -620,7 +626,11 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         status: "completed",
         record: {
           invocationId,
-          lifecycleState: "cancelled",
+          lifecycleState: "timed_out",
+          diagnostics: [{
+            kind: "timeout",
+            uri: `kiln://managed-agents/invocations/${encodeURIComponent(invocationId)}/resources/timeout`,
+          }],
           resultHandoff: {
             provenance: { delivery: "runtime-generated", configuredModelId: "kimi-k2.6" },
             summary: "Managed economic lifecycle timed out.",
@@ -630,6 +640,15 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
         },
       } as never;
     });
+    const invocationStatus = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "status").mockReturnValue({
+      progressEvents: [{
+        eventId: "provider-transport-1",
+        kind: "provider_transport",
+        recordedAt: "2026-08-10T00:00:00.000Z",
+        summary: "Provider transport response headers.",
+        metadata: { eventType: "response_headers", phase: "headers", status: 200 },
+      }],
+    } as never);
     const composition = await createOperatorProjectManagedJobApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
@@ -645,11 +664,16 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       await expect(composition.application.getStatus({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
         state: "timed_out",
         diagnostic: "provider_timeout",
+        failureEvidence: {
+          classification: "provider_timeout",
+          transportPhase: "first_byte",
+        },
       });
     } finally {
       await composition.close();
       start.mockRestore();
       join.mockRestore();
+      invocationStatus.mockRestore();
     }
   });
 

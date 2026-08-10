@@ -26,6 +26,8 @@ import type {
   SessionTurnOutcome,
   ConversationToolResultProjectionPolicy,
   TurnTemporalContext,
+  ProviderTransportObserver,
+  ProviderTransportWatchdog,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { KilnMcpClient } from "@kilnai/core";
@@ -336,6 +338,7 @@ export interface PerCallToolConfig {
   readonly toolAllowlist?: ReadonlySet<string>;
   readonly rateLimiter?: RateLimiter;
   readonly abortSignal?: AbortSignal;
+  readonly providerTransport?: RuntimeProviderTransportConfig;
   readonly tenantId?: string;
   readonly additionalTools?: readonly ToolDefinition[];
   readonly initialToolChoice?: ToolChoiceOption;
@@ -361,6 +364,13 @@ export interface PerCallToolConfig {
     readonly configurationHash: string;
     readonly contextAllocationMode: "whole-block" | "segmented" | "retrieval-on-demand";
   };
+}
+
+export interface RuntimeProviderTransportConfig {
+  readonly projectId?: string;
+  readonly requestIdPrefix?: string;
+  readonly watchdog?: ProviderTransportWatchdog;
+  readonly observer?: ProviderTransportObserver;
 }
 
 export type RuntimeToolCallMetadataResolver = (

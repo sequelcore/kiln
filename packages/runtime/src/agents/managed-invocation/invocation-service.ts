@@ -21,6 +21,11 @@ import type {
   StructuredExecutionResult,
 } from "@kilnai/core";
 import { ManagedAgentRuntimeAdmissionError } from "./errors.js";
+import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
+import {
+  isInternalConsumedWriteApproval,
+  type ManagedAgentRuntimeConsumedWriteApproval,
+} from "./internal-consumed-write-approval.js";
 import { validateManagedAgentRuntimeRecoveryCheckpoint } from "./recovery-store.js";
 import type {
   ManagedAgentRuntimeEconomicDispatchCheckpoint,
@@ -135,6 +140,7 @@ export interface ManagedAgentRuntimeInvocationInput {
   readonly abortSignal: AbortSignal;
   readonly promptDelivery: ManagedAgentRuntimePromptDeliveryCoordinator;
   readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
+  readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
   readonly environment?: ManagedAgentEnvironmentVariables;
   readonly registerAdapterCompletion: (completion: PromiseLike<unknown>) => void;
   readonly registerEconomicSettlement?: (
@@ -161,7 +167,7 @@ export interface ManagedAgentRuntimeInvocationTerminalNotification {
 
 export interface ManagedAgentRuntimeInvocationProgressEvent {
   readonly eventId: string;
-  readonly kind: "tool_authorized" | "tool_called" | "tool_result" | "tool_cache_hit" | "error";
+  readonly kind: "tool_authorized" | "tool_called" | "tool_result" | "tool_cache_hit" | "error" | "provider_transport";
   readonly recordedAt: string;
   readonly summary: string;
   readonly toolName?: string;
@@ -183,6 +189,7 @@ export type ManagedAgentRuntimeInvocationTerminalObserver = (
 export interface ManagedAgentRuntimeInvocationLifecycleOptions {
   readonly abortSignal?: AbortSignal;
   readonly terminalObserver?: ManagedAgentRuntimeInvocationTerminalObserver;
+  readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
   /** Runtime-only identity for the attached surface that owns child cleanup. */
   readonly owner?: object;
   readonly economicDispatch?: {
@@ -451,6 +458,13 @@ export class RuntimeManagedAgentInvocationService {
           lifecycleOptions.economicDispatch.commitment,
         );
       }
+      if (lifecycleOptions.consumedWriteApproval) {
+        assertConsumedWriteApproval(
+          request,
+          capabilitySnapshotInput.routeId,
+          lifecycleOptions.consumedWriteApproval,
+        );
+      }
     } catch (error) {
       recordEconomicPending("runtime-prestart-validation-failed");
       throw error;
@@ -585,6 +599,9 @@ export class RuntimeManagedAgentInvocationService {
           abortSignal: abortController.signal,
           promptDelivery: this.promptDeliveryCoordinator(registeredRequest.invocationId),
           progressObserver: (event) => appendProgressEvent(entry, event),
+          ...(lifecycleOptions.consumedWriteApproval
+            ? { consumedWriteApproval: lifecycleOptions.consumedWriteApproval }
+            : {}),
           registerAdapterCompletion: (completion) => {
             registerAdapterCompletionOnEntry(entry, completion);
           },
@@ -984,6 +1001,7 @@ export class RuntimeManagedAgentInvocationService {
     readonly abortSignal?: AbortSignal;
     readonly promptDelivery?: ManagedAgentRuntimePromptDeliveryCoordinator;
     readonly progressObserver?: ManagedAgentRuntimeInvocationProgressObserver;
+    readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
     readonly environment?: ManagedAgentEnvironmentVariables;
     readonly registerAdapterCompletion?: (completion: PromiseLike<unknown>) => void;
     readonly registerEconomicSettlement?: (
@@ -1001,6 +1019,9 @@ export class RuntimeManagedAgentInvocationService {
       abortSignal: input.abortSignal ?? new AbortController().signal,
       promptDelivery: input.promptDelivery ?? this.promptDeliveryCoordinator(input.request.invocationId),
       ...(input.progressObserver !== undefined ? { progressObserver: input.progressObserver } : {}),
+      ...(input.consumedWriteApproval !== undefined
+        ? { consumedWriteApproval: input.consumedWriteApproval }
+        : {}),
       ...(environment !== undefined ? { environment: cloneJson(environment) } : {}),
       registerAdapterCompletion: input.registerAdapterCompletion ?? (() => undefined),
       ...(input.registerEconomicSettlement === undefined
@@ -1050,6 +1071,11 @@ export class RuntimeManagedAgentInvocationService {
       return undefined;
     }
     const onAbort = (): void => {
+      if (abortSignal.reason instanceof ManagedEconomicLifecycleTimeoutError) {
+        // Preserve adapter ownership of the terminal timeout record and its replay evidence.
+        entry.abortController.abort(abortSignal.reason);
+        return;
+      }
       void this.cancel(entry.request.invocationId, managedInvocationAbortReason(abortSignal.reason))
         .catch(() => undefined);
     };
@@ -1076,5 +1102,37 @@ export class RuntimeManagedAgentInvocationService {
       decision: cloneJson(decision),
       snapshot: snapshotInvocation(entry),
     };
+  }
+}
+
+function assertConsumedWriteApproval(
+  request: ManagedAgentInvocationRequest,
+  routeId: string,
+  approval: ManagedAgentRuntimeConsumedWriteApproval,
+): void {
+  const writeAuthority = request.authority.writeAuthority;
+  const binding = approval.binding;
+  if (
+    !isInternalConsumedWriteApproval(approval)
+    || request.profile !== "foundation-apply-approved-writes"
+    || request.authority.toolAuthority.writeAllowed !== true
+    || writeAuthority?.profile !== request.profile
+    || writeAuthority.scope.workspace.mode !== "apply-approved"
+    || writeAuthority.approval.mode !== "required-before-apply"
+    || writeAuthority.approval.evidenceRequired !== true
+    || !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/u.test(approval.approvalId)
+    || approval.consumerId !== request.invocationId
+    || !Number.isFinite(Date.parse(approval.consumedAt))
+    || binding.jobId !== request.invocationId.replace(/^managed-job:/u, "")
+    || binding.callerId !== request.requestedBy
+    || binding.configuredAgentProfileId !== request.agentId
+    || binding.admissionProfileId !== request.profile
+    || binding.routeId !== routeId
+    || binding.providerId !== request.providerRoute?.providerId
+    || binding.model !== request.providerRoute?.model
+  ) {
+    throw new ManagedAgentRuntimeAdmissionError(
+      "Consumed managed write approval does not match the exact approved-write invocation authority.",
+    );
   }
 }

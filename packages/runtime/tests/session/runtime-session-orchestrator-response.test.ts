@@ -66,6 +66,73 @@ describe("requestRuntimeSessionFallbackResponse", () => {
     )).rejects.toThrow("effective prompt manifest");
     expect(adapter.createMessage).not.toHaveBeenCalled();
   });
+
+  it("propagates the governed abort signal to the fallback provider request", async () => {
+    const adapter = provider();
+    const controller = new AbortController();
+    const manifest = buildEffectivePromptManifest({
+      components: [{
+        id: "exact",
+        revision: "revision",
+        scope: "static",
+        content: "Exact prompt.",
+        provenance: { source: "test" },
+      }],
+    });
+
+    await requestRuntimeSessionFallbackResponse(
+      adapter,
+      manifest,
+      session(),
+      100,
+      undefined,
+      undefined,
+      controller.signal,
+    );
+
+    expect((adapter.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0].signal)
+      .toBe(controller.signal);
+  });
+
+  it("propagates safe transport identity, watchdog, and observer to fallback requests", async () => {
+    const adapter = provider();
+    const observer = { onEvent: vi.fn() };
+    const watchdog = { firstByteTimeoutMs: 250 };
+    const manifest = buildEffectivePromptManifest({
+      components: [{
+        id: "exact",
+        revision: "revision",
+        scope: "static",
+        content: "Exact prompt.",
+        provenance: { source: "test" },
+      }],
+    });
+
+    await requestRuntimeSessionFallbackResponse(
+      adapter,
+      manifest,
+      session(),
+      100,
+      undefined,
+      undefined,
+      undefined,
+      {
+        projectId: "project-digest",
+        requestIdPrefix: "invocation-digest",
+        watchdog,
+        observer,
+      },
+    );
+
+    expect(adapter.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      requestIdentity: {
+        projectId: "project-digest",
+        requestId: "invocation-digest:fallback",
+      },
+      transportWatchdog: watchdog,
+      transportObserver: observer,
+    }));
+  });
 });
 
 // Roadmap 01 (External Runtime Governance), Slice 0 - Failing Trace Fixture,

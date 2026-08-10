@@ -280,3 +280,4 @@ export type {
   ManagedAgentStaleRecoveryResult,
   RuntimeManagedAgentInvocationServiceOptions,
 } from "./invocation-service.js";
+export type { ManagedAgentRuntimeConsumedWriteApproval } from "./internal-consumed-write-approval.js";

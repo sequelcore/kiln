@@ -75,6 +75,21 @@ export interface ManagedEconomicDispatchCoordinatorOptions {
   }): Promise<ManagedAgentRuntimeAdapter | undefined>;
 }
 
+/**
+ * Marks expiry of the coordinator-owned economic lifecycle. This must remain
+ * distinct from a parent cancellation so terminal adapters can report an
+ * auditable timeout without reclassifying an operator stop request.
+ */
+export class ManagedEconomicLifecycleTimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`Managed economic lifecycle timed out after ${timeoutMs}ms.`);
+    this.name = "ManagedEconomicLifecycleTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export interface ManagedEconomicDispatchPrepareInput {
   readonly jobId: string;
   readonly economicAttemptId: string;
@@ -307,7 +322,7 @@ function createManagedEconomicLifecycleDeadline(timeoutMs: number, parentSignal:
   else parentSignal?.addEventListener("abort", onParentAbort, { once: true });
   let disposed = false;
   const timer = setTimeout(() => {
-    controller.abort(new Error(`Managed economic lifecycle timed out after ${timeoutMs}ms.`));
+    controller.abort(new ManagedEconomicLifecycleTimeoutError(timeoutMs));
     disposed = true;
     parentSignal?.removeEventListener("abort", onParentAbort);
   }, timeoutMs);

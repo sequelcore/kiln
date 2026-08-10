@@ -5,6 +5,7 @@ import type {
   AgentStreamEvent,
   ToolCall,
 } from "../index.js";
+import { safeProviderRequestIdentity } from "../provider-request-identity.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
@@ -177,26 +178,23 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     request.body.stream = true;
     request.body.stream_options = { include_usage: true };
     const response = await withRetry(
-      () => fetch(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: this.buildHeaders(options),
-        body: JSON.stringify(request.body),
-        signal: options.signal,
-      }),
+      () => this.fetchResponse(request.body, options),
       this.retryOptions(),
       options.signal,
     );
     if (!response.ok) {
-      const responseText = await response.text();
+      const responseText = response.body ? await this.readResponseText(response.body, options) : await response.text();
       const error = new Error(`${this.name} API error ${response.status}: ${responseText}`);
       (error as unknown as Record<string, unknown>).status = response.status;
+      (error as unknown as Record<string, unknown>).transportNoRetry = true;
+      this.emitTransport(options, { type: "request_failed", identity: safeProviderRequestIdentity(options.requestIdentity), phase: "headers" });
       throw error;
     }
     if (!response.body) {
       throw new Error(`${this.name} streaming response has no body.`);
     }
 
-    const reader = response.body.getReader();
+    const reader = this.observeReader(response.body.getReader(), options);
     const decoder = new TextDecoder();
     const toolBuffers = new Map<number, StreamedToolCallBuffer>();
     let buffer = "";
@@ -210,6 +208,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       const data = trimmed.slice(6);
       if (data === "[DONE]") {
         terminal = true;
+        this.emitTransport(options, { type: "request_completed", identity: safeProviderRequestIdentity(options.requestIdentity) });
         return;
       }
       const chunk = JSON.parse(data) as OpenAIStreamChunk;
@@ -281,20 +280,17 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     request.body.stream = true;
 
     const response = await withRetry(
-      () => fetch(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: this.buildHeaders(options),
-        body: JSON.stringify(request.body),
-        signal: options.signal,
-      }),
+      () => this.fetchResponse(request.body, options),
       this.retryOptions(),
       options.signal,
     );
 
     if (!response.ok) {
-      const text = await response.text();
+      const text = response.body ? await this.readResponseText(response.body, options) : await response.text();
       const error = new Error(`${this.name} API error ${response.status}: ${text}`);
       (error as unknown as Record<string, unknown>).status = response.status;
+      (error as unknown as Record<string, unknown>).transportNoRetry = true;
+      this.emitTransport(options, { type: "request_failed", identity: safeProviderRequestIdentity(options.requestIdentity), phase: "headers" });
       throw error;
     }
 
@@ -304,7 +300,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
 
     const toolBuffers = new Map<number, StreamedToolCallBuffer>();
 
-    const reader = response.body.getReader();
+    const reader = this.observeReader(response.body.getReader(), options);
     const decoder = new TextDecoder();
     let buffer = "";
 
@@ -326,6 +322,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
             // Flush any remaining tool calls
             yield* this.flushStreamedToolCalls(toolBuffers, request.toolNames);
             toolBuffers.clear();
+            this.emitTransport(options, { type: "request_completed", identity: safeProviderRequestIdentity(options.requestIdentity) });
             yield { type: "done", content: "" };
             return;
           }
@@ -364,6 +361,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       if (buffer.trim() === "data: [DONE]") {
         yield* this.flushStreamedToolCalls(toolBuffers, request.toolNames);
         toolBuffers.clear();
+        this.emitTransport(options, { type: "request_completed", identity: safeProviderRequestIdentity(options.requestIdentity) });
         yield { type: "done", content: "" };
         return;
       }
@@ -535,7 +533,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     const body: OpenAIRequestBody = {
       model: this.model,
       messages,
-      max_tokens: options.maxTokens ?? 4096,
+      max_tokens: this.resolveMaxTokens(options),
     };
     const deliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
     if (deliberationLevel) {
@@ -548,7 +546,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         function: {
           name: toolNames.toProviderName(tool.name),
           description: tool.description,
-          parameters: tool.strict === true ? toStrictToolSchema(tool.inputSchema) : tool.inputSchema,
+          parameters: this.projectToolSchema(tool.strict === true ? toStrictToolSchema(tool.inputSchema) : tool.inputSchema),
           ...(tool.strict === true ? { strict: true as const } : {}),
         },
       }));
@@ -581,30 +579,167 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     throw new Error(`${this.name} does not declare native deliberation transport for level '${level}'.`);
   }
 
+  /** Provider-specific output ceilings are applied before wire serialization. */
+  protected resolveMaxTokens(options: CreateMessageOptions): number {
+    return options.maxTokens ?? 4096;
+  }
+
+  /** Provider-specific JSON-schema compatibility lowering. */
+  protected projectToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+    return schema;
+  }
+
   /** HTTP headers for API requests. Override in subclasses to add provider-specific headers. */
-  protected buildHeaders(_options?: Pick<CreateMessageOptions, "sessionId">): Record<string, string> {
+  protected buildHeaders(_options?: Pick<CreateMessageOptions, "sessionId" | "requestIdentity">): Record<string, string> {
     return {
       Authorization: `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
     };
   }
 
+  private async fetchResponse(body: OpenAIRequestBody, options: CreateMessageOptions): Promise<Response> {
+    const timeout = options.transportWatchdog?.headerTimeoutMs;
+    if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0)) {
+      throw new KilnError("CONFIG_INVALID", "Provider transport watchdog timeout must be a positive finite number.");
+    }
+    const controller = new AbortController();
+    const signal = timeout === undefined
+      ? options.signal
+      : options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+    const timer = timeout === undefined
+      ? undefined
+      : setTimeout(() => controller.abort(new ProviderTransportTimeoutError("headers")), timeout);
+    this.emitTransport(options, { type: "request_started", identity: safeProviderRequestIdentity(options.requestIdentity) });
+    try {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: this.buildHeaders(options),
+        body: JSON.stringify(body),
+        signal,
+      });
+      this.emitTransport(options, { type: "response_headers", identity: safeProviderRequestIdentity(options.requestIdentity), status: response.status });
+      return response;
+    } catch (error) {
+      this.emitTransport(options, {
+        type: "request_failed",
+        identity: safeProviderRequestIdentity(options.requestIdentity),
+        phase: error instanceof ProviderTransportTimeoutError || options.signal?.aborted || isAbortError(error) ? "headers" : "transport",
+      });
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  private emitTransport(options: CreateMessageOptions, event: import("../index.js").ProviderTransportEvent): void {
+    try {
+      options.transportObserver?.onEvent(event);
+    } catch {
+      // Observers are diagnostic-only and cannot disrupt a provider request.
+    }
+  }
+
+  private observeReader(reader: ReadableStreamDefaultReader<Uint8Array>, options: CreateMessageOptions): ObservedReader {
+    const firstByteTimeout = options.transportWatchdog?.firstByteTimeoutMs;
+    const chunkIdleTimeout = options.transportWatchdog?.chunkIdleTimeoutMs;
+    assertWatchdogTimeout(firstByteTimeout);
+    assertWatchdogTimeout(chunkIdleTimeout);
+    const controller = new AbortController();
+    const onCallerAbort = () => controller.abort(options.signal?.reason);
+    if (options.signal?.aborted) onCallerAbort();
+    else options.signal?.addEventListener("abort", onCallerAbort, { once: true });
+    const detachCallerAbort = () => options.signal?.removeEventListener("abort", onCallerAbort);
+    let sawFirstByte = false;
+    let timer = armReadWatchdog(firstByteTimeout, controller, "first_byte");
+    return {
+      read: async () => {
+        const aborted = abortWhenSignalled(controller.signal);
+        try {
+          const result = await Promise.race([reader.read(), aborted.promise]);
+          aborted.dispose();
+          if (result.done) {
+            clearReadWatchdog(timer);
+            detachCallerAbort();
+            this.emitTransport(options, { type: "request_completed", identity: safeProviderRequestIdentity(options.requestIdentity) });
+            return result;
+          }
+          if (result.value.byteLength > 0) {
+            if (!sawFirstByte) {
+              sawFirstByte = true;
+              this.emitTransport(options, { type: "response_first_byte", identity: safeProviderRequestIdentity(options.requestIdentity) });
+            }
+            clearReadWatchdog(timer);
+            timer = armReadWatchdog(chunkIdleTimeout, controller, "chunk_idle");
+            this.emitTransport(options, { type: "response_chunk", identity: safeProviderRequestIdentity(options.requestIdentity) });
+          }
+          return result;
+        } catch (error) {
+          aborted.dispose();
+          clearReadWatchdog(timer);
+          detachCallerAbort();
+          // A timed-out read remains pending unless the underlying stream is cancelled.
+          await reader.cancel(error).catch(() => undefined);
+          this.emitTransport(options, {
+            type: "request_failed",
+            identity: safeProviderRequestIdentity(options.requestIdentity),
+            phase: error instanceof ProviderReadTimeoutError
+              ? error.phase
+              : options.signal?.aborted || isAbortError(error)
+                ? sawFirstByte ? "chunk_idle" : "first_byte"
+                : "transport",
+          });
+          throw error;
+        }
+      },
+      releaseLock: () => {
+        clearReadWatchdog(timer);
+        detachCallerAbort();
+        try {
+          reader.releaseLock();
+        } catch {
+          // Cancellation may still be settling after a watchdog timeout.
+        }
+      },
+    };
+  }
+
   private async sendRequest(body: OpenAIRequestBody, options: CreateMessageOptions): Promise<OpenAIChatResponse> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: this.buildHeaders(options),
-      body: JSON.stringify(body),
-      signal: options.signal,
-    });
+    const response = await this.fetchResponse(body, options);
 
     if (!response.ok) {
-      const text = await response.text();
+      const text = response.body ? await this.readResponseText(response.body, options) : await response.text();
       const error = new Error(`${this.name} API error ${response.status}: ${text}`);
       (error as unknown as Record<string, unknown>).status = response.status;
+      if (response.body) (error as unknown as Record<string, unknown>).transportNoRetry = true;
       throw error;
     }
 
-    return (await response.json()) as OpenAIChatResponse;
+    try {
+      return response.body
+        ? JSON.parse(await this.readResponseText(response.body, options)) as OpenAIChatResponse
+        : await response.json() as OpenAIChatResponse;
+    } catch (error) {
+      if (response.body && typeof error === "object" && error !== null) {
+        (error as Record<string, unknown>).transportNoRetry = true;
+      }
+      throw error;
+    }
+  }
+
+  private async readResponseText(body: ReadableStream<Uint8Array> | null, options: CreateMessageOptions): Promise<string> {
+    if (!body) return "";
+    const reader = this.observeReader(body.getReader(), options);
+    const decoder = new TextDecoder();
+    let text = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) return text + decoder.decode();
+        text += decoder.decode(value, { stream: true });
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   private mapResponse(response: OpenAIChatResponse, toolNames: ProviderToolNameCodec): AgentResponse {
@@ -641,6 +776,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
         maxRetries: 1,
         baseDelayMs: BASE_DELAY_MS,
         isRetryable: (error: unknown): boolean => {
+          if (isTransportNoRetry(error)) return false;
           if (isAbortError(error)) {
             return false;
           }
@@ -653,6 +789,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
       maxRetries: MAX_RETRIES,
       baseDelayMs: BASE_DELAY_MS,
       isRetryable: (error: unknown): boolean => {
+        if (isTransportNoRetry(error)) return false;
         if (isAbortError(error)) {
           return false;
         }
@@ -669,6 +806,61 @@ function isAbortError(error: unknown): boolean {
   }
   const record = error as Record<string, unknown>;
   return record.name === "AbortError" || record.code === "ABORT_ERR";
+}
+
+function isTransportNoRetry(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as Record<string, unknown>).transportNoRetry === true;
+}
+
+interface ObservedReader {
+  read(): Promise<ReadableStreamDefaultReadDoneResult | ReadableStreamDefaultReadValueResult<Uint8Array>>;
+  releaseLock(): void;
+}
+
+class ProviderTransportTimeoutError extends Error {
+  constructor(readonly phase: "headers") {
+    super("Provider transport headers timeout.");
+  }
+}
+
+class ProviderReadTimeoutError extends Error {
+  constructor(readonly phase: "first_byte" | "chunk_idle") {
+    super(`Provider transport ${phase} timeout.`);
+  }
+}
+
+function assertWatchdogTimeout(timeout: number | undefined): void {
+  if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0)) {
+    throw new KilnError("CONFIG_INVALID", "Provider transport watchdog timeout must be a positive finite number.");
+  }
+}
+
+function armReadWatchdog(
+  timeout: number | undefined,
+  controller: AbortController,
+  phase: "first_byte" | "chunk_idle",
+): ReturnType<typeof setTimeout> | undefined {
+  return timeout === undefined
+    ? undefined
+    : setTimeout(() => controller.abort(new ProviderReadTimeoutError(phase)), timeout);
+}
+
+function clearReadWatchdog(timer: ReturnType<typeof setTimeout> | undefined): void {
+  if (timer !== undefined) clearTimeout(timer);
+}
+
+function abortWhenSignalled(signal: AbortSignal): { readonly promise: Promise<never>; readonly dispose: () => void } {
+  let dispose = () => undefined;
+  const promise = new Promise<never>((_, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    dispose = () => { signal.removeEventListener("abort", onAbort); };
+  });
+  return { promise, dispose };
 }
 
 function unsupportedModality(provider: string, modality: string, reason: string): KilnError {

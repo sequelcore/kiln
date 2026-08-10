@@ -10,6 +10,7 @@ import type {
   ManagedAgentUsageReport,
   ManagedAgentWriteEvidence,
   ProviderAdapter,
+  ProviderTransportEvent,
   ManagedEconomicExecutionIdentity,
   ManagedEconomicExecutionReport,
   ModelDeliberationCapabilities,
@@ -65,6 +66,7 @@ import {
   createManagedInvocationRuntimeResourceReader,
 } from "./resource-context.js";
 import { appendManagedResultHandoffContract } from "./handoff-prompt.js";
+import { ManagedEconomicLifecycleTimeoutError } from "./economic-dispatch-coordinator.js";
 
 export interface ManagedDirectProviderRuntimeAdapterConfig {
   readonly providerId: string;
@@ -88,6 +90,7 @@ const RESULT_SUMMARY_LIMIT = 2000;
 const CHILD_EXECUTION_RESOURCE_LIMIT = 12000;
 const TOOL_OUTPUT_LIMIT = 1200;
 const ECONOMIC_EXECUTION_EVIDENCE_VALIDITY_MS = 5 * 60 * 1000;
+const MAX_PROVIDER_TRANSPORT_PROGRESS_EVENTS_PER_CHILD = 128;
 const RESULT_RESOURCE_NOTICE = "Full child result is available through the managed invocation result resource.";
 const NO_DIRECT_HANDOFF_SUMMARY = "Direct provider managed invocation finished without final handoff text.";
 const MANAGED_AGENT_SUBMIT_HANDOFF_TOOL_NAME = "managed_agent.submit_handoff";
@@ -260,34 +263,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
 
     if (raced === TIMEOUT) {
       execution.catch(() => undefined);
-      const timeoutSummary = formatTimeoutSummary({
-        timeoutMs: request.authority.timeoutMs,
-        childSessionId,
-        childTurnId,
-      });
-      const timeoutResource = childTimeoutReplayResource(request.invocationId, timeoutSummary, progressEvents);
-      return defineManagedAgentInvocationRecord({
-        ...this.baseRecord(input),
-        lifecycleState: "timed_out",
-        childSessionId,
-        childTurnId,
-        transcript: transcriptPointer(request.invocationId),
-        diagnostics: [{
-          uri: managedInvocationUri(request.invocationId, "timeout"),
-          kind: "timeout",
-        }],
-        usage: unknownRuntimeUsage(),
-        resultHandoff: {
-          provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
-          summary: timeoutSummary,
-          resourceUris: [
-            managedInvocationUri(request.invocationId, "transcript"),
-            managedInvocationUri(request.invocationId, "timeout"),
-          ],
-          memoryWriteProposalUris: [],
-        },
-        replayResources: [timeoutResource],
-      });
+      return this.timedOutRecord(input, childSessionId, childTurnId, progressEvents);
     }
 
     return raced as ManagedAgentInvocationRecord;
@@ -371,6 +347,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
     const request = input.request;
     const childSessionId = childSession.id;
     const childTurnId = `${childSessionId}:turn:1`;
+    let providerTransportOrdinal = 0;
     const recordProgress = (event: ManagedAgentRuntimeInvocationProgressEvent): void => {
       progressEvents.push(event);
       void Promise.resolve(input.progressObserver?.(event)).catch(() => undefined);
@@ -406,6 +383,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           MANAGED_AGENT_SUBMIT_HANDOFF_AUTHORITY,
         );
       }
+      const effectiveToolAuthority = input.consumedWriteApproval
+        ? applyConsumedWriteApproval(toolAuthority, request)
+        : toolAuthority;
       const builtinTools = withManagedToolSandbox(
         runtimeBuiltinTools,
         createManagedToolSandbox(request),
@@ -434,7 +414,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         toolAllowlist: allowedToolNames,
         additionalTools: tools,
         ...(capabilityMap.size > 0 ? { perCallCapabilities: capabilityMap } : {}),
-        ...(toolAuthority.size > 0 ? { toolAuthority } : {}),
+        ...(effectiveToolAuthority.size > 0 ? { toolAuthority: effectiveToolAuthority } : {}),
         ...(request.providerRoute.deliberationResolution
           ? { deliberationResolution: request.providerRoute.deliberationResolution }
           : {}),
@@ -452,6 +432,23 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
                 : {}),
             }
           : {}),
+        providerTransport: {
+          projectId: managedProviderTransportProjectId(request),
+          requestIdPrefix: managedProviderTransportRequestIdPrefix(request),
+          observer: {
+            onEvent: (event) => {
+              // Chunk cadence is unbounded and carries no durable diagnostic value.
+              if (event.type === "response_chunk") return;
+              if (providerTransportOrdinal >= MAX_PROVIDER_TRANSPORT_PROGRESS_EVENTS_PER_CHILD) return;
+              providerTransportOrdinal += 1;
+              recordProgress(managedProviderTransportProgressEvent(
+                request.invocationId,
+                providerTransportOrdinal,
+                event,
+              ));
+            },
+          },
+        },
       };
       const governedResourceContext = await buildManagedInvocationResourceContext({
         resourceUris: request.input.resourceUris,
@@ -573,6 +570,9 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         ...(writeEvidence.evidence.length > 0 ? { writeEvidence: writeEvidence.evidence } : {}),
       });
     } catch (err) {
+      if (input.abortSignal.aborted && input.abortSignal.reason instanceof ManagedEconomicLifecycleTimeoutError) {
+        return this.timedOutRecord(input, childSessionId, childTurnId, progressEvents);
+      }
       if (input.abortSignal.aborted) {
         return defineManagedAgentInvocationRecord({
           ...this.baseRecord(input),
@@ -632,6 +632,46 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       authority: request.authority,
       capabilitySnapshot: input.admission.capabilitySnapshot,
     };
+  }
+
+  private timedOutRecord(
+    input: ManagedAgentRuntimeInvocationInput,
+    childSessionId: string,
+    childTurnId: string,
+    progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+  ): ManagedAgentInvocationRecord {
+    const request = input.request;
+    const timeoutMs = input.abortSignal.reason instanceof ManagedEconomicLifecycleTimeoutError
+      ? input.abortSignal.reason.timeoutMs
+      : request.authority.timeoutMs;
+    const timeoutSummary = formatTimeoutSummary({
+      timeoutMs,
+      childSessionId,
+      childTurnId,
+    });
+    const timeoutResource = childTimeoutReplayResource(request.invocationId, timeoutSummary, progressEvents);
+    return defineManagedAgentInvocationRecord({
+      ...this.baseRecord(input),
+      lifecycleState: "timed_out",
+      childSessionId,
+      childTurnId,
+      transcript: transcriptPointer(request.invocationId),
+      diagnostics: [{
+        uri: managedInvocationUri(request.invocationId, "timeout"),
+        kind: "timeout",
+      }],
+      usage: unknownRuntimeUsage(),
+      resultHandoff: {
+        provenance: runtimeGeneratedHandoffProvenance(request.providerRoute.model),
+        summary: timeoutSummary,
+        resourceUris: [
+          managedInvocationUri(request.invocationId, "transcript"),
+          managedInvocationUri(request.invocationId, "timeout"),
+        ],
+        memoryWriteProposalUris: [],
+      },
+      replayResources: [timeoutResource],
+    });
   }
 
   private providerRoute(route: ManagedAgentInvocationRequest["providerRoute"]): ManagedAgentInvocationRequest["providerRoute"] {
@@ -907,6 +947,58 @@ function buildChildSessionId(request: ManagedAgentInvocationRequest): string {
   return `${request.parentSessionId}:managed:${request.invocationId}`;
 }
 
+function applyConsumedWriteApproval(
+  source: ReadonlyMap<string, AuthorityDescriptor>,
+  request: ManagedAgentInvocationRequest,
+): ReadonlyMap<string, AuthorityDescriptor> {
+  const approvedTools = new Set(request.authority.writeAuthority?.scope.tools.allowedToolNames ?? []);
+  return new Map([...source].map(([toolName, authority]) => [
+    toolName,
+    approvedTools.has(toolName) && authority.requiresApproval
+      ? {
+          ...authority,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Exact durable managed write approval was consumed before the dispatch fence",
+        }
+      : authority,
+  ]));
+}
+
+function managedProviderTransportProjectId(request: ManagedAgentInvocationRequest): string {
+  return `kiln-project-${digestManagedEconomicValue({
+    scopeKind: request.authority.memoryScope.scope.kind,
+    scopeId: request.authority.memoryScope.scope.id,
+  }).slice("sha256:".length)}`;
+}
+
+function managedProviderTransportRequestIdPrefix(request: ManagedAgentInvocationRequest): string {
+  return `kiln-request-${digestManagedEconomicValue({
+    invocationId: request.invocationId,
+    parentTurnId: request.parentTurnId,
+  }).slice("sha256:".length)}`;
+}
+
+function managedProviderTransportProgressEvent(
+  invocationId: string,
+  ordinal: number,
+  event: ProviderTransportEvent,
+): ManagedAgentRuntimeInvocationProgressEvent {
+  const recordedAt = new Date().toISOString();
+  const metadata = event.type === "response_headers"
+    ? { eventType: event.type, phase: "headers", status: event.status }
+    : event.type === "request_failed"
+      ? { eventType: event.type, phase: event.phase }
+      : { eventType: event.type };
+  return {
+    eventId: `${invocationId}:provider-transport:${ordinal}`,
+    kind: "provider_transport",
+    recordedAt,
+    summary: `Provider transport ${event.type.replaceAll("_", " ")}.`,
+    metadata,
+  };
+}
+
 function collectDirectRuntimeWriteEvidence(
   request: ManagedAgentInvocationRequest,
   toolExecutions: readonly ToolExecutionSummary[],
@@ -1065,8 +1157,25 @@ function childTimeoutReplayResource(
     uri: managedInvocationUri(invocationId, "timeout"),
     title: "Managed invocation timeout evidence",
     mimeType: "text/markdown",
-    text: clipResourceText(formatChildTimeoutEvidence(summary, progressEvents), CHILD_EXECUTION_RESOURCE_LIMIT),
+    text: clipResourceText(
+      formatChildTimeoutEvidence(summary, sanitizeTimeoutProgressEvidence(progressEvents)),
+      CHILD_EXECUTION_RESOURCE_LIMIT,
+    ),
   };
+}
+
+/** Timeout replay is durable evidence, unlike the in-memory progress stream. */
+function sanitizeTimeoutProgressEvidence(
+  progressEvents: readonly ManagedAgentRuntimeInvocationProgressEvent[],
+): readonly ManagedAgentRuntimeInvocationProgressEvent[] {
+  return progressEvents.map((event) => event.kind === "provider_transport"
+    ? event
+    : {
+        eventId: event.eventId,
+        kind: event.kind,
+        recordedAt: event.recordedAt,
+        summary: "Tool progress observed before timeout.",
+      });
 }
 
 function formatChildExecutionEvidence(result: OrchestrateResult, resultText: string): string {

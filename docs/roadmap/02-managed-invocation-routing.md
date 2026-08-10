@@ -246,8 +246,7 @@ future-quota claim.
 
 ### Slice 6 - Governed Structured Write Approval
 
-Status: Portable implementation complete; the bounded direct-provider live
-write promotion remains pending a healthy provider response.
+Status: Complete, including bounded direct-provider live write promotion.
 
 Define one provider-neutral approval-evidence contract for approved managed
 writes initiated through structured or headless surfaces. Interactive
@@ -284,13 +283,20 @@ evidence permits exactly one scoped write, while
 missing, expired, revoked, broadened, replayed, or cross-route evidence denies
 before provider effect. The opt-in direct OpenCode Go live test exercises a
 disposable repository fixture through acceptance, approval, commitment, fence,
-write evidence, settlement, and replay. On 2026-08-10 both the 120-second
-service route and 300-second critical route received no terminal provider
-response, so Kiln made no write and retained conservative settlement state.
-That observation is a provider-availability residual, not portable authority
-evidence and not a reason to weaken or extend the deadline. Remote pairing from
-Roadmap 08 may authenticate the approver session, but never grants write
-approval by itself.
+write evidence, settlement, and replay. The 2026-08-10 investigation proved
+that OpenCode Go returned a successful streamed tool call and terminal response;
+Kiln had consumed the durable receipt but incorrectly opened a second
+interactive approval gate inside the direct runtime. The managed-job authority
+now mints a process-local, non-serializable capability only after the exact
+SQLite consume; Runtime validates its job, caller, profile, route, provider,
+and model binding, and disables approval waiting only for tools already
+inside the committed write scope. A bounded rerun completed the disposable
+write, terminal handoff, canonical redacted evidence, subscription settlement,
+and replay. If receipt consumption succeeds but job-store projection fails,
+Runtime retries the idempotent projection and otherwise leaves the unfenced job
+queued for reconciliation; it never converts that persistence gap into provider
+effect. Remote pairing from Roadmap 08 may authenticate the approver
+session, but never grants write approval by itself.
 
 ## Promotion Gates
 

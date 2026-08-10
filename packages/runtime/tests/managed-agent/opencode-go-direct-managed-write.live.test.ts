@@ -37,7 +37,9 @@ describeManagedAgentProviderLive(
                 readonly messages?: readonly { readonly role?: unknown; readonly tool_calls?: readonly unknown[]; readonly tool_call_id?: unknown }[];
                 readonly tools?: readonly { readonly function?: { readonly name?: unknown; readonly description?: unknown; readonly parameters?: unknown } }[];
                 readonly tool_choice?: unknown;
+                readonly stream_options?: { readonly include_usage?: unknown };
               };
+              const headers = new Headers(init.headers);
               const trace: Record<string, unknown> = {
                 bodyBytes: Buffer.byteLength(init.body, "utf8"),
                 model: body.model,
@@ -49,13 +51,24 @@ describeManagedAgentProviderLive(
                 toolNames: body.tools?.map((tool) => tool.function?.name),
                 toolBytes: body.tools?.map((tool) => Buffer.byteLength(JSON.stringify(tool), "utf8")),
                 toolChoice: body.tool_choice,
+                includesStreamUsage: body.stream_options?.include_usage === true,
+                hasProjectIdentity: headers.has("x-opencode-project"),
+                hasSessionIdentity: headers.has("x-opencode-session"),
+                hasRequestIdentity: headers.has("x-opencode-request"),
+                client: headers.get("x-opencode-client"),
+                hasKilnUserAgent: headers.get("user-agent")?.startsWith("kiln/") === true,
               };
               requestTrace.push(trace);
             } catch {
               requestTrace.push({ parse: "failed" });
             }
           }
-          return originalFetch(input, init);
+          const response = await originalFetch(input, init);
+          const trace = requestTrace.at(-1);
+          if (!trace || !url.endsWith("/chat/completions")) return response;
+          trace.responseStatus = response.status;
+          trace.hasResponseBody = response.body !== null;
+          return observeOpenCodeResponse(response, trace);
         };
         const routeId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
           || "opencode-go-critical-approved-write";
@@ -87,7 +100,10 @@ describeManagedAgentProviderLive(
             new Date(Date.now() + 5 * 60_000).toISOString(),
           );
 
-          const status = await composition.application.getStatus({ callerId: "managed-live-operator" }, accepted.id);
+          const status = await waitForTerminalJob(
+            () => composition.application.getStatus({ callerId: "managed-live-operator" }, accepted.id),
+            240_000,
+          );
           const result = await composition.application.getResult({ callerId: "managed-live-operator" }, accepted.id);
           const replay = await composition.application.getReplay({ callerId: "managed-live-operator" }, accepted.id);
           if (status.state !== "succeeded") {
@@ -122,6 +138,17 @@ describeManagedAgentProviderLive(
             writeApproval: { state: "consumed" },
             dispatch: { kind: "economic", economic: { availability: "available" } },
           });
+          expect(requestTrace).not.toHaveLength(0);
+          expect(requestTrace).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+              includesStreamUsage: true,
+              hasProjectIdentity: true,
+              hasSessionIdentity: true,
+              hasRequestIdentity: true,
+              client: "kiln",
+              hasKilnUserAgent: true,
+            }),
+          ]));
           await expect(workspace.readFile("proof.txt")).resolves.toBe("after");
           const projected = JSON.stringify([status, result, replay]);
           expect(projected).not.toContain(workspace.workspaceRoot);
@@ -148,6 +175,103 @@ describeManagedAgentProviderLive(
     }, 360_000);
   },
 );
+
+async function waitForTerminalJob<T extends { readonly state: string }>(
+  readStatus: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const status = await readStatus();
+    if (!["awaiting_approval", "queued", "running"].includes(status.state)) return status;
+    if (Date.now() >= deadline) {
+      throw new Error(`Managed live job remained ${status.state} beyond ${timeoutMs}ms.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+function observeOpenCodeResponse(response: Response, trace: Record<string, unknown>): Response {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let byteChunks = 0;
+  let dataEvents = 0;
+  let sawDone = false;
+  let sawUsage = false;
+  const finishReasons = new Set<string>();
+  const deltaKeys = new Set<string>();
+  const toolCallNames = new Set<string>();
+  const flushLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data: ")) return;
+    dataEvents += 1;
+    const data = trimmed.slice(6);
+    if (data === "[DONE]") {
+      sawDone = true;
+      return;
+    }
+    try {
+      const event = JSON.parse(data) as {
+        readonly usage?: unknown;
+        readonly choices?: readonly {
+          readonly finish_reason?: unknown;
+          readonly delta?: Record<string, unknown> & {
+            readonly tool_calls?: readonly { readonly function?: { readonly name?: unknown } }[];
+          };
+        }[];
+      };
+      if (event.usage !== undefined) sawUsage = true;
+      for (const choice of event.choices ?? []) {
+        if (typeof choice.finish_reason === "string") finishReasons.add(choice.finish_reason);
+        for (const key of Object.keys(choice.delta ?? {})) deltaKeys.add(key);
+        for (const toolCall of choice.delta?.tool_calls ?? []) {
+          if (typeof toolCall.function?.name === "string") toolCallNames.add(toolCall.function.name);
+        }
+      }
+    } catch {
+      trace.sseParseFailure = true;
+    }
+  };
+  const updateTrace = (): void => {
+    trace.responseByteChunks = byteChunks;
+    trace.sseDataEvents = dataEvents;
+    trace.sawDone = sawDone;
+    trace.sawUsage = sawUsage;
+    trace.finishReasons = [...finishReasons].sort();
+    trace.deltaKeys = [...deltaKeys].sort();
+    trace.toolCallNames = [...toolCallNames].sort();
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const result = await reader.read();
+      if (result.done) {
+        buffer += decoder.decode();
+        if (buffer.trim().length > 0) flushLine(buffer);
+        updateTrace();
+        controller.close();
+        return;
+      }
+      byteChunks += 1;
+      buffer += decoder.decode(result.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) flushLine(line);
+      updateTrace();
+      controller.enqueue(result.value);
+    },
+    async cancel(reason) {
+      updateTrace();
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
 
 function liveAgentDefinition(): string {
   const routeId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()

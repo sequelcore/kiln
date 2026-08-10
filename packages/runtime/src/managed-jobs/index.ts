@@ -13,6 +13,10 @@ import {
   type ManagedAgentWriteEvidence,
 } from "@kilnai/core";
 import type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt } from "../managed-write-approvals/sqlite-managed-write-approval-authority.js";
+import {
+  createInternalConsumedWriteApproval,
+  type ManagedAgentRuntimeConsumedWriteApproval,
+} from "../agents/managed-invocation/internal-consumed-write-approval.js";
 import type {
   ManagedEconomicCandidateSet,
 } from "../agents/managed-invocation/runtime-tool/index.js";
@@ -40,6 +44,7 @@ export class ManagedJobApplicationError extends Error {
   constructor(
     readonly code: ManagedJobDiagnosticCode,
     readonly operatorAction: string,
+    readonly failureEvidence?: ManagedJobFailureEvidence,
   ) {
     super(code);
     this.name = "ManagedJobApplicationError";
@@ -121,6 +126,7 @@ export type ManagedJobExecutionFailureClassification =
   | "native_session_error"
   | "write_boundary_violation"
   | "result_handoff_missing"
+  | "provider_timeout"
   | "unknown_failure";
 
 /** Provider-neutral terminal evidence. Error messages and provider payloads never cross this boundary. */
@@ -128,6 +134,7 @@ export interface ManagedJobFailureEvidence {
   readonly version: 1;
   readonly classification: ManagedJobExecutionFailureClassification;
   readonly diagnosticUri?: string;
+  readonly transportPhase?: "headers" | "first_byte" | "chunk_idle" | "transport";
 }
 
 export class ManagedJobExecutionFailure extends Error {
@@ -755,6 +762,12 @@ export class ManagedJobApplicationService {
       return undefined;
     }
     if (!job || !isNonterminal(job.state)) return job;
+    if (error instanceof ManagedJobApplicationError && error.code === "job_persistence_unavailable") {
+      // Approval consumption is idempotent for this exact job consumer. Keep
+      // the unfenced job retryable so a later dispatch can reconcile the
+      // consumed receipt into the job store before any external effect.
+      return job;
+    }
     const diagnostic = isDiagnostic(error) ? error : "invocation_failed";
     const failureEvidence = normalizeManagedJobExecutionFailure(error);
     try {
@@ -911,7 +924,7 @@ export class ManagedJobApplicationService {
       return this.transition(job.id, "failed", "route_unavailable");
     }
     if (abortSignal?.aborted) return await this.currentJob(job.id);
-    await this.consumeWriteApproval(job);
+    const consumedWriteApproval = await this.consumeWriteApproval(job);
     if (abortSignal?.aborted) return await this.currentJob(job.id);
     let fenceResult: ManagedJobNativeHarnessFenceResult;
     try {
@@ -935,6 +948,7 @@ export class ManagedJobApplicationService {
         job: fenced as ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> },
         route,
         dispatchFenceId: fenced.dispatch.dispatchFenceId,
+        ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
         ...(callerIdentity ? { callerIdentity } : {}),
         ...(abortSignal ? { abortSignal } : {}),
       });
@@ -999,6 +1013,7 @@ export class ManagedJobApplicationService {
         })),
         adoptedDecisionAt: job.adoptedDecisionAt,
       });
+      let consumedWriteApproval: ManagedAgentRuntimeConsumedWriteApproval | undefined;
       const preparation = await this.options.economicDispatch.prepare({
         jobId: job.id,
         economicAttemptId: dispatch.economicAttemptId,
@@ -1007,7 +1022,9 @@ export class ManagedJobApplicationService {
         admissionProfile: job.admissionProfileId,
         ...(abortSignal ? { abortSignal } : {}),
         ...(isApprovedWriteProfile(job.admissionProfileId) ? {
-          validateAndConsumeApprovalBeforeFence: async () => { await this.consumeWriteApproval(job); },
+          validateAndConsumeApprovalBeforeFence: async () => {
+            consumedWriteApproval = await this.consumeWriteApproval(job);
+          },
         } : {}),
         validateExecutionProfile: async () => {
           await this.validateCurrentEconomicCandidateIdentity(job);
@@ -1023,7 +1040,11 @@ export class ManagedJobApplicationService {
       }
       const running = await this.transition(job.id, "running");
       try {
-        const execution = await this.options.economicExecution.execute({ job: running, preparation });
+        const execution = await this.options.economicExecution.execute({
+          job: running,
+          preparation,
+          ...(consumedWriteApproval ? { consumedWriteApproval } : {}),
+        });
         if (abortSignal?.aborted) return await this.currentJob(job.id);
         const selected = preparation.commitment.reservation.selectedIdentity.route;
         const result: ManagedJobResult = {
@@ -1112,8 +1133,10 @@ export class ManagedJobApplicationService {
     }
   }
 
-  private async consumeWriteApproval(job: ManagedJobRecord): Promise<void> {
-    if (!isApprovedWriteProfile(job.admissionProfileId)) return;
+  private async consumeWriteApproval(
+    job: ManagedJobRecord,
+  ): Promise<ManagedAgentRuntimeConsumedWriteApproval | undefined> {
+    if (!isApprovedWriteProfile(job.admissionProfileId)) return undefined;
     if (!job.writeApproval || !this.options.writeApprovals) {
       throw new ManagedJobApplicationError("admission_denied", "Provide a current managed write approval before dispatch.");
     }
@@ -1122,16 +1145,37 @@ export class ManagedJobApplicationService {
     if (!receipt || !matchesAttachedApproval(job, receipt.binding)) {
       throw new ManagedJobApplicationError("admission_denied", "Provide a current approval for the exact managed write authority.");
     }
-    try {
-      const consumed = this.options.writeApprovals.consume({
-        approvalId: receipt.approvalId,
-        binding: receipt.binding,
-        consumerId: `managed-job:${job.id}`,
-      });
-      await this.options.store.recordWriteApproval(job.id, projectApproval(consumed), this.now());
-    } catch {
+    const consumerId = `managed-job:${job.id}`;
+    let consumed: ManagedWriteApprovalReceipt;
+    if (receipt.state === "consumed" && receipt.consumedBy === consumerId && receipt.consumedAt) {
+      consumed = receipt;
+    } else if (receipt.state === "issued") {
+      try {
+        consumed = this.options.writeApprovals.consume({
+          approvalId: receipt.approvalId,
+          binding: receipt.binding,
+          consumerId,
+        });
+      } catch {
+        throw new ManagedJobApplicationError("admission_denied", "Provide a current unconsumed managed write approval before dispatch.");
+      }
+    } else {
       throw new ManagedJobApplicationError("admission_denied", "Provide a current unconsumed managed write approval before dispatch.");
     }
+    const projected = projectApproval(consumed);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await this.options.store.recordWriteApproval(job.id, projected, this.now());
+        return createInternalConsumedWriteApproval(consumed);
+      } catch {
+        // A store failure may be reported after the durable write completed;
+        // retry the same idempotent projection before leaving the job queued.
+      }
+    }
+    throw new ManagedJobApplicationError(
+      "job_persistence_unavailable",
+      "Reconcile the consumed managed write approval before retrying dispatch.",
+    );
   }
 
   private async reserve(job: ManagedJobRecord): Promise<ManagedJobReservation> {
@@ -1435,7 +1479,7 @@ function validateStoredJob(value: unknown): ManagedJobRecord {
     || (job.state !== "succeeded" && job.result !== undefined)
     || (isApprovedWriteProfile(job.admissionProfileId) && job.state !== "awaiting_approval" && job.writeApproval === undefined)
     || (!isApprovedWriteProfile(job.admissionProfileId) && job.writeApproval !== undefined)
-    || (job.state !== "failed" && job.failureEvidence !== undefined)
+    || (job.state !== "failed" && job.state !== "timed_out" && job.failureEvidence !== undefined)
     || (job.failureEvidence === undefined && job.lifecycle.some((entry) => entry.failureEvidence !== undefined))
     || (job.failureEvidence !== undefined && JSON.stringify(job.lifecycle.at(-1)?.failureEvidence) !== JSON.stringify(job.failureEvidence))
     || (job.result !== undefined && !isValidManagedJobResult(job.result, job, job.updatedAt))
@@ -1458,6 +1502,9 @@ function managedJobExecutionTerminal(error: unknown): {
     return {
       state: error.code === "provider_timeout" ? "timed_out" : "failed",
       diagnostic: error.code,
+      ...(error.failureEvidence && isValidManagedJobFailureEvidence(error.failureEvidence)
+        ? { failureEvidence: error.failureEvidence }
+        : {}),
     };
   }
   return {
@@ -1468,13 +1515,15 @@ function managedJobExecutionTerminal(error: unknown): {
 }
 function isValidManagedJobFailureEvidence(value: unknown): value is ManagedJobFailureEvidence {
   return isRecord(value)
-    && hasOnly(value, ["version", "classification", "diagnosticUri"])
+    && hasOnly(value, ["version", "classification", "diagnosticUri", "transportPhase"])
     && value.version === 1
     && isManagedJobExecutionFailureClassification(value.classification)
-    && (value.diagnosticUri === undefined || isCanonicalKilnDiagnosticUri(value.diagnosticUri));
+    && (value.diagnosticUri === undefined || isCanonicalKilnDiagnosticUri(value.diagnosticUri))
+    && (value.transportPhase === undefined
+      || ["headers", "first_byte", "chunk_idle", "transport"].includes(value.transportPhase as string));
 }
 function isManagedJobExecutionFailureClassification(value: unknown): value is ManagedJobExecutionFailureClassification {
-  return typeof value === "string" && ["harness_version_mismatch", "structured_handoff_rejected", "model_identity_mismatch", "private_artifact_cleanup_failed", "provider_quota_exhausted", "native_session_error", "write_boundary_violation", "result_handoff_missing", "unknown_failure"].includes(value);
+  return typeof value === "string" && ["harness_version_mismatch", "structured_handoff_rejected", "model_identity_mismatch", "private_artifact_cleanup_failed", "provider_quota_exhausted", "native_session_error", "write_boundary_violation", "result_handoff_missing", "provider_timeout", "unknown_failure"].includes(value);
 }
 function isCanonicalKilnDiagnosticUri(value: unknown): value is string {
   if (typeof value !== "string") return false;
@@ -1508,7 +1557,7 @@ function isValidLifecycle(value: unknown, state: ManagedJobState, admissionProfi
   if (!Array.isArray(value) || value.length === 0) return false;
   let previousTime = Number.NEGATIVE_INFINITY;
   for (const [index, entry] of value.entries()) {
-    if (!isRecord(entry) || !hasOnly(entry, ["sequence", "state", "observedAt", "diagnostic", "failureEvidence"]) || entry.sequence !== index + 1 || !MANAGED_JOB_STATES.includes(entry.state as ManagedJobState) || !isIso(entry.observedAt) || (entry.diagnostic !== undefined && !isDiagnostic(entry.diagnostic)) || (entry.failureEvidence !== undefined && (!isValidManagedJobFailureEvidence(entry.failureEvidence) || entry.state !== "failed"))) return false;
+    if (!isRecord(entry) || !hasOnly(entry, ["sequence", "state", "observedAt", "diagnostic", "failureEvidence"]) || entry.sequence !== index + 1 || !MANAGED_JOB_STATES.includes(entry.state as ManagedJobState) || !isIso(entry.observedAt) || (entry.diagnostic !== undefined && !isDiagnostic(entry.diagnostic)) || (entry.failureEvidence !== undefined && (!isValidManagedJobFailureEvidence(entry.failureEvidence) || (entry.state !== "failed" && entry.state !== "timed_out")))) return false;
     const observedAt = Date.parse(entry.observedAt);
     if (observedAt < previousTime) return false;
     previousTime = observedAt;
@@ -1560,7 +1609,13 @@ function normalizeManagedJobWriteEvidence(
   value: readonly ManagedAgentWriteEvidence[],
   jobId: string,
 ): readonly ManagedAgentWriteEvidence[] {
-  const normalized = value.map(defineManagedAgentWriteEvidence);
+  const normalized = value.map((candidate) => {
+    const canonical = defineManagedAgentWriteEvidence(candidate);
+    return defineManagedAgentWriteEvidence({
+      ...canonical,
+      summary: normalizeManagedJobInlineText(canonical.summary),
+    });
+  });
   if (!isSafeManagedJobWriteEvidence(normalized, jobId)) {
     throw new ManagedJobApplicationError("result_corrupt", "Persist only canonical managed write evidence.");
   }
@@ -1596,6 +1651,7 @@ export interface ManagedJobEconomicExecutionPort {
   execute(input: {
     readonly job: ManagedJobRecord;
     readonly preparation: Extract<ManagedEconomicDispatchPreparation, { readonly status: "prepared" }>;
+    readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
   }): Promise<{
     readonly runtimeInvocationId: string;
     readonly completedAt: string;
@@ -1609,6 +1665,7 @@ export interface ManagedJobNativeHarnessExecutionPort {
     readonly job: ManagedJobRecord & { readonly dispatch: Extract<ManagedJobDispatch, { readonly kind: "native-harness" }> };
     readonly route: ManagedJobNativeHarnessRoute;
     readonly dispatchFenceId: string;
+    readonly consumedWriteApproval?: ManagedAgentRuntimeConsumedWriteApproval;
     readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
     readonly abortSignal?: AbortSignal;
   }): Promise<{
@@ -1659,14 +1716,7 @@ const MANAGED_JOB_INLINE_RESULT_LIMIT = 2000;
 const MANAGED_JOB_TRUNCATION_NOTICE = "[TRUNCATED: safe inline result limit reached]";
 
 function normalizeManagedJobResultHandoff(value: ManagedAgentResultHandoff, objective?: string): ManagedAgentResultHandoff {
-  let summary = redactManagedJobResultText(value.summary, objective).trim();
-  if (summary.length === 0) {
-    summary = "[REDACTED: no safe canonical result content remained]";
-  }
-  if (summary.length > MANAGED_JOB_INLINE_RESULT_LIMIT) {
-    const prefixLength = MANAGED_JOB_INLINE_RESULT_LIMIT - MANAGED_JOB_TRUNCATION_NOTICE.length - 1;
-    summary = `${summary.slice(0, Math.max(0, prefixLength)).trimEnd()} ${MANAGED_JOB_TRUNCATION_NOTICE}`;
-  }
+  const summary = normalizeManagedJobInlineText(value.summary, objective);
   // Runtime's general handoff resource list can include transcript, replay,
   // diagnostic, write, and provider evidence. This slice has no separately
   // admitted safe result artifact, so omission plus explicit truncation is the
@@ -1677,6 +1727,18 @@ function normalizeManagedJobResultHandoff(value: ManagedAgentResultHandoff, obje
     resourceUris: [],
     memoryWriteProposalUris: [],
   };
+}
+
+function normalizeManagedJobInlineText(value: string, objective?: string): string {
+  let summary = redactManagedJobResultText(value, objective).trim();
+  if (summary.length === 0) {
+    summary = "[REDACTED: no safe canonical result content remained]";
+  }
+  if (summary.length > MANAGED_JOB_INLINE_RESULT_LIMIT) {
+    const prefixLength = MANAGED_JOB_INLINE_RESULT_LIMIT - MANAGED_JOB_TRUNCATION_NOTICE.length - 1;
+    summary = `${summary.slice(0, Math.max(0, prefixLength)).trimEnd()} ${MANAGED_JOB_TRUNCATION_NOTICE}`;
+  }
+  return summary;
 }
 
 function redactManagedJobResultText(value: string, objective?: string): string {

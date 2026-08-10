@@ -319,6 +319,134 @@ describe("ManagedJobApplicationService V11 record", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("reconciles a consumed write receipt after a transient job-store failure before fencing", async () => {
+    const writeAcknowledgement = {
+      ...nativeHarnessAcknowledgement,
+      routeId: "claude-sonnet-approved-write",
+      admissionProfileId: "foundation-apply-approved-writes" as const,
+    };
+    const writeProfile: ManagedJobNativeHarnessProfile = {
+      ...nativeHarnessProfile,
+      id: "claude-writer",
+      routeId: writeAcknowledgement.routeId,
+      admissionProfileId: writeAcknowledgement.admissionProfileId,
+      acknowledgement: writeAcknowledgement,
+    };
+    const writeRoute: ManagedJobNativeHarnessRoute = {
+      ...nativeHarnessRoute,
+      routeId: writeAcknowledgement.routeId,
+      admissionProfileId: writeAcknowledgement.admissionProfileId,
+      acknowledgement: writeAcknowledgement,
+    };
+    const store = new InMemoryManagedJobStore();
+    const recordWriteApproval = store.recordWriteApproval.bind(store);
+    const persistApproval = vi.spyOn(store, "recordWriteApproval");
+    persistApproval
+      .mockRejectedValueOnce(new Error("transient store failure"))
+      .mockRejectedValueOnce(new Error("transient store failure"))
+      .mockRejectedValueOnce(new Error("transient store failure"))
+      .mockImplementation((...args) => recordWriteApproval(...args));
+    let receipt: import("../../src/managed-write-approvals/sqlite-managed-write-approval-authority.js").ManagedWriteApprovalReceipt | undefined;
+    const consume = vi.fn(() => {
+      if (!receipt) throw new Error("missing receipt");
+      receipt = {
+        ...receipt,
+        state: "consumed",
+        consumedAt: now.toISOString(),
+        consumedBy: "managed-job:job-000000001",
+      };
+      return receipt;
+    });
+    const execute = vi.fn(async (input: Parameters<NonNullable<ManagedJobApplicationOptions["nativeHarnessExecution"]>["execute"]>[0]) => ({
+      runtimeInvocationId: `managed-job:${input.job.id}`,
+      completedAt: now.toISOString(),
+      resultHandoff: {
+        provenance: {
+          delivery: "runtime-generated" as const,
+          configuredModelId: writeRoute.model,
+          primaryObservedModelId: writeRoute.model,
+          observedModelIds: [writeRoute.model],
+        },
+        summary: "Approved write completed after receipt reconciliation.",
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+    }));
+    const service = new ManagedJobApplicationService({
+      ...createOptions({ store }),
+      profiles: { resolve: async (id) => id === writeProfile.id ? writeProfile : undefined },
+      routes: { resolve: async () => writeRoute },
+      writeApprovals: {
+        inspect: () => receipt,
+        consume,
+        revoke: () => { throw new Error("not used"); },
+      },
+      nativeHarnessExecution: { execute },
+      nativeHarnessDispatchIdGenerator: () => "dispatch-write-000001",
+    });
+
+    const accepted = await service.accept({ ...submission, configuredAgentProfileId: writeProfile.id });
+    const dispatch = accepted.dispatch;
+    if (dispatch.kind !== "native-harness") throw new Error("expected native dispatch");
+    receipt = {
+      approvalId: "managed-write-approval:reconcile-001",
+      state: "issued",
+      binding: {
+        projectId: accepted.projectId,
+        jobId: accepted.id,
+        callerId: accepted.callerId,
+        workItemFingerprint: accepted.requestFingerprint,
+        configuredAgentProfileId: accepted.configuredAgentProfileId,
+        admissionProfileId: "foundation-apply-approved-writes",
+        routeId: dispatch.routeId,
+        providerId: dispatch.providerId,
+        model: dispatch.model,
+        adapterCapabilityId: dispatch.adapterCapabilityId,
+        adapterCapabilityVersion: dispatch.adapterCapabilityVersion,
+        authorityDigest: `sha256:${"a".repeat(64)}`,
+        effectDigest: `sha256:${"b".repeat(64)}`,
+        revisionDigest: `sha256:${"c".repeat(64)}`,
+      },
+      issuedAt: now.toISOString(),
+      expiresAt: "2099-08-10T00:00:00.000Z",
+      approverId: "operator",
+    };
+    await service.attachWriteApproval(query, accepted.id, receipt.approvalId);
+
+    const persistenceFailure = await service.dispatch(accepted.id).catch((error: unknown) => error);
+    expect(persistenceFailure).toMatchObject({ code: "job_persistence_unavailable" });
+    await expect(service.failDispatch(accepted.id, persistenceFailure)).resolves.toMatchObject({ state: "queued" });
+
+    const completed = await service.dispatch(accepted.id);
+    expect(completed.state, JSON.stringify({ diagnostic: completed.diagnostic })).toBe("succeeded");
+    expect(completed).toMatchObject({
+      state: "succeeded",
+      writeApproval: { state: "consumed", consumedBy: `managed-job:${accepted.id}` },
+    });
+    expect(consume).toHaveBeenCalledOnce();
+    expect(persistApproval).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      consumedWriteApproval: expect.objectContaining({ consumerId: `managed-job:${accepted.id}` }),
+    }));
+  });
+
+  it("keeps an unfenced job retryable when consumed-approval persistence remains unavailable", async () => {
+    const service = new ManagedJobApplicationService(createOptions());
+    const accepted = await service.accept(submission);
+
+    await expect(service.failDispatch(
+      accepted.id,
+      new ManagedJobApplicationError(
+        "job_persistence_unavailable",
+        "Reconcile the consumed approval before dispatch.",
+      ),
+    )).resolves.toMatchObject({ state: "queued" });
+    await expect(service.getStatus(query, accepted.id)).resolves.toMatchObject({
+      state: "queued",
+      dispatch: expect.not.objectContaining({ dispatchFenceId: expect.any(String) }),
+    });
+  });
+
   it("accepts a durable queued V11 record before dispatch and exposes completion through status/result", async () => {
     const execution = deferred<{
       readonly runtimeInvocationId: string;
@@ -335,6 +463,14 @@ describe("ManagedJobApplicationService V11 record", () => {
         readonly resourceUris: readonly string[];
         readonly memoryWriteProposalUris: readonly string[];
       };
+      readonly writeEvidence: readonly [{
+        readonly evidenceId: string;
+        readonly invocationId: string;
+        readonly kind: "write-attempt-completed";
+        readonly summary: string;
+        readonly resourceUris: readonly string[];
+        readonly recordedAt: string;
+      }];
     }>();
     const store = new InMemoryManagedJobStore();
     const service = new ManagedJobApplicationService({
@@ -378,12 +514,23 @@ describe("ManagedJobApplicationService V11 record", () => {
         resourceUris: [],
         memoryWriteProposalUris: [],
       },
+      writeEvidence: [{
+        evidenceId: "async-write-evidence",
+        invocationId: `managed-job:${accepted.id}`,
+        kind: "write-attempt-completed",
+        summary: "Workspace write completed for C:\\Users\\operator\\private\\proof.txt",
+        resourceUris: ["kiln://managed-agents/async-write"],
+        recordedAt: now.toISOString(),
+      }],
     });
     await expect(dispatch).resolves.toMatchObject({ state: "succeeded" });
     await expect(service.getResult(query, accepted.id)).resolves.toMatchObject({
       availability: "available",
       lifecycleState: "succeeded",
       handoff: { summary: "Async native dispatch completed." },
+      writeEvidence: [{
+        summary: "Workspace write completed for [REDACTED:path]",
+      }],
     });
   });
 
@@ -606,33 +753,61 @@ describe("ManagedJobApplicationService V11 record", () => {
   });
 
   it("preserves a typed provider timeout as the terminal timed_out diagnostic", async () => {
-    const service = new ManagedJobApplicationService({
-      ...createOptions(),
-      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
-      routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
-      nativeHarnessExecution: {
-        execute: async () => {
-          throw new ManagedJobApplicationError("provider_timeout", "Retry the exact admitted route.");
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-job-timeout-"));
+    try {
+      const store = new FilesystemManagedJobStore(root);
+      const service = new ManagedJobApplicationService({
+        ...createOptions(),
+        store,
+        profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+        routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
+        nativeHarnessExecution: {
+          execute: async () => {
+            throw new ManagedJobApplicationError(
+              "provider_timeout",
+              "Retry the exact admitted route.",
+              {
+                version: 1,
+                classification: "provider_timeout",
+                diagnosticUri: "kiln://managed-agents/invocations/timeout-test/resources/timeout",
+                transportPhase: "first_byte",
+              },
+            );
+          },
         },
-      },
-      nativeHarnessDispatchIdGenerator: () => "dispatch-timeout-000001",
-    });
+        nativeHarnessDispatchIdGenerator: () => "dispatch-timeout-000001",
+      });
 
-    const job = await dispatchAccepted(service, {
-      ...submission,
-      configuredAgentProfileId: nativeHarnessProfile.id,
-      idempotencyKey: "typed-provider-timeout",
-    });
+      const job = await dispatchAccepted(service, {
+        ...submission,
+        configuredAgentProfileId: nativeHarnessProfile.id,
+        idempotencyKey: "typed-provider-timeout",
+      });
 
-    expect(job).toMatchObject({ state: "timed_out", diagnostic: "provider_timeout" });
-    expect(job.failureEvidence).toBeUndefined();
-    await expect(service.getResult(query, job.id)).resolves.toMatchObject({
-      availability: "failed",
-      diagnostic: "provider_timeout",
-    });
-    await expect(service.getReplay(query, job.id)).resolves.toMatchObject({
-      lifecycleState: "timed_out",
-    });
+      expect(job).toMatchObject({
+        state: "timed_out",
+        diagnostic: "provider_timeout",
+        failureEvidence: {
+          version: 1,
+          classification: "provider_timeout",
+          diagnosticUri: "kiln://managed-agents/invocations/timeout-test/resources/timeout",
+          transportPhase: "first_byte",
+        },
+      });
+      await expect(service.getResult(query, job.id)).resolves.toMatchObject({
+        availability: "failed",
+        diagnostic: "provider_timeout",
+      });
+      await expect(service.getReplay(query, job.id)).resolves.toMatchObject({
+        lifecycleState: "timed_out",
+      });
+      await expect(new FilesystemManagedJobStore(root).get(job.id)).resolves.toMatchObject({
+        state: "timed_out",
+        failureEvidence: { classification: "provider_timeout", transportPhase: "first_byte" },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("persists the native fence before invoking the harness process", async () => {

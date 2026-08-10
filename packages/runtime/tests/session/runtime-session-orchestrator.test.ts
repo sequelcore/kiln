@@ -131,6 +131,29 @@ describe("RuntimeSessionOrchestrator", () => {
       expect(callArgs.system).toContain("[KILN EXECUTION IDENTITY]");
     });
 
+    it("binds provider transport evidence to the exact request round", async () => {
+      const observer = { onEvent: vi.fn() };
+      const watchdog = { chunkIdleTimeoutMs: 500 };
+
+      await orchestrator.processMessage(makeSession(), textParts("help me"), undefined, undefined, {
+        providerTransport: {
+          projectId: "project-digest",
+          requestIdPrefix: "invocation-digest",
+          watchdog,
+          observer,
+        },
+      });
+
+      expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+        requestIdentity: {
+          projectId: "project-digest",
+          requestId: "invocation-digest:response:1",
+        },
+        transportWatchdog: watchdog,
+        transportObserver: observer,
+      }));
+    });
+
     it("appends canonical turn-local time after the stable session prompt", async () => {
       const session = makeSession("Base prompt.");
       await orchestrator.processMessage(session, textParts("what happened today?"), undefined, undefined, {
