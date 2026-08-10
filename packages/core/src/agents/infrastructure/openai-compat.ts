@@ -71,6 +71,7 @@ interface OpenAIRequestBody {
   tools?: OpenAIToolFunction[];
   tool_choice?: string | { type: string; function?: { name: string } };
   stream?: boolean;
+  stream_options?: { readonly include_usage: true };
   reasoning_effort?: string;
 }
 
@@ -99,6 +100,7 @@ interface OpenAIChoice {
 interface OpenAIUsage {
   readonly prompt_tokens: number;
   readonly completion_tokens: number;
+  readonly prompt_tokens_details?: { readonly cached_tokens?: number };
 }
 
 interface OpenAIChatResponse {
@@ -119,12 +121,15 @@ interface OpenAIStreamDelta {
 }
 
 interface OpenAIStreamChoice {
-  readonly delta: OpenAIStreamDelta;
+  readonly delta?: OpenAIStreamDelta;
+  readonly finish_reason?: string | null;
 }
 
 interface OpenAIStreamChunk {
   readonly id?: string;
   readonly choices: readonly OpenAIStreamChoice[];
+  readonly usage?: OpenAIUsage;
+  readonly error?: { readonly message?: string } | string;
 }
 
 /**
@@ -167,6 +172,108 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     return this.mapResponse(response, request.toolNames);
   }
 
+  protected async createMessageViaStream(options: CreateMessageOptions): Promise<AgentResponse> {
+    const request = this.buildRequest(options);
+    request.body.stream = true;
+    request.body.stream_options = { include_usage: true };
+    const response = await withRetry(
+      () => fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: this.buildHeaders(options),
+        body: JSON.stringify(request.body),
+        signal: options.signal,
+      }),
+      this.retryOptions(),
+      options.signal,
+    );
+    if (!response.ok) {
+      const responseText = await response.text();
+      const error = new Error(`${this.name} API error ${response.status}: ${responseText}`);
+      (error as unknown as Record<string, unknown>).status = response.status;
+      throw error;
+    }
+    if (!response.body) {
+      throw new Error(`${this.name} streaming response has no body.`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const toolBuffers = new Map<number, StreamedToolCallBuffer>();
+    let buffer = "";
+    let text = "";
+    let usage: OpenAIUsage | undefined;
+    let finishReason: string | undefined;
+    let terminal = false;
+    const consumeLine = (line: string): void => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data: ")) return;
+      const data = trimmed.slice(6);
+      if (data === "[DONE]") {
+        terminal = true;
+        return;
+      }
+      const chunk = JSON.parse(data) as OpenAIStreamChunk;
+      if (chunk.error) {
+        const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+        throw new Error(`${this.name} streaming API error: ${message ?? "unknown provider error"}`);
+      }
+      if (chunk.usage) usage = chunk.usage;
+      const choice = chunk.choices[0];
+      if (!choice) return;
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+      const delta = choice.delta;
+      if (delta?.content) text += delta.content;
+      for (const toolCall of delta?.tool_calls ?? []) {
+        let toolBuffer = toolBuffers.get(toolCall.index);
+        if (!toolBuffer) {
+          toolBuffer = { id: "", name: toolCall.function?.name ?? "", arguments: "" };
+          toolBuffers.set(toolCall.index, toolBuffer);
+        }
+        this.reconcileStreamedToolCallId(toolBuffer, toolCall.id, chunk.id, toolCall.index);
+        if (toolCall.function?.name && !toolBuffer.name) toolBuffer.name = toolCall.function.name;
+        if (toolCall.function?.arguments) toolBuffer.arguments += toolCall.function.arguments;
+      }
+    };
+
+    try {
+      while (!terminal) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          consumeLine(line);
+          if (terminal) break;
+        }
+      }
+      if (!terminal && buffer.trim().length > 0) consumeLine(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+    if (!terminal && finishReason === undefined) {
+      throw new Error(`${this.name} streaming response ended without a terminal signal.`);
+    }
+    if (!usage) {
+      throw new Error(`${this.name} streaming response omitted required usage evidence.`);
+    }
+    const toolCalls: ToolCall[] = [...toolBuffers.values()].map((toolCall) => ({
+      id: toolCall.id,
+      name: request.toolNames.toCanonicalName(toolCall.name),
+      input: normalizeToolInput(request.toolNames.toCanonicalName(toolCall.name), toolCall.arguments || "{}"),
+    }));
+    assertValidToolCallIds(toolCalls, { adapter: this.name });
+    return {
+      parts: text.length > 0 ? [textPart(text)] : [],
+      inputTokens: usage.prompt_tokens,
+      outputTokens: usage.completion_tokens,
+      cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+      cacheWriteTokens: 0,
+      toolCalls,
+      stopReason: finishReason ?? "stop",
+    };
+  }
+
   async *streamMessage(
     options: CreateMessageOptions,
   ): AsyncGenerator<AgentStreamEvent> {
@@ -192,8 +299,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
     }
 
     if (!response.body) {
-      yield { type: "done", content: "" };
-      return;
+      throw new Error(`${this.name} streaming response has no body.`);
     }
 
     const toolBuffers = new Map<number, StreamedToolCallBuffer>();
@@ -225,10 +331,15 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           }
 
           const chunk = JSON.parse(data) as OpenAIStreamChunk;
+          if (chunk.error) {
+            const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+            throw new Error(`${this.name} streaming API error: ${message ?? "unknown provider error"}`);
+          }
           const choice = chunk.choices[0];
           if (!choice) continue;
 
           const delta = choice.delta;
+          if (!delta) continue;
 
           if (delta.content) {
             yield { type: "text", content: delta.content };
@@ -242,6 +353,7 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
                 toolBuffers.set(tc.index, buf);
               }
               this.reconcileStreamedToolCallId(buf, tc.id, chunk.id, tc.index);
+              if (tc.function?.name && !buf.name) buf.name = tc.function.name;
               if (tc.function?.arguments) {
                 buf.arguments += tc.function.arguments;
               }
@@ -249,13 +361,17 @@ export abstract class OpenAICompatAdapter implements ProviderAdapter {
           }
         }
       }
+      if (buffer.trim() === "data: [DONE]") {
+        yield* this.flushStreamedToolCalls(toolBuffers, request.toolNames);
+        toolBuffers.clear();
+        yield { type: "done", content: "" };
+        return;
+      }
     } finally {
       reader.releaseLock();
     }
 
-    // Flush remaining tool calls if stream ended without [DONE]
-    yield* this.flushStreamedToolCalls(toolBuffers, request.toolNames);
-    yield { type: "done", content: "" };
+    throw new Error(`${this.name} streaming response ended without a terminal signal.`);
   }
 
   /**

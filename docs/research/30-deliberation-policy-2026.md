@@ -77,16 +77,18 @@ same advertised model and level: five fixed-session
 `deepseek-v4-pro/high` probes returned two HTTP 200 responses with non-zero
 reasoning tokens and three HTTP 500 responses. `deepseek-v4-flash`, `glm-5.2`,
 and `kimi-k3` also returned HTTP 500 for their catalog-advertised levels.
-OpenCode selects upstreams using `x-opencode-session`; session affinity makes
-one session stable but cannot turn a partially supported upstream pool into a
-provider/model guarantee.
+OpenCode may select upstreams using session affinity, but affinity cannot turn
+a partially supported upstream pool into a provider/model guarantee. The
+official OpenCode client uses the OpenAI-compatible chat-completions protocol;
+Kiln does not treat a client-specific session header as required provider
+authority.
 
 Kiln therefore keeps `opencode-go` and `opencode-zen` deliberation transport at
 `none`. DeepSeek, GLM, Kimi, Qwen, and MiniMax routes use provider defaults until
 OpenCode publishes and serves a direct, revisioned capability contract whose
 supported levels work across every eligible upstream for that route. Kiln does
-send the official `x-opencode-session` and `x-opencode-client` headers so
-ordinary calls retain provider affinity. Silently accepting a CLI variant that
+send `x-opencode-client` for attribution, while account leasing and the
+gateway's own routing preserve the supported continuity boundary. Silently accepting a CLI variant that
 does not reach the protocol, or admitting a level that works only on part of a
 gateway pool, is not support.
 

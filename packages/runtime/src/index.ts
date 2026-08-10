@@ -445,6 +445,18 @@ export type {
 } from "./agents/managed-invocation/index.js";
 export { createProviderCatalogService } from "./gateway/provider-catalog-service.js";
 export {
+  SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION,
+  ManagedWriteApprovalError,
+  SqliteManagedWriteApprovalAuthority,
+} from "./managed-write-approvals/sqlite-managed-write-approval-authority.js";
+export type {
+  ManagedWriteApprovalBinding,
+  ManagedWriteApprovalErrorCode,
+  ManagedWriteApprovalReceipt,
+  ManagedWriteApprovalState,
+  SqliteManagedWriteApprovalAuthorityOptions,
+} from "./managed-write-approvals/sqlite-managed-write-approval-authority.js";
+export {
   collectManagedEconomicCandidates,
   digestManagedEconomicCandidateProfileAuthority,
 } from "./agents/managed-invocation/index.js";

@@ -1,9 +1,10 @@
+import { mkdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
-import { realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import {
   createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
+  digestManagedEconomicValue,
 } from "@kilnai/core";
 import {
   collectManagedEconomicCandidates,
@@ -18,8 +19,14 @@ import {
   type ManagedJobRecord,
   type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
+  SqliteManagedWriteApprovalAuthority,
+  type ManagedWriteApprovalBinding,
 } from "@kilnai/runtime";
-import type { ManagedAgentCallerAttachmentIdentity, ManagedAgentInvocationRecord } from "@kilnai/core";
+import type {
+  ManagedAgentCallerAttachmentIdentity,
+  ManagedAgentInvocationRecord,
+  ManagedAgentWriteEvidence,
+} from "@kilnai/core";
 import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
@@ -49,6 +56,8 @@ const MAX_GOVERNANCE_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
 const MAX_GOVERNANCE_FUTURE_CLOCK_SKEW_MS = 60 * 1_000;
 const OPERATOR_MANAGED_JOB_ADMISSION_ID = "operator-managed-agent-delegation";
 const OPERATOR_MANAGED_JOB_SOURCE = "operator-managed-job";
+const TRUSTED_WRITE_APPROVER_ID = "operator";
+const MANAGED_WRITE_APPROVAL_DB_FILE = "managed-write-approvals.sqlite";
 
 /**
  * `modelGateway`, `engines`, `routing`, and `models` are global Runtime
@@ -165,7 +174,7 @@ export interface OperatorProjectManagedAgentSummary {
 
 export interface OperatorProjectManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
-  readonly application: OperatorProjectManagedJobApplicationPort;
+  readonly application: OperatorProjectManagedJobApplicationPort & OperatorProjectManagedWriteApprovalPort;
   readonly configuredAgents: readonly OperatorProjectManagedAgentSummary[];
   /** Releases the process-owned economic authority so a restart can reclaim it immediately. */
   close(): Promise<void>;
@@ -178,6 +187,11 @@ export interface OperatorProjectManagedJobApplicationPort {
   getResult(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobResultQuery>;
   cancel(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobRecord>;
   getReplay(input: { readonly callerId: string }, jobId: string): Promise<ManagedJobReplayQuery>;
+}
+
+/** Trusted operator-only write approval control; deliberately not an MCP method. */
+export interface OperatorProjectManagedWriteApprovalPort {
+  approveWrite(jobId: string, expiresAt: string): Promise<ManagedJobRecord>;
 }
 
 interface ManagedJobDispatchApplication {
@@ -314,6 +328,11 @@ export async function createOperatorProjectManagedJobApplicationComposition(
   const configuredAgents = await loadAgentDefinitions(root.rootPath);
   const project = { id: `project-${createHash("sha256").update(root.rootPath).digest("hex").slice(0, 32)}` };
   const managedJobStore = new FilesystemManagedJobStore(join(root.rootPath, ".kiln", "managed-jobs"));
+  const runtimeDirectory = join(root.rootPath, ".kiln", "runtime");
+  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+  const writeApprovalAuthority = new SqliteManagedWriteApprovalAuthority({
+    path: join(runtimeDirectory, MANAGED_WRITE_APPROVAL_DB_FILE),
+  });
   const service = new ManagedJobApplicationService({
     project: { resolve: async () => project },
     governance: {
@@ -442,9 +461,10 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       },
     } } : {}),
     ...(economicReplay ? { economicReplay } : {}),
+    writeApprovals: writeApprovalAuthority,
     ...(economicDispatch ? { economicDispatch: economicDispatch.coordinator } : {}),
     nativeHarnessExecution: {
-      execute: async ({ job, route, callerIdentity }) => {
+      execute: async ({ job, route, callerIdentity, abortSignal }) => {
         const execution = await freshManagedInvocation("execution", managedAccountComposition);
         const currentRoute = execution.routes.find((candidate) =>
           candidate.routeId === route.routeId
@@ -483,7 +503,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           },
           adapterKind: adapter.descriptor.adapterKind,
           executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
-          requestedAuthority: "read_only",
+          ...managedJobRequestedAuthority(job.admissionProfileId),
           authority: {
             authorityProfileId: profile.authorityProfileId,
             permissionProfile: profile.permissionProfile,
@@ -508,6 +528,8 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           ...(callerIdentity ? { callerIdentity } : {}),
           ...(currentRoute.externalRuntimeAttachment ? { externalRuntimeAttachment: currentRoute.externalRuntimeAttachment } : {}),
           ...(currentRoute.providerModelProof ? { providerModelProof: currentRoute.providerModelProof } : {}),
+        }, {
+          ...(abortSignal ? { abortSignal } : {}),
         });
         if (started.status !== "started") {
           throw new ManagedJobApplicationError("admission_denied", "Review the exact admitted native-harness Runtime authority.");
@@ -516,10 +538,12 @@ export async function createOperatorProjectManagedJobApplicationComposition(
         if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
           throw managedJobExecutionFailure(joined.status === "completed" ? joined.record : undefined);
         }
+        const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
         return {
           runtimeInvocationId: joined.record.invocationId,
           completedAt: new Date().toISOString(),
           resultHandoff: joined.record.resultHandoff,
+          ...(writeEvidence ? { writeEvidence } : {}),
         };
       },
     },
@@ -581,7 +605,7 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           },
           adapterKind: preparation.adapter.descriptor.adapterKind,
           executionMode: preparation.adapter.descriptor.supportedExecutionModes[0] ?? "direct-provider",
-          requestedAuthority: "read_only",
+          ...managedJobRequestedAuthority(job.admissionProfileId),
           authority: {
             authorityProfileId: profile.authorityProfileId,
             permissionProfile: profile.permissionProfile,
@@ -623,13 +647,25 @@ export async function createOperatorProjectManagedJobApplicationComposition(
           throw new ManagedJobApplicationError("admission_denied", "Review the exact committed managed Runtime authority.");
         }
         const joined = await invocationService.join(request.invocationId);
+        if (
+          joined.status === "completed"
+          && joined.record.lifecycleState === "cancelled"
+          && preparation.abortSignal.aborted
+        ) {
+          throw new ManagedJobApplicationError(
+            "provider_timeout",
+            "Retry the exact admitted managed route after verifying provider availability.",
+          );
+        }
         if (joined.status !== "completed" || joined.record.lifecycleState !== "completed" || !joined.record.resultHandoff) {
           throw managedJobExecutionFailure(joined.status === "completed" ? joined.record : undefined);
         }
+        const writeEvidence = sanitizeManagedWriteEvidence(joined.record);
         return {
           runtimeInvocationId: joined.record.invocationId,
           completedAt: new Date().toISOString(),
           resultHandoff: joined.record.resultHandoff,
+          ...(writeEvidence ? { writeEvidence } : {}),
         };
       },
     },
@@ -643,11 +679,40 @@ export async function createOperatorProjectManagedJobApplicationComposition(
       dispatcher.enqueue(job.id);
     }
   }
-  const application: OperatorProjectManagedJobApplicationPort = {
+  const application: OperatorProjectManagedJobApplicationPort & OperatorProjectManagedWriteApprovalPort = {
     accept: async (input, callerIdentity) => {
       const job = await service.accept(input);
-      dispatcher.enqueue(job.id, callerIdentity);
+      if (job.state !== "awaiting_approval") dispatcher.enqueue(job.id, callerIdentity);
       return job;
+    },
+    approveWrite: async (jobId, expiresAt) => {
+      const job = await managedJobStore.get(jobId);
+      if (!job) throw new ManagedJobApplicationError("unknown_job", "Verify the managed-job identifier.");
+      if (job.state !== "awaiting_approval" || job.admissionProfileId !== "foundation-apply-approved-writes" || job.writeApproval !== undefined) {
+        throw new ManagedJobApplicationError("invalid_transition", "Approve only an awaiting managed approved-write job once.");
+      }
+      const binding = managedWriteApprovalBinding(job);
+      const issued = writeApprovalAuthority.issue({
+        binding,
+        approverId: TRUSTED_WRITE_APPROVER_ID,
+        expiresAt,
+      });
+      try {
+        const attached = await service.attachWriteApproval(
+          { project, callerId: job.callerId },
+          job.id,
+          issued.approvalId,
+        );
+        dispatcher.enqueue(attached.id);
+        return attached;
+      } catch (error) {
+        try {
+          writeApprovalAuthority.revoke({ approvalId: issued.approvalId, projectId: job.projectId });
+        } catch {
+          // Keep the original attach failure; an issued-but-unattached receipt cannot authorize dispatch.
+        }
+        throw error;
+      }
     },
     getStatus: (input, jobId) => service.getStatus({ project, callerId: input.callerId }, jobId),
     getResult: (input, jobId) => service.getResult({ project, callerId: input.callerId }, jobId),
@@ -660,14 +725,24 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     configuredAgents: summarizeOperatorProjectManagedAgents(configuredAgents, managedInvocation),
     close: async () => {
       await dispatcher.close();
-      closeManagedAccountRuntimeComposition(root.rootPath);
+      try {
+        writeApprovalAuthority.close();
+      } finally {
+        closeManagedAccountRuntimeComposition(root.rootPath);
+      }
     },
   };
 }
 
 function managedJobExecutionFailure(
   record: ManagedAgentInvocationRecord | undefined,
-): ManagedJobExecutionFailure {
+): ManagedJobExecutionFailure | ManagedJobApplicationError {
+  if (record?.lifecycleState === "timed_out") {
+    return new ManagedJobApplicationError(
+      "provider_timeout",
+      "Retry the exact admitted managed route after verifying provider availability.",
+    );
+  }
   const diagnostic = record?.diagnostics?.find((candidate) => candidate.classification !== undefined)
     ?? record?.diagnostics?.[0];
   return new ManagedJobExecutionFailure(
@@ -692,6 +767,86 @@ function managedJobFailureClassification(
     return classification;
   }
   return "unknown_failure";
+}
+
+function managedJobRequestedAuthority(
+  admissionProfileId: ManagedJobRecord["admissionProfileId"],
+): {
+  readonly requestedAuthority: "read_only" | "destructive";
+  readonly authorityApproval?: { readonly approved: true };
+} {
+  return admissionProfileId === "foundation-apply-approved-writes"
+    ? { requestedAuthority: "destructive", authorityApproval: { approved: true } }
+    : { requestedAuthority: "read_only" };
+}
+
+function managedWriteApprovalBinding(job: ManagedJobRecord): ManagedWriteApprovalBinding {
+  const route = job.dispatch.kind === "native-harness"
+    ? {
+        routeId: job.dispatch.routeId,
+        providerId: job.dispatch.providerId,
+        model: job.dispatch.model,
+        adapterCapabilityId: job.dispatch.adapterCapabilityId,
+        adapterCapabilityVersion: job.dispatch.adapterCapabilityVersion,
+      }
+    : job.dispatch.candidateSet.candidates.length === 1
+      ? job.dispatch.candidateSet.candidates[0]
+      : undefined;
+  if (
+    route === undefined
+    || typeof route.model !== "string"
+    || route.model.trim().length === 0
+  ) {
+    throw new ManagedJobApplicationError("route_unavailable", "Approved managed writes require one exact route with a model identity.");
+  }
+  const routeIdentity = {
+    routeId: route.routeId,
+    providerId: route.providerId,
+    model: route.model,
+    adapterCapabilityId: route.adapterCapabilityId,
+    adapterCapabilityVersion: route.adapterCapabilityVersion,
+    ...("profileAuthorityDigest" in route && route.profileAuthorityDigest !== undefined
+      ? { profileAuthorityDigest: route.profileAuthorityDigest }
+      : {}),
+  };
+  return {
+    projectId: job.projectId,
+    jobId: job.id,
+    callerId: job.callerId,
+    workItemFingerprint: job.requestFingerprint,
+    configuredAgentProfileId: job.configuredAgentProfileId,
+    admissionProfileId: "foundation-apply-approved-writes",
+    routeId: route.routeId,
+    providerId: route.providerId,
+    model: route.model,
+    adapterCapabilityId: route.adapterCapabilityId,
+    adapterCapabilityVersion: route.adapterCapabilityVersion,
+    authorityDigest: digestManagedEconomicValue({
+      kind: "managed-write-authority",
+      admissionProfileId: job.admissionProfileId,
+      route: routeIdentity,
+    }),
+    effectDigest: digestManagedEconomicValue({
+      kind: "managed-write-effect",
+      jobId: job.id,
+      requestFingerprint: job.requestFingerprint,
+      route: routeIdentity,
+    }),
+    revisionDigest: digestManagedEconomicValue({
+      kind: "managed-write-revision",
+      adoptedDecisionAt: job.adoptedDecisionAt,
+      dispatch: job.dispatch,
+    }),
+  };
+}
+
+function sanitizeManagedWriteEvidence(
+  record: ManagedAgentInvocationRecord,
+): readonly ManagedAgentWriteEvidence[] | undefined {
+  // Runtime's final result validator owns canonicalization and redaction.
+  return record.writeEvidence && record.writeEvidence.length > 0
+    ? record.writeEvidence
+    : undefined;
 }
 
 type OperatorManagedInvocationRoute = NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number];

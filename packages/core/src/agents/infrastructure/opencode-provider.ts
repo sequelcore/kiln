@@ -1,4 +1,5 @@
 import { OpenAICompatAdapter } from "./openai-compat.js";
+import type { AgentResponse, CreateMessageOptions } from "../index.js";
 import { OpenCodeAuth, type OpenCodeTier } from "./opencode-auth.js";
 import { KilnError } from "../../engine/errors.js";
 
@@ -33,18 +34,17 @@ export class OpenCodeAdapter extends OpenAICompatAdapter {
     this.defaultModel = defaultModel;
   }
 
+  override createMessage(options: CreateMessageOptions): Promise<AgentResponse> {
+    return options.tools && options.tools.length > 0
+      ? this.createMessageViaStream(options)
+      : super.createMessage(options);
+  }
+
   protected override buildHeaders(
     options?: { readonly sessionId?: string },
   ): Record<string, string> {
     const headers = super.buildHeaders(options);
     headers["x-opencode-client"] = "kiln";
-    const sessionId = options?.sessionId?.trim();
-    if (sessionId) {
-      if (/\r|\n/.test(sessionId)) {
-        throw new KilnError("CONFIG_INVALID", "OpenCode session id contains invalid header characters");
-      }
-      headers["x-opencode-session"] = sessionId;
-    }
     return headers;
   }
 

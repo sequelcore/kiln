@@ -28,6 +28,54 @@ import {
 const roots: string[] = [];
 
 describe("managed-agent command", () => {
+  it("approves an awaiting write job before resolving any session and always drains the composition", async () => {
+    const root = await tempRoot();
+    const approveWrite = vi.fn().mockResolvedValue({
+      id: "job-000000001",
+      projectId: "kiln",
+      state: "queued",
+      writeApproval: {
+        approvalId: "approval-000001",
+        state: "issued",
+        issuedAt: "2026-08-09T00:00:00.000Z",
+        expiresAt: "2026-08-09T00:05:00.000Z",
+        approverId: "operator",
+      },
+    });
+    const close = vi.fn().mockResolvedValue(undefined);
+    const factory = vi.fn().mockResolvedValue({ application: { approveWrite }, close });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await managedAgentCommand(
+      { createRegistry: (() => undefined) as never },
+      "approve-write",
+      ["job-000000001", "--yes", "--expires-in-seconds", "300", "--project", root],
+      { createManagedJobComposition: factory, clock: () => new Date("2026-08-09T00:00:00.000Z") },
+    );
+
+    expect(factory).toHaveBeenCalledWith({ projectPath: root });
+    expect(approveWrite).toHaveBeenCalledWith("job-000000001", "2026-08-09T00:05:00.000Z");
+    expect(close).toHaveBeenCalledOnce();
+    expect(log.mock.calls[0]?.[0]).toContain("approval-000001");
+  });
+
+  it("requires explicit confirmation and rejects malformed approve-write arguments", async () => {
+    const root = await tempRoot();
+    const factory = vi.fn();
+    const config = { createRegistry: (() => undefined) as never };
+
+    await expect(managedAgentCommand(config, "approve-write", ["job-000000001"], {
+      projectPath: root, createManagedJobComposition: factory,
+    })).rejects.toThrow("--yes");
+    await expect(managedAgentCommand(config, "approve-write", ["job-000000001", "--yes", "--expires-in-seconds", "0"], {
+      projectPath: root, createManagedJobComposition: factory,
+    })).rejects.toThrow("expires-in-seconds");
+    await expect(managedAgentCommand(config, "approve-write", ["job-000000001", "--yes", "--unknown"], {
+      projectPath: root, createManagedJobComposition: factory,
+    })).rejects.toThrow("Unknown approve-write option");
+    expect(factory).not.toHaveBeenCalled();
+  });
+
   afterEach(async () => {
     vi.restoreAllMocks();
     await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));

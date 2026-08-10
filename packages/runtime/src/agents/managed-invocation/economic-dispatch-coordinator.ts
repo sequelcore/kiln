@@ -83,6 +83,10 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly abortSignal?: AbortSignal;
   readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
+  /** Runs after held commitment acquisition and before dispatch fencing or adapter materialization. */
+  readonly validateAndConsumeApprovalBeforeFence?: (input: {
+    readonly commitment: ManagedEconomicCommitment;
+  }) => void | Promise<void>;
   /** Runs after the durable fence and before any adapter materialization. */
   readonly validateExecutionProfile?: (input: {
     readonly commitment: ManagedEconomicCommitment;
@@ -148,6 +152,12 @@ export class ManagedEconomicDispatchCoordinator {
         this.options.resolveLifecycleTimeoutMs(result.record.commitment, input.admissionProfile),
         input.abortSignal,
       );
+      throwManagedEconomicAbort(lifecycle.signal);
+      if (input.validateAndConsumeApprovalBeforeFence !== undefined) {
+        await input.validateAndConsumeApprovalBeforeFence({
+          commitment: result.record.commitment,
+        });
+      }
     } catch (error) {
       this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;

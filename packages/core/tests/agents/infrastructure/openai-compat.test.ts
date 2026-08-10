@@ -503,6 +503,57 @@ describe("OpenAIAdapter", () => {
     expect(body.stream).toBe(true);
   });
 
+  it("rejects an inline provider error from a successful streaming response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: mockSSEStream([JSON.stringify({ choices: [], error: { message: "upstream failed" } })]),
+    }));
+
+    await expect(async () => {
+      for await (const _event of adapter.streamMessage(makeOptions())) {
+        // consume
+      }
+    }).rejects.toThrow("streaming API error: upstream failed");
+  });
+
+  it("rejects a streaming response that closes without DONE", async () => {
+    const encoder = new TextEncoder();
+    const incomplete = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "partial" } }] })}\n\n`));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: incomplete,
+    }));
+
+    await expect(async () => {
+      for await (const _event of adapter.streamMessage(makeOptions())) {
+        // consume
+      }
+    }).rejects.toThrow("ended without a terminal signal");
+  });
+
+  it("accepts DONE as the final unterminated SSE line at EOF", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("data: [DONE]"));
+        controller.close();
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, body: stream }));
+
+    const events: AgentStreamEvent[] = [];
+    for await (const event of adapter.streamMessage(makeOptions())) events.push(event);
+
+    expect(events).toEqual([{ type: "done", content: "" }]);
+  });
+
   it("restores canonical tool names from streamed provider tool calls", async () => {
     const chunk = JSON.stringify({
       choices: [{
@@ -663,6 +714,32 @@ describe("OpenAIAdapter", () => {
       expect(events).toContainEqual({
         type: "tool_use",
         content: JSON.stringify({ id: "call_native", name: "search", input: { query: "test" } }),
+      });
+    });
+
+    it("adopts a tool name that arrives after the first arguments delta", async () => {
+      const chunk1 = JSON.stringify({
+        id: "chatcmpl-late-name",
+        choices: [{ delta: { tool_calls: [{ index: 0, id: "call_late_name", function: { arguments: '{"query":' } }] } }],
+      });
+      const chunk2 = JSON.stringify({
+        id: "chatcmpl-late-name",
+        choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "search", arguments: '"test"}' } }] } }],
+      });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: mockSSEStream([chunk1, chunk2]),
+      }));
+
+      const events: AgentStreamEvent[] = [];
+      for await (const event of adapter.streamMessage(makeOptions({ tools: [makeToolDef()] }))) {
+        events.push(event);
+      }
+
+      expect(events).toContainEqual({
+        type: "tool_use",
+        content: JSON.stringify({ id: "call_late_name", name: "search", input: { query: "test" } }),
       });
     });
 

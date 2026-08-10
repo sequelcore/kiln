@@ -1230,7 +1230,7 @@ Current status:
 | Claude Code family | Live-proven for exact `claude-opus-5`, `claude-sonnet-5`, and `claude-haiku-4-5-20251001` identities under `foundation-readonly-plan`: native structured handoff, exact primary identity, complete auxiliary usage, plan mode, portable executable/version evidence, no accepted writes, and no provider-session persistence. | Only these exact live-proven models are admitted. Moving aliases and every other Claude catalog value remain closed. Fable remains unconfigured until Kiln can enforce explicit-route-only operator selection. Write authority is unsupported and fails before process launch. |
 | Hermes Agent | Scouted as ACP-style future adapter candidate. | `delegate_task`, ACP permission, and terminal concepts are adapter inputs only. |
 | OpenClaw | Scouted as future harness or ACP adapter candidate. | Session, subagent, and tool-policy names are not Kiln contract fields. |
-| Direct subscription providers (`codex-oauth`, `opencode-go`, `opencode-zen`) | Runtime adapter supports explicit approved-write managed routes when the route declares `writeAuthority`. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and `toolExecutions.fileChanges` reduced to canonical write evidence. |
+| Direct subscription providers (`codex-oauth`, `opencode-go`, `opencode-zen`) | Runtime supports explicit approved-write managed routes when the route declares `writeAuthority`; portable OpenCode Go authority/dispatch/replay tests pass, while the 2026-08-10 bounded live write received no terminal provider response before its governed deadline. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, a durable exact single-use approval receipt consumed before the fence, and `toolExecutions.fileChanges` reduced to canonical write evidence. Provider health remains an exact-route live fact, not inferred from portable tests. |
 | Other direct API providers | Child runtime-session adapter exists with deterministic builtin tool sandbox proof; provider-family live proof remains separate. | Direct providers execute through Kiln builtin tool authority, working-directory sandbox, and evidence boundaries. |
 
 Live tests are disabled by default. They require
@@ -1251,6 +1251,11 @@ live proof uses
 `gpt-5.6-terra`. Live tests must use isolated fixture workspaces, bounded tracked
 paths, read-only denial cases, approved-write positive cases, cleanup, and
 replay assertions.
+
+The governed direct OpenCode Go write proof uses
+`KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_TESTS=1` and optionally
+`KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE`; it resolves the exact configured
+model and account policy rather than accepting a model override.
 
 ## Session Events And Replay
 

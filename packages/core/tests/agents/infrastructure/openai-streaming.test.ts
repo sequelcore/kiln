@@ -349,7 +349,7 @@ describe("OpenAIAdapter streaming", () => {
   });
 
   describe("empty and minimal streams", () => {
-    it("yields only done when response body is null", async () => {
+    it("rejects a successful response with no stream body", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockResolvedValue({
@@ -359,9 +359,8 @@ describe("OpenAIAdapter streaming", () => {
         }),
       );
 
-      const events = await collectEvents(adapter.streamMessage(makeOptions()));
-
-      expect(events).toEqual([{ type: "done", content: "" }]);
+      await expect(collectEvents(adapter.streamMessage(makeOptions())))
+        .rejects.toThrow("streaming response has no body");
     });
 
     it("yields done when stream has only [DONE]", async () => {
@@ -504,7 +503,7 @@ describe("OpenAIAdapter streaming", () => {
   });
 
   describe("stream ending without [DONE]", () => {
-    it("flushes pending tool calls and emits done when stream ends without [DONE]", async () => {
+    it("rejects pending tool calls when stream ends without [DONE]", async () => {
       const chunks = [
         makeToolCallChunk(0, { id: "call_no_done", name: "search", arguments: '{"q": "test"}' }),
       ];
@@ -514,17 +513,11 @@ describe("OpenAIAdapter streaming", () => {
         mockFetchStreamResponse(mockSSEStream(chunks, { omitDone: true })),
       );
 
-      const events = await collectEvents(adapter.streamMessage(makeOptions()));
-
-      const toolEvents = events.filter((e) => e.type === "tool_use");
-      expect(toolEvents).toHaveLength(1);
-      const parsed = JSON.parse(toolEvents[0]!.content);
-      expect(parsed).toEqual({ id: "call_no_done", name: "search", input: { q: "test" } });
-
-      expect(events[events.length - 1]).toEqual({ type: "done", content: "" });
+      await expect(collectEvents(adapter.streamMessage(makeOptions())))
+        .rejects.toThrow("ended without a terminal signal");
     });
 
-    it("emits done even when stream ends without [DONE] and no tool calls", async () => {
+    it("rejects text when stream ends without [DONE]", async () => {
       const chunks = [makeChunk({ content: "trailing" })];
 
       vi.stubGlobal(
@@ -532,10 +525,8 @@ describe("OpenAIAdapter streaming", () => {
         mockFetchStreamResponse(mockSSEStream(chunks, { omitDone: true })),
       );
 
-      const events = await collectEvents(adapter.streamMessage(makeOptions()));
-
-      expect(events).toContainEqual({ type: "text", content: "trailing" });
-      expect(events[events.length - 1]).toEqual({ type: "done", content: "" });
+      await expect(collectEvents(adapter.streamMessage(makeOptions())))
+        .rejects.toThrow("ended without a terminal signal");
     });
   });
 

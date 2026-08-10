@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   FilesystemManagedJobStore,
   InMemoryManagedJobStore,
+  ManagedJobApplicationError,
   ManagedJobApplicationService,
   ManagedJobExecutionFailure,
   type ManagedJobApplicationOptions,
@@ -255,7 +256,7 @@ function nativeStoredJob(input: {
     ...(input.dispatchFenceId ? { dispatchFenceId: input.dispatchFenceId } : {}),
   };
   return {
-    version: 10,
+    version: 11,
     id: input.id,
     adoptedDecisionAt: updatedAt,
     state: input.state,
@@ -292,8 +293,33 @@ async function dispatchAccepted(
   return accepted;
 }
 
-describe("ManagedJobApplicationService V10 record", () => {
-  it("accepts a durable queued V10 record before dispatch and exposes completion through status/result", async () => {
+describe("ManagedJobApplicationService V11 record", () => {
+  it("holds approved-write work awaiting approval and never dispatches it without an attached receipt", async () => {
+    const execute = vi.fn();
+    const service = new ManagedJobApplicationService({
+      ...createOptions({
+        currentProfile: () => ({
+          ...profile(),
+          admissionProfileId: "foundation-apply-approved-writes",
+        }),
+        currentCandidates: () => ({
+          ...candidateSet(),
+          admissionProfileId: "foundation-apply-approved-writes",
+        }),
+      }),
+      execution: { execute },
+    });
+
+    const accepted = await service.accept(submission);
+    expect(accepted).toMatchObject({ version: 11, state: "awaiting_approval" });
+    await expect(service.attachWriteApproval(query, accepted.id, "approval-000001")).rejects.toMatchObject({
+      code: "admission_denied",
+    });
+    await expect(service.dispatch(accepted.id)).resolves.toEqual(accepted);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("accepts a durable queued V11 record before dispatch and exposes completion through status/result", async () => {
     const execution = deferred<{
       readonly runtimeInvocationId: string;
       readonly completedAt: string;
@@ -361,6 +387,112 @@ describe("ManagedJobApplicationService V10 record", () => {
     });
   });
 
+  it("aborts active execution and ignores a late successful result after cancellation", async () => {
+    const execution = deferred<{
+      readonly runtimeInvocationId: string;
+      readonly completedAt: string;
+      readonly resultHandoff: {
+        readonly provenance: { readonly delivery: "runtime-generated" };
+        readonly summary: string;
+        readonly resourceUris: readonly string[];
+        readonly memoryWriteProposalUris: readonly string[];
+      };
+      readonly writeEvidence: readonly [{
+        readonly evidenceId: string;
+        readonly invocationId: string;
+        readonly kind: "write-attempt-completed";
+        readonly summary: string;
+        readonly resourceUris: readonly string[];
+        readonly recordedAt: string;
+      }];
+    }>();
+    let observedSignal: AbortSignal | undefined;
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+      routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
+      nativeHarnessExecution: {
+        execute: async (input) => {
+          observedSignal = input.abortSignal;
+          return execution.promise;
+        },
+      },
+      nativeHarnessDispatchIdGenerator: () => "dispatch-cancel-000001",
+    });
+    const accepted = await service.accept({ ...submission, configuredAgentProfileId: nativeHarnessProfile.id });
+    const dispatch = service.dispatch(accepted.id);
+    await vi.waitFor(() => expect(observedSignal).toBeDefined());
+
+    await expect(service.cancel(query, accepted.id)).resolves.toMatchObject({ state: "cancelled", diagnostic: "cancelled" });
+    expect(observedSignal?.aborted).toBe(true);
+    execution.resolve({
+      runtimeInvocationId: "runtime-invocation-late",
+      completedAt: now.toISOString(),
+      resultHandoff: {
+        provenance: { delivery: "runtime-generated" },
+        summary: "Late completion must not be published.",
+        resourceUris: [],
+        memoryWriteProposalUris: [],
+      },
+      writeEvidence: [{
+        evidenceId: "late-write-evidence",
+        invocationId: `managed-job:${accepted.id}`,
+        kind: "write-attempt-completed",
+        summary: "Late evidence must not be published.",
+        resourceUris: ["kiln://managed-agents/late-write"],
+        recordedAt: now.toISOString(),
+      }],
+    });
+
+    const cancelled = await dispatch;
+    expect(cancelled).toMatchObject({ state: "cancelled" });
+    expect(cancelled).not.toHaveProperty("result");
+    await expect(service.getResult(query, accepted.id)).resolves.toMatchObject({
+      availability: "failed",
+      lifecycleState: "cancelled",
+      diagnostic: "cancelled",
+    });
+  });
+
+  it("does not fence native execution after cancellation has activated its abort signal", async () => {
+    const store = new InMemoryManagedJobStore();
+    const routeResolution = deferred<ManagedJobNativeHarnessRoute>();
+    const cancellationEntered = deferred<void>();
+    const allowCancellationPersistence = deferred<void>();
+    const transition = store.transition.bind(store);
+    vi.spyOn(store, "transition").mockImplementation(async (id, state, diagnostic, updatedAt, failureEvidence) => {
+      if (state === "cancelled") {
+        cancellationEntered.resolve();
+        await allowCancellationPersistence.promise;
+      }
+      return transition(id, state, diagnostic, updatedAt, failureEvidence);
+    });
+    const fence = vi.spyOn(store, "fenceNativeHarness");
+    const execute = vi.fn();
+    let routeResolutions = 0;
+    const service = new ManagedJobApplicationService({
+      ...createOptions({ store }),
+      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+      routes: {
+        resolve: async () => ++routeResolutions === 1 ? nativeHarnessRoute : routeResolution.promise,
+      },
+      nativeHarnessExecution: { execute },
+      nativeHarnessDispatchIdGenerator: () => "dispatch-cancel-before-fence-000001",
+    });
+    const accepted = await service.accept({ ...submission, configuredAgentProfileId: nativeHarnessProfile.id });
+    const dispatch = service.dispatch(accepted.id);
+    const cancellation = service.cancel(query, accepted.id);
+    await cancellationEntered.promise;
+
+    routeResolution.resolve(nativeHarnessRoute);
+    await expect(dispatch).resolves.toMatchObject({ state: "queued" });
+    expect(fence).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+
+    allowCancellationPersistence.resolve();
+    await expect(cancellation).resolves.toMatchObject({ state: "cancelled", diagnostic: "cancelled" });
+  });
+
   it("persists an exact native-harness dispatch without economic evidence", async () => {
     const execution = vi.fn(async () => ({
       runtimeInvocationId: "runtime-invocation-native-harness",
@@ -392,7 +524,7 @@ describe("ManagedJobApplicationService V10 record", () => {
     });
 
     expect(job).toMatchObject({
-      version: 10,
+      version: 11,
       state: "succeeded",
       dispatch: {
         kind: "native-harness",
@@ -471,6 +603,36 @@ describe("ManagedJobApplicationService V10 record", () => {
     expect(invalidUri.failureEvidence).toEqual({ version: 1, classification: "native_session_error" });
     expect(unknown.failureEvidence).toEqual({ version: 1, classification: "unknown_failure" });
     expect(JSON.stringify([invalidUri, unknown])).not.toContain("provider-secret");
+  });
+
+  it("preserves a typed provider timeout as the terminal timed_out diagnostic", async () => {
+    const service = new ManagedJobApplicationService({
+      ...createOptions(),
+      profiles: { resolve: async (id) => id === nativeHarnessProfile.id ? nativeHarnessProfile : undefined },
+      routes: { resolve: async (resolvedProfile) => resolvedProfile.kind === "native-harness" ? nativeHarnessRoute : undefined },
+      nativeHarnessExecution: {
+        execute: async () => {
+          throw new ManagedJobApplicationError("provider_timeout", "Retry the exact admitted route.");
+        },
+      },
+      nativeHarnessDispatchIdGenerator: () => "dispatch-timeout-000001",
+    });
+
+    const job = await dispatchAccepted(service, {
+      ...submission,
+      configuredAgentProfileId: nativeHarnessProfile.id,
+      idempotencyKey: "typed-provider-timeout",
+    });
+
+    expect(job).toMatchObject({ state: "timed_out", diagnostic: "provider_timeout" });
+    expect(job.failureEvidence).toBeUndefined();
+    await expect(service.getResult(query, job.id)).resolves.toMatchObject({
+      availability: "failed",
+      diagnostic: "provider_timeout",
+    });
+    await expect(service.getReplay(query, job.id)).resolves.toMatchObject({
+      lifecycleState: "timed_out",
+    });
   });
 
   it("persists the native fence before invoking the harness process", async () => {
@@ -906,7 +1068,7 @@ describe("ManagedJobApplicationService V10 record", () => {
     const job = await dispatchAccepted(service, submission);
 
     expect(job).toMatchObject({
-      version: 10,
+      version: 11,
       state: "failed",
       diagnostic: "economic_commitment_unavailable",
       dispatch: {
@@ -1001,7 +1163,7 @@ describe("ManagedJobApplicationService V10 record", () => {
     await expect(corrupt.getReplay(query, job.id)).resolves.toMatchObject({ dispatch: { kind: "economic", economic: { availability: "unavailable", reason: "evidence-unprojectable" } } });
   });
 
-  it("persists one V10 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
+  it("persists one V11 terminal result after commitment, exact adapter construction, fence, and settlement", async () => {
     const fenceDispatch = vi.fn();
     const settleExecution = vi.fn();
     const selectedCommitment = {
@@ -1081,7 +1243,7 @@ describe("ManagedJobApplicationService V10 record", () => {
 
     const completed = await dispatchAccepted(service, submission);
     expect(completed).toMatchObject({
-      version: 10,
+      version: 11,
       state: "succeeded",
       objective: submission.objective,
       result: {
@@ -1160,7 +1322,7 @@ describe("ManagedJobApplicationService V10 record", () => {
     }));
   });
 
-  it("returns the persisted V10 attempt identity and decision time on a later replay", async () => {
+  it("returns the persisted V11 attempt identity and decision time on a later replay", async () => {
     let currentTime = now;
     const store = new InMemoryManagedJobStore();
     const service = new ManagedJobApplicationService(createOptions({
@@ -1174,7 +1336,7 @@ describe("ManagedJobApplicationService V10 record", () => {
 
     expect(replay).toEqual(first);
     expect(replay).toMatchObject({
-      version: 10,
+      version: 11,
       dispatch: { kind: "economic", economicAttemptId: "economic-attempt:attempt-000000001" },
       adoptedDecisionAt: now.toISOString(),
     });
@@ -1254,7 +1416,7 @@ describe("ManagedJobApplicationService V10 record", () => {
     });
   });
 
-  it("preserves V10 idempotency across a filesystem restart", async () => {
+  it("preserves V11 idempotency across a filesystem restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v9-"));
     try {
       const first = new ManagedJobApplicationService(createOptions({
@@ -1271,27 +1433,25 @@ describe("ManagedJobApplicationService V10 record", () => {
         await readFile(join(root, "managed-jobs.json"), "utf8"),
       ) as unknown[];
       expect(persisted).toHaveLength(1);
-      expect(persisted[0]).toMatchObject({ version: 10 });
+      expect(persisted[0]).toMatchObject({ version: 11 });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("performs a one-time V9 to V10 filesystem migration", async () => {
-    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v9-migration-"));
+  it("rejects V10 persisted records without a compatibility migration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-v10-rejected-"));
     try {
-      const legacy = { ...nativeStoredJob({ id: "native-job-v9-migration", state: "queued" }), version: 9 };
+      const legacy = { ...nativeStoredJob({ id: "native-job-v10-rejected", state: "queued" }), version: 10 };
       await writeFile(join(root, "managed-jobs.json"), `${JSON.stringify([legacy])}\n`, "utf8");
 
-      await expect(new FilesystemManagedJobStore(root).get(legacy.id)).resolves.toMatchObject({ version: 10, id: legacy.id });
-      const persisted = JSON.parse(await readFile(join(root, "managed-jobs.json"), "utf8")) as Array<Record<string, unknown>>;
-      expect(persisted).toMatchObject([{ version: 10, id: legacy.id }]);
+      await expect(new FilesystemManagedJobStore(root).get(legacy.id)).rejects.toMatchObject({ code: "job_persistence_corrupt" });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("fails closed for corrupt V10 candidate evidence", async () => {
+  it("fails closed for corrupt V11 candidate evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-managed-jobs-corrupt-"));
     try {
       const service = new ManagedJobApplicationService(createOptions({

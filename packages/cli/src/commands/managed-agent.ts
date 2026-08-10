@@ -22,6 +22,10 @@ import {
 import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import {
+  createOperatorProjectManagedJobApplicationComposition,
+  type OperatorProjectManagedJobApplicationComposition,
+} from "../application/operator-project-managed-jobs.js";
 
 export interface ManagedAgentCommandOptions {
   readonly projectPath?: string;
@@ -29,6 +33,10 @@ export interface ManagedAgentCommandOptions {
   readonly controlRequestId?: () => string;
   readonly controlTimeoutMs?: number;
   readonly webSocketFactory?: ManagedAgentGatewayWebSocketFactory;
+  readonly clock?: () => Date;
+  readonly createManagedJobComposition?: (input: {
+    readonly projectPath: string;
+  }) => Promise<OperatorProjectManagedJobApplicationComposition>;
 }
 
 export interface ManagedAgentGatewaySocket {
@@ -81,13 +89,23 @@ export async function managedAgentCommand(
   args: readonly string[],
   options: ManagedAgentCommandOptions = {},
 ): Promise<void> {
-  const root = resolveProjectRoot({ explicitPath: options.projectPath }).rootPath;
-  const transcriptStore = new TranscriptStore(root);
+  const root = resolveProjectRoot({
+    explicitPath: subcommand === "approve-write"
+      ? readApproveWriteProjectPath(args) ?? options.projectPath
+      : options.projectPath,
+  }).rootPath;
 
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
     printManagedAgentHelp();
     return;
   }
+
+  if (subcommand === "approve-write") {
+    await approveManagedWrite(root, args, options);
+    return;
+  }
+
+  const transcriptStore = new TranscriptStore(root);
 
   const sessionId = await resolveManagedAgentCommandSessionId(root, args);
   if (!sessionId) {
@@ -466,6 +484,93 @@ function formatEconomicAttemptRow(attempt: OperatorCockpitEconomicAttemptProject
     attempt.reason ? `reason:${attempt.reason}` : undefined,
     ...(attempt.rejections ?? []).map((rejection) => `rejection:${rejection.stage}:${rejection.reason}`),
   ].filter((part): part is string => part !== undefined).join("  ");
+}
+
+async function approveManagedWrite(
+  projectPath: string,
+  args: readonly string[],
+  options: ManagedAgentCommandOptions,
+): Promise<void> {
+  const parsed = parseApproveWriteArguments(args);
+  const now = options.clock?.() ?? new Date();
+  if (Number.isNaN(now.getTime())) throw new Error("Use a valid CLI clock for approve-write.");
+  const expiresAt = new Date(now.getTime() + parsed.expiresInSeconds * 1_000).toISOString();
+  const createComposition = options.createManagedJobComposition ?? createOperatorProjectManagedJobApplicationComposition;
+  const composition = await createComposition({ projectPath });
+  try {
+    const job = await composition.application.approveWrite(parsed.jobId, expiresAt);
+    const approval = job.writeApproval;
+    if (!approval) throw new Error("Managed write approval did not return a durable receipt.");
+    console.log(JSON.stringify({
+      jobId: job.id,
+      projectId: job.projectId,
+      state: job.state,
+      approval: {
+        approvalId: approval.approvalId,
+        state: approval.state,
+        issuedAt: approval.issuedAt,
+        expiresAt: approval.expiresAt,
+      },
+    }, null, 2));
+  } finally {
+    await composition.close();
+  }
+}
+
+function parseApproveWriteArguments(args: readonly string[]): {
+  readonly jobId: string;
+  readonly expiresInSeconds: number;
+} {
+  const positionals: string[] = [];
+  let confirmed = false;
+  let expiresInSeconds = 300;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (argument === "--yes") {
+      confirmed = true;
+    } else if (argument === "--expires-in-seconds") {
+      const value = args[index + 1];
+      if (!value || !/^\d+$/u.test(value)) throw new Error("--expires-in-seconds requires a positive integer.");
+      expiresInSeconds = Number(value);
+      index += 1;
+    } else if (argument.startsWith("--expires-in-seconds=")) {
+      const value = argument.slice("--expires-in-seconds=".length);
+      if (!/^\d+$/u.test(value)) throw new Error("--expires-in-seconds requires a positive integer.");
+      expiresInSeconds = Number(value);
+    } else if (argument === "--project") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("--project requires a value.");
+      index += 1;
+    } else if (argument.startsWith("--project=")) {
+      if (argument.slice("--project=".length).trim().length === 0) throw new Error("--project requires a value.");
+    } else if (argument.startsWith("--")) {
+      throw new Error(`Unknown approve-write option: ${argument}`);
+    } else {
+      positionals.push(argument);
+    }
+  }
+  if (positionals.length !== 1 || !/^[A-Za-z0-9][A-Za-z0-9:_-]*$/u.test(positionals[0]!)) {
+    throw new Error("Managed-agent approved-write job id is required.");
+  }
+  if (!confirmed) throw new Error("approve-write requires explicit --yes confirmation.");
+  if (!Number.isSafeInteger(expiresInSeconds) || expiresInSeconds < 1 || expiresInSeconds > 86_400) {
+    throw new Error("--expires-in-seconds must be between 1 and 86400.");
+  }
+  return { jobId: positionals[0]!, expiresInSeconds };
+}
+
+function readApproveWriteProjectPath(args: readonly string[]): string | undefined {
+  const index = args.indexOf("--project");
+  if (index >= 0) {
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) throw new Error("--project requires a value.");
+    return value;
+  }
+  const inline = args.find((argument) => argument.startsWith("--project="));
+  if (!inline) return undefined;
+  const value = inline.slice("--project=".length);
+  if (value.trim().length === 0) throw new Error("--project requires a value.");
+  return value;
 }
 
 function formatManagedAgentListRow(item: OperatorCockpitManagedAgentViewItem): string {

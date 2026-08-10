@@ -156,6 +156,19 @@ const ECONOMIC_WORKER_AGENT = [
   "Regression fixture agent; not used for real work.",
 ].join("\n");
 
+const OPENCODE_WRITE_WORKER_AGENT = [
+  "---",
+  "name: opencode-write-worker",
+  "role: Approved write worker",
+  "goal: Apply only operator-approved workspace changes.",
+  "tier: fast",
+  "mode: managed-child",
+  "economicPolicyId: default-economic-policy",
+  "authorityProfile: foundation-apply-approved-writes",
+  "---",
+  "Regression fixture agent; not used for real work.",
+].join("\n");
+
 function accountlessEconomicConfig(): KilnGlobalConfig {
   const configured = economicConfig();
   return {
@@ -208,6 +221,30 @@ function accountlessOpenCodeGoEconomicConfig(): KilnGlobalConfig {
         providerId: "opencode-go",
         providerModelId: "kimi-k2.6",
         economics: { ...model.economics, adapterCapabilityId: "opencode-go-direct" },
+      })),
+    },
+  };
+}
+
+function accountlessOpenCodeGoWriteEconomicConfig(): KilnGlobalConfig {
+  const configured = accountlessOpenCodeGoEconomicConfig();
+  return {
+    ...configured,
+    managedAgents: {
+      ...configured.managedAgents!,
+      routes: configured.managedAgents!.routes.map((route) => ({
+        ...route,
+        profiles: ["foundation-apply-approved-writes" as const],
+        tools: {
+          allowed: ["read", "grep", "glob", "write", "edit", "apply-patch"],
+          network: false,
+          writes: true,
+        },
+        memory: { access: "write-proposals" as const },
+        writeAuthority: {
+          workspace: { mode: "apply-approved" as const, allowedPaths: ["."] },
+          approval: { mode: "required-before-apply" as const },
+        },
       })),
     },
   };
@@ -467,6 +504,155 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
+  it("holds an opencode-go direct write until one exact trusted approval is consumed", async () => {
+    useIsolatedGlobalConfigHome();
+    writeGlobalConfig(accountlessOpenCodeGoWriteEconomicConfig());
+    const projectRoot = createProjectRoot('version: "1"\n', { "opencode-write-worker.md": OPENCODE_WRITE_WORKER_AGENT });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
+    const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockImplementation(async (invocationId) => ({
+      status: "completed",
+      record: {
+        invocationId,
+        lifecycleState: "completed",
+        resultHandoff: {
+          provenance: {
+            delivery: "native-structured-output",
+            configuredModelId: "kimi-k2.6",
+            primaryObservedModelId: "kimi-k2.6",
+            observedModelIds: ["kimi-k2.6"],
+          },
+          summary: "Synthetic approved OpenCode Go write completed.",
+          resourceUris: [],
+          memoryWriteProposalUris: [],
+        },
+        writeEvidence: [{
+          evidenceId: "opencode-write-completed",
+          invocationId,
+          kind: "write-attempt-completed",
+          summary: "Approved workspace write completed.",
+          resourceUris: ["kiln://managed-agents/write-evidence/opencode-write-completed"],
+          recordedAt: "2026-07-01T12:00:00.000Z",
+        }],
+      },
+    } as never));
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
+    });
+    try {
+      const accepted = await composition.application.accept({
+        objective: "Apply the one approved fixture write.",
+        configuredAgentProfileId: "opencode-write-worker",
+        callerId: "codex-app",
+        idempotencyKey: "opencode-go-approved-write",
+      });
+      expect(accepted).toMatchObject({
+        state: "awaiting_approval",
+        admissionProfileId: "foundation-apply-approved-writes",
+        dispatch: { kind: "economic", candidateSet: { candidates: [{ routeId: "opencode-go-direct" }] } },
+      });
+      expect(adapterTrace.createCalls).toBe(0);
+      expect(start).not.toHaveBeenCalled();
+      await expect(composition.application.getResult({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
+        availability: "pending",
+        lifecycleState: "awaiting_approval",
+      });
+
+      const approved = await composition.application.approveWrite(accepted.id, "2099-08-09T20:05:00.000Z");
+      expect(approved).toMatchObject({ state: "queued", writeApproval: { state: "issued", approverId: "operator" } });
+      await composition.close();
+      const status = await composition.application.getStatus({ callerId: "codex-app" }, accepted.id);
+      const result = await composition.application.getResult({ callerId: "codex-app" }, accepted.id);
+      const replay = await composition.application.getReplay({ callerId: "codex-app" }, accepted.id);
+      expect(status).toMatchObject({ state: "succeeded", writeApproval: { state: "consumed", consumedBy: `managed-job:${accepted.id}` } });
+      expect(result).toMatchObject({
+        availability: "available",
+        writeApproval: { state: "consumed" },
+        writeEvidence: [{ kind: "write-attempt-completed", resourceUris: ["kiln://managed-agents/write-evidence/opencode-write-completed"] }],
+      });
+      expect(replay).toMatchObject({
+        lifecycleState: "succeeded",
+        writeApproval: { state: "consumed" },
+        writeEvidence: [{ kind: "write-attempt-completed" }],
+      });
+      expect(adapterTrace.createCalls).toBe(1);
+      expect(start).toHaveBeenCalledWith(expect.objectContaining({
+        invocationId: `managed-job:${accepted.id}`,
+        profile: "foundation-apply-approved-writes",
+        requestedAuthority: "destructive",
+        authorityApproval: { approved: true },
+        providerRoute: { providerId: "opencode-go", surface: "direct-provider", model: "kimi-k2.6" },
+        authority: expect.objectContaining({
+          toolAuthority: expect.objectContaining({ writeAllowed: true, networkAllowed: false }),
+          writeAuthority: expect.objectContaining({ approval: expect.objectContaining({ mode: "required-before-apply" }) }),
+        }),
+      }), adapterTrace.adapter, expect.anything(), expect.anything());
+      expect(join).toHaveBeenCalledOnce();
+      await expect(composition.application.approveWrite(accepted.id, "2099-08-09T20:05:00.000Z")).rejects.toMatchObject({
+        code: "invalid_transition",
+      });
+      const projections = JSON.stringify([status, result, replay]);
+      expect(projections).not.toMatch(/accountRef|credentialRevision|api[_-]?key|authorization|C:\\/iu);
+    } finally {
+      await composition.close();
+      start.mockRestore();
+      join.mockRestore();
+    }
+  });
+
+  it("projects an economic lifecycle abort as a provider timeout", async () => {
+    useIsolatedGlobalConfigHome();
+    const config = accountlessOpenCodeGoEconomicConfig();
+    const route = config.managedAgents?.routes?.[0];
+    if (!route) throw new Error("Expected one managed OpenCode Go route fixture.");
+    writeGlobalConfig({
+      ...config,
+      managedAgents: {
+        ...config.managedAgents,
+        routes: [{ ...route, timeoutMs: 10 }],
+      },
+    });
+    const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
+    const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
+    const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockImplementation(async (invocationId) => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return {
+        status: "completed",
+        record: {
+          invocationId,
+          lifecycleState: "cancelled",
+          resultHandoff: {
+            provenance: { delivery: "runtime-generated", configuredModelId: "kimi-k2.6" },
+            summary: "Managed economic lifecycle timed out.",
+            resourceUris: [],
+            memoryWriteProposalUris: [],
+          },
+        },
+      } as never;
+    });
+    const composition = await createOperatorProjectManagedJobApplicationComposition({
+      projectPath: projectRoot,
+      discoverProviderModels: async () => eligibleDirectProviderCatalog("opencode-go", "kimi-k2.6"),
+    });
+    try {
+      const accepted = await composition.application.accept({
+        objective: "Classify one bounded provider timeout.",
+        configuredAgentProfileId: "economic-worker",
+        callerId: "codex-app",
+        idempotencyKey: "opencode-go-economic-timeout",
+      });
+      await composition.close();
+      await expect(composition.application.getStatus({ callerId: "codex-app" }, accepted.id)).resolves.toMatchObject({
+        state: "timed_out",
+        diagnostic: "provider_timeout",
+      });
+    } finally {
+      await composition.close();
+      start.mockRestore();
+      join.mockRestore();
+    }
+  });
+
   it("fails closed before Runtime start when post-fence adapter capability changes", async () => {
     useIsolatedGlobalConfigHome();
     writeGlobalConfig(accountlessEconomicConfig());
@@ -518,7 +704,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       });
       expect(result.state).toBe("queued");
       await composition.close();
-      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "failed", diagnostic: "invocation_failed" });
+      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "failed", diagnostic: "identity-revision-conflict" });
       expect(start).not.toHaveBeenCalled();
       expect(adapterTrace.adapter.invoke).not.toHaveBeenCalled();
     } finally {

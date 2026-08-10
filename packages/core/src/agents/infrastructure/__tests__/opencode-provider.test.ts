@@ -114,10 +114,99 @@ describe("OpenCodeAdapter", () => {
         expect.objectContaining({
           headers: expect.objectContaining({
             "x-opencode-client": "kiln",
-            "x-opencode-session": "session-123",
           }),
         }),
       );
+      const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+      expect(new Headers(request.headers).has("x-opencode-session")).toBe(false);
+    });
+
+    it("uses the official streaming chat path for tool-capable OpenCode Go turns", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const stream = [
+        `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", function: { name: "write", arguments: '{"filePath":"proof.txt",' } }] }, finish_reason: null }] })}`,
+        `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"content":"after"}' } }] }, finish_reason: "tool_calls" }] })}`,
+        `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 3 } } })}`,
+        "data: [DONE]",
+        "",
+      ].join("\n");
+      const fetchMock = vi.fn(async () => new Response(stream, {
+        headers: { "Content-Type": "text/event-stream" },
+      }));
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+      const adapter = new OpenCodeAdapter({
+        apiKey: "sk-test",
+        tier: "go",
+        defaultModel: "glm-5.2",
+      });
+
+      const result = await adapter.createMessage({
+        sessionId: "session-tools",
+        system: "Use the admitted tool.",
+        messages: [{ role: "user", parts: [{ type: "text", text: "Write the fixture." }] }],
+        tools: [{
+          name: "write",
+          description: "Write one admitted file.",
+          inputSchema: { type: "object", properties: { filePath: { type: "string" }, content: { type: "string" } }, required: ["filePath", "content"] },
+          tags: new Set(["write"]),
+        }],
+        toolChoice: { type: "any" },
+      });
+
+      expect(result).toMatchObject({
+        inputTokens: 12,
+        outputTokens: 7,
+        cacheReadTokens: 3,
+        stopReason: "tool_calls",
+        toolCalls: [{ id: "call-1", name: "write", input: { filePath: "proof.txt", content: "after" } }],
+      });
+      const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+      expect(JSON.parse(String(request.body))).toMatchObject({
+        stream: true,
+        stream_options: { include_usage: true },
+        tool_choice: "required",
+      });
+    });
+
+    it("does not wait for transport cancellation after the provider sends DONE", async () => {
+      const { OpenCodeAdapter } = await import("../opencode-provider.js");
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            `data: ${JSON.stringify({ id: "chat-1", choices: [{ delta: { content: "complete" }, finish_reason: "stop" }] })}`,
+            `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 4, completion_tokens: 1 } })}`,
+            "data: [DONE]",
+            "",
+          ].join("\n")));
+        },
+        cancel() {
+          return new Promise<void>(() => undefined);
+        },
+      });
+      globalThis.fetch = vi.fn(async () => new Response(stream, {
+        headers: { "Content-Type": "text/event-stream" },
+      })) as unknown as typeof globalThis.fetch;
+      const adapter = new OpenCodeAdapter({
+        apiKey: "sk-test",
+        tier: "go",
+        defaultModel: "kimi-k2.7-code",
+      });
+
+      await expect(adapter.createMessage({
+        system: "Use the admitted tool.",
+        messages: [{ role: "user", parts: [{ type: "text", text: "Finish." }] }],
+        tools: [{
+          name: "write",
+          description: "Write one admitted file.",
+          inputSchema: { type: "object", properties: {} },
+          tags: new Set(["write"]),
+        }],
+      })).resolves.toMatchObject({
+        inputTokens: 4,
+        outputTokens: 1,
+        stopReason: "stop",
+      });
     });
 
     it("routes tier 'zen' chat calls through the OpenCode Zen endpoint", async () => {
@@ -143,24 +232,6 @@ describe("OpenCodeAdapter", () => {
         "https://opencode.ai/zen/v1/chat/completions",
         expect.any(Object),
       );
-    });
-
-    it("rejects invalid OpenCode session header characters before network I/O", async () => {
-      const { OpenCodeAdapter } = await import("../opencode-provider.js");
-      const fetchMock = vi.fn();
-      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-      const adapter = new OpenCodeAdapter({
-        apiKey: "sk-test",
-        tier: "go",
-        defaultModel: "glm-5.2",
-      });
-
-      await expect(adapter.createMessage({
-        sessionId: "session\r\ninjected",
-        system: "test",
-        messages: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
-      })).rejects.toThrow("invalid header characters");
-      expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it("passes caller abort signals to OpenCode chat requests", async () => {

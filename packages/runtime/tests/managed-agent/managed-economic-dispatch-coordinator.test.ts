@@ -148,6 +148,73 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     await vi.waitFor(() => expect(lifecycleEvents.transitions).toEqual(["held", "dispatch-fenced", "released"]));
   });
 
+  it("validates and consumes approval before fencing or materializing an adapter", async () => {
+    const order: string[] = [];
+    const economicAuthority = authority();
+    const validateAndConsumeApprovalBeforeFence = vi.fn(async ({ commitment: selected }: { readonly commitment: ManagedEconomicCommitment }) => {
+      order.push(`approval:${selected.commitmentId}`);
+    });
+    vi.mocked(economicAuthority.fenceDispatch).mockImplementation(() => {
+      order.push("fence");
+      return undefined as never;
+    });
+    const createAdapter = vi.fn(async () => {
+      order.push("adapter");
+      return { descriptor: {} } as never;
+    });
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter,
+    });
+
+    const prepared = await coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: { snapshot: { policy: policy() } } as never,
+      admissionProfile: "foundation-apply-approved-writes",
+      validateAndConsumeApprovalBeforeFence,
+    });
+
+    expect(prepared).toMatchObject({ status: "prepared" });
+    expect(validateAndConsumeApprovalBeforeFence).toHaveBeenCalledOnce();
+    expect(validateAndConsumeApprovalBeforeFence).toHaveBeenCalledWith({
+      commitment: expect.objectContaining({ commitmentId: "commitment-a" }),
+    });
+    expect(order).toEqual(["approval:commitment-a", "fence", "adapter"]);
+    expect(economicAuthority.releasePreFence).not.toHaveBeenCalled();
+  });
+
+  it("releases the held commitment when pre-fence approval validation or consumption fails", async () => {
+    const economicAuthority = authority();
+    const createAdapter = vi.fn();
+    const validateAndConsumeApprovalBeforeFence = vi.fn(async () => {
+      throw new Error("approval-rejected");
+    });
+    const coordinator = new ManagedEconomicDispatchCoordinator({
+      authority: economicAuthority,
+      resolveLifecycleTimeoutMs: () => 1_000,
+      createAdapter,
+    });
+
+    await expect(coordinator.prepare({
+      jobId: "job-a",
+      economicAttemptId: "economic-attempt-a",
+      intentFingerprint: `sha256:${"9".repeat(64)}`,
+      adoption: { snapshot: { policy: policy() } } as never,
+      admissionProfile: "foundation-apply-approved-writes",
+      validateAndConsumeApprovalBeforeFence,
+    })).rejects.toThrow("approval-rejected");
+
+    expect(validateAndConsumeApprovalBeforeFence).toHaveBeenCalledOnce();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
+    expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
+    expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
+    expect(economicAuthority.recordExecutionSettlementPending).not.toHaveBeenCalled();
+    expect(createAdapter).not.toHaveBeenCalled();
+  });
+
   it("does not redispatch a replay whose durable commitment is already fenced", async () => {
     const createAdapter = vi.fn();
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -242,6 +309,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
   it("releases the held commitment when the lifecycle is already aborted before dispatch fencing", async () => {
     const economicAuthority = authority();
     const lifecycleEvents = recordingLifecycleEvents();
+    const validateAndConsumeApprovalBeforeFence = vi.fn();
     const controller = new AbortController();
     controller.abort(new Error("synthetic pre-fence abort"));
     const coordinator = new ManagedEconomicDispatchCoordinator({
@@ -258,8 +326,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionProfile: "foundation-readonly-plan",
       abortSignal: controller.signal,
       lifecycleEvents: lifecycleEvents.port,
+      validateAndConsumeApprovalBeforeFence,
     })).rejects.toThrow("synthetic pre-fence abort");
 
+    expect(validateAndConsumeApprovalBeforeFence).not.toHaveBeenCalled();
     expect(economicAuthority.fenceDispatch).not.toHaveBeenCalled();
     expect(economicAuthority.releasePreFence).toHaveBeenCalledWith("job-a", "economic-attempt-a");
     expect(lifecycleEvents.transitions).toEqual(["held"]);

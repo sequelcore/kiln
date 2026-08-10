@@ -246,8 +246,8 @@ future-quota claim.
 
 ### Slice 6 - Governed Structured Write Approval
 
-Status: Research deferred behind Slice 5. Implementation requires an explicit
-operator priority decision.
+Status: Portable implementation complete; the bounded direct-provider live
+write promotion remains pending a healthy provider response.
 
 Define one provider-neutral approval-evidence contract for approved managed
 writes initiated through structured or headless surfaces. Interactive
@@ -256,7 +256,16 @@ writes initiated through structured or headless surfaces. Interactive
 promoted. Output format, requested authority, pairing, possession of a session
 token, and parent-model text are not approval evidence.
 
-The research slice must specify:
+Runtime now owns a schema-v1 SQLite approval authority and managed jobs persist
+the approval lifecycle in schema v11. `kiln managed-agent approve-write
+<jobId> --yes` issues one expiring receipt bound to the exact project, caller,
+job, request fingerprint, profile, route, provider, model, adapter, authority
+scope, effect, and revisions. Runtime consumes it atomically after economic
+commitment and before the dispatch fence; expiry, revocation, mismatches,
+foreign consumers, and replay fail closed. Status, result, and replay expose
+only receipt-safe evidence and canonical write evidence.
+
+The implemented contract includes:
 
 - an authenticated approver identity and immutable approval identifier;
 - exact binding to the work item or invocation, route, authority profile,
@@ -270,12 +279,18 @@ The research slice must specify:
   recovery behavior when approval becomes stale or execution settlement is
   unknown.
 
-Admission requires synthetic portable fixtures followed by one explicitly
-authorized bounded live write against a disposable repository fixture. The
-proof must show that matching evidence permits exactly one scoped write, while
+Portable admission is proven by synthetic fixtures showing that matching
+evidence permits exactly one scoped write, while
 missing, expired, revoked, broadened, replayed, or cross-route evidence denies
-before provider effect. Remote pairing from Roadmap 08 may authenticate the
-approver session, but never grants write approval by itself.
+before provider effect. The opt-in direct OpenCode Go live test exercises a
+disposable repository fixture through acceptance, approval, commitment, fence,
+write evidence, settlement, and replay. On 2026-08-10 both the 120-second
+service route and 300-second critical route received no terminal provider
+response, so Kiln made no write and retained conservative settlement state.
+That observation is a provider-availability residual, not portable authority
+evidence and not a reason to weaken or extend the deadline. Remote pairing from
+Roadmap 08 may authenticate the approver session, but never grants write
+approval by itself.
 
 ## Promotion Gates
 
@@ -308,7 +323,7 @@ account capacity and affinity authority. Economic commitments remain
 project-namespaced; account-bound or accountless commitment, fenced dispatch,
 typed settlement, and conservative recovery have no harness-specific policy
 owner. This is Kiln-local only, not provider-global coordination.
-Structured/headless approved writes remain unavailable until Slice 6 supplies
-canonical approval evidence; fail-closed structured output is the required
-interim behavior. Live provider verification remains separate from the
-portable implementation proof.
+Structured/headless approved writes are available only through one canonical
+Runtime approval receipt. Live provider verification remains separate from
+the portable implementation proof; an exact route is not promoted as healthy
+until its bounded disposable-repository proof succeeds.

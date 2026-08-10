@@ -186,8 +186,10 @@ Codex OAuth capabilities come from its authenticated model catalog. OpenCode
 Go and Zen currently remain provider-default: their model catalog advertises
 variants, but the CLI does not lower the current OpenAI-compatible variant and
 the direct gateway does not provide a consistent, revisioned effort guarantee
-across eligible upstreams. `x-opencode-session` preserves session affinity; it
-does not authorize an effort level.
+across eligible upstreams. Direct Kiln calls do not project a per-job
+`x-opencode-session`; account leasing and the OpenCode gateway's own routing
+remain the governing continuity boundaries. Neither mechanism authorizes an
+effort level.
 
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from
@@ -920,6 +922,13 @@ profiles.
 Additional descriptive route IDs may be introduced only after matching live
 evidence is preserved. Route naming never supplies authority or proof by
 itself.
+
+Structured callers create the job first. Approved-write jobs remain
+`awaiting_approval` until the operator runs `kiln managed-agent approve-write
+<jobId> --yes` (optionally with `--expires-in-seconds`). The receipt is durable,
+exact-route-bound, expiring, and single-use; CLI confirmation is not itself the
+authority and no provider adapter or credential is materialized before Runtime
+consumes the receipt.
 
 - `opencode-go-service-approved-write` is the current evidence-backed write
   example.
