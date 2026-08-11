@@ -19,7 +19,7 @@ import {
   operatorIdentityInitials,
   projectManagedAgentIdentity,
   projectOperatorGovernedWorkItemSnapshot,
-  type GuiSessionTurnOutcome,
+  type OperatorSessionTurnOutcome,
   type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
@@ -453,7 +453,7 @@ function toWorkItem(
 export function handleCompleted(
   ctx: HandlerContext,
   totalUsd: number,
-  outcome: GuiSessionTurnOutcome,
+  outcome: OperatorSessionTurnOutcome,
   inputTokens: number,
   outputTokens: number,
   runtimeContinuity: { strategy: string; feedbackLabel?: string } | undefined,

@@ -115,6 +115,31 @@ All operator surfaces share the same model:
 - Telemetry is attributed per provider/turn inside the session, while the
   session itself remains canonical.
 
+### Shared History Projection
+
+Operator surfaces consume one `OperatorSessionSummary` contract from
+`@kilnai/gateway-contracts`. It is a read projection over canonical transcript,
+ledger, and runtime-event evidence; it is not a GUI-owned session model. The
+projection carries the Kiln session ID, title and optional summary, tags,
+providers used, latest evidenced provider/model route, latest terminal turn
+outcome, update time, and accumulated cost.
+
+Route identity is atomic evidence. A provider from one observation must never
+be combined with a model from an older observation, and a surface must not
+substitute its current provider or infer a model from tags or token usage.
+Ledger cost is accumulated session cost and takes precedence over transcript
+cost; the two values are never summed.
+
+HTTP consumers load history from the dedicated `GET /operator/api/sessions`
+resource. The GUI dashboard does not duplicate session history. Local CLI GUI,
+App Gateway GUI, and TUI adapters all project their persistence or runtime
+evidence into the same contract. Until sequenced history invalidation exists,
+GUI consumers poll this resource independently of locally initiated turns. A
+loaded history list does not select or
+continue a session: selection and continuation require an explicit operator
+action. If the selected session disappears from a refreshed list, surfaces
+must clear its loaded detail rather than display orphaned transcript state.
+
 ## Terminal Turn Outcome
 
 Runtime is the single owner of terminal turn outcome. Every execution session,

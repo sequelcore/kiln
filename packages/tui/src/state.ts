@@ -8,6 +8,7 @@ import type {
   OperatorCockpitEvidenceRejection,
   OperatorCockpitManagedAgentViewState,
   OperatorSessionEvent,
+  OperatorSessionSummary,
   OperatorTurnRequestedAuthority,
   OperatorWorkspaceHomeProjection,
   ContextUsageProjection,
@@ -79,7 +80,7 @@ export interface ReactiveState {
   runtimeContinuityByProvider: Record<string, RuntimeContinuitySidebarInfo>;
   fieldSnapshot: FieldSidebarInfo;
   /** Session history for sidebar browser. */
-  sessions: SessionListItem[];
+  sessions: OperatorSessionSummary[];
   /** Currently selected session index in the sidebar browser. */
   selectedSessionIndex: number;
   /** Whether Enter on the selected sidebar session confirms explicit continuation. */
@@ -131,17 +132,6 @@ export interface FieldSidebarInfo {
   saturation: number;
   entropy: number;
   status: "stable" | "runaway" | "starvation" | "unknown";
-}
-
-/** Session list item for sidebar display. */
-export interface SessionListItem {
-  sessionId: string;
-  provider: string;
-  task: string;
-  completedAt: string;
-  cost: number;
-  turns?: number;
-  durationMs?: number;
 }
 
 /** Pending approval request. */

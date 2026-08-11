@@ -18,7 +18,6 @@ const dashboardRefetchMock = vi.fn();
 let appShellFrameInput: { onOperatorTerminalAvailability: (available: boolean) => void } | null = null;
 const dashboardData = {
   providers: [],
-  sessions: [],
   telemetry: {
     status: "idle" as const,
     dominantRegions: [],
@@ -146,14 +145,13 @@ vi.mock("../src/api/client.js", () => ({
       return waitForHealthMock(...args);
     }
 
-    async loadSessions() {
+    async loadOperatorSessionHistory() {
       return [];
     }
 
     async loadDashboard() {
       return {
         providers: [],
-        sessions: [],
         telemetry: {
           status: "idle",
           dominantRegions: [],

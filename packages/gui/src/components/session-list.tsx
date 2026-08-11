@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
+import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
 import { CircleAlert, CirclePause, CircleX, LoaderCircle, Plus, Search, Unplug, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { buildSessionRowBadges } from "@/lib/session-continuity-view";
 import { cn } from "@/lib/utils";
 
 interface SessionListProps {
-  readonly sessions: readonly GuiSessionSummary[];
+  readonly sessions: readonly OperatorSessionSummary[];
   readonly selectedSessionId: string | null;
   readonly continuity: SessionContinuity;
   readonly onSelect: (sessionId: string) => void;
@@ -18,7 +18,7 @@ interface SessionListProps {
 type SessionIndicator = "running" | "background" | "paused" | "failed" | "cancelled";
 
 interface SessionEntry {
-  readonly session: GuiSessionSummary;
+  readonly session: OperatorSessionSummary;
   readonly indicator: SessionIndicator | null;
 }
 
@@ -28,10 +28,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
 });
-
-function sessionTitle(session: GuiSessionSummary): string {
-  return session.title ?? session.taskSummary;
-}
 
 function formatSessionAge(iso: string): string {
   const timestamp = new Date(iso).getTime();
@@ -48,18 +44,18 @@ function formatSessionAge(iso: string): string {
   return dateFormatter.format(new Date(timestamp));
 }
 
-function sessionSearchText(session: GuiSessionSummary): string {
+function sessionSearchText(session: OperatorSessionSummary): string {
   return [
     session.title,
-    session.taskSummary,
     session.summary,
     ...session.providersUsed,
-    session.lastProvider,
-    ...(session.tags ?? []),
+    session.lastRoute?.provider,
+    session.lastRoute?.model,
+    ...session.tags,
   ].filter(Boolean).join(" ").toLocaleLowerCase();
 }
 
-function filterSessions(sessions: readonly GuiSessionSummary[], query: string): readonly GuiSessionSummary[] {
+function filterSessions(sessions: readonly OperatorSessionSummary[], query: string): readonly OperatorSessionSummary[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   if (!normalizedQuery) {
     return sessions;
@@ -90,7 +86,7 @@ function groupSessionEntries(entries: readonly SessionEntry[]) {
       ? "Active"
       : entry.indicator === "paused" || entry.indicator === "failed"
         ? "Needs attention"
-        : chronologicalGroup(entry.session.completedAt);
+        : chronologicalGroup(entry.session.updatedAt);
     const group = groups.get(label) ?? [];
     group.push(entry);
     groups.set(label, group);
@@ -110,11 +106,11 @@ function groupSessionEntries(entries: readonly SessionEntry[]) {
 }
 
 function resolveSessionIndicator(
-  session: GuiSessionSummary,
+  session: OperatorSessionSummary,
   continuity: SessionContinuity,
 ): SessionIndicator | null {
   const badges = buildSessionRowBadges({
-    sessionId: session.id,
+    sessionId: session.sessionId,
     continuity,
     outcome: null,
   });
@@ -181,11 +177,11 @@ export function SessionList(props: SessionListProps) {
     [sessionGroups],
   );
   const selectedIndex = useMemo(
-    () => navigationSessions.findIndex((session) => session.id === props.selectedSessionId),
+    () => navigationSessions.findIndex((session) => session.sessionId === props.selectedSessionId),
     [navigationSessions, props.selectedSessionId],
   );
   const visibleIndexById = useMemo(
-    () => new Map(navigationSessions.map((session, index) => [session.id, index])),
+    () => new Map(navigationSessions.map((session, index) => [session.sessionId, index])),
     [navigationSessions],
   );
 
@@ -205,7 +201,7 @@ export function SessionList(props: SessionListProps) {
     if (!session) {
       return;
     }
-    props.onSelect(session.id);
+    props.onSelect(session.sessionId);
     itemRefs.current[bounded]?.focus();
   }
 
@@ -288,10 +284,10 @@ export function SessionList(props: SessionListProps) {
                 <h3 className="px-1 pb-1.5 pt-2 text-xs font-medium text-muted-foreground/75">{group.label}</h3>
                 <ul className="flex flex-col gap-1">
                   {group.items.map(({ session, indicator }) => {
-                    const index = visibleIndexById.get(session.id) ?? -1;
-                    const selected = props.selectedSessionId === session.id;
+                    const index = visibleIndexById.get(session.sessionId) ?? -1;
+                    const selected = props.selectedSessionId === session.sessionId;
                     return (
-                      <li key={session.id}>
+                      <li key={session.sessionId}>
                         <button
                           type="button"
                           ref={(node) => {
@@ -299,8 +295,8 @@ export function SessionList(props: SessionListProps) {
                           }}
                           aria-current={selected ? "page" : undefined}
                           tabIndex={selected || (selectedIndex < 0 && index === 0) ? 0 : -1}
-                          title={session.summary ?? sessionTitle(session)}
-                          onClick={() => props.onSelect(session.id)}
+                          title={session.summary ?? session.title}
+                          onClick={() => props.onSelect(session.sessionId)}
                           onKeyDown={(event) => {
                             if (event.key === "ArrowDown" || event.key === "j") {
                               event.preventDefault();
@@ -332,13 +328,13 @@ export function SessionList(props: SessionListProps) {
                             data-slot="session-title"
                             className="session-title-fade min-w-0 flex-1 overflow-hidden whitespace-nowrap"
                           >
-                            {sessionTitle(session)}
+                            {session.title}
                           </span>
                           {indicator ? (
                             <SessionStateIndicator state={indicator} />
                           ) : (
                             <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/65">
-                              {formatSessionAge(session.completedAt)}
+                              {formatSessionAge(session.updatedAt)}
                             </span>
                           )}
                         </button>

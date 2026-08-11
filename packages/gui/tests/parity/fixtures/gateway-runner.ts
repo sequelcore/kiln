@@ -15,7 +15,7 @@ import {
 import type {
   GuiProviderDiscoveryResult,
   GuiSessionDetail,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   KilnConfigSetupSnapshot,
 } from "@kilnai/gateway-contracts";
 
@@ -66,46 +66,51 @@ function responseChunks(prompt: string, userTurns: number): readonly string[] {
   ];
 }
 
-const sessionSummaries: GuiSessionSummary[] = [
+const sessionSummaries: OperatorSessionSummary[] = [
   {
-    id: "claude-session-1",
+    sessionId: "claude-session-1",
+    title: "Summarize parity checklist",
+    tags: [],
     providersUsed: ["claude"],
-    lastProvider: "claude",
-    completedAt: new Date(Date.now() - 60_000).toISOString(),
-    cost: 0.0123,
-    taskSummary: "Summarize parity checklist",
+    lastRoute: { provider: "claude" },
+    updatedAt: new Date(Date.now() - 60_000).toISOString(),
+    costUsd: 0.0123,
   },
   {
-    id: "claude-session-2",
+    sessionId: "claude-session-2",
+    title: "Generate test fixture output",
+    tags: [],
     providersUsed: ["claude"],
-    lastProvider: "claude",
-    completedAt: new Date(Date.now() - 120_000).toISOString(),
-    cost: 0.0042,
-    taskSummary: "Generate test fixture output",
+    lastRoute: { provider: "claude" },
+    updatedAt: new Date(Date.now() - 120_000).toISOString(),
+    costUsd: 0.0042,
   },
   {
-    id: "codex-session-1",
+    sessionId: "codex-session-1",
+    title: "Refactor command routing",
+    tags: [],
     providersUsed: ["codex"],
-    lastProvider: "codex",
-    completedAt: new Date(Date.now() - 180_000).toISOString(),
-    cost: 0.0301,
-    taskSummary: "Refactor command routing",
+    lastRoute: { provider: "codex" },
+    updatedAt: new Date(Date.now() - 180_000).toISOString(),
+    costUsd: 0.0301,
   },
   {
-    id: "context-partial-session",
+    sessionId: "context-partial-session",
+    title: "Inspect partial context evidence",
+    tags: [],
     providersUsed: ["claude"],
-    lastProvider: "claude",
-    completedAt: new Date(Date.now() - 240_000).toISOString(),
-    cost: 0.001,
-    taskSummary: "Inspect partial context evidence",
+    lastRoute: { provider: "claude" },
+    updatedAt: new Date(Date.now() - 240_000).toISOString(),
+    costUsd: 0.001,
   },
   {
-    id: "context-authoritative-session",
+    sessionId: "context-authoritative-session",
+    title: "Inspect authoritative context evidence",
+    tags: [],
     providersUsed: ["codex"],
-    lastProvider: "codex",
-    completedAt: new Date(Date.now() - 300_000).toISOString(),
-    cost: 0.001,
-    taskSummary: "Inspect authoritative context evidence",
+    lastRoute: { provider: "codex" },
+    updatedAt: new Date(Date.now() - 300_000).toISOString(),
+    costUsd: 0.001,
   },
 ];
 
@@ -599,16 +604,14 @@ const fakeSessionFactory: CliSessionFactory = () => ({
     yield { type: "completed", totalUsd: 0.0104, durationMs: 220, outcome: "completed", isPreflightCrash: false };
 
     sessionSummaries.unshift({
-      id: `generated-${Date.now()}`,
+      sessionId: `generated-${Date.now()}`,
+      title: summarizePrompt(prompt),
+      tags: [],
       providersUsed: [activeProvider],
-      lastProvider: activeProvider,
-      completedAt: new Date().toISOString(),
-      cost: 0.0104,
-      taskSummary: summarizePrompt(prompt),
+      lastRoute: { provider: activeProvider, ...(activeModel ? { model: activeModel } : {}) },
+      updatedAt: new Date().toISOString(),
+      costUsd: 0.0104,
     });
-    if (sessionSummaries.length > 30) {
-      sessionSummaries.length = 30;
-    }
   },
   async dispose() {
     // no-op
@@ -664,7 +667,6 @@ async function main(): Promise<void> {
         { id: "codex", label: "Codex", group: "harness", free: false, models: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"], available: true },
         { id: "opencode", label: "OpenCode", group: "harness", free: false, models: [], available: true },
       ],
-      sessions: sessionSummaries.slice(0, 20),
       telemetry: { status: "idle", dominantRegions: [], saturation: 0, entropy: 0 },
       continuationInfoByProvider: continuationSessionId
         ? { [activeProvider]: { strategy: "continue_session", feedbackLabel: continuationSessionId } }
@@ -675,7 +677,7 @@ async function main(): Promise<void> {
     initialOperatorDiscoveryFreshness: "fresh",
     discoverOperatorProviders: async () => operatorDiscovery,
     getSetupSnapshot: async () => setupSnapshot,
-    listSessions: async () => sessionSummaries.slice(0, 20),
+    loadOperatorSessionHistory: async () => sessionSummaries,
     getSessionDetail: async (sessionId) => sessionId === restoredSessionDetail.id
       ? restoredSessionDetail
       : contextSessionDetails[sessionId] ?? null,

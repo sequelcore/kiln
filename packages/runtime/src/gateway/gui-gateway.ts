@@ -98,7 +98,7 @@ import {
   type KilnConfigSetupSnapshot,
   type GuiMemoryLatticeScope,
   type GuiSessionDetail,
-  type GuiSessionSummary,
+  type OperatorSessionSummary,
   type OperatorExecutionMode,
   type OperatorWorkspaceError,
   type OperatorWorkspaceErrorCode,
@@ -114,7 +114,7 @@ export type {
   GuiSessionDetail,
   GuiSessionEvent,
   GuiSessionMeta,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   GuiTelemetrySnapshot,
 } from "@kilnai/gateway-contracts";
 
@@ -141,7 +141,7 @@ export interface StartGuiGatewayOptions {
   readonly initialOperatorDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly initialOperatorDiscoveryFreshness?: "fresh" | "stale";
   readonly onOperatorDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
-  readonly listSessions?: () => Promise<readonly GuiSessionSummary[]>;
+  readonly loadOperatorSessionHistory?: () => Promise<readonly OperatorSessionSummary[]>;
   readonly getSessionDetail?: (sessionId: string) => Promise<GuiSessionDetail | null>;
   readonly workingDirectory?: string;
   readonly domainLabel?: string;
@@ -524,6 +524,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   app.use("/health", guiCorsMiddleware);
   app.use("/gui-api/*", guiCorsMiddleware);
   app.use("/gui/api/*", guiCorsMiddleware);
+  app.use("/operator/api/*", guiCorsMiddleware);
 
   app.get("/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
   app.get("/gui-api/health", (c) => c.json({ status: "ok", channel: "gui", connections: activeConnections }));
@@ -630,26 +631,15 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
   app.post("/gui/api/window-closed", handleManagedWindowClose);
   app.post("/gui-api/window-closed", handleManagedWindowClose);
 
-  const listSessions = async (): Promise<readonly GuiSessionSummary[]> => {
-    if (!options.listSessions) {
+  const loadOperatorSessionHistory = async (): Promise<readonly OperatorSessionSummary[]> => {
+    if (!options.loadOperatorSessionHistory) {
       return [];
     }
-    const sessions = await options.listSessions();
-    return sessions.slice(0, 20);
+    return options.loadOperatorSessionHistory();
   };
 
-  app.get("/sessions", async (c) => {
-    const sessions = await listSessions();
-    return c.json({ sessions });
-  });
-
-  app.get("/gui/api/sessions", async (c) => {
-    const sessions = await listSessions();
-    return c.json({ sessions });
-  });
-
-  app.get("/gui-api/sessions", async (c) => {
-    const sessions = await listSessions();
+  app.get("/operator/api/sessions", async (c) => {
+    const sessions = await loadOperatorSessionHistory();
     return c.json({ sessions });
   });
 

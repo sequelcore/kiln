@@ -1,36 +1,34 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
+import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { SessionList } from "../src/components/session-list.js";
 import { deriveSessionContinuity } from "../src/lib/session-continuity.js";
 
 const sessions = [
   {
-    id: "session-1",
+    sessionId: "session-1",
     title: "Runtime boundary review",
     summary: "Validate the execution envelope across operator surfaces.",
     tags: ["runtime", "review"],
     providersUsed: ["claude"],
-    lastProvider: "claude",
-    completedAt: "2026-04-21T20:00:00.000Z",
-    cost: 0.1,
-    taskSummary: "First task",
+    lastRoute: { provider: "claude" },
+    updatedAt: "2026-04-21T20:00:00.000Z",
+    costUsd: 0.1,
   },
   {
-    id: "session-2",
+    sessionId: "session-2",
     title: "Sidebar continuity",
     summary: "Align navigation and history into one surface.",
     tags: ["gui"],
     providersUsed: ["codex"],
-    lastProvider: "codex",
-    completedAt: "2026-04-21T21:00:00.000Z",
-    cost: 0.2,
-    taskSummary: "Second task",
+    lastRoute: { provider: "codex" },
+    updatedAt: "2026-04-21T21:00:00.000Z",
+    costUsd: 0.2,
   },
 ] as const;
 
 function renderSessionList(input?: {
-  sessions?: readonly GuiSessionSummary[];
+  sessions?: readonly OperatorSessionSummary[];
   selectedSessionId?: string | null;
   continuationTargetId?: string | null;
   liveSessionId?: string | null;
@@ -103,22 +101,22 @@ describe("SessionList", () => {
   });
 
   it("orders active and attention sessions before chronological history", () => {
-    const attentionSessions: readonly GuiSessionSummary[] = [
+    const attentionSessions: readonly OperatorSessionSummary[] = [
       {
         ...sessions[0],
-        id: "history",
+        sessionId: "history",
         title: "Completed history",
         lastTurnOutcome: "completed",
       },
       {
         ...sessions[1],
-        id: "paused",
+        sessionId: "paused",
         title: "Awaiting operator",
         lastTurnOutcome: "paused",
       },
       {
         ...sessions[0],
-        id: "live",
+        sessionId: "live",
         title: "Live execution",
         lastTurnOutcome: "failed",
       },
@@ -148,9 +146,9 @@ describe("SessionList", () => {
     const onSelect = vi.fn();
     renderSessionList({
       sessions: [
-        { ...sessions[0], id: "history", title: "Completed history", lastTurnOutcome: "completed" },
-        { ...sessions[1], id: "paused", title: "Awaiting operator", lastTurnOutcome: "paused" },
-        { ...sessions[0], id: "live", title: "Live execution" },
+        { ...sessions[0], sessionId: "history", title: "Completed history", lastTurnOutcome: "completed" },
+        { ...sessions[1], sessionId: "paused", title: "Awaiting operator", lastTurnOutcome: "paused" },
+        { ...sessions[0], sessionId: "live", title: "Live execution" },
       ],
       selectedSessionId: "live",
       liveSessionId: "live",
@@ -167,8 +165,8 @@ describe("SessionList", () => {
   it("distinguishes failed work from non-actionable cancelled history", () => {
     renderSessionList({
       sessions: [
-        { ...sessions[0], id: "failed", title: "Broken execution", lastTurnOutcome: "failed" },
-        { ...sessions[1], id: "cancelled", title: "Stopped execution", lastTurnOutcome: "cancelled" },
+        { ...sessions[0], sessionId: "failed", title: "Broken execution", lastTurnOutcome: "failed" },
+        { ...sessions[1], sessionId: "cancelled", title: "Stopped execution", lastTurnOutcome: "cancelled" },
       ],
       selectedSessionId: null,
     });

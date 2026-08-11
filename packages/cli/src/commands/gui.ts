@@ -66,7 +66,7 @@ import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
 import { createLocalWorkspaceExplorer } from "./gui-workspace.js";
 import { createManagedGuiWindowShutdownMonitor } from "./gui-shutdown-monitor.js";
 import { launchGuiWindow, type GuiWindowSession } from "./gui-window.js";
-import { loadSessionSummaries, toProviderLabel } from "./gui-session-summaries.js";
+import { loadOperatorSessionSummaries } from "../application/operator-session-history.js";
 import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
 import { stopGuiChildProcess } from "./gui-child-process.js";
 import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
@@ -82,10 +82,12 @@ import {
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceConfigHealthSummary,
   createOperatorWorkspaceHomeProjection,
+  getGuiProviderMetadata,
   isGuiProviderModeless,
   projectOperatorCockpitReadOnlyView,
   type GuiProviderDiscoveryResult,
   type OperatorSessionEvent,
+  type OperatorSessionSummary,
   type OperatorWorkspaceConfigHealthSummary,
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
@@ -283,7 +285,7 @@ export async function guiCommand(
     ),
     getSetupSnapshot: async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
     executeSetupAction: async (action) => executeConfigSetupAction({ projectPath: cwd, action }),
-    listSessions: () => loadSessionSummaries(sessionStore, transcriptStore),
+    loadOperatorSessionHistory: () => loadOperatorSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     workingDirectory: cwd,
     domainLabel: bootstrapContext.domainLabel,
@@ -463,7 +465,7 @@ async function buildDashboardSnapshot(
   domainLabel: string,
   workspaceExplorer: OperatorWorkspaceExplorer,
 ): Promise<GuiDashboardSnapshot> {
-  const sessions = await loadSessionSummaries(sessionStore, transcriptStore);
+  const sessions = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
 
   const providerHealth = new Map(
     Object.entries(getRuntimeProviderAvailability(registry)),
@@ -475,7 +477,7 @@ async function buildDashboardSnapshot(
     if (discovery) {
       return {
         id: provider.id,
-        label: toProviderLabel(provider.id),
+        label: getGuiProviderMetadata(provider.id)?.label ?? provider.id,
         group: provider.group,
         models: [...discovery.models],
         free: provider.free,
@@ -492,7 +494,7 @@ async function buildDashboardSnapshot(
       && (models.length > 0 || (hasRuntimeModelEntry && isGuiProviderModeless(provider.id)));
     return {
       id: provider.id,
-      label: toProviderLabel(provider.id),
+      label: getGuiProviderMetadata(provider.id)?.label ?? provider.id,
       group: provider.group,
       models: available ? models : [],
       free: provider.free,
@@ -524,7 +526,6 @@ async function buildDashboardSnapshot(
 
   return {
     providers: providerDescriptors,
-    sessions,
     telemetry,
     continuationInfoByProvider,
     operatorWorkspaceHome,
@@ -536,20 +537,20 @@ async function buildDashboardSnapshot(
 
 async function buildLocalGuiOperatorWorkspaceHome(input: {
   readonly projectedAt: string;
-  readonly sessions: GuiDashboardSnapshot["sessions"];
+  readonly sessions: readonly OperatorSessionSummary[];
   readonly transcriptStore: TranscriptStore;
   readonly configHealth: OperatorWorkspaceConfigHealthSummary;
 }): Promise<NonNullable<GuiDashboardSnapshot["operatorWorkspaceHome"]>> {
   const eventGroups = await Promise.all(input.sessions.map(async (session) => {
-    const detail = await loadSessionDetail(input.transcriptStore, session.id).catch(() => null);
+    const detail = await loadSessionDetail(input.transcriptStore, session.sessionId).catch(() => null);
     return detail?.events.length
-      ? detail.events.map((event) => localGuiOperatorEvent(event, session.id))
+      ? detail.events.map((event) => localGuiOperatorEvent(event, session.sessionId))
       : [operatorWorkspaceSessionSummaryEvent({
         instanceId: LOCAL_GUI_COCKPIT_INSTANCE_ID,
-        sessionId: session.id,
+        sessionId: session.sessionId,
         sequence: 0,
-        timestamp: session.completedAt,
-        title: session.title ?? session.taskSummary ?? session.id,
+        timestamp: session.updatedAt,
+        title: session.title,
       })];
   }));
   const events = eventGroups.flat();

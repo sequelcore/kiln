@@ -195,9 +195,6 @@ export type {
   GuiProviderAuthDeviceCodeStarted,
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
-  GuiSessionTurnOutcome,
-  GuiSessionSummary,
-  GuiSessionListResponse,
   GuiTelemetrySnapshot,
   GuiAppDescriptor,
   GuiAppTenantDescriptor,
@@ -700,6 +697,23 @@ export {
   formatContextUsageProjection,
 } from "./context-usage-projection.js";
 export type { ContextUsageProjection } from "./context-usage-projection.js";
+
+export {
+  OperatorSessionHistoryResponseSchema,
+  OperatorSessionRouteIdentitySchema,
+  OperatorSessionSummarySchema,
+  OperatorSessionTurnOutcomeSchema,
+  projectOperatorSessionSummary,
+} from "./operator-session-summary.js";
+export type {
+  OperatorSessionHistoryResponse,
+  OperatorSessionLedgerEvidence,
+  OperatorSessionRouteIdentity,
+  OperatorSessionSummary,
+  OperatorSessionSummaryProjectionInput,
+  OperatorSessionTranscriptEvidence,
+  OperatorSessionTurnOutcome,
+} from "./operator-session-summary.js";
 
 export {
   VerifiedEfficiencyEvidenceProjectionSchema,

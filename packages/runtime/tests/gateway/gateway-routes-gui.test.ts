@@ -14,7 +14,6 @@ describe("App Gateway GUI routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       providers: [],
-      sessions: [],
       telemetry: {
         status: "stable",
         dominantRegions: [],
@@ -228,7 +227,7 @@ describe("App Gateway GUI routes", () => {
       apps: [],
     });
 
-    const response = await app.request("http://localhost/gui/api/sessions");
+    const response = await app.request("http://localhost/operator/api/sessions");
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ sessions: [] });

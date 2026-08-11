@@ -662,7 +662,7 @@ export type {
   GuiSessionEvent,
   GuiSessionMeta,
   GuiProviderDescriptor,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   GuiTelemetrySnapshot,
   GuiOutboundFrame,
   GuiInboundFrame,

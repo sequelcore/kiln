@@ -5,6 +5,7 @@ import {
   loadContinuationSidebarInfo,
   type ContinuationSidebarInfo,
 } from "../application/continuation-sidebar-info.js";
+import { loadOperatorSessionSummaries } from "../application/operator-session-history.js";
 import { inferResumeStrategyFeedback } from "../application/resume-strategy-feedback.js";
 import { collectResumeSignals, decideResumeStrategy } from "../application/resume-strategy-policy.js";
 import {
@@ -73,6 +74,7 @@ import {
   buildOperatorToolResultPayload,
   formatPresentationIntentAsText,
   getGuiProviderMetadata,
+  type OperatorSessionSummary,
   isGuiProviderModeless,
   parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
@@ -881,7 +883,9 @@ export async function makeMultiProviderSessionFactory(
     setProvider: (newProvider: string) => {
       if (providers.includes(newProvider as ProviderId)) {
         currentProvider = newProvider as ProviderId;
+        return true;
       }
+      return false;
     },
     getModel: () => currentProvider ? providerModelState.get(currentProvider) ?? "" : "",
     setModel: (model: string) => {
@@ -901,13 +905,15 @@ export async function makeMultiProviderSessionFactory(
         ? provider as ProviderId
         : currentProvider;
       if (!targetProvider) {
-        return;
+        return false;
       }
       const state = providerState.get(targetProvider);
       if (state) {
         currentProvider = targetProvider;
         state.continuationSessionId = sessionId;
+        return true;
       }
+      return false;
     },
   };
 }
@@ -984,11 +990,11 @@ export interface MultiProviderSessionManager {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   getProvider: () => string;
   getDeliberationTransport: () => import("@kilnai/runtime").CliDeliberationTransport;
-  setProvider: (provider: string) => void;
+  setProvider: (provider: string) => boolean;
   getModel: () => string;
   setModel: (model: string) => void;
   onClear: (provider?: string) => Promise<void>;
-  setContinuationSession: (sessionId: string, provider?: string) => void;
+  setContinuationSession: (sessionId: string, provider?: string) => boolean;
 }
 
 async function bootstrapGatewaySession(
@@ -1534,19 +1540,21 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const resolvedTheme = themes[flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? "kiln-dark"] ?? kilnDark;
 
   // Session list loader for sidebar browser
-  async function loadSessionList() {
+  async function loadOperatorSessionHistory() {
     try {
-      const records = await sessionStore.list();
-      return records.slice(0, 20);
+      return await loadOperatorSessionSummaries(sessionStore, transcriptStore);
     } catch {
       return [];
     }
   }
 
-  // Session continuation handler - sets the selected provider's continuation target.
-  const handleResumeSession = (session: { sessionId: string; provider: string }) => {
-    sessionManager.setProvider(session.provider);
-    sessionManager.setContinuationSession(session.sessionId, session.provider);
+  // Session continuation requires an evidenced route; never guess from current selection.
+  const handleResumeSession = (session: OperatorSessionSummary) => {
+    if (!session.lastRoute || !sessionManager.setProvider(session.lastRoute.provider)) return false;
+    if (session.lastRoute.model) {
+      sessionManager.setModel(session.lastRoute.model);
+    }
+    return sessionManager.setContinuationSession(session.sessionId, session.lastRoute.provider);
   };
 
   const startupProviderDisplayInfo = buildTuiStartupProviderDisplayInfo({
@@ -1576,7 +1584,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     () => loadContinuationSidebarInfo(sessionStore, transcriptStore, startupProviderIds),
     bootstrap.providerModelsRef,
     bootstrap.providerDiscoveryRef,
-    startupTransport === "direct" ? loadSessionList : undefined,
+    startupTransport === "direct" ? loadOperatorSessionHistory : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,
     () => bootstrap.createSession().then((session) => (
       session as unknown as { refreshProviders?: () => Promise<void> | void }

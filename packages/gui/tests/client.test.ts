@@ -52,6 +52,23 @@ describe("GuiGatewayClient", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
+  it("rejects malformed operator-session rows at the HTTP boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      sessions: [{
+        sessionId: "session-1",
+        title: "Missing required projection fields",
+      }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810");
+
+    await expect(client.loadOperatorSessionHistory()).rejects.toThrow("Session list fetch failed");
+  });
+
   it("reads resources through the canonical resource endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       uri: "kiln://session/work-items/work-1",
@@ -217,7 +234,6 @@ describe("GuiGatewayClient", () => {
   it("loads app and tenant descriptors from the dashboard", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       providers: [],
-      sessions: [],
       telemetry: {
         status: "stable",
         dominantRegions: ["support"],
@@ -360,7 +376,6 @@ describe("GuiGatewayClient", () => {
   it("rejects when dashboard workspaceTree payload is malformed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       providers: [],
-      sessions: [],
       telemetry: {
         status: "idle",
         dominantRegions: [],
@@ -386,7 +401,6 @@ describe("GuiGatewayClient", () => {
   it("rejects when dashboard workspaceTree entries payload is malformed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       providers: [],
-      sessions: [],
       telemetry: {
         status: "idle",
         dominantRegions: [],

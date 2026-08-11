@@ -1,4 +1,4 @@
-import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
+import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
 import type { StateCreator } from "zustand";
 import { clearStoredContinuationTarget } from "./session-store-persistence.js";
 import { canonicalSessionEvents } from "./session-event-projection.js";
@@ -11,8 +11,8 @@ import type { SessionListActions, SessionStore } from "./session-store-state.js"
  */
 
 function areSessionSummariesEqual(
-  current: readonly GuiSessionSummary[],
-  next: readonly GuiSessionSummary[],
+  current: readonly OperatorSessionSummary[],
+  next: readonly OperatorSessionSummary[],
 ): boolean {
   if (current === next) {
     return true;
@@ -37,7 +37,8 @@ export const createSessionListSlice: StateCreator<
   setSessionList: (sessions) => {
     const state = get();
     const selected = state.selectedSessionId;
-    const selectedStillExists = selected ? sessions.some((session) => session.id === selected) : false;
+    const selectedStillExists = selected ? sessions.some((session) => session.sessionId === selected) : false;
+    const selectedWasRemoved = selected !== null && !selectedStillExists;
     const nextSelectedSessionId = selectedStillExists ? selected : null;
     const nextContinuationTargetId = selectedStillExists
       ? state.continuationTargetId
@@ -49,10 +50,38 @@ export const createSessionListSlice: StateCreator<
     ) {
       return;
     }
+    if (selectedWasRemoved) {
+      clearStoredContinuationTarget();
+    }
     set({
       sessionList: sessions,
       selectedSessionId: nextSelectedSessionId,
       continuationTargetId: nextContinuationTargetId,
+      ...(selectedWasRemoved ? {
+        messages: [],
+        timelineEntries: [],
+        sessionEvents: [],
+        currentAssistant: null,
+        activity: null,
+        activityPhase: "idle" as const,
+        interactiveUseSnapshot: null,
+        browserSessionState: null,
+        errorBanner: null,
+        sessionCostUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        turnCounter: 0,
+        currentTurnTrackedInputTokens: 0,
+        currentTurnTrackedOutputTokens: 0,
+        routedProvider: null,
+        routedModel: null,
+        respondingProvider: null,
+        respondingModel: null,
+        contextUsage: undefined,
+        authorityStatus: null,
+        browserLiveViewportFrame: null,
+        browserOperatorInputAck: null,
+      } : {}),
     });
   },
 
