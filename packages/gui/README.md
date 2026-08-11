@@ -83,6 +83,12 @@ event-backed operator mode instead of persistent chrome.
 Inspector data should come from canonical timeline projections, not separate
 GUI-maintained caches for files, approvals, or continuity.
 
+Session history comes from the shared `OperatorSessionSummary` projection at
+`GET /operator/api/sessions`. The dashboard does not carry a second session
+list, and the GUI validates every projected row at the HTTP boundary. Provider
+and model badges reflect the latest evidenced executed route; absent model
+evidence remains absent.
+
 The changed-files mode is intentionally honest about current runtime evidence:
 it can show canonical file-change records and line deltas, but full diff hunks
 must stay gated until the runtime emits structured diff payloads.
@@ -117,7 +123,8 @@ bun run test:e2e
 
 The e2e suite starts a Vite dev server automatically (reuses an existing one if
 already running outside CI). A lightweight mock gateway boots on port 4810 for
-each test worker so the Vite proxy resolves `/gui-api/*` correctly.
+each test worker so the Vite proxy resolves `/gui-api/*`, `/gui/api/*`, and
+`/operator/api/*` correctly.
 
 To run with the Playwright UI:
 

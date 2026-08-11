@@ -11,7 +11,7 @@ import type {
   GuiProviderModelDiscoveryProjection,
   GuiSessionDetail,
   GuiSessionEvent,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   OperatorGoalMaterializationRequirement,
   OperatorTurnRequestedAuthority,
   ContextUsageProjection,
@@ -110,7 +110,7 @@ export interface SessionStoreState {
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
   readonly activeProvider: string | null;
   readonly activeModel: string | null;
-  readonly sessionList: readonly GuiSessionSummary[];
+  readonly sessionList: readonly OperatorSessionSummary[];
   readonly selectedSessionId: string | null;
   readonly liveSessionId: string | null;
   readonly continuationTargetId: string | null;
@@ -165,7 +165,7 @@ export interface ConnectionLifecycleActions {
 }
 
 export interface SessionListActions {
-  setSessionList: (sessions: readonly GuiSessionSummary[]) => void;
+  setSessionList: (sessions: readonly OperatorSessionSummary[]) => void;
   setSelectedSessionId: (sessionId: string | null) => void;
   viewSessionDetail: (detail: GuiSessionDetail) => void;
   setContinuation: (sessionId: string | null) => void;

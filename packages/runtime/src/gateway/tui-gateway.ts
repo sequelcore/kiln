@@ -9,7 +9,7 @@ import {
   type GuiProviderModelCapabilities,
   type GuiProviderModelDiscoveryProjection,
   type GuiProviderModelRouteHealth,
-  type GuiSessionTurnOutcome,
+  type OperatorSessionTurnOutcome,
   type OperatorExecutionMode,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
@@ -331,7 +331,7 @@ export function buildTuiDoneFramePayload(input: {
   readonly parts: readonly unknown[];
   readonly inputTokens: number;
   readonly outputTokens: number;
-  readonly outcome: GuiSessionTurnOutcome;
+  readonly outcome: OperatorSessionTurnOutcome;
   readonly routedProvider: string;
   readonly routedModel: string;
   readonly runtimeContinuity: {
@@ -351,7 +351,7 @@ export function buildTuiDoneFramePayload(input: {
   readonly parts: readonly unknown[];
   readonly inputTokens: number;
   readonly outputTokens: number;
-  readonly outcome: GuiSessionTurnOutcome;
+  readonly outcome: OperatorSessionTurnOutcome;
   readonly routedProvider: string;
   readonly routedModel: string;
   readonly runtimeContinuity: {

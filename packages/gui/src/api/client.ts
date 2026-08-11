@@ -9,8 +9,7 @@ import type {
   GuiProviderDescriptor,
   GuiContinuationInfo,
   GuiSessionDetail,
-  GuiSessionListResponse,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   GuiTelemetrySnapshot,
   OperatorWorkspaceDirectorySnapshot,
   OperatorWorkspaceEntryKind,
@@ -29,6 +28,7 @@ import {
   GuiMemoryLatticeGraphResponseSchema,
   OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
+  OperatorSessionHistoryResponseSchema,
   projectOperatorResourceReadPresentation,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
@@ -42,7 +42,7 @@ export type {
   KilnConfigSetupAction,
   KilnConfigSetupActionResult,
   KilnConfigSetupSnapshot,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   GuiTelemetrySnapshot,
   OperatorResourceReadRequest,
   OperatorResourceReadResult,
@@ -108,12 +108,12 @@ export class GuiGatewayClient {
     throw new Error(`Gateway did not become ready within ${timeoutMs}ms`);
   }
 
-  async loadSessions(): Promise<readonly GuiSessionSummary[]> {
+  async loadOperatorSessionHistory(): Promise<readonly OperatorSessionSummary[]> {
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
     const failures: string[] = [];
 
     for (const candidateBaseUrl of candidateBaseUrls) {
-      const url = new URL("/gui/api/sessions", candidateBaseUrl);
+      const url = new URL("/operator/api/sessions", candidateBaseUrl);
       try {
         const response = await fetch(url, {
           headers: { accept: "application/json" },
@@ -122,7 +122,7 @@ export class GuiGatewayClient {
           failures.push(`${candidateBaseUrl}: status ${response.status}`);
           continue;
         }
-        const payload = parseSessionListResponse(await response.json());
+        const payload = OperatorSessionHistoryResponseSchema.parse(await response.json());
         this.resolvedBaseUrl = candidateBaseUrl;
         return payload.sessions;
       } catch (error) {
@@ -528,9 +528,6 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   if (!Array.isArray(snapshot.providers)) {
     throw new Error("Invalid dashboard providers payload.");
   }
-  if (!Array.isArray(snapshot.sessions)) {
-    throw new Error("Invalid dashboard sessions payload.");
-  }
   if (!isTelemetrySnapshot(snapshot.telemetry)) {
     throw new Error("Invalid dashboard telemetry payload.");
   }
@@ -542,7 +539,6 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   const workspaceTree = normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree);
   return {
     providers: snapshot.providers,
-    sessions: snapshot.sessions,
     telemetry: snapshot.telemetry,
     continuationInfoByProvider: snapshot.continuationInfoByProvider as Record<string, GuiContinuationInfo>,
     ...(isRecord(snapshot.operatorWorkspaceHome) ? { operatorWorkspaceHome: snapshot.operatorWorkspaceHome } : {}),
@@ -692,19 +688,6 @@ function parseWorkspaceFileSnapshot(value: unknown): OperatorWorkspaceFileSnapsh
     ...(typeof value.truncated === "boolean" ? { truncated: value.truncated } : {}),
     ...(typeof value.unsupportedReason === "string" ? { unsupportedReason: value.unsupportedReason } : {}),
     source: "gateway",
-  };
-}
-
-function parseSessionListResponse(value: unknown): GuiSessionListResponse {
-  if (!isRecord(value)) {
-    throw new Error("Invalid session list response body.");
-  }
-  const payload = value as Partial<GuiSessionListResponse>;
-  if (!Array.isArray(payload.sessions)) {
-    throw new Error("Invalid session list payload.");
-  }
-  return {
-    sessions: payload.sessions,
   };
 }
 

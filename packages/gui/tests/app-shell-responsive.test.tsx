@@ -9,17 +9,17 @@ const waitForGatewayMock = vi.fn();
 const sendMock = vi.fn();
 const sessionsData = [
   {
-    id: "session-1",
+    sessionId: "session-1",
+    title: "First task",
+    tags: [],
     providersUsed: ["claude"],
-    lastProvider: "claude",
-    completedAt: "2026-04-21T20:00:00.000Z",
-    cost: 0.1,
-    taskSummary: "First task",
+    lastRoute: { provider: "claude" },
+    updatedAt: "2026-04-21T20:00:00.000Z",
+    costUsd: 0.1,
   },
 ] as const;
 const dashboardData = {
   providers: [],
-  sessions: [],
   telemetry: {
     status: "idle" as const,
     dominantRegions: [],
@@ -53,14 +53,13 @@ vi.mock("../src/api/client.js", () => ({
       return undefined;
     }
 
-    async loadSessions() {
+    async loadOperatorSessionHistory() {
       return sessionsData;
     }
 
     async loadDashboard() {
       return {
         providers: [],
-        sessions: [],
         telemetry: {
           status: "idle",
           dominantRegions: [],

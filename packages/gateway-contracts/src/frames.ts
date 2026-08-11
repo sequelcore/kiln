@@ -6,6 +6,7 @@
  */
 
 import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
+import type { OperatorSessionTurnOutcome } from "./operator-session-summary.js";
 import type { OperatorWorkspaceHomeProjection } from "./operator-workspace-home.js";
 
 // --- Dashboard / HTTP response shapes ---
@@ -377,26 +378,6 @@ export interface GuiProviderChangeFailed {
   readonly requestId: string;
   readonly reason: string;
 }
-
-export type GuiSessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
-
-export interface GuiSessionSummary {
-  readonly id: string;
-  readonly title?: string;
-  readonly summary?: string;
-  readonly tags?: readonly string[];
-  readonly providersUsed: readonly string[];
-  readonly lastProvider?: string;
-  readonly lastTurnOutcome?: GuiSessionTurnOutcome;
-  readonly completedAt: string;
-  readonly cost: number;
-  readonly taskSummary: string;
-}
-
-export interface GuiSessionListResponse {
-  readonly sessions: readonly GuiSessionSummary[];
-}
-
 export interface GuiTelemetrySnapshot {
   readonly status: string;
   readonly dominantRegions: readonly string[];
@@ -446,7 +427,6 @@ export interface GuiAppDescriptor {
 
 export interface GuiDashboardSnapshot {
   readonly providers: readonly GuiProviderDescriptor[];
-  readonly sessions: readonly GuiSessionSummary[];
   readonly telemetry: GuiTelemetrySnapshot;
   readonly continuationInfoByProvider: Readonly<Record<string, GuiContinuationInfo>>;
   readonly operatorWorkspaceHome?: OperatorWorkspaceHomeProjection;
@@ -471,7 +451,7 @@ export interface GuiSessionMeta {
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
-  readonly lastTurnOutcome?: GuiSessionTurnOutcome;
+  readonly lastTurnOutcome?: OperatorSessionTurnOutcome;
   readonly costUsd?: number;
   readonly toolCount?: number;
   readonly turnDepth?: number;
@@ -1271,7 +1251,7 @@ export type GuiInboundFrame =
       };
       inputTokens: number;
       outputTokens: number;
-      outcome: GuiSessionTurnOutcome;
+      outcome: OperatorSessionTurnOutcome;
       routedProvider?: string;
       routedModel?: string;
       routingRationale?: GuiModelRoutingRationale;

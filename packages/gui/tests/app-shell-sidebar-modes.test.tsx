@@ -44,14 +44,13 @@ vi.mock("../src/api/client.js", () => ({
       return undefined;
     }
 
-    async loadSessions() {
+    async loadOperatorSessionHistory() {
       return useSessionStore.getState().sessionList;
     }
 
     async loadDashboard() {
       return {
         providers: [],
-        sessions: [],
         telemetry: {
           status: "idle",
           dominantRegions: [],
@@ -286,12 +285,13 @@ function resetStore(): void {
     activeModel: "claude-sonnet-4-6",
     sessionList: [
       {
-        id: "session-1",
+        sessionId: "session-1",
+        title: "First task",
+        tags: [],
         providersUsed: ["claude"],
-        lastProvider: "claude",
-        completedAt: "2026-04-21T20:00:00.000Z",
-        cost: 0.1,
-        taskSummary: "First task",
+        lastRoute: { provider: "claude" },
+        updatedAt: "2026-04-21T20:00:00.000Z",
+        costUsd: 0.1,
       },
     ],
     selectedSessionId: null,
@@ -396,7 +396,6 @@ describe("AppShell sidebar modes", () => {
       return {
         data: {
           providers: [],
-          sessions: [],
           telemetry: {
             status: "idle" as const,
             dominantRegions: [],
@@ -422,6 +421,18 @@ describe("AppShell sidebar modes", () => {
 
     expect(screen.queryByTestId("workspace-panel")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open inspector" })).toBeInTheDocument();
+  });
+
+  it("polls authoritative session history independently of local turns", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      const options = useQueryMock.mock.calls.findLast(([candidate]) => {
+        const queryKey = (candidate as { queryKey?: readonly unknown[] }).queryKey ?? [];
+        return queryKey.includes("sessions");
+      })?.[0] as { refetchInterval?: number } | undefined;
+      expect(options?.refetchInterval).toBe(2_000);
+    });
   });
 
   it("opens changed files in the inspector while keeping sessions persistent", async () => {

@@ -3754,15 +3754,55 @@ describe("session-store", () => {
   it("does not auto-select an old session when refreshing the session list", () => {
     useSessionStore.getState().setSessionList([
       {
-        id: "session-1",
+        sessionId: "session-1",
+        title: "Old test",
+        tags: [],
         providersUsed: ["codex-oauth"],
-        lastProvider: "codex-oauth",
-        completedAt: "2026-04-21T10:00:00.000Z",
-        cost: 0,
-        taskSummary: "Old test",
+        lastRoute: { provider: "codex-oauth" },
+        updatedAt: "2026-04-21T10:00:00.000Z",
+        costUsd: 0,
       },
     ]);
 
     expect(useSessionStore.getState().selectedSessionId).toBeNull();
+  });
+
+  it("clears loaded detail when the selected session disappears from history", () => {
+    useSessionStore.setState({
+      selectedSessionId: "removed-session",
+      continuationTargetId: "removed-session",
+      messages: [{ id: "message-1", role: "assistant", content: "stale detail" }],
+      timelineEntries: [{ id: "timeline-1", kind: "assistant", label: "stale detail" }],
+      sessionEvents: [{
+        eventId: "event-1",
+        kilnSessionId: "removed-session",
+        sequence: 1,
+        timestamp: "2026-08-11T00:00:00.000Z",
+        kind: "assistant_message",
+        payload: { content: "stale detail" },
+      }],
+      sessionCostUsd: 1.25,
+      inputTokens: 100,
+      outputTokens: 50,
+      authorityStatus: { requested: "audited", effective: "audited" },
+      browserLiveViewportFrame: { sessionId: "removed-session" },
+      browserOperatorInputAck: { sessionId: "removed-session" },
+    } as never);
+
+    useSessionStore.getState().setSessionList([]);
+
+    expect(useSessionStore.getState()).toMatchObject({
+      selectedSessionId: null,
+      continuationTargetId: null,
+      messages: [],
+      timelineEntries: [],
+      sessionEvents: [],
+      sessionCostUsd: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      authorityStatus: null,
+      browserLiveViewportFrame: null,
+      browserOperatorInputAck: null,
+    });
   });
 });

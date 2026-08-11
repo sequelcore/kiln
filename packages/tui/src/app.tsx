@@ -17,10 +17,11 @@ import {
   type GuiProviderModelDiscoveryProjection,
   type KilnConfigSetupSnapshot,
   type OperatorCommandDefinition,
+  type OperatorSessionSummary,
   type OperatorTurnRequestedAuthority,
 } from "@kilnai/gateway-contracts";
 import type { SessionLike } from "./types.js";
-import type { Message, DeliberationLevelId, ContinuationSidebarInfo, SessionListItem, SlashCommand } from "./state.js";
+import type { Message, DeliberationLevelId, ContinuationSidebarInfo, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 import { defaultTheme, themes } from "./theme.js";
@@ -92,8 +93,8 @@ export async function startTui(
   refreshContinuationInfo?: () => Promise<Record<string, ContinuationSidebarInfo>>,
   providerModelsRef?: { current: Record<string, string[]> },
   providerDiscoveryRef?: { current: readonly GuiProviderDiscoveryResult[] },
-  loadSessions?: () => Promise<SessionListItem[]>,
-  onContinueSession?: (session: SessionListItem) => void,
+  loadOperatorSessionHistory?: () => Promise<readonly OperatorSessionSummary[]>,
+  onContinueSession?: (session: OperatorSessionSummary) => boolean,
   refreshProviders?: () => Promise<void> | void,
   persistThemePreference?: (themeName: string) => Promise<void> | void,
   loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
@@ -430,20 +431,10 @@ export async function startTui(
   renderSidebarManagedAgents(state, currentTheme, ui);
 
   // Load session history into sidebar
-  if (loadSessions) {
+  if (loadOperatorSessionHistory) {
     try {
-      const sessions = await loadSessions();
-      const sessionItems: SessionListItem[] = sessions.map((s) => ({
-        sessionId: s.sessionId,
-        provider: s.provider,
-        task: s.task,
-        completedAt: s.completedAt,
-        cost: s.cost,
-      }));
-      update(state, "sessions", sessionItems);
-      if (sessionItems.length > 0) {
-        update(state, "selectedSessionIndex", 0);
-      }
+      const sessions = await loadOperatorSessionHistory();
+      update(state, "sessions", [...sessions]);
       renderSidebarSessions(state, currentTheme, ui);
     } catch {
       // fail-open — sessions are optional
@@ -1630,16 +1621,26 @@ export async function startTui(
 
       if (inputText === "" && state.sessionContinuationMode && state.sessions.length > 0 && state.selectedSessionIndex >= 0) {
         const selectedSession = state.sessions[state.selectedSessionIndex];
-        if (selectedSession && onContinueSession) {
-          onContinueSession(selectedSession);
-          update(state, "currentProvider", selectedSession.provider);
-          update(state, "routeMode", "user");
+        if (!selectedSession?.lastRoute) {
           update(state, "sessionContinuationMode", false);
-          renderSidebarProvider(state, currentTheme, ui, domain);
-          renderSidebarContinuation(state, currentTheme, ui);
-          ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Continuing session ${selectedSession.sessionId.slice(0, 8)}...`)}`;
+          ui.commandBarStatus.content = t`${fg(currentTheme.warning)("Cannot continue: session route evidence is unavailable.")}`;
           return;
         }
+        if (!onContinueSession?.(selectedSession)) {
+          update(state, "sessionContinuationMode", false);
+          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: provider ${selectedSession.lastRoute.provider} is unavailable.`)}`;
+          return;
+        }
+        update(state, "currentProvider", selectedSession.lastRoute.provider);
+        if (selectedSession.lastRoute.model) {
+          update(state, "currentModel", selectedSession.lastRoute.model);
+        }
+        update(state, "routeMode", "user");
+        update(state, "sessionContinuationMode", false);
+        renderSidebarProvider(state, currentTheme, ui, domain);
+        renderSidebarContinuation(state, currentTheme, ui);
+        ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Continuing session ${selectedSession.sessionId.slice(0, 8)}...`)}`;
+        return;
       }
 
       if (inputText === "") {

@@ -5,7 +5,8 @@
 
 import { t, fg } from "@opentui/core";
 import { formatContextUsageProjection, operatorIdentityInitials, projectAgentProfileIdentity } from "@kilnai/gateway-contracts";
-import type { ReactiveState, Message, SessionListItem, PendingApproval, WorkItem } from "./state.js";
+import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
+import type { ReactiveState, Message, PendingApproval, WorkItem } from "./state.js";
 import { formatManagedAgentCockpitLines } from "./managed-agent-cockpit.js";
 import type { KilnTheme } from "./theme.js";
 import type { UIComponents } from "./ui.js";
@@ -162,24 +163,13 @@ export function renderSidebarProvider(
 /**
  * Formats a session list item for sidebar display.
  */
-function fmtSession(s: SessionListItem, selected: boolean): string {
-  const date = s.completedAt.slice(0, 10);
-  const costStr = `$${s.cost.toFixed(2)}`;
-  const taskShort = s.task.length > 14 ? s.task.slice(0, 14) + "…" : s.task;
-
-  let meta = "";
-  if (s.turns !== undefined && s.turns > 0) {
-    meta += `${s.turns}t`;
-  }
-  if (s.durationMs !== undefined && s.durationMs > 0) {
-    const secs = Math.round(s.durationMs / 1000);
-    if (meta) meta += " · ";
-    meta += secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${secs % 60}s`;
-  }
-  if (meta) meta = ` · ${meta}`;
-
+function fmtSession(s: OperatorSessionSummary, selected: boolean): string {
+  const date = s.updatedAt.slice(0, 10);
+  const costStr = `$${s.costUsd.toFixed(2)}`;
+  const title = s.title.length > 14 ? s.title.slice(0, 14) + "…" : s.title;
+  const route = s.lastRoute ? `[${s.lastRoute.provider}] ` : "";
   const prefix = selected ? "▶ " : "  ";
-  return `${prefix}[${s.provider}] ${date} ${costStr}${meta}\n    ${taskShort}`;
+  return `${prefix}${route}${date} ${costStr}\n    ${title}`;
 }
 
 /**

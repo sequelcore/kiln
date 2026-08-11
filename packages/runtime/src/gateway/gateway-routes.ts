@@ -59,12 +59,13 @@ import type {
   GuiOutboundFrame,
   GuiAppDescriptor,
   GuiSessionDetail,
-  GuiSessionSummary,
+  OperatorSessionSummary,
   OperatorCockpitAttachTarget,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
   GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
+import { projectAppGatewayOperatorSessionHistory } from "./app-gateway-operator-session-history.js";
 import {
   createEmptyOperatorWorkspaceHomeProjection,
   createOperatorCockpitReadOnlyViewState,
@@ -254,8 +255,8 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
     });
   });
 
-  app.get("/gui/api/sessions", async (c) => {
-    return c.json({ sessions: await listAppGatewayGuiSessions(config) });
+  app.get("/operator/api/sessions", async (c) => {
+    return c.json({ sessions: await loadAppGatewayOperatorSessionHistory(config) });
   });
 
   app.get("/gui/api/sessions/:sessionId", async (c) => {
@@ -624,7 +625,6 @@ async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise
   const runtimeSessions = await collectAppGatewayRuntimeSessions(config);
   return {
     providers: [],
-    sessions: projectAppGatewayGuiSessions(runtimeSessions),
     telemetry: {
       status: "stable",
       dominantRegions: config.apps.map((app) => app.name).slice(0, 3),
@@ -663,26 +663,10 @@ function buildAppGatewayGuiApps(config: GatewayServerConfig): readonly GuiAppDes
   });
 }
 
-async function listAppGatewayGuiSessions(config: GatewayServerConfig): Promise<readonly GuiSessionSummary[]> {
-  return projectAppGatewayGuiSessions(await collectAppGatewayRuntimeSessions(config));
-}
-
-function projectAppGatewayGuiSessions(sessions: readonly RuntimeSession[]): readonly GuiSessionSummary[] {
-  return sessions.map((session) => {
-    const firstUserMessage = session.conversationHistory.find((message) => message.role === "user");
-    const taskSummary = firstUserMessage ? extractText(firstUserMessage.parts) : `${session.appName} session`;
-    const lastProvider = session.sessionLedger.lastProvider;
-    const providersUsed = collectSessionProvidersUsed(session);
-    return {
-      id: session.id,
-      title: session.appName,
-      providersUsed,
-      ...(lastProvider ? { lastProvider } : {}),
-      completedAt: session.lastActivityAt.toISOString(),
-      cost: 0,
-      taskSummary,
-    };
-  });
+async function loadAppGatewayOperatorSessionHistory(
+  config: GatewayServerConfig,
+): Promise<readonly OperatorSessionSummary[]> {
+  return projectAppGatewayOperatorSessionHistory(await collectAppGatewayRuntimeSessions(config));
 }
 
 async function getAppGatewayGuiSessionDetail(
@@ -827,31 +811,6 @@ function appGatewaySessionSummaryEvent(
       tenantId: session.tenantId,
     },
   };
-}
-
-function collectSessionProvidersUsed(session: RuntimeSession): readonly string[] {
-  const providers = new Set<string>();
-  if (session.sessionLedger.lastProvider) {
-    providers.add(session.sessionLedger.lastProvider);
-  }
-  for (const event of session.sessionEvents) {
-    if (event.kind === "provider_routed") {
-      providers.add(event.provider.provider);
-    }
-    if (
-      (
-        event.kind === "agent_invocation_requested"
-        || event.kind === "agent_invocation_started"
-        || event.kind === "agent_invocation_completed"
-        || event.kind === "agent_invocation_failed"
-        || event.kind === "agent_invocation_cancelled"
-      )
-      && event.providerRoute?.providerId
-    ) {
-      providers.add(event.providerRoute.providerId);
-    }
-  }
-  return [...providers];
 }
 
 type AppGatewayGuiRuntimeSelection =

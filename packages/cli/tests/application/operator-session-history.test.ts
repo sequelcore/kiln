@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadSessionSummaries } from "../../src/commands/gui-session-summaries.js";
+import { loadOperatorSessionSummaries } from "../../src/application/operator-session-history.js";
 import { loadSessionDetail } from "../../src/commands/gui-session-detail.js";
 import { SessionStore, TranscriptStore } from "../../src/wrapper/session-store.js";
 
-describe("GUI session summaries", () => {
+describe("Operator session history", () => {
   let tmpDir: string | undefined;
 
   afterEach(() => {
@@ -35,6 +35,7 @@ describe("GUI session summaries", () => {
       provider: "codex-oauth",
       task: "interactive",
       startedAt: "2026-04-22T18:37:00.000Z",
+      costUsd: 0.1,
     });
     await sessionStore.append({
       sessionId: "kiln-session-1",
@@ -48,17 +49,17 @@ describe("GUI session summaries", () => {
       providerThread: { provider: "opencode", nativeSessionId: "ses_native" },
     });
 
-    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+    const summaries = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
-      id: "kiln-session-1",
+      sessionId: "kiln-session-1",
       providersUsed: ["opencode", "codex-oauth", "openai"],
-      lastProvider: "opencode",
-      completedAt: "2026-04-22T18:38:00.000Z",
-      taskSummary: "Plan universal session metadata and keep providers traceable.",
+      lastRoute: { provider: "opencode" },
+      updatedAt: "2026-04-22T18:38:00.000Z",
+      summary: "Plan universal session metadata and keep providers traceable.",
     });
-    expect(summaries[0]?.cost).toBeCloseTo(0.3);
+    expect(summaries[0]?.costUsd).toBeCloseTo(0.3);
   });
 
   it("falls back to deterministic title when summary metadata is missing", async () => {
@@ -81,10 +82,10 @@ describe("GUI session summaries", () => {
       startedAt: "2026-04-22T19:00:00.000Z",
     });
 
-    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+    const summaries = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
 
     expect(summaries).toHaveLength(1);
-    expect(summaries[0]?.taskSummary).toBe("Refactor session ledger metadata slice for provider-agnostic resume");
+    expect(summaries[0]?.title).toBe("Refactor session ledger metadata slice for provider-agnostic resume");
   });
 
   it("lists canonical transcript sessions even when no ledger row was written", async () => {
@@ -105,17 +106,17 @@ describe("GUI session summaries", () => {
       costUsd: 0,
     });
 
-    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+    const summaries = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
-      id: "kiln-session-transcript-only",
+      sessionId: "kiln-session-transcript-only",
       providersUsed: ["codex-oauth"],
-      lastProvider: "codex-oauth",
+      lastRoute: { provider: "codex-oauth" },
       lastTurnOutcome: "completed",
-      completedAt: "2026-06-06T09:32:27.809Z",
-      cost: 0,
-      taskSummary: "Final focused review after fixing App Gateway fresh detach",
+      updatedAt: "2026-06-06T09:32:27.809Z",
+      costUsd: 0,
+      title: "Final focused review after fixing App Gateway fresh detach",
     });
   });
 
@@ -189,11 +190,11 @@ describe("GUI session summaries", () => {
       },
     });
 
-    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+    const summaries = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
     const detail = await loadSessionDetail(transcriptStore, sessionId);
 
     expect(summaries[0]).toMatchObject({
-      id: sessionId,
+      sessionId,
       lastTurnOutcome: "failed",
     });
     expect(detail?.meta).toMatchObject({
@@ -257,7 +258,7 @@ describe("GUI session summaries", () => {
       providerThread: { provider: "codex-oauth", nativeSessionId: "native-1" },
     });
 
-    const summaries = await loadSessionSummaries(sessionStore, transcriptStore);
+    const summaries = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
     const detail = await loadSessionDetail(transcriptStore, sessionId);
 
     expect(summaries).toHaveLength(0);

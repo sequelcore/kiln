@@ -14,12 +14,13 @@ describe("Workbench side panels", () => {
       <WorkbenchSessionsPanel
         sessions={[
           {
-            id: "session-1",
+            sessionId: "session-1",
+            title: "Investigate UI",
+            tags: [],
             providersUsed: ["codex"],
-            lastProvider: "codex",
-            completedAt: "2026-06-27T00:00:00.000Z",
-            cost: 0.12,
-            taskSummary: "Investigate UI",
+            lastRoute: { provider: "codex" },
+            updatedAt: "2026-06-27T00:00:00.000Z",
+            costUsd: 0.12,
           },
         ] as never}
         selectedSessionId={null}

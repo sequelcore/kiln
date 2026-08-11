@@ -145,10 +145,12 @@ const managedProviderModelMocks = vi.hoisted(() => ({
 
 const guiSessionMocks = vi.hoisted(() => ({
   summaries: [] as Array<{
-    id: string;
-    completedAt: string;
-    title?: string;
-    taskSummary?: string;
+    sessionId: string;
+    title: string;
+    tags: string[];
+    providersUsed: string[];
+    updatedAt: string;
+    costUsd: number;
   }>,
   detail: null as {
     events: Array<{
@@ -342,9 +344,8 @@ vi.mock("../../src/commands/gui-window.js", () => ({
   })),
 }));
 
-vi.mock("../../src/commands/gui-session-summaries.js", () => ({
-  loadSessionSummaries: vi.fn(async () => guiSessionMocks.summaries),
-  toProviderLabel: vi.fn((providerId: string) => providerId.toUpperCase()),
+vi.mock("../../src/application/operator-session-history.js", () => ({
+  loadOperatorSessionSummaries: vi.fn(async () => guiSessionMocks.summaries),
 }));
 
 vi.mock("../../src/commands/gui-session-detail.js", () => ({
@@ -539,9 +540,12 @@ describe("GUI dashboard provider availability", () => {
   it("scopes local GUI transcript events to the local cockpit target before projection", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
     guiSessionMocks.summaries = [{
-      id: "kiln-gui:_gui:user:session",
-      completedAt: "2026-06-27T11:23:00.000Z",
+      sessionId: "kiln-gui:_gui:user:session",
       title: "GUI live test",
+      tags: [],
+      providersUsed: ["codex-oauth"],
+      updatedAt: "2026-06-27T11:23:00.000Z",
+      costUsd: 0,
     }];
     guiSessionMocks.detail = {
       events: [{

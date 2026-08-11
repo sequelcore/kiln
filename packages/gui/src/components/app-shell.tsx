@@ -717,8 +717,9 @@ function useAppShellRuntimeView() {
 
   const sessionsQuery = useQuery({
     queryKey: ["gui", "sessions", turnCounter],
-    queryFn: async () => gatewayClient.loadSessions(),
+    queryFn: async () => gatewayClient.loadOperatorSessionHistory(),
     enabled: gatewayReady,
+    refetchInterval: 2_000,
   });
 
   const dashboardQuery = useQuery({

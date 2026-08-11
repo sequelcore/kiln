@@ -118,6 +118,10 @@ export default defineConfig({
         target: `http://localhost:${resolvedGatewayPort}`,
         changeOrigin: true,
       },
+      "/operator/api": {
+        target: `http://localhost:${resolvedGatewayPort}`,
+        changeOrigin: true,
+      },
       "/gui-api": {
         target: `http://localhost:${resolvedGatewayPort}`,
         changeOrigin: true,

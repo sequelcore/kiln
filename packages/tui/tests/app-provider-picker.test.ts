@@ -365,7 +365,9 @@ describe("TUI provider picker", () => {
   });
 
   it("requires explicit continue mode before empty Enter continues a selected session", async () => {
-    const onContinueSession = vi.fn();
+    const onContinueSession = vi.fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
     const createSession = vi.fn(async () => ({
       run: async function* () {},
       dispose: vi.fn(),
@@ -386,10 +388,12 @@ describe("TUI provider picker", () => {
       async () => [
         {
           sessionId: "session-1",
-          provider: "claude",
-          task: "Previous task",
-          completedAt: "2026-06-07T00:00:00.000Z",
-          cost: 0,
+          title: "Previous task",
+          tags: [],
+          providersUsed: ["claude"],
+          lastRoute: { provider: "claude", model: "claude-sonnet-4-6" },
+          updatedAt: "2026-06-07T00:00:00.000Z",
+          costUsd: 0,
         },
       ],
       onContinueSession,
@@ -402,6 +406,7 @@ describe("TUI provider picker", () => {
 
       expect(onContinueSession).not.toHaveBeenCalled();
       expect(harness.state?.sessionContinuationMode).toBe(false);
+      expect(harness.state?.selectedSessionIndex).toBe(-1);
 
       emitText("/continue");
       emitKey("\r", "return");
@@ -416,6 +421,16 @@ describe("TUI provider picker", () => {
 
       expect(onContinueSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
       expect(harness.state?.sessionContinuationMode).toBe(false);
+      expect(harness.ui?.commandBarStatus.content).toContain("provider claude is unavailable");
+
+      emitText("/continue");
+      emitKey("\r", "return");
+      await flushUi();
+      emitKey("\r", "return");
+      await flushUi();
+
+      expect(onContinueSession).toHaveBeenCalledTimes(2);
+      expect(harness.ui?.commandBarStatus.content).toContain("Continuing session");
     } finally {
       harness.renderer?.destroy();
       void startPromise.catch(() => undefined);
