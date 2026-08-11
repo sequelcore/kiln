@@ -2,6 +2,13 @@
 
 Date: 2026-08-01
 
+> **Provider evidence update (2026-08-10):** OpenCode Go now declares
+> `deepseek-v4-flash` as not used for training with zero-day retention. Its ZDR
+> agreement is stated to be valid through 2026-08-31 and renewed monthly. This
+> supersedes the earlier privacy quarantine below for the bounded read-only
+> operator route only. It does not admit writes, guarantee future retention
+> terms, or prove a configurable direct-provider deliberation level.
+
 > The candidate topology remains useful research context. Managed write-route
 > admission is superseded by `27-write-and-render-route-admission-2026.md`.
 

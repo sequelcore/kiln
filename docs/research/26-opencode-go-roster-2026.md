@@ -2,9 +2,43 @@
 
 Date: 2026-08-01
 
+> **Superseding provider update (2026-08-10):** the current official OpenCode
+> Go privacy matrix now declares that `deepseek-v4-flash` is not used for
+> training and has zero-day retention. OpenCode states that the underlying ZDR
+> agreement is renewed monthly and is currently valid through 2026-08-31. The
+> privacy quarantine recorded by this 2026-08-01 audit is therefore historical,
+> not current authority. The operator configuration admits a bounded read-only
+> `opencode-go-scout-readonly` route; write admission remains withheld. Any use
+> after the stated agreement expiry requires refreshed provider evidence.
+
 > Write-authority conclusions in this catalog screen are superseded by
 > `27-write-and-render-route-admission-2026.md`, which contains the isolated
 > backend and rendered-frontend evidence and final route closeout.
+
+## 2026-08-10 Managed Read-Only Promotion
+
+The operator configuration now exposes `deepseek-scout` as a distinct managed
+worker on `opencode-go-scout-readonly`; it does not replace the Codex-backed
+`scout`. Canonical admission reports the profile as admitted from Codex,
+Claude, and OpenCode caller surfaces. Native file projection remains
+unavailable by design because the route uses Runtime-selected subscription
+capacity.
+
+A bounded production proof completed as managed job
+`15202e2f-a729-411f-b486-3f3438b9053e`. The job read the root `package.json`
+and returned the exact package name and aggregate test script. Durable status,
+result, and replay agree on `opencode-go-scout-readonly`, provider
+`opencode-go`, model `deepseek-v4-flash`, profile
+`foundation-readonly-plan`, and terminal success. The economic commitment was
+fenced, settled as subscription usage, and released; the authority reported
+zero remaining capacity-consuming OpenCode Go leases. The Git worktree was
+unchanged before and after execution.
+
+This is one route-time read-only proof, not a quality benchmark or write
+promotion. Direct OpenCode Go deliberation remains at provider default until
+route-specific conformance evidence satisfies issue #47. Making this worker a
+default requires a repeated task-specific comparison against the incumbent;
+write authority still requires the separate strict repeated write gate.
 
 ## Decision
 
