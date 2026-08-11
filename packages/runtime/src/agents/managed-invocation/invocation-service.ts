@@ -439,8 +439,8 @@ export class RuntimeManagedAgentInvocationService {
     capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput,
     lifecycleOptions: ManagedAgentRuntimeInvocationLifecycleOptions = {},
   ): Promise<ManagedAgentRuntimeInvocationStartResult> {
-    const recordEconomicPending = (reason: string) => {
-      lifecycleOptions.economicDispatch?.recordExecutionSettlementPending(reason);
+    const recordEconomicPending = async (reason: string): Promise<void> => {
+      await lifecycleOptions.economicDispatch?.recordExecutionSettlementPending(reason);
     };
     try {
       if (this.invocations.has(request.invocationId)) {
@@ -466,7 +466,7 @@ export class RuntimeManagedAgentInvocationService {
         );
       }
     } catch (error) {
-      recordEconomicPending("runtime-prestart-validation-failed");
+      await recordEconomicPending("runtime-prestart-validation-failed");
       throw error;
     }
 
@@ -483,14 +483,14 @@ export class RuntimeManagedAgentInvocationService {
             lifecycleOptions.abortSignal,
           );
     } catch (error) {
-      recordEconomicPending("runtime-authority-observation-failed");
+      await recordEconomicPending("runtime-authority-observation-failed");
       throw error;
     }
     const decision = evaluateManagedAgentAdmission(request, adapter.descriptor, admittedSnapshotInput, {
       evaluatedAt: this.now().toISOString(),
     });
     if (decision.status === "denied") {
-      recordEconomicPending("runtime-admission-denied");
+      await recordEconomicPending("runtime-admission-denied");
       return {
         status: "denied",
         decision: cloneJson(decision),
@@ -498,7 +498,7 @@ export class RuntimeManagedAgentInvocationService {
     }
     const writeLeaseConflict = detectActiveWriteLeaseConflict(this.invocations, request, decision);
     if (writeLeaseConflict) {
-      recordEconomicPending("runtime-write-lease-conflict");
+      await recordEconomicPending("runtime-write-lease-conflict");
       return {
         status: "denied",
         decision: cloneJson(writeLeaseConflict),
@@ -540,14 +540,14 @@ export class RuntimeManagedAgentInvocationService {
     if (lifecycleOptions.abortSignal?.aborted) {
       await this.cancel(request.invocationId, managedInvocationAbortReason(lifecycleOptions.abortSignal.reason));
       if (entry.lifecycleState === "cancelled" && entry.record) {
-        recordEconomicPending("runtime-cancelled-before-adapter-start");
+        await recordEconomicPending("runtime-cancelled-before-adapter-start");
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
     }
     try {
       await acquireRuntimeResourceLeases(this.options, entry);
     } catch (error) {
-      recordEconomicPending("runtime-resource-lease-acquisition-failed");
+      await recordEconomicPending("runtime-resource-lease-acquisition-failed");
       if ((entry.lifecycleState === "cancelled" || entry.lifecycleState === "stale") && entry.record) {
         return this.completePreAdapterTerminalStart(entry, registeredDecision);
       }
@@ -572,16 +572,16 @@ export class RuntimeManagedAgentInvocationService {
       throw runtimeError;
     }
     if (entry.lifecycleState === "cancelled" && entry.record) {
-      recordEconomicPending("runtime-cancelled-before-adapter-start");
+      await recordEconomicPending("runtime-cancelled-before-adapter-start");
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     if (entry.lifecycleState === "stale" && entry.record) {
-      recordEconomicPending("runtime-stale-before-adapter-start");
+      await recordEconomicPending("runtime-stale-before-adapter-start");
       return this.completePreAdapterTerminalStart(entry, registeredDecision);
     }
     const executableAdapter = entry.adapter;
     if (executableAdapter === undefined) {
-      recordEconomicPending("runtime-adapter-unavailable");
+      await recordEconomicPending("runtime-adapter-unavailable");
       throw new ManagedAgentRuntimeAdmissionError("Managed agent runtime invocation has no executable adapter");
     }
     let signalDispatchReady!: () => void;
@@ -622,13 +622,13 @@ export class RuntimeManagedAgentInvocationService {
         dispatchPhase = "recovery-checkpoint";
         return saveRuntimeRecoveryCheckpoint(this.options, entry).then(beginInvocation);
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         const reason = dispatchPhase === "poststart-authority"
           ? "runtime-poststart-authority-failed"
           : dispatchPhase === "recovery-checkpoint"
             ? "runtime-recovery-checkpoint-failed"
             : "runtime-adapter-execution-failed";
-        recordEconomicPending(reason);
+        await recordEconomicPending(reason);
         signalDispatchReady();
         throw error;
       });

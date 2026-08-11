@@ -24,12 +24,15 @@ import {
   type ManagedJobReplayQuery,
   type ManagedJobResultQuery,
   SqliteManagedWriteApprovalAuthority,
+  type ManagedEconomicCommitmentAcquireInput,
+  type ManagedEconomicCommitmentAcquireResult,
   type ManagedWriteApprovalBinding,
 } from "@kilnai/runtime";
 import type {
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentInvocationRecord,
   ManagedAgentWriteEvidence,
+  ManagedEconomicSettlement,
 } from "@kilnai/core";
 import { findAgent, loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -101,6 +104,7 @@ export interface CreateOperatorProjectManagedJobApplicationCompositionOptions {
   readonly discoverProviderModels?: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>;
   readonly onRefreshError?: (error: unknown) => void;
   readonly projectPath: string;
+  readonly managedAccountComposition?: NonNullable<ReturnType<typeof createManagedAccountRuntimeComposition>>;
 }
 
 interface OperatorProjectGovernanceEvidence {
@@ -165,6 +169,22 @@ export async function createOperatorProjectManagedJobApplicationService(
   return (await createOperatorProjectManagedJobApplicationComposition(options)).service;
 }
 
+export function createOperatorGlobalManagedAccountComposition(input: {
+  readonly projectPath: string;
+  readonly compositionKey: string;
+  readonly databasePath: string;
+}): ReturnType<typeof createManagedAccountRuntimeComposition> {
+  const root = resolveNativeHarnessProjectRoot(input.projectPath);
+  if (root.status !== "resolved") return undefined;
+  const config = loadOperatorProjectManagedRouteConfig(root.rootPath);
+  return config
+    ? createManagedAccountRuntimeComposition(config, root.rootPath, {
+        compositionKey: input.compositionKey,
+        databasePath: input.databasePath,
+      })
+    : undefined;
+}
+
 export interface OperatorProjectManagedAgentSummary {
   readonly configuredAgentProfileId: string;
   readonly displayName?: string;
@@ -180,8 +200,27 @@ export interface OperatorProjectManagedJobApplicationComposition {
   readonly service: ManagedJobApplicationService;
   readonly application: OperatorProjectManagedJobApplicationPort & OperatorProjectManagedWriteApprovalPort;
   readonly configuredAgents: readonly OperatorProjectManagedAgentSummary[];
+  readonly economicAuthority?: OperatorProjectManagedEconomicAuthorityPort;
   /** Releases the process-owned economic authority so a restart can reclaim it immediately. */
   close(): Promise<void>;
+}
+
+export interface OperatorProjectManagedEconomicAuthorityPort {
+  acquire(input: ManagedEconomicCommitmentAcquireInput): ManagedEconomicCommitmentAcquireResult;
+  releasePreFence(jobId: string, economicAttemptId: string): void;
+  fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): void;
+  settleExecution(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    settlement: ManagedEconomicSettlement,
+  ): void;
+  recordExecutionSettlementPending(
+    jobId: string,
+    economicAttemptId: string,
+    dispatchFenceId: string,
+    reason: string,
+  ): void;
 }
 
 /** Project identity comes from this trusted composition, never from MCP input. */
@@ -318,7 +357,9 @@ export async function createOperatorProjectManagedJobApplicationComposition(
   if (!initialConfig) {
     throw new ManagedJobApplicationError("route_unavailable", "Refresh current canonical managed economic configuration.");
   }
-  const managedAccountComposition = createManagedAccountRuntimeComposition(initialConfig, root.rootPath);
+  const managedAccountComposition = options.managedAccountComposition
+    ?? createManagedAccountRuntimeComposition(initialConfig, root.rootPath);
+  const ownsManagedAccountComposition = options.managedAccountComposition === undefined;
   const economicDispatch = managedAccountComposition
     ? createManagedEconomicDispatchComposition(
         initialConfig,
@@ -755,12 +796,34 @@ export async function createOperatorProjectManagedJobApplicationComposition(
     service,
     application,
     configuredAgents: summarizeOperatorProjectManagedAgents(configuredAgents, managedInvocation),
+    ...(managedAccountComposition ? {
+      economicAuthority: {
+        acquire: (input) => managedAccountComposition.authority.acquireCommitment(input),
+        releasePreFence: (jobId, economicAttemptId) => {
+          managedAccountComposition.authority.releaseCommitmentPreFence(jobId, economicAttemptId);
+        },
+        fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) => {
+          managedAccountComposition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId);
+        },
+        settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) => {
+          managedAccountComposition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement);
+        },
+        recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) => {
+          managedAccountComposition.authority.recordExecutionSettlementPending(
+            jobId,
+            economicAttemptId,
+            dispatchFenceId,
+            reason,
+          );
+        },
+      },
+    } : {}),
     close: async () => {
       await dispatcher.close();
       try {
         writeApprovalAuthority.close();
       } finally {
-        closeManagedAccountRuntimeComposition(root.rootPath);
+        if (ownsManagedAccountComposition) closeManagedAccountRuntimeComposition(root.rootPath);
       }
     },
   };

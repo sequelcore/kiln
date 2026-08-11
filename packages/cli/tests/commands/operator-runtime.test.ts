@@ -64,6 +64,7 @@ describe("operatorRuntimeCommand", () => {
     const service = {
       onSessionOpen: vi.fn(),
       onMcpRequest: vi.fn(),
+      onApplicationRequest: vi.fn(),
       close: vi.fn(async () => {}),
     };
     const closeListener = vi.fn();
@@ -85,7 +86,7 @@ describe("operatorRuntimeCommand", () => {
     expect(startListener).toHaveBeenCalledWith(expect.objectContaining({
       port: 4_820,
       identity: {
-        protocolVersion: "1",
+        protocolVersion: "2",
         service: "kiln-operator-runtime",
         instanceId: state.instanceId,
         version: state.version,
@@ -96,6 +97,7 @@ describe("operatorRuntimeCommand", () => {
       controlToken: "c".repeat(43),
       onSessionOpen: service.onSessionOpen,
       onMcpRequest: service.onMcpRequest,
+      onApplicationRequest: service.onApplicationRequest,
     }));
     expect(registerShutdown).toHaveBeenCalledOnce();
     const shutdown = registerShutdown.mock.calls[0]![0]!;

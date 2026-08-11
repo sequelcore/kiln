@@ -1,24 +1,18 @@
-import { randomUUID } from "node:crypto";
 import type { OperatorRuntimeHarness } from "@kilnai/gateway-contracts";
 import {
-  OPERATOR_RUNTIME_BINDING_HEADERS,
-  OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,
   OPERATOR_RUNTIME_MCP_PATH,
-  OPERATOR_RUNTIME_SESSION_PATH,
   type OperatorRuntimeBridgeCredentials,
   type OperatorRuntimeSupervisorStatus,
 } from "@kilnai/runtime";
-import {
-  resolveTrustedWorkspace,
-  type TrustedProcessContext,
-  type TrustedWorkspaceResolution,
+import type {
+  TrustedProcessContext,
+  TrustedWorkspaceResolution,
 } from "../application/trusted-workspace-resolution.js";
+import { createOperatorRuntimeClientSession } from "../application/operator-runtime-client-session.js";
 import {
   nativeHarnessMcpToolCatalog,
   type NativeHarnessMcpCallResult,
 } from "./native-harness-mcp-tools.js";
-
-const RENEWAL_WINDOW_SECONDS = 30;
 
 interface LocalServer {
   setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void;
@@ -82,14 +76,8 @@ export interface GlobalMcpBridgeHandle {
 }
 
 interface ActiveSession {
-  readonly workspace: Extract<TrustedWorkspaceResolution, { readonly status: "resolved" }>;
-  readonly sessionId: string;
-  readonly harness: OperatorRuntimeHarness;
-  readonly port: number;
-  credential: string;
-  expiresAt: number;
-  client?: RemoteClient;
-  transport?: ClosableTransport;
+  readonly client: RemoteClient;
+  readonly transport: ClosableTransport;
 }
 
 /**
@@ -104,16 +92,20 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     { capabilities: { tools: {} } },
   );
   const localTransport = new sdk.StdioServerTransport();
-  const resolveWorkspace = options.resolveWorkspace ?? resolveTrustedWorkspace;
-  const processContext = options.processContext ?? process;
-  const baseFetch = options.fetch ?? globalThis.fetch;
-  const nowEpochSeconds = options.nowEpochSeconds ?? (() => Math.floor(Date.now() / 1_000));
-  const createSessionId = options.createSessionId ?? randomUUID;
+  const runtimeSession = createOperatorRuntimeClientSession({
+    principal: { kind: "native-harness", harness: options.harness },
+    supervisor: options.supervisor,
+    readBridgeCredentials: options.readBridgeCredentials,
+    ...(options.processContext ? { processContext: options.processContext } : {}),
+    ...(options.resolveWorkspace ? { resolveWorkspace: options.resolveWorkspace } : {}),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(options.createSessionId ? { createSessionId: options.createSessionId } : {}),
+    ...(options.nowEpochSeconds ? { nowEpochSeconds: options.nowEpochSeconds } : {}),
+  });
   const writeDiagnostic = options.writeDiagnostic ?? ((message: string) => process.stderr.write(`${message}\n`));
   const signals = options.signals ?? process;
   let active: ActiveSession | undefined;
   let attachInFlight: Promise<boolean> | undefined;
-  let renewalInFlight: Promise<boolean> | undefined;
   let closed = false;
   let closePromise: Promise<void> | undefined;
 
@@ -121,102 +113,24 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     const session = active;
     active = undefined;
     if (!session) return;
-    await session.client?.close().catch(() => undefined);
-    await session.transport?.close().catch(() => undefined);
+    await session.client.close().catch(() => undefined);
+    await session.transport.close().catch(() => undefined);
   };
 
-  const openSession = async (
-    workspace: Extract<TrustedWorkspaceResolution, { readonly status: "resolved" }>,
-    sessionId: string,
-  ): Promise<{ readonly credential: string; readonly expiresAt: number; readonly port: number } | undefined> => {
-    const status = await options.supervisor.ensure();
-    if (closed || status.state !== "ready") return undefined;
-    const credentials = await options.readBridgeCredentials();
-    if (!credentials) return undefined;
-    const port = status.identity.port;
-    const authority = `127.0.0.1:${port}`;
-    const response = await baseFetch(`http://${authority}${OPERATOR_RUNTIME_SESSION_PATH}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        host: authority,
-        origin: `http://${authority}`,
-        [OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER]: credentials.controlToken,
-      },
-      body: JSON.stringify({
-        schemaVersion: 1,
-        canonicalRoot: workspace.canonicalRoot,
-        binding: {
-          projectRuntimeId: workspace.projectRuntimeId,
-          markerDigest: workspace.markerDigest,
-        },
-        harness: options.harness,
-        sessionId,
-      }),
-    });
-    if (!response.ok) return undefined;
-    const value: unknown = await response.json();
-    const opened = parseSessionOpen(value);
-    return opened ? { ...opened, port } : undefined;
-  };
-
-  const renewActiveSession = (): Promise<boolean> => {
-    if (renewalInFlight) return renewalInFlight;
-    const operation = (async () => {
-      const session = active;
-      if (!session || closed) return false;
-      const workspace = resolveWorkspace(processContext);
-      if (workspace.status !== "resolved" || !sameBinding(session.workspace, workspace)) return false;
-      const opened = await openSession(workspace, session.sessionId);
-      if (!opened || closed || active !== session || opened.port !== session.port) return false;
-      session.credential = opened.credential;
-      session.expiresAt = opened.expiresAt;
-      return true;
-    })().catch(() => false).finally(() => {
-      if (renewalInFlight === operation) renewalInFlight = undefined;
-    });
-    renewalInFlight = operation;
-    return operation;
-  };
-
-  const attach = async (forceRenewal = false): Promise<boolean> => {
+  const attach = async (): Promise<boolean> => {
     if (closed) return false;
-    const workspace = resolveWorkspace(processContext);
-    if (workspace.status !== "resolved") return false;
-    const bindingChanged = active !== undefined && !sameBinding(active.workspace, workspace);
-    if (bindingChanged) await closeRemote();
-    if (!forceRenewal && active?.client && active.expiresAt - nowEpochSeconds() > RENEWAL_WINDOW_SECONDS) return true;
-
-    const sessionId = active && !bindingChanged ? active.sessionId : createSessionId();
-    const opened = await openSession(workspace, sessionId);
-    if (!opened || closed) return false;
-    if (active && !bindingChanged) {
-      active.credential = opened.credential;
-      active.expiresAt = opened.expiresAt;
-      return active.client !== undefined;
-    }
-
-    const session: ActiveSession = { workspace, sessionId, harness: options.harness, ...opened };
-    active = session;
-    const authority = `127.0.0.1:${session.port}`;
-    const authenticatedFetch = async (url: string | URL, init?: RequestInit): Promise<Response> => {
-      const first = await baseFetch(url, withSessionHeaders(init, authority, session));
-      if (first.status !== 401 || closed) return first;
-      const renewed = await renewActiveSession();
-      return renewed && active
-        ? baseFetch(url, withSessionHeaders(init, authority, active))
-        : first;
-    };
+    const endpoint = await runtimeSession.endpoint(OPERATOR_RUNTIME_MCP_PATH);
+    if (closed) return false;
+    if (active) return true;
     const transport = new sdk.StreamableHTTPClientTransport(
-      new URL(`http://${authority}${OPERATOR_RUNTIME_MCP_PATH}`),
-      { fetch: authenticatedFetch },
+      endpoint.url,
+      { fetch: endpoint.fetch },
     );
     const client = new sdk.Client(
       { name: `kiln-${options.harness}-global-bridge`, version: "0.1.0" },
       { capabilities: {} },
     );
-    session.transport = transport;
-    session.client = client;
+    active = { transport, client };
     try {
       await client.connect(transport);
       return !closed;
@@ -226,9 +140,9 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     }
   };
 
-  const ensureAttached = (forceRenewal = false): Promise<boolean> => {
+  const ensureAttached = (): Promise<boolean> => {
     if (attachInFlight) return attachInFlight;
-    const operation = attach(forceRenewal).catch(() => false).finally(() => {
+    const operation = attach().catch(() => false).finally(() => {
       if (attachInFlight === operation) attachInFlight = undefined;
     });
     attachInFlight = operation;
@@ -239,7 +153,7 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
   localServer.setRequestHandler(sdk.CallToolRequestSchema, async (request) => {
     const params = request.params as { readonly name?: unknown; readonly arguments?: unknown };
     try {
-      if (!(await ensureAttached()) || !active?.client) return unavailableResult();
+      if (!(await ensureAttached()) || !active) return unavailableResult();
       const result = await active.client.callTool({
         name: typeof params.name === "string" ? params.name : "",
         arguments: isRecord(params.arguments) ? params.arguments : {},
@@ -265,6 +179,7 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     unregisterSignals();
     closePromise = (async () => {
       await closeRemote();
+      runtimeSession.close();
       await localTransport.close().catch(() => undefined);
       await localServer.close();
     })();
@@ -283,37 +198,6 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
     }
   });
   return { managedRuntime, close };
-}
-
-function withSessionHeaders(init: RequestInit | undefined, authority: string, session: ActiveSession): RequestInit {
-  const headers = new Headers(init?.headers);
-  headers.set("authorization", `Bearer ${session.credential}`);
-  headers.set("host", authority);
-  headers.set("origin", `http://${authority}`);
-  headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId, session.workspace.projectRuntimeId);
-  headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest, session.workspace.markerDigest);
-  headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.harness, session.harness);
-  headers.set(OPERATOR_RUNTIME_BINDING_HEADERS.sessionId, session.sessionId);
-  return { ...init, headers };
-}
-
-function parseSessionOpen(value: unknown): { readonly credential: string; readonly expiresAt: number } | undefined {
-  if (!isRecord(value) || Object.keys(value).sort().join(",") !== "credential,expiresAt") return undefined;
-  return typeof value.credential === "string"
-    && /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential)
-    && typeof value.expiresAt === "number"
-    && Number.isSafeInteger(value.expiresAt)
-    ? { credential: value.credential, expiresAt: value.expiresAt }
-    : undefined;
-}
-
-function sameBinding(
-  left: Extract<TrustedWorkspaceResolution, { readonly status: "resolved" }>,
-  right: Extract<TrustedWorkspaceResolution, { readonly status: "resolved" }>,
-): boolean {
-  return left.canonicalRoot === right.canonicalRoot
-    && left.projectRuntimeId === right.projectRuntimeId
-    && left.markerDigest === right.markerDigest;
 }
 
 function unavailableResult(): NativeHarnessMcpCallResult {

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
@@ -2303,8 +2303,32 @@ const CODEX_APP_SERVER_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 const CODEX_MODEL_READINESS_PROBE_TIMEOUT_MS = 45_000;
 const CODEX_MODEL_READINESS_PROBE_PROMPT =
   "Reply with exactly KILN_MODEL_READINESS_OK and do not write files.";
+let codexCliModelDiscoveryInFlight: Promise<GuiCliProviderModelDiscovery> | undefined;
+let unreapedCodexAppServer: ChildProcess | undefined;
 
-export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {
+export function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderModelDiscovery> {
+  if (unreapedCodexAppServer?.exitCode === null) {
+    return Promise.resolve(unavailableCliProviderDiscovery(
+      "endpoint_error",
+      "A previous Codex app-server process did not confirm shutdown; discovery is blocked until it closes.",
+      "unknown",
+    ));
+  }
+  unreapedCodexAppServer = undefined;
+  if (codexCliModelDiscoveryInFlight) {
+    return codexCliModelDiscoveryInFlight;
+  }
+  const discovery = discoverCodexCliModelDiscoveryOnce();
+  const tracked = discovery.finally(() => {
+    if (codexCliModelDiscoveryInFlight === tracked) {
+      codexCliModelDiscoveryInFlight = undefined;
+    }
+  });
+  codexCliModelDiscoveryInFlight = tracked;
+  return tracked;
+}
+
+async function discoverCodexCliModelDiscoveryOnce(): Promise<GuiCliProviderModelDiscovery> {
   const executable = findExecutable([
     ...homeExecutableCandidates([
       "AppData\\Roaming\\npm\\codex.cmd",
@@ -2325,7 +2349,9 @@ export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderMo
     const { spawn } = await import("node:child_process");
     return await new Promise<GuiCliProviderModelDiscovery>((resolve) => {
       const proc = spawn(executable, ["app-server"], {
+        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(executable),
         stdio: ["pipe", "pipe", "ignore"],
+        windowsHide: true,
       });
       let buffer = "";
       let initialized = false;
@@ -2336,8 +2362,23 @@ export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderMo
         }
         settled = true;
         clearTimeout(timer);
-        proc.kill();
-        resolve(result);
+        void stopProviderDiscoveryProcess(proc).then((closed) => {
+          if (closed) {
+            resolve(result);
+            return;
+          }
+          unreapedCodexAppServer = proc;
+          proc.once("close", () => {
+            if (unreapedCodexAppServer === proc) {
+              unreapedCodexAppServer = undefined;
+            }
+          });
+          resolve(unavailableCliProviderDiscovery(
+            "endpoint_error",
+            "Codex app-server did not confirm shutdown; further discovery is blocked until it closes.",
+            "unknown",
+          ));
+        });
       };
       const timer = setTimeout(() => {
         finish(unavailableCliProviderDiscovery(
@@ -2454,6 +2495,48 @@ export async function discoverCodexCliModelDiscovery(): Promise<GuiCliProviderMo
       "unknown",
     );
   }
+}
+
+async function stopProviderDiscoveryProcess(proc: ChildProcess): Promise<boolean> {
+  if (proc.exitCode !== null) {
+    return true;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    let forceTimer: ReturnType<typeof setTimeout> | undefined;
+    let finished = false;
+    const finish = (closed: boolean) => {
+      if (finished) return;
+      finished = true;
+      if (forceTimer) clearTimeout(forceTimer);
+      proc.off("close", onClose);
+      resolve(closed);
+    };
+    const onClose = () => finish(true);
+    proc.once("close", onClose);
+    forceTimer = setTimeout(() => finish(false), 1_000);
+
+    if (process.platform === "win32" && typeof proc.pid === "number") {
+      try {
+        execFileSync("taskkill.exe", ["/PID", String(proc.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+          timeout: 1_000,
+        });
+      } catch {
+        // Fall through to the direct process handle when taskkill is unavailable.
+      }
+    }
+    if (proc.exitCode === null) {
+      try {
+        proc.kill("SIGKILL");
+      } catch {
+        finish(proc.exitCode !== null);
+      }
+    } else {
+      finish(true);
+    }
+  });
 }
 
 export async function probeCodexCliModelReadiness(input: {

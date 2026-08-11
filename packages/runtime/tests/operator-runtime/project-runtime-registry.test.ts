@@ -39,7 +39,7 @@ function claims(binding: OperatorProjectBinding): OperatorSessionClaims {
     protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
     audience: OPERATOR_RUNTIME_AUDIENCE,
     ...binding,
-    harness: "codex",
+    principal: { kind: "native-harness", harness: "codex" },
     sessionId: "session-1",
     issuedAt: 1,
     expiresAt: 2,

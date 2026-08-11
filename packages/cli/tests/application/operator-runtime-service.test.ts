@@ -28,6 +28,56 @@ afterEach(() => {
 });
 
 describe("createOperatorRuntimeService", () => {
+  it("routes managed-economic application commands only for an authenticated operator surface", async () => {
+    const project = adoptedProject("surface-application");
+    const releasePreFence = vi.fn();
+    const createComposition = vi.fn(async () => ({
+      ...composition(),
+      economicAuthority: {
+        acquire: vi.fn(),
+        releasePreFence,
+        fenceDispatch: vi.fn(),
+        settleExecution: vi.fn(),
+        recordExecutionSettlementPending: vi.fn(),
+      },
+    }));
+    const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
+    const opened = await service.onSessionOpen({
+      schemaVersion: 2,
+      canonicalRoot: project.canonicalRoot,
+      binding: project.binding,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "gui-application-session",
+    });
+    const surfaceClaims = verifyOperatorSessionCredential(opened.credential, SECRET, {
+      ...project.binding,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "gui-application-session",
+    }, { nowEpochSeconds: 100 });
+
+    await expect(service.onApplicationRequest({
+      claims: surfaceClaims,
+      request: {
+        schemaVersion: 1,
+        operation: "managed-economic.release-pre-fence",
+        jobId: "job-1",
+        economicAttemptId: "attempt-1",
+      },
+    })).resolves.toMatchObject({ status: "ok" });
+    expect(releasePreFence).toHaveBeenCalledWith("job-1", "attempt-1");
+
+    const nativeClaims = await openClaims(service, project, "codex", "native-application-session");
+    await expect(service.onApplicationRequest({
+      claims: nativeClaims,
+      request: {
+        schemaVersion: 1,
+        operation: "managed-economic.release-pre-fence",
+        jobId: "job-2",
+        economicAttemptId: "attempt-2",
+      },
+    })).resolves.toMatchObject({ status: "error", error: { code: "principal_denied" } });
+    await service.close();
+  });
   it("opens an exact signed session without eagerly creating project composition", async () => {
     const project = adoptedProject("session");
     const createComposition = vi.fn(async () => composition());
@@ -36,12 +86,42 @@ describe("createOperatorRuntimeService", () => {
     const opened = await service.onSessionOpen(sessionInput(project, "codex", "session-1"));
     const claims = verifyOperatorSessionCredential(opened.credential, SECRET, {
       ...project.binding,
-      harness: "codex",
+      principal: { kind: "native-harness", harness: "codex" },
       sessionId: "session-1",
     }, { nowEpochSeconds: 100 });
 
-    expect(claims).toMatchObject({ ...project.binding, harness: "codex", sessionId: "session-1", issuedAt: 100, expiresAt: 400 });
+    expect(claims).toMatchObject({
+      ...project.binding,
+      principal: { kind: "native-harness", harness: "codex" },
+      sessionId: "session-1",
+      issuedAt: 100,
+      expiresAt: 400,
+    });
     expect(opened.expiresAt).toBe(400);
+    expect(createComposition).not.toHaveBeenCalled();
+    await service.close();
+  });
+
+  it("opens an operator-surface session without lending it the native MCP adapter", async () => {
+    const project = adoptedProject("gui-session");
+    const createComposition = vi.fn(async () => composition());
+    const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
+    const opened = await service.onSessionOpen({
+      schemaVersion: 2,
+      canonicalRoot: project.canonicalRoot,
+      binding: project.binding,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "gui-session-1",
+    });
+    const claims = verifyOperatorSessionCredential(opened.credential, SECRET, {
+      ...project.binding,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "gui-session-1",
+    }, { nowEpochSeconds: 100 });
+
+    const response = await service.onMcpRequest(mcpInput(claims, "tools/list"));
+
+    expect(response.status).toBe(401);
     expect(createComposition).not.toHaveBeenCalled();
     await service.close();
   });
@@ -427,6 +507,53 @@ describe("createOperatorRuntimeService", () => {
     expect(closeOwner).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for an in-flight operator application request before final close", async () => {
+    const project = adoptedProject("final-close-application-in-flight");
+    const pendingComposition = deferred<OperatorProjectManagedJobApplicationComposition>();
+    const closeOwner = vi.fn(async () => undefined);
+    const service = createOperatorRuntimeService({
+      sessionSecret: SECRET,
+      createComposition: () => pendingComposition.promise,
+      nowEpochSeconds: () => 100,
+    });
+    const opened = await service.onSessionOpen({
+      schemaVersion: 2,
+      canonicalRoot: project.canonicalRoot,
+      binding: project.binding,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "closing-application-session",
+    });
+    const claims = verifyOperatorSessionCredential(opened.credential, SECRET, {
+      ...project.binding,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "closing-application-session",
+    }, { nowEpochSeconds: 100 });
+    const request = service.onApplicationRequest({
+      claims,
+      request: {
+        schemaVersion: 1,
+        operation: "managed-economic.release-pre-fence",
+        jobId: "job-1",
+        economicAttemptId: "attempt-1",
+      },
+    });
+    await Promise.resolve();
+
+    const closing = service.close();
+    let serviceClosed = false;
+    void closing.then(() => {
+      serviceClosed = true;
+    });
+    await Promise.resolve();
+    expect(serviceClosed).toBe(false);
+    expect(closeOwner).not.toHaveBeenCalled();
+
+    pendingComposition.resolve(composition(closeOwner));
+    await expect(request).resolves.toMatchObject({ status: "error", error: { code: "authority_rejected" } });
+    await closing;
+    expect(closeOwner).toHaveBeenCalledTimes(1);
+  });
+
   it("does not start closeAll until the final request eviction cleanup settles", async () => {
     const project = adoptedProject("final-cleanup-order");
     const pendingStatus = deferred<never>();
@@ -558,7 +685,13 @@ function resolveProject(canonicalRoot: string): ProjectFixture {
 }
 
 function sessionInput(project: ProjectFixture, harness: OperatorRuntimeHarness, sessionId: string): OperatorRuntimeSessionOpenInput {
-  return { schemaVersion: 1, canonicalRoot: project.canonicalRoot, binding: project.binding, harness, sessionId };
+  return {
+    schemaVersion: 2,
+    canonicalRoot: project.canonicalRoot,
+    binding: project.binding,
+    principal: { kind: "native-harness", harness },
+    sessionId,
+  };
 }
 
 async function openedService(
@@ -582,7 +715,11 @@ function verifyClaims(
   sessionId: string,
   nowEpochSeconds: number,
 ): OperatorSessionClaims {
-  return verifyOperatorSessionCredential(opened.credential, SECRET, { ...project.binding, harness, sessionId }, { nowEpochSeconds });
+  return verifyOperatorSessionCredential(opened.credential, SECRET, {
+    ...project.binding,
+    principal: { kind: "native-harness", harness },
+    sessionId,
+  }, { nowEpochSeconds });
 }
 
 function mcpInput(claims: OperatorSessionClaims, method: string, params?: Record<string, unknown>): OperatorRuntimeMcpRequest {

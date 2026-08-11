@@ -22,6 +22,7 @@ export function createProviderDiscoveryCache<TDiscovery>(
     ? { value: options.initialValue, expiresAt: 0 }
     : undefined;
   let inflight: { readonly sequence: number; readonly promise: Promise<TDiscovery> } | undefined;
+  let queuedForcedRefresh: Promise<TDiscovery> | undefined;
   let sequence = 0;
   let latestResolvedSequence = 0;
 
@@ -47,12 +48,20 @@ export function createProviderDiscoveryCache<TDiscovery>(
 
   return {
     get(options) {
+      if (inflight) {
+        if (options?.force) {
+          queuedForcedRefresh ??= inflight.promise
+            .then(load, load)
+            .finally(() => {
+              queuedForcedRefresh = undefined;
+            });
+          return queuedForcedRefresh;
+        }
+        return inflight.promise;
+      }
       if (!options?.force) {
         if (cache && cache.expiresAt > Date.now()) {
           return Promise.resolve(cache.value);
-        }
-        if (inflight) {
-          return inflight.promise;
         }
       }
       return load();
@@ -63,6 +72,7 @@ export function createProviderDiscoveryCache<TDiscovery>(
     clear() {
       cache = undefined;
       inflight = undefined;
+      queuedForcedRefresh = undefined;
     },
   };
 }

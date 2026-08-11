@@ -33,21 +33,21 @@ export interface ManagedEconomicDispatchAuthorityPort {
     readonly snapshot: ManagedEconomicAdoptedSnapshot;
     readonly expectation: ManagedEconomicAdoptedSnapshotExpectation;
     readonly routeCapacity: readonly ManagedEconomicRouteCapacity[];
-  }): ManagedEconomicCommitmentAcquireResult;
-  releasePreFence(jobId: string, economicAttemptId: string): unknown;
-  fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): unknown;
+  }): ManagedEconomicCommitmentAcquireResult | Promise<ManagedEconomicCommitmentAcquireResult>;
+  releasePreFence(jobId: string, economicAttemptId: string): unknown | Promise<unknown>;
+  fenceDispatch(jobId: string, economicAttemptId: string, dispatchFenceId: string): unknown | Promise<unknown>;
   settleExecution(
     jobId: string,
     economicAttemptId: string,
     dispatchFenceId: string,
     settlement: ManagedEconomicSettlement,
-  ): unknown;
+  ): unknown | Promise<unknown>;
   recordExecutionSettlementPending(
     jobId: string,
     economicAttemptId: string,
     dispatchFenceId: string,
     reason: string,
-  ): unknown;
+  ): unknown | Promise<unknown>;
 }
 
 export interface ManagedEconomicLifecycleEventPort {
@@ -124,7 +124,7 @@ export type ManagedEconomicDispatchPreparation =
       readonly dispatchFenceId: string;
       readonly adapter: ManagedAgentRuntimeAdapter;
       readonly abortSignal: AbortSignal;
-      readonly recordExecutionSettlementPending: (reason: string) => void;
+      readonly recordExecutionSettlementPending: (reason: string) => Promise<void>;
       readonly createExecutionSettlement: (
         report: ManagedEconomicExecutionReport,
       ) => ManagedEconomicSettlement;
@@ -137,7 +137,7 @@ export class ManagedEconomicDispatchCoordinator {
 
   async prepare(input: ManagedEconomicDispatchPrepareInput): Promise<ManagedEconomicDispatchPreparation> {
     const policy = () => input.adoption.snapshot.policy;
-    const result = this.options.authority.acquire({
+    const result = await this.options.authority.acquire({
       jobId: input.jobId,
       economicAttemptId: input.economicAttemptId,
       intentFingerprint: input.intentFingerprint,
@@ -174,13 +174,13 @@ export class ManagedEconomicDispatchCoordinator {
         });
       }
     } catch (error) {
-      this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+      await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       throw error;
     }
     let dispatchFenced = false;
     try {
       throwManagedEconomicAbort(lifecycle.signal);
-      this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
+      await this.options.authority.fenceDispatch(input.jobId, input.economicAttemptId, dispatchFenceId);
       dispatchFenced = true;
       input.lifecycleEvents?.record({
         transition: "dispatch-fenced",
@@ -195,41 +195,42 @@ export class ManagedEconomicDispatchCoordinator {
     } catch (error) {
       lifecycle.dispose();
       if (dispatchFenced) {
-        this.options.authority.recordExecutionSettlementPending(
+        await this.options.authority.recordExecutionSettlementPending(
           input.jobId,
           input.economicAttemptId,
           dispatchFenceId,
           "post-fence-profile-authority-mismatch",
         );
       } else {
-        this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
+        await this.options.authority.releasePreFence(input.jobId, input.economicAttemptId);
       }
       throw error;
     }
 
     let settlementRegistered = false;
-    let settlementPendingRecorded = false;
-    const recordSettlementPending = (reason: string) => {
-      if (settlementPendingRecorded) return;
-      this.options.authority.recordExecutionSettlementPending(
-        input.jobId,
-        input.economicAttemptId,
-        dispatchFenceId,
-        reason,
-      );
-      settlementPendingRecorded = true;
-      input.lifecycleEvents?.record({
-        transition: "settlement-pending",
-        policy: policy(),
-        commitment: result.record.commitment,
-        dispatchFenceId,
-        reason,
-      });
+    let settlementPending: Promise<void> | undefined;
+    const recordSettlementPending = (reason: string): Promise<void> => {
+      settlementPending ??= (async () => {
+        await this.options.authority.recordExecutionSettlementPending(
+          input.jobId,
+          input.economicAttemptId,
+          dispatchFenceId,
+          reason,
+        );
+        input.lifecycleEvents?.record({
+          transition: "settlement-pending",
+          policy: policy(),
+          commitment: result.record.commitment,
+          dispatchFenceId,
+          reason,
+        });
+      })();
+      return settlementPending;
     };
     const onAbort = () => {
-      recordSettlementPending(settlementRegistered
+      void recordSettlementPending(settlementRegistered
         ? "registered-execution-settlement-timed-out"
-        : "registered-execution-settlement-missing");
+        : "registered-execution-settlement-missing").catch(() => undefined);
     };
     lifecycle.signal.addEventListener("abort", onAbort, { once: true });
 
@@ -243,7 +244,7 @@ export class ManagedEconomicDispatchCoordinator {
       if (!adapter) throw new Error("Committed managed route has no executable adapter.");
     } catch (error) {
       lifecycle.signal.removeEventListener("abort", onAbort);
-      recordSettlementPending(lifecycle.signal.aborted
+      await recordSettlementPending(lifecycle.signal.aborted
         ? "registered-execution-settlement-missing"
         : "post-fence-adapter-materialization-failed");
       lifecycle.dispose();
@@ -276,8 +277,8 @@ export class ManagedEconomicDispatchCoordinator {
         }
         settlementRegistered = true;
         void Promise.resolve(settlement).then(
-          (resolved) => {
-            this.options.authority.settleExecution(
+          async (resolved) => {
+            await this.options.authority.settleExecution(
               input.jobId,
               input.economicAttemptId,
               dispatchFenceId,
@@ -292,11 +293,11 @@ export class ManagedEconomicDispatchCoordinator {
                 settlement: resolved,
               });
             } catch {
-              recordSettlementPending("lifecycle-evidence-append-failed");
+              await recordSettlementPending("lifecycle-evidence-append-failed");
             }
           },
-          () => {
-            recordSettlementPending("registered-execution-settlement-rejected");
+          async () => {
+            await recordSettlementPending("registered-execution-settlement-rejected");
           },
         ).catch(() => recordSettlementPending("registered-execution-settlement-invalid"))
           .finally(() => {

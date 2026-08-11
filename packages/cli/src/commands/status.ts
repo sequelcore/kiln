@@ -9,7 +9,6 @@ import { describeInteractiveUseConfiguration } from "../config/interactive-use-c
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import {
-  closeManagedAccountRuntimeComposition,
   resolveManagedInvocationToolOptions,
 } from "../config/managed-agent-routes.js";
 import { readGlobalConfig } from "../config/global-config.js";
@@ -81,9 +80,7 @@ export async function statusCommand(
       managedAgents: config.managedAgents ?? globalConfig.managedAgents,
     }
     : config;
-  const managedInvocationResolution = await (async () => {
-    try {
-      return await resolveManagedInvocationToolOptions(managedInvocationConfig, {
+  const managedInvocationResolution = await resolveManagedInvocationToolOptions(managedInvocationConfig, {
         cwd: root,
         registry,
         surface: "operator",
@@ -91,11 +88,8 @@ export async function statusCommand(
         providerModelEligibility: managedAgentProviderModels,
         directAdapterFactory: createManagedDirectProviderAdapterFactory({ builtinToolOptions }),
         builtinToolOptions,
+        compositionMode: "candidate-admission",
       });
-    } finally {
-      closeManagedAccountRuntimeComposition(root);
-    }
-  })();
   if (managedInvocationResolution.routeHealth.length > 0) {
     console.log(`\n  Managed agent routes:`);
     for (const route of managedInvocationResolution.routeHealth) {

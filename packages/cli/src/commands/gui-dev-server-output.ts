@@ -6,12 +6,14 @@ export interface GuiDevServerOutput {
 interface GuiDevServerOutputOptions {
   readonly stdout: Pick<NodeJS.WriteStream, "write">;
   readonly stderr: Pick<NodeJS.WriteStream, "write">;
+  readonly onReady?: () => void;
 }
 
 interface GuiDevServerOutputState {
   stdoutBuffer: string;
   stderrBuffer: string;
   readyReported: boolean;
+  readonly onReady?: () => void;
 }
 
 export function createGuiDevServerOutput(options: GuiDevServerOutputOptions): GuiDevServerOutput {
@@ -19,6 +21,7 @@ export function createGuiDevServerOutput(options: GuiDevServerOutputOptions): Gu
     stdoutBuffer: "",
     stderrBuffer: "",
     readyReported: false,
+    onReady: options.onReady,
   };
 
   return {
@@ -69,6 +72,7 @@ function writeGuiDevServerLine(
     if (!state.readyReported) {
       state.readyReported = true;
       output.write(`Dev server: ready in ${readyMatch[1]}\n`);
+      state.onReady?.();
     }
     return;
   }

@@ -14,7 +14,14 @@ describe("GUI dev server output", () => {
   it("condenses Vite startup noise into one readable readiness line", () => {
     const stdout = new MemoryOutput();
     const stderr = new MemoryOutput();
-    const output = createGuiDevServerOutput({ stdout, stderr });
+    let readyCount = 0;
+    const output = createGuiDevServerOutput({
+      stdout,
+      stderr,
+      onReady: () => {
+        readyCount += 1;
+      },
+    });
 
     output.writeStdout([
       "$ vite --port \"5183\"",
@@ -28,6 +35,7 @@ describe("GUI dev server output", () => {
 
     expect(stdout.lines).toEqual(["Dev server: ready in 2006 ms\n"]);
     expect(stderr.lines).toEqual([]);
+    expect(readyCount).toBe(1);
   });
 
   it("preserves unknown dev-server diagnostics with a stable prefix", () => {
@@ -51,6 +59,23 @@ describe("GUI dev server output", () => {
     output.writeStdout(" in 20 ms\n");
 
     expect(stdout.lines).toEqual(["Dev server: ready in 20 ms\n"]);
+  });
+
+  it("signals readiness once even if Vite repeats its startup line", () => {
+    const stdout = new MemoryOutput();
+    const stderr = new MemoryOutput();
+    let readyCount = 0;
+    const output = createGuiDevServerOutput({
+      stdout,
+      stderr,
+      onReady: () => {
+        readyCount += 1;
+      },
+    });
+
+    output.writeStdout("VITE v8.2.0  ready in 30 ms\nVITE v8.2.0  ready in 31 ms\n");
+
+    expect(readyCount).toBe(1);
   });
 
   it("normalizes ANSI-colored Vite startup lines before filtering", () => {

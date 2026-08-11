@@ -104,4 +104,19 @@ describe("createLocalWorkspaceExplorer", () => {
       state: "modified",
     });
   }, 15000);
+
+  it("projects an untracked directory onto its children without enumerating every file in git status", async () => {
+    const root = await mkdtemp(join(tmpdir(), "kiln-workspace-"));
+    await execFileAsync("git", ["init"], { cwd: root });
+    await mkdir(join(root, "generated"));
+    await writeFile(join(root, "generated", "result.txt"), "synthetic\n", "utf-8");
+
+    const explorer = createLocalWorkspaceExplorer(root);
+    const generated = await explorer.listDirectory(join(root, "generated"));
+
+    expect(generated.entries.find((entry) => entry.name === "result.txt")?.vcs).toMatchObject({
+      provider: "git",
+      state: "untracked",
+    });
+  }, 15000);
 });

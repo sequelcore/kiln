@@ -8,6 +8,7 @@ import {
 import { signOperatorSessionCredential } from "../../src/operator-runtime/operator-session-auth.js";
 import {
   OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,
+  OPERATOR_RUNTIME_APPLICATION_PATH,
   OPERATOR_RUNTIME_HEALTH_PATH,
   OPERATOR_RUNTIME_MCP_PATH,
   OPERATOR_RUNTIME_REQUEST_MAX_BYTES,
@@ -37,7 +38,7 @@ const claims: OperatorSessionClaims = {
   audience: OPERATOR_RUNTIME_AUDIENCE,
   projectRuntimeId: `krp_${"a".repeat(64)}`,
   markerDigest: `sha256:${"b".repeat(64)}`,
-  harness: "codex",
+  principal: { kind: "native-harness", harness: "codex" },
   sessionId: "session-1",
   issuedAt: now - 1,
   expiresAt: now + 60,
@@ -49,6 +50,7 @@ interface StartedTestListener {
   readonly stop: ReturnType<typeof vi.fn>;
   readonly handler: ReturnType<typeof vi.fn>;
   readonly sessionOpen: ReturnType<typeof vi.fn>;
+  readonly applicationHandler: ReturnType<typeof vi.fn>;
   readonly bound: { readonly hostname: string; readonly port: number };
 }
 
@@ -68,6 +70,11 @@ async function startTestListener(): Promise<StartedTestListener> {
     credential: signOperatorSessionCredential(claims, sessionSecret),
     expiresAt: claims.expiresAt,
   }));
+  const applicationHandler = vi.fn(async ({ request }: { request: unknown }) => ({
+    schemaVersion: 1 as const,
+    status: "ok" as const,
+    result: request,
+  }));
   const runtime = await startOperatorRuntimeListener({
     port,
     identity,
@@ -75,6 +82,7 @@ async function startTestListener(): Promise<StartedTestListener> {
     sessionSecret,
     nowEpochSeconds: () => now,
     onMcpRequest: handler,
+    onApplicationRequest: applicationHandler,
     onSessionOpen: sessionOpen,
     listen: (input) => {
       listenerFetch = input.fetch;
@@ -83,17 +91,17 @@ async function startTestListener(): Promise<StartedTestListener> {
     },
   });
   if (!listenerFetch || !bound) throw new Error("listener was not bound");
-  return { fetch: listenerFetch, close: runtime.close, stop, handler, sessionOpen, bound };
+  return { fetch: listenerFetch, close: runtime.close, stop, handler, sessionOpen, applicationHandler, bound };
 }
 
 const sessionOpenInput = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   canonicalRoot: "C:\\Projects\\kiln",
   binding: {
     projectRuntimeId: claims.projectRuntimeId,
     markerDigest: claims.markerDigest,
   },
-  harness: claims.harness,
+  principal: claims.principal,
   sessionId: claims.sessionId,
 } as const;
 
@@ -132,7 +140,10 @@ function mcpRequest(overrides: {
       "content-type": "application/json",
       "x-kiln-project-runtime-id": claims.projectRuntimeId,
       "x-kiln-marker-digest": claims.markerDigest,
-      "x-kiln-harness": claims.harness,
+      "x-kiln-principal-kind": claims.principal.kind,
+      "x-kiln-principal-id": claims.principal.kind === "native-harness"
+        ? claims.principal.harness
+        : claims.principal.surface,
       "x-kiln-session-id": claims.sessionId,
       ...overrides.headers,
     },
@@ -155,6 +166,38 @@ async function expectDenied(
 }
 
 describe("startOperatorRuntimeListener", () => {
+  it("routes authenticated operator-surface application commands outside MCP", async () => {
+    const surfaceClaims: OperatorSessionClaims = {
+      ...claims,
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "gui-session-1",
+    };
+    const credential = signOperatorSessionCredential(surfaceClaims, sessionSecret);
+    const started = await startTestListener();
+    const response = await started.fetch(new Request(`${origin}${OPERATOR_RUNTIME_APPLICATION_PATH}`, {
+      method: "POST",
+      headers: {
+        host: `127.0.0.1:${port}`,
+        origin,
+        authorization: `Bearer ${credential}`,
+        "content-type": "application/json",
+        "x-kiln-project-runtime-id": surfaceClaims.projectRuntimeId,
+        "x-kiln-marker-digest": surfaceClaims.markerDigest,
+        "x-kiln-principal-kind": surfaceClaims.principal.kind,
+        "x-kiln-principal-id": surfaceClaims.principal.surface,
+        "x-kiln-session-id": surfaceClaims.sessionId,
+      },
+      body: JSON.stringify({
+        schemaVersion: 1,
+        operation: "managed-economic.release-pre-fence",
+        jobId: "job-1",
+        economicAttemptId: "attempt-1",
+      }),
+    }));
+    expect(response.status).toBe(200);
+    expect(started.applicationHandler).toHaveBeenCalledOnce();
+    expect(started.handler).not.toHaveBeenCalled();
+  });
   it("binds exactly to the configured IPv4 loopback port", async () => {
     const started = await startTestListener();
     expect(started.bound).toEqual({ hostname: "127.0.0.1", port });
@@ -178,9 +221,9 @@ describe("startOperatorRuntimeListener", () => {
   it.each([
     ["missing bearer", { authorization: "" }],
     ["wrong bearer scheme", { authorization: "Basic abc" }],
-    ["tampered credential", { authorization: "Bearer v1.abc.def" }],
+    ["tampered credential", { authorization: "Bearer v2.abc.def" }],
     ["mismatched project", { "x-kiln-project-runtime-id": `krp_${"c".repeat(64)}` }],
-    ["malformed harness", { "x-kiln-harness": "Codex" }],
+    ["malformed principal", { "x-kiln-principal-id": "Codex" }],
     ["missing session", { "x-kiln-session-id": "" }],
   ])("rejects %s without exposing authentication detail", async (_name, headers) => {
     await expectDenied(await startTestListener(), mcpRequest({ headers }), 401, "unauthorized");

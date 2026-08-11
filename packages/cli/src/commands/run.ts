@@ -76,9 +76,9 @@ import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import {
-  closeManagedAccountRuntimeComposition,
   resolveManagedInvocationToolOptions,
 } from "../config/managed-agent-routes.js";
+import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
   withProgressiveRuntimeToolProjection,
@@ -1203,6 +1203,9 @@ export async function runCommand(
   }, runToolProjection.profile, runToolProjection.alwaysOnTools));
   const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
   const managedAgentProviderModels = await discoverManagedAgentProviderModels();
+  const operatorEconomicAuthority = runtimeAppConfig.managedInvocation
+    ? undefined
+    : createOperatorSurfaceEconomicAuthority("run", cwd);
   const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
     cwd,
     registry,
@@ -1217,8 +1220,9 @@ export async function runCommand(
     }),
     builtinToolOptions: () => builtinToolOptions,
     artifactStore: builtinToolOptions.artifactResources?.store,
+    managedEconomicAuthority: operatorEconomicAuthority?.authority,
   });
-  cleanupRegistry.register(async () => closeManagedAccountRuntimeComposition(cwd));
+  cleanupRegistry.register(async () => operatorEconomicAuthority?.close());
   const managedInvocation = runtimeAppConfig.managedInvocation ?? managedInvocationResolution.managedInvocation;
   const managedInvocationWithService = managedInvocation
     ? withManagedInvocationService(managedInvocation)

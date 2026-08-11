@@ -447,7 +447,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     && candidate.providerId === selected.providerId
     && candidate.model === selected.modelId);
   if (!selectedCandidate) {
-    economicPreparation.recordExecutionSettlementPending("committed-candidate-unavailable");
+    await economicPreparation.recordExecutionSettlementPending("committed-candidate-unavailable");
     throw new ManagedCommittedRouteMismatchError({
       code: "committed-route-mismatch",
       expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
@@ -459,7 +459,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     && route.providerId === selected.providerId
     && route.model === selected.modelId);
   if (!committedRoute) {
-    economicPreparation.recordExecutionSettlementPending("committed-route-unavailable");
+    await economicPreparation.recordExecutionSettlementPending("committed-route-unavailable");
     throw new ManagedCommittedRouteMismatchError({
       code: "committed-route-mismatch",
       expected: { routeId: selected.routeId, providerId: selected.providerId, modelId: selected.modelId },
@@ -507,11 +507,11 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       },
     }, toolName, "already-admitted", selectedCandidate.deliberationResolution);
   } catch (error) {
-    economicPreparation.recordExecutionSettlementPending("postcommit-request-realization-failed");
+    await economicPreparation.recordExecutionSettlementPending("postcommit-request-realization-failed");
     throw error;
   }
   if (!recursivelyPrepared.ok) {
-    economicPreparation.recordExecutionSettlementPending("postcommit-request-denied");
+    await economicPreparation.recordExecutionSettlementPending("postcommit-request-denied");
     return recursivelyPrepared;
   }
   return {

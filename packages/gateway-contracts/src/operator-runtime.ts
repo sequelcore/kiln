@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-/** First stable wire contract between native harness bridges and the operator runtime. */
-export const OPERATOR_RUNTIME_PROTOCOL_VERSION = "1" as const;
+/** Runtime-owned wire contract shared by native harness and operator-surface clients. */
+export const OPERATOR_RUNTIME_PROTOCOL_VERSION = "2" as const;
 export const OPERATOR_RUNTIME_AUDIENCE = "kiln-operator-runtime" as const;
 
 export const OPERATOR_RUNTIME_HARNESSES = ["codex", "claude", "opencode"] as const;
+export const OPERATOR_RUNTIME_SURFACES = ["gui", "tui", "run", "benchmark"] as const;
 export const OPERATOR_SUPERVISOR_LIFECYCLES = ["starting", "ready", "degraded", "stopping"] as const;
 export const OPERATOR_SUPERVISOR_DIAGNOSTICS = ["none", "runtime_unavailable", "internal"] as const;
 export const OPERATOR_PROJECT_RUNTIME_LIFECYCLES = ["starting", "ready", "recovering", "unavailable"] as const;
@@ -49,20 +50,40 @@ export const OperatorSupervisorIdentitySchema = z
 
 export type OperatorSupervisorIdentity = z.infer<typeof OperatorSupervisorIdentitySchema>;
 
+export const OperatorRuntimePrincipalSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("native-harness"),
+    harness: z.enum(OPERATOR_RUNTIME_HARNESSES),
+  }).strict(),
+  z.object({
+    kind: z.literal("operator-surface"),
+    surface: z.enum(OPERATOR_RUNTIME_SURFACES),
+  }).strict(),
+]);
+
+export type OperatorRuntimePrincipal = z.infer<typeof OperatorRuntimePrincipalSchema>;
+export type OperatorRuntimeHarness = Extract<
+  OperatorRuntimePrincipal,
+  { readonly kind: "native-harness" }
+>["harness"];
+export type OperatorRuntimeSurface = Extract<
+  OperatorRuntimePrincipal,
+  { readonly kind: "operator-surface" }
+>["surface"];
+
 export const OperatorSessionClaimsSchema = z
   .object({
     protocolVersion: z.literal(OPERATOR_RUNTIME_PROTOCOL_VERSION),
     audience: z.literal(OPERATOR_RUNTIME_AUDIENCE),
     projectRuntimeId,
     markerDigest,
-    harness: z.enum(OPERATOR_RUNTIME_HARNESSES),
+    principal: OperatorRuntimePrincipalSchema,
     sessionId: portableIdentifier,
     issuedAt: epochSeconds,
     expiresAt: epochSeconds,
   })
   .strict();
 
-export type OperatorRuntimeHarness = z.infer<typeof OperatorSessionClaimsSchema>["harness"];
 export type OperatorSessionClaims = z.infer<typeof OperatorSessionClaimsSchema>;
 
 export const OperatorSupervisorStatusSchema = z

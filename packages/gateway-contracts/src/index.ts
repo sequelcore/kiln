@@ -29,6 +29,8 @@ export type {
   OperatorProjectRuntimeLifecycle,
   OperatorProjectRuntimeStatus,
   OperatorRuntimeHarness,
+  OperatorRuntimePrincipal,
+  OperatorRuntimeSurface,
   OperatorSessionClaims,
   OperatorSupervisorDiagnostic,
   OperatorSupervisorIdentity,
@@ -41,14 +43,25 @@ export {
   OPERATOR_RUNTIME_AUDIENCE,
   OPERATOR_RUNTIME_HARNESSES,
   OPERATOR_RUNTIME_PROTOCOL_VERSION,
+  OPERATOR_RUNTIME_SURFACES,
   OPERATOR_SUPERVISOR_DIAGNOSTICS,
   OPERATOR_SUPERVISOR_LIFECYCLES,
   OperatorProjectBindingSchema,
   OperatorProjectRuntimeStatusSchema,
+  OperatorRuntimePrincipalSchema,
   OperatorSessionClaimsSchema,
   OperatorSupervisorIdentitySchema,
   OperatorSupervisorStatusSchema,
 } from "./operator-runtime.js";
+
+export type {
+  OperatorRuntimeApplicationRequest,
+  OperatorRuntimeApplicationResponse,
+} from "./operator-runtime-application.js";
+export {
+  OperatorRuntimeApplicationRequestSchema,
+  OperatorRuntimeApplicationResponseSchema,
+} from "./operator-runtime-application.js";
 
 export type {
   OperatorResourceContentKind,

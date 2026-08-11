@@ -1774,6 +1774,7 @@ function wireOperatorTransport(
               const executionMode = resolveExecutionMode(messageFrame.executionMode);
               const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
               const governedWorkRequirement = resolveGuiGovernedWorkRequirement(messageFrame.governedWorkRequirement);
+              assertGuiTurnModeCompatibility(executionMode, governedWorkRequirement);
               turnProvider = activeProvider;
               turnModel = activeModel;
               const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -2047,6 +2048,15 @@ export function resolveGuiGovernedWorkRequirement(
     kind: "goal_materialization",
     requiredWorkItemCount: Number(record.requiredWorkItemCount),
   };
+}
+
+export function assertGuiTurnModeCompatibility(
+  executionMode: OperatorExecutionMode,
+  governedWorkRequirement: PerCallToolConfig["governedWorkRequirement"] | undefined,
+): void {
+  if (executionMode === "plan" && governedWorkRequirement) {
+    throw new Error("Plan mode cannot be combined with governed goal materialization.");
+  }
 }
 
 function contextUsageWindowEvidence(

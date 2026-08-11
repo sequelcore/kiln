@@ -1,12 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   type OperatorProjectBinding,
-  type OperatorRuntimeHarness,
+  type OperatorRuntimePrincipal,
   type OperatorSessionClaims,
   OperatorSessionClaimsSchema,
 } from "@kilnai/gateway-contracts";
 
-export const OPERATOR_SESSION_CREDENTIAL_VERSION = "v1" as const;
+export const OPERATOR_SESSION_CREDENTIAL_VERSION = "v2" as const;
 export const OPERATOR_SESSION_MAX_LIFETIME_SECONDS = 300;
 export const OPERATOR_SESSION_CLOCK_SKEW_SECONDS = 5;
 export const OPERATOR_SESSION_MIN_SECRET_BYTES = 32;
@@ -35,7 +35,7 @@ export class OperatorSessionCredentialError extends Error {
 }
 
 export type OperatorSessionExpectedBinding = OperatorProjectBinding & {
-  harness: OperatorRuntimeHarness;
+  principal: OperatorRuntimePrincipal;
   sessionId: string;
 };
 
@@ -80,7 +80,7 @@ export function verifyOperatorSessionCredential(
   if (
     claims.projectRuntimeId !== expected.projectRuntimeId ||
     claims.markerDigest !== expected.markerDigest ||
-    claims.harness !== expected.harness ||
+    !samePrincipal(claims.principal, expected.principal) ||
     claims.sessionId !== expected.sessionId
   ) {
     throw new OperatorSessionCredentialError("binding_mismatch");
@@ -153,12 +153,19 @@ function encodeCanonicalClaims(claims: OperatorSessionClaims): string {
     audience: claims.audience,
     projectRuntimeId: claims.projectRuntimeId,
     markerDigest: claims.markerDigest,
-    harness: claims.harness,
+    principal: claims.principal,
     sessionId: claims.sessionId,
     issuedAt: claims.issuedAt,
     expiresAt: claims.expiresAt,
   };
   return Buffer.from(JSON.stringify(canonicalClaims), "utf8").toString("base64url");
+}
+
+function samePrincipal(left: OperatorRuntimePrincipal, right: OperatorRuntimePrincipal): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === "native-harness"
+    ? right.kind === "native-harness" && left.harness === right.harness
+    : right.kind === "operator-surface" && left.surface === right.surface;
 }
 
 function createSignature(encodedPayload: string, secret: Uint8Array): Buffer {

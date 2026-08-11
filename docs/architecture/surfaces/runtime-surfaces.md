@@ -23,6 +23,7 @@ but they must not become separate app control planes.
 | TUI | `@kilnai/tui` | Operator preferences plus gateway attach target | WebSocket operator contract | Public terminal operator surface. It projects the shared runtime contract and must not define independent runtime architecture. |
 | SDK / Widget | `@kilnai/react`, `@kilnai/widget` | Consumer app config | Public app/channel contracts | Embedding and product integration surfaces. |
 | MCP | Gateway MCP endpoint or projected MCP servers | Gateway/config projection | MCP | External tool and host contract for agents, IDEs, and wrappers. MCP is not the internal GUI-to-gateway operator protocol. |
+| Operator Runtime | Machine-global supervised process | Global Kiln config plus verified project binding | Authenticated loopback application protocol; MCP adapter only for native harnesses | Single owner of cross-surface managed economic capacity and project Runtime compositions. |
 
 ## Ownership Rules
 
@@ -43,8 +44,19 @@ but they must not become separate app control planes.
    Context usage is one such session projection: Runtime normalizes it once
    from adapter evidence, emits it with the completed turn, and preserves it
    for replay. Surfaces must not calculate a replacement percentage.
+
+   The same separation applies locally: Codex, Claude, and OpenCode may use the
+   Operator Runtime's MCP adapter, while GUI, TUI, run, and benchmark use its
+   typed application protocol. Operator surfaces never tunnel internal calls
+   through MCP.
 7. A local machine may run multiple App Gateways only when they represent
    distinct environments, projects, or isolation boundaries.
+
+The machine-global Operator Runtime owns one physical account-capacity ledger
+under the global Model Gateway runtime directory. Project identities namespace
+commitments and sessions inside that owner; they do not create project-local
+SQLite writers. A surface process may materialize its own provider adapter only
+after the global owner has committed and fenced the exact economic route.
 
 `@kilnai/cli` is the public global install boundary for CLI, GUI, TUI, runtime,
 gateway contracts, and GUI static assets. `@kilnai/native` remains source-only

@@ -47,6 +47,7 @@ import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
+import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
 import {
   readProviderDiscoveryCache,
   writeProviderDiscoveryCache,
@@ -1398,6 +1399,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   startupProfiler.mark("builtin-tool-options-created");
   let managedRouteGlobalConfig = globalConfig;
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+  const operatorEconomicAuthority = appConfig.managedInvocation
+    ? undefined
+    : createOperatorSurfaceEconomicAuthority("tui", cwd);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
     : await createStagedManagedInvocationRouteCatalog(globalConfig, {
@@ -1412,6 +1416,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       }),
       builtinToolOptions: () => builtinToolOptions,
       artifactStore: builtinToolOptions.artifactResources?.store,
+      managedEconomicAuthority: operatorEconomicAuthority?.authority,
     }, {
       reloadConfig: () => {
         managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
@@ -1506,6 +1511,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const shutdown = (code = 0, error?: unknown) => {
     bootstrap.shutdown();
+    operatorEconomicAuthority?.close();
     if (error) {
       process.stderr.write(String(error instanceof Error ? (error.stack ?? error.message) : error) + "\n");
       process.exitCode = 1;

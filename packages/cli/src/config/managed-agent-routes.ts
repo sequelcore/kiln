@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, posix, resolve, win32 } from "node:path";
+import { basename, dirname, join, posix, resolve, win32 } from "node:path";
 import type {
   ArtifactResourceStore,
   DefaultBuiltinToolRegistryOptions,
@@ -65,6 +65,7 @@ import {
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolRoute,
   type ManagedEconomicCandidateSet,
+  type ManagedEconomicDispatchAuthorityPort,
   type ManagedJobEconomicAdoption,
   type ManagedJobRecord,
 } from "@kilnai/runtime";
@@ -186,6 +187,8 @@ export interface ResolveManagedInvocationToolOptionsContext {
   readonly userHome?: string;
   readonly maxParallelChildren?: number;
   readonly managedAccountComposition?: ManagedAccountRuntimeComposition;
+  readonly managedEconomicAuthority?: ManagedEconomicDispatchAuthorityPort;
+  readonly managedAccountRouting?: ConfiguredManagedAccountRuntime;
   /** Candidate admission projects static route evidence without constructing execution owners. */
   readonly compositionMode?: "execution" | "candidate-admission";
 }
@@ -574,6 +577,13 @@ export async function resolveManagedInvocationToolOptions(
   if (routeConfigs.length === 0) {
     return { routeHealth: [] };
   }
+  const managedAccountRouting = context.managedAccountRouting
+    ?? (context.managedEconomicAuthority && config.modelGateway
+      ? new ConfiguredManagedAccountRuntime({ config: config.modelGateway })
+      : undefined);
+  const routeContext = managedAccountRouting === context.managedAccountRouting
+    ? context
+    : { ...context, managedAccountRouting };
 
   const routes: ManagedInvocationToolRoute[] = [];
   const routeHealth: ManagedAgentRouteHealth[] = [];
@@ -612,7 +622,7 @@ export async function resolveManagedInvocationToolOptions(
     const policyIds = economicPolicyIdsByRoute.get(routeConfig.routeConfig.id) ?? [];
     const resolved = await resolveRouteConfig(
       routeConfig,
-      context,
+      routeContext,
       config,
     );
     mark("managed-route-resolve-finished", { routeIndex, routeId: routeConfig.routeConfig.id });
@@ -671,7 +681,7 @@ export async function resolveManagedInvocationToolOptions(
   const shouldExposeManagedInvocation = routes.length > 0
     || (context.includeUnavailableRoutes === true && unavailableRoutes.length > 0);
   const executionComposition = context.compositionMode !== "candidate-admission";
-  const managedAccountComposition = executionComposition
+  const managedAccountComposition = executionComposition && !context.managedEconomicAuthority
     ? context.managedAccountComposition ?? createManagedAccountRuntimeComposition(config, context.cwd)
     : undefined;
   if (managedAccountComposition && config.modelGateway) {
@@ -684,12 +694,21 @@ export async function resolveManagedInvocationToolOptions(
         context.invocationService,
         context.invocationServiceKey,
         managedAccountComposition,
+        context.managedEconomicAuthority !== undefined,
       )
     : undefined;
   const invocationServiceKey = executionComposition
     ? managedInvocationServiceKey(config, context.cwd)
     : undefined;
-  const economicDispatch = managedAccountComposition
+  const economicDispatch = context.managedEconomicAuthority && config.modelGateway
+    ? createManagedEconomicDispatchWithAuthority(
+        config,
+        context.cwd,
+        routes,
+        managedAccountRouting!,
+        context.managedEconomicAuthority,
+      ).port
+    : managedAccountComposition
     ? createManagedEconomicDispatchComposition(
         config,
         context.cwd,
@@ -732,18 +751,31 @@ export function createManagedEconomicDispatchComposition(
   readonly coordinator: ManagedEconomicDispatchCoordinator;
   readonly port: NonNullable<ManagedInvocationToolOptions["economicDispatch"]>;
 } {
+  return createManagedEconomicDispatchWithAuthority(config, cwd, routes, composition.routing, {
+    acquire: (input) => composition.authority.acquireCommitment(input),
+    releasePreFence: (jobId, economicAttemptId) =>
+      composition.authority.releaseCommitmentPreFence(jobId, economicAttemptId),
+    fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) =>
+      composition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId),
+    settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) =>
+      composition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
+    recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
+      composition.authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
+  });
+}
+
+function createManagedEconomicDispatchWithAuthority(
+  config: ManagedAgentRouteConfigSource,
+  cwd: string,
+  routes: readonly ManagedInvocationToolRoute[],
+  routing: ConfiguredManagedAccountRuntime,
+  authority: ManagedEconomicDispatchAuthorityPort,
+): {
+  readonly coordinator: ManagedEconomicDispatchCoordinator;
+  readonly port: NonNullable<ManagedInvocationToolOptions["economicDispatch"]>;
+} {
   const coordinator = new ManagedEconomicDispatchCoordinator({
-    authority: {
-      acquire: (input) => composition.authority.acquireCommitment(input),
-      releasePreFence: (jobId, economicAttemptId) =>
-        composition.authority.releaseCommitmentPreFence(jobId, economicAttemptId),
-      fenceDispatch: (jobId, economicAttemptId, dispatchFenceId) =>
-        composition.authority.fenceDispatch(jobId, economicAttemptId, dispatchFenceId),
-      settleExecution: (jobId, economicAttemptId, dispatchFenceId, settlement) =>
-        composition.authority.settleExecution(jobId, economicAttemptId, dispatchFenceId, settlement),
-      recordExecutionSettlementPending: (jobId, economicAttemptId, dispatchFenceId, reason) =>
-        composition.authority.recordExecutionSettlementPending(jobId, economicAttemptId, dispatchFenceId, reason),
-    },
+    authority,
     resolveLifecycleTimeoutMs: (commitment, admissionProfile) => {
       const routeId = commitment.reservation.selectedIdentity.route.routeId;
       const route = routes.find((candidate) => candidate.routeId === routeId);
@@ -780,7 +812,7 @@ export function createManagedEconomicDispatchComposition(
           invocationId: input.parentSessionId,
           turnId: input.parentTurnId,
         },
-      }, composition.routing), input.abortSignal);
+      }, routing), input.abortSignal);
       return await coordinator.prepare({
         jobId: input.jobId,
         economicAttemptId: input.economicAttemptId,
@@ -1799,16 +1831,17 @@ async function resolveDirectRouteConfig(
       }
       let accountBinding: DirectProviderAccountBinding | undefined;
       if (committedAccount.kind === "account-bound") {
-        const accountComposition = context.managedAccountComposition
-          ?? createManagedAccountRuntimeComposition(config, context.cwd);
+        const accountRouting = context.managedAccountRouting
+          ?? context.managedAccountComposition?.routing
+          ?? createManagedAccountRuntimeComposition(config, context.cwd)?.routing;
         if (
           routeConfig.credentials?.mode !== "runtime-selected"
-          || !accountComposition
+          || !accountRouting
           || !isDirectProviderId(routeConfig.provider)
         ) {
           throw new Error("Committed account-bound managed route has no process-owned account authority.");
         }
-        accountBinding = await accountComposition.routing.resolveCommittedAccountBinding({
+        accountBinding = await accountRouting.resolveCommittedAccountBinding({
           accountPolicyId: routeConfig.credentials.accountPolicyId,
           providerId: routeConfig.provider,
           model,
@@ -2201,6 +2234,7 @@ function createManagedInvocationService(
   existingService: RuntimeManagedAgentInvocationService | undefined,
   existingServiceKey: string | undefined,
   managedAccountComposition: ManagedAccountRuntimeComposition | undefined,
+  managedEconomicAuthorityAvailable = false,
 ): RuntimeManagedAgentInvocationService | undefined {
   const serviceKey = managedInvocationServiceKey(config, cwd) ?? `managed-invocation:${resolve(cwd)}`;
   if (existingService && existingServiceKey === serviceKey) {
@@ -2211,7 +2245,7 @@ function createManagedInvocationService(
   const needsWorktreeLease = leaseConfig !== undefined && routeConfigs.some((route) => route.workingDirectory === "isolated-worktree");
   const needsSandboxLease = routeConfigs.some(routeUsesRuntimeSandboxLease);
   const credentialRouteIds = collectRuntimeCredentialRouteIds(routeConfigs);
-  if (credentialRouteIds.length > 0 && managedAccountComposition === undefined) {
+  if (credentialRouteIds.length > 0 && managedAccountComposition === undefined && !managedEconomicAuthorityAvailable) {
     throw new Error("Runtime-selected managed routes require a configured modelGateway account policy.");
   }
 
@@ -2242,6 +2276,10 @@ function createManagedInvocationService(
 export function createManagedAccountRuntimeComposition(
   config: ManagedAgentRouteConfigSource,
   cwd: string,
+  storage: {
+    readonly compositionKey?: string;
+    readonly databasePath?: string;
+  } = {},
 ): ManagedAccountRuntimeComposition | undefined {
   const hasRuntimeSelectedRoute = resolveRouteConfigs(config)
     .some(({ routeConfig }) => routeConfig.credentials?.mode === "runtime-selected");
@@ -2258,17 +2296,18 @@ export function createManagedAccountRuntimeComposition(
   if (!config.modelGateway) {
     throw new Error("Managed account or economic routes require modelGateway configuration.");
   }
-  const compositionKey = resolve(cwd);
+  const compositionKey = resolve(storage.compositionKey ?? cwd);
   const existing = MANAGED_ACCOUNT_COMPOSITIONS.get(compositionKey);
   if (existing) {
     existing.updateConfig(config.modelGateway);
     return existing;
   }
-  const runtimeDirectory = join(compositionKey, ".kiln", "runtime");
+  const databasePath = storage.databasePath ?? join(compositionKey, ".kiln", "runtime", "managed-account-leases.sqlite");
+  const runtimeDirectory = dirname(databasePath);
   mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
   const routing = new ConfiguredManagedAccountRuntime({ config: config.modelGateway });
   const authority = new SqliteManagedAccountLeaseAuthority({
-    path: join(runtimeDirectory, "managed-account-leases.sqlite"),
+    path: databasePath,
   });
   try {
     for (const commitment of authority.recoverCommitments()) {

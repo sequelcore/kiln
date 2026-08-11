@@ -19,7 +19,7 @@ const MARKER_DIGEST = `sha256:${"b".repeat(64)}`;
 const READY = {
   state: "ready" as const,
   identity: {
-    protocolVersion: "1" as const,
+    protocolVersion: "2" as const,
     service: "kiln-operator-runtime" as const,
     instanceId: "runtime-test",
     version: "test",
@@ -86,7 +86,7 @@ describe("global MCP bridge", () => {
         const request = new Request(url, init);
         requests.push(request.clone());
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
-          return Response.json({ credential: "v1.payload.signature", expiresAt: 300 });
+          return Response.json({ credential: "v2.payload.signature", expiresAt: 300 });
         }
         return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
       },
@@ -101,10 +101,10 @@ describe("global MCP bridge", () => {
     expect(session.headers.get("origin")).toBe("http://127.0.0.1:43123");
     expect(session.headers.get(OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER)).toBe("control-token-value-control-token-value");
     await expect(session.json()).resolves.toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       canonicalRoot: ROOT,
       binding: { projectRuntimeId: PROJECT_RUNTIME_ID, markerDigest: MARKER_DIGEST },
-      harness: "codex",
+      principal: { kind: "native-harness", harness: "codex" },
       sessionId: "session-01",
     });
     expect(fixture.remoteCalls).toEqual([{ name: "kiln_status_inspect", arguments: {} }]);
@@ -171,7 +171,7 @@ describe("global MCP bridge", () => {
         const request = new Request(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           sessionOpens += 1;
-          return Response.json({ credential: `v1.payload${sessionOpens}.signature`, expiresAt: sessionOpens === 1 ? 140 : 400 });
+          return Response.json({ credential: `v2.payload${sessionOpens}.signature`, expiresAt: sessionOpens === 1 ? 140 : 400 });
         }
         mcpRequests += 1;
         return mcpRequests === 2 ? new Response(null, { status: 401 }) : Response.json({ jsonrpc: "2.0", id: 1, result: {} });
@@ -190,6 +190,7 @@ describe("global MCP bridge", () => {
     const fixture = sdkFixture({ connectFetch: true });
     let sessionOpens = 0;
     let mcpRequests = 0;
+    let renewedHeaders: Headers | undefined;
     const ensure = vi.fn(async () => READY);
     const readCredentials = vi.fn(async () => ({ schemaVersion: 1 as const, controlToken: "c".repeat(43) }));
     const handle = await startGlobalMcpBridge({
@@ -199,31 +200,36 @@ describe("global MCP bridge", () => {
       resolveWorkspace: () => workspace(),
       sdkLoader: async () => fixture.sdk,
       createSessionId: () => "session-initial-401",
+      nowEpochSeconds: () => 100,
       fetch: async (url, init) => {
         const request = new Request(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           sessionOpens += 1;
-          return Response.json({ credential: `v1.payload${sessionOpens}.signature`, expiresAt: 500 });
+          return Response.json({ credential: `v2.payload${sessionOpens}.signature`, expiresAt: 500 });
         }
         mcpRequests += 1;
         if (mcpRequests === 1) return new Response(null, { status: 401 });
-        expect(request.headers.get("host")).toBe("127.0.0.1:43123");
-        expect(request.headers.get("origin")).toBe("http://127.0.0.1:43123");
-        expect(request.headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId)).toBe(PROJECT_RUNTIME_ID);
-        expect(request.headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest)).toBe(MARKER_DIGEST);
-        expect(request.headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.harness)).toBe("claude");
-        expect(request.headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.sessionId)).toBe("session-initial-401");
-        expect(request.headers.get("authorization")).toBe("Bearer v1.payload2.signature");
+        renewedHeaders = request.headers;
         return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
       },
       registerProcessSignals: false,
     });
 
-    await expect(handle.managedRuntime).resolves.toEqual({ status: "attached" });
+    const managedRuntime = await handle.managedRuntime;
     expect(sessionOpens).toBe(2);
     expect(mcpRequests).toBe(2);
     expect(ensure).toHaveBeenCalledTimes(2);
     expect(readCredentials).toHaveBeenCalledTimes(2);
+    expect(renewedHeaders).toBeDefined();
+    expect(renewedHeaders!.get("host")).toBe("127.0.0.1:43123");
+    expect(renewedHeaders!.get("origin")).toBe("http://127.0.0.1:43123");
+    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId)).toBe(PROJECT_RUNTIME_ID);
+    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest)).toBe(MARKER_DIGEST);
+    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalKind)).toBe("native-harness");
+    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalId)).toBe("claude");
+    expect(renewedHeaders!.get(OPERATOR_RUNTIME_BINDING_HEADERS.sessionId)).toBe("session-initial-401");
+    expect(renewedHeaders!.get("authorization")).toBe("Bearer v2.payload2.signature");
+    expect(managedRuntime).toEqual({ status: "attached" });
     await handle.close();
   });
 
@@ -243,7 +249,7 @@ describe("global MCP bridge", () => {
         const request = new Request(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           openedIds.push((await request.clone().json() as { sessionId: string }).sessionId);
-          return Response.json({ credential: "v1.payload.signature", expiresAt: 500 });
+          return Response.json({ credential: "v2.payload.signature", expiresAt: 500 });
         }
         return Response.json({});
       },
@@ -292,7 +298,7 @@ function workspaceValue() {
 
 async function sessionFetch(url: string | URL): Promise<Response> {
   return new URL(url).pathname === OPERATOR_RUNTIME_SESSION_PATH
-    ? Response.json({ credential: "v1.payload.signature", expiresAt: 500 })
+    ? Response.json({ credential: "v2.payload.signature", expiresAt: 500 })
     : Response.json({});
 }
 

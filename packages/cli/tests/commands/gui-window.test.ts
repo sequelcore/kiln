@@ -66,39 +66,66 @@ describe("gui window launcher", () => {
     expect(launchSpec.args).toContain("--remote-debugging-port=0");
   });
 
-  it("cleans up the temporary profile directory when the managed window closes", async () => {
+  it("keeps the temporary profile while an Edge launcher hands off to the managed window", async () => {
+    vi.useFakeTimers();
     const child = new FakeChildProcess();
     const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
     const cleanupProfileDir = vi.fn();
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      } as Response);
 
-    const session = launchGuiWindow("http://localhost:4810/gui/", {
-      platform: "win32",
-      resolveCommand: (command) => (command === "msedge" ? "C:\\Tools\\msedge.exe" : null),
-      pathExists: () => false,
-      createProfileDir: () => "C:\\Temp\\kiln-profile",
-      cleanupProfileDir,
-      spawnImpl,
-    });
+    try {
+      const session = launchGuiWindow("http://localhost:4810/gui/", {
+        platform: "win32",
+        resolveCommand: (command) => (command === "msedge" ? "C:\\Tools\\msedge.exe" : null),
+        pathExists: () => false,
+        createProfileDir: () => "C:\\Temp\\kiln-profile",
+        cleanupProfileDir,
+        spawnImpl,
+        fetchImpl,
+        readDevToolsPort: () => 9222,
+        pollMs: 100,
+      });
 
-    expect(spawnImpl).toHaveBeenCalledWith(
-      "C:\\Tools\\msedge.exe",
-      expect.arrayContaining([
-        "--new-window",
-        "--user-data-dir=C:\\Temp\\kiln-profile",
-      ]),
-      {
-        stdio: "ignore",
-        windowsHide: false,
-      },
-    );
+      expect(spawnImpl).toHaveBeenCalledWith(
+        "C:\\Tools\\msedge.exe",
+        expect.arrayContaining([
+          "--new-window",
+          "--user-data-dir=C:\\Temp\\kiln-profile",
+        ]),
+        {
+          stdio: "ignore",
+          windowsHide: false,
+        },
+      );
 
-    child.emit("exit", 0, null);
-    await session.whenClosed;
+      child.exitCode = 0;
+      child.emit("exit", 0, null);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(cleanupProfileDir).not.toHaveBeenCalled();
 
-    expect(cleanupProfileDir).toHaveBeenCalledWith("C:\\Temp\\kiln-profile");
+      await vi.advanceTimersByTimeAsync(200);
+      await session.whenClosed;
+
+      expect(cleanupProfileDir).toHaveBeenCalledWith("C:\\Temp\\kiln-profile");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("does not throw when closing while the temporary profile is still locked", () => {
+  it("defers locked profile cleanup until the managed-window lifecycle settles", async () => {
+    vi.useFakeTimers();
     const child = new FakeChildProcess();
     const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
     const cleanupProfileDir = vi.fn(() => {
@@ -114,12 +141,19 @@ describe("gui window launcher", () => {
         createProfileDir: () => "C:\\Temp\\kiln-profile",
         cleanupProfileDir,
         spawnImpl,
+        readDevToolsPort: () => null,
+        startupTimeoutMs: 100,
       });
 
       expect(() => session.close()).not.toThrow();
+      expect(warn).not.toHaveBeenCalled();
+      const closed = session.whenClosed.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(100);
+      await closed;
       expect(warn).toHaveBeenCalledWith("Could not clean up GUI browser profile at C:\\Temp\\kiln-profile: EBUSY");
     } finally {
       warn.mockRestore();
+      vi.useRealTimers();
     }
   });
 

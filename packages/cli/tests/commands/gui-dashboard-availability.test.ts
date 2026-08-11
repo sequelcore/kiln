@@ -351,6 +351,18 @@ vi.mock("../../src/commands/gui-session-detail.js", () => ({
   loadSessionDetail: guiSessionMocks.loadSessionDetail,
 }));
 
+vi.mock("../../src/commands/gui-workspace.js", () => ({
+  createLocalWorkspaceExplorer: vi.fn((rootPath: string) => ({
+    listDirectory: vi.fn(async () => ({
+      rootPath,
+      directoryPath: rootPath,
+      entries: [],
+      source: "gateway",
+    })),
+    readFile: vi.fn(),
+  })),
+}));
+
 vi.mock("../../src/wrapper/session-manager.js", () => ({
   SessionManager: class {
     async prepare() {

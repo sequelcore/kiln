@@ -42,7 +42,7 @@ describe("createProviderDiscoveryCache", () => {
     expect(resolveDiscovery).toHaveBeenCalledTimes(1);
   });
 
-  it("lets forced refresh replace older in-flight discovery", async () => {
+  it("serializes a forced refresh behind discovery already in flight", async () => {
     let resolveOld!: (value: string[]) => void;
     let resolveFresh!: (value: string[]) => void;
     const oldDiscovery = new Promise<string[]>((next) => {
@@ -59,11 +59,16 @@ describe("createProviderDiscoveryCache", () => {
 
     const old = cache.get();
     const fresh = cache.get({ force: true });
-    resolveFresh(["fresh"]);
-    resolveOld(["old"]);
+    expect(resolveDiscovery).toHaveBeenCalledTimes(1);
 
-    await expect(fresh).resolves.toEqual(["fresh"]);
+    resolveOld(["old"]);
     await expect(old).resolves.toEqual(["old"]);
+    await vi.waitFor(() => {
+      expect(resolveDiscovery).toHaveBeenCalledTimes(2);
+    });
+
+    resolveFresh(["fresh"]);
+    await expect(fresh).resolves.toEqual(["fresh"]);
     expect(cache.peek()).toEqual(["fresh"]);
   });
 

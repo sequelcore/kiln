@@ -117,6 +117,7 @@ async function serveGlobalRuntime(
       controlToken: credentials.controlToken,
       sessionSecret: credentials.sessionSecret,
       onMcpRequest: service.onMcpRequest,
+      onApplicationRequest: service.onApplicationRequest,
       onSessionOpen: service.onSessionOpen,
     });
   } catch (error) {

@@ -6300,7 +6300,9 @@ describe("discoverCodexCliModelDiscovery", () => {
     const discovery = await discoverCodexCliModelDiscovery();
 
     expect(spawn).toHaveBeenCalledWith(expect.any(String), ["app-server"], {
+      shell: expect.any(Boolean),
       stdio: ["pipe", "pipe", "ignore"],
+      windowsHide: true,
     });
     expect(writes).toEqual([
       expect.objectContaining({
@@ -6320,6 +6322,114 @@ describe("discoverCodexCliModelDiscovery", () => {
       reason: "Codex CLI models discovered.",
       authState: "authenticated",
     });
+  });
+
+  it("does not finish Codex discovery until the app-server process has closed", async () => {
+    let proc!: EventEmitter & {
+      stdout: EventEmitter;
+      stdin: { write: ReturnType<typeof vi.fn> };
+      kill: ReturnType<typeof vi.fn>;
+      pid: number;
+      exitCode: number | null;
+    };
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      proc = new EventEmitter() as typeof proc;
+      proc.pid = 4321;
+      proc.exitCode = null;
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          queueMicrotask(() => {
+            proc.stdout.emit("data", Buffer.from(JSON.stringify(
+              message.method === "initialize"
+                ? { id: message.id, result: {} }
+                : { id: message.id, result: { data: [{ id: "gpt-5.4" }] } },
+            ) + "\n"));
+          });
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => true);
+      return proc as never;
+    });
+
+    let resolved = false;
+    const discoveryPromise = discoverCodexCliModelDiscovery().then((result) => {
+      resolved = true;
+      return result;
+    });
+
+    await vi.waitFor(() => {
+      expect(proc.kill).toHaveBeenCalled();
+    });
+    if (process.platform === "win32") {
+      expect(execFileSync).toHaveBeenCalledWith(
+        "taskkill.exe",
+        ["/PID", "4321", "/T", "/F"],
+        { stdio: "ignore", windowsHide: true, timeout: 1_000 },
+      );
+    }
+    expect(resolved).toBe(false);
+
+    proc.exitCode = 0;
+    proc.emit("close", 0, null);
+    await expect(discoveryPromise).resolves.toMatchObject({
+      models: ["gpt-5.4"],
+      status: "available",
+    });
+  });
+
+  it("blocks repeated Codex discovery when app-server does not confirm shutdown", async () => {
+    vi.useFakeTimers();
+    vi.mocked(spawn).mockClear();
+    let proc!: EventEmitter & {
+      stdout: EventEmitter;
+      stdin: { write: ReturnType<typeof vi.fn> };
+      kill: ReturnType<typeof vi.fn>;
+      pid: number;
+      exitCode: number | null;
+    };
+    vi.mocked(spawn).mockImplementationOnce(() => {
+      proc = new EventEmitter() as typeof proc;
+      proc.pid = 9876;
+      proc.exitCode = null;
+      proc.stdout = new EventEmitter();
+      proc.stdin = {
+        write: vi.fn((payload: string) => {
+          const message = JSON.parse(payload.trim()) as Record<string, unknown>;
+          queueMicrotask(() => {
+            proc.stdout.emit("data", Buffer.from(JSON.stringify(
+              message.method === "initialize"
+                ? { id: message.id, result: {} }
+                : { id: message.id, result: { data: [{ id: "gpt-5.4" }] } },
+            ) + "\n"));
+          });
+          return true;
+        }),
+      };
+      proc.kill = vi.fn(() => true);
+      return proc as never;
+    });
+
+    try {
+      const first = discoverCodexCliModelDiscovery();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(first).resolves.toMatchObject({
+        status: "endpoint_error",
+        reason: "Codex app-server did not confirm shutdown; further discovery is blocked until it closes.",
+      });
+
+      await expect(discoverCodexCliModelDiscovery()).resolves.toMatchObject({
+        status: "endpoint_error",
+        reason: "A previous Codex app-server process did not confirm shutdown; discovery is blocked until it closes.",
+      });
+      expect(spawn).toHaveBeenCalledTimes(1);
+    } finally {
+      proc.exitCode = 0;
+      proc.emit("close", 0, null);
+      vi.useRealTimers();
+    }
   });
 
   it("diagnoses missing Codex CLI executable", async () => {

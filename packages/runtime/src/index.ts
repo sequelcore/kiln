@@ -16,6 +16,7 @@ export type {
 } from "./operator-runtime/operator-session-auth.js";
 export {
   OPERATOR_RUNTIME_BINDING_HEADERS,
+  OPERATOR_RUNTIME_APPLICATION_PATH,
   OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,
   OPERATOR_RUNTIME_HEALTH_PATH,
   OPERATOR_RUNTIME_INSPECTION_MAX_RESPONSE_BYTES,
@@ -31,6 +32,7 @@ export type {
   OperatorRuntimeListener,
   OperatorRuntimeListenerFetch,
   OperatorRuntimeListenerInspection,
+  OperatorRuntimeApplicationCommand,
   OperatorRuntimeMcpRequest,
   OperatorRuntimeSessionOpenInput,
   OperatorRuntimeSessionOpenResult,

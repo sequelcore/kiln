@@ -24,14 +24,14 @@ const claims: OperatorSessionClaims = {
   protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
   audience: OPERATOR_RUNTIME_AUDIENCE,
   ...binding,
-  harness: "codex",
+  principal: { kind: "native-harness", harness: "codex" },
   sessionId: "session-01",
   issuedAt: now,
   expiresAt: now + OPERATOR_SESSION_MAX_LIFETIME_SECONDS,
 };
 const expected = {
   ...binding,
-  harness: "codex",
+  principal: { kind: "native-harness", harness: "codex" },
   sessionId: "session-01",
 } as const;
 
@@ -47,8 +47,8 @@ function expectCredentialError(action: () => unknown, code: OperatorSessionCrede
 
 function signRaw(payload: unknown): string {
   const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const signature = createHmac("sha256", secret).update(`v1.${encodedPayload}`, "ascii").digest("base64url");
-  return `v1.${encodedPayload}.${signature}`;
+  const signature = createHmac("sha256", secret).update(`v2.${encodedPayload}`, "ascii").digest("base64url");
+  return `v2.${encodedPayload}.${signature}`;
 }
 
 describe("operator session credentials", () => {
@@ -92,7 +92,7 @@ describe("operator session credentials", () => {
       expiresAt: claims.expiresAt,
       issuedAt: claims.issuedAt,
       sessionId: claims.sessionId,
-      harness: claims.harness,
+      principal: claims.principal,
       markerDigest: claims.markerDigest,
       projectRuntimeId: claims.projectRuntimeId,
       audience: claims.audience,
@@ -162,7 +162,8 @@ describe("operator session credentials", () => {
   });
 
   it.each([
-    [{ ...expected, harness: "claude" }, "harness"],
+    [{ ...expected, principal: { kind: "native-harness", harness: "claude" } }, "principal"],
+    [{ ...expected, principal: { kind: "operator-surface", surface: "gui" } }, "principal kind"],
     [{ ...expected, sessionId: "session-02" }, "session"],
     [{ ...expected, projectRuntimeId: `krp_${"c".repeat(64)}` }, "project"],
     [{ ...expected, markerDigest: `sha256:${"d".repeat(64)}` }, "binding"],

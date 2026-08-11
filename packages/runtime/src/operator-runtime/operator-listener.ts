@@ -1,16 +1,21 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { posix, win32 } from "node:path";
 import {
-  OPERATOR_RUNTIME_HARNESSES,
+  OperatorRuntimeApplicationRequestSchema,
+  OperatorRuntimeApplicationResponseSchema,
+  OperatorRuntimePrincipalSchema,
   OperatorProjectBindingSchema,
   OperatorSupervisorIdentitySchema,
-  type OperatorRuntimeHarness,
+  type OperatorRuntimePrincipal,
+  type OperatorRuntimeApplicationRequest,
+  type OperatorRuntimeApplicationResponse,
   type OperatorSessionClaims,
   type OperatorSupervisorIdentity,
 } from "@kilnai/gateway-contracts";
 import { verifyOperatorSessionCredential } from "./operator-session-auth.js";
 
 export const OPERATOR_RUNTIME_MCP_PATH = "/.well-known/kiln/operator-runtime/mcp";
+export const OPERATOR_RUNTIME_APPLICATION_PATH = "/.well-known/kiln/operator-runtime/application";
 export const OPERATOR_RUNTIME_HEALTH_PATH = "/.well-known/kiln/operator-runtime/ready";
 export const OPERATOR_RUNTIME_SESSION_PATH = "/.well-known/kiln/operator-runtime/session";
 export const OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER = "x-kiln-control-token";
@@ -22,7 +27,8 @@ export const OPERATOR_RUNTIME_INSPECTION_MAX_TIMEOUT_MS = 5_000;
 export const OPERATOR_RUNTIME_BINDING_HEADERS = {
   projectRuntimeId: "x-kiln-project-runtime-id",
   markerDigest: "x-kiln-marker-digest",
-  harness: "x-kiln-harness",
+  principalKind: "x-kiln-principal-kind",
+  principalId: "x-kiln-principal-id",
   sessionId: "x-kiln-session-id",
 } as const;
 
@@ -39,14 +45,19 @@ export interface OperatorRuntimeMcpRequest {
   readonly request: Request;
 }
 
+export interface OperatorRuntimeApplicationCommand {
+  readonly claims: OperatorSessionClaims;
+  readonly request: OperatorRuntimeApplicationRequest;
+}
+
 export interface OperatorRuntimeSessionOpenInput {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly canonicalRoot: string;
   readonly binding: {
     readonly projectRuntimeId: string;
     readonly markerDigest: string;
   };
-  readonly harness: OperatorRuntimeHarness;
+  readonly principal: OperatorRuntimePrincipal;
   readonly sessionId: string;
 }
 
@@ -61,6 +72,9 @@ export interface StartOperatorRuntimeListenerOptions {
   readonly controlToken: string;
   readonly sessionSecret: Uint8Array;
   readonly onMcpRequest: (input: OperatorRuntimeMcpRequest) => Response | Promise<Response>;
+  readonly onApplicationRequest: (
+    input: OperatorRuntimeApplicationCommand,
+  ) => OperatorRuntimeApplicationResponse | Promise<OperatorRuntimeApplicationResponse>;
   readonly onSessionOpen: (
     input: OperatorRuntimeSessionOpenInput,
   ) => OperatorRuntimeSessionOpenResult | Promise<OperatorRuntimeSessionOpenResult>;
@@ -100,6 +114,7 @@ export async function startOperatorRuntimeListener(
     sessionSecret: options.sessionSecret,
     nowEpochSeconds: options.nowEpochSeconds,
     onMcpRequest: options.onMcpRequest,
+    onApplicationRequest: options.onApplicationRequest,
     onSessionOpen: options.onSessionOpen,
   });
 
@@ -189,6 +204,9 @@ interface HandleRequestInput {
   readonly sessionSecret: Uint8Array;
   readonly nowEpochSeconds?: () => number;
   readonly onMcpRequest: (input: OperatorRuntimeMcpRequest) => Response | Promise<Response>;
+  readonly onApplicationRequest: (
+    input: OperatorRuntimeApplicationCommand,
+  ) => OperatorRuntimeApplicationResponse | Promise<OperatorRuntimeApplicationResponse>;
   readonly onSessionOpen: (
     input: OperatorRuntimeSessionOpenInput,
   ) => OperatorRuntimeSessionOpenResult | Promise<OperatorRuntimeSessionOpenResult>;
@@ -217,8 +235,12 @@ async function handleRequest(input: HandleRequestInput): Promise<Response> {
     return handleSessionOpen(input);
   }
 
-  if (url.pathname !== OPERATOR_RUNTIME_MCP_PATH) return errorResponse(404, "not_found");
-  if (!ALLOWED_MCP_METHODS.has(input.request.method)) return errorResponse(405, "method_not_allowed");
+  const isMcp = url.pathname === OPERATOR_RUNTIME_MCP_PATH;
+  const isApplication = url.pathname === OPERATOR_RUNTIME_APPLICATION_PATH;
+  if (!isMcp && !isApplication) return errorResponse(404, "not_found");
+  if (isMcp ? !ALLOWED_MCP_METHODS.has(input.request.method) : input.request.method !== "POST") {
+    return errorResponse(405, "method_not_allowed");
+  }
 
   const binding = readExpectedBinding(input.request.headers);
   const credential = readBearerCredential(input.request.headers.get("authorization"));
@@ -242,12 +264,42 @@ async function handleRequest(input: HandleRequestInput): Promise<Response> {
   const body = await readBoundedBody(input.request, OPERATOR_RUNTIME_REQUEST_MAX_BYTES);
   if (body === "too_large") return errorResponse(413, "payload_too_large");
 
+  if (isApplication) {
+    if (claims.principal.kind !== "operator-surface") return errorResponse(403, "principal_denied");
+    if (input.request.headers.get("content-type")?.trim().toLowerCase() !== "application/json") {
+      return errorResponse(415, "unsupported_media_type");
+    }
+    const request = parseApplicationRequest(body);
+    if (!request) return errorResponse(400, "invalid_request");
+    try {
+      const response = OperatorRuntimeApplicationResponseSchema.safeParse(
+        await input.onApplicationRequest({ claims, request }),
+      );
+      return response.success
+        ? jsonResponse(response.data, 200)
+        : errorResponse(503, "unavailable");
+    } catch {
+      return errorResponse(500, "internal");
+    }
+  }
+
   const boundedRequest = reconstructRequest(input.request, body);
   try {
     const response = await input.onMcpRequest({ claims, request: boundedRequest });
     return stripBrowserResponseHeaders(response);
   } catch {
     return errorResponse(500, "internal");
+  }
+}
+
+function parseApplicationRequest(body: Uint8Array): OperatorRuntimeApplicationRequest | undefined {
+  try {
+    const parsed = OperatorRuntimeApplicationRequestSchema.safeParse(
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)),
+    );
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -307,24 +359,29 @@ function validateLoopbackBoundary(request: Request, port: number): Response | un
 function readExpectedBinding(headers: Headers): {
   readonly projectRuntimeId: string;
   readonly markerDigest: string;
-  readonly harness: OperatorRuntimeHarness;
+  readonly principal: OperatorRuntimePrincipal;
   readonly sessionId: string;
 } | undefined {
   const projectRuntimeId = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.projectRuntimeId);
   const markerDigest = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.markerDigest);
-  const harness = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.harness);
+  const principalKind = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalKind);
+  const principalId = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.principalId);
   const sessionId = headers.get(OPERATOR_RUNTIME_BINDING_HEADERS.sessionId);
   const projectBinding = OperatorProjectBindingSchema.safeParse({ projectRuntimeId, markerDigest });
+  const principal = OperatorRuntimePrincipalSchema.safeParse(
+    principalKind === "native-harness"
+      ? { kind: principalKind, harness: principalId }
+      : { kind: principalKind, surface: principalId },
+  );
   if (
     !projectBinding.success ||
-    !harness ||
-    !OPERATOR_RUNTIME_HARNESSES.includes(harness as OperatorRuntimeHarness) ||
+    !principal.success ||
     !sessionId ||
     !SESSION_ID_PATTERN.test(sessionId)
   ) {
     return undefined;
   }
-  return { ...projectBinding.data, harness: harness as OperatorRuntimeHarness, sessionId };
+  return { ...projectBinding.data, principal: principal.data, sessionId };
 }
 
 function readBearerCredential(authorization: string | null): string | undefined {
@@ -388,9 +445,9 @@ function parseSessionOpenInput(body: Uint8Array): OperatorRuntimeSessionOpenInpu
     return undefined;
   }
   if (!isPlainRecord(value)) return undefined;
-  const expectedKeys = ["binding", "canonicalRoot", "harness", "schemaVersion", "sessionId"];
+  const expectedKeys = ["binding", "canonicalRoot", "principal", "schemaVersion", "sessionId"];
   if (!hasExactKeys(value, expectedKeys)) return undefined;
-  if (value.schemaVersion !== 1) return undefined;
+  if (value.schemaVersion !== 2) return undefined;
   if (
     typeof value.canonicalRoot !== "string" ||
     value.canonicalRoot.length < 1 ||
@@ -402,19 +459,19 @@ function parseSessionOpenInput(body: Uint8Array): OperatorRuntimeSessionOpenInpu
   }
   const binding = OperatorProjectBindingSchema.safeParse(value.binding);
   if (!binding.success) return undefined;
+  const principal = OperatorRuntimePrincipalSchema.safeParse(value.principal);
   if (
-    typeof value.harness !== "string" ||
-    !OPERATOR_RUNTIME_HARNESSES.includes(value.harness as OperatorRuntimeHarness) ||
+    !principal.success ||
     typeof value.sessionId !== "string" ||
     !SESSION_ID_PATTERN.test(value.sessionId)
   ) {
     return undefined;
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     canonicalRoot: value.canonicalRoot,
     binding: binding.data,
-    harness: value.harness as OperatorRuntimeHarness,
+    principal: principal.data,
     sessionId: value.sessionId,
   };
 }
@@ -424,7 +481,7 @@ function parseSessionOpenResult(value: unknown): OperatorRuntimeSessionOpenResul
   if (
     typeof value.credential !== "string" ||
     value.credential.length > 2_048 ||
-    !/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential) ||
+    !/^v2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.credential) ||
     typeof value.expiresAt !== "number" ||
     !Number.isSafeInteger(value.expiresAt) ||
     value.expiresAt < 0

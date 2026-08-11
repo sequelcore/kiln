@@ -490,6 +490,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       admissionProfile: "foundation-readonly-plan",
       abortSignal: controller.signal,
     });
+    await vi.waitFor(() => expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce());
     controller.abort(new Error("synthetic lifecycle deadline"));
 
     await expect(preparation).rejects.toThrow("synthetic lifecycle deadline");

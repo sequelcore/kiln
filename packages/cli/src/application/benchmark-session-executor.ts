@@ -58,6 +58,7 @@ import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import { createOperatorSurfaceEconomicAuthority } from "./operator-surface-economic-authority.js";
 import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
 import { createNonHumanRunOutputSink } from "./run-output.js";
@@ -184,6 +185,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     }
     const { registry, worktreeManager } = createDefaultRegistry();
     const benchmarkCleanupRegistry = new CleanupRegistry();
+    const operatorEconomicAuthority = benchmarkWorkspace.kind === "repository" && !options.appConfig.managedInvocation
+      ? createOperatorSurfaceEconomicAuthority("benchmark", cwd)
+      : undefined;
+    benchmarkCleanupRegistry.register(async () => operatorEconomicAuthority?.close());
     const contextArtifactCache = await getProjectContextArtifactCache(cwd);
     const manager = new SessionManager(wrapperConfig, runtimeAppConfig, contextArtifactCache, worktreeManager);
     const sessionContext = await manager.prepare(
@@ -270,6 +275,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         }),
         builtinToolOptions: () => builtinToolOptions,
         artifactStore: builtinToolOptions.artifactResources?.store,
+        managedEconomicAuthority: operatorEconomicAuthority?.authority,
       })).managedInvocation;
     }
     const managedInvocationWithService = managedInvocation

@@ -196,6 +196,7 @@ describe("GUI authority forwarding", () => {
 
   it("validates and carries an operator governed-work requirement into the turn config", async () => {
     const {
+      assertGuiTurnModeCompatibility,
       buildGuiTurnPerCallConfig,
       resolveGuiGovernedWorkRequirement,
     } = await import("../../src/gateway/gui-gateway.js");
@@ -227,6 +228,10 @@ describe("GUI authority forwarding", () => {
       kind: "unknown",
       requiredWorkItemCount: 3,
     })).toThrow("Unknown governed work requirement 'unknown'.");
+    expect(() => assertGuiTurnModeCompatibility("plan", requirement)).toThrow(
+      "Plan mode cannot be combined with governed goal materialization.",
+    );
+    expect(() => assertGuiTurnModeCompatibility("execute", requirement)).not.toThrow();
   });
 
   it("rejects malformed requested authority instead of falling back to auto", async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OPERATOR_RUNTIME_PROTOCOL_VERSION,
+  OperatorRuntimePrincipalSchema,
   OperatorProjectBindingSchema,
   OperatorProjectRuntimeStatusSchema,
   OperatorSessionClaimsSchema,
@@ -35,12 +36,30 @@ describe("operator runtime contracts", () => {
         protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
         audience: "kiln-operator-runtime",
         ...projectBinding,
-        harness: "codex",
+        principal: { kind: "native-harness", harness: "codex" },
         sessionId: "session-01",
         issuedAt: 1_700_000_000,
         expiresAt: 1_700_000_300,
       }),
-    ).toMatchObject({ harness: "codex", sessionId: "session-01" });
+    ).toMatchObject({
+      principal: { kind: "native-harness", harness: "codex" },
+      sessionId: "session-01",
+    });
+
+    expect(
+      OperatorSessionClaimsSchema.parse({
+        protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
+        audience: "kiln-operator-runtime",
+        ...projectBinding,
+        principal: { kind: "operator-surface", surface: "gui" },
+        sessionId: "gui-session-01",
+        issuedAt: 1_700_000_000,
+        expiresAt: 1_700_000_300,
+      }),
+    ).toMatchObject({
+      principal: { kind: "operator-surface", surface: "gui" },
+      sessionId: "gui-session-01",
+    });
 
     expect(
       OperatorSupervisorStatusSchema.parse({
@@ -77,7 +96,7 @@ describe("operator runtime contracts", () => {
         protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
         audience: "kiln-operator-runtime",
         ...projectBinding,
-        harness,
+        principal: { kind: "native-harness", harness },
         sessionId: "session-01",
         issuedAt: 1_700_000_000,
         expiresAt: 1_700_000_300,
@@ -85,12 +104,28 @@ describe("operator runtime contracts", () => {
     ).toThrow();
   });
 
+  it.each(["native", "ide", "", "GUI"])("rejects an unknown operator surface %s", (surface) => {
+    expect(() => OperatorRuntimePrincipalSchema.parse({ kind: "operator-surface", surface })).toThrow();
+  });
+
+  it("rejects the retired harness-only session shape", () => {
+    expect(() => OperatorSessionClaimsSchema.parse({
+      protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
+      audience: "kiln-operator-runtime",
+      ...projectBinding,
+      harness: "codex",
+      sessionId: "session-01",
+      issuedAt: 1_700_000_000,
+      expiresAt: 1_700_000_300,
+    })).toThrow();
+  });
+
   it("bounds portable session identifiers and epoch-second fields", () => {
     const claims = {
       protocolVersion: OPERATOR_RUNTIME_PROTOCOL_VERSION,
       audience: "kiln-operator-runtime",
       ...projectBinding,
-      harness: "claude",
+      principal: { kind: "native-harness", harness: "claude" },
       sessionId: "session-01",
       issuedAt: 1_700_000_000,
       expiresAt: 1_700_000_300,

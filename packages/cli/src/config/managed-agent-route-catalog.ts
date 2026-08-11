@@ -17,6 +17,7 @@ export interface StagedManagedInvocationRouteCatalog {
   readonly managedInvocation?: ManagedInvocationToolOptions;
   refreshNow(): Promise<void>;
   startBackgroundRefresh(): void;
+  dispose(): Promise<void>;
 }
 
 export interface CreateStagedManagedInvocationRouteCatalogOptions {
@@ -40,14 +41,14 @@ export async function createStagedManagedInvocationRouteCatalog(
   mark("route-catalog-entered");
   const currentConfig = () => options.reloadConfig?.() ?? config;
   const executionComposition = context.compositionMode !== "candidate-admission";
-  let managedAccountComposition = executionComposition && config
+  let managedAccountComposition = executionComposition && !context.managedEconomicAuthority && config
     ? createManagedAccountRuntimeComposition(config, context.cwd)
     : undefined;
   let invocationService: ManagedInvocationToolOptions["invocationService"] | undefined;
   let invocationServiceKey: ManagedInvocationToolOptions["invocationServiceKey"] | undefined;
   const resolve = (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => {
     const nextConfig = currentConfig();
-    if (executionComposition && !managedAccountComposition && nextConfig) {
+    if (executionComposition && !context.managedEconomicAuthority && !managedAccountComposition && nextConfig) {
       managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd);
     }
     if (managedAccountComposition && nextConfig?.modelGateway) {
@@ -77,15 +78,16 @@ export async function createStagedManagedInvocationRouteCatalog(
   const discoverProviderModels = options.discoverProviderModels ?? discoverManagedAgentProviderModels;
   let refreshInFlight: Promise<void> | undefined;
   let refreshInterval: ReturnType<typeof setInterval> | undefined;
+  let disposed = false;
 
   const refreshNow = async (): Promise<void> => {
-    if (!catalog) {
+    if (!catalog || disposed) {
       return;
     }
     if (refreshInFlight) {
       return refreshInFlight;
     }
-    refreshInFlight = refreshCatalog(catalog, resolve, discoverProviderModels, options.onRefreshError)
+    refreshInFlight = refreshCatalog(catalog, resolve, discoverProviderModels, options.onRefreshError, () => disposed)
       .then(() => {
         invocationService = catalog.options.invocationService;
         invocationServiceKey = catalog.options.invocationServiceKey;
@@ -100,6 +102,9 @@ export async function createStagedManagedInvocationRouteCatalog(
     managedInvocation: catalog?.options,
     refreshNow,
     startBackgroundRefresh() {
+      if (disposed) {
+        return;
+      }
       void refreshNow();
       if (!catalog || refreshInterval !== undefined || options.refreshIntervalMs === 0) {
         return;
@@ -108,6 +113,16 @@ export async function createStagedManagedInvocationRouteCatalog(
         void refreshNow();
       }, options.refreshIntervalMs ?? 15000);
       refreshInterval.unref?.();
+    },
+    async dispose() {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      if (refreshInterval !== undefined) {
+        clearInterval(refreshInterval);
+        refreshInterval = undefined;
+      }
     },
   };
 }
@@ -133,13 +148,20 @@ async function refreshCatalog(
   resolve: (providerModelCatalogDiagnostics: ManagedAgentProviderModelCatalogDiagnostics) => ReturnType<typeof resolveManagedInvocationToolOptions>,
   discoverProviderModels: () => Promise<ManagedAgentProviderModelCatalogDiagnostics>,
   onRefreshError: ((error: unknown) => void) | undefined,
+  isDisposed: () => boolean,
 ): Promise<void> {
   if (!catalog) {
     return;
   }
   try {
     const providerModelCatalogDiagnostics = await discoverProviderModels();
+    if (isDisposed()) {
+      return;
+    }
     const refreshed = await resolve(providerModelCatalogDiagnostics);
+    if (isDisposed()) {
+      return;
+    }
     catalog.update(refreshed.managedInvocation ?? {
       routes: [],
       unavailableRoutes: [],

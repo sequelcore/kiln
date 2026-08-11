@@ -1064,7 +1064,7 @@ export class ManagedJobApplicationService {
       }
       if (preparation.status === "already-dispatched") return job;
       if (abortSignal?.aborted) {
-        preparation.recordExecutionSettlementPending("managed-job-cancelled-after-fence");
+        await preparation.recordExecutionSettlementPending("managed-job-cancelled-after-fence");
         return await this.currentJob(job.id);
       }
       const running = await this.transition(job.id, "running");
@@ -1092,7 +1092,7 @@ export class ManagedJobApplicationService {
         };
         return await this.options.store.completeSuccess(job.id, result, execution.completedAt);
       } catch (error) {
-        preparation.recordExecutionSettlementPending("managed-job-execution-failed");
+        await preparation.recordExecutionSettlementPending("managed-job-execution-failed");
         if (abortSignal?.aborted) return await this.currentJob(job.id);
         const terminal = managedJobExecutionTerminal(error);
         return this.transition(job.id, terminal.state, terminal.diagnostic, terminal.failureEvidence);

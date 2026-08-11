@@ -235,7 +235,7 @@ export async function runManagedAgentOrchestrationLifecycle(
         const releaseErrors: unknown[] = [];
         for (const prepared of executable) {
           try {
-            prepared.economicDispatch?.recordExecutionSettlementPending(
+            await prepared.economicDispatch?.recordExecutionSettlementPending(
               "orchestration-wave-preparation-failed",
             );
           } catch (releaseError) {
@@ -358,11 +358,11 @@ async function prepareOrchestrationEconomicDispatch(
     || selected.routeId !== entry.route.routeId
     || selected.providerId !== entry.route.providerId
     || selected.modelId !== entry.route.model) {
-    preparation.recordExecutionSettlementPending("committed-route-mismatch");
+    await preparation.recordExecutionSettlementPending("committed-route-mismatch");
     throw new Error(`Managed orchestration economic commitment does not match selected route '${entry.route.routeId}'.`);
   }
   if (!orchestrationAdapterMatchesRouteCapability(preparation.adapter, entry.route)) {
-    preparation.recordExecutionSettlementPending("committed-route-adapter-mismatch");
+    await preparation.recordExecutionSettlementPending("committed-route-adapter-mismatch");
     throw new Error("managed_orchestration_route_capability_adapter_mismatch");
   }
   return {

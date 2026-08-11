@@ -1,23 +1,34 @@
+import { dirname, join } from "node:path";
+import type { ManagedEconomicSettlement } from "@kilnai/core";
 import {
   OPERATOR_RUNTIME_AUDIENCE,
   OPERATOR_RUNTIME_PROTOCOL_VERSION,
   OperatorSessionClaimsSchema,
+  OperatorRuntimeApplicationRequestSchema,
+  type OperatorRuntimeApplicationRequest,
+  type OperatorRuntimeApplicationResponse,
   type OperatorProjectBinding,
-  type OperatorRuntimeHarness,
+  type OperatorRuntimePrincipal,
   type OperatorSessionClaims,
 } from "@kilnai/gateway-contracts";
 import {
   OPERATOR_SESSION_MAX_LIFETIME_SECONDS,
   ProjectRuntimeRegistry,
   signOperatorSessionCredential,
+  type ManagedEconomicCommitmentAcquireInput,
 } from "@kilnai/runtime";
 import { NativeHarnessMcpTools, type ManagedJobApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import {
   createOperatorProjectManagedJobApplicationComposition,
+  createOperatorGlobalManagedAccountComposition,
   type OperatorProjectManagedJobApplicationComposition,
 } from "./operator-project-managed-jobs.js";
+import {
+  closeManagedAccountRuntimeComposition,
+} from "../config/managed-agent-routes.js";
+import { resolveGlobalConfigPath } from "../config/global-config.js";
 import {
   resolveTrustedWorkspace,
   type TrustedProcessContext,
@@ -30,7 +41,7 @@ const DEFAULT_SESSION_LIFETIME_SECONDS = OPERATOR_SESSION_MAX_LIFETIME_SECONDS;
 interface OperatorRuntimeSessionRecord {
   readonly canonicalRoot: string;
   readonly binding: OperatorProjectBinding;
-  readonly harness: OperatorRuntimeHarness;
+  readonly principal: OperatorRuntimePrincipal;
   readonly sessionId: string;
   claims: OperatorSessionClaims;
 }
@@ -40,11 +51,16 @@ export interface OperatorRuntimeMcpRequest {
   readonly request: Request;
 }
 
+export interface OperatorRuntimeApplicationCommand {
+  readonly claims: OperatorSessionClaims;
+  readonly request: OperatorRuntimeApplicationRequest;
+}
+
 export interface OperatorRuntimeSessionOpenInput {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly canonicalRoot: string;
   readonly binding: OperatorProjectBinding;
-  readonly harness: OperatorRuntimeHarness;
+  readonly principal: OperatorRuntimePrincipal;
   readonly sessionId: string;
 }
 
@@ -94,6 +110,7 @@ export interface OperatorRuntimeServiceOptions {
 export interface OperatorRuntimeService {
   onSessionOpen(input: OperatorRuntimeSessionOpenInput): Promise<OperatorRuntimeSessionOpenResult>;
   onMcpRequest(input: OperatorRuntimeMcpRequest): Promise<Response>;
+  onApplicationRequest(input: OperatorRuntimeApplicationCommand): Promise<OperatorRuntimeApplicationResponse>;
   close(): Promise<void>;
 }
 
@@ -113,7 +130,21 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
   }
 
   const resolveWorkspace = options.resolveWorkspace ?? resolveTrustedWorkspace;
-  const createComposition = options.createComposition ?? createOperatorProjectManagedJobApplicationComposition;
+  const globalEconomicRuntimeDirectory = join(dirname(resolveGlobalConfigPath()), "runtime", "model-gateway");
+  let globalManagedAccountComposition: ReturnType<typeof createOperatorGlobalManagedAccountComposition>;
+  const createComposition = options.createComposition ?? (async ({ projectPath }: { readonly projectPath: string }) => {
+    if (globalManagedAccountComposition === undefined) {
+      globalManagedAccountComposition = createOperatorGlobalManagedAccountComposition({
+        projectPath,
+        compositionKey: globalEconomicRuntimeDirectory,
+        databasePath: join(globalEconomicRuntimeDirectory, "model-gateway.sqlite"),
+      });
+    }
+    return createOperatorProjectManagedJobApplicationComposition({
+      projectPath,
+      ...(globalManagedAccountComposition ? { managedAccountComposition: globalManagedAccountComposition } : {}),
+    });
+  });
   const registry = options.registry ?? new ProjectRuntimeRegistry((descriptor) =>
     createComposition({ projectPath: descriptor.canonicalRoot }));
   const sdkLoader = options.sdkLoader ?? loadMcpSdk;
@@ -251,7 +282,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
         audience: OPERATOR_RUNTIME_AUDIENCE,
         projectRuntimeId: input.binding.projectRuntimeId,
         markerDigest: input.binding.markerDigest,
-        harness: input.harness,
+        principal: input.principal,
         sessionId: input.sessionId,
         issuedAt,
         expiresAt: issuedAt + sessionLifetimeSeconds,
@@ -260,7 +291,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       sessions.set(input.sessionId, {
         canonicalRoot: resolution.canonicalRoot,
         binding: { ...input.binding },
-        harness: input.harness,
+        principal: input.principal,
         sessionId: input.sessionId,
         claims,
       });
@@ -285,6 +316,9 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
       return deniedResponse();
     }
     if (!sameClaims(session.claims, claims)) {
+      return deniedResponse();
+    }
+    if (session.principal.kind !== "native-harness") {
       return deniedResponse();
     }
 
@@ -345,6 +379,89 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     }
   };
 
+  const onApplicationRequest = async (
+    input: OperatorRuntimeApplicationCommand,
+  ): Promise<OperatorRuntimeApplicationResponse> => {
+    if (closed) return applicationError("runtime_unavailable", "Operator runtime application is unavailable.");
+    const parsedClaims = OperatorSessionClaimsSchema.safeParse(input.claims);
+    const parsedRequest = OperatorRuntimeApplicationRequestSchema.safeParse(input.request);
+    if (!parsedClaims.success || !parsedRequest.success) {
+      return applicationError("invalid_request", "Operator runtime application request is invalid.");
+    }
+    const claims = parsedClaims.data;
+    const session = sessions.get(claims.sessionId);
+    const now = safeNow(nowEpochSeconds);
+    if (!session || now === undefined || now > session.claims.expiresAt || !sameClaims(session.claims, claims)) {
+      return applicationError("runtime_unavailable", "Operator runtime application session is unavailable.");
+    }
+    if (session.principal.kind !== "operator-surface") {
+      return applicationError("principal_denied", "This principal cannot use the operator application protocol.");
+    }
+    const resolution = resolveWorkspace({ cwd: () => session.canonicalRoot });
+    if (!isExactResolution(resolution, session.canonicalRoot, session.binding)) {
+      return applicationError("project_unavailable", "The bound project is unavailable.");
+    }
+
+    const projectRuntimeId = session.binding.projectRuntimeId;
+    activeRequests.set(projectRuntimeId, (activeRequests.get(projectRuntimeId) ?? 0) + 1);
+    let completeRequest!: () => void;
+    const requestCompletion = new Promise<void>((resolve) => {
+      completeRequest = resolve;
+    });
+    requestCompletions.add(requestCompletion);
+    try {
+      const composition = await registry.ensure({
+        canonicalRoot: session.canonicalRoot,
+        binding: session.binding,
+      });
+      const authority = composition.economicAuthority;
+      if (!authority) {
+        return applicationError("authority_rejected", "Managed economic authority is not configured for this project.");
+      }
+      const request = parsedRequest.data;
+      switch (request.operation) {
+        case "managed-economic.acquire":
+          return applicationSuccess(authority.acquire(request.input as unknown as ManagedEconomicCommitmentAcquireInput));
+        case "managed-economic.release-pre-fence":
+          authority.releasePreFence(request.jobId, request.economicAttemptId);
+          return applicationSuccess(null);
+        case "managed-economic.fence-dispatch":
+          authority.fenceDispatch(request.jobId, request.economicAttemptId, request.dispatchFenceId);
+          return applicationSuccess(null);
+        case "managed-economic.settle-execution":
+          authority.settleExecution(
+            request.jobId,
+            request.economicAttemptId,
+            request.dispatchFenceId,
+            request.settlement as unknown as ManagedEconomicSettlement,
+          );
+          return applicationSuccess(null);
+        case "managed-economic.record-settlement-pending":
+          authority.recordExecutionSettlementPending(
+            request.jobId,
+            request.economicAttemptId,
+            request.dispatchFenceId,
+            request.reason,
+          );
+          return applicationSuccess(null);
+      }
+    } catch {
+      return applicationError("authority_rejected", "Managed economic authority rejected the operation.");
+    } finally {
+      const remaining = (activeRequests.get(projectRuntimeId) ?? 1) - 1;
+      if (remaining === 0) {
+        activeRequests.delete(projectRuntimeId);
+        const waiters = drainWaiters.get(projectRuntimeId);
+        drainWaiters.delete(projectRuntimeId);
+        for (const resolve of waiters ?? []) resolve();
+      } else {
+        activeRequests.set(projectRuntimeId, remaining);
+      }
+      requestCompletions.delete(requestCompletion);
+      completeRequest();
+    }
+  };
+
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     closed = true;
@@ -354,12 +471,30 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
     closePromise = (async () => {
       await Promise.allSettled([...requestCompletions]);
       await Promise.allSettled([...evictions.values()]);
-      await registry.closeAll();
+      try {
+        await registry.closeAll();
+      } finally {
+        if (options.createComposition === undefined && globalManagedAccountComposition) {
+          closeManagedAccountRuntimeComposition(globalEconomicRuntimeDirectory);
+          globalManagedAccountComposition = undefined;
+        }
+      }
     })();
     return closePromise;
   };
 
-  return { onSessionOpen, onMcpRequest, close };
+  return { onSessionOpen, onMcpRequest, onApplicationRequest, close };
+}
+
+function applicationSuccess(result: unknown): OperatorRuntimeApplicationResponse {
+  return { schemaVersion: 1, status: "ok", result };
+}
+
+function applicationError(
+  code: Extract<OperatorRuntimeApplicationResponse, { readonly status: "error" }>["error"]["code"],
+  message: string,
+): OperatorRuntimeApplicationResponse {
+  return { schemaVersion: 1, status: "error", error: { code, message } };
 }
 
 async function handleMcpRequest(input: {
@@ -379,9 +514,9 @@ async function handleMcpRequest(input: {
 
   const managedJobs = createLazyManagedJobPort(input.registry, input.session);
   const adapter = new NativeHarnessMcpTools({
-    harness: input.session.harness,
+    harness: requireNativeHarness(input.session.principal),
     inspection: createNativeHarnessInspectionService({
-      harness: input.session.harness,
+      harness: requireNativeHarness(input.session.principal),
       readProjectRoot: async () => ({ status: "resolved", rootPath: input.session.canonicalRoot }),
       ...(input.userHome !== undefined ? {
         readStatus: (options) => readConfigStatusSnapshot({ ...options, userHome: input.userHome }),
@@ -454,7 +589,7 @@ function isExactResolution(
 
 function sameSessionAuthority(record: OperatorRuntimeSessionRecord, input: OperatorRuntimeSessionOpenInput): boolean {
   return record.canonicalRoot === input.canonicalRoot
-    && record.harness === input.harness
+    && samePrincipal(record.principal, input.principal)
     && record.binding.projectRuntimeId === input.binding.projectRuntimeId
     && record.binding.markerDigest === input.binding.markerDigest;
 }
@@ -464,10 +599,24 @@ function sameClaims(left: OperatorSessionClaims, right: OperatorSessionClaims): 
     && left.audience === right.audience
     && left.projectRuntimeId === right.projectRuntimeId
     && left.markerDigest === right.markerDigest
-    && left.harness === right.harness
+    && samePrincipal(left.principal, right.principal)
     && left.sessionId === right.sessionId
     && left.issuedAt === right.issuedAt
     && left.expiresAt === right.expiresAt;
+}
+
+function samePrincipal(left: OperatorRuntimePrincipal, right: OperatorRuntimePrincipal): boolean {
+  if (left.kind !== right.kind) return false;
+  return left.kind === "native-harness"
+    ? right.kind === "native-harness" && left.harness === right.harness
+    : right.kind === "operator-surface" && left.surface === right.surface;
+}
+
+function requireNativeHarness(
+  principal: OperatorRuntimePrincipal,
+): Extract<OperatorRuntimePrincipal, { readonly kind: "native-harness" }>["harness"] {
+  if (principal.kind !== "native-harness") throw new Error("Native harness principal required.");
+  return principal.harness;
 }
 
 function checkedNow(now: () => number): number {

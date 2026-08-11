@@ -186,7 +186,18 @@ function parseGitStatus(output: string): GitStatusMap {
 
 function vcsStatusForEntry(rootPath: string, entry: OperatorWorkspaceTreeEntry, statuses: GitStatusMap): OperatorWorkspaceVcsStatus | undefined {
   const relativePath = normalizeRelativePath(relative(rootPath, entry.path));
-  return relativePath ? statuses.get(relativePath) : undefined;
+  if (!relativePath) return undefined;
+  const direct = statuses.get(relativePath);
+  if (direct) return direct;
+
+  const segments = relativePath.split("/");
+  for (let index = segments.length - 1; index > 0; index -= 1) {
+    const ancestor = statuses.get(segments.slice(0, index).join("/"));
+    if (ancestor?.state === "untracked") {
+      return ancestor;
+    }
+  }
+  return undefined;
 }
 
 function languageFromExtension(extension: string): string | undefined {
@@ -215,12 +226,13 @@ export function createLocalWorkspaceExplorer(workingDirectory: string): Operator
       return gitStatusInFlight;
     }
     gitStatusInFlight = execFileAsync("git", [
+      "--no-optional-locks",
       "-C",
       rootPath,
       "status",
       "--porcelain=v1",
       "-z",
-      "--untracked-files=all",
+      "--untracked-files=normal",
     ], {
       encoding: "utf8",
       timeout: GIT_STATUS_TIMEOUT_MS,

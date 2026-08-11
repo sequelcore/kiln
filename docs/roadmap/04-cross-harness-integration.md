@@ -101,6 +101,14 @@ single writer for shared account capacity and affinity; commitments remain
 project-namespaced. Do not replace it with adapter-local or multi-process
 SQLite writers.
 
+Implemented topology: native harnesses and operator surfaces share one signed,
+short-lived project session contract. Native harnesses use the MCP adapter;
+GUI, TUI, run, and benchmark use the separate typed application endpoint for
+managed-economic acquire/fence/release/settlement commands. Model Gateway and
+managed-agent dispatch share the global physical capacity ledger while keeping
+distinct participant/recovery domains. Project-local legacy ledger files are
+historical evidence only and are never reopened by operator surfaces.
+
 Exit gate: a harness adapter can be removed without changing canonical route
 policy, and background job lifecycle is represented in Kiln events, never in
 adapter-local prose.

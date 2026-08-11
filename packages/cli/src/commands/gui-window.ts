@@ -43,6 +43,11 @@ interface LaunchGuiWindowOptions extends ResolveGuiBrowserHostOptions {
   readonly fetchImpl?: typeof fetch;
   readonly setIntervalImpl?: typeof setInterval;
   readonly clearIntervalImpl?: typeof clearInterval;
+  readonly setTimeoutImpl?: typeof setTimeout;
+  readonly clearTimeoutImpl?: typeof clearTimeout;
+  readonly readDevToolsPort?: (profileDir: string) => number | null;
+  readonly pollMs?: number;
+  readonly startupTimeoutMs?: number;
 }
 
 interface DevToolsTargetSummary {
@@ -193,37 +198,60 @@ export function waitForManagedGuiAppWindowClose(
     readonly fetchImpl?: typeof fetch;
     readonly setIntervalImpl?: typeof setInterval;
     readonly clearIntervalImpl?: typeof clearInterval;
+    readonly setTimeoutImpl?: typeof setTimeout;
+    readonly clearTimeoutImpl?: typeof clearTimeout;
     readonly readDevToolsPort?: (profileDir: string) => number | null;
     readonly pollMs?: number;
+    readonly startupTimeoutMs?: number;
   } = {},
 ): Promise<void> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const setIntervalImpl = options.setIntervalImpl ?? setInterval;
   const clearIntervalImpl = options.clearIntervalImpl ?? clearInterval;
+  const setTimeoutImpl = options.setTimeoutImpl ?? setTimeout;
+  const clearTimeoutImpl = options.clearTimeoutImpl ?? clearTimeout;
   const readDevToolsPort = options.readDevToolsPort ?? tryReadDevToolsPort;
   const pollMs = options.pollMs ?? 500;
+  const startupTimeoutMs = options.startupTimeoutMs ?? 15_000;
   const normalizedUrl = normalizeManagedGuiUrl(url);
 
-  return new Promise<void>((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     let settled = false;
     let sawManagedAppTarget = false;
     let intervalHandle: ReturnType<typeof setInterval> | null = null;
+    let startupTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimers = () => {
+      if (intervalHandle) {
+        clearIntervalImpl(intervalHandle);
+        intervalHandle = null;
+      }
+      if (startupTimeoutHandle) {
+        clearTimeoutImpl(startupTimeoutHandle);
+        startupTimeoutHandle = null;
+      }
+    };
 
     const finish = () => {
       if (settled) {
         return;
       }
       settled = true;
-      if (intervalHandle) {
-        clearIntervalImpl(intervalHandle);
-        intervalHandle = null;
-      }
+      clearTimers();
       resolve();
     };
 
+    const fail = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimers();
+      reject(error);
+    };
+
     const inspectTargets = async () => {
-      if (settled || child.exitCode !== null) {
-        finish();
+      if (settled) {
         return;
       }
 
@@ -252,6 +280,10 @@ export function waitForManagedGuiAppWindowClose(
 
         if (hasManagedAppTarget) {
           sawManagedAppTarget = true;
+          if (startupTimeoutHandle) {
+            clearTimeoutImpl(startupTimeoutHandle);
+            startupTimeoutHandle = null;
+          }
           return;
         }
 
@@ -265,12 +297,18 @@ export function waitForManagedGuiAppWindowClose(
       }
     };
 
-    child.once("exit", finish);
-    child.once("error", finish);
+    child.once("error", (error) => {
+      if (!sawManagedAppTarget) {
+        fail(error);
+      }
+    });
 
     intervalHandle = setIntervalImpl(() => {
       void inspectTargets();
     }, pollMs);
+    startupTimeoutHandle = setTimeoutImpl(() => {
+      fail(new Error(`GUI window did not expose its managed page within ${startupTimeoutMs} ms.`));
+    }, startupTimeoutMs);
     void inspectTargets();
   });
 }
@@ -367,10 +405,8 @@ export function launchGuiWindow(
     }
   };
 
-  child.once("exit", cleanup);
-  child.once("error", cleanup);
-
   const whenClosed = waitForManagedGuiAppWindowClose(url, profileDir, child, options);
+  void whenClosed.then(cleanup, cleanup);
 
   return {
     browserLabel: host.label,

@@ -7,7 +7,11 @@ import {
   defineManagedAgentAdapterDescriptor,
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core";
-import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+import {
+  normalizeRuntimeProviderDiscoveryCatalog,
+  RuntimeManagedAgentInvocationService,
+  SqliteManagedAccountLeaseAuthority,
+} from "@kilnai/runtime";
 import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 import { createStagedManagedInvocationRouteCatalog } from "./managed-agent-route-catalog.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
@@ -281,6 +285,55 @@ function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
 }
 
 describe("managed agent route catalog", () => {
+  it("does not open a project-local authority when an operator-runtime authority is supplied", async () => {
+    const cwd = createTempRoot();
+    const runtimeDirectory = join(cwd, ".kiln", "runtime");
+    mkdirSync(runtimeDirectory, { recursive: true });
+    const existingOwner = new SqliteManagedAccountLeaseAuthority({
+      path: join(runtimeDirectory, "managed-account-leases.sqlite"),
+    });
+    try {
+      const catalog = await createStagedManagedInvocationRouteCatalog(makeConfig(false), {
+        cwd,
+        registry: createRegistry("opencode-go"),
+        surface: "gui",
+        isProviderAvailable: () => true,
+        directAdapterFactory: () => makeAdapter(),
+        managedEconomicAuthority: {
+          acquire: vi.fn(),
+          releasePreFence: vi.fn(),
+          fenceDispatch: vi.fn(),
+          settleExecution: vi.fn(),
+          recordExecutionSettlementPending: vi.fn(),
+        },
+      });
+
+      expect(catalog.managedInvocation).toBeDefined();
+      await catalog.dispose();
+    } finally {
+      existingOwner.close();
+    }
+  });
+
+  it("shares one explicitly global managed-account owner across project roots", () => {
+    const firstProject = createTempRoot();
+    const secondProject = createTempRoot();
+    const globalRuntime = createTempRoot();
+    const databasePath = join(globalRuntime, "model-gateway.sqlite");
+    const first = createManagedAccountRuntimeComposition(makeConfig(false), firstProject, {
+      compositionKey: globalRuntime,
+      databasePath,
+    });
+    const second = createManagedAccountRuntimeComposition(makeConfig(false), secondProject, {
+      compositionKey: globalRuntime,
+      databasePath,
+    });
+
+    expect(second).toBe(first);
+    expect(second?.authority).toBe(first?.authority);
+    closeManagedAccountRuntimeComposition(globalRuntime);
+  });
+
   afterEach(() => {
     for (const root of tempRoots.splice(0)) {
       closeManagedAccountRuntimeComposition(root);
@@ -318,6 +371,59 @@ describe("managed agent route catalog", () => {
     expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(true);
     expect(refreshedComposition?.authority).toBe(initialComposition?.authority);
     expect(refreshedComposition?.routing).toBe(initialComposition?.routing);
+  });
+
+  it("stops scheduled discovery refreshes when the catalog is disposed", async () => {
+    vi.useFakeTimers();
+    try {
+      const discoverProviderModels = vi.fn(async () => observedProviderModels({
+        "opencode-go": ["qwen3.6-plus"],
+      }));
+      const catalog = await createStagedManagedInvocationRouteCatalog(makeConfig(false), {
+        cwd: createTempRoot(),
+        registry: createRegistry("opencode-go"),
+        surface: "gui",
+        isProviderAvailable: () => true,
+        directAdapterFactory: () => makeAdapter(),
+      }, {
+        discoverProviderModels,
+        refreshIntervalMs: 1_000,
+      });
+
+      catalog.startBackgroundRefresh();
+      await catalog.dispose();
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(discoverProviderModels).toHaveBeenCalledTimes(1);
+      await catalog.refreshNow();
+      expect(discoverProviderModels).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disposes immediately and rejects a late discovery result", async () => {
+    let resolveDiscovery!: (value: ManagedAgentProviderModelCatalogDiagnostics) => void;
+    const pendingDiscovery = new Promise<ManagedAgentProviderModelCatalogDiagnostics>((resolve) => {
+      resolveDiscovery = resolve;
+    });
+    const catalog = await createStagedManagedInvocationRouteCatalog(makeConfig(false), {
+      cwd: createTempRoot(),
+      registry: createRegistry("opencode-go"),
+      surface: "gui",
+      isProviderAvailable: () => true,
+      directAdapterFactory: () => makeAdapter(),
+    }, {
+      discoverProviderModels: () => pendingDiscovery,
+    });
+
+    const refresh = catalog.refreshNow();
+    await expect(catalog.dispose()).resolves.toBeUndefined();
+    resolveDiscovery(observedProviderModels({ "opencode-go": ["qwen3.6-plus"] }));
+    await refresh;
+
+    expect(catalog.managedInvocation?.routes).toEqual([]);
+    expect(catalog.managedInvocation?.unavailableRoutes?.[0]?.reason).toContain("pending");
   });
 
   it("does not construct direct provider adapters while staged provider discovery is pending", async () => {
