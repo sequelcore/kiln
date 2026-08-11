@@ -28,7 +28,7 @@ describe("operator theme projection", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
     expect(document.documentElement).toHaveAttribute("data-kiln-theme", "kiln-graphite");
-    expect(document.documentElement.style.getPropertyValue("--color-background")).toBe("oklch(0.18 0.008 250)");
+    expect(document.documentElement.style.getPropertyValue("--color-background")).toBe("oklch(0.18 0.008 55)");
     expect(document.documentElement.style.colorScheme).toBe("dark");
   });
 

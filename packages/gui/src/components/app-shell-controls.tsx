@@ -121,7 +121,7 @@ export function DeliberationControl(props: {
         }
       }}
     >
-      <SelectTrigger size="sm" aria-label="Deliberation level" className="w-auto min-w-24">
+      <SelectTrigger variant="ghost" size="sm" aria-label="Deliberation level" className="h-8 w-auto min-w-24">
         <span className="truncate">{props.value ?? "Provider default"}</span>
       </SelectTrigger>
       <SelectContent align="end">
@@ -156,11 +156,12 @@ export function TurnAuthorityControl(props: {
       }}
     >
       <SelectTrigger
+        variant="ghost"
         size="sm"
         aria-label={`Turn authority: ${selectedAuthority.label}`}
         aria-description={title}
         title={title}
-        className="w-auto min-w-28"
+        className="h-8 w-auto min-w-28"
       >
         <span className="truncate">{selectedAuthority.label}</span>
       </SelectTrigger>

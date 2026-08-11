@@ -1,9 +1,10 @@
-import type { ChangeEvent, ReactElement, RefObject } from "react";
-import { ArrowUp, Image, ListChecks, Mic, Paperclip, Square } from "lucide-react";
+import { useState, type ChangeEvent, type ReactElement, type RefObject } from "react";
+import { ArrowUp, FileAudio, Image, Mic, Plus, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InputGroupButton } from "@/components/ui/input-group";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { GovernedTaskControl } from "./governed-task-control.js";
+import { ComposerWorkModeControl } from "./composer-work-mode-control.js";
 
 type VoiceState = "idle" | "requesting" | "recording" | "encoding";
 
@@ -26,7 +27,7 @@ interface ComposerLeadingActionsProps {
   readonly imageButtonDisabled: boolean;
   readonly audioFileInputRef: RefObject<HTMLInputElement | null>;
   readonly imageFileInputRef: RefObject<HTMLInputElement | null>;
-  readonly onTogglePlanMode: () => void;
+  readonly onPlanModeChange: (enabled: boolean) => void;
   readonly onGovernedWorkItemCountChange: (count: number | null) => void;
   readonly onAudioFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onImageFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -43,6 +44,8 @@ interface ComposerTrailingActionsProps {
 }
 
 export function ComposerLeadingActions(props: ComposerLeadingActionsProps) {
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+
   return (
     <TooltipProvider delay={300}>
       <div className="flex min-w-0 items-center gap-1">
@@ -64,49 +67,58 @@ export function ComposerLeadingActions(props: ComposerLeadingActionsProps) {
           disabled={props.imageButtonDisabled}
           onChange={props.onImageFileChange}
         />
-        <ComposerTooltip label="Attach audio file">
-          <InputGroupButton
-            type="button"
-            size="icon-sm"
-            variant="outline"
-            disabled={props.fileButtonDisabled}
-            aria-label="Attach audio file"
-            className="bg-background/60 text-muted-foreground"
-            onClick={() => props.audioFileInputRef.current?.click()}
-          >
-            <Paperclip aria-hidden="true" />
-          </InputGroupButton>
-        </ComposerTooltip>
-        <ComposerTooltip label="Attach image">
-          <InputGroupButton
-            type="button"
-            size="icon-sm"
-            variant="outline"
-            disabled={props.imageButtonDisabled}
-            aria-label="Attach image"
-            className="bg-background/60 text-muted-foreground"
-            onClick={() => props.imageFileInputRef.current?.click()}
-          >
-            <Image aria-hidden="true" />
-          </InputGroupButton>
-        </ComposerTooltip>
-        <ComposerTooltip label="Plan mode">
-          <InputGroupButton
-            type="button"
-            size="icon-sm"
-            variant={props.planMode ? "secondary" : "outline"}
-            aria-pressed={props.planMode}
-            aria-label="Plan"
-            className={props.planMode ? undefined : "bg-background/60 text-muted-foreground"}
-            onClick={props.onTogglePlanMode}
-          >
-            <ListChecks aria-hidden="true" />
-          </InputGroupButton>
-        </ComposerTooltip>
-        <GovernedTaskControl
-          workItemCount={props.governedWorkItemCount}
-          disabled={props.planMode}
-          onChange={props.onGovernedWorkItemCountChange}
+        <Popover open={attachmentMenuOpen} onOpenChange={setAttachmentMenuOpen}>
+          <PopoverTrigger
+            render={(
+              <InputGroupButton
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={props.fileButtonDisabled && props.imageButtonDisabled}
+                aria-label="Add attachment"
+                className="shrink-0 has-data-[icon=inline-start]:pl-2.5"
+              >
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                Add
+              </InputGroupButton>
+            )}
+          />
+          <PopoverContent align="start" side="top" sideOffset={8} className="w-52 gap-1 p-1">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={props.fileButtonDisabled}
+              aria-label="Attach audio file"
+              className="w-full justify-start"
+              onClick={() => {
+                setAttachmentMenuOpen(false);
+                props.audioFileInputRef.current?.click();
+              }}
+            >
+              <FileAudio data-icon="inline-start" aria-hidden="true" />
+              Audio file
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={props.imageButtonDisabled}
+              aria-label="Attach image"
+              className="w-full justify-start"
+              onClick={() => {
+                setAttachmentMenuOpen(false);
+                props.imageFileInputRef.current?.click();
+              }}
+            >
+              <Image data-icon="inline-start" aria-hidden="true" />
+              Image
+            </Button>
+          </PopoverContent>
+        </Popover>
+        <ComposerWorkModeControl
+          planMode={props.planMode}
+          governedWorkItemCount={props.governedWorkItemCount}
+          onPlanModeChange={props.onPlanModeChange}
+          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
         />
       </div>
     </TooltipProvider>
@@ -128,11 +140,10 @@ export function ComposerTrailingActions(props: ComposerTrailingActionsProps) {
           <InputGroupButton
             type="button"
             size="icon-sm"
-            variant={recording ? "secondary" : "outline"}
+            variant={recording ? "secondary" : "ghost"}
             disabled={props.voiceButtonDisabled}
             aria-pressed={recording}
             aria-label={voiceLabel}
-            className={recording ? undefined : "bg-background/60 text-muted-foreground"}
             onClick={props.onToggleVoiceCapture}
           >
             {recording ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
@@ -143,10 +154,10 @@ export function ComposerTrailingActions(props: ComposerTrailingActionsProps) {
             <Button
               type="button"
               disabled={props.cancelPending}
-              variant="default"
-              size="icon-sm"
+              variant="destructive"
+              size="icon"
               aria-label={props.cancelPending ? "Cancelling response" : "Stop response"}
-              className="rounded-lg"
+              className="rounded-full"
               onClick={props.onCancel}
             >
               <Square aria-hidden="true" />
@@ -157,9 +168,9 @@ export function ComposerTrailingActions(props: ComposerTrailingActionsProps) {
             type="submit"
             disabled={!props.canSubmit}
             variant="default"
-            size="icon-sm"
+            size="icon"
             aria-label="Send message"
-            className="rounded-lg"
+            className="rounded-full"
           >
             <ArrowUp aria-hidden="true" />
           </Button>

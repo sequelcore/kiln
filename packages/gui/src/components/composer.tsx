@@ -199,7 +199,7 @@ export function Composer(props: ComposerProps) {
           imageButtonDisabled={imageButtonDisabled}
           audioFileInputRef={audioFileInputRef}
           imageFileInputRef={imageFileInputRef}
-          onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
+          onPlanModeChange={props.onTogglePlanMode}
           onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
           onAudioFileChange={handleAudioFileChange}
           onImageFileChange={handleImageFileChange}

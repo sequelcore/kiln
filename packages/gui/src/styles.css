@@ -165,6 +165,22 @@ body {
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
 
+.kiln-operator-field {
+  background-color: var(--workspace-viewer);
+  background-image:
+    radial-gradient(
+      circle at 50% 108%,
+      color-mix(in oklch, var(--color-primary) 9%, transparent) 0,
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at 82% -12%,
+      color-mix(in oklch, var(--color-accent) 5%, transparent) 0,
+      transparent 32%
+    );
+  isolation: isolate;
+}
+
 * {
   scrollbar-color:
     color-mix(in oklch, var(--color-border-active) 45%, transparent)

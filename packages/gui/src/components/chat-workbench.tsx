@@ -102,7 +102,7 @@ export function ChatWorkbench(props: ChatWorkbenchProps) {
   return (
     <section
       aria-label="Chat workspace"
-      className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer"
+      className="kiln-operator-field flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer"
       data-layout="kiln-chat-workbench"
     >
       <div className="min-h-0 min-w-[min(100%,38rem)] flex-1 overflow-hidden">

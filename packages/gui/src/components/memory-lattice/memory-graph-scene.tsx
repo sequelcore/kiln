@@ -516,16 +516,13 @@ function layerColor(layer: string, theme: GraphSceneTheme): Color {
 }
 
 function readGraphSceneTheme(root: HTMLElement): GraphSceneTheme {
-  const style = getComputedStyle(root);
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const fallbackTokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root, prefersDark));
-  const fallback = (name: string): string => {
-    const value = fallbackTokens[name];
+  const rendererTokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root, prefersDark));
+  const color = (name: string): Color => {
+    const value = rendererTokens[name];
     if (!value) throw new Error(`Missing operator theme renderer token: ${name}`);
-    return value;
+    return new Color(value);
   };
-  const token = (name: string) => style.getPropertyValue(name).trim() || fallback(name);
-  const color = (name: string) => readColor(token(name), fallback(name));
   return {
     background: color("--color-background"),
     border: color("--color-border"),
@@ -536,14 +533,6 @@ function readGraphSceneTheme(root: HTMLElement): GraphSceneTheme {
     success: color("--color-success"),
     selected: color("--color-warning"),
   };
-}
-
-function readColor(value: string, fallback: string): Color {
-  try {
-    return new Color(value);
-  } catch {
-    return new Color(fallback);
-  }
 }
 
 function colorToRgb(color: Color): string {

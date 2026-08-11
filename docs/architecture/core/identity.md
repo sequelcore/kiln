@@ -118,12 +118,22 @@ The canonical dark expression is Kiln Obsidian:
 - cyan primary color for technical action, routing, links, and system affordance
 - compact typography, hairline dividers, and dense operator-console rhythm
 
-Kiln Graphite preserves the same hierarchy at a lifted dark luminance, while
-Kiln Paper is the light polarity rather than a separately styled product.
+Kiln Graphite preserves the same hierarchy at a lifted dark luminance with a
+warm neutral base that remains visibly distinct from Obsidian's cool near-black
+envelope. Kiln Paper is the light polarity rather than a separately styled
+product.
 All three are semantic projections of one operator-theme contract. Normal
 text, muted text, controls, actions, and status surfaces must satisfy the
 contract's executable contrast and sRGB-gamut gates; visual identity does not
 override legibility or renderer consistency.
+
+Operational motion is a state signal, not decoration. A compact living orb may
+identify active cognitive or execution phase when it is paired with visible
+status text. A restrained boundary pulse may communicate an active turn; it
+stays monochrome during work and can shift briefly toward ember on completion.
+Approval waits pause rather than simulate progress. These signals must honor
+reduced-motion preferences and must never replace textual status, focus, or
+durable event evidence.
 
 The canonical brand mark is `docs/assets/logo.svg`; use it for product identity
 in README files, operator shell headers, internal studio navigation, and other

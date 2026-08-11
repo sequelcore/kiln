@@ -48,6 +48,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
       };
     });
     expect(visualRoles.user).not.toBe(visualRoles.assistant);
+    await expect(page.getByRole("region", { name: "Chat workspace" })).toHaveCSS("background-image", /radial-gradient/u);
   });
 
   test("renders assistant markdown lists and tables with visible browser styling", async ({ page }) => {

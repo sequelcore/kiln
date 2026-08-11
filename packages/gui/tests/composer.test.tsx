@@ -65,6 +65,10 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
   };
 }
 
+function openAttachmentMenu(): void {
+  fireEvent.click(screen.getByRole("button", { name: "Add attachment" }));
+}
+
 describe("Composer", () => {
   beforeEach(() => {
     useUiStore.getState().setTheme("kiln-dark");
@@ -423,11 +427,11 @@ describe("Composer", () => {
   it("configures a typed governed goal requirement from the composer", async () => {
     const { onGovernedWorkItemCountChange } = renderComposer();
 
-    fireEvent.click(screen.getByRole("button", { name: "Configure governed task" }));
-    expect(await screen.findByRole("heading", { name: "Governed task" })).toBeVisible();
-    expect(screen.getByLabelText("Required work items")).toHaveValue(3);
+    fireEvent.click(screen.getByRole("button", { name: "Work mode: Build" }));
+    expect(await screen.findByRole("heading", { name: "Work mode" })).toBeVisible();
+    expect(screen.getByLabelText("Exact work items")).toHaveValue(3);
 
-    fireEvent.click(screen.getByRole("button", { name: "Require goal first" }));
+    fireEvent.click(screen.getByRole("button", { name: "Require goal setup" }));
     expect(onGovernedWorkItemCountChange).toHaveBeenCalledWith(3);
   });
 
@@ -435,12 +439,11 @@ describe("Composer", () => {
     const onGovernedWorkItemCountChange = vi.fn();
     renderComposer({ governedWorkItemCount: 4, onGovernedWorkItemCountChange });
 
-    const trigger = screen.getByRole("button", { name: "Governed task enabled with 4 work items" });
-    expect(trigger).toHaveAttribute("aria-pressed", "true");
-    expect(trigger).toHaveTextContent("Goal 4");
+    const trigger = screen.getByRole("button", { name: "Work mode: Build; governed goal with 4 work items" });
+    expect(trigger).toHaveTextContent("Build · Goal 4");
 
     fireEvent.click(trigger);
-    fireEvent.click(await screen.findByRole("button", { name: "Remove requirement" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove goal setup" }));
     expect(onGovernedWorkItemCountChange).toHaveBeenCalledWith(null);
   });
 
@@ -474,7 +477,7 @@ describe("Composer", () => {
       onCancel={() => undefined}
       />,
     );
-    expect(screen.getByRole("button", { name: "Context 30%: 2.4k / 8k tokens" })).toHaveTextContent("30%");
+    expect(screen.getByRole("button", { name: "Context 30%: 2.4k / 8k tokens" })).not.toHaveTextContent("30%");
 
     rerender(
       <Composer
@@ -504,7 +507,7 @@ describe("Composer", () => {
       />,
     );
     const restored = screen.getByRole("button", { name: "Context partial: 2.4k tokens; restored historical measurement" });
-    expect(restored).toHaveTextContent("2.4k");
+    expect(restored).not.toHaveTextContent("2.4k");
     fireEvent.click(restored);
     return waitFor(() => {
       expect(screen.getByText("Context window")).toBeVisible();
@@ -522,11 +525,14 @@ describe("Composer", () => {
     expect(inputSurface).not.toBeNull();
     const options = within(inputSurface as HTMLElement).getByRole("group", { name: "Message options" });
     expect(options).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach audio file" })).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Attach image" })).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Plan" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Add attachment" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach audio file" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach image" })).not.toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Work mode: Build" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).queryByRole("button", { name: "Configure governed task" })).not.toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Context usage unavailable" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).queryByRole("button", { name: "Context usage unavailable" })).not.toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText("Deliberation level")).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Record voice" })).toBeInTheDocument();
@@ -536,11 +542,10 @@ describe("Composer", () => {
   it("keeps inactive composer controls visibly actionable before typing", () => {
     renderComposer();
 
-    expect(screen.getByRole("button", { name: "Attach audio file" })).toHaveClass("bg-background/60");
-    expect(screen.getByRole("button", { name: "Attach image" })).toHaveClass("bg-background/60");
-    expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("bg-background/60");
-    expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("bg-background/60");
-    expect(screen.getByRole("button", { name: "Context usage unavailable" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add attachment" })).toHaveClass("border-transparent");
+    expect(screen.getByRole("button", { name: "Work mode: Build" })).toHaveClass("h-8", "items-center", "justify-center");
+    expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("border-transparent");
+    expect(screen.queryByRole("button", { name: "Context usage unavailable" })).not.toBeInTheDocument();
   });
 
   it("orders the composer rail like a modern chat harness", () => {
@@ -548,11 +553,9 @@ describe("Composer", () => {
 
     const options = screen.getByRole("group", { name: "Message options" });
     const orderedControls = [
-      within(options).getByRole("button", { name: "Attach audio file" }),
-      within(options).getByRole("button", { name: "Attach image" }),
-      within(options).getByRole("button", { name: "Plan" }),
+      within(options).getByRole("button", { name: "Add attachment" }),
+      within(options).getByRole("button", { name: "Work mode: Build" }),
       within(options).getByLabelText(/Turn authority/),
-      within(options).getByRole("button", { name: "Context usage unavailable" }),
       within(options).getByRole("button", { name: "Claude Sonnet 4" }),
       within(options).getByLabelText("Deliberation level"),
       within(options).getByRole("button", { name: "Record voice" }),
@@ -565,16 +568,28 @@ describe("Composer", () => {
     }
   });
 
-  it("toggles plan mode without changing the draft", () => {
+  it("toggles plan mode without changing the draft", async () => {
     const { onTogglePlanMode, onSubmit } = renderComposer();
     const textarea = screen.getByLabelText("Message");
 
     fireEvent.change(textarea, { target: { value: "Inspect this change" } });
-    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Work mode: Build" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Plan for approval" }));
 
     expect(onTogglePlanMode).toHaveBeenCalledWith(true);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(textarea).toHaveValue("Inspect this change");
+  });
+
+  it("keeps governed goal setup subordinate to Build mode", async () => {
+    const { onTogglePlanMode } = renderComposer({ planMode: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Work mode: Plan" }));
+    expect(await screen.findByRole("button", { name: "Plan for approval" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByLabelText("Exact work items")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Build" }));
+    expect(onTogglePlanMode).toHaveBeenCalledWith(false);
   });
 
   it("uses a restrained focus treatment on the input surface", () => {
@@ -598,14 +613,14 @@ describe("Composer", () => {
     expect(inputSurface).not.toHaveClass("has-disabled:opacity-50", "has-disabled:bg-input/50");
   });
 
-  it("uses theme elevation instead of default shadow scale", () => {
+  it("uses one boundary without redundant surface elevation", () => {
     renderComposer();
 
     const textarea = screen.getByLabelText("Message");
     const inputSurface = textarea.parentElement;
 
-    expect(inputSurface).toHaveClass("shadow-[var(--shadow-elevated)]");
-    expect(inputSurface).not.toHaveClass("shadow-sm");
+    expect(inputSurface).toHaveClass("border-border");
+    expect(inputSurface?.className).not.toContain("shadow-");
   });
 
   it("uses a compact shadcn input surface with room for multi-line work", () => {
@@ -628,7 +643,9 @@ describe("Composer", () => {
 
     const options = screen.getByRole("group", { name: "Message options" });
     expect(options).not.toHaveClass("border-t", "bg-background/65");
-    expect(options.firstElementChild).toHaveClass("grid");
+    expect(options.firstElementChild).toHaveClass("flex", "flex-nowrap");
+    expect(options.querySelector('[data-role="composer-leading-actions"]')).toHaveClass("shrink-0");
+    expect(options.querySelector('[data-role="composer-secondary-controls"]')).toHaveClass("overflow-x-auto");
   });
 
   it("uses a plain dock without a redundant boundary or decorative transcript fade", () => {
@@ -828,6 +845,7 @@ describe("Composer", () => {
     const { onSubmit } = renderComposer();
     const file = new File(["abc"], "voice.webm", { type: "audio/webm" });
 
+    openAttachmentMenu();
     fireEvent.click(screen.getByRole("button", { name: "Attach audio file" }));
     fireEvent.change(screen.getByLabelText("Audio file input"), {
       target: { files: [file] },
@@ -867,6 +885,7 @@ describe("Composer", () => {
     const { onSubmit } = renderComposer();
     const file = new File(["abc"], "queja.png", { type: "image/png" });
 
+    openAttachmentMenu();
     fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
     fireEvent.change(screen.getByLabelText("Image file input"), {
       target: { files: [file] },

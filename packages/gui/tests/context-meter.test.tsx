@@ -20,6 +20,8 @@ describe("ContextMeter", () => {
     }} />);
 
     const trigger = screen.getByRole("button", { name: "Context 30%: 2.4k / 8k tokens" });
+    expect(trigger).not.toHaveTextContent("30%");
+    expect(trigger).not.toHaveTextContent("Context");
     fireEvent.click(trigger);
     expect(screen.getByRole("status", { name: "Context evidence" })).toHaveTextContent("Provider reported");
     expect(screen.getByRole("progressbar", { name: "Context window used" })).toHaveAttribute("aria-valuenow", "30");
@@ -45,7 +47,7 @@ describe("ContextMeter", () => {
     expect(screen.getByText("No compatible context window was persisted.")).toBeInTheDocument();
 
     rerender(<ContextMeter usage={null} />);
-    expect(screen.getByRole("button", { name: "Context usage unavailable" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Context usage unavailable" })).not.toBeInTheDocument();
     expect(screen.queryByText(/0%/)).not.toBeInTheDocument();
   });
 });

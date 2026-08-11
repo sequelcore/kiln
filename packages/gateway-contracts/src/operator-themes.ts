@@ -114,18 +114,18 @@ export const OPERATOR_THEME_PALETTES: Record<ConcreteOperatorThemeName, Operator
   "kiln-graphite": {
     appearance: "dark",
     surface: {
-      canvas: color(0.18, 0.008, 250),
-      panel: color(0.215, 0.009, 250),
-      raised: color(0.25, 0.011, 250),
-      sunken: color(0.155, 0.007, 250),
-      interactive: color(0.275, 0.013, 250),
-      hover: color(0.32, 0.015, 250),
+      canvas: color(0.18, 0.008, 55),
+      panel: color(0.215, 0.009, 55),
+      raised: color(0.25, 0.011, 55),
+      sunken: color(0.155, 0.007, 55),
+      interactive: color(0.275, 0.013, 55),
+      hover: color(0.32, 0.015, 55),
       selected: color(0.29, 0.035, 220),
     },
     border: {
-      subtle: color(0.3, 0.012, 250),
-      default: color(0.39, 0.016, 250),
-      control: color(0.55, 0.018, 250),
+      subtle: color(0.3, 0.012, 55),
+      default: color(0.39, 0.016, 55),
+      control: color(0.55, 0.018, 55),
       focus: color(0.77, 0.1, 220),
     },
     text: {

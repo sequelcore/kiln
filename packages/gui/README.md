@@ -44,6 +44,12 @@ Obsidian dark surfaces, graphite layering, precise signal color, and controlled
 ember accents. It should read as a serious control plane, not a decorative
 sci-fi skin or a borrowed code-editor theme.
 
+Thinking Orbs and Border Beam provide bounded operational signals in the
+composer. Their state is derived from canonical activity events, paired with
+visible text, and constrained by reduced-motion behavior. AI Elements remain
+source-owned Kiln compositions; reconcile upstream changes selectively rather
+than replacing runtime authority, replay, or accessibility contracts.
+
 ## Layout ownership
 
 The shell is split into a left operator rail, an optional mode panel, and the

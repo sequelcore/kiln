@@ -54,10 +54,12 @@ test.describe("parity category 1 - session lifecycle", () => {
     expect(continuationFrame?.continuationSessionId).toBeTruthy();
     expect(continuationFrame?.sessionIntent).toBeUndefined();
 
-    await page.getByRole("button", { name: "Plan" }).click();
-    await expect(page.getByRole("button", { name: "Plan" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Work mode: Build" }).click();
+    await page.getByRole("button", { name: "Plan for approval" }).click();
+    await expect(page.getByRole("button", { name: "Work mode: Plan" })).toBeVisible();
 
-    await page.getByRole("button", { name: "Plan" }).click();
+    await page.getByRole("button", { name: "Work mode: Plan" }).click();
+    await page.getByRole("button", { name: "Build" }).click();
     const sentFrames = await page.evaluate(() => {
       return (window as unknown as { __kilnSentFrames: Array<{ type?: string }> }).__kilnSentFrames;
     });

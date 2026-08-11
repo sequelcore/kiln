@@ -137,7 +137,7 @@ export function ComposerFrame(props: {
   readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const hasRuntimeControls = Boolean(props.providerControl || props.deliberationControl || props.authorityControl);
+  const hasRouteControls = Boolean(props.providerControl || props.deliberationControl);
   const kilnTheme = useUiStore((state) => state.theme);
   const beamTheme = resolveBorderBeamTheme(kilnTheme);
   const phase = props.activity?.phase ?? "idle";
@@ -201,7 +201,7 @@ export function ComposerFrame(props: {
           theme={beamTheme}
         >
           <InputGroup
-            className="overflow-hidden rounded-xl border-border bg-workspace-viewer-panel shadow-[var(--shadow-elevated)] focus-within:border-ring/70"
+            className="overflow-hidden rounded-xl border-border bg-workspace-viewer-panel focus-within:border-ring/70"
             data-composer-surface="message"
           >
             <InputGroupTextarea
@@ -218,27 +218,31 @@ export function ComposerFrame(props: {
             />
             {props.attachments}
             <InputGroupAddon align="block-end" aria-label="Message options" className="px-2 py-1.5">
-              <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 md:grid-cols-[auto_minmax(0,1fr)_auto]">
-                <div className="flex min-w-0 items-center gap-1">
-                  {props.leadingActions}
+              <div className="flex w-full min-w-0 flex-nowrap items-center gap-1">
+                <div
+                  className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  data-role="composer-secondary-controls"
+                >
+                  <div className="shrink-0" data-role="composer-leading-actions">
+                    {props.leadingActions}
+                  </div>
                   {props.authorityControl ? (
-                    <div className="min-w-0">{props.authorityControl}</div>
+                    <div className="min-w-0 shrink-0">{props.authorityControl}</div>
                   ) : null}
-                </div>
-                <div className="hidden min-w-0 md:block" />
-                <div className="col-span-2 flex min-w-0 flex-wrap items-center justify-end gap-1 md:col-span-1 md:flex-nowrap">
-                  <ComposerContinuityChip hint={props.continuityHint} />
-                  <ContextMeter usage={props.contextUsage} />
-                  {hasRuntimeControls ? (
+                  {hasRouteControls ? (
                     <>
                       {props.providerControl ? (
-                        <div className="min-w-32 max-w-64 flex-1 md:flex-none">{props.providerControl}</div>
+                        <div className="min-w-32 max-w-64 shrink-0">{props.providerControl}</div>
                       ) : null}
                       {props.deliberationControl ? (
                         <div className="shrink-0">{props.deliberationControl}</div>
                       ) : null}
                     </>
                   ) : null}
+                  <ComposerContinuityChip hint={props.continuityHint} />
+                  <ContextMeter usage={props.contextUsage} />
+                </div>
+                <div className="flex shrink-0 items-center justify-end">
                   {props.trailingActions}
                 </div>
               </div>

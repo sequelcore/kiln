@@ -2,6 +2,13 @@ import { expect, test, waitForGuiReady } from "./fixtures/gateway.js";
 
 test.describe("parity category 7 - memory lattice", () => {
   test("opens the Memory mode and renders the gateway-backed graph", async ({ page }) => {
+    const unsupportedRendererColors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "warning" && message.text().includes("THREE.Color: Unknown color model")) {
+        unsupportedRendererColors.push(message.text());
+      }
+    });
+
     await page.goto("/");
     await waitForGuiReady(page);
 
@@ -20,5 +27,6 @@ test.describe("parity category 7 - memory lattice", () => {
     await expect(
       page.getByRole("region", { name: "Memory Lattice surface" }).getByRole("region", { name: "Memory record detail" }),
     ).toContainText("context-admission-evidence");
+    expect(unsupportedRendererColors).toEqual([]);
   });
 });

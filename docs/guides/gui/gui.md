@@ -44,7 +44,10 @@ Use `--dev` only when developing this repository's GUI source. Dev mode expects
 the `packages/gui` workspace to exist in the current Kiln source checkout. Vite
 owns GUI assets in this mode, while the local gateway exposes only the operator
 API and WebSocket contract; a prebuilt `packages/gui/dist` bundle is not a dev
-startup prerequisite.
+startup prerequisite. Kiln waits for Vite readiness before opening the managed
+browser window, tracks the actual DevTools page target rather than a short-lived
+Windows launcher process, and terminates the complete Vite child tree when the
+window closes.
 
 ### App Gateway Attach Mode
 
@@ -129,8 +132,8 @@ GUI theme preference is stored in `~/.kiln/config.yaml` under the shared
 
 GUI and TUI use the same operator theme catalog from
 `@kilnai/gateway-contracts`: `kiln-dark`, `kiln-graphite`, `kiln-light`, and
-`system-follow`. `kiln-dark` is the Obsidian default, `kiln-graphite` is a
-slightly lifted dark surface, and `kiln-light` is the Paper light variant.
+`system-follow`. `kiln-dark` is the cool Obsidian default, `kiln-graphite` is a
+lifted warm-neutral dark surface, and `kiln-light` is the Paper light variant.
 `system-follow` follows the OS color preference in the GUI; in the TUI it
 resolves to the terminal-safe dark palette because there is no reliable
 cross-terminal OS theme bridge.
@@ -188,6 +191,13 @@ warning, danger, or information surfaces. Terminal, canvas, and WebGL widgets
 must use the renderer-safe hex projection instead of parsing CSS `oklch()` or
 carrying fallback colors. This keeps Graphite, Obsidian, Paper, and
 `system-follow` coherent across native DOM and non-DOM renderers.
+
+AI Elements are source-owned composition primitives in this repository, not a
+second runtime authority. Kiln reconciles upstream component improvements
+selectively while retaining canonical task, tool, terminal, context, replay,
+and accessibility contracts. Do not overwrite the local set with a registry
+bulk install or introduce AI SDK estimates where the runtime already projects
+authoritative usage.
 
 Workspace document previews use the same token discipline. Viewer-specific
 surfaces are exposed as `--workspace-viewer`, `--workspace-viewer-panel`, and
@@ -494,6 +504,13 @@ The composer should remain a compact framed control with internal padding, a
 transparent textarea, and a bottom action rail for command, file, approval,
 plan, route, and send affordances. Avoid large detached input cards, duplicate
 status headers, or controls that push the transcript out of view.
+
+During a turn, the composer exposes the canonical activity phase as visible
+text paired with a compact Thinking Orb: solving for thinking, working for tool
+execution, and composing for streamed response. Awaiting approval pauses the
+orb. The containing Border Beam remains a low-strength monochrome pulse during
+work and uses a short controlled ember completion signal. Neither effect may
+infer provider state, replace event evidence, or bypass reduced-motion support.
 
 Provider/model selection and deliberation live in the composer action rail
 because they shape the next submitted turn. The deliberation control appears

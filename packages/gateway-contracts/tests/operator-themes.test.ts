@@ -82,6 +82,19 @@ describe("operator themes", () => {
     }
   });
 
+  it("keeps the two dark expressions perceptually distinct while preserving Kiln signal hues", () => {
+    const obsidian = OPERATOR_THEME_PALETTES["kiln-dark"];
+    const graphite = OPERATOR_THEME_PALETTES["kiln-graphite"];
+
+    expect(obsidian.appearance).toBe("dark");
+    expect(graphite.appearance).toBe("dark");
+    expect(obsidian.surface.canvas.lightness).toBeLessThan(graphite.surface.canvas.lightness);
+    expect(obsidian.surface.canvas.hue).toBe(250);
+    expect(graphite.surface.canvas.hue).toBe(55);
+    expect(obsidian.brand.accent.hue).toBe(65);
+    expect(obsidian.action.primary.hue).toBe(220);
+  });
+
   it("meets text, control, action, and status contrast invariants", () => {
     for (const [name, palette] of Object.entries(OPERATOR_THEME_PALETTES)) {
       expect(contrastRatio(palette.text.default, palette.surface.panel), `${name} default text`).toBeGreaterThanOrEqual(7);
