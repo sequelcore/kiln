@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -35,6 +35,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import {
+  clampSidebarWidth,
+  MAX_SIDEBAR_WIDTH,
+  MIN_SIDEBAR_WIDTH,
+} from "./sidebar-layout.js";
 
 const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
 
@@ -209,23 +214,103 @@ function renderSidebarSurfaceButtons(props: {
 export function PrimarySidebar(props: {
   readonly activeSurface: WorkbenchSurface;
   readonly collapsed: boolean;
+  readonly sidebarWidth: number;
   readonly activityCount: number;
   readonly managedAgentAttentionCount: number;
   readonly sessionsOpen: boolean;
   readonly onSelectSurface: (surface: WorkbenchSurface) => void;
   readonly onToggleCollapsed: () => void;
+  readonly onSidebarWidthChange: (width: number, persist: boolean) => void;
   readonly onSessionsOpenChange: (open: boolean) => void;
   readonly onStartNewSession: () => void;
   readonly sessions: ReactNode;
 }) {
+  const resizeStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    latestWidth: number;
+  } | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const resizeStep = 16;
+
+  const handleResizePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: props.sidebarWidth,
+      latestWidth: props.sidebarWidth,
+    };
+    setResizing(true);
+  };
+  const handleResizePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const state = resizeStateRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const nextWidth = clampSidebarWidth(state.startWidth + event.clientX - state.startX);
+    state.latestWidth = nextWidth;
+    props.onSidebarWidthChange(nextWidth, false);
+  };
+  const handleResizePointerEnd = (event: PointerEvent<HTMLDivElement>) => {
+    const state = resizeStateRef.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    resizeStateRef.current = null;
+    setResizing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    props.onSidebarWidthChange(state.latestWidth, true);
+  };
+  const handleResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? resizeStep * 4 : resizeStep;
+    const nextWidth = event.key === "ArrowRight"
+      ? props.sidebarWidth + step
+      : event.key === "ArrowLeft"
+        ? props.sidebarWidth - step
+        : event.key === "Home"
+          ? MIN_SIDEBAR_WIDTH
+          : event.key === "End"
+            ? MAX_SIDEBAR_WIDTH
+            : null;
+    if (nextWidth === null) return;
+    event.preventDefault();
+    props.onSidebarWidthChange(clampSidebarWidth(nextWidth), true);
+  };
+
   return (
     <aside
       aria-label="Kiln workspace sidebar"
       className={cn(
-        "flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,min-width,max-width]",
-        props.collapsed ? "w-14 min-w-14 max-w-14" : "w-72 min-w-72 max-w-72",
+        "relative flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+        resizing ? "transition-none" : "transition-[width,min-width,max-width]",
+        props.collapsed ? "w-14 min-w-14 max-w-14" : undefined,
       )}
+      style={props.collapsed ? undefined : {
+        width: `${props.sidebarWidth}px`,
+        minWidth: `${props.sidebarWidth}px`,
+        maxWidth: `${props.sidebarWidth}px`,
+      }}
     >
+      {!props.collapsed ? (
+        <div
+          role="separator"
+          aria-label="Resize sidebar"
+          aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={MAX_SIDEBAR_WIDTH}
+          aria-valuenow={props.sidebarWidth}
+          tabIndex={0}
+          className="absolute inset-y-0 right-0 z-20 w-2 translate-x-1/2 cursor-col-resize touch-none outline-none focus-visible:bg-sidebar-ring/70"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+          onKeyDown={handleResizeKeyDown}
+        />
+      ) : null}
       <header className={cn("flex min-h-12 items-center px-2", props.collapsed ? "justify-center" : "gap-2")}>
         {props.collapsed ? (
           <Button

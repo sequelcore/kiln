@@ -1,10 +1,21 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   DesktopWorkbenchHeader,
   MobileWorkbenchHeader,
   PrimarySidebar,
 } from "../src/components/workbench-navigation.js";
+
+function pointerEvent(type: string, values: { pointerId: number; clientX: number; button?: number }): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    pointerId: { value: values.pointerId },
+    clientX: { value: values.clientX },
+    button: { value: values.button ?? 0 },
+  });
+  return event;
+}
 
 describe("Workbench navigation", () => {
   it("renders primary surfaces with badges and collapsed session access", () => {
@@ -14,11 +25,13 @@ describe("Workbench navigation", () => {
       <PrimarySidebar
         activeSurface="agents"
         collapsed
+        sidebarWidth={288}
         activityCount={3}
         managedAgentAttentionCount={2}
         sessionsOpen={false}
         onSelectSurface={onSelectSurface}
         onToggleCollapsed={vi.fn()}
+        onSidebarWidthChange={vi.fn()}
         onSessionsOpenChange={vi.fn()}
         onStartNewSession={vi.fn()}
         sessions={<div>Session list</div>}
@@ -44,11 +57,13 @@ describe("Workbench navigation", () => {
       <PrimarySidebar
         activeSurface="chat"
         collapsed={false}
+        sidebarWidth={288}
         activityCount={0}
         managedAgentAttentionCount={0}
         sessionsOpen={false}
         onSelectSurface={vi.fn()}
         onToggleCollapsed={vi.fn()}
+        onSidebarWidthChange={vi.fn()}
         onSessionsOpenChange={vi.fn()}
         onStartNewSession={onStartNewSession}
         sessions={<div>Session list</div>}
@@ -78,6 +93,48 @@ describe("Workbench navigation", () => {
     expect(onStartNewSession).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Session list")).toBeVisible();
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+  });
+
+  it("resizes the expanded sidebar with pointer and keyboard input", () => {
+    const changes: Array<{ width: number; persist: boolean }> = [];
+    function Harness() {
+      const [width, setWidth] = useState(288);
+      return (
+        <PrimarySidebar
+          activeSurface="chat"
+          collapsed={false}
+          sidebarWidth={width}
+          activityCount={0}
+          managedAgentAttentionCount={0}
+          sessionsOpen={false}
+          onSelectSurface={vi.fn()}
+          onToggleCollapsed={vi.fn()}
+          onSidebarWidthChange={(nextWidth, persist) => {
+            changes.push({ width: nextWidth, persist });
+            setWidth(nextWidth);
+          }}
+          onSessionsOpenChange={vi.fn()}
+          onStartNewSession={vi.fn()}
+          sessions={<div>Session list</div>}
+        />
+      );
+    }
+    Element.prototype.setPointerCapture = vi.fn();
+    Element.prototype.hasPointerCapture = vi.fn(() => true);
+    Element.prototype.releasePointerCapture = vi.fn();
+    render(<Harness />);
+
+    const handle = screen.getByRole("separator", { name: "Resize sidebar" });
+    fireEvent(handle, pointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 288 }));
+    fireEvent(handle, pointerEvent("pointermove", { pointerId: 1, clientX: 336 }));
+    expect(screen.getByRole("complementary", { name: "Kiln workspace sidebar" })).toHaveStyle({ width: "336px" });
+    expect(changes.at(-1)).toEqual({ width: 336, persist: false });
+
+    fireEvent(handle, pointerEvent("pointerup", { pointerId: 1, clientX: 336 }));
+    expect(changes.at(-1)).toEqual({ width: 336, persist: true });
+
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(changes.at(-1)).toEqual({ width: 320, persist: true });
   });
 
   it("keeps the mobile surface selector and drawer controls explicit", () => {

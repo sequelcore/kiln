@@ -1175,6 +1175,32 @@ describe("session-store", () => {
     expect(state.activityPhase).toBe("idle");
   });
 
+  it("keeps the current session intact when it is selected again", () => {
+    const messages = [
+      {
+        id: "message-a",
+        role: "assistant" as const,
+        content: "current visible message",
+        createdAt: "2026-04-28T19:00:00.000Z",
+      },
+    ];
+    useSessionStore.setState({
+      selectedSessionId: "session-a",
+      liveSessionId: "session-a",
+      continuationTargetId: "session-a",
+      status: "running",
+      messages,
+    });
+
+    useSessionStore.getState().setSelectedSessionId("session-a");
+
+    const state = useSessionStore.getState();
+    expect(state.selectedSessionId).toBe("session-a");
+    expect(state.liveSessionId).toBe("session-a");
+    expect(state.continuationTargetId).toBe("session-a");
+    expect(state.messages).toBe(messages);
+  });
+
   it("clears continuation target when selecting a blank session", () => {
     useSessionStore.getState().setContinuation("session-a");
     useSessionStore.setState({

@@ -1,36 +1,12 @@
 import type { ComponentProps } from "react";
 import { ApprovalsPanel } from "./approvals-panel.js";
 import { ChangedFilesPanel } from "./changed-files-panel.js";
-import { SessionList } from "./session-list.js";
 import { WorkspacePanel } from "./workspace-panel.js";
 import type { InspectorMode } from "./workbench-navigation.js";
 
-type SessionListProps = ComponentProps<typeof SessionList>;
 type WorkspacePanelProps = ComponentProps<typeof WorkspacePanel>;
 type ChangedFilesPanelProps = ComponentProps<typeof ChangedFilesPanel>;
 type ApprovalsPanelProps = ComponentProps<typeof ApprovalsPanel>;
-
-export function WorkbenchSessionsPanel(props: {
-  readonly sessions: SessionListProps["sessions"];
-  readonly selectedSessionId: string | null;
-  readonly continuity: SessionListProps["continuity"];
-  readonly loadError?: SessionListProps["loadError"];
-  readonly onRetryLoad?: SessionListProps["onRetryLoad"];
-  readonly onSelectSession: (sessionId: string) => void;
-  readonly onStartNewSession: () => void;
-}) {
-  return (
-    <SessionList
-      sessions={props.sessions}
-      selectedSessionId={props.selectedSessionId}
-      continuity={props.continuity}
-      loadError={props.loadError}
-      onRetryLoad={props.onRetryLoad}
-      onSelect={props.onSelectSession}
-      onStartNewSession={props.onStartNewSession}
-    />
-  );
-}
 
 export function WorkbenchInspectorPanel(props: {
   readonly mode: InspectorMode;

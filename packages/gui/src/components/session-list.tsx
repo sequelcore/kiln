@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
+import { getGuiProviderMetadata, type OperatorSessionSummary } from "@kilnai/gateway-contracts";
 import { CircleAlert, CirclePause, CircleX, LoaderCircle, Plus, Search, Unplug, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ProviderGlyph } from "@/components/provider-glyph";
 import type { SessionContinuity } from "@/lib/session-continuity";
-import { buildSessionRowBadges } from "@/lib/session-continuity-view";
 import { cn } from "@/lib/utils";
+
+export type SessionHistoryLoadState = "loading" | "empty" | "ready" | "stale-error" | "fatal-error";
 
 interface SessionListProps {
   readonly sessions: readonly OperatorSessionSummary[];
   readonly selectedSessionId: string | null;
   readonly continuity: SessionContinuity;
-  readonly loadError?: string;
+  readonly loadState: SessionHistoryLoadState;
   readonly onRetryLoad?: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly onStartNewSession: () => void;
@@ -111,13 +113,8 @@ function resolveSessionIndicator(
   session: OperatorSessionSummary,
   continuity: SessionContinuity,
 ): SessionIndicator | null {
-  const badges = buildSessionRowBadges({
-    sessionId: session.sessionId,
-    continuity,
-    outcome: null,
-  });
-  if (badges.some((badge) => badge.label === "Running")) return "running";
-  if (badges.some((badge) => badge.label === "Detached")) return "background";
+  if (continuity.detachedSessionIds.includes(session.sessionId)) return "background";
+  if (continuity.liveSessionId === session.sessionId && continuity.status === "running") return "running";
   if (
     session.lastTurnOutcome === "paused"
     || session.lastTurnOutcome === "failed"
@@ -142,13 +139,13 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
   return (
     <span
       data-slot="session-status"
+      role="img"
       aria-label={label}
-      role="status"
       title={label}
       className={cn("flex shrink-0 items-center gap-1 text-[10px] font-medium [&_svg]:size-3", className)}
     >
       {state === "running" ? (
-        <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
+        <LoaderCircle aria-hidden="true" />
       ) : state === "background" ? (
         <Unplug aria-hidden="true" />
       ) : state === "paused" ? (
@@ -161,6 +158,12 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
       <span>{visibleLabel}</span>
     </span>
   );
+}
+
+function sessionRouteLabel(session: OperatorSessionSummary): string | null {
+  if (!session.lastRoute) return null;
+  const provider = getGuiProviderMetadata(session.lastRoute.provider)?.label ?? session.lastRoute.provider;
+  return `Last route: ${provider}${session.lastRoute.model ? ` · ${session.lastRoute.model}` : ""}`;
 }
 
 export function SessionList(props: SessionListProps) {
@@ -266,16 +269,30 @@ export function SessionList(props: SessionListProps) {
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {props.loadError ? (
+        {props.loadState === "stale-error" ? (
+          <div className="mx-2 mb-1 flex items-center gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
+            <span className="min-w-0 flex-1">Could not refresh sessions.</span>
+            {props.onRetryLoad ? (
+              <Button type="button" variant="ghost" size="xs" onClick={props.onRetryLoad}>Retry</Button>
+            ) : null}
+          </div>
+        ) : null}
+        {props.loadState === "fatal-error" ? (
           <div className="m-2 rounded-md border border-status-danger-border bg-status-danger-background px-3 py-3 text-xs text-error" role="alert">
-            <p>{props.loadError}</p>
+            <p>Could not load session history.</p>
             {props.onRetryLoad ? (
               <Button type="button" variant="outline" size="xs" className="mt-2" onClick={props.onRetryLoad}>
                 Retry
               </Button>
             ) : null}
           </div>
-        ) : props.sessions.length === 0 ? (
+        ) : props.loadState === "loading" ? (
+          <div role="status" aria-label="Loading sessions" className="space-y-2 px-2 py-3">
+            {[0, 1, 2, 3].map((index) => (
+              <div key={index} className="h-8 animate-pulse rounded-md bg-muted/45 motion-reduce:animate-none" />
+            ))}
+          </div>
+        ) : props.loadState === "empty" ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 py-10 text-center">
             <p className="text-pretty text-xs leading-5 text-muted-foreground">No sessions yet.</p>
             <Button type="button" variant="ghost" size="sm" onClick={props.onStartNewSession}>
@@ -297,6 +314,7 @@ export function SessionList(props: SessionListProps) {
                   {group.items.map(({ session, indicator }) => {
                     const index = visibleIndexById.get(session.sessionId) ?? -1;
                     const selected = props.selectedSessionId === session.sessionId;
+                    const routeLabel = sessionRouteLabel(session);
                     return (
                       <li key={session.sessionId}>
                         <button
@@ -335,6 +353,17 @@ export function SessionList(props: SessionListProps) {
                             selected ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-sidebar-foreground/80",
                           )}
                         >
+                          {session.lastRoute && routeLabel ? (
+                            <span
+                              data-slot="session-route"
+                              role="img"
+                              aria-label={routeLabel}
+                              title={routeLabel}
+                              className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                            >
+                              <ProviderGlyph providerId={session.lastRoute.provider} className="size-3.5" />
+                            </span>
+                          ) : null}
                           <span
                             data-slot="session-title"
                             className="session-title-fade min-w-0 flex-1 overflow-hidden whitespace-nowrap"

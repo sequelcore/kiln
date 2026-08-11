@@ -86,6 +86,9 @@ export const createSessionListSlice: StateCreator<
   },
 
   setSelectedSessionId: (sessionId) => {
+    if (get().selectedSessionId === sessionId) {
+      return;
+    }
     clearStoredContinuationTarget();
     set({
       selectedSessionId: sessionId,

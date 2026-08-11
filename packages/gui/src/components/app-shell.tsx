@@ -53,15 +53,19 @@ import { createProviderPickerActions } from "./app-shell-provider-actions.js";
 import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
 import {
   WorkbenchInspectorPanel,
-  WorkbenchSessionsPanel,
 } from "./workbench-side-panels.js";
+import { SessionList, type SessionHistoryLoadState } from "./session-list.js";
 import {
-  persistSidebarCollapsedPreference,
-  readSidebarCollapsedPreference,
   resolveGatewayHttpBaseUrl,
   toWsUrl,
   OPERATOR_TERMINAL_PANEL_ID,
 } from "./app-shell-runtime.js";
+import {
+  persistSidebarCollapsedPreference,
+  persistSidebarWidthPreference,
+  readSidebarCollapsedPreference,
+  readSidebarWidthPreference,
+} from "./sidebar-layout.js";
 import {
   AppGatewayTargetSelector,
   DeliberationControl,
@@ -242,6 +246,7 @@ function useAppShellRuntimeView() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState<MobileDrawerMode>("sessions");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsedPreference);
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidthPreference);
   const [sessionPopoverOpen, setSessionPopoverOpen] = useState(false);
   const [workbenchSurface, setWorkbenchSurface] = useState<WorkbenchSurface>("chat");
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("workspace");
@@ -973,14 +978,21 @@ function useAppShellRuntimeView() {
       setActiveSurface("chat");
     }
   };
+  const sessionHistoryLoadState: SessionHistoryLoadState = sessionsQuery.error
+    ? sessionList.length > 0 ? "stale-error" : "fatal-error"
+    : sessionsQuery.isPending && sessionList.length === 0
+      ? "loading"
+      : sessionList.length === 0
+        ? "empty"
+        : "ready";
   const sessionsPanel = (
-    <WorkbenchSessionsPanel
+    <SessionList
       sessions={sessionList}
       selectedSessionId={selectedSessionId}
       continuity={sessionContinuity}
-      loadError={sessionsQuery.error ? "Could not load session history." : undefined}
+      loadState={sessionHistoryLoadState}
       onRetryLoad={() => void sessionsQuery.refetch()}
-      onSelectSession={(sessionId) => {
+      onSelect={(sessionId) => {
         setSelectedSessionId(sessionId);
         setWorkbenchSurface("chat");
         setActiveSurface("chat");
@@ -1065,6 +1077,7 @@ function useAppShellRuntimeView() {
           <PrimarySidebar
             activeSurface={workbenchSurface}
             collapsed={sidebarCollapsed}
+            sidebarWidth={sidebarWidth}
             activityCount={activityEntries.length}
             managedAgentAttentionCount={managedAgentAttentionCount}
             sessionsOpen={sessionPopoverOpen}
@@ -1075,6 +1088,10 @@ function useAppShellRuntimeView() {
               }
             }}
             onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            onSidebarWidthChange={(width, persist) => {
+              setSidebarWidth(width);
+              if (persist) persistSidebarWidthPreference(width);
+            }}
             onSessionsOpenChange={setSessionPopoverOpen}
             onStartNewSession={startNewSession}
             sessions={sessionsPanel}
