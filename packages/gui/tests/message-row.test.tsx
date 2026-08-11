@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageRow } from "../src/components/message-row.js";
+import { useSessionStore } from "../src/lib/session-store/index.js";
 
 describe("MessageRow", () => {
+  beforeEach(() => {
+    useSessionStore.setState({ messages: [], outboundSend: null });
+  });
   it("composes official shadcn message and bubble primitives", () => {
     const { container } = render(
       <MessageRow
@@ -156,5 +160,32 @@ describe("MessageRow", () => {
     );
 
     expect(screen.getByRole("button", { name: "Generate audio" })).toBeInTheDocument();
+  });
+
+  it("keeps voice synthesis failure and retry on the source message", () => {
+    const outboundSend = vi.fn();
+    const message = {
+      id: "msg-voice-failed",
+      role: "assistant" as const,
+      content: "Generate audio when requested.",
+      sourceMessageId: "runtime-message-voice-failed",
+      createdAt: "2026-05-15T00:00:00.000Z",
+      parts: [{ type: "text" as const, text: "Generate audio when requested." }],
+      voiceSynthesisStatus: "error" as const,
+      voiceSynthesisFailure: "Speech synthesis is unavailable.",
+    };
+    useSessionStore.setState({ messages: [message], outboundSend });
+    render(
+      <MessageRow
+        message={message}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry audio generation" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Speech synthesis is unavailable.");
+    expect(outboundSend).toHaveBeenCalledWith(expect.objectContaining({
+      type: "voice_synthesis_request",
+      sourceMessageId: "runtime-message-voice-failed",
+    }));
   });
 });

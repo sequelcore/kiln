@@ -60,6 +60,39 @@ export type ProviderAuthDetails =
 
 export type RouteMode = "user" | "auto" | "responding";
 
+export interface ProviderOperationFailure {
+  readonly operation: "catalog" | "switch" | "authenticate";
+  readonly message: string;
+  readonly provider?: string;
+  readonly model?: string | null;
+  readonly requestId?: string;
+}
+
+export interface GoalControlFailure {
+  readonly requestId: string;
+  readonly goalRunId: string;
+  readonly action: "pause" | "resume" | "update_objective" | "cancel";
+  readonly message: string;
+}
+
+export interface ApprovalResponseFailure {
+  readonly requestId: string;
+  readonly approvalId: string;
+  readonly decision: "approve" | "reject";
+  readonly message: string;
+}
+
+export interface ApprovalResponsePending {
+  readonly requestId: string;
+  readonly approvalId: string;
+  readonly decision: "approve" | "reject";
+}
+
+export interface SessionControlFailure {
+  readonly action: "clear" | "cancel_turn";
+  readonly message: string;
+}
+
 export interface SessionStoreState {
   readonly status: SessionStatus;
   readonly messages: readonly Message[];
@@ -68,9 +101,10 @@ export interface SessionStoreState {
   readonly currentAssistant: string | null;
   readonly planMode: boolean;
   readonly activity: ActivityState | null;
-  readonly errorBanner: string | null;
+  readonly sessionControlFailure: SessionControlFailure | null;
   readonly providerCatalogStatus: ProviderCatalogStatus;
   readonly providerCatalogError: string | null;
+  readonly providerOperationFailure: ProviderOperationFailure | null;
   readonly providers: readonly ProviderDescriptor[];
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
@@ -99,6 +133,9 @@ export interface SessionStoreState {
     readonly goalRunId: string;
     readonly action: "pause" | "resume" | "update_objective" | "cancel";
   } | null;
+  readonly goalControlFailure: GoalControlFailure | null;
+  readonly approvalResponseFailure: ApprovalResponseFailure | null;
+  readonly approvalResponsesPending: readonly ApprovalResponsePending[];
   readonly providerSwitching: boolean;
   readonly providerSwitchTarget: ProviderSwitchTarget | null;
   readonly providerAuthenticating: boolean;
@@ -169,6 +206,7 @@ export interface ProviderLifecycleActions {
     providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void;
   onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
+  onProviderChangeFailed: (frame: Extract<GuiInboundFrame, { type: "provider_change_failed" }>) => void;
   onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
@@ -208,6 +246,7 @@ export interface ApprovalGoalActions {
     readonly reason?: string;
   }) => boolean;
   onGoalControlResult: (frame: Extract<GuiInboundFrame, { type: "goal_control_result" }>) => void;
+  onApprovalResponseResult: (frame: Extract<GuiInboundFrame, { type: "approval_response_result" }>) => void;
   sendApprovalResponse: (
     approved: boolean,
     reason: string | undefined,
@@ -217,8 +256,6 @@ export interface ApprovalGoalActions {
 }
 
 export interface ErrorHandlingActions {
-  setErrorBanner: (message: string | null) => void;
-  clearErrorBanner: () => void;
   onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
 }
 

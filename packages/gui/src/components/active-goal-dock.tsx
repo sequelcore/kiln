@@ -26,6 +26,7 @@ export type ActiveGoalAction = "pause" | "resume" | "edit" | "cancel";
 export interface ActiveGoalDockProps {
   readonly activity: WorkflowGoalActivity;
   readonly pendingAction?: ActiveGoalAction;
+  readonly failureMessage?: string;
   readonly onPause?: () => void;
   readonly onResume?: () => void;
   readonly onUpdateObjective?: (objective: string) => boolean;
@@ -101,10 +102,11 @@ export function ActiveGoalDock(props: ActiveGoalDockProps) {
   }
 
   return (
-    <div
-      className="flex min-w-0 items-center gap-1 rounded-lg border border-border/70 bg-workspace-viewer-panel px-2 py-1 shadow-sm"
-      data-role="active-goal-dock"
-    >
+    <div className="grid gap-1">
+      <div
+        className="flex min-w-0 items-center gap-1 rounded-lg border border-border/70 bg-workspace-viewer-panel px-2 py-1 shadow-sm"
+        data-role="active-goal-dock"
+      >
       <Popover>
         <PopoverTrigger
           aria-label={`Open goal progress: ${props.activity.goal.objective}`}
@@ -220,6 +222,7 @@ export function ActiveGoalDock(props: ActiveGoalDockProps) {
           </Button>
         </div>
       ) : null}
+      </div>
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent initialFocus={objectiveInputRef}>
           <DialogHeader>
@@ -262,6 +265,14 @@ export function ActiveGoalDock(props: ActiveGoalDockProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {props.failureMessage ? (
+        <p
+          className="rounded-md border border-status-danger-border bg-status-danger-background px-3 py-2 text-xs text-error"
+          role="alert"
+        >
+          {props.failureMessage}
+        </p>
+      ) : null}
     </div>
   );
 }

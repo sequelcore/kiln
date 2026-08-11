@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ApprovalRequest } from "../lib/session-store/index.js";
+import type { ApprovalRequest, ApprovalResponseFailure } from "../lib/session-store/index.js";
 import { CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,7 @@ import { InspectorDetailRow, InspectorEmptyState, InspectorPanelShell } from "./
 
 interface ApprovalsPanelProps {
   readonly approvals: readonly ApprovalRequest[];
+  readonly responseFailure?: ApprovalResponseFailure | null;
   readonly onApprove: (approvalId: string) => void;
   readonly onDeny: (approvalId: string) => void;
 }
@@ -126,6 +127,11 @@ export function ApprovalsPanel(props: ApprovalsPanelProps) {
                   Deny
                 </Button>
               </div>
+              {props.responseFailure?.approvalId === selectedApproval.id ? (
+                <p className="rounded-md border border-status-danger-border bg-status-danger-background px-3 py-2 text-xs text-error" role="alert">
+                  {props.responseFailure.message}
+                </p>
+              ) : null}
             </section>
           ) : (
             <div className="grid h-full place-items-center text-center">

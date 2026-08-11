@@ -36,11 +36,10 @@ import { deriveSessionContinuity } from "../lib/session-continuity.js";
 import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
 import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";
 import type { CommandPaletteItem } from "./command-palette.js";
-import { ErrorBanner } from "./error-banner.js";
 import { ProviderStatus } from "./provider-status.js";
 import { WorkbenchSurfaces } from "./workbench-surfaces.js";
 import { useWorkspaceDocuments } from "./use-workspace-documents.js";
-import { useCockpitActions } from "./use-cockpit-actions.js";
+import { useCockpitActions, type ManagedAgentActionFailure } from "./use-cockpit-actions.js";
 import {
   operatorCommandToPaletteItem,
   resolveActiveChatWorkspaceSurface,
@@ -246,7 +245,7 @@ function useAppShellRuntimeView() {
   const [sessionPopoverOpen, setSessionPopoverOpen] = useState(false);
   const [workbenchSurface, setWorkbenchSurface] = useState<WorkbenchSurface>("chat");
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("workspace");
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [deliberationLevel, setDeliberationLevel] = useState<GuiDeliberationLevelId | null>(null);
   const [requestedAuthority, setRequestedAuthority] = useState<RequestableTurnAuthority>("auto");
   const [selectedGatewayTargetId, setSelectedGatewayTargetId] = useState<string | null>(null);
@@ -257,6 +256,7 @@ function useAppShellRuntimeView() {
   const [memoryLatticeInvalidationTick, setMemoryLatticeInvalidationTick] = useState(0);
   const [setupActionInFlight, setSetupActionInFlight] = useState<KilnConfigSetupAction | null>(null);
   const [setupActionFeedback, setSetupActionFeedback] = useState<string | null>(null);
+  const [managedAgentActionFailure, setManagedAgentActionFailure] = useState<ManagedAgentActionFailure | null>(null);
   const [operatorTerminalAvailable, setOperatorTerminalAvailable] = useState(false);
   const [operatorTerminalExpanded, setOperatorTerminalExpandedState] = useState(false);
   const operatorTerminalAvailableRef = useRef(false);
@@ -311,7 +311,7 @@ function useAppShellRuntimeView() {
   const providerDiscovery = useSessionStore((state) => state.providerDiscovery);
   const planMode = useSessionStore((state) => state.planMode);
   const activity = useSessionStore((state) => state.activity);
-  const errorBanner = useSessionStore((state) => state.errorBanner);
+  const sessionControlFailure = useSessionStore((state) => state.sessionControlFailure);
   const providerCatalogStatus = useSessionStore((state) => state.providerCatalogStatus);
   const providerCatalogError = useSessionStore((state) => state.providerCatalogError);
   const activeProvider = useSessionStore((state) => state.activeProvider);
@@ -338,8 +338,6 @@ function useAppShellRuntimeView() {
   const setSessionList = useSessionStore((state) => state.setSessionList);
   const setSelectedSessionId = useSessionStore((state) => state.setSelectedSessionId);
   const viewSessionDetail = useSessionStore((state) => state.viewSessionDetail);
-  const setErrorBanner = useSessionStore((state) => state.setErrorBanner);
-  const clearErrorBanner = useSessionStore((state) => state.clearErrorBanner);
   const markProviderCatalogRefreshing = useSessionStore((state) => state.markProviderCatalogRefreshing);
   const markProviderCatalogError = useSessionStore((state) => state.markProviderCatalogError);
   const onWelcome = useSessionStore((state) => state.onWelcome);
@@ -352,6 +350,7 @@ function useAppShellRuntimeView() {
   const onError = useSessionStore((state) => state.onError);
   const onCleared = useSessionStore((state) => state.onCleared);
   const onProviderChanged = useSessionStore((state) => state.onProviderChanged);
+  const onProviderChangeFailed = useSessionStore((state) => state.onProviderChangeFailed);
   const onProviderAuthStarted = useSessionStore((state) => state.onProviderAuthStarted);
   const onProviderAuthCompleted = useSessionStore((state) => state.onProviderAuthCompleted);
   const onProviderAuthFailed = useSessionStore((state) => state.onProviderAuthFailed);
@@ -368,7 +367,10 @@ function useAppShellRuntimeView() {
   const cancelActiveTurn = useSessionStore((state) => state.cancelActiveTurn);
   const controlGoal = useSessionStore((state) => state.controlGoal);
   const goalControlPending = useSessionStore((state) => state.goalControlPending);
+  const goalControlFailure = useSessionStore((state) => state.goalControlFailure);
   const onGoalControlResult = useSessionStore((state) => state.onGoalControlResult);
+  const approvalResponseFailure = useSessionStore((state) => state.approvalResponseFailure);
+  const onApprovalResponseResult = useSessionStore((state) => state.onApprovalResponseResult);
   const turnCancelPending = useSessionStore((state) => state.turnCancelPending);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
@@ -379,7 +381,6 @@ function useAppShellRuntimeView() {
   const gatewayClient = useMemo(() => new GuiGatewayClient(resolveGatewayHttpBaseUrl()), []);
   const workspaceDocuments = useWorkspaceDocuments({
     gatewayClient,
-    onError: setErrorBanner,
     onLastDocumentClosed: () => {
       if (activeSurface === "workspace") {
         setActiveSurface("chat");
@@ -641,11 +642,13 @@ function useAppShellRuntimeView() {
       onDone,
       onTurnCancelResult,
       onGoalControlResult,
+      onApprovalResponseResult,
       onVoiceSynthesisCompleted,
       onVoiceSynthesisFailed,
       onError,
       onCleared,
       onProviderChanged,
+      onProviderChangeFailed,
       onProviderAuthStarted,
       onProviderAuthCompleted,
       onProviderAuthFailed,
@@ -668,8 +671,19 @@ function useAppShellRuntimeView() {
       refetchDashboard: () => {
         void dashboardQuery.refetch();
       },
-      setErrorBanner,
-      clearErrorBanner,
+      onManagedAgentControlResult: (frame) => {
+        if (frame.status === "failed") {
+          setManagedAgentActionFailure({
+            action: frame.action,
+            invocationId: frame.invocationId,
+            message: frame.reason ?? `Managed agent ${frame.action} failed.`,
+          });
+          return;
+        }
+        setManagedAgentActionFailure((current) => (
+          current?.invocationId === frame.invocationId && current.action === frame.action ? null : current
+        ));
+      },
       invalidateMemoryLattice: () => setMemoryLatticeInvalidationTick((tick) => tick + 1),
     }),
     onStateChange: (state) => {
@@ -677,14 +691,14 @@ function useAppShellRuntimeView() {
         if (useSessionStore.getState().status === "idle") {
           setConnectionStatus("connecting");
         }
-        clearErrorBanner();
+        setGatewayError(null);
       } else if (state === "connecting" || state === "reconnecting") {
         setOperatorTerminalCapability(false);
         setConnectionStatus("connecting");
       } else if (state === "closed") {
         setOperatorTerminalCapability(false);
         setConnectionStatus("error");
-        setErrorBanner("Gateway disconnected.");
+        setGatewayError("Gateway disconnected.");
       }
     },
   });
@@ -758,37 +772,18 @@ function useAppShellRuntimeView() {
   }, [sessionsQuery.data, setSessionList]);
 
   useEffect(() => {
-    if (sessionsQuery.error) {
-      setErrorBanner("Could not load session history.");
-    }
-  }, [sessionsQuery.error, setErrorBanner]);
-
-  useEffect(() => {
     if (sessionDetailQuery.data && sessionDetailQuery.data.id === selectedSessionId) {
       viewSessionDetail(sessionDetailQuery.data);
     }
   }, [selectedSessionId, sessionDetailQuery.data, viewSessionDetail]);
 
   useEffect(() => {
-    if (sessionDetailQuery.error) {
-      setErrorBanner("Could not load session transcript.");
-    }
-  }, [sessionDetailQuery.error, setErrorBanner]);
-
-  useEffect(() => {
     if (dashboardQuery.error) {
-      setErrorBanner("Could not load dashboard state.");
       if (providerCatalogStatus !== "ready") {
         markProviderCatalogError("Could not load provider discovery.");
       }
     }
-  }, [dashboardQuery.error, markProviderCatalogError, providerCatalogStatus, setErrorBanner]);
-
-  useEffect(() => {
-    if (!dashboardQuery.error && dashboardQuery.data && errorBanner === "Could not load dashboard state.") {
-      clearErrorBanner();
-    }
-  }, [clearErrorBanner, dashboardQuery.data, dashboardQuery.error, errorBanner]);
+  }, [dashboardQuery.error, markProviderCatalogError, providerCatalogStatus]);
 
   useEffect(() => {
     if (!dashboardQuery.error && dashboardQuery.data) {
@@ -838,7 +833,7 @@ function useAppShellRuntimeView() {
     selectedGatewayTarget,
     selectedSessionId,
     sendFrame: () => sendRef.current,
-    onError: setErrorBanner,
+    onFailure: setManagedAgentActionFailure,
   });
   const sendTargetedApprovalResponse = (
     approved: boolean,
@@ -899,7 +894,7 @@ function useAppShellRuntimeView() {
     }
   }
   const paletteCommands = paletteMode === "theme" ? themeCommands : rootCommands;
-  const runtimeBootstrapReady = gatewayReady && providerCatalogStatus === "ready";
+  const runtimeBootstrapReady = gatewayReady && wsState === "open" && providerCatalogStatus === "ready";
   const bootstrapTitle = gatewayError || providerCatalogStatus === "error"
     ? "Kiln runtime needs attention"
     : "Starting Kiln runtime";
@@ -914,7 +909,6 @@ function useAppShellRuntimeView() {
     providerCatalogStatus === "error" ? providerCatalogError ?? "Provider discovery failed." : null
   );
   const retryBootstrap = () => {
-    clearErrorBanner();
     setGatewayError(null);
     setGatewayReady(false);
     setGatewayAttempt((count) => count + 1);
@@ -983,6 +977,8 @@ function useAppShellRuntimeView() {
       sessions={sessionList}
       selectedSessionId={selectedSessionId}
       continuity={sessionContinuity}
+      loadError={sessionsQuery.error ? "Could not load session history." : undefined}
+      onRetryLoad={() => void sessionsQuery.refetch()}
       onSelectSession={(sessionId) => {
         setSelectedSessionId(sessionId);
         setWorkbenchSurface("chat");
@@ -998,6 +994,8 @@ function useAppShellRuntimeView() {
   const inspector = (
     <WorkbenchInspectorPanel
       mode={inspectorMode}
+      workspaceLoadError={dashboardQuery.error ? "Could not load workspace state." : undefined}
+      onRetryWorkspaceLoad={() => void dashboardQuery.refetch()}
       gatewayWorkingDirectory={workingDirectory}
       workspaceTree={dashboardData?.workspaceTree}
       workspaceClient={gatewayClient}
@@ -1005,6 +1003,7 @@ function useAppShellRuntimeView() {
       selectedFilePath={workspaceDocuments.selectedPath}
       changedFiles={changedFiles}
       approvals={pendingApprovals}
+      approvalResponseFailure={approvalResponseFailure}
       onOpenFile={openWorkspaceFile}
       onApprove={(approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId)}
       onDeny={(approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId)}
@@ -1022,8 +1021,7 @@ function useAppShellRuntimeView() {
   const providerPickerActions = createProviderPickerActions({
     switchProvider,
     authenticateProvider,
-    readErrorBanner: () => useSessionStore.getState().errorBanner,
-    setErrorBanner,
+    readProviderOperationFailure: () => useSessionStore.getState().providerOperationFailure,
     onProvidersRefreshed,
     sendRefreshProviders: () => {
       if (wsState === "open") {
@@ -1039,21 +1037,6 @@ function useAppShellRuntimeView() {
 
   return (
     <WorkbenchChrome>
-      {errorBanner ? (
-        <div className="pointer-events-none absolute inset-x-3 top-3 z-50 flex justify-center sm:inset-x-6">
-          <div className="pointer-events-auto w-full max-w-5xl">
-            <ErrorBanner
-              message={errorBanner}
-              onDismiss={clearErrorBanner}
-              onRetry={() => {
-                clearErrorBanner();
-                setGatewayAttempt((count) => count + 1);
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
-
       <Suspense fallback={null}>
         <CommandPalette
           open={isPaletteOpen}
@@ -1160,6 +1143,7 @@ function useAppShellRuntimeView() {
             activeSurface={workbenchSurface}
             chatWorkbench={{
               pendingApprovals,
+              approvalResponseFailure,
               selectedSessionId,
               onApprove: (approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId),
               onDeny: (approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId),
@@ -1206,6 +1190,8 @@ function useAppShellRuntimeView() {
             transcript={{
               entries: conversationEntries,
               workflowActivity,
+              loadError: sessionDetailQuery.error ? "Could not load this session transcript." : undefined,
+              onRetryLoad: () => void sessionDetailQuery.refetch(),
               loadResourceDataUrl: (uri) => gatewayClient.loadResourceDataUrl(uri, cockpitActions.resourceTarget(uri)),
               onApprove: (approvalId) => sendTargetedApprovalResponse(true, undefined, approvalId),
               onDeny: (approvalId) => sendTargetedApprovalResponse(false, undefined, approvalId),
@@ -1226,6 +1212,8 @@ function useAppShellRuntimeView() {
               pendingGoalAction: goalControlPending?.goalRunId === workflowActivity.foregroundGoal?.goal.id
                 ? goalControlPending?.action
                 : undefined,
+              goalControlFailure: goalControlFailure ?? undefined,
+              sessionControlFailure: sessionControlFailure?.message,
               providerControl: (
                 <ProviderStatus
                   compact
@@ -1298,6 +1286,7 @@ function useAppShellRuntimeView() {
               onOpenResource: (uri, target) => void cockpitActions.openResource(uri, target),
               onCancel: cockpitActions.cancelManagedAgent,
               onPrompt: cockpitActions.promptManagedAgent,
+              actionFailure: managedAgentActionFailure,
             }}
             activityLog={{ entries: timelineEntries }}
             memory={{

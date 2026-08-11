@@ -100,7 +100,11 @@ export function waitForProviderSwitchResolution(provider: string, model: string 
           return;
         }
         settle(() => {
-          reject(new Error(state.errorBanner ?? "Provider switch failed."));
+          reject(new Error(
+            state.providerOperationFailure?.operation === "switch"
+              ? state.providerOperationFailure.message
+              : "Provider switch failed.",
+          ));
         });
         return;
       }
@@ -137,8 +141,9 @@ export function waitForProviderAuthResolution(provider: string): Promise<void> {
     const poll = () => {
       const state = useSessionStore.getState();
       if (!state.providerAuthenticating) {
-        if (state.errorBanner) {
-          settle(() => reject(new Error(state.errorBanner ?? "Provider authentication failed.")));
+        const failure = state.providerOperationFailure;
+        if (failure?.operation === "authenticate") {
+          settle(() => reject(new Error(failure.message)));
           return;
         }
         settle(resolve);

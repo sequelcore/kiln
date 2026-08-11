@@ -149,7 +149,17 @@ describe("ManagedAgentCockpitPanel", () => {
       ],
     };
 
-    render(<ManagedAgentCockpitPanel viewState={viewState} onOpenResource={onOpenResource} />);
+    render(
+      <ManagedAgentCockpitPanel
+        viewState={viewState}
+        onOpenResource={onOpenResource}
+        actionFailure={{
+          action: "cancel",
+          invocationId: "child-running",
+          message: "The child already exited.",
+        }}
+      />,
+    );
 
     expect(screen.getByLabelText("Managed agents")).toHaveTextContent("2 attention");
     expect(screen.getByLabelText("Managed agents")).toHaveTextContent("1 active");
@@ -159,6 +169,7 @@ describe("ManagedAgentCockpitPanel", () => {
     expect(screen.getByText("child-running")).toBeVisible();
     expect(screen.getByText("Cancel requires control channel")).toBeDisabled();
     expect(screen.getByText("event-running")).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("The child already exited.");
 
     fireEvent.click(screen.getByText("Transcript"));
     fireEvent.click(screen.getByText("handoff"));

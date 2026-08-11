@@ -2,7 +2,39 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ApprovalsPanel } from "../src/components/approvals-panel.js";
 
+const approval = {
+  id: "approval-1",
+  description: "Write packages/gui/src/app-shell.tsx",
+  sessionId: "session-1",
+  requestedAt: "2026-04-24T04:00:00.000Z",
+};
+
 describe("ApprovalsPanel", () => {
+  it("keeps a response failure beside the approval that owns the action", () => {
+    const secondApproval = {
+      ...approval,
+      id: "approval-2",
+      description: "Edit packages/gui/src/transcript.tsx",
+      sessionId: "session-2",
+    };
+    render(
+      <ApprovalsPanel
+        approvals={[approval, secondApproval]}
+        responseFailure={{
+          requestId: "approval-response-1",
+          approvalId: secondApproval.id,
+          decision: "approve",
+          message: "Approval is no longer pending.",
+        }}
+        onApprove={vi.fn()}
+        onDeny={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Edit packages\/gui\/src\/transcript\.tsx/i }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Approval is no longer pending.");
+  });
   it("renders pending approvals and dispatches approve/deny for selected request", () => {
     const onApprove = vi.fn();
     const onDeny = vi.fn();

@@ -513,13 +513,7 @@ export type {
   OperatorWorkspaceVcsStatus,
 } from "./workspace.js";
 
-export {
-  OPERATOR_EMPTY_STATE_PHRASES,
-  operatorEmptyStatePhraseAt,
-} from "./operator-empty-state.js";
-export type {
-  OperatorEmptyStatePhrase,
-} from "./operator-empty-state.js";
+export { OPERATOR_ENTRY_PROMPT } from "./operator-entry-prompt.js";
 
 export {
   operatorIdentityInitials,

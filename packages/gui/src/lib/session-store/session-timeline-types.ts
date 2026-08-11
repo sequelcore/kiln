@@ -59,6 +59,7 @@ export interface Message {
   readonly parts?: readonly unknown[];
   readonly sourceMessageId?: string;
   readonly voiceSynthesisStatus?: "idle" | "pending" | "ready" | "error";
+  readonly voiceSynthesisFailure?: string;
   readonly createdAt: string;
   readonly streaming?: boolean;
   readonly routedProvider?: string;

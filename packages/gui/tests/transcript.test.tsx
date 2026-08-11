@@ -443,31 +443,20 @@ describe("Transcript", () => {
     expect(within(tool as HTMLElement).queryByRole("region", { name: "Text output" })).not.toBeInTheDocument();
   });
 
-  it("renders a minimal empty state without an instructional card", () => {
-    vi.spyOn(Date, "now").mockReturnValue(0);
-
+  it("renders one stable task prompt without redundant branding", () => {
     const { container } = render(<Transcript entries={[]} />);
 
-    expect(screen.getByText("Job's live. Run it clean.")).toBeInTheDocument();
-    expect(screen.getByText("Kiln")).toBeInTheDocument();
-    expect(container.querySelector('img[src*="logo.svg"]')).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What should Kiln work on?" })).toBeInTheDocument();
+    expect(container.querySelector('img[src*="logo.svg"]')).not.toBeInTheDocument();
     expect(screen.queryByText("Start a conversation to see the transcript.")).not.toBeInTheDocument();
   });
 
-  it("selects a different empty phrase on a fresh empty mount", () => {
-    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(0);
-    try {
-      const { unmount } = render(<Transcript entries={[]} />);
-      expect(screen.getByText("Job's live. Run it clean.")).toBeInTheDocument();
+  it("keeps the empty prompt stable across mounts", () => {
+    const { unmount } = render(<Transcript entries={[]} />);
+    unmount();
+    render(<Transcript entries={[]} />);
 
-      unmount();
-      nowSpy.mockReturnValue(1);
-      render(<Transcript entries={[]} />);
-
-      expect(screen.getByText("Signal's hot. Take control.")).toBeInTheDocument();
-    } finally {
-      nowSpy.mockRestore();
-    }
+    expect(screen.getByRole("heading", { name: "What should Kiln work on?" })).toBeInTheDocument();
   });
 
   it("renders user, assistant, and error rows with distinct roles", () => {

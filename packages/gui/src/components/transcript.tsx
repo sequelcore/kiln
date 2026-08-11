@@ -5,7 +5,7 @@ import {
   type ConversationProjectionInput,
   type ConversationProjectionItem,
   formatOperatorEventValue,
-  operatorEmptyStatePhraseAt,
+  OPERATOR_ENTRY_PROMPT,
   type PresentationIntent,
   type ComparisonTablePresentationColumn,
   type ComparisonTablePresentationCell,
@@ -49,6 +49,8 @@ interface TranscriptProps {
   readonly loadResourceDataUrl?: (uri: string) => Promise<string | null>;
   readonly onApprove?: (approvalId: string) => void;
   readonly onDeny?: (approvalId: string) => void;
+  readonly loadError?: string;
+  readonly onRetryLoad?: () => void;
 }
 
 function OperationalTranscriptSurface(props: {
@@ -78,7 +80,6 @@ const TRANSCRIPT_TOOL_DETAIL_LABELS = new Set([
   "Skills",
   "Task",
 ]);
-const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
 const USD_FORMATTER = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -1303,27 +1304,11 @@ function ApprovalEventRow(props: {
 }
 
 function EmptyTranscript() {
-  const phraseRef = useRef<string | null>(null);
-  if (phraseRef.current === null) {
-    phraseRef.current = operatorEmptyStatePhraseAt(Date.now());
-  }
-  const phrase = phraseRef.current;
-
   return (
-    <div className="grid min-h-full place-items-center px-4 py-16 text-center">
-      <div className="flex flex-col items-center gap-3">
-        <img
-          src={KILN_LOGO_URL}
-          alt=""
-          className="size-12 object-contain opacity-95"
-          draggable={false}
-          aria-hidden="true"
-        />
-        <div className="flex flex-col gap-1" aria-live="off">
-          <p className="text-2xl font-semibold tracking-normal text-foreground">{phrase}</p>
-          <p className="text-sm text-muted-foreground">Kiln</p>
-        </div>
-      </div>
+    <div className="grid min-h-full place-items-end px-4 pb-3 text-center sm:pb-4">
+      <h1 className="mx-auto max-w-3xl text-balance text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+        {OPERATOR_ENTRY_PROMPT}
+      </h1>
     </div>
   );
 }
@@ -1881,7 +1866,19 @@ export function Transcript(props: TranscriptProps) {
           <TranscriptNavigationRail anchors={navigationAnchors} />
           <MessageScrollerViewport aria-label="Transcript" preserveScrollOnPrepend>
             <MessageScrollerContent className="gap-3 px-4 py-4">
-              {visibleEntries.length === 0 && renderItems.length === 0 ? (
+              {props.loadError ? (
+                <MessageScrollerItem>
+                  <Alert variant="destructive">
+                    <AlertTitle>Session transcript unavailable</AlertTitle>
+                    <AlertDescription className="flex flex-wrap items-center gap-2">
+                      <span>{props.loadError}</span>
+                      {props.onRetryLoad ? (
+                        <Button type="button" size="xs" variant="outline" onClick={props.onRetryLoad}>Retry</Button>
+                      ) : null}
+                    </AlertDescription>
+                  </Alert>
+                </MessageScrollerItem>
+              ) : visibleEntries.length === 0 && renderItems.length === 0 ? (
                 <MessageScrollerItem>
                   <EmptyTranscript />
                 </MessageScrollerItem>

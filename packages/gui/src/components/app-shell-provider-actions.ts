@@ -1,5 +1,6 @@
 import type { GuiOutboundFrame } from "@kilnai/gateway-contracts";
 import type { ProviderDescriptor } from "../lib/session-store/index.js";
+import type { ProviderOperationFailure } from "../lib/session-store/index.js";
 import {
   waitForProviderAuthResolution,
   waitForProviderSwitchResolution,
@@ -15,8 +16,7 @@ interface ProviderRefreshResult {
 interface ProviderPickerActionsInput {
   readonly switchProvider: (provider: string, model?: string) => boolean;
   readonly authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
-  readonly readErrorBanner: () => string | null;
-  readonly setErrorBanner: (message: string) => void;
+  readonly readProviderOperationFailure: () => ProviderOperationFailure | null;
   readonly onProvidersRefreshed: (providers: readonly ProviderDescriptor[]) => void;
   readonly sendRefreshProviders: () => void;
   readonly refetchDashboard: () => Promise<ProviderRefreshResult | undefined>;
@@ -29,9 +29,7 @@ function normalizeRequestedModel(model?: string): string | null {
 }
 
 function raiseProviderError(input: ProviderPickerActionsInput, fallback: string): never {
-  const message = input.readErrorBanner() ?? fallback;
-  input.setErrorBanner(message);
-  throw new Error(message);
+  throw new Error(input.readProviderOperationFailure()?.message ?? fallback);
 }
 
 function normalizeProviderError(error: unknown, fallback: string): Error {
@@ -53,7 +51,6 @@ export function createProviderPickerActions(input: ProviderPickerActionsInput) {
       await waitForSwitch(provider, normalizedModel);
     } catch (error) {
       const normalized = normalizeProviderError(error, "Provider switch failed.");
-      input.setErrorBanner(normalized.message);
       throw normalized;
     }
   };
@@ -81,7 +78,6 @@ export function createProviderPickerActions(input: ProviderPickerActionsInput) {
       await waitForAuth(provider);
     } catch (error) {
       const normalized = normalizeProviderError(error, "Provider authentication failed.");
-      input.setErrorBanner(normalized.message);
       throw normalized;
     }
   };

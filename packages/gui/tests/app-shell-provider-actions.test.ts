@@ -5,8 +5,7 @@ function createInput(overrides: Partial<Parameters<typeof createProviderPickerAc
   return {
     switchProvider: vi.fn(() => true),
     authenticateProvider: vi.fn(() => true),
-    readErrorBanner: vi.fn(() => null),
-    setErrorBanner: vi.fn(),
+    readProviderOperationFailure: vi.fn(() => null),
     onProvidersRefreshed: vi.fn(),
     sendRefreshProviders: vi.fn(),
     refetchDashboard: vi.fn(async () => ({ data: { providers: [] } })),
@@ -30,13 +29,12 @@ describe("createProviderPickerActions", () => {
   it("surfaces failed provider switch starts with the store error when available", async () => {
     const input = createInput({
       switchProvider: vi.fn(() => false),
-      readErrorBanner: vi.fn(() => "quota unavailable"),
+      readProviderOperationFailure: vi.fn(() => ({ operation: "switch", message: "quota unavailable" })),
     });
     const actions = createProviderPickerActions(input);
 
     await expect(actions.onSwitchProvider("codex")).rejects.toThrow("quota unavailable");
 
-    expect(input.setErrorBanner).toHaveBeenCalledWith("quota unavailable");
   });
 
   it("refreshes providers through background channels without invalidating the current catalog", async () => {

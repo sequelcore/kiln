@@ -41,7 +41,7 @@ describe("useCockpitActions", () => {
       } as never,
       selectedSessionId: "session-1",
       sendFrame: () => vi.fn(),
-      onError: vi.fn(),
+      onFailure: vi.fn(),
     }));
 
     await act(async () => {
@@ -59,7 +59,7 @@ describe("useCockpitActions", () => {
   });
 
   it("closes the provisional resource window and reports load failures", async () => {
-    const onError = vi.fn();
+    const onFailure = vi.fn();
     const resourceWindow = {
       close: vi.fn(),
       location: { href: "about:blank" },
@@ -74,7 +74,7 @@ describe("useCockpitActions", () => {
       selectedGatewayTarget: null,
       selectedSessionId: null,
       sendFrame: () => vi.fn(),
-      onError,
+      onFailure,
     }));
 
     await act(async () => {
@@ -82,7 +82,10 @@ describe("useCockpitActions", () => {
     });
 
     expect(resourceWindow.close).toHaveBeenCalledTimes(1);
-    expect(onError).toHaveBeenCalledWith("Resource failed");
+    expect(onFailure).toHaveBeenCalledWith({
+      action: "open_resource",
+      message: "Resource failed",
+    });
   });
 
   it("sends managed-agent cancel and prompt control frames", () => {
@@ -92,7 +95,7 @@ describe("useCockpitActions", () => {
       selectedGatewayTarget: null,
       selectedSessionId: null,
       sendFrame: () => send,
-      onError: vi.fn(),
+      onFailure: vi.fn(),
     }));
 
     act(() => {
@@ -131,19 +134,23 @@ describe("useCockpitActions", () => {
   });
 
   it("reports unavailable managed-agent control without sending frames", () => {
-    const onError = vi.fn();
+    const onFailure = vi.fn();
     const { result } = renderHook(() => useCockpitActions({
       gatewayClient: {} as never,
       selectedGatewayTarget: null,
       selectedSessionId: null,
       sendFrame: () => null,
-      onError,
+      onFailure,
     }));
 
     act(() => {
       result.current.cancelManagedAgent({ sessionId: "session-1", invocationId: "invocation-1" });
     });
 
-    expect(onError).toHaveBeenCalledWith("Managed agent control is unavailable until the gateway connection is open.");
+    expect(onFailure).toHaveBeenCalledWith({
+      action: "cancel",
+      invocationId: "invocation-1",
+      message: "Managed agent control is unavailable until the gateway connection is open.",
+    });
   });
 });

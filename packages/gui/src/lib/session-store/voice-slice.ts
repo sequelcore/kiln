@@ -28,13 +28,12 @@ export const createVoiceSlice: StateCreator<
     const requestId = createMessageId();
     const nextMessages = state.messages.map((message) => (
       message.id === messageId
-        ? { ...message, voiceSynthesisStatus: "pending" as const }
+        ? { ...message, voiceSynthesisStatus: "pending" as const, voiceSynthesisFailure: undefined }
         : message
     ));
     set({
       messages: nextMessages,
       timelineEntries: syncTimelineMessages(state.timelineEntries, nextMessages),
-      errorBanner: null,
     });
     outboundSend({
       type: "voice_synthesis_request",
@@ -52,6 +51,7 @@ export const createVoiceSlice: StateCreator<
             ...message,
             parts: frame.parts,
             voiceSynthesisStatus: "ready" as const,
+            voiceSynthesisFailure: undefined,
           }
         : message
     ));
@@ -68,13 +68,13 @@ export const createVoiceSlice: StateCreator<
         ? {
             ...message,
             voiceSynthesisStatus: "error" as const,
+            voiceSynthesisFailure: frame.message,
           }
         : message
     ));
     set({
       messages: nextMessages,
       timelineEntries: syncTimelineMessages(state.timelineEntries, nextMessages),
-      errorBanner: frame.message,
     });
   },
 });

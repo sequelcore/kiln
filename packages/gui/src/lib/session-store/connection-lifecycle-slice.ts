@@ -61,7 +61,7 @@ export const createConnectionLifecycleSlice: StateCreator<
       status: "ready",
       activity: null,
       activityPhase: "idle",
-      errorBanner: null,
+      sessionControlFailure: null,
       selectedSessionId: null,
       liveSessionId: null,
       continuationTargetId: null,
@@ -80,6 +80,9 @@ export const createConnectionLifecycleSlice: StateCreator<
       clearPending: false,
       turnCancelPending: false,
       goalControlPending: null,
+      goalControlFailure: null,
+      approvalResponseFailure: null,
+      approvalResponsesPending: [],
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,
@@ -107,7 +110,10 @@ export const createConnectionLifecycleSlice: StateCreator<
         clearPending: false,
         clearTimeoutId: null,
         status: "ready",
-        errorBanner: "Clear session timed out. Please retry.",
+        sessionControlFailure: {
+          action: "clear",
+          message: "Clear session timed out. Please retry.",
+        },
       });
     }, CLEAR_TIMEOUT_MS);
 
@@ -119,7 +125,7 @@ export const createConnectionLifecycleSlice: StateCreator<
       clearPending: true,
       clearTimeoutId: timeoutId,
       status: "running",
-      errorBanner: null,
+      sessionControlFailure: null,
     });
     return true;
   },
@@ -147,6 +153,10 @@ export const createConnectionLifecycleSlice: StateCreator<
       clearPending: false,
       turnCancelPending: false,
       goalControlPending: null,
+      sessionControlFailure: null,
+      goalControlFailure: null,
+      approvalResponseFailure: null,
+      approvalResponsesPending: [],
       clearTimeoutId: null,
       providerSwitching: false,
       providerSwitchTarget: null,

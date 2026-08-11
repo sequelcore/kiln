@@ -34,7 +34,7 @@ export const createApprovalGoalSlice: StateCreator<
         goalRunId: input.goalRunId,
         action: input.action,
       },
-      errorBanner: null,
+      goalControlFailure: null,
     });
     return true;
   },
@@ -44,7 +44,31 @@ export const createApprovalGoalSlice: StateCreator<
     if (!pending || pending.requestId !== frame.requestId) return;
     set({
       goalControlPending: null,
-      ...(frame.status === "failed" ? { errorBanner: frame.reason ?? "Goal control failed." } : {}),
+      goalControlFailure: frame.status === "failed"
+        ? {
+            requestId: frame.requestId,
+            goalRunId: frame.goalRunId,
+            action: frame.action,
+            message: frame.reason ?? "Goal control failed.",
+          }
+        : null,
+    });
+  },
+
+  onApprovalResponseResult: (frame) => {
+    const state = get();
+    const pending = state.approvalResponsesPending.find((entry) => entry.requestId === frame.requestId);
+    if (!pending || pending.approvalId !== frame.approvalId || pending.decision !== frame.decision) return;
+    set({
+      approvalResponsesPending: state.approvalResponsesPending.filter((entry) => entry.requestId !== frame.requestId),
+      approvalResponseFailure: frame.status === "failed"
+        ? {
+            requestId: frame.requestId,
+            approvalId: frame.approvalId,
+            decision: frame.decision,
+            message: frame.reason ?? "Approval response failed.",
+          }
+        : state.approvalResponseFailure?.requestId === frame.requestId ? null : state.approvalResponseFailure,
     });
   },
 
@@ -52,15 +76,28 @@ export const createApprovalGoalSlice: StateCreator<
     const state = get();
     const outboundSend = state.outboundSend;
     if (!outboundSend) return false;
+    const requestId = createMessageId();
+    const decision = approved ? "approve" : "reject";
+    set({
+      approvalResponsesPending: [
+        ...state.approvalResponsesPending.filter((entry) => entry.approvalId !== approvalId),
+        { requestId, approvalId, decision },
+      ],
+      approvalResponseFailure: state.approvalResponseFailure?.approvalId === approvalId
+        ? null
+        : state.approvalResponseFailure,
+    });
     if (approved) {
       outboundSend({
         type: "approve",
+        requestId,
         approvalId,
         ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),
       });
     } else {
       outboundSend({
         type: "reject",
+        requestId,
         reason: reason ?? "rejected by user",
         approvalId,
         ...(options.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),

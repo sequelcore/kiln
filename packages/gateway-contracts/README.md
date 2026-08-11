@@ -157,16 +157,11 @@ GUI, TUI, CLI, SDK/widget, and future surfaces receive the same validated data
 and degrade to `formatPresentationIntentAsText()` when a native rich renderer is
 not available.
 
-## Operator Empty State Copy
+## Operator Entry Prompt
 
-The shared operator empty-state phrase catalog lives in
-`src/operator-empty-state.ts`. GUI uses it for the empty transcript rotation;
-TUI uses the same copy for its idle input placeholder because the terminal
-surface has no separate empty transcript canvas.
-
-Keep this copy short, command-oriented, and Kiln-native. It may lean cyberpunk
-in tone, but it must stay original and avoid copying exact lines or named
-character voice from external games.
+The stable task-entry prompt shared by operator surfaces lives in
+`src/operator-entry-prompt.ts`. GUI uses it as the new-session heading and TUI
+uses it as the idle input placeholder.
 
 ## Operator Workspace Explorer
 

@@ -119,14 +119,6 @@ export class GuiSessionClient {
     });
   }
 
-  approve(approvalId: string): void {
-    this.send({ type: "approve", approvalId });
-  }
-
-  reject(reason: string, approvalId: string): void {
-    this.send({ type: "reject", reason, approvalId });
-  }
-
   executePlanMode(): void {
     this.send({ type: "execution_mode_transition", toMode: "execute" });
   }

@@ -81,10 +81,6 @@ vi.mock("../src/components/command-palette.js", () => ({
   CommandPalette: () => null,
 }));
 
-vi.mock("../src/components/error-banner.js", () => ({
-  ErrorBanner: ({ message }: { message: string }) => <div>{message}</div>,
-}));
-
 vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
@@ -160,7 +156,6 @@ function resetStore(): void {
     currentAssistant: null,
     planMode: false,
     activity: null,
-    errorBanner: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [{
@@ -251,6 +246,7 @@ describe("AppShell responsive sidebar", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Open session drawer" })).toBeInTheDocument();
     });
+    expect(screen.getByRole("region", { name: "Chat workspace" })).toHaveAttribute("data-chat-layout", "landing");
     expect(screen.queryByRole("button", { name: "Theme" })).not.toBeInTheDocument();
 
     expect(screen.queryByRole("dialog", { name: "Sessions drawer" })).not.toBeInTheDocument();
@@ -267,17 +263,4 @@ describe("AppShell responsive sidebar", () => {
     });
   });
 
-  it("renders global errors in an overlay instead of the root flex row", async () => {
-    useSessionStore.setState({ errorBanner: "Gateway failed" });
-
-    render(<AppShell />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Gateway failed")).toBeInTheDocument();
-    });
-
-    const overlay = screen.getByText("Gateway failed").parentElement?.parentElement;
-    expect(overlay).toHaveClass("absolute");
-    expect(overlay).toHaveClass("z-50");
-  });
 });

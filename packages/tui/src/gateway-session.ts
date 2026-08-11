@@ -750,6 +750,11 @@ export class GatewaySession implements SessionLike {
       } else if (pending) {
         pending.reject(new Error("Provider switch acknowledgement did not match the pending request"));
       }
+    } else if (frame.type === "provider_change_failed") {
+      const pending = this.providerChangeCallbacks;
+      if (pending && frame.requestId === pending.requestId) {
+        pending.reject(new Error(frame.reason));
+      }
     }
   }
 

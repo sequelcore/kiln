@@ -2110,10 +2110,11 @@ describe("startGuiGateway static mount", () => {
       expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
       expect(setProvider).not.toHaveBeenCalled();
       expect(setModel).not.toHaveBeenCalled();
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; reason?: string });
       expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("not eligible"),
+        type: "provider_change_failed",
+        requestId: "request-drift",
+        reason: expect.stringContaining("not eligible"),
       }));
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -2178,10 +2179,11 @@ describe("startGuiGateway static mount", () => {
       expect(setProvider).not.toHaveBeenCalled();
       expect(setModel).not.toHaveBeenCalled();
       expect(updateProviderPreference).not.toHaveBeenCalled();
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
+      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; reason?: string });
       expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("not eligible"),
+        type: "provider_change_failed",
+        requestId: "request-openrouter",
+        reason: expect.stringContaining("not eligible"),
       }));
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -5472,6 +5474,64 @@ describe("startGuiGateway static mount", () => {
       expect(setModel).not.toHaveBeenCalled();
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["approve", "approve"],
+    ["reject", "reject"],
+  ] as const)("returns a correlated failure for an unknown %s approval", async (frameType, decision) => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        getSnapshot: async () => ({ } as never),
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+
+      await handlers.onMessage!(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: frameType,
+            requestId: "approval-response-1",
+            approvalId: "approval-missing",
+            ...(frameType === "reject" ? { reason: "Operator rejected." } : {}),
+          }),
+        }),
+        wsCtx,
+      );
+
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "approval_response_result",
+        requestId: "approval-response-1",
+        approvalId: "approval-missing",
+        decision,
+        status: "failed",
+        reason: "Approval not found: approval-missing",
+      }));
+    } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
     }

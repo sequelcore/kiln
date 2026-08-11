@@ -7,7 +7,7 @@ import { createProviderLifecycleSlice } from "./provider-lifecycle-slice.js";
 import { createInteractiveUseSlice } from "./interactive-use-slice.js";
 import { createVoiceSlice } from "./voice-slice.js";
 import { createApprovalGoalSlice } from "./approval-goal-slice.js";
-import { createErrorHandlingSlice } from "./error-handling-slice.js";
+import { createTurnFailureSlice } from "./turn-failure-slice.js";
 import type { SessionStore, SessionStoreState } from "./session-store-state.js";
 
 /**
@@ -27,9 +27,10 @@ const initialState: SessionStoreState = {
   currentAssistant: null,
   planMode: initialPlanMode,
   activity: null,
-  errorBanner: null,
+  sessionControlFailure: null,
   providerCatalogStatus: "pending",
   providerCatalogError: null,
+  providerOperationFailure: null,
   providers: [],
   providerDiscovery: [],
   providerModelDiscovery: null,
@@ -54,6 +55,9 @@ const initialState: SessionStoreState = {
   clearPending: false,
   turnCancelPending: false,
   goalControlPending: null,
+  goalControlFailure: null,
+  approvalResponseFailure: null,
+  approvalResponsesPending: [],
   providerSwitching: false,
   providerSwitchTarget: null,
   providerAuthenticating: false,
@@ -83,7 +87,7 @@ export const useSessionStore = create<SessionStore>()((...api) => ({
   ...createInteractiveUseSlice(...api),
   ...createVoiceSlice(...api),
   ...createApprovalGoalSlice(...api),
-  ...createErrorHandlingSlice(...api),
+  ...createTurnFailureSlice(...api),
 }));
 
 export type {
@@ -104,7 +108,15 @@ export type {
 } from "./session-timeline-types.js";
 export type { AuthorityStatus } from "./authority-status-projection.js";
 export type { ProviderCatalogStatus, ProviderDescriptor } from "./provider-catalog-projection.js";
-export type { ProviderAuthDetails, RouteMode, SessionStore } from "./session-store-state.js";
+export type {
+  ApprovalResponseFailure,
+  GoalControlFailure,
+  ProviderAuthDetails,
+  ProviderOperationFailure,
+  RouteMode,
+  SessionControlFailure,
+  SessionStore,
+} from "./session-store-state.js";
 export {
   deriveChangedFiles,
   deriveToolCallLog,

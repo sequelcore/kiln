@@ -4,14 +4,10 @@ import { Button } from "@/components/ui/button";
 import { InputGroupButton } from "@/components/ui/input-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ComposerWorkModeControl } from "./composer-work-mode-control.js";
 
 type VoiceState = "idle" | "requesting" | "recording" | "encoding";
 
-function ComposerTooltip(props: {
-  readonly label: string;
-  readonly children: ReactElement;
-}) {
+function ComposerTooltip(props: { readonly label: string; readonly children: ReactElement }) {
   return (
     <Tooltip>
       <TooltipTrigger render={props.children} />
@@ -20,15 +16,11 @@ function ComposerTooltip(props: {
   );
 }
 
-interface ComposerLeadingActionsProps {
-  readonly planMode: boolean;
-  readonly governedWorkItemCount: number | null;
+interface ComposerAttachmentActionProps {
   readonly fileButtonDisabled: boolean;
   readonly imageButtonDisabled: boolean;
   readonly audioFileInputRef: RefObject<HTMLInputElement | null>;
   readonly imageFileInputRef: RefObject<HTMLInputElement | null>;
-  readonly onPlanModeChange: (enabled: boolean) => void;
-  readonly onGovernedWorkItemCountChange: (count: number | null) => void;
   readonly onAudioFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onImageFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
 }
@@ -43,85 +35,77 @@ interface ComposerTrailingActionsProps {
   readonly onCancel?: () => void;
 }
 
-export function ComposerLeadingActions(props: ComposerLeadingActionsProps) {
+export function ComposerAttachmentAction(props: ComposerAttachmentActionProps) {
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
 
   return (
-    <TooltipProvider delay={300}>
-      <div className="flex min-w-0 items-center gap-1">
-        <input
-          ref={props.audioFileInputRef}
-          type="file"
-          accept="audio/*"
-          aria-label="Audio file input"
-          className="sr-only"
-          disabled={props.fileButtonDisabled}
-          onChange={props.onAudioFileChange}
-        />
-        <input
-          ref={props.imageFileInputRef}
-          type="file"
-          accept="image/*"
-          aria-label="Image file input"
-          className="sr-only"
-          disabled={props.imageButtonDisabled}
-          onChange={props.onImageFileChange}
-        />
-        <Popover open={attachmentMenuOpen} onOpenChange={setAttachmentMenuOpen}>
-          <PopoverTrigger
-            render={(
-              <InputGroupButton
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={props.fileButtonDisabled && props.imageButtonDisabled}
-                aria-label="Add attachment"
-                className="shrink-0 has-data-[icon=inline-start]:pl-2.5"
-              >
-                <Plus data-icon="inline-start" aria-hidden="true" />
-                Add
-              </InputGroupButton>
-            )}
-          />
-          <PopoverContent align="start" side="top" sideOffset={8} className="w-52 gap-1 p-1">
-            <Button
+    <div className="flex min-w-0 items-center">
+      <input
+        ref={props.audioFileInputRef}
+        type="file"
+        accept="audio/*"
+        aria-label="Audio file input"
+        className="sr-only"
+        disabled={props.fileButtonDisabled}
+        onChange={props.onAudioFileChange}
+      />
+      <input
+        ref={props.imageFileInputRef}
+        type="file"
+        accept="image/*"
+        aria-label="Image file input"
+        className="sr-only"
+        disabled={props.imageButtonDisabled}
+        onChange={props.onImageFileChange}
+      />
+      <Popover open={attachmentMenuOpen} onOpenChange={setAttachmentMenuOpen}>
+        <PopoverTrigger
+          render={
+            <InputGroupButton
               type="button"
+              size="icon-sm"
               variant="ghost"
-              disabled={props.fileButtonDisabled}
-              aria-label="Attach audio file"
-              className="w-full justify-start"
-              onClick={() => {
-                setAttachmentMenuOpen(false);
-                props.audioFileInputRef.current?.click();
-              }}
+              disabled={props.fileButtonDisabled && props.imageButtonDisabled}
+              aria-label="Add attachment"
+              title="Add attachment"
+              className="shrink-0"
             >
-              <FileAudio data-icon="inline-start" aria-hidden="true" />
-              Audio file
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={props.imageButtonDisabled}
-              aria-label="Attach image"
-              className="w-full justify-start"
-              onClick={() => {
-                setAttachmentMenuOpen(false);
-                props.imageFileInputRef.current?.click();
-              }}
-            >
-              <Image data-icon="inline-start" aria-hidden="true" />
-              Image
-            </Button>
-          </PopoverContent>
-        </Popover>
-        <ComposerWorkModeControl
-          planMode={props.planMode}
-          governedWorkItemCount={props.governedWorkItemCount}
-          onPlanModeChange={props.onPlanModeChange}
-          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
+              <Plus data-icon="inline-start" aria-hidden="true" />
+            </InputGroupButton>
+          }
         />
-      </div>
-    </TooltipProvider>
+        <PopoverContent align="start" side="top" sideOffset={8} className="w-52 gap-1 p-1">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={props.fileButtonDisabled}
+            aria-label="Attach audio file"
+            className="w-full justify-start"
+            onClick={() => {
+              setAttachmentMenuOpen(false);
+              props.audioFileInputRef.current?.click();
+            }}
+          >
+            <FileAudio data-icon="inline-start" aria-hidden="true" />
+            Audio file
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={props.imageButtonDisabled}
+            aria-label="Attach image"
+            className="w-full justify-start"
+            onClick={() => {
+              setAttachmentMenuOpen(false);
+              props.imageFileInputRef.current?.click();
+            }}
+          >
+            <Image data-icon="inline-start" aria-hidden="true" />
+            Image
+          </Button>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 

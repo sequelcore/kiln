@@ -91,12 +91,18 @@ export const createProviderLifecycleSlice: StateCreator<
       providerExplicitSelection: explicitSelection,
       continuationTargetId: current.continuationTargetId,
       status: "ready",
-      errorBanner: explicitActiveProvider && !activeProviderDescriptor
+      providerOperationFailure: explicitActiveProvider && !activeProviderDescriptor
         ? (() => {
             const provider = providers.find((candidate) => candidate.id === explicitActiveProvider);
-            return provider
+            const message = provider
               ? providerSelectionFailureMessage(provider, requestedModel, frame.providerModelDiscovery)
               : `${explicitActiveProvider} is unavailable.`;
+            return {
+              operation: "catalog" as const,
+              provider: explicitActiveProvider,
+              model: requestedModel,
+              message,
+            };
           })()
         : null,
       providerSwitching: false,
@@ -125,11 +131,16 @@ export const createProviderLifecycleSlice: StateCreator<
         frame.providerModelDiscovery,
       )) {
         set({
-          errorBanner: providerSelectionFailureMessage(
-            storedProvider,
-            stored.model,
-            frame.providerModelDiscovery,
-          ),
+          providerOperationFailure: {
+            operation: "catalog",
+            provider: storedProvider.id,
+            model: stored.model,
+            message: providerSelectionFailureMessage(
+              storedProvider,
+              stored.model,
+              frame.providerModelDiscovery,
+            ),
+          },
         });
       }
     }
@@ -178,18 +189,26 @@ export const createProviderLifecycleSlice: StateCreator<
       activeModel: nextActiveModel,
       routeMode: nextRouteMode,
       providerExplicitSelection: nextProviderExplicitSelection,
-      errorBanner: activeProvider && !activeStillAvailable
+      providerOperationFailure: activeProvider && !activeStillAvailable
         ? (() => {
             const provider = providers.find((candidate) => candidate.id === activeProvider);
-            return provider
+            const message = provider
               ? providerSelectionFailureMessage(
                   provider,
                   requestedModel,
                   nextProviderModelDiscovery ?? current.providerModelDiscovery,
                 )
               : `${activeProvider} is unavailable.`;
+            return {
+              operation: "catalog" as const,
+              provider: activeProvider,
+              model: requestedModel,
+              message,
+            };
           })()
-        : current.errorBanner,
+        : current.providerOperationFailure?.operation === "catalog"
+          ? null
+          : current.providerOperationFailure,
     });
 
     const restore = resolveStoredProviderSelectionRestore(get());
@@ -219,7 +238,13 @@ export const createProviderLifecycleSlice: StateCreator<
         providerSwitching: false,
         providerSwitchTarget: null,
         providerSwitchTimeoutId: null,
-        errorBanner: "Provider switch acknowledgement did not match the pending request.",
+        providerOperationFailure: {
+          operation: "switch",
+          provider: state.providerSwitchTarget.provider,
+          model: state.providerSwitchTarget.model,
+          requestId: state.providerSwitchTarget.requestId,
+          message: "Provider switch acknowledgement did not match the pending request.",
+        },
       });
       return;
     }
@@ -240,6 +265,29 @@ export const createProviderLifecycleSlice: StateCreator<
       respondingModel: state.status === "running" ? state.respondingModel : null,
     });
     writeStoredProviderSelection(frame.provider, nextModel);
+  },
+
+  onProviderChangeFailed: (frame) => {
+    const state = get();
+    const target = state.providerSwitchTarget;
+    if (!state.providerSwitching || !target || target.requestId !== frame.requestId) {
+      return;
+    }
+    if (state.providerSwitchTimeoutId) {
+      clearTimeout(state.providerSwitchTimeoutId);
+    }
+    set({
+      providerSwitching: false,
+      providerSwitchTarget: null,
+      providerSwitchTimeoutId: null,
+      providerOperationFailure: {
+        operation: "switch",
+        provider: frame.provider ?? target.provider,
+        model: frame.model ?? target.model,
+        requestId: frame.requestId,
+        message: frame.reason,
+      },
+    });
   },
 
   onProviderAuthStarted: (frame) => {
@@ -280,7 +328,7 @@ export const createProviderLifecycleSlice: StateCreator<
             verificationUri: frame.verificationUri,
             userCode: frame.userCode,
           },
-      errorBanner: null,
+      providerOperationFailure: null,
     });
   },
 
@@ -322,7 +370,7 @@ export const createProviderLifecycleSlice: StateCreator<
       providerAuthMessage: null,
       providerAuthDetails: null,
       providerAuthTimeoutId: null,
-      errorBanner: null,
+      providerOperationFailure: null,
     });
   },
 
@@ -358,7 +406,12 @@ export const createProviderLifecycleSlice: StateCreator<
       providerAuthMessage: null,
       providerAuthDetails: null,
       providerAuthTimeoutId: null,
-      errorBanner: frame.message,
+      providerOperationFailure: {
+        operation: "authenticate",
+        provider: frame.provider,
+        requestId: frame.requestId,
+        message: frame.message,
+      },
     });
   },
 
@@ -370,9 +423,12 @@ export const createProviderLifecycleSlice: StateCreator<
     }
     if (state.providerCatalogStatus !== "ready") {
       set({
-        errorBanner: state.providerCatalogStatus === "error"
-          ? state.providerCatalogError ?? "Provider catalog is unavailable. Refresh providers and retry."
-          : "Provider catalog is still loading. Please retry once startup completes.",
+        providerOperationFailure: {
+          operation: "catalog",
+          message: state.providerCatalogStatus === "error"
+            ? state.providerCatalogError ?? "Provider catalog is unavailable. Refresh providers and retry."
+            : "Provider catalog is still loading. Please retry once startup completes.",
+        },
       });
       return false;
     }
@@ -384,7 +440,12 @@ export const createProviderLifecycleSlice: StateCreator<
           providerSwitching: false,
           providerSwitchTarget: null,
           providerSwitchTimeoutId: null,
-          errorBanner: `${provider} is unavailable.`,
+          providerOperationFailure: {
+            operation: "switch",
+            provider,
+            model: readString(model) ?? null,
+            message: `${provider} is unavailable.`,
+          },
         });
       }
       return false;
@@ -396,11 +457,16 @@ export const createProviderLifecycleSlice: StateCreator<
           providerSwitching: false,
           providerSwitchTarget: null,
           providerSwitchTimeoutId: null,
-          errorBanner: providerSelectionFailureMessage(
-            targetProvider,
-            normalizedModel,
-            state.providerModelDiscovery,
-          ),
+          providerOperationFailure: {
+            operation: "switch",
+            provider,
+            model: normalizedModel,
+            message: providerSelectionFailureMessage(
+              targetProvider,
+              normalizedModel,
+              state.providerModelDiscovery,
+            ),
+          },
         });
       }
       return false;
@@ -418,7 +484,13 @@ export const createProviderLifecycleSlice: StateCreator<
         providerSwitching: false,
         providerSwitchTarget: null,
         providerSwitchTimeoutId: null,
-        errorBanner: "Provider switch timed out. Please retry.",
+        providerOperationFailure: {
+          operation: "switch",
+          provider,
+          model: normalizedModel,
+          requestId,
+          message: "Provider switch timed out. Please retry.",
+        },
       });
     }, PROVIDER_SWITCH_TIMEOUT_MS);
 
@@ -426,7 +498,7 @@ export const createProviderLifecycleSlice: StateCreator<
       providerSwitching: true,
       providerSwitchTarget: { provider, model: normalizedModel, requestId },
       providerSwitchTimeoutId: timeoutId,
-      errorBanner: null,
+      providerOperationFailure: null,
     });
 
     try {
@@ -442,7 +514,13 @@ export const createProviderLifecycleSlice: StateCreator<
         providerSwitching: false,
         providerSwitchTarget: null,
         providerSwitchTimeoutId: null,
-        errorBanner: error instanceof Error ? error.message : "Provider switch failed.",
+        providerOperationFailure: {
+          operation: "switch",
+          provider,
+          model: normalizedModel,
+          requestId,
+          message: error instanceof Error ? error.message : "Provider switch failed.",
+        },
       });
       return false;
     }
@@ -473,7 +551,12 @@ export const createProviderLifecycleSlice: StateCreator<
         providerAuthMessage: null,
         providerAuthDetails: null,
         providerAuthTimeoutId: null,
-        errorBanner: "Provider authentication timed out. Please retry.",
+        providerOperationFailure: {
+          operation: "authenticate",
+          provider,
+          requestId,
+          message: "Provider authentication timed out. Please retry.",
+        },
       });
     }, PROVIDER_AUTH_TIMEOUT_MS);
 
@@ -483,7 +566,7 @@ export const createProviderLifecycleSlice: StateCreator<
       providerAuthMessage: null,
       providerAuthDetails: null,
       providerAuthTimeoutId: timeoutId,
-      errorBanner: null,
+      providerOperationFailure: null,
     });
 
     try {
@@ -514,7 +597,12 @@ export const createProviderLifecycleSlice: StateCreator<
         providerAuthMessage: null,
         providerAuthDetails: null,
         providerAuthTimeoutId: null,
-        errorBanner: error instanceof Error ? error.message : "Provider authentication failed.",
+        providerOperationFailure: {
+          operation: "authenticate",
+          provider,
+          requestId,
+          message: error instanceof Error ? error.message : "Provider authentication failed.",
+        },
       });
       return false;
     }

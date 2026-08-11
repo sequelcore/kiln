@@ -12,7 +12,6 @@ function resetSessionStore(): void {
     currentAssistant: null,
     planMode: false,
     activity: null,
-    errorBanner: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
@@ -183,7 +182,7 @@ describe("session-store provider selection", () => {
 
     expect(useSessionStore.getState().switchProvider("openai", "gpt-5")).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().errorBanner).toBe(
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe(
       "OpenAI model gpt-5 is not eligible: stale-catalog.",
     );
   });
@@ -207,7 +206,7 @@ describe("session-store provider selection", () => {
 
     expect(useSessionStore.getState().activeProvider).toBeNull();
     expect(useSessionStore.getState().activeModel).toBeNull();
-    expect(useSessionStore.getState().errorBanner).toBe(
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe(
       "OpenAI model gpt-5 is not eligible: policy-denied.",
     );
   });
@@ -235,7 +234,7 @@ describe("session-store provider selection", () => {
     });
 
     expect(send).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().errorBanner).toBe(
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe(
       "OpenAI model gpt-5 is not eligible: missing-entitlement-evidence.",
     );
   });
@@ -265,7 +264,7 @@ describe("session-store provider selection", () => {
     expect(state.providerModelDiscovery).toBe(replacement);
     expect(state.activeProvider).toBeNull();
     expect(state.activeModel).toBeNull();
-    expect(state.errorBanner).toBe("OpenAI model gpt-5 is not eligible: route-unhealthy.");
+    expect(state.providerOperationFailure?.message).toBe("OpenAI model gpt-5 is not eligible: route-unhealthy.");
   });
 
   it("projection-only refresh replaces discovery state when selection eligibility is unchanged", () => {
@@ -309,7 +308,7 @@ describe("session-store provider selection", () => {
 
     expect(accepted).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().errorBanner).toBe("Provider catalog is still loading. Please retry once startup completes.");
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe("Provider catalog is still loading. Please retry once startup completes.");
   });
 
   it("authenticateProvider emits provider_auth and applies completed provider descriptors", () => {
@@ -440,7 +439,7 @@ describe("session-store provider selection", () => {
 
     expect(useSessionStore.getState().switchProvider("openai", "gpt-5")).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().errorBanner).toBe(
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe(
       "OpenAI model gpt-5 is not eligible: canonical provider model discovery is unavailable.",
     );
   });
@@ -465,7 +464,7 @@ describe("session-store provider selection", () => {
 
     expect(accepted).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().errorBanner).toBe("OpenAI is unavailable.");
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe("OpenAI is unavailable.");
   });
 
   it("switchProvider rejects available provider descriptors without models", () => {
@@ -488,7 +487,7 @@ describe("session-store provider selection", () => {
 
     expect(accepted).toBe(false);
     expect(send).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().errorBanner).toBe("OpenCode is unavailable.");
+    expect(useSessionStore.getState().providerOperationFailure?.message).toBe("OpenCode is unavailable.");
   });
 
   it("provider_changed ack updates provider/model and clears switching flag", () => {
@@ -611,7 +610,7 @@ describe("session-store provider selection", () => {
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTarget).toBeNull();
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBeNull();
+    expect(state.providerOperationFailure).toBeNull();
   });
 
   it("provider_changed without model is ignored", () => {
@@ -707,7 +706,7 @@ describe("session-store provider selection", () => {
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTarget).toBeNull();
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBeNull();
+    expect(state.providerOperationFailure).toBeNull();
   });
 
   it("welcome without authoritative provider selection clears stale active provider and model", () => {
@@ -1267,7 +1266,7 @@ describe("session-store provider selection", () => {
     const state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Provider switch acknowledgement did not match the pending request.");
+    expect(state.providerOperationFailure?.message).toBe("Provider switch acknowledgement did not match the pending request.");
     expect(timeoutId).not.toBeNull();
   });
 
@@ -1313,7 +1312,7 @@ describe("session-store provider selection", () => {
     expect(state.activeModel).toBeNull();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Provider switch acknowledgement did not match the pending request.");
+    expect(state.providerOperationFailure?.message).toBe("Provider switch acknowledgement did not match the pending request.");
     expect(timeoutId).not.toBeNull();
   });
 
@@ -1360,7 +1359,7 @@ describe("session-store provider selection", () => {
     vi.advanceTimersByTime(5_000);
 
     state = useSessionStore.getState();
-    expect(state.errorBanner).toBeNull();
+    expect(state.providerOperationFailure).toBeNull();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
   });
@@ -1405,7 +1404,7 @@ describe("session-store provider selection", () => {
     vi.advanceTimersByTime(5_000);
 
     state = useSessionStore.getState();
-    expect(state.errorBanner).toBeNull();
+    expect(state.providerOperationFailure).toBeNull();
     expect(state.providerSwitching).toBe(false);
   });
 
@@ -1431,12 +1430,12 @@ describe("session-store provider selection", () => {
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTarget).toBeNull();
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("socket closed");
+    expect(state.providerOperationFailure?.message).toBe("socket closed");
 
     vi.advanceTimersByTime(5_000);
 
     state = useSessionStore.getState();
-    expect(state.errorBanner).toBe("socket closed");
+    expect(state.providerOperationFailure?.message).toBe("socket closed");
     expect(state.providerSwitching).toBe(false);
   });
 
@@ -1474,7 +1473,7 @@ describe("session-store provider selection", () => {
     const state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Provider switch timed out. Please retry.");
+    expect(state.providerOperationFailure?.message).toBe("Provider switch timed out. Please retry.");
   });
 
   it("welcome with no valid provider descriptors clears stale providers and selection", () => {
@@ -1643,7 +1642,7 @@ describe("session-store provider selection", () => {
     const state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Provider switch acknowledgement did not match the pending request.");
+    expect(state.providerOperationFailure?.message).toBe("Provider switch acknowledgement did not match the pending request.");
     expect(state.activeProvider).toBeNull();
     expect(secondTimeoutId).not.toBeNull();
   });
@@ -1689,7 +1688,7 @@ describe("session-store provider selection", () => {
     const state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Provider switch timed out. Please retry.");
+    expect(state.providerOperationFailure?.message).toBe("Provider switch timed out. Please retry.");
   });
 
   it("runtime error clears pending provider switch timeout without overwriting the runtime banner", () => {
@@ -1712,14 +1711,14 @@ describe("session-store provider selection", () => {
     let state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Runtime provider failure");
+    expect(state.providerOperationFailure).toBeNull();
 
     vi.advanceTimersByTime(5_000);
 
     state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBe("Runtime provider failure");
+    expect(state.providerOperationFailure).toBeNull();
   });
 
   it("cleared resets a pending provider switch and prevents the timeout banner from surfacing later", () => {
@@ -1739,14 +1738,14 @@ describe("session-store provider selection", () => {
     let state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).toBeNull();
+    expect(state.providerOperationFailure).toBeNull();
 
     vi.advanceTimersByTime(5_000);
 
     state = useSessionStore.getState();
     expect(state.providerSwitching).toBe(false);
     expect(state.providerSwitchTimeoutId).toBeNull();
-    expect(state.errorBanner).not.toBe("Provider switch timed out. Please retry.");
+    expect(state.providerOperationFailure?.message).not.toBe("Provider switch timed out. Please retry.");
   });
 
   it("done attaches routed provider/model to finalized assistant message", () => {

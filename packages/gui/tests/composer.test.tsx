@@ -129,10 +129,15 @@ describe("Composer", () => {
         firstSequence: 1,
         lastSequence: 1,
       },
+      goalControlFailure: {
+        goalRunId: "goal-1",
+        message: "Goal is already paused.",
+      },
       onGoalControl,
     });
 
     expect(screen.getByText("Goal in progress")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Goal is already paused.");
     fireEvent.click(screen.getByRole("button", { name: /open goal progress/i }));
     const workItem = await screen.findByLabelText("Verify canonical session events. In progress");
     expect(workItem).toHaveAttribute("data-slot", "ai-task-item");
@@ -415,20 +420,22 @@ describe("Composer", () => {
     expect(screen.queryByText("Running")).not.toBeInTheDocument();
   });
 
-  it("renders turn controls as accessible message options", () => {
+  it("keeps authority and provider visible while disclosing tuning controls", async () => {
     renderComposer();
 
     const options = screen.getByRole("group", { name: "Message options" });
     expect(within(options).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
-    expect(within(options).getByLabelText("Deliberation level")).toBeInTheDocument();
     expect(within(options).getByLabelText(/Turn authority/)).toBeInTheDocument();
+    expect(within(options).queryByLabelText("Deliberation level")).not.toBeInTheDocument();
+    fireEvent.click(within(options).getByRole("button", { name: "Turn settings: Build" }));
+    expect(await screen.findByLabelText("Deliberation level")).toBeInTheDocument();
   });
 
   it("configures a typed governed goal requirement from the composer", async () => {
     const { onGovernedWorkItemCountChange } = renderComposer();
 
-    fireEvent.click(screen.getByRole("button", { name: "Work mode: Build" }));
-    expect(await screen.findByRole("heading", { name: "Work mode" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Turn settings: Build" }));
+    expect(await screen.findByRole("heading", { name: "Turn settings" })).toBeVisible();
     expect(screen.getByLabelText("Exact work items")).toHaveValue(3);
 
     fireEvent.click(screen.getByRole("button", { name: "Require goal setup" }));
@@ -439,8 +446,8 @@ describe("Composer", () => {
     const onGovernedWorkItemCountChange = vi.fn();
     renderComposer({ governedWorkItemCount: 4, onGovernedWorkItemCountChange });
 
-    const trigger = screen.getByRole("button", { name: "Work mode: Build; governed goal with 4 work items" });
-    expect(trigger).toHaveTextContent("Build · Goal 4");
+    const trigger = screen.getByRole("button", { name: "Turn settings: Build; governed goal with 4 work items" });
+    expect(trigger).toHaveTextContent("Goal 4");
 
     fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole("button", { name: "Remove goal setup" }));
@@ -528,13 +535,13 @@ describe("Composer", () => {
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Add attachment" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Attach audio file" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Attach image" })).not.toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Work mode: Build" })).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Turn settings: Build" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).queryByRole("button", { name: "Configure governed task" })).not.toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByLabelText(/Turn authority/)).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).queryByRole("button", { name: "Context usage unavailable" })).not.toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
-    expect(within(inputSurface as HTMLElement).getByLabelText("Deliberation level")).toBeInTheDocument();
+    expect(within(inputSurface as HTMLElement).queryByLabelText("Deliberation level")).not.toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Record voice" })).toBeInTheDocument();
     expect(within(inputSurface as HTMLElement).getByRole("button", { name: "Send message" })).toBeInTheDocument();
   });
@@ -543,7 +550,8 @@ describe("Composer", () => {
     renderComposer();
 
     expect(screen.getByRole("button", { name: "Add attachment" })).toHaveClass("border-transparent");
-    expect(screen.getByRole("button", { name: "Work mode: Build" })).toHaveClass("h-8", "items-center", "justify-center");
+    expect(screen.getByRole("button", { name: "Add attachment" })).not.toHaveTextContent("Add");
+    expect(screen.getByRole("button", { name: "Turn settings: Build" })).toHaveClass("h-8", "items-center", "justify-center");
     expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("border-transparent");
     expect(screen.queryByRole("button", { name: "Context usage unavailable" })).not.toBeInTheDocument();
   });
@@ -554,10 +562,9 @@ describe("Composer", () => {
     const options = screen.getByRole("group", { name: "Message options" });
     const orderedControls = [
       within(options).getByRole("button", { name: "Add attachment" }),
-      within(options).getByRole("button", { name: "Work mode: Build" }),
       within(options).getByLabelText(/Turn authority/),
       within(options).getByRole("button", { name: "Claude Sonnet 4" }),
-      within(options).getByLabelText("Deliberation level"),
+      within(options).getByRole("button", { name: "Turn settings: Build" }),
       within(options).getByRole("button", { name: "Record voice" }),
       within(options).getByRole("button", { name: "Send message" }),
     ];
@@ -573,7 +580,7 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message");
 
     fireEvent.change(textarea, { target: { value: "Inspect this change" } });
-    fireEvent.click(screen.getByRole("button", { name: "Work mode: Build" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn settings: Build" }));
     fireEvent.click(await screen.findByRole("button", { name: "Plan for approval" }));
 
     expect(onTogglePlanMode).toHaveBeenCalledWith(true);
@@ -584,7 +591,7 @@ describe("Composer", () => {
   it("keeps governed goal setup subordinate to Build mode", async () => {
     const { onTogglePlanMode } = renderComposer({ planMode: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Work mode: Plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn settings: Plan" }));
     expect(await screen.findByRole("button", { name: "Plan for approval" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByLabelText("Exact work items")).not.toBeInTheDocument();
 
@@ -643,9 +650,9 @@ describe("Composer", () => {
 
     const options = screen.getByRole("group", { name: "Message options" });
     expect(options).not.toHaveClass("border-t", "bg-background/65");
-    expect(options.firstElementChild).toHaveClass("flex", "flex-nowrap");
+    expect(options.firstElementChild).toHaveClass("flex", "flex-wrap");
     expect(options.querySelector('[data-role="composer-leading-actions"]')).toHaveClass("shrink-0");
-    expect(options.querySelector('[data-role="composer-secondary-controls"]')).toHaveClass("overflow-x-auto");
+    expect(options.querySelector('[data-role="composer-secondary-controls"]')).not.toHaveClass("overflow-x-auto");
   });
 
   it("uses a plain dock without a redundant boundary or decorative transcript fade", () => {
@@ -1029,11 +1036,13 @@ describe("Composer", () => {
     expect(textarea).toHaveValue("Before and after");
   });
 
-  it("renders deliberation as part of the composer model controls", () => {
+  it("keeps deliberation in turn settings next to the visible model route", async () => {
     renderComposer();
 
-    expect(screen.getByLabelText("Deliberation level")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Claude Sonnet 4" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Deliberation level")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Turn settings: Build" }));
+    expect(await screen.findByLabelText("Deliberation level")).toBeInTheDocument();
   });
 
   it("does not render placeholder-only file or approval chips", () => {

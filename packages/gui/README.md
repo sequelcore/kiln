@@ -65,6 +65,17 @@ main chat column. Keep ownership boundaries explicit:
 - the composer owns draft input, slash commands, file affordances, plan mode,
   provider/model route, reasoning effort, and send behavior
 
+Chat presentation is derived from canonical conversation state. A fresh chat
+centers the shared operator prompt and the existing composer; an active chat
+returns that same composer to the transcript dock. Never mount a second
+composer for landing presentation or keep a separate draft path.
+
+The compact composer keeps provider route and authority visible because they
+govern the turn. Attachment and submission remain direct actions. Work mode,
+goal setup, and deliberation share the turn-settings disclosure; exceptional
+continuity and measured context remain event-driven indicators rather than
+permanent labels.
+
 Do not repeat the same summary telemetry in multiple headers. If a value helps
 diagnose why a turn behaved a certain way, it belongs in the relevant
 event-backed operator mode instead of persistent chrome.

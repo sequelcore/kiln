@@ -2,7 +2,7 @@ import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from "re
 import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
 import type { ContextUsageProjection, WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
-import { ComposerLeadingActions, ComposerTrailingActions } from "./composer-actions.js";
+import { ComposerAttachmentAction, ComposerTrailingActions } from "./composer-actions.js";
 import { ComposerFrame, type ComposerCommandMenuState } from "./composer-frame.js";
 import { ActiveGoalDock } from "./active-goal-dock.js";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -10,6 +10,7 @@ import {
   ComposerAttachments,
 } from "./composer-attachments.js";
 import { useComposerMedia } from "./use-composer-media.js";
+import { ComposerTurnSettingsControl } from "./composer-turn-settings-control.js";
 
 export interface ComposerSubmission {
   readonly text: string;
@@ -34,6 +35,11 @@ interface ComposerProps {
     readonly reason?: string;
   }) => boolean;
   readonly pendingGoalAction?: "pause" | "resume" | "update_objective" | "cancel";
+  readonly goalControlFailure?: {
+    readonly goalRunId: string;
+    readonly message: string;
+  };
+  readonly sessionControlFailure?: string;
   readonly providerControl?: ReactNode;
   readonly deliberationControl?: ReactNode;
   readonly authorityControl?: ReactNode;
@@ -151,6 +157,9 @@ export function Composer(props: ComposerProps) {
         <ActiveGoalDock
           activity={foregroundGoal}
           pendingAction={props.pendingGoalAction === "update_objective" ? "edit" : props.pendingGoalAction}
+          failureMessage={props.goalControlFailure?.goalRunId === foregroundGoal.goal.id
+            ? props.goalControlFailure.message
+            : undefined}
           onPause={props.onGoalControl ? () => props.onGoalControl?.({
             goalRunId: foregroundGoal.goal.id,
             action: "pause",
@@ -172,7 +181,6 @@ export function Composer(props: ComposerProps) {
         />
       ) : null}
       providerControl={props.providerControl}
-      deliberationControl={props.deliberationControl}
       authorityControl={props.authorityControl}
       commandMenu={props.commandMenu}
       onSubmit={handleSubmit}
@@ -185,24 +193,29 @@ export function Composer(props: ComposerProps) {
           onRemove={removeAttachment}
         />
       )}
-      feedback={composerError ? (
+      feedback={composerError || props.sessionControlFailure ? (
         <Alert variant="destructive">
-          <AlertTitle>Composer input failed</AlertTitle>
-          <AlertDescription>{composerError}</AlertDescription>
+          <AlertTitle>{composerError ? "Composer input failed" : "Session action failed"}</AlertTitle>
+          <AlertDescription>{composerError ?? props.sessionControlFailure}</AlertDescription>
         </Alert>
       ) : null}
       leadingActions={(
-        <ComposerLeadingActions
-          planMode={props.planMode}
-          governedWorkItemCount={props.governedWorkItemCount}
+        <ComposerAttachmentAction
           fileButtonDisabled={fileButtonDisabled}
           imageButtonDisabled={imageButtonDisabled}
           audioFileInputRef={audioFileInputRef}
           imageFileInputRef={imageFileInputRef}
-          onPlanModeChange={props.onTogglePlanMode}
-          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
           onAudioFileChange={handleAudioFileChange}
           onImageFileChange={handleImageFileChange}
+        />
+      )}
+      turnSettings={(
+        <ComposerTurnSettingsControl
+          planMode={props.planMode}
+          governedWorkItemCount={props.governedWorkItemCount}
+          deliberationControl={props.deliberationControl}
+          onPlanModeChange={props.onTogglePlanMode}
+          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
         />
       )}
       trailingActions={(

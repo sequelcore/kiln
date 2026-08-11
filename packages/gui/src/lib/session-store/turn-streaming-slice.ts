@@ -701,7 +701,7 @@ export const createTurnStreamingSlice: StateCreator<
       : -1;
 
     if (targetIndex < 0 && frame.content.trim().length === 0) {
-      set({ status: "running", activityPhase: "streaming", errorBanner: null });
+      set({ status: "running", activityPhase: "streaming" });
       return;
     }
 
@@ -726,7 +726,7 @@ export const createTurnStreamingSlice: StateCreator<
           message: messageList[targetIndex]!,
         };
       }
-      set({ messages: messageList, timelineEntries, status: "running", activityPhase: "streaming", errorBanner: null });
+      set({ messages: messageList, timelineEntries, status: "running", activityPhase: "streaming" });
       return;
     }
 
@@ -753,7 +753,6 @@ export const createTurnStreamingSlice: StateCreator<
       currentAssistant: assistantId,
       status: "running",
       activityPhase: "streaming",
-      errorBanner: null,
     });
   },
 
@@ -958,13 +957,18 @@ export const createTurnStreamingSlice: StateCreator<
   onTurnCancelResult: (frame) => {
     const state = get();
     if (frame.status === "accepted") {
-      set({ turnCancelPending: true, errorBanner: null });
+      set({ turnCancelPending: true, sessionControlFailure: null });
       return;
     }
     set({
       turnCancelPending: false,
       ...(frame.status === "failed"
-        ? { errorBanner: frame.reason ?? "The active turn could not be cancelled." }
+        ? {
+            sessionControlFailure: {
+              action: "cancel_turn" as const,
+              message: frame.reason ?? "The active turn could not be cancelled.",
+            },
+          }
         : state.status === "running"
           ? { status: "ready" as const, activity: null, activityPhase: "idle" as const }
           : {}),
@@ -973,7 +977,7 @@ export const createTurnStreamingSlice: StateCreator<
 
   onExecConfirmed: () => {
     persistPlanMode(false);
-    set({ planMode: false, status: "ready", errorBanner: null });
+    set({ planMode: false, status: "ready" });
   },
 
   sendMessage: (text, options) => {
@@ -1023,7 +1027,7 @@ export const createTurnStreamingSlice: StateCreator<
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       contextUsage: null,
-      errorBanner: null,
+      sessionControlFailure: null,
       currentAssistant: null,
       turnCancelPending: false,
     });
@@ -1056,7 +1060,7 @@ export const createTurnStreamingSlice: StateCreator<
       requestId: createMessageId(),
       reason: "Operator cancelled the active GUI turn.",
     });
-    set({ turnCancelPending: true, errorBanner: null });
+    set({ turnCancelPending: true, sessionControlFailure: null });
     return true;
   },
 

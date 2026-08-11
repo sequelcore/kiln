@@ -14,7 +14,7 @@ import {
   RGBA,
   type CliRenderer,
 } from "@opentui/core";
-import { operatorEmptyStatePhraseAt } from "@kilnai/gateway-contracts";
+import { OPERATOR_ENTRY_PROMPT } from "@kilnai/gateway-contracts";
 import type { ReactiveState } from "./state.js";
 import type { KilnTheme } from "./theme.js";
 
@@ -139,7 +139,7 @@ export function initUI(
     focusedTextColor: theme.text,
     backgroundColor: "transparent",
     focusedBackgroundColor: "transparent",
-    placeholder: operatorEmptyStatePhraseAt(0),
+    placeholder: OPERATOR_ENTRY_PROMPT,
     wrapMode: "word",
     onSubmit: () => {
       const text = inputTextarea.plainText.trim();

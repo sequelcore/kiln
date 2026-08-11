@@ -15,7 +15,6 @@ describe("useWorkspaceDocuments", () => {
     const onLastDocumentClosed = vi.fn();
     const { result } = renderHook(() => useWorkspaceDocuments({
       gatewayClient: gatewayClient as never,
-      onError: vi.fn(),
       onLastDocumentClosed,
     }));
 
@@ -36,15 +35,13 @@ describe("useWorkspaceDocuments", () => {
     expect(onLastDocumentClosed).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces load failures through local and global error channels", async () => {
-    const onError = vi.fn();
+  it("keeps load failures in the workspace document surface", async () => {
     const { result } = renderHook(() => useWorkspaceDocuments({
       gatewayClient: {
         loadWorkspaceFile: vi.fn(async () => {
           throw new Error("No file");
         }),
       } as never,
-      onError,
       onLastDocumentClosed: vi.fn(),
     }));
 
@@ -53,6 +50,5 @@ describe("useWorkspaceDocuments", () => {
     });
 
     expect(result.current.error).toBe("No file");
-    expect(onError).toHaveBeenCalledWith("No file");
   });
 });

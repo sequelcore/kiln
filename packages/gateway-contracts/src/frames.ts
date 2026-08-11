@@ -370,6 +370,14 @@ export interface GuiProviderAuthFailed {
   readonly message: string;
 }
 
+export interface GuiProviderChangeFailed {
+  readonly type: "provider_change_failed";
+  readonly provider?: string;
+  readonly model?: string;
+  readonly requestId: string;
+  readonly reason: string;
+}
+
 export type GuiSessionTurnOutcome = "completed" | "failed" | "cancelled" | "paused";
 
 export interface GuiSessionSummary {
@@ -1160,6 +1168,15 @@ export interface GuiGoalControlResultFrame {
   readonly reason?: string;
 }
 
+export interface GuiApprovalResponseResultFrame {
+  readonly type: "approval_response_result";
+  readonly requestId: string;
+  readonly approvalId: string;
+  readonly decision: "approve" | "reject";
+  readonly status: "accepted" | "failed";
+  readonly reason?: string;
+}
+
 /** Frames sent by the browser (operator) to the gateway. */
 export type GuiOutboundFrame =
   | {
@@ -1207,8 +1224,8 @@ export type GuiOutboundFrame =
   | OperatorTerminalResizeFrame
   | OperatorTerminalCloseFrame
   | GuiGoalControlFrame
-  | { type: "approve"; approvalId: string; gatewayTargetId?: string }
-  | { type: "reject"; reason: string; approvalId: string; gatewayTargetId?: string }
+  | { type: "approve"; requestId: string; approvalId: string; gatewayTargetId?: string }
+  | { type: "reject"; requestId: string; reason: string; approvalId: string; gatewayTargetId?: string }
   | {
       type: "execution_mode_transition";
       toMode: OperatorExecutionMode;
@@ -1240,6 +1257,7 @@ export type GuiInboundFrame =
   | OperatorTerminalExitedFrame
   | OperatorTerminalErrorFrame
   | GuiManagedAgentControlResultFrame
+  | GuiApprovalResponseResultFrame
   | GuiGoalControlResultFrame
   | GuiMemoryLatticeInvalidatedFrame
   | {
@@ -1318,6 +1336,7 @@ export type GuiInboundFrame =
       providers?: readonly GuiProviderDescriptor[];
     }
     | { type: "provider_changed"; provider: string; model?: string; requestId: string }
+    | GuiProviderChangeFailed
     | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */

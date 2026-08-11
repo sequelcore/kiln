@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ComponentProps } from "react";
+import { resolveChatLayout } from "./chat-layout.js";
 import { ChatWorkbench } from "./chat-workbench.js";
 import { Composer } from "./composer.js";
 import type { WorkbenchSurface } from "./workbench-navigation.js";
@@ -53,7 +54,7 @@ type SetupPanelProps = ComponentProps<typeof SetupPanel>;
 
 interface WorkbenchSurfacesProps {
   readonly activeSurface: WorkbenchSurface;
-  readonly chatWorkbench: Omit<ChatWorkbenchProps, "surfaces" | "composer">;
+  readonly chatWorkbench: Omit<ChatWorkbenchProps, "surfaces" | "composer" | "layout">;
   readonly operatorSurfaceTabs: Omit<OperatorSurfaceTabsProps, "chatContent" | "memoryContent">;
   readonly transcript: TranscriptProps;
   readonly composer: ComposerProps;
@@ -80,7 +81,11 @@ function MemoryLatticeFallback() {
 
 function OperatorSurfaceFallback(props: { readonly label: string }) {
   return (
-    <section aria-label={props.label} className="grid min-h-0 flex-1 place-items-center bg-workspace-viewer" role="status">
+    <section
+      aria-label={props.label}
+      className="grid min-h-0 flex-1 place-items-center bg-workspace-viewer"
+      role="status"
+    >
       <p className="text-sm text-muted-foreground">Preparing operator surface.</p>
     </section>
   );
@@ -88,22 +93,30 @@ function OperatorSurfaceFallback(props: { readonly label: string }) {
 
 export function WorkbenchSurfaces(props: WorkbenchSurfacesProps) {
   if (props.activeSurface === "chat") {
+    const layout = resolveChatLayout({
+      activeSurface: props.operatorSurfaceTabs.activeSurface,
+      conversationEntryCount: props.transcript.entries.length,
+      pendingApprovalCount: props.chatWorkbench.pendingApprovals.length,
+      hasForegroundGoal: Boolean(props.composer.foregroundGoal),
+      sessionStatus: props.composer.status,
+    });
     return (
       <ChatWorkbench
         {...props.chatWorkbench}
-        surfaces={(
+        layout={layout}
+        surfaces={
           <Suspense fallback={<OperatorSurfaceFallback label="Loading conversation" />}>
             <OperatorSurfaceTabs
               {...props.operatorSurfaceTabs}
               chatContent={<Transcript {...props.transcript} />}
-              memoryContent={(
+              memoryContent={
                 <Suspense fallback={<MemoryLatticeFallback />}>
                   <MemoryLatticeSurface {...props.memory} />
                 </Suspense>
-              )}
+              }
             />
           </Suspense>
-        )}
+        }
         composer={<Composer {...props.composer} />}
       />
     );

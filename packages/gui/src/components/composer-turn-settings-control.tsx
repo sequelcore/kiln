@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -19,9 +19,10 @@ const DEFAULT_WORK_ITEM_COUNT = 3;
 
 type ComposerWorkMode = "build" | "plan";
 
-export function ComposerWorkModeControl(props: {
+export function ComposerTurnSettingsControl(props: {
   readonly planMode: boolean;
   readonly governedWorkItemCount: number | null;
+  readonly deliberationControl?: ReactNode;
   readonly onPlanModeChange: (enabled: boolean) => void;
   readonly onGovernedWorkItemCountChange: (count: number | null) => void;
 }) {
@@ -29,25 +30,16 @@ export function ComposerWorkModeControl(props: {
   const mode: ComposerWorkMode = props.planMode ? "plan" : "build";
   const governedSetupActive = props.governedWorkItemCount !== null;
   const displayedCount = props.governedWorkItemCount ?? DEFAULT_WORK_ITEM_COUNT;
-  const triggerLabel = props.planMode
-    ? "Plan"
-    : governedSetupActive
-      ? `Build · Goal ${displayedCount}`
-      : "Build";
+  const visibleState = props.planMode ? "Plan" : governedSetupActive ? `Goal ${displayedCount}` : null;
   const accessibleLabel = governedSetupActive
-    ? `Work mode: Build; governed goal with ${displayedCount} work items`
-    : `Work mode: ${triggerLabel}`;
+    ? `Turn settings: Build; governed goal with ${displayedCount} work items`
+    : `Turn settings: ${props.planMode ? "Plan" : "Build"}`;
 
   function selectMode(values: readonly unknown[]): void {
     const selectedMode = values.at(-1);
     if (selectedMode !== "build" && selectedMode !== "plan") return;
     if (selectedMode === mode) return;
-
-    if (selectedMode === "plan") {
-      props.onPlanModeChange(true);
-    } else {
-      props.onPlanModeChange(false);
-    }
+    props.onPlanModeChange(selectedMode === "plan");
     setOpen(false);
   }
 
@@ -56,16 +48,21 @@ export function ComposerWorkModeControl(props: {
       <PopoverTrigger
         aria-label={accessibleLabel}
         render={(
-          <InputGroupButton type="button" size="sm" variant={mode === "plan" || governedSetupActive ? "secondary" : "ghost"} className="h-8 shrink-0 has-data-[icon=inline-end]:pr-2.5">
-            {triggerLabel}
-            <ChevronDown data-icon="inline-end" aria-hidden="true" />
+          <InputGroupButton
+            type="button"
+            size={visibleState ? "sm" : "icon-sm"}
+            variant={mode === "plan" || governedSetupActive ? "secondary" : "ghost"}
+            className="h-8 shrink-0"
+          >
+            <Settings2 data-icon="inline-start" aria-hidden="true" />
+            {visibleState}
           </InputGroupButton>
         )}
       />
       <PopoverContent align="start" side="top" sideOffset={8} className="w-80 gap-3 p-3">
         <PopoverHeader>
-          <PopoverTitle>Work mode</PopoverTitle>
-          <PopoverDescription>Choose whether Kiln can execute or must prepare a plan for approval.</PopoverDescription>
+          <PopoverTitle>Turn settings</PopoverTitle>
+          <PopoverDescription>Choose how Kiln prepares and executes this turn.</PopoverDescription>
         </PopoverHeader>
         <ToggleGroup
           aria-label="Work mode options"
@@ -75,12 +72,8 @@ export function ComposerWorkModeControl(props: {
           spacing={0}
           className="grid w-full grid-cols-2"
         >
-          <ToggleGroupItem value="build" aria-label="Build" className="w-full">
-            Build
-          </ToggleGroupItem>
-          <ToggleGroupItem value="plan" aria-label="Plan for approval" className="w-full">
-            Plan
-          </ToggleGroupItem>
+          <ToggleGroupItem value="build" aria-label="Build" className="w-full">Build</ToggleGroupItem>
+          <ToggleGroupItem value="plan" aria-label="Plan for approval" className="w-full">Plan</ToggleGroupItem>
         </ToggleGroup>
         {mode === "build" ? (
           <>
@@ -116,6 +109,15 @@ export function ComposerWorkModeControl(props: {
             >
               {governedSetupActive ? "Remove goal setup" : "Require goal setup"}
             </Button>
+          </>
+        ) : null}
+        {props.deliberationControl ? (
+          <>
+            <Separator />
+            <div className="grid gap-2">
+              <p className="text-xs font-medium text-foreground">Deliberation</p>
+              {props.deliberationControl}
+            </div>
           </>
         ) : null}
       </PopoverContent>

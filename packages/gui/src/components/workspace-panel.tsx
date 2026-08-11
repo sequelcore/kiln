@@ -16,6 +16,8 @@ interface WorkspaceExplorerClient {
 }
 
 interface WorkspacePanelProps {
+  readonly loadError?: string;
+  readonly onRetryLoad?: () => void;
   readonly gatewayWorkingDirectory?: string;
   readonly workspaceTree?: GuiDashboardSnapshot["workspaceTree"];
   readonly workspaceClient?: WorkspaceExplorerClient;
@@ -189,7 +191,20 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
     <InspectorPanelShell title="Workspace" meta={rootSnapshot ? "explorer" : "metadata"}>
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
         <div className="border-b border-border/60 px-3 py-2.5">
-          {workspaceRoot ? (
+          {props.loadError ? (
+            <div className="flex items-start justify-between gap-3" role="alert">
+              <p className="text-sm leading-6 text-destructive">{props.loadError}</p>
+              {props.onRetryLoad ? (
+                <button
+                  type="button"
+                  className="shrink-0 text-xs font-medium text-foreground underline underline-offset-4"
+                  onClick={props.onRetryLoad}
+                >
+                  Retry
+                </button>
+              ) : null}
+            </div>
+          ) : workspaceRoot ? (
             <div aria-label="Workspace root" className="flex min-w-0 flex-col gap-1.5" role="group">
               <div className="flex min-w-0 items-center gap-2">
                 <p className="shrink-0 font-mono text-[10px] uppercase text-muted-foreground">Root</p>
@@ -212,7 +227,7 @@ export function WorkspacePanel(props: WorkspacePanelProps) {
         </div>
 
         <section aria-label="Workspace tree" className="min-h-0 min-w-0 overflow-y-auto">
-          {rootSnapshot ? (
+          {props.loadError ? null : rootSnapshot ? (
             <div className="min-w-0 px-2 py-2">
               <div aria-label="Workspace files" className="flex flex-col gap-0.5" role="group">{renderEntries(rootSnapshot)}</div>
               {loadingPath ? <p className="px-3 py-2 text-xs text-muted-foreground">Loading {normalizePath(loadingPath)}...</p> : null}

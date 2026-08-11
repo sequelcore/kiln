@@ -123,10 +123,6 @@ vi.mock("../src/components/command-palette.js", () => ({
   CommandPalette: () => null,
 }));
 
-vi.mock("../src/components/error-banner.js", () => ({
-  ErrorBanner: ({ message }: { message: string }) => <div>{message}</div>,
-}));
-
 vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
@@ -283,7 +279,6 @@ function resetStore(): void {
     currentAssistant: null,
     planMode: false,
     activity: null,
-    errorBanner: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
@@ -416,6 +411,17 @@ describe("AppShell sidebar modes", () => {
         refetch: vi.fn(),
       };
     });
+  });
+
+  it("keeps the chat inspector closed until the operator requests a mode", async () => {
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-list")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("workspace-panel")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open inspector" })).toBeInTheDocument();
   });
 
   it("opens changed files in the inspector while keeping sessions persistent", async () => {
@@ -656,11 +662,27 @@ describe("AppShell sidebar modes", () => {
   });
 
   it("surfaces managed-agent cancel acknowledgement failures and clears them on acceptance", async () => {
+    useSessionStore.setState({
+      sessionEvents: [{
+        eventId: "event-agent-started",
+        kilnSessionId: "session-1",
+        sequence: 3,
+        timestamp: "2026-05-23T12:03:00.000Z",
+        kind: "agent_invocation_started",
+        payload: {
+          instanceId: "local-gui",
+          sessionId: "session-1",
+          managedInvocationId: "child-gui",
+          lifecycleState: "running",
+        },
+      }],
+    });
     render(<AppShell />);
 
     await waitFor(() => {
       expect(screen.getByTestId("session-list")).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
     act(() => {
       guiWsOnFrame?.({

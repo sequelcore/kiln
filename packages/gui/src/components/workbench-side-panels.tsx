@@ -14,6 +14,8 @@ export function WorkbenchSessionsPanel(props: {
   readonly sessions: SessionListProps["sessions"];
   readonly selectedSessionId: string | null;
   readonly continuity: SessionListProps["continuity"];
+  readonly loadError?: SessionListProps["loadError"];
+  readonly onRetryLoad?: SessionListProps["onRetryLoad"];
   readonly onSelectSession: (sessionId: string) => void;
   readonly onStartNewSession: () => void;
 }) {
@@ -22,6 +24,8 @@ export function WorkbenchSessionsPanel(props: {
       sessions={props.sessions}
       selectedSessionId={props.selectedSessionId}
       continuity={props.continuity}
+      loadError={props.loadError}
+      onRetryLoad={props.onRetryLoad}
       onSelect={props.onSelectSession}
       onStartNewSession={props.onStartNewSession}
     />
@@ -31,12 +35,15 @@ export function WorkbenchSessionsPanel(props: {
 export function WorkbenchInspectorPanel(props: {
   readonly mode: InspectorMode;
   readonly gatewayWorkingDirectory: WorkspacePanelProps["gatewayWorkingDirectory"];
+  readonly workspaceLoadError?: WorkspacePanelProps["loadError"];
+  readonly onRetryWorkspaceLoad?: WorkspacePanelProps["onRetryLoad"];
   readonly workspaceTree: WorkspacePanelProps["workspaceTree"];
   readonly workspaceClient: WorkspacePanelProps["workspaceClient"];
   readonly worktreePath: WorkspacePanelProps["worktreePath"];
   readonly selectedFilePath: WorkspacePanelProps["selectedFilePath"];
   readonly changedFiles: ChangedFilesPanelProps["files"];
   readonly approvals: ApprovalsPanelProps["approvals"];
+  readonly approvalResponseFailure?: ApprovalsPanelProps["responseFailure"];
   readonly onOpenFile: NonNullable<WorkspacePanelProps["onOpenFile"]>;
   readonly onApprove: (approvalId: string) => void;
   readonly onDeny: (approvalId: string) => void;
@@ -44,6 +51,8 @@ export function WorkbenchInspectorPanel(props: {
   if (props.mode === "workspace") {
     return (
       <WorkspacePanel
+        loadError={props.workspaceLoadError}
+        onRetryLoad={props.onRetryWorkspaceLoad}
         gatewayWorkingDirectory={props.gatewayWorkingDirectory}
         workspaceTree={props.workspaceTree}
         workspaceClient={props.workspaceClient}
@@ -61,6 +70,7 @@ export function WorkbenchInspectorPanel(props: {
   return (
     <ApprovalsPanel
       approvals={props.approvals}
+      responseFailure={props.approvalResponseFailure}
       onApprove={props.onApprove}
       onDeny={props.onDeny}
     />

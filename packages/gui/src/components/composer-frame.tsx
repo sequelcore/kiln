@@ -124,12 +124,12 @@ export function ComposerFrame(props: {
   readonly activity?: ComposerActivity;
   readonly activeGoal?: ReactNode;
   readonly providerControl?: ReactNode;
-  readonly deliberationControl?: ReactNode;
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
   readonly attachments?: ReactNode;
   readonly feedback?: ReactNode;
   readonly leadingActions: ReactNode;
+  readonly turnSettings?: ReactNode;
   readonly trailingActions: ReactNode;
   readonly onSubmit: FormEventHandler<HTMLFormElement>;
   readonly onDraftChange: (value: string) => void;
@@ -137,7 +137,6 @@ export function ComposerFrame(props: {
   readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const hasRouteControls = Boolean(props.providerControl || props.deliberationControl);
   const kilnTheme = useUiStore((state) => state.theme);
   const beamTheme = resolveBorderBeamTheme(kilnTheme);
   const phase = props.activity?.phase ?? "idle";
@@ -214,13 +213,13 @@ export function ComposerFrame(props: {
               onKeyDown={props.onKeyDown}
               onPaste={props.onPaste}
               className="min-h-14 max-h-44 px-3 py-2.5 text-sm leading-6"
-              placeholder="Message Kiln"
+              placeholder="Describe the outcome or ask a follow-up…"
             />
             {props.attachments}
             <InputGroupAddon align="block-end" aria-label="Message options" className="px-2 py-1.5">
-              <div className="flex w-full min-w-0 flex-nowrap items-center gap-1">
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-1">
                 <div
-                  className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="flex min-w-0 flex-1 flex-wrap items-center gap-1"
                   data-role="composer-secondary-controls"
                 >
                   <div className="shrink-0" data-role="composer-leading-actions">
@@ -229,16 +228,10 @@ export function ComposerFrame(props: {
                   {props.authorityControl ? (
                     <div className="min-w-0 shrink-0">{props.authorityControl}</div>
                   ) : null}
-                  {hasRouteControls ? (
-                    <>
-                      {props.providerControl ? (
-                        <div className="min-w-32 max-w-64 shrink-0">{props.providerControl}</div>
-                      ) : null}
-                      {props.deliberationControl ? (
-                        <div className="shrink-0">{props.deliberationControl}</div>
-                      ) : null}
-                    </>
+                  {props.providerControl ? (
+                    <div className="min-w-32 max-w-64 flex-1 sm:flex-none">{props.providerControl}</div>
                   ) : null}
+                  {props.turnSettings ? <div className="shrink-0">{props.turnSettings}</div> : null}
                   <ComposerContinuityChip hint={props.continuityHint} />
                   <ContextMeter usage={props.contextUsage} />
                 </div>

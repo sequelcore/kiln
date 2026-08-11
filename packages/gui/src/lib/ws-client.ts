@@ -584,6 +584,14 @@ const GuiInboundFrameSchema = z.union([
     reason: z.string().optional(),
   }),
   z.object({
+    type: z.literal("approval_response_result"),
+    requestId: z.string().trim().min(1),
+    approvalId: z.string().trim().min(1),
+    decision: z.enum(["approve", "reject"]),
+    status: z.enum(["accepted", "failed"]),
+    reason: z.string().optional(),
+  }),
+  z.object({
     type: z.literal("operator_theme_set"),
     requestId: z.string().trim().min(1),
     theme: z.string().trim().min(1),
@@ -771,6 +779,13 @@ const GuiInboundFrameSchema = z.union([
     provider: z.string(),
     model: z.string().trim().min(1).optional(),
     requestId: z.string().trim().min(1),
+  }),
+  z.object({
+    type: z.literal("provider_change_failed"),
+    provider: z.string().trim().min(1).optional(),
+    model: z.string().trim().min(1).optional(),
+    requestId: z.string().trim().min(1),
+    reason: z.string().trim().min(1),
   }),
   z.object({
     type: z.literal("continuation_selected"),

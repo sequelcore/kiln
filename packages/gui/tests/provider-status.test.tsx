@@ -11,7 +11,6 @@ function resetStore(): void {
     currentAssistant: null,
     planMode: false,
     activity: null,
-    errorBanner: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [

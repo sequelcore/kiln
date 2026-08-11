@@ -660,7 +660,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
               });
               if (!resolution.ok) {
-                ws.send(JSON.stringify({ type: "error", message: resolution.error }));
+                ws.send(JSON.stringify({
+                  type: "provider_change_failed",
+                  provider: frame.provider,
+                  ...(frame.model ? { model: frame.model } : {}),
+                  requestId,
+                  reason: resolution.error,
+                }));
                 return;
               }
               options.sessionManager.setProvider(resolution.provider);

@@ -178,10 +178,6 @@ vi.mock("../src/components/command-palette.js", () => ({
   },
 }));
 
-vi.mock("../src/components/error-banner.js", () => ({
-  ErrorBanner: ({ message }: { message: string }) => <div>{message}</div>,
-}));
-
 vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
@@ -243,10 +239,11 @@ vi.mock("../src/components/session-list.js", () => ({
 }));
 
 vi.mock("../src/components/workspace-panel.js", () => ({
-  WorkspacePanel: (props: { gatewayWorkingDirectory?: string }) => (
+  WorkspacePanel: (props: { gatewayWorkingDirectory?: string; loadError?: string; onRetryLoad?: () => void }) => (
     <div>
       <span>Workspace</span>
-      <span>{props.gatewayWorkingDirectory ?? "no dashboard working directory"}</span>
+      {props.loadError ? <span role="alert">{props.loadError}</span> : <span>{props.gatewayWorkingDirectory ?? "no dashboard working directory"}</span>}
+      {props.onRetryLoad ? <button type="button" onClick={props.onRetryLoad}>Retry workspace</button> : null}
     </div>
   ),
 }));
@@ -298,7 +295,6 @@ function resetStore(): void {
     currentAssistant: null,
     planMode: false,
     activity: null,
-    errorBanner: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
     providers: [],
@@ -509,9 +505,7 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     render(<AppShell />);
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Open composer commands" })).toBeInTheDocument();
-    });
+    expect(await screen.findByRole("status", { name: "Runtime bootstrap" })).toHaveTextContent("Opening the realtime session channel.");
 
     expect(useSessionStore.getState().outboundSend).toBeNull();
   });
@@ -541,7 +535,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     }
   });
 
-  it("keeps the dashboard error banner while cached dashboard data is present and only clears it after the error becomes null", async () => {
+  it("keeps dashboard failures local to dependent surfaces and ignores stale dashboard data", async () => {
     dashboardQueryResult = {
       data: null,
       error: new Error("dashboard failed"),
@@ -551,7 +545,12 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     const { rerender } = render(<AppShell />);
 
-    expect(await screen.findByText("Could not load dashboard state.")).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Open composer commands" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load workspace state.");
+    fireEvent.click(screen.getByRole("button", { name: "Retry workspace" }));
+    expect(dashboardRefetchMock).toHaveBeenCalledTimes(1);
 
     const staleDashboardData = {
       ...dashboardData,
@@ -571,12 +570,9 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     rerender(<AppShell />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Could not load dashboard state.")).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load workspace state.");
     expect(screen.queryByText("C:/workspace/kiln")).not.toBeInTheDocument();
-    expect(screen.getByText("no dashboard working directory")).toBeInTheDocument();
+    expect(screen.queryByText("no dashboard working directory")).not.toBeInTheDocument();
     expect(screen.queryByText("dom: stale-region")).not.toBeInTheDocument();
 
     dashboardQueryResult = {
@@ -589,7 +585,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     rerender(<AppShell />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Could not load dashboard state.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
 
@@ -794,11 +790,13 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     expect(sendMock).toHaveBeenCalledWith({
       type: "approve",
+      requestId: expect.any(String),
       approvalId: "approval-1",
       gatewayTargetId: "app-gateway:support:tenant:acme",
     });
     expect(sendMock).toHaveBeenCalledWith({
       type: "reject",
+      requestId: expect.any(String),
       approvalId: "approval-1",
       reason: "rejected by user",
       gatewayTargetId: "app-gateway:support:tenant:acme",

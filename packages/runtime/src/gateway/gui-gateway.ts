@@ -1139,8 +1139,15 @@ function wireOperatorTransport(
               });
               if (!resolution.ok) {
                 ws.send(JSON.stringify({
-                  type: "error",
-                  message: resolution.error,
+                  type: "provider_change_failed",
+                  ...(typeof frame.provider === "string" && frame.provider.trim().length > 0
+                    ? { provider: frame.provider.trim() }
+                    : {}),
+                  ...(typeof frame.model === "string" && frame.model.trim().length > 0
+                    ? { model: frame.model.trim() }
+                    : {}),
+                  requestId,
+                  reason: resolution.error,
                 } satisfies GuiInboundFrame));
                 return;
               }
@@ -1629,21 +1636,41 @@ function wireOperatorTransport(
             }
 
             if (frame.type === "approve") {
-              const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : undefined;
-              const result = approvalRegistry.approve(approvalId);
-              if (!result.ok) {
-                ws.send(JSON.stringify({ type: "error", message: result.error ?? "Approval failed" } satisfies GuiInboundFrame));
+              const requestId = typeof frame.requestId === "string" ? frame.requestId : "";
+              if (!requestId.trim()) {
+                ws.send(JSON.stringify({ type: "error", message: "Approval response requestId is required" } satisfies GuiInboundFrame));
+                return;
               }
+              const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : "";
+              const result = approvalRegistry.approve(approvalId);
+              ws.send(JSON.stringify({
+                type: "approval_response_result",
+                requestId,
+                approvalId,
+                decision: "approve",
+                status: result.ok ? "accepted" : "failed",
+                ...(!result.ok ? { reason: result.error ?? "Approval failed" } : {}),
+              } satisfies GuiInboundFrame));
               return;
             }
 
             if (frame.type === "reject") {
-              const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : undefined;
+              const requestId = typeof frame.requestId === "string" ? frame.requestId : "";
+              if (!requestId.trim()) {
+                ws.send(JSON.stringify({ type: "error", message: "Approval response requestId is required" } satisfies GuiInboundFrame));
+                return;
+              }
+              const approvalId = typeof frame.approvalId === "string" ? frame.approvalId : "";
               const reason = typeof frame.reason === "string" ? frame.reason : "rejected by user";
               const result = approvalRegistry.reject(reason, approvalId);
-              if (!result.ok) {
-                ws.send(JSON.stringify({ type: "error", message: result.error ?? "Rejection failed" } satisfies GuiInboundFrame));
-              }
+              ws.send(JSON.stringify({
+                type: "approval_response_result",
+                requestId,
+                approvalId,
+                decision: "reject",
+                status: result.ok ? "accepted" : "failed",
+                ...(!result.ok ? { reason: result.error ?? "Rejection failed" } : {}),
+              } satisfies GuiInboundFrame));
               return;
             }
 

@@ -29,11 +29,13 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     onSessionEvent: vi.fn(),
     onDone: vi.fn(),
     onGoalControlResult: vi.fn(),
+    onApprovalResponseResult: vi.fn(),
     onVoiceSynthesisCompleted: vi.fn(),
     onVoiceSynthesisFailed: vi.fn(),
     onError: vi.fn(),
     onCleared: vi.fn(),
     onProviderChanged: vi.fn(),
+    onProviderChangeFailed: vi.fn(),
     onProviderAuthStarted: vi.fn(),
     onProviderAuthCompleted: vi.fn(),
     onProviderAuthFailed: vi.fn(),
@@ -52,8 +54,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     sendThemeResult: vi.fn(),
     getProviders: vi.fn(() => [{ id: "codex", models: ["gpt"], available: true }]),
     refetchDashboard: vi.fn(),
-    setErrorBanner: vi.fn(),
-    clearErrorBanner: vi.fn(),
+    onManagedAgentControlResult: vi.fn(),
     invalidateMemoryLattice: vi.fn(),
     ...overrides,
   };
@@ -122,7 +123,7 @@ describe("createAppShellFrameHandler", () => {
     expect(input.refetchDashboard).toHaveBeenCalledTimes(1);
   });
 
-  it("maps managed-agent control failures to the error banner and clears successful results", () => {
+  it("routes managed-agent control results to the cockpit owner", () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
@@ -140,8 +141,11 @@ describe("createAppShellFrameHandler", () => {
       invocationId: "child-1",
     } as never);
 
-    expect(input.setErrorBanner).toHaveBeenCalledWith("Child already exited");
-    expect(input.clearErrorBanner).toHaveBeenCalledTimes(1);
+    expect(input.onManagedAgentControlResult).toHaveBeenCalledTimes(2);
+    expect(input.onManagedAgentControlResult).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      status: "failed",
+      reason: "Child already exited",
+    }));
   });
 
   it("surfaces rejected goal controls without mutating transcript state", () => {
@@ -162,6 +166,36 @@ describe("createAppShellFrameHandler", () => {
       reason: "Goal is already terminal.",
     }));
     expect(input.onSessionEvent).not.toHaveBeenCalled();
+  });
+
+  it("routes provider and approval failures to their operation owners", () => {
+    const input = createInput();
+    const handleFrame = createAppShellFrameHandler(input);
+
+    handleFrame({
+      type: "provider_change_failed",
+      requestId: "provider-change-1",
+      provider: "openai",
+      model: "gpt-5",
+      reason: "The selected route is unavailable.",
+    });
+    handleFrame({
+      type: "approval_response_result",
+      requestId: "approval-response-1",
+      approvalId: "approval-1",
+      decision: "approve",
+      status: "failed",
+      reason: "Approval is no longer pending.",
+    });
+
+    expect(input.onProviderChangeFailed).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "provider-change-1",
+    }));
+    expect(input.onApprovalResponseResult).toHaveBeenCalledWith(expect.objectContaining({
+      approvalId: "approval-1",
+      status: "failed",
+    }));
+    expect(input.onError).not.toHaveBeenCalled();
   });
 
   it("routes memory invalidation and thinking frames to their focused state updates", () => {

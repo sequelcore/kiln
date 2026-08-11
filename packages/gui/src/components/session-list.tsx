@@ -11,6 +11,8 @@ interface SessionListProps {
   readonly sessions: readonly GuiSessionSummary[];
   readonly selectedSessionId: string | null;
   readonly continuity: SessionContinuity;
+  readonly loadError?: string;
+  readonly onRetryLoad?: () => void;
   readonly onSelect: (sessionId: string) => void;
   readonly onStartNewSession: () => void;
 }
@@ -268,7 +270,16 @@ export function SessionList(props: SessionListProps) {
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {props.sessions.length === 0 ? (
+        {props.loadError ? (
+          <div className="m-2 rounded-md border border-status-danger-border bg-status-danger-background px-3 py-3 text-xs text-error" role="alert">
+            <p>{props.loadError}</p>
+            {props.onRetryLoad ? (
+              <Button type="button" variant="outline" size="xs" className="mt-2" onClick={props.onRetryLoad}>
+                Retry
+              </Button>
+            ) : null}
+          </div>
+        ) : props.sessions.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-5 py-10 text-center">
             <p className="text-pretty text-xs leading-5 text-muted-foreground">No sessions yet.</p>
             <Button type="button" variant="ghost" size="sm" onClick={props.onStartNewSession}>

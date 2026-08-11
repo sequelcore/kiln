@@ -204,7 +204,7 @@ describe("GatewaySession provider switching", () => {
     await session.dispose();
   });
 
-  it("rejects a pending provider switch immediately when the gateway returns an error frame", async () => {
+  it("rejects a pending provider switch from its correlated failure frame", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];
     ws.simulateOpen();
@@ -212,7 +212,7 @@ describe("GatewaySession provider switching", () => {
     const promise = session.switchProvider("openai", "gpt-5");
     await Promise.resolve();
 
-    sentProviderFrame(ws);
+    const frame = sentProviderFrame(ws);
 
     let rejection: Error | null = null;
     promise.catch((error: Error) => {
@@ -221,8 +221,11 @@ describe("GatewaySession provider switching", () => {
     });
 
     ws.simulateMessage(JSON.stringify({
-      type: "error",
-      message: "Provider switch failed",
+      type: "provider_change_failed",
+      provider: "openai",
+      model: "gpt-5",
+      requestId: frame.requestId,
+      reason: "Provider switch failed",
     }));
     await Promise.resolve();
     await Promise.resolve();

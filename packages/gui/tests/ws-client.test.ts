@@ -1130,6 +1130,40 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
+            type: "approval_response_result",
+            requestId: "approval-response-1",
+            approvalId: "approval-1",
+            decision: "approve",
+            status: "failed",
+            reason: "Approval is no longer pending.",
+          },
+          expected: {
+            type: "approval_response_result",
+            requestId: "approval-response-1",
+            approvalId: "approval-1",
+            decision: "approve",
+            status: "failed",
+            reason: "Approval is no longer pending.",
+          },
+        },
+        {
+          json: {
+            type: "provider_change_failed",
+            provider: "openai",
+            model: "gpt-5",
+            requestId: "provider-change-1",
+            reason: "The selected route is cooling down.",
+          },
+          expected: {
+            type: "provider_change_failed",
+            provider: "openai",
+            model: "gpt-5",
+            requestId: "provider-change-1",
+            reason: "The selected route is cooling down.",
+          },
+        },
+        {
+          json: {
             type: "managed_agent_control_result",
             action: "join",
             sessionId: "session-1",

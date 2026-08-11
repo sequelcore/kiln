@@ -125,6 +125,13 @@ export type TuiInboundFrame =
     }
   | { type: "provider_changed"; provider: string; model?: string; requestId: string }
   | {
+      type: "provider_change_failed";
+      provider?: string;
+      model?: string;
+      requestId: string;
+      reason: string;
+    }
+  | {
       type: "operator_theme_set";
       requestId: string;
       theme: string;

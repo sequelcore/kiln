@@ -21,9 +21,10 @@ function resetSessionStore(): void {
     currentAssistant: null,
     planMode: false,
     activity: null,
-    errorBanner: null,
+    sessionControlFailure: null,
     providerCatalogStatus: "ready",
     providerCatalogError: null,
+    providerOperationFailure: null,
     providers: [],
     providerModelDiscovery: defaultProviderModelDiscovery(),
     activeProvider: null,
@@ -46,6 +47,10 @@ function resetSessionStore(): void {
     currentTurnTrackedOutputTokens: 0,
     clearPending: false,
     turnCancelPending: false,
+    goalControlPending: null,
+    goalControlFailure: null,
+    approvalResponseFailure: null,
+    approvalResponsesPending: [],
     providerSwitching: false,
     providerSwitchTarget: null,
     providerAuthenticating: false,
@@ -287,6 +292,38 @@ describe("session-store", () => {
         { type: "audio", mimeType: "audio/wav", data: "BAUG", durationMs: 900 },
       ],
     });
+  });
+
+  it("owns voice synthesis failures on the source message and clears them on retry", () => {
+    const outboundSend = vi.fn();
+    useSessionStore.setState({ outboundSend });
+    useSessionStore.getState().onDone({
+      type: "done",
+      kilnSessionId: "session-live",
+      sourceMessageId: "runtime-message-voice-failed",
+      outcome: "completed",
+      content: "Generate audio later.",
+      parts: [{ type: "text", text: "Generate audio later." }],
+      inputTokens: 3,
+      outputTokens: 4,
+    });
+
+    useSessionStore.getState().onVoiceSynthesisFailed({
+      type: "voice_synthesis_failed",
+      requestId: "voice-request-failed",
+      sourceMessageId: "runtime-message-voice-failed",
+      message: "Speech synthesis is unavailable.",
+      code: "VOICE_SYNTHESIS_FAILED",
+    });
+    expect(useSessionStore.getState().messages[0]).toMatchObject({
+      voiceSynthesisStatus: "error",
+      voiceSynthesisFailure: "Speech synthesis is unavailable.",
+    });
+
+    const messageId = useSessionStore.getState().messages[0]?.id ?? "";
+    expect(useSessionStore.getState().requestVoiceSynthesis(messageId)).toBe(true);
+    expect(useSessionStore.getState().messages[0]).toMatchObject({ voiceSynthesisStatus: "pending" });
+    expect(useSessionStore.getState().messages[0]?.voiceSynthesisFailure).toBeUndefined();
   });
 
   it("sendMessage sends voice input parts while displaying a compact local label", () => {
@@ -2554,7 +2591,7 @@ describe("session-store", () => {
     }));
   });
 
-  it("onError adds error row and sets banner", () => {
+  it("onError adds one transcript error and does not create global presentation state", () => {
     useSessionStore.getState().onError({
       type: "error",
       message: "Gateway failed",
@@ -2564,7 +2601,6 @@ describe("session-store", () => {
     expect(state.messages).toHaveLength(1);
     expect(state.timelineEntries).toHaveLength(1);
     expect(state.messages[0]?.role).toBe("error");
-    expect(state.errorBanner).toBe("Gateway failed");
     expect(state.status).toBe("ready");
   });
 
@@ -2636,6 +2672,58 @@ describe("session-store", () => {
       action: "pause",
     }));
     expect(useSessionStore.getState().turnCancelPending).toBe(false);
+  });
+
+  it("keeps correlated goal and approval failures in their owning controls", () => {
+    const send = vi.fn();
+    useSessionStore.getState().setSender(send);
+    expect(useSessionStore.getState().controlGoal({ goalRunId: "goal-1", action: "pause" })).toBe(true);
+    const requestId = useSessionStore.getState().goalControlPending?.requestId ?? "";
+
+    useSessionStore.getState().onGoalControlResult({
+      type: "goal_control_result",
+      requestId,
+      goalRunId: "goal-1",
+      action: "pause",
+      status: "failed",
+      reason: "Goal is already paused.",
+    });
+    expect(useSessionStore.getState().sendApprovalResponse(true, undefined, "approval-1")).toBe(true);
+    const approvalRequestId = useSessionStore.getState().approvalResponsesPending[0]?.requestId ?? "";
+    useSessionStore.getState().onApprovalResponseResult({
+      type: "approval_response_result",
+      requestId: approvalRequestId,
+      approvalId: "approval-1",
+      decision: "approve",
+      status: "failed",
+      reason: "Approval is no longer pending.",
+    });
+
+    expect(useSessionStore.getState()).toMatchObject({
+      goalControlFailure: {
+        requestId,
+        goalRunId: "goal-1",
+        action: "pause",
+        message: "Goal is already paused.",
+      },
+      approvalResponseFailure: {
+        requestId: approvalRequestId,
+        approvalId: "approval-1",
+        decision: "approve",
+        message: "Approval is no longer pending.",
+      },
+    });
+
+    expect(useSessionStore.getState().sendApprovalResponse(true, undefined, "approval-2")).toBe(true);
+    const secondRequestId = useSessionStore.getState().approvalResponsesPending.find((entry) => entry.approvalId === "approval-2")?.requestId ?? "";
+    useSessionStore.getState().onApprovalResponseResult({
+      type: "approval_response_result",
+      requestId: secondRequestId,
+      approvalId: "approval-2",
+      decision: "approve",
+      status: "accepted",
+    });
+    expect(useSessionStore.getState().approvalResponseFailure?.approvalId).toBe("approval-1");
   });
 
   it("returns to ready when cancellation finds no active gateway turn", () => {
@@ -3610,11 +3698,13 @@ describe("session-store", () => {
 
     expect(outboundSend).toHaveBeenNthCalledWith(1, {
       type: "approve",
+      requestId: expect.any(String),
       approvalId: "approval-1",
       gatewayTargetId: "gateway:local-app",
     });
     expect(outboundSend).toHaveBeenNthCalledWith(2, {
       type: "reject",
+      requestId: expect.any(String),
       approvalId: "approval-2",
       reason: "Scope changed.",
       gatewayTargetId: "gateway:local-app",

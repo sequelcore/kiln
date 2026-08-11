@@ -198,14 +198,14 @@ function VoiceAudioControls(props: {
   }
   const pending = props.message.voiceSynthesisStatus === "pending";
   return (
-    <MessageFooter className="px-0">
+    <MessageFooter className="flex-wrap px-0">
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
         className="text-muted-foreground hover:text-foreground"
-        aria-label={pending ? "Generating audio" : "Generate audio"}
-        title={pending ? "Generating audio" : "Generate audio"}
+        aria-label={pending ? "Generating audio" : props.message.voiceSynthesisFailure ? "Retry audio generation" : "Generate audio"}
+        title={pending ? "Generating audio" : props.message.voiceSynthesisFailure ? "Retry audio generation" : "Generate audio"}
         disabled={pending}
         onClick={() => {
           props.onRequest(props.message.id);
@@ -217,6 +217,11 @@ function VoiceAudioControls(props: {
           <Volume2 data-icon="inline-start" aria-hidden="true" />
         )}
       </Button>
+      {props.message.voiceSynthesisFailure ? (
+        <span className="text-xs text-error" role="alert">
+          {props.message.voiceSynthesisFailure}
+        </span>
+      ) : null}
     </MessageFooter>
   );
 }

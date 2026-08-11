@@ -15,11 +15,13 @@ interface AppShellFrameHandlerInput {
   readonly onDone: (frame: Extract<GuiInboundFrame, { type: "done" }>) => void;
   readonly onTurnCancelResult: (frame: Extract<GuiInboundFrame, { type: "turn_cancel_result" }>) => void;
   readonly onGoalControlResult: (frame: Extract<GuiInboundFrame, { type: "goal_control_result" }>) => void;
+  readonly onApprovalResponseResult: (frame: Extract<GuiInboundFrame, { type: "approval_response_result" }>) => void;
   readonly onVoiceSynthesisCompleted: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_completed" }>) => void;
   readonly onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   readonly onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
   readonly onCleared: () => void;
   readonly onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
+  readonly onProviderChangeFailed: (frame: Extract<GuiInboundFrame, { type: "provider_change_failed" }>) => void;
   readonly onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   readonly onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   readonly onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
@@ -44,8 +46,7 @@ interface AppShellFrameHandlerInput {
   readonly sendThemeResult: (frame: ThemeResultFrame) => void;
   readonly getProviders: () => readonly ProviderDescriptor[];
   readonly refetchDashboard: () => void;
-  readonly setErrorBanner: (message: string) => void;
-  readonly clearErrorBanner: () => void;
+  readonly onManagedAgentControlResult: (frame: Extract<GuiInboundFrame, { type: "managed_agent_control_result" }>) => void;
   readonly invalidateMemoryLattice: () => void;
 }
 
@@ -96,6 +97,9 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
       case "goal_control_result":
         input.onGoalControlResult(frame);
         return;
+      case "approval_response_result":
+        input.onApprovalResponseResult(frame);
+        return;
       case "voice_synthesis_completed":
         input.onVoiceSynthesisCompleted(frame);
         return;
@@ -110,6 +114,9 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         return;
       case "provider_changed":
         input.onProviderChanged(frame);
+        return;
+      case "provider_change_failed":
+        input.onProviderChangeFailed(frame);
         return;
       case "provider_auth_started":
         input.onProviderAuthStarted(frame);
@@ -161,11 +168,7 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
         input.onOperatorTerminalFrame(frame);
         return;
       case "managed_agent_control_result":
-        if (frame.status === "failed") {
-          input.setErrorBanner(frame.reason ?? `Managed agent ${frame.action} failed for ${frame.invocationId}.`);
-        } else {
-          input.clearErrorBanner();
-        }
+        input.onManagedAgentControlResult(frame);
         return;
       case "memory_lattice_invalidated":
         input.invalidateMemoryLattice();

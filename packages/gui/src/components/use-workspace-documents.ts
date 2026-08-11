@@ -9,7 +9,6 @@ const WORKSPACE_DOCUMENT_TAB_LIMIT = 8;
 
 export function useWorkspaceDocuments(input: {
   readonly gatewayClient: GuiGatewayClient;
-  readonly onError: (message: string) => void;
   readonly onLastDocumentClosed: () => void;
 }) {
   const [documents, setDocuments] = useState<readonly OperatorWorkspaceFileSnapshot[]>([]);
@@ -31,7 +30,6 @@ export function useWorkspaceDocuments(input: {
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Could not load workspace file.";
       setError(message);
-      input.onError(message);
     } finally {
       setLoadingPath(null);
     }

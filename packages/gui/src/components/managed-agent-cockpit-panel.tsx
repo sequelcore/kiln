@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import type { ManagedAgentActionFailure } from "./use-cockpit-actions.js";
 
 type ManagedAgentPromptDeliveryMode = "steer" | "queue";
 
@@ -20,6 +21,7 @@ interface ManagedAgentCockpitPanelProps {
   readonly viewState: OperatorCockpitManagedAgentViewState;
   readonly economicAttempts?: readonly OperatorCockpitEconomicAttemptProjection[];
   readonly unprojectableEvidence?: readonly OperatorCockpitEvidenceRejection[];
+  readonly actionFailure?: ManagedAgentActionFailure | null;
   readonly onOpenResource?: (uri: string, target?: OperatorCockpitActionTarget) => void;
   readonly onCancel?: (input: {
     readonly sessionId: string;
@@ -156,6 +158,7 @@ function ManagedAgentResources(props: {
 function ManagedAgentPromptControl(props: {
   readonly item: OperatorCockpitManagedAgentViewItem;
   readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
+  readonly actionFailure?: ManagedAgentActionFailure | null;
 }) {
   const [prompt, setPrompt] = useState("");
   const [deliveryMode, setDeliveryMode] = useState<ManagedAgentPromptDeliveryMode>("steer");
@@ -340,6 +343,7 @@ function ManagedAgentItem(props: {
   readonly onOpenResource?: ManagedAgentCockpitPanelProps["onOpenResource"];
   readonly onCancel?: ManagedAgentCockpitPanelProps["onCancel"];
   readonly onPrompt?: ManagedAgentCockpitPanelProps["onPrompt"];
+  readonly actionFailure?: ManagedAgentActionFailure | null;
 }) {
   const item = props.item;
   const needsReview = item.attentionState === "needs_review";
@@ -462,6 +466,11 @@ function ManagedAgentItem(props: {
       <ManagedAgentNextAction item={item} />
       <ManagedAgentResources item={item} onOpenResource={props.onOpenResource} />
       <ManagedAgentPromptControl item={item} onPrompt={props.onPrompt} />
+      {props.actionFailure?.invocationId === item.managedInvocationId ? (
+        <p className="mt-3 rounded-md border border-status-danger-border bg-status-danger-background px-3 py-2 text-xs text-error" role="alert">
+          {props.actionFailure.message}
+        </p>
+      ) : null}
       <ManagedAgentTimeline entries={item.lifecycleTimeline} />
     </article>
   );
@@ -602,6 +611,7 @@ export function ManagedAgentCockpitPanel(props: ManagedAgentCockpitPanelProps) {
                 onOpenResource={props.onOpenResource}
                 onCancel={props.onCancel}
                 onPrompt={props.onPrompt}
+                actionFailure={props.actionFailure}
               />
             ))}
           </div>

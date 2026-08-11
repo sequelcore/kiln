@@ -10,7 +10,13 @@ interface CockpitActionsInput {
   readonly selectedGatewayTarget: OperatorWorkspaceGatewayTargetSummary | null;
   readonly selectedSessionId: string | null;
   readonly sendFrame: (() => ((frame: GuiOutboundFrame) => void) | null);
-  readonly onError: (message: string) => void;
+  readonly onFailure: (failure: ManagedAgentActionFailure) => void;
+}
+
+export interface ManagedAgentActionFailure {
+  readonly action: "open_resource" | "cancel" | "join" | "prompt";
+  readonly message: string;
+  readonly invocationId?: string;
 }
 
 export function createResourceTarget(
@@ -37,7 +43,11 @@ export function useCockpitActions(input: CockpitActionsInput) {
   const openResource = async (uri: string, target?: OperatorCockpitActionTarget): Promise<void> => {
     const resourceWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
     if (!resourceWindow) {
-      input.onError("Browser blocked the resource window.");
+      input.onFailure({
+        action: "open_resource",
+        message: "Browser blocked the resource window.",
+        ...(target?.managedInvocationId ? { invocationId: target.managedInvocationId } : {}),
+      });
       return;
     }
     try {
@@ -48,7 +58,11 @@ export function useCockpitActions(input: CockpitActionsInput) {
       resourceWindow.location.href = dataUrl;
     } catch (error) {
       resourceWindow.close();
-      input.onError(error instanceof Error ? error.message : "Could not open resource.");
+      input.onFailure({
+        action: "open_resource",
+        message: error instanceof Error ? error.message : "Could not open resource.",
+        ...(target?.managedInvocationId ? { invocationId: target.managedInvocationId } : {}),
+      });
     }
   };
 
@@ -59,7 +73,11 @@ export function useCockpitActions(input: CockpitActionsInput) {
   }): void => {
     const send = input.sendFrame();
     if (!send) {
-      input.onError("Managed agent control is unavailable until the gateway connection is open.");
+      input.onFailure({
+        action: "cancel",
+        invocationId: control.invocationId,
+        message: "Managed agent control is unavailable until the gateway connection is open.",
+      });
       return;
     }
     send({
@@ -82,7 +100,11 @@ export function useCockpitActions(input: CockpitActionsInput) {
   }): void => {
     const send = input.sendFrame();
     if (!send) {
-      input.onError("Managed agent control is unavailable until the gateway connection is open.");
+      input.onFailure({
+        action: "prompt",
+        invocationId: control.invocationId,
+        message: "Managed agent control is unavailable until the gateway connection is open.",
+      });
       return;
     }
     send({

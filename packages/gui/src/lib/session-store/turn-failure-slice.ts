@@ -3,26 +3,14 @@ import { createMessageId, nowIso } from "./session-store-ids.js";
 import type { ErrorHandlingActions, SessionStore } from "./session-store-state.js";
 import type { Message } from "./session-timeline-types.js";
 
-/**
- * The error banner shown above the composer, and appending a terminal error
- * frame to the transcript (which also unwinds every in-flight pending
- * request: turn, clear, provider switch, provider auth).
- */
+/** Appends terminal turn evidence and unwinds in-flight session operations. */
 
-export const createErrorHandlingSlice: StateCreator<
+export const createTurnFailureSlice: StateCreator<
   SessionStore,
   [],
   [],
   ErrorHandlingActions
 > = (set, get) => ({
-  setErrorBanner: (message) => {
-    set({ errorBanner: message });
-  },
-
-  clearErrorBanner: () => {
-    set({ errorBanner: null });
-  },
-
   onError: (frame) => {
     const state = get();
     if (state.clearTimeoutId) {
@@ -53,7 +41,7 @@ export const createErrorHandlingSlice: StateCreator<
       ],
       status: "ready",
       activity: null,
-      errorBanner: frame.message,
+      sessionControlFailure: null,
       currentAssistant: null,
       routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,

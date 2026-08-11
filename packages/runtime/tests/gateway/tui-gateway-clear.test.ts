@@ -467,8 +467,9 @@ describe("TUI gateway provider switching", () => {
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
       expect(JSON.parse(mockWs.send.mock.calls[0][0] as string)).toEqual(expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("not eligible"),
+        type: "provider_change_failed",
+        requestId: "request-1",
+        reason: expect.stringContaining("not eligible"),
       }));
     } finally {
       discoverySpy.mockRestore();
@@ -555,12 +556,18 @@ describe("TUI gateway provider switching", () => {
       );
 
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "error",
-        message: "OpenAI is unavailable in this runtime.",
+        type: "provider_change_failed",
+        provider: "openai",
+        model: "gpt-5",
+        requestId: "request-unknown",
+        reason: "OpenAI is unavailable in this runtime.",
       }));
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "error",
-        message: "Provider 'opencode' does not advertise model 'openai/gpt-5-other'",
+        type: "provider_change_failed",
+        provider: "opencode",
+        model: "openai/gpt-5-other",
+        requestId: "request-model",
+        reason: "Provider 'opencode' does not advertise model 'openai/gpt-5-other'",
       }));
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
@@ -598,8 +605,10 @@ describe("TUI gateway provider switching", () => {
       );
 
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "error",
-        message: "Provider 'opencode' requires a selected model.",
+        type: "provider_change_failed",
+        provider: "opencode",
+        requestId: "request-model-required",
+        reason: "Provider 'opencode' requires a selected model.",
       }));
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
@@ -640,8 +649,11 @@ describe("TUI gateway provider switching", () => {
       );
 
       expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "error",
-        message: "Provider 'opencode' does not advertise model 'openai/gpt-5'",
+        type: "provider_change_failed",
+        provider: "opencode",
+        model: "openai/gpt-5",
+        requestId: "request-drift",
+        reason: "Provider 'opencode' does not advertise model 'openai/gpt-5'",
       }));
       expect(sessionManager.setProvider).not.toHaveBeenCalled();
       expect(sessionManager.setModel).not.toHaveBeenCalled();
