@@ -3026,6 +3026,15 @@ describe("managed invocation runtime tool", () => {
 
     terminal.resolve();
     await flushMicrotasks();
+    await vi.waitFor(() => expect(sessionEventSink.publish).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kind: "agent_invocation_failed",
+        errorCode: "ENGINE_FAILURE",
+        errorMessage: "child runtime crashed",
+      }),
+    ], expect.objectContaining({
+      toolCall: expect.objectContaining({ name: "managed_agent.start" }),
+    })));
 
     const joined = await surface.callBuiltinTools.get("managed_agent.join")?.({
       invocationId: started.metadata.invocationId,
@@ -3058,15 +3067,6 @@ describe("managed invocation runtime tool", () => {
     expect(joined.metadata.sessionEventIds).toEqual([
       session.sessionEvents[2]?.eventId,
     ]);
-    expect(sessionEventSink.publish).toHaveBeenLastCalledWith([
-      expect.objectContaining({
-        kind: "agent_invocation_failed",
-        errorCode: "ENGINE_FAILURE",
-        errorMessage: "child runtime crashed",
-      }),
-    ], expect.objectContaining({
-      toolCall: expect.objectContaining({ name: "managed_agent.start" }),
-    }));
   });
 
   it("publishes exactly one terminal event when background handoff validation fails", async () => {

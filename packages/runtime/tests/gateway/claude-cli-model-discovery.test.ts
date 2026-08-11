@@ -46,8 +46,9 @@ describe("discoverClaudeCliModelDiscovery", () => {
         pathToClaudeCodeExecutable: "claude",
       },
     });
-    expect(execFileSync).toHaveBeenCalledWith("claude", ["--version"], {
+    expect(execFileSync).toHaveBeenCalledWith(expect.stringMatching(/(?:^|[\\/])claude(?:\.exe)?$/u), ["--version"], {
       encoding: "utf8",
+      shell: false,
       stdio: ["ignore", "pipe", "ignore"],
     });
     expect(supportedModels).toHaveBeenCalledOnce();
