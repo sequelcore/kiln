@@ -111,6 +111,39 @@ describe("Workbench navigation", () => {
     expect(screen.getByText("Gateway target")).toBeVisible();
   });
 
+  it("keeps narrow controls compact while expanding coarse-pointer targets", () => {
+    render(
+      <MobileWorkbenchHeader
+        activeSurface="chat"
+        drawerOpen={false}
+        drawerMode="sessions"
+        operatorTerminalAvailable
+        operatorTerminalExpanded={false}
+        operatorTerminalPanelId="operator-terminal-panel"
+        onToggleDrawer={vi.fn()}
+        onSelectSurface={vi.fn()}
+        onStartNewSession={vi.fn()}
+        onToggleOperatorTerminal={vi.fn()}
+        gatewayTargetSelector={<button type="button" data-slot="select-trigger">Runtime target</button>}
+      />,
+    );
+
+    const header = screen.getByRole("banner");
+    expect(header).toHaveClass("flex-col", "sm:flex-row");
+    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inspector")).not.toBeInTheDocument();
+    for (const name of ["New session", "Open session drawer", "Open inspector drawer", "Open terminal"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("[@media(pointer:coarse)]:size-11");
+    }
+    expect(screen.getByRole("combobox", { name: "Workbench surface" })).toHaveClass(
+      "[@media(pointer:coarse)]:h-11",
+    );
+    expect(screen.getByRole("button", { name: "Runtime target" }).parentElement).toHaveClass(
+      "w-full",
+      "empty:hidden",
+    );
+  });
+
   it("groups mobile surfaces by operator intent", async () => {
     render(
       <MobileWorkbenchHeader

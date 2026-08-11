@@ -348,93 +348,107 @@ export function MobileWorkbenchHeader(props: {
   readonly onToggleOperatorTerminal: () => void;
 }) {
   return (
-    <header className="flex h-11 min-w-0 shrink-0 items-center gap-1.5 border-b border-border/70 bg-workspace-viewer-panel px-2 sm:gap-3 sm:px-3">
-      <KilnMark />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="New session"
-        title="New session"
-        onClick={props.onStartNewSession}
-      >
-        <Plus data-icon="inline-start" aria-hidden="true" />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        aria-controls="session-drawer"
-        aria-expanded={props.drawerOpen && props.drawerMode === "sessions"}
-        aria-label={props.drawerOpen && props.drawerMode === "sessions" ? "Hide session drawer" : "Open session drawer"}
-        onClick={() => props.onToggleDrawer("sessions")}
-      >
-        <History data-icon="inline-start" aria-hidden="true" />
-        <span className="hidden sm:inline">Sessions</span>
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        aria-controls="session-drawer"
-        aria-expanded={props.drawerOpen && props.drawerMode === "inspector"}
-        aria-label={props.drawerOpen && props.drawerMode === "inspector" ? "Hide inspector drawer" : "Open inspector drawer"}
-        onClick={() => props.onToggleDrawer("inspector")}
-      >
-        {props.drawerOpen && props.drawerMode === "inspector" ? (
-          <PanelRightClose data-icon="inline-start" aria-hidden="true" />
-        ) : (
-          <PanelRightOpen data-icon="inline-start" aria-hidden="true" />
-        )}
-        <span className="hidden sm:inline">Inspector</span>
-      </Button>
-      <Select
-        value={props.activeSurface}
-        onValueChange={(value) => {
-          if (WORKBENCH_SURFACES.includes(value as WorkbenchSurface)) {
-            props.onSelectSurface(value as WorkbenchSurface);
-          }
-        }}
-      >
-        <SelectTrigger size="sm" aria-label="Workbench surface" className="min-w-20 sm:min-w-28">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent align="start">
-          <SelectGroup>
-            <SelectLabel>Work surfaces</SelectLabel>
-            {PRIMARY_WORK_SURFACES.map((surface) => (
-              <SelectItem key={surface} value={surface}>
-                {WORKBENCH_SURFACE_LABELS[surface]}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-          <SelectGroup>
-            <SelectLabel>Inspect and configure</SelectLabel>
-            {UTILITY_SURFACES.map((surface) => (
-              <SelectItem key={surface} value={surface}>
-                {WORKBENCH_SURFACE_LABELS[surface]}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <div className="ml-auto" />
-      {props.operatorTerminalAvailable ? (
+    <header className="flex min-w-0 shrink-0 flex-col border-b border-border/70 bg-workspace-viewer-panel px-2 sm:h-11 sm:flex-row sm:items-center sm:gap-2 sm:px-3">
+      <div className="flex h-11 min-w-0 items-center gap-1 sm:contents">
+        <div className="hidden sm:block">
+          <KilnMark />
+        </div>
         <Button
-          id="operator-terminal-trigger"
           type="button"
-          variant={props.operatorTerminalExpanded ? "secondary" : "ghost"}
-          size="icon-sm"
-          aria-controls={props.operatorTerminalPanelId}
-          aria-expanded={props.operatorTerminalExpanded}
-          aria-label={props.operatorTerminalExpanded ? "Hide terminal" : "Open terminal"}
-          title="Terminal (Ctrl+`)"
-          onClick={props.onToggleOperatorTerminal}
+          variant="ghost"
+          size="icon-lg"
+          aria-label="New session"
+          title="New session"
+          onClick={props.onStartNewSession}
+          className="[@media(pointer:coarse)]:size-11"
         >
-          <SquareTerminal aria-hidden="true" />
+          <Plus data-icon="inline-start" aria-hidden="true" />
         </Button>
-      ) : null}
-      {props.gatewayTargetSelector}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          aria-controls="session-drawer"
+          aria-expanded={props.drawerOpen && props.drawerMode === "sessions"}
+          aria-label={props.drawerOpen && props.drawerMode === "sessions" ? "Hide session drawer" : "Open session drawer"}
+          title="Sessions"
+          onClick={() => props.onToggleDrawer("sessions")}
+          className="[@media(pointer:coarse)]:size-11"
+        >
+          <History data-icon="inline-start" aria-hidden="true" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          aria-controls="session-drawer"
+          aria-expanded={props.drawerOpen && props.drawerMode === "inspector"}
+          aria-label={props.drawerOpen && props.drawerMode === "inspector" ? "Hide inspector drawer" : "Open inspector drawer"}
+          title="Inspector"
+          onClick={() => props.onToggleDrawer("inspector")}
+          className="[@media(pointer:coarse)]:size-11"
+        >
+          {props.drawerOpen && props.drawerMode === "inspector" ? (
+            <PanelRightClose data-icon="inline-start" aria-hidden="true" />
+          ) : (
+            <PanelRightOpen data-icon="inline-start" aria-hidden="true" />
+          )}
+        </Button>
+        <Select
+          value={props.activeSurface}
+          onValueChange={(value) => {
+            if (WORKBENCH_SURFACES.includes(value as WorkbenchSurface)) {
+              props.onSelectSurface(value as WorkbenchSurface);
+            }
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            aria-label="Workbench surface"
+            className="h-9 min-w-16 flex-1 sm:min-w-28 sm:flex-none [@media(pointer:coarse)]:h-11"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="start">
+            <SelectGroup>
+              <SelectLabel>Work surfaces</SelectLabel>
+              {PRIMARY_WORK_SURFACES.map((surface) => (
+                <SelectItem key={surface} value={surface}>
+                  {WORKBENCH_SURFACE_LABELS[surface]}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+            <SelectGroup>
+              <SelectLabel>Inspect and configure</SelectLabel>
+              {UTILITY_SURFACES.map((surface) => (
+                <SelectItem key={surface} value={surface}>
+                  {WORKBENCH_SURFACE_LABELS[surface]}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <div className="hidden sm:ml-auto sm:block" />
+        {props.operatorTerminalAvailable ? (
+          <Button
+            id="operator-terminal-trigger"
+            type="button"
+            variant={props.operatorTerminalExpanded ? "secondary" : "ghost"}
+            size="icon-lg"
+            aria-controls={props.operatorTerminalPanelId}
+            aria-expanded={props.operatorTerminalExpanded}
+            aria-label={props.operatorTerminalExpanded ? "Hide terminal" : "Open terminal"}
+            title="Terminal (Ctrl+`)"
+            onClick={props.onToggleOperatorTerminal}
+            className="[@media(pointer:coarse)]:size-11"
+          >
+            <SquareTerminal aria-hidden="true" />
+          </Button>
+        ) : null}
+      </div>
+      <div className="empty:hidden w-full min-w-0 pb-2 sm:w-auto sm:pb-0 [&>div]:w-full sm:[&>div]:w-auto [&_[data-slot=select-trigger]]:h-9 [&_[data-slot=select-trigger]]:w-full [&_[data-slot=select-trigger]]:min-w-0 sm:[&_[data-slot=select-trigger]]:w-36 sm:[&_[data-slot=select-trigger]]:max-w-48 [@media(pointer:coarse)]:[&_[data-slot=select-trigger]]:h-11">
+        {props.gatewayTargetSelector}
+      </div>
     </header>
   );
 }

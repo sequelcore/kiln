@@ -299,6 +299,14 @@ action rather than a navigation destination. The collapsed sidebar preserves
 the same order, and the narrow-layout surface selector exposes the same two
 semantic groups without adding more header controls.
 
+At phone widths, the narrow header keeps new-session, drawer, surface, and
+terminal controls in its first row and gives an available gateway target a
+second full-width row so target identity is never hidden or reduced to an
+ambiguous icon. The Kiln mark yields that constrained space and returns at the
+tablet breakpoint. Icon-only controls retain explicit accessible names and
+titles; coarse-pointer targets expand to 44 px while fine-pointer layouts keep
+the denser desktop-derived sizing.
+
 The sidebar shell owns collapse behavior, mobile drawer handoff, and surface
 selection. Session history owns search, temporal grouping, keyboard traversal,
 selection state, and compact row presentation. Do not introduce another
