@@ -26,10 +26,11 @@ describe("Workbench navigation", () => {
     );
 
     expect(screen.getByRole("complementary", { name: "Kiln workspace sidebar" })).toBeVisible();
-    expect(screen.getByRole("navigation", { name: "Workbench surfaces" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Primary work surfaces" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Inspect and configure" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Agents" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Open sessions" })).toBeVisible();
-    expect(screen.getByRole("navigation", { name: "Workbench surfaces" })).toHaveClass("px-2");
+    expect(screen.getByRole("navigation", { name: "Primary work surfaces" })).toHaveClass("px-2");
     expect(screen.getByRole("button", { name: "Open sessions" })).toHaveClass("w-full");
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
@@ -57,6 +58,22 @@ describe("Workbench navigation", () => {
     expect(screen.getByText("Kiln")).toBeVisible();
     expect(screen.queryByText("Operator workbench")).not.toBeInTheDocument();
     expect(screen.queryByText("Surfaces")).not.toBeInTheDocument();
+    const primaryNavigation = screen.getByRole("navigation", { name: "Primary work surfaces" });
+    const utilityNavigation = screen.getByRole("navigation", { name: "Inspect and configure" });
+    expect(within(primaryNavigation).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Chat",
+      "Work",
+      "Agents",
+    ]);
+    expect(within(utilityNavigation).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Activity",
+      "Memory",
+      "Setup",
+    ]);
+    const sessionList = screen.getByText("Session list");
+    expect(primaryNavigation.compareDocumentPosition(sessionList) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(sessionList.compareDocumentPosition(utilityNavigation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(primaryNavigation).queryByRole("button", { name: "New session" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New session" }));
     expect(onStartNewSession).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Session list")).toBeVisible();
@@ -92,6 +109,28 @@ describe("Workbench navigation", () => {
     expect(onToggleDrawer).toHaveBeenNthCalledWith(2, "inspector");
     expect(onStartNewSession).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Gateway target")).toBeVisible();
+  });
+
+  it("groups mobile surfaces by operator intent", async () => {
+    render(
+      <MobileWorkbenchHeader
+        activeSurface="chat"
+        drawerOpen={false}
+        drawerMode="sessions"
+        operatorTerminalAvailable={false}
+        operatorTerminalExpanded={false}
+        operatorTerminalPanelId="operator-terminal-panel"
+        onToggleDrawer={vi.fn()}
+        onSelectSurface={vi.fn()}
+        onStartNewSession={vi.fn()}
+        onToggleOperatorTerminal={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Workbench surface" }));
+
+    expect(await screen.findByText("Work surfaces")).toBeVisible();
+    expect(screen.getByText("Inspect and configure")).toBeVisible();
   });
 
   it("announces only the active mobile drawer control as expanded", () => {

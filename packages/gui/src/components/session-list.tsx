@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
-import { CircleAlert, LoaderCircle, Plus, Search, Unplug, X } from "lucide-react";
+import { CircleAlert, CirclePause, CircleX, LoaderCircle, Plus, Search, Unplug, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { SessionContinuity } from "@/lib/session-continuity";
@@ -15,7 +15,14 @@ interface SessionListProps {
   readonly onStartNewSession: () => void;
 }
 
-type SessionIndicator = "running" | "detached" | "failed" | "cancelled";
+type SessionIndicator = "running" | "background" | "paused" | "failed" | "cancelled";
+
+interface SessionEntry {
+  readonly session: GuiSessionSummary;
+  readonly indicator: SessionIndicator | null;
+}
+
+const ATTENTION_GROUP_ORDER = ["Active", "Needs attention"] as const;
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -60,54 +67,79 @@ function filterSessions(sessions: readonly GuiSessionSummary[], query: string): 
   return sessions.filter((session) => sessionSearchText(session).includes(normalizedQuery));
 }
 
-function groupSessions(sessions: readonly GuiSessionSummary[]) {
+function chronologicalGroup(iso: string): string {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterdayStart = todayStart - 86_400_000;
   const weekStart = todayStart - (6 * 86_400_000);
-  const groups = new Map<string, GuiSessionSummary[]>();
+  const timestamp = new Date(iso).getTime();
+  return Number.isNaN(timestamp) || timestamp < weekStart
+    ? "Older"
+    : timestamp >= todayStart
+      ? "Today"
+      : timestamp >= yesterdayStart
+        ? "Yesterday"
+        : "Previous 7 days";
+}
 
-  for (const session of sessions) {
-    const timestamp = new Date(session.completedAt).getTime();
-    const label = Number.isNaN(timestamp) || timestamp < weekStart
-      ? "Older"
-      : timestamp >= todayStart
-        ? "Today"
-        : timestamp >= yesterdayStart
-          ? "Yesterday"
-          : "Previous 7 days";
+function groupSessionEntries(entries: readonly SessionEntry[]) {
+  const groups = new Map<string, SessionEntry[]>();
+
+  for (const entry of entries) {
+    const label = entry.indicator === "running" || entry.indicator === "background"
+      ? "Active"
+      : entry.indicator === "paused" || entry.indicator === "failed"
+        ? "Needs attention"
+        : chronologicalGroup(entry.session.completedAt);
     const group = groups.get(label) ?? [];
-    group.push(session);
+    group.push(entry);
     groups.set(label, group);
   }
 
-  return [...groups.entries()].map(([label, items]) => ({ label, items }));
+  const orderedLabels = [
+    ...ATTENTION_GROUP_ORDER,
+    "Today",
+    "Yesterday",
+    "Previous 7 days",
+    "Older",
+  ];
+  return orderedLabels.flatMap((label) => {
+    const items = groups.get(label);
+    return items ? [{ label, items }] : [];
+  });
 }
 
 function resolveSessionIndicator(
   session: GuiSessionSummary,
   continuity: SessionContinuity,
 ): SessionIndicator | null {
-  if (session.lastTurnOutcome === "failed" || session.lastTurnOutcome === "cancelled") {
-    return session.lastTurnOutcome;
-  }
   const badges = buildSessionRowBadges({
     sessionId: session.id,
     continuity,
     outcome: null,
   });
   if (badges.some((badge) => badge.label === "Running")) return "running";
-  if (badges.some((badge) => badge.label === "Detached")) return "detached";
+  if (badges.some((badge) => badge.label === "Detached")) return "background";
+  if (
+    session.lastTurnOutcome === "paused"
+    || session.lastTurnOutcome === "failed"
+    || session.lastTurnOutcome === "cancelled"
+  ) {
+    return session.lastTurnOutcome;
+  }
   return null;
 }
 
 function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) {
-  const label = `${state[0]!.toUpperCase()}${state.slice(1)} session`;
-  const className = state === "failed" || state === "cancelled"
+  const visibleLabel = state[0]!.toUpperCase() + state.slice(1);
+  const label = `${visibleLabel} session`;
+  const className = state === "failed"
     ? "text-destructive"
-    : state === "detached"
+    : state === "background" || state === "cancelled"
       ? "text-muted-foreground"
-      : "text-[var(--color-accent)]";
+      : state === "paused"
+        ? "text-warning"
+        : "text-[var(--color-accent)]";
 
   return (
     <span
@@ -115,15 +147,20 @@ function SessionStateIndicator({ state }: { readonly state: SessionIndicator }) 
       aria-label={label}
       role="status"
       title={label}
-      className={cn("grid size-4 shrink-0 place-items-center [&_svg]:size-3.5", className)}
+      className={cn("flex shrink-0 items-center gap-1 text-[10px] font-medium [&_svg]:size-3", className)}
     >
       {state === "running" ? (
         <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
-      ) : state === "detached" ? (
+      ) : state === "background" ? (
         <Unplug aria-hidden="true" />
+      ) : state === "paused" ? (
+        <CirclePause aria-hidden="true" />
+      ) : state === "cancelled" ? (
+        <CircleX aria-hidden="true" />
       ) : (
         <CircleAlert aria-hidden="true" />
       )}
+      <span>{visibleLabel}</span>
     </span>
   );
 }
@@ -134,19 +171,27 @@ export function SessionList(props: SessionListProps) {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const visibleSessions = useMemo(() => filterSessions(props.sessions, query), [props.sessions, query]);
-  const selectedIndex = useMemo(
-    () => visibleSessions.findIndex((session) => session.id === props.selectedSessionId),
-    [props.selectedSessionId, visibleSessions],
+  const visibleEntries = useMemo(
+    () => visibleSessions.map((session) => ({ session, indicator: resolveSessionIndicator(session, props.continuity) })),
+    [props.continuity, visibleSessions],
   );
-  const sessionGroups = useMemo(() => groupSessions(visibleSessions), [visibleSessions]);
+  const sessionGroups = useMemo(() => groupSessionEntries(visibleEntries), [visibleEntries]);
+  const navigationSessions = useMemo(
+    () => sessionGroups.flatMap((group) => group.items.map((entry) => entry.session)),
+    [sessionGroups],
+  );
+  const selectedIndex = useMemo(
+    () => navigationSessions.findIndex((session) => session.id === props.selectedSessionId),
+    [navigationSessions, props.selectedSessionId],
+  );
   const visibleIndexById = useMemo(
-    () => new Map(visibleSessions.map((session, index) => [session.id, index])),
-    [visibleSessions],
+    () => new Map(navigationSessions.map((session, index) => [session.id, index])),
+    [navigationSessions],
   );
 
   useEffect(() => {
-    itemRefs.current = itemRefs.current.slice(0, visibleSessions.length);
-  }, [visibleSessions.length]);
+    itemRefs.current = itemRefs.current.slice(0, navigationSessions.length);
+  }, [navigationSessions.length]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -155,8 +200,8 @@ export function SessionList(props: SessionListProps) {
   }, [searchOpen]);
 
   function focusIndex(index: number): void {
-    const bounded = Math.max(0, Math.min(index, visibleSessions.length - 1));
-    const session = visibleSessions[bounded];
+    const bounded = Math.max(0, Math.min(index, navigationSessions.length - 1));
+    const session = navigationSessions[bounded];
     if (!session) {
       return;
     }
@@ -172,7 +217,7 @@ export function SessionList(props: SessionListProps) {
   return (
     <section aria-label="Sessions" className="flex h-full min-h-0 flex-col">
       <header className="flex h-9 shrink-0 items-center gap-2 px-3">
-        <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">Recent</h2>
+        <h2 className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">Sessions</h2>
         <Button
           type="button"
           variant="ghost"
@@ -242,10 +287,9 @@ export function SessionList(props: SessionListProps) {
               <section key={group.label} className="pb-3">
                 <h3 className="px-1 pb-1.5 pt-2 text-xs font-medium text-muted-foreground/75">{group.label}</h3>
                 <ul className="flex flex-col gap-1">
-                  {group.items.map((session) => {
+                  {group.items.map(({ session, indicator }) => {
                     const index = visibleIndexById.get(session.id) ?? -1;
                     const selected = props.selectedSessionId === session.id;
-                    const indicator = resolveSessionIndicator(session, props.continuity);
                     return (
                       <li key={session.id}>
                         <button
@@ -260,12 +304,12 @@ export function SessionList(props: SessionListProps) {
                           onKeyDown={(event) => {
                             if (event.key === "ArrowDown" || event.key === "j") {
                               event.preventDefault();
-                              focusIndex(index + 1 >= visibleSessions.length ? 0 : index + 1);
+                              focusIndex(index + 1 >= navigationSessions.length ? 0 : index + 1);
                               return;
                             }
                             if (event.key === "ArrowUp" || event.key === "k") {
                               event.preventDefault();
-                              focusIndex(index <= 0 ? visibleSessions.length - 1 : index - 1);
+                              focusIndex(index <= 0 ? navigationSessions.length - 1 : index - 1);
                               return;
                             }
                             if (event.key === "Home") {
@@ -275,7 +319,7 @@ export function SessionList(props: SessionListProps) {
                             }
                             if (event.key === "End") {
                               event.preventDefault();
-                              focusIndex(visibleSessions.length - 1);
+                              focusIndex(navigationSessions.length - 1);
                             }
                           }}
                           className={cn(

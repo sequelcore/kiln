@@ -292,6 +292,13 @@ The desktop sidebar is one continuous operator-navigation surface. It combines
 primary surface navigation and canonical session history without placing a
 secondary panel inside the sidebar.
 
+The expanded hierarchy keeps frequent work surfaces (`Chat`, `Work`, and
+`Agents`) above session history and anchors inspection/configuration surfaces
+(`Activity`, `Memory`, and `Setup`) below it. `New session` remains a distinct
+action rather than a navigation destination. The collapsed sidebar preserves
+the same order, and the narrow-layout surface selector exposes the same two
+semantic groups without adding more header controls.
+
 The sidebar shell owns collapse behavior, mobile drawer handoff, and surface
 selection. Session history owns search, temporal grouping, keyboard traversal,
 selection state, and compact row presentation. Do not introduce another
@@ -304,6 +311,15 @@ runtime state. Provider summaries, tags, count footers, and descriptive
 metadata belong in session detail or activity surfaces, not in the navigation
 list. Secondary actions should appear only when they are useful for the current
 interaction.
+
+Canonical runtime evidence determines the history hierarchy. Running and
+detached sessions appear first under `Active`, with detached work described to
+operators as `Background`. Paused and failed sessions follow under
+`Needs attention`; completed and cancelled sessions remain in chronological
+history because they do not require operator action. Exceptional states use a
+short visible text label as well as an icon. The sidebar must not infer approval,
+input, provider, or continuation state that is absent from the session and
+continuity contracts. Keyboard traversal follows this visual order.
 
 Search is progressive from the history heading. An empty search state should
 explain the result and provide a clear recovery path without changing session

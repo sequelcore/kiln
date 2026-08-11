@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { GuiSessionSummary } from "@kilnai/gateway-contracts";
 import { describe, expect, it, vi } from "vitest";
 import { SessionList } from "../src/components/session-list.js";
 import { deriveSessionContinuity } from "../src/lib/session-continuity.js";
@@ -29,6 +30,7 @@ const sessions = [
 ] as const;
 
 function renderSessionList(input?: {
+  sessions?: readonly GuiSessionSummary[];
   selectedSessionId?: string | null;
   continuationTargetId?: string | null;
   liveSessionId?: string | null;
@@ -41,7 +43,7 @@ function renderSessionList(input?: {
   const continuationTargetId = input?.continuationTargetId ?? null;
   return render(
     <SessionList
-      sessions={sessions}
+      sessions={input?.sessions ?? sessions}
       selectedSessionId={selectedSessionId}
       continuity={deriveSessionContinuity({
         status: input?.status ?? "ready",
@@ -85,7 +87,7 @@ describe("SessionList", () => {
     expect(screen.getByRole("button", { name: /Sidebar continuity/ })).toHaveAttribute("aria-current", "page");
   });
 
-  it("announces exceptional session states without rendering status badges", () => {
+  it("makes exceptional session states visible without turning rows into badges", () => {
     renderSessionList({
       selectedSessionId: null,
       liveSessionId: "session-1",
@@ -94,9 +96,90 @@ describe("SessionList", () => {
     });
 
     expect(screen.getByLabelText("Running session")).toBeInTheDocument();
-    expect(screen.getByLabelText("Detached session")).toBeInTheDocument();
-    expect(screen.queryByText("Running")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Background session")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeVisible();
+    expect(screen.getByText("Background")).toBeVisible();
     expect(screen.queryByText("Detached")).not.toBeInTheDocument();
+  });
+
+  it("orders active and attention sessions before chronological history", () => {
+    const attentionSessions: readonly GuiSessionSummary[] = [
+      {
+        ...sessions[0],
+        id: "history",
+        title: "Completed history",
+        lastTurnOutcome: "completed",
+      },
+      {
+        ...sessions[1],
+        id: "paused",
+        title: "Awaiting operator",
+        lastTurnOutcome: "paused",
+      },
+      {
+        ...sessions[0],
+        id: "live",
+        title: "Live execution",
+        lastTurnOutcome: "failed",
+      },
+    ];
+
+    renderSessionList({
+      sessions: attentionSessions,
+      selectedSessionId: null,
+      liveSessionId: "live",
+      status: "running",
+    });
+
+    const history = screen.getByRole("navigation", { name: "Session history" });
+    expect(within(history).getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "Active",
+      "Needs attention",
+      "Older",
+    ]);
+    expect(within(history).getAllByRole("button").map((button) => button.textContent)).toEqual([
+      "Live executionRunning",
+      "Awaiting operatorPaused",
+      expect.stringMatching(/^Completed history/),
+    ]);
+  });
+
+  it("uses the visual attention order for keyboard navigation", () => {
+    const onSelect = vi.fn();
+    renderSessionList({
+      sessions: [
+        { ...sessions[0], id: "history", title: "Completed history", lastTurnOutcome: "completed" },
+        { ...sessions[1], id: "paused", title: "Awaiting operator", lastTurnOutcome: "paused" },
+        { ...sessions[0], id: "live", title: "Live execution" },
+      ],
+      selectedSessionId: "live",
+      liveSessionId: "live",
+      status: "running",
+      onSelect,
+    });
+
+    const history = screen.getByRole("navigation", { name: "Session history" });
+    fireEvent.keyDown(within(history).getByRole("button", { name: /Live execution/ }), { key: "ArrowDown" });
+
+    expect(onSelect).toHaveBeenCalledWith("paused");
+  });
+
+  it("distinguishes failed work from non-actionable cancelled history", () => {
+    renderSessionList({
+      sessions: [
+        { ...sessions[0], id: "failed", title: "Broken execution", lastTurnOutcome: "failed" },
+        { ...sessions[1], id: "cancelled", title: "Stopped execution", lastTurnOutcome: "cancelled" },
+      ],
+      selectedSessionId: null,
+    });
+
+    const history = screen.getByRole("navigation", { name: "Session history" });
+    expect(within(history).getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "Needs attention",
+      "Older",
+    ]);
+    expect(within(history).getByText("Failed")).toBeVisible();
+    expect(within(history).getByText("Cancelled")).toBeVisible();
   });
 
   it("reserves the trailing edge for activity and fades overflowing titles into it", () => {
@@ -162,7 +245,7 @@ describe("SessionList", () => {
   it("keeps history spacing aligned with sidebar navigation", () => {
     renderSessionList();
 
-    expect(screen.getByRole("heading", { name: "Recent" }).closest("header")).toHaveClass("h-9", "px-3");
+    expect(screen.getByRole("heading", { name: "Sessions" }).closest("header")).toHaveClass("h-9", "px-3");
     expect(screen.getByRole("navigation", { name: "Session history" }).parentElement).toHaveClass("px-2");
     expect(screen.getByRole("button", { name: /Runtime boundary review/ })).toHaveClass("h-8", "px-2");
   });

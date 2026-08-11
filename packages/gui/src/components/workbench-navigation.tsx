@@ -25,6 +25,7 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -42,13 +43,21 @@ export type InspectorMode = "workspace" | "changed" | "approvals";
 export type MobileDrawerMode = "sessions" | "inspector";
 export type ChatWorkspaceSurface = "chat" | "browser";
 
-const WORKBENCH_SURFACES: readonly WorkbenchSurface[] = [
+const PRIMARY_WORK_SURFACES: readonly WorkbenchSurface[] = [
   "chat",
   "work",
   "agents",
+];
+
+const UTILITY_SURFACES: readonly WorkbenchSurface[] = [
   "activity",
   "memory",
   "setup",
+];
+
+const WORKBENCH_SURFACES: readonly WorkbenchSurface[] = [
+  ...PRIMARY_WORK_SURFACES,
+  ...UTILITY_SURFACES,
 ];
 
 const INSPECTOR_MODES: readonly InspectorMode[] = [
@@ -172,6 +181,31 @@ function NavButton(props: {
   );
 }
 
+function renderSidebarSurfaceButtons(props: {
+  readonly surfaces: readonly WorkbenchSurface[];
+  readonly activeSurface: WorkbenchSurface;
+  readonly collapsed: boolean;
+  readonly activityCount: number;
+  readonly managedAgentAttentionCount: number;
+  readonly onSelectSurface: (surface: WorkbenchSurface) => void;
+}): ReactNode {
+  return props.surfaces.map((surface) => (
+    <NavButton
+      key={surface}
+      label={WORKBENCH_SURFACE_LABELS[surface]}
+      icon={workbenchSurfaceIcons[surface]}
+      active={props.activeSurface === surface}
+      count={surface === "agents"
+        ? props.managedAgentAttentionCount
+        : surface === "activity"
+          ? props.activityCount
+          : undefined}
+      collapsed={props.collapsed}
+      onClick={() => props.onSelectSurface(surface)}
+    />
+  ));
+}
+
 export function PrimarySidebar(props: {
   readonly activeSurface: WorkbenchSurface;
   readonly collapsed: boolean;
@@ -223,34 +257,33 @@ export function PrimarySidebar(props: {
           </>
         )}
       </header>
-      <nav aria-label="Workbench surfaces" className="px-2 pb-2">
+      <div className="px-2 pb-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size={props.collapsed ? "icon-lg" : "sm"}
+          aria-label="New session"
+          title="New session"
+          onClick={props.onStartNewSession}
+          className={cn(
+            "text-muted-foreground hover:text-foreground",
+            props.collapsed ? "w-full" : "h-8 w-full justify-start px-2",
+          )}
+        >
+          <Plus data-icon="inline-start" aria-hidden="true" />
+          {props.collapsed ? null : <span>New session</span>}
+        </Button>
+      </div>
+      <nav aria-label="Primary work surfaces" className="px-2 pb-2">
         <div className="flex flex-col gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size={props.collapsed ? "icon-lg" : "sm"}
-            aria-label="New session"
-            title="New session"
-            onClick={props.onStartNewSession}
-            className={cn(
-              "text-muted-foreground hover:text-foreground",
-              props.collapsed ? "w-full" : "h-8 w-full justify-start px-2",
-            )}
-          >
-            <Plus data-icon="inline-start" aria-hidden="true" />
-            {props.collapsed ? null : <span>New session</span>}
-          </Button>
-          {WORKBENCH_SURFACES.map((surface) => (
-            <NavButton
-              key={surface}
-              label={WORKBENCH_SURFACE_LABELS[surface]}
-              icon={workbenchSurfaceIcons[surface]}
-              active={props.activeSurface === surface}
-              count={surface === "agents" ? props.managedAgentAttentionCount : surface === "activity" ? props.activityCount : undefined}
-              collapsed={props.collapsed}
-              onClick={() => props.onSelectSurface(surface)}
-            />
-          ))}
+          {renderSidebarSurfaceButtons({
+            surfaces: PRIMARY_WORK_SURFACES,
+            activeSurface: props.activeSurface,
+            collapsed: props.collapsed,
+            activityCount: props.activityCount,
+            managedAgentAttentionCount: props.managedAgentAttentionCount,
+            onSelectSurface: props.onSelectSurface,
+          })}
         </div>
       </nav>
       {props.collapsed ? (
@@ -284,6 +317,19 @@ export function PrimarySidebar(props: {
       ) : (
         <div className="min-h-0 flex-1">{props.sessions}</div>
       )}
+      {props.collapsed ? <div className="min-h-0 flex-1" aria-hidden="true" /> : null}
+      <nav aria-label="Inspect and configure" className="border-t border-sidebar-border/70 px-2 py-2">
+        <div className="flex flex-col gap-1">
+          {renderSidebarSurfaceButtons({
+            surfaces: UTILITY_SURFACES,
+            activeSurface: props.activeSurface,
+            collapsed: props.collapsed,
+            activityCount: props.activityCount,
+            managedAgentAttentionCount: props.managedAgentAttentionCount,
+            onSelectSurface: props.onSelectSurface,
+          })}
+        </div>
+      </nav>
     </aside>
   );
 }
@@ -355,7 +401,16 @@ export function MobileWorkbenchHeader(props: {
         </SelectTrigger>
         <SelectContent align="start">
           <SelectGroup>
-            {WORKBENCH_SURFACES.map((surface) => (
+            <SelectLabel>Work surfaces</SelectLabel>
+            {PRIMARY_WORK_SURFACES.map((surface) => (
+              <SelectItem key={surface} value={surface}>
+                {WORKBENCH_SURFACE_LABELS[surface]}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+          <SelectGroup>
+            <SelectLabel>Inspect and configure</SelectLabel>
+            {UTILITY_SURFACES.map((surface) => (
               <SelectItem key={surface} value={surface}>
                 {WORKBENCH_SURFACE_LABELS[surface]}
               </SelectItem>
