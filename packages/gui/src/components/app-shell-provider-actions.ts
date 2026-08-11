@@ -17,8 +17,6 @@ interface ProviderPickerActionsInput {
   readonly authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
   readonly readErrorBanner: () => string | null;
   readonly setErrorBanner: (message: string) => void;
-  readonly markProviderCatalogRefreshing: () => void;
-  readonly markProviderCatalogError: (message: string) => void;
   readonly onProvidersRefreshed: (providers: readonly ProviderDescriptor[]) => void;
   readonly sendRefreshProviders: () => void;
   readonly refetchDashboard: () => Promise<ProviderRefreshResult | undefined>;
@@ -61,12 +59,10 @@ export function createProviderPickerActions(input: ProviderPickerActionsInput) {
   };
 
   const onRefreshProviders = async (): Promise<void> => {
-    input.markProviderCatalogRefreshing();
     input.sendRefreshProviders();
     const result = await input.refetchDashboard();
     if (result?.error) {
-      input.markProviderCatalogError("Could not refresh provider discovery.");
-      return;
+      throw new Error("Could not refresh provider discovery.");
     }
     if (result?.data?.providers) {
       input.onProvidersRefreshed(result.data.providers);

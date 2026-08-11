@@ -15,6 +15,9 @@
     "test:e2e:ui": "playwright test --ui",
     "playwright:install": "playwright install chromium"
   },
+  "dependencies": {
+    "@lobehub/icons-static-svg": "1.94.0"
+  },
   "devDependencies": {
     "@base-ui/react": "^1.4.1",
     "@fontsource-variable/geist": "^5.2.8",

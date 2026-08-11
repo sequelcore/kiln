@@ -239,6 +239,24 @@ context observation remains bound to the route that produced it; incompatible
 new route evidence is rejected by Runtime rather than displayed as a retained
 percentage.
 
+Provider/model selection is an anchored, non-modal composer surface. Search
+matches provider and model evidence across all admitted routes. The left rail
+groups concrete routes by canonical provider brand. A compact secondary route-
+type selector can narrow the list to subscription, harness, direct API, or
+local execution without clearing the selected brand.
+Brand grouping is visual recognition only: it must not collapse concrete route
+identity, authentication method, eligibility, or runtime authority. The route
+list continues to expose unavailable reasons and authentication actions from
+canonical discovery, and the rest of the workspace remains operable while the
+picker is open.
+
+Manual provider refresh is an in-place picker operation after bootstrap. It
+must preserve the usable catalog, workspace, picker filters, scroll position,
+and focus while new discovery is pending. Refresh failure is reported beside
+the initiating control and does not return the application to its startup gate;
+the global provider-catalog bootstrap state is reserved for initial connection
+and explicit runtime recovery.
+
 Activity details must be projections of the canonical session timeline. Do not
 maintain separate GUI-only caches for changed files, continuity, approval
 state, cost, or routing when the same facts already exist in `session_event`

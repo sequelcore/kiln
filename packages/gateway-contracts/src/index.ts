@@ -665,6 +665,7 @@ export {
   isGuiProviderModeless,
 } from "./provider-metadata.js";
 export type {
+  GuiProviderAccess,
   GuiProviderGroup,
   GuiProviderMetadata,
 } from "./provider-metadata.js";

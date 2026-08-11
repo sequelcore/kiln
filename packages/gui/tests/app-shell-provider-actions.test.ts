@@ -7,8 +7,6 @@ function createInput(overrides: Partial<Parameters<typeof createProviderPickerAc
     authenticateProvider: vi.fn(() => true),
     readErrorBanner: vi.fn(() => null),
     setErrorBanner: vi.fn(),
-    markProviderCatalogRefreshing: vi.fn(),
-    markProviderCatalogError: vi.fn(),
     onProvidersRefreshed: vi.fn(),
     sendRefreshProviders: vi.fn(),
     refetchDashboard: vi.fn(async () => ({ data: { providers: [] } })),
@@ -41,7 +39,7 @@ describe("createProviderPickerActions", () => {
     expect(input.setErrorBanner).toHaveBeenCalledWith("quota unavailable");
   });
 
-  it("refreshes providers through websocket and dashboard data", async () => {
+  it("refreshes providers through background channels without invalidating the current catalog", async () => {
     const providers = [{ id: "opencode", models: ["kimi"], available: true }];
     const input = createInput({
       refetchDashboard: vi.fn(async () => ({ data: { providers } })),
@@ -50,20 +48,19 @@ describe("createProviderPickerActions", () => {
 
     await actions.onRefreshProviders();
 
-    expect(input.markProviderCatalogRefreshing).toHaveBeenCalledTimes(1);
     expect(input.sendRefreshProviders).toHaveBeenCalledTimes(1);
+    expect(input.refetchDashboard).toHaveBeenCalledTimes(1);
     expect(input.onProvidersRefreshed).toHaveBeenCalledWith(providers);
   });
 
-  it("marks provider catalog errors without adopting stale dashboard data", async () => {
+  it("rejects background refresh errors without invalidating the usable provider catalog", async () => {
     const input = createInput({
       refetchDashboard: vi.fn(async () => ({ error: new Error("offline") })),
     });
     const actions = createProviderPickerActions(input);
 
-    await actions.onRefreshProviders();
+    await expect(actions.onRefreshProviders()).rejects.toThrow("Could not refresh provider discovery.");
 
-    expect(input.markProviderCatalogError).toHaveBeenCalledWith("Could not refresh provider discovery.");
     expect(input.onProvidersRefreshed).not.toHaveBeenCalled();
   });
 

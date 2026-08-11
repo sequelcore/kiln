@@ -1,31 +1,33 @@
 import type { ComponentProps, KeyboardEventHandler, ReactNode } from "react";
 import { Command } from "@/components/ui/command";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-type ModelSelectorProps = Omit<ComponentProps<typeof Dialog>, "children"> & {
+type ModelSelectorProps = Omit<ComponentProps<typeof Popover>, "children"> & {
   readonly children: ReactNode;
   readonly title: ReactNode;
   readonly description: ReactNode;
   readonly contentClassName?: string;
-  readonly finalFocus?: ComponentProps<typeof DialogContent>["finalFocus"];
+  readonly anchor?: ComponentProps<typeof PopoverContent>["anchor"];
+  readonly finalFocus?: ComponentProps<typeof PopoverContent>["finalFocus"];
   readonly onContentKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 };
 
 type ModelSelectorCommandProps = ComponentProps<typeof Command>;
 
 /**
- * Kiln-owned AI Elements composition for a searchable model/provider dialog.
+ * Kiln-owned AI Elements composition for a searchable model/provider popover.
  * Runtime routing and authentication remain in the consuming product component.
  */
 export function ModelSelector({
   children,
+  anchor,
   contentClassName,
   description,
   finalFocus,
@@ -34,20 +36,26 @@ export function ModelSelector({
   ...props
 }: ModelSelectorProps) {
   return (
-    <Dialog {...props}>
-      <DialogContent
-        showCloseButton={false}
-        className={cn("max-w-2xl gap-0 overflow-hidden p-0", contentClassName)}
+    <Popover modal={false} {...props}>
+      <PopoverContent
+        anchor={anchor}
+        side="top"
+        align="start"
+        sideOffset={8}
+        className={cn(
+          "w-[min(32rem,calc(100vw-1rem))] max-w-none gap-0 overflow-hidden rounded-xl p-0",
+          contentClassName,
+        )}
         finalFocus={finalFocus}
         onKeyDown={onContentKeyDown}
       >
-        <DialogHeader className="sr-only">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+        <PopoverHeader className="sr-only">
+          <PopoverTitle>{title}</PopoverTitle>
+          <PopoverDescription>{description}</PopoverDescription>
+        </PopoverHeader>
         {children}
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }
 

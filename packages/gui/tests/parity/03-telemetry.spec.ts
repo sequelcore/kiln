@@ -11,8 +11,8 @@ test.describe("parity category 3 - cost and telemetry", () => {
     await expect(page.getByText("field [idle]")).toHaveCount(0);
     const providerStatus = page.locator('button[aria-label^="Provider selector."]');
     await providerStatus.click();
-    await expect(page.getByRole("option", { name: /Codex Unavailable/ })).toBeDisabled();
-    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("option", { name: "Codex, No model selection" })).toBeDisabled();
+    await page.keyboard.press("Escape");
     await expect(providerStatus).toHaveAttribute("aria-label", /Provider selector/, { timeout: 2_000 });
 
     await composer.fill("collect telemetry evidence");

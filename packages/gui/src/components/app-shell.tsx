@@ -1024,8 +1024,6 @@ function useAppShellRuntimeView() {
     authenticateProvider,
     readErrorBanner: () => useSessionStore.getState().errorBanner,
     setErrorBanner,
-    markProviderCatalogRefreshing,
-    markProviderCatalogError,
     onProvidersRefreshed,
     sendRefreshProviders: () => {
       if (wsState === "open") {
@@ -1231,6 +1229,7 @@ function useAppShellRuntimeView() {
               providerControl: (
                 <ProviderStatus
                   compact
+                  open={isProviderPickerOpen}
                   onOpenPicker={openProviderPicker}
                   domainLabel={domainLabel}
                   workingDirectory={workingDirectory}

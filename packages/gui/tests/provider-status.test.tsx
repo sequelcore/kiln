@@ -83,24 +83,22 @@ describe("ProviderStatus", () => {
       },
     });
 
-    render(<ProviderStatus onOpenPicker={() => undefined} compact />);
+    render(<ProviderStatus onOpenPicker={() => undefined} compact open />);
 
-    expect(screen.getByRole("button", {
+    const trigger = screen.getByRole("button", {
       name: "Provider selector. Current selection: Claude / claude-sonnet-4-6. Authority: Planning -> Idempotent · Partial. Click to change.",
-    })).toBeInTheDocument();
-    expect(screen.queryByText("Authority: Planning -> Idempotent · Partial"))
-      .not.toBeInTheDocument();
+    });
+    expect(trigger).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAttribute("aria-controls", "provider-route-picker");
+    expect(trigger.querySelector('[data-provider-brand="claude"]')).not.toBeNull();
+    expect(trigger.querySelector('[data-provider-fallback="true"]')).toBeNull();
+    expect(screen.queryByText("Authority: Planning -> Idempotent · Partial")).not.toBeInTheDocument();
     expect(screen.queryByText(/Sandboxed/)).not.toBeInTheDocument();
   });
 
   it("renders domain and working directory indicators in the status area", () => {
-    render(
-      <ProviderStatus
-        onOpenPicker={() => undefined}
-        domainLabel="Kiln"
-        workingDirectory="C:/workspace/kiln"
-      />,
-    );
+    render(<ProviderStatus onOpenPicker={() => undefined} domainLabel="Kiln" workingDirectory="C:/workspace/kiln" />);
 
     expect(screen.getByText("domain: Kiln")).toBeInTheDocument();
     expect(screen.getByText("cwd: C:/workspace/kiln")).toBeInTheDocument();
@@ -115,7 +113,11 @@ describe("ProviderStatus", () => {
 
     render(<ProviderStatus onOpenPicker={() => undefined} compact />);
 
-    expect(screen.getByRole("button", { name: "Provider selector. Current selection: Select provider / model. Authority: Unknown. Click to change." })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Provider selector. Current selection: Select provider / model. Authority: Unknown. Click to change.",
+      }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Select provider / model")).toBeInTheDocument();
   });
 
@@ -125,7 +127,7 @@ describe("ProviderStatus", () => {
     render(<ProviderStatus onOpenPicker={() => undefined} compact />);
 
     expect(screen.getByRole("button", { name: /Provider selector/ })).toHaveAttribute("aria-live", "polite");
-    expect(screen.getByText("Switching provider...")).toBeInTheDocument();
+    expect(screen.getByText("Switching provider…")).toBeInTheDocument();
     expect(screen.queryByText(/Authority:/)).not.toBeInTheDocument();
   });
 });
