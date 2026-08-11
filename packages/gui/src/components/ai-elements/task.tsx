@@ -121,7 +121,12 @@ export type TaskItemProps = ComponentProps<"div"> & {
 
 export function TaskItem({ children, className, status, ...props }: TaskItemProps) {
   return (
-    <div className={cn("flex min-w-0 items-start gap-2 text-sm leading-6 text-muted-foreground", className)} {...props}>
+    <div
+      className={cn("flex min-w-0 items-start gap-2 text-sm leading-6 text-muted-foreground", className)}
+      data-slot="ai-task-item"
+      data-status={status}
+      {...props}
+    >
       {status ? <TaskStatusIcon status={status} /> : null}
       <span className="min-w-0 flex-1">{children}</span>
     </div>

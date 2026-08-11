@@ -9,6 +9,11 @@ const waitForHealthMock = vi.fn();
 const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
+const providerPickerPropsLog: Array<{
+  open: boolean;
+  finalFocus?: { readonly current: HTMLElement | null };
+  onOpenChange: (open: boolean) => void;
+}> = [];
 const dashboardRefetchMock = vi.fn();
 let appShellFrameInput: { onOperatorTerminalAvailability: (available: boolean) => void } | null = null;
 const dashboardData = {
@@ -182,7 +187,14 @@ vi.mock("../src/components/theme-switcher.js", () => ({
 }));
 
 vi.mock("../src/components/provider-picker.js", () => ({
-  ProviderPicker: () => null,
+  ProviderPicker: (props: {
+    open: boolean;
+    finalFocus?: { readonly current: HTMLElement | null };
+    onOpenChange: (open: boolean) => void;
+  }) => {
+    providerPickerPropsLog.push(props);
+    return null;
+  },
 }));
 
 vi.mock("../src/components/provider-status.js", () => ({
@@ -199,15 +211,24 @@ vi.mock("../src/components/composer.js", () => ({
     onSubmit,
     onTogglePlanMode,
   }: {
-    commandMenu: { onOpenChange: (open: boolean) => void };
-    onSubmit: (text: string) => void;
+    commandMenu: {
+      onOpenChange: (open: boolean) => void;
+      onExecute: (command: { readonly id: string; readonly label: string }) => void;
+    };
+    onSubmit: (submission: { readonly text: string }) => boolean;
     onTogglePlanMode: (enabled: boolean) => void;
   }) => (
     <div>
+      <textarea id="composer-input" aria-label="Mock composer input" />
       <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
         Open composer commands
       </button>
-      <button type="button" onClick={() => onSubmit("hello target")}>
+      <div data-slot="command">
+        <button type="button" onClick={() => commandMenu.onExecute({ id: "provider", label: "Provider" })}>
+          Run provider command
+        </button>
+      </div>
+      <button type="button" onClick={() => onSubmit({ text: "hello target" })}>
         Send test message
       </button>
       <button type="button" onClick={() => onTogglePlanMode(false)}>
@@ -314,6 +335,7 @@ function latestPaletteProps(): { open: boolean } | undefined {
 
 describe("AppShell command palette and telemetry regressions", () => {
   beforeEach(() => {
+    providerPickerPropsLog.length = 0;
     vi.restoreAllMocks();
     wsState = "open";
     appShellFrameInput = null;
@@ -369,6 +391,39 @@ describe("AppShell command palette and telemetry regressions", () => {
     await waitFor(() => {
       expect(latestPaletteProps()?.open).toBe(true);
     });
+  });
+
+  it("preserves the original provider-picker focus authority across repeated Ctrl+P", async () => {
+    render(<AppShell />);
+    const origin = await screen.findByRole("button", { name: "Open composer commands" });
+    origin.focus();
+
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    await waitFor(() => {
+      expect(providerPickerPropsLog.at(-1)?.open).toBe(true);
+    });
+    expect(providerPickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+
+    screen.getByRole("button", { name: "Switch to execute" }).focus();
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+
+    expect(providerPickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+  });
+
+  it("mounts the provider picker on first use from a composer command", async () => {
+    render(<AppShell />);
+
+    const command = await screen.findByRole("button", { name: "Run provider command" });
+    command.focus();
+    fireEvent.click(command);
+
+    await waitFor(() => expect(providerPickerPropsLog.at(-1)?.open).toBe(true));
+    expect(providerPickerPropsLog.at(-1)?.finalFocus?.current).toBe(screen.getByLabelText("Mock composer input"));
+
+    act(() => providerPickerPropsLog.at(-1)?.onOpenChange(false));
+    await waitFor(() => expect(providerPickerPropsLog.at(-1)?.open).toBe(false));
+    fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+    await waitFor(() => expect(providerPickerPropsLog.at(-1)?.open).toBe(true));
   });
 
   it("toggles one persistent terminal panel across workbench surfaces with Ctrl+`", async () => {

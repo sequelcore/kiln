@@ -52,6 +52,11 @@ const TURN_AUTHORITY_OPTIONS_VIEW: Record<RequestableTurnAuthority, {
   },
 };
 
+const TURN_AUTHORITY_SELECT_ITEMS = TURN_AUTHORITY_OPTIONS.map((value) => ({
+  label: TURN_AUTHORITY_OPTIONS_VIEW[value].label,
+  value,
+}));
+
 export function RuntimeBootstrapGate(props: {
   readonly title: string;
   readonly detail: string;
@@ -102,8 +107,13 @@ export function DeliberationControl(props: {
 }) {
   if (props.options.length === 0) return null;
   const providerDefaultValue = "__kiln_provider_default__";
+  const items = [
+    { label: "Provider default", value: providerDefaultValue },
+    ...props.options.map((value) => ({ label: value, value })),
+  ];
   return (
     <Select
+      items={items}
       value={props.value ?? providerDefaultValue}
       onValueChange={(value) => {
         if (value) {
@@ -111,7 +121,7 @@ export function DeliberationControl(props: {
         }
       }}
     >
-      <SelectTrigger size="sm" aria-label="Deliberation" className="w-auto min-w-24">
+      <SelectTrigger size="sm" aria-label="Deliberation level" className="w-auto min-w-24">
         <span className="truncate">{props.value ?? "Provider default"}</span>
       </SelectTrigger>
       <SelectContent align="end">
@@ -137,6 +147,7 @@ export function TurnAuthorityControl(props: {
   const title = authorityStatusTitle(props.authorityStatus);
   return (
     <Select
+      items={TURN_AUTHORITY_SELECT_ITEMS}
       value={props.value}
       onValueChange={(value) => {
         if (TURN_AUTHORITY_OPTIONS.includes(value as RequestableTurnAuthority)) {
@@ -147,6 +158,7 @@ export function TurnAuthorityControl(props: {
       <SelectTrigger
         size="sm"
         aria-label={`Turn authority: ${selectedAuthority.label}`}
+        aria-description={title}
         title={title}
         className="w-auto min-w-28"
       >

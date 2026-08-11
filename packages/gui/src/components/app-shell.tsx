@@ -49,6 +49,7 @@ import {
   themeToPaletteItem,
 } from "./app-shell-view-model.js";
 import { createAppShellCommandExecutor } from "./app-shell-command-actions.js";
+import { buildComposerTurnOptions } from "./app-shell-composer-submission.js";
 import { createProviderPickerActions } from "./app-shell-provider-actions.js";
 import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
 import {
@@ -227,6 +228,17 @@ function useAppShellRuntimeView() {
   };
   const [governedWorkItemCount, setGovernedWorkItemCount] = useState<number | null>(null);
   const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
+  const [hasMountedProviderPicker, setHasMountedProviderPicker] = useState(false);
+  const providerPickerInvokerRef = useRef<HTMLElement | null>(null);
+  const openProviderPicker = useCallback(() => {
+    if (isProviderPickerOpen) return;
+    const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    providerPickerInvokerRef.current = activeElement?.closest('[data-slot="command"]')
+      ? document.getElementById("composer-input")
+      : activeElement;
+    setHasMountedProviderPicker(true);
+    setIsProviderPickerOpen(true);
+  }, [isProviderPickerOpen]);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState<MobileDrawerMode>("sessions");
@@ -544,7 +556,7 @@ function useAppShellRuntimeView() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
-        setIsProviderPickerOpen(true);
+        openProviderPicker();
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "1") {
         event.preventDefault();
@@ -599,7 +611,7 @@ function useAppShellRuntimeView() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // Effect Events intentionally stay outside effect dependency arrays.
-  }, [isNarrow, isPaletteOpen]);
+  }, [isNarrow, isPaletteOpen, openProviderPicker]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
@@ -929,7 +941,7 @@ function useAppShellRuntimeView() {
     setPaletteMode,
     setPaletteQuery,
     setPaletteOpen,
-    setProviderPickerOpen: setIsProviderPickerOpen,
+    openProviderPicker,
     deliberationLevelOptions,
     selectedDeliberationLevel,
     setDeliberationLevel,
@@ -1219,7 +1231,7 @@ function useAppShellRuntimeView() {
               providerControl: (
                 <ProviderStatus
                   compact
-                  onOpenPicker={() => setIsProviderPickerOpen(true)}
+                  onOpenPicker={openProviderPicker}
                   domainLabel={domainLabel}
                   workingDirectory={workingDirectory}
                 />
@@ -1238,55 +1250,25 @@ function useAppShellRuntimeView() {
                   onChange={setRequestedAuthority}
                 />
               ),
-              onSubmit: (text) => {
-                const sent = sendMessage(text, {
-                  ...(selectedDeliberationLevel ? {
-                    deliberationIntent: {
-                      mode: "fixed",
-                      preferredLevel: selectedDeliberationLevel,
-                      onUnsupported: "deny",
-                    },
+              onSubmit: (submission) => {
+                const sent = sendMessage(submission.text, {
+                  ...(submission.parts ? {
+                    parts: submission.parts,
+                    displayContent: submission.displayContent,
                   } : {}),
-                  requestedAuthority,
-                  ...(governedWorkItemCount !== null ? {
-                    governedWorkRequirement: {
-                      kind: "goal_materialization",
-                      requiredWorkItemCount: governedWorkItemCount,
-                    },
-                  } : {}),
-                  ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
-                  ...(selectedAppName ? { appName: selectedAppName } : {}),
-                  ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
+                  ...buildComposerTurnOptions({
+                    selectedDeliberationLevel,
+                    requestedAuthority,
+                    governedWorkItemCount,
+                    ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
+                    ...(selectedAppName ? { appName: selectedAppName } : {}),
+                    ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
+                  }),
                 });
                 if (sent) {
                   setGovernedWorkItemCount(null);
                 }
-              },
-              onSubmitParts: (parts, displayContent) => {
-                const sent = sendMessage("", {
-                  parts,
-                  displayContent,
-                  ...(selectedDeliberationLevel ? {
-                    deliberationIntent: {
-                      mode: "fixed",
-                      preferredLevel: selectedDeliberationLevel,
-                      onUnsupported: "deny",
-                    },
-                  } : {}),
-                  requestedAuthority,
-                  ...(governedWorkItemCount !== null ? {
-                    governedWorkRequirement: {
-                      kind: "goal_materialization",
-                      requiredWorkItemCount: governedWorkItemCount,
-                    },
-                  } : {}),
-                  ...(selectedGatewayTarget ? { gatewayTargetId: selectedGatewayTarget.gatewayTarget.targetId } : {}),
-                  ...(selectedAppName ? { appName: selectedAppName } : {}),
-                  ...(selectedRuntimeApp?.runtime === "tenant" && selectedTenantId ? { tenantId: selectedTenantId } : {}),
-                });
-                if (sent) {
-                  setGovernedWorkItemCount(null);
-                }
+                return sent;
               },
               onTogglePlanMode: setTargetedPlanMode,
               onGovernedWorkItemCountChange: setGovernedWorkItemCount,
@@ -1379,10 +1361,10 @@ function useAppShellRuntimeView() {
         {mobileDrawerMode === "sessions" ? sessionsPanel : inspector}
       </MobileWorkbenchDrawer>
 
-      {isProviderPickerOpen ? (
+      {hasMountedProviderPicker ? (
         <Suspense fallback={null}>
           <ProviderPicker
-            open
+            open={isProviderPickerOpen}
             providers={providers}
             providerModelDiscovery={providerModelDiscovery}
             activeProvider={activeProvider}
@@ -1394,6 +1376,7 @@ function useAppShellRuntimeView() {
             providerAuthProvider={providerAuthProvider}
             providerAuthMessage={providerAuthMessage}
             providerAuthDetails={providerAuthDetails}
+            finalFocus={providerPickerInvokerRef}
             onOpenChange={(open) => setIsProviderPickerOpen(open)}
           />
         </Suspense>

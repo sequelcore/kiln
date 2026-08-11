@@ -12,6 +12,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { InputGroupButton } from "@/components/ui/input-group";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 const COMPACT_TOKEN_FORMAT = new Intl.NumberFormat("en", { maximumFractionDigits: 1, notation: "compact" });
@@ -51,7 +54,14 @@ export function ContextMeter(props: { readonly usage?: ContextUsageProjection | 
     <Popover>
       <PopoverTrigger
         aria-label={label}
-        className="flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 text-[11px] font-medium tabular-nums text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        render={(
+          <InputGroupButton
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5 tabular-nums"
+          />
+        )}
       >
         <span className="relative grid size-4 place-items-center" aria-hidden="true">
           {percentage === undefined ? (
@@ -69,9 +79,14 @@ export function ContextMeter(props: { readonly usage?: ContextUsageProjection | 
         <PopoverHeader>
           <div className="flex items-center justify-between gap-3">
             <PopoverTitle>Context window</PopoverTitle>
-            <span className={cn("text-[11px] font-medium text-muted-foreground", usage?.state === "authoritative" ? "text-success" : null)}>
+            <Badge
+              role="status"
+              aria-label="Context evidence"
+              variant={usage?.state === "authoritative" ? "secondary" : "outline"}
+              className={cn("tabular-nums", usage?.state === "authoritative" ? "text-success" : null)}
+            >
               {contextStateLabel(usage)}
-            </span>
+            </Badge>
           </div>
           <PopoverDescription>{detail}</PopoverDescription>
         </PopoverHeader>
@@ -84,11 +99,17 @@ export function ContextMeter(props: { readonly usage?: ContextUsageProjection | 
             <Progress aria-label="Context window used" value={percentage} className="gap-0" />
           </div>
         ) : null}
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-border/60 pt-2 text-xs">
+        <Separator />
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
           {usage?.modelId ? <><dt className="text-muted-foreground">Model</dt><dd className="truncate text-right text-foreground">{usage.modelId}</dd></> : null}
           {usage ? <><dt className="text-muted-foreground">Freshness</dt><dd className="text-right text-foreground">{historical ? "Historical" : usage.freshness}</dd></> : null}
         </dl>
-        {usage?.reason || usage?.caveat ? <p className="border-t border-border/60 pt-2 text-xs leading-5 text-muted-foreground">{usage.reason ?? usage.caveat}</p> : null}
+        {usage?.reason || usage?.caveat ? (
+          <>
+            <Separator />
+            <p className="text-xs leading-5 text-muted-foreground">{usage.reason ?? usage.caveat}</p>
+          </>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

@@ -2,12 +2,40 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   AppGatewayTargetSelector,
+  DeliberationControl,
   RuntimeBootstrapGate,
   TURN_AUTHORITY_OPTIONS,
   TurnAuthorityControl,
 } from "../src/components/app-shell-controls.js";
 
 describe("App shell controls", () => {
+  it("selects only advertised deliberation levels and can restore the provider default", async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <DeliberationControl value={null} options={["low", "high"]} onChange={onChange} />,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Deliberation level" });
+    expect(trigger).toHaveTextContent("Provider default");
+    fireEvent.click(trigger);
+    const high = screen.getByRole("option", { name: "high" });
+    fireEvent.keyDown(high, { key: "Enter" });
+    fireEvent.click(high);
+    expect(onChange).toHaveBeenCalledWith("high");
+
+    rerender(<DeliberationControl value="high" options={["low", "high"]} onChange={onChange} />);
+    fireEvent.click(screen.getByRole("combobox", { name: "Deliberation level" }));
+    const providerDefault = screen.getByRole("option", { name: "Provider default" });
+    fireEvent.keyDown(providerDefault, { key: "Enter" });
+    fireEvent.click(providerDefault);
+    expect(onChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("omits deliberation when the active model advertises no levels", () => {
+    render(<DeliberationControl value={null} options={[]} onChange={vi.fn()} />);
+    expect(screen.queryByRole("combobox", { name: "Deliberation level" })).not.toBeInTheDocument();
+  });
+
   it("renders retryable bootstrap errors next to the runtime status", () => {
     const onRetry = vi.fn();
 
@@ -52,6 +80,7 @@ describe("App shell controls", () => {
     expect(control).toHaveTextContent("Full access");
     expect(control).not.toHaveTextContent("Audited");
     expect(control).toHaveAttribute("title", expect.stringContaining("Granted: Audited"));
+    expect(control).toHaveAttribute("aria-description", expect.stringContaining("Granted: Audited"));
   });
 
   it("presents fail-closed admission as hidden status detail without confusing the selected mode", () => {
@@ -78,6 +107,7 @@ describe("App shell controls", () => {
     expect(control).not.toHaveAttribute("title", expect.stringContaining("fail_closed"));
     expect(control).toHaveAttribute("title", expect.stringContaining("Granted: Blocked"));
     expect(control).toHaveAttribute("title", expect.stringContaining("Completeness: Partial"));
+    expect(control).toHaveAttribute("aria-description", expect.stringContaining("Granted: Blocked"));
   });
 
   it("renders authority options as understandable policy choices", async () => {

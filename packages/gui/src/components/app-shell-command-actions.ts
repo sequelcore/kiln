@@ -15,7 +15,7 @@ interface AppShellCommandExecutorInput {
   readonly setPaletteMode: (mode: "root" | "theme") => void;
   readonly setPaletteQuery: (query: string) => void;
   readonly setPaletteOpen: (open: boolean) => void;
-  readonly setProviderPickerOpen: (open: boolean) => void;
+  readonly openProviderPicker: () => void;
   readonly deliberationLevelOptions: readonly GuiDeliberationLevelId[];
   readonly selectedDeliberationLevel: GuiDeliberationLevelId | null;
   readonly setDeliberationLevel: (level: GuiDeliberationLevelId) => void;
@@ -59,7 +59,7 @@ export function createAppShellCommandExecutor(input: AppShellCommandExecutorInpu
         input.setPaletteOpen(true);
         return;
       case "provider":
-        input.setProviderPickerOpen(true);
+        input.openProviderPicker();
         input.closePalette();
         return;
       case "deliberation": {

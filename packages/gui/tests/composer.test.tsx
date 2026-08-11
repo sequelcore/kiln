@@ -1,14 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "../src/components/composer.js";
 import { useUiStore } from "../src/lib/ui-store.js";
 
 function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
-  const onSubmit = vi.fn();
+  const onSubmit = vi.fn(() => true);
   const onTogglePlanMode = vi.fn();
   const onGovernedWorkItemCountChange = vi.fn();
-  const onSubmitParts = vi.fn();
   const onCancel = vi.fn();
   const onCommandMenuOpenChange = vi.fn();
   const onCommandMenuExecute = vi.fn();
@@ -43,7 +42,6 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     onSubmit,
     onTogglePlanMode,
     onGovernedWorkItemCountChange,
-    onSubmitParts,
     onCancel,
     ...overrides,
   };
@@ -56,11 +54,11 @@ function renderComposer(overrides?: Partial<ComponentProps<typeof Composer>>) {
     onSubmit,
     onTogglePlanMode,
     onGovernedWorkItemCountChange,
-    onSubmitParts,
     onCancel,
     onCommandMenuOpenChange,
     onCommandMenuExecute,
     onCommandMenuQueryChange,
+    unmount: result.unmount,
     rerenderComposer(next: Partial<ComponentProps<typeof Composer>>) {
       result.rerender(<Composer {...props} {...next} />);
     },
@@ -72,7 +70,7 @@ describe("Composer", () => {
     useUiStore.getState().setTheme("kiln-dark");
   });
 
-  it("announces thinking without duplicating visible status beside the active beam", () => {
+  it("renders one visible semantic thinking signal beside the active beam", () => {
     renderComposer({
       status: "running",
       activityPhase: "thinking",
@@ -80,13 +78,16 @@ describe("Composer", () => {
     });
 
     expect(screen.getByRole("status", { name: "Activity phase: Thinking · Preparing the response" })).toBeInTheDocument();
-    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeVisible();
+    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-state", "solving");
+    expect(document.querySelector('[data-role="activity-orb"]')).toHaveAttribute("data-orb-state", "solving");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "thinking");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-motion", "pulse");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "contained");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-inner");
-    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "colorful");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "mono");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-static", "true");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "dark");
   });
 
@@ -129,7 +130,9 @@ describe("Composer", () => {
 
     expect(screen.getByText("Goal in progress")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open goal progress/i }));
-    expect(await screen.findByText("Verify canonical session events.")).toBeInTheDocument();
+    const workItem = await screen.findByLabelText("Verify canonical session events. In progress");
+    expect(workItem).toHaveAttribute("data-slot", "ai-task-item");
+    expect(workItem).toHaveAttribute("data-status", "in_progress");
 
     fireEvent.click(screen.getByRole("button", { name: "Pause goal" }));
     expect(onGoalControl).toHaveBeenCalledWith({ goalRunId: "goal-1", action: "pause" });
@@ -153,7 +156,7 @@ describe("Composer", () => {
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-theme", "light");
   });
 
-  it("names the active tool in the composer without creating transcript-like markup", () => {
+  it("names the active tool with the generic working orb instead of inferring a tool-specific animation", () => {
     renderComposer({
       status: "running",
       activityPhase: "tool_running",
@@ -161,14 +164,15 @@ describe("Composer", () => {
     });
 
     expect(screen.getByRole("status", { name: "Activity phase: Using read_many" })).toBeInTheDocument();
-    expect(screen.queryByText("Using read_many")).not.toBeInTheDocument();
-    expect(document.querySelector('[data-role="composer-activity"]')).not.toBeInTheDocument();
+    expect(screen.getByText("Using read_many")).toBeVisible();
+    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-state", "working");
   });
 
   it("keeps the composer beam active until response streaming finishes", () => {
     renderComposer({ status: "running", activityPhase: "streaming" });
 
     expect(screen.getByRole("status", { name: "Activity phase: Responding" })).toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-state", "composing");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-state", "streaming");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-active");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveStyle({ "--beam-strength": "0.2" });
@@ -181,6 +185,7 @@ describe("Composer", () => {
 
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "completion");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-size", "pulse-outside");
+    expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-palette", "sunset");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-fading");
   });
@@ -207,6 +212,7 @@ describe("Composer", () => {
     expect(document.querySelector('[data-role="composer-activity-beam"]')).not.toHaveAttribute("data-active");
     expect(document.querySelector('[data-role="composer-activity-beam"]')).toHaveAttribute("data-beam-treatment", "paused");
     expect(screen.getByRole("status", { name: "Activity phase: Awaiting approval" })).toBeInTheDocument();
+    expect(document.querySelector('[data-role="composer-activity"]')).toHaveAttribute("data-orb-paused", "true");
   });
 
   it("keeps the composer beam inactive and omits live status while idle", () => {
@@ -231,7 +237,7 @@ describe("Composer", () => {
     const textarea = screen.getByLabelText("Message");
     fireEvent.change(textarea, { target: { value: "hello" } });
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter", shiftKey: false });
-    expect(onSubmit).toHaveBeenCalledWith("hello");
+    expect(onSubmit).toHaveBeenCalledWith({ text: "hello" });
   });
 
   it("Enter while running is a no-op", () => {
@@ -296,6 +302,70 @@ describe("Composer", () => {
     expect(within(menu).getByText("Provider")).toBeInTheDocument();
   });
 
+  it("executes the selected composer command with cmdk keyboard navigation", () => {
+    const onExecute = vi.fn();
+    renderComposer({
+      commandMenu: {
+        open: true,
+        query: "",
+        commands: [
+          { id: "first", trigger: "first", title: "First" },
+          { id: "second", trigger: "second", title: "Second" },
+        ],
+        onQueryChange: vi.fn(),
+        onExecute,
+        onOpenChange: vi.fn(),
+      },
+    });
+    const input = screen.getByPlaceholderText("Filter commands");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({ id: "second" }));
+  });
+
+  it("does not execute a command when Close is activated with Enter", () => {
+    const onExecute = vi.fn();
+    const onOpenChange = vi.fn();
+    renderComposer({
+      commandMenu: {
+        open: true,
+        query: "",
+        commands: [{ id: "provider", trigger: "provider", title: "Provider" }],
+        onQueryChange: vi.fn(),
+        onExecute,
+        onOpenChange,
+      },
+    });
+    const close = screen.getByRole("button", { name: "Close" });
+    close.focus();
+    fireEvent.keyDown(close, { key: "Enter" });
+    fireEvent.click(close);
+
+    expect(onExecute).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("returns focus to the message input when Escape closes composer commands", () => {
+    const onOpenChange = vi.fn();
+    renderComposer({
+      commandMenu: {
+        open: true,
+        query: "",
+        commands: [{ id: "provider", trigger: "provider", title: "Provider" }],
+        onQueryChange: vi.fn(),
+        onExecute: vi.fn(),
+        onOpenChange,
+      },
+    });
+    const filter = screen.getByPlaceholderText("Filter commands");
+    expect(filter).toHaveFocus();
+    fireEvent.keyDown(filter, { key: "Escape" });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.getByLabelText("Message")).toHaveFocus();
+  });
+
   it("does not render a redundant command button", () => {
     renderComposer();
 
@@ -322,6 +392,7 @@ describe("Composer", () => {
     expect(status).toHaveTextContent(label);
     expect(status).toHaveAccessibleDescription(description);
     expect(status).toHaveAttribute("data-slot", "marker");
+    expect(status).toHaveAttribute("data-tone", tone);
   });
 
   it("hides routine running continuity while activity is already announced", () => {
@@ -400,7 +471,6 @@ describe("Composer", () => {
         onSubmit={() => undefined}
         onTogglePlanMode={() => undefined}
         onGovernedWorkItemCountChange={() => undefined}
-      onSubmitParts={() => undefined}
       onCancel={() => undefined}
       />,
     );
@@ -430,7 +500,6 @@ describe("Composer", () => {
         onSubmit={() => undefined}
         onTogglePlanMode={() => undefined}
         onGovernedWorkItemCountChange={() => undefined}
-        onSubmitParts={() => undefined}
         onCancel={() => undefined}
       />,
     );
@@ -471,7 +540,7 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "Attach image" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("button", { name: "Plan" })).toHaveClass("bg-background/60");
     expect(screen.getByRole("button", { name: "Record voice" })).toHaveClass("bg-background/60");
-    expect(screen.getByRole("button", { name: "Context usage unavailable" })).toHaveClass("border", "bg-background/60");
+    expect(screen.getByRole("button", { name: "Context usage unavailable" })).toBeEnabled();
   });
 
   it("orders the composer rail like a modern chat harness", () => {
@@ -567,7 +636,7 @@ describe("Composer", () => {
 
     const section = screen.getByRole("textbox", { name: "Message" }).closest("section");
 
-    expect(section).toHaveClass("relative", "z-10", "bg-workspace-viewer");
+    expect(section).toHaveClass("relative", "z-10", "bg-transparent");
     expect(section).not.toHaveClass("bg-background");
     expect(section).not.toHaveClass("border-t", "border-border/60");
     expect(section?.className).not.toContain("before:bg-gradient");
@@ -581,7 +650,7 @@ describe("Composer", () => {
     expect(screen.queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
   });
 
-  it("records voice input and submits canonical audio parts", async () => {
+  it("records voice input and prepares canonical audio parts", async () => {
     const stopTrack = vi.fn();
     const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
     Object.defineProperty(navigator, "mediaDevices", {
@@ -617,28 +686,146 @@ describe("Composer", () => {
     }
     vi.stubGlobal("MediaRecorder", MockMediaRecorder);
 
-    const { onSubmitParts } = renderComposer();
+    const { onSubmit } = renderComposer();
     fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
 
     await waitFor(() => expect(activeRecorders).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: "Stop voice recording" }));
 
+    await waitFor(() => expect(screen.getByText("Voice recording")).toBeVisible());
+    expect(onSubmit).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => {
-      expect(onSubmitParts).toHaveBeenCalledWith([
+      expect(onSubmit).toHaveBeenCalledWith({ text: "", parts: [
         {
           type: "audio",
           mimeType: "audio/webm;codecs=opus",
           data: "YWJj",
           durationMs: expect.any(Number),
         },
-      ], expect.stringMatching(/^Voice input/));
+      ], displayContent: expect.stringMatching(/^Voice input/) });
     });
     expect(getUserMedia).toHaveBeenCalledWith({ audio: true });
     expect(stopTrack).toHaveBeenCalled();
   });
 
-  it("attaches an audio file and submits canonical audio parts", async () => {
-    const { onSubmitParts } = renderComposer();
+  it("reports microphone permission failure without losing the draft", async () => {
+    const getUserMedia = vi.fn().mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.stubGlobal("MediaRecorder", { isTypeSupported: () => true });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    renderComposer();
+    const textarea = screen.getByLabelText("Message");
+    fireEvent.change(textarea, { target: { value: "Keep this draft" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Microphone access failed");
+    expect(textarea).toHaveValue("Keep this draft");
+  });
+
+  it("stops microphone tracks without preparing a turn when unmounted", async () => {
+    const stopTrack = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }) },
+    });
+    const recorders: CleanupMediaRecorder[] = [];
+    class CleanupMediaRecorder {
+      static isTypeSupported(): boolean { return true; }
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { readonly data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor() { recorders.push(this); }
+      start(): void { this.state = "recording"; }
+      stop(): void { this.state = "inactive"; this.onstop?.(); }
+    }
+    vi.stubGlobal("MediaRecorder", CleanupMediaRecorder);
+    const { onSubmit, unmount } = renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+    await waitFor(() => expect(recorders).toHaveLength(1));
+
+    unmount();
+
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not start concurrent microphone permission requests", () => {
+    const getUserMedia = vi.fn(() => new Promise(() => undefined));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.stubGlobal("MediaRecorder", { isTypeSupported: () => true });
+    renderComposer();
+    const record = screen.getByRole("button", { name: "Record voice" });
+
+    fireEvent.click(record);
+    fireEvent.click(record);
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops a microphone stream resolved after unmount", async () => {
+    let resolveStream: ((stream: { getTracks: () => Array<{ stop: () => void }> }) => void) | undefined;
+    const stopTrack = vi.fn();
+    const getUserMedia = vi.fn(() => new Promise<{ getTracks: () => Array<{ stop: () => void }> }>((resolve) => {
+      resolveStream = resolve;
+    }));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia },
+    });
+    vi.stubGlobal("MediaRecorder", { isTypeSupported: () => true });
+    const { unmount } = renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+
+    unmount();
+    resolveStream?.({ getTracks: () => [{ stop: stopTrack }] });
+
+    await waitFor(() => expect(stopTrack).toHaveBeenCalledOnce());
+  });
+
+  it("stops and discards a live recording when captured chunks exceed 10 MB", async () => {
+    const stopTrack = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] }) },
+    });
+    const recorders: BudgetMediaRecorder[] = [];
+    class BudgetMediaRecorder {
+      static isTypeSupported(): boolean { return true; }
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { readonly data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor() { recorders.push(this); }
+      start(): void { this.state = "recording"; }
+      stop(): void { this.state = "inactive"; this.onstop?.(); }
+    }
+    vi.stubGlobal("MediaRecorder", BudgetMediaRecorder);
+    const { onSubmit } = renderComposer();
+    fireEvent.click(screen.getByRole("button", { name: "Record voice" }));
+    await waitFor(() => expect(recorders).toHaveLength(1));
+    const oversizedChunk = new Blob(["fixture"], { type: "audio/webm" });
+    Object.defineProperty(oversizedChunk, "size", { value: 10 * 1024 * 1024 + 1 });
+
+    act(() => recorders[0]?.ondataavailable?.({ data: oversizedChunk }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Voice recordings are limited to 10 MB");
+    expect(stopTrack).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Voice recording")).not.toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("prepares an audio file and submits it only with the turn", async () => {
+    const { onSubmit } = renderComposer();
     const file = new File(["abc"], "voice.webm", { type: "audio/webm" });
 
     fireEvent.click(screen.getByRole("button", { name: "Attach audio file" }));
@@ -646,14 +833,18 @@ describe("Composer", () => {
       target: { files: [file] },
     });
 
+    await waitFor(() => expect(screen.getByText("voice.webm")).toBeVisible());
+    expect(onSubmit).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => {
-      expect(onSubmitParts).toHaveBeenCalledWith([
+      expect(onSubmit).toHaveBeenCalledWith({ text: "", parts: [
         {
           type: "audio",
           mimeType: "audio/webm",
           data: "YWJj",
         },
-      ], "Voice input");
+      ], displayContent: "Voice input" });
     });
   });
 
@@ -672,8 +863,8 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "Cancelling response" })).toBeDisabled();
   });
 
-  it("attaches an image file and submits canonical image parts", async () => {
-    const { onSubmitParts } = renderComposer();
+  it("prepares an image and submits text and parts atomically", async () => {
+    const { onSubmit } = renderComposer();
     const file = new File(["abc"], "queja.png", { type: "image/png" });
 
     fireEvent.click(screen.getByRole("button", { name: "Attach image" }));
@@ -681,20 +872,26 @@ describe("Composer", () => {
       target: { files: [file] },
     });
 
+    await waitFor(() => expect(screen.getByText("queja.png")).toBeVisible());
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Review this" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => {
-      expect(onSubmitParts).toHaveBeenCalledWith([
+      expect(onSubmit).toHaveBeenCalledWith({ text: "Review this", parts: [
         {
           type: "image",
           mimeType: "image/png",
           data: "YWJj",
         },
-      ], "Image: queja.png");
+      ], displayContent: "Review this\nImage: queja.png" });
     });
   });
 
-  it("submits pasted image clipboard data as canonical image parts", async () => {
-    const { onSubmitParts } = renderComposer();
+  it("prepares pasted image data without losing the draft", async () => {
+    const { onSubmit } = renderComposer();
     const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Keep this" } });
     const file = new File(["abc"], "clipboard.png", { type: "image/png" });
     const pasteEvent = new Event("paste", { bubbles: true, cancelable: true }) as Event & {
       clipboardData?: {
@@ -707,16 +904,110 @@ describe("Composer", () => {
 
     fireEvent(textarea, pasteEvent);
 
-    await waitFor(() => {
-      expect(onSubmitParts).toHaveBeenCalledWith([
-        {
-          type: "image",
-          mimeType: "image/png",
-          data: "YWJj",
-        },
-      ], "Image: clipboard.png");
-    });
+    await waitFor(() => expect(screen.getByText("clipboard.png")).toBeVisible());
+    expect(textarea).toHaveValue("Keep this");
+    expect(onSubmit).not.toHaveBeenCalled();
     expect(pasteEvent.defaultPrevented).toBe(true);
+  });
+
+  it("removes a prepared attachment before submitting", async () => {
+    const { onSubmit } = renderComposer();
+    const file = new File(["abc"], "remove.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText("remove.png")).toBeVisible());
+    fireEvent.click(screen.getByRole("button", { name: "Remove remove.png" }));
+
+    expect(screen.queryByText("remove.png")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the prepared turn when the runtime rejects submission", () => {
+    const onSubmit = vi.fn(() => false);
+    renderComposer({ onSubmit });
+    const textarea = screen.getByLabelText("Message");
+    fireEvent.change(textarea, { target: { value: "Retry me" } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(onSubmit).toHaveBeenCalledWith({ text: "Retry me" });
+    expect(textarea).toHaveValue("Retry me");
+  });
+
+  it("shows an accessible error when an image cannot be prepared", async () => {
+    renderComposer();
+    const file = new File(["not-an-image"], "broken.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [file] } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not prepare this attachment.");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("blocks text submission until a failed attachment is removed", async () => {
+    const { onSubmit } = renderComposer();
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Do not lose the image" } });
+    const file = new File(["not-an-image"], "broken.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [file] } });
+
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized attachment before reading it", async () => {
+    renderComposer();
+    const file = new File(["small fixture"], "huge.png", { type: "image/png" });
+    Object.defineProperty(file, "size", { value: 11 * 1024 * 1024 });
+    fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [file] } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("10 MB per file");
+    expect(screen.queryByText("huge.png")).not.toBeInTheDocument();
+  });
+
+  it("accepts the exact per-file limit and rejects a total over 25 MB", async () => {
+    renderComposer();
+    const exact = new File(["fixture"], "exact.png", { type: "image/png" });
+    Object.defineProperty(exact, "size", { value: 10 * 1024 * 1024 });
+    fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [exact] } });
+    expect(await screen.findByText("exact.png")).toBeVisible();
+
+    for (const name of ["second.png", "over-total.png"]) {
+      const file = new File(["fixture"], name, { type: "image/png" });
+      Object.defineProperty(file, "size", { value: 8 * 1024 * 1024 });
+      fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [file] } });
+    }
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("25 MB total");
+    expect(screen.queryByText("over-total.png")).not.toBeInTheDocument();
+  });
+
+  it("limits a turn to eight prepared attachments", async () => {
+    renderComposer();
+    for (let index = 1; index <= 9; index += 1) {
+      const file = new File([String(index)], `image-${index}.png`, { type: "image/png" });
+      fireEvent.change(screen.getByLabelText("Image file input"), { target: { files: [file] } });
+    }
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("up to 8 files");
+    expect(screen.queryByText("image-9.png")).not.toBeInTheDocument();
+  });
+
+  it("preserves text from a mixed image clipboard payload", async () => {
+    renderComposer();
+    const textarea = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Before " } });
+    const file = new File(["abc"], "mixed.png", { type: "image/png" });
+    const pasteEvent = new Event("paste", { bubbles: true, cancelable: true }) as Event & {
+      clipboardData?: { readonly files: readonly File[]; getData: (type: string) => string };
+    };
+    Object.defineProperty(pasteEvent, "clipboardData", {
+      value: { files: [file], getData: (type: string) => type === "text/plain" ? "and after" : "" },
+    });
+
+    fireEvent(textarea, pasteEvent);
+
+    await waitFor(() => expect(screen.getByText("mixed.png")).toBeVisible());
+    expect(textarea).toHaveValue("Before and after");
   });
 
   it("renders deliberation as part of the composer model controls", () => {

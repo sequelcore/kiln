@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronRight, CircleDashed, LoaderCircle, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { ChevronRight, LoaderCircle, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import type { WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { TaskItem } from "./ai-elements/task.js";
 
 export type ActiveGoalAction = "pause" | "resume" | "edit" | "cancel";
 
@@ -49,6 +50,16 @@ function formatElapsed(milliseconds: number): string {
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
     : `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
+
+const WORK_ITEM_STATUS_LABELS: Record<WorkflowGoalActivity["workItems"][number]["item"]["status"], string> = {
+  pending: "Pending",
+  in_progress: "In progress",
+  completed: "Completed",
+  blocked: "Blocked",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  paused: "Paused",
+};
 
 export function ActiveGoalDock(props: ActiveGoalDockProps) {
   const objectiveInputRef = useRef<HTMLTextAreaElement>(null);
@@ -125,15 +136,14 @@ export function ActiveGoalDock(props: ActiveGoalDockProps) {
           </PopoverHeader>
           <ol className="flex flex-col gap-2" aria-label="Goal progress">
             {props.activity.workItems.map(({ item }) => (
-              <li key={item.id} className="flex min-w-0 items-start gap-2 text-xs leading-5">
-                {item.status === "completed" ? (
-                  <Check aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-success" />
-                ) : item.status === "in_progress" ? (
-                  <LoaderCircle aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-primary motion-safe:animate-spin" />
-                ) : (
-                  <CircleDashed aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                )}
-                <span className="min-w-0 flex-1 text-foreground">{item.summary}</span>
+              <li key={item.id}>
+                <TaskItem
+                  aria-label={`${item.summary} ${WORK_ITEM_STATUS_LABELS[item.status]}`}
+                  className="text-xs leading-5"
+                  status={item.status}
+                >
+                  <span className="text-foreground">{item.summary}</span>
+                </TaskItem>
               </li>
             ))}
           </ol>

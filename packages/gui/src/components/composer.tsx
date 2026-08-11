@@ -1,19 +1,21 @@
-import { useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
-import {
-  createImageInputParts,
-  imageInputDisplayText,
-} from "@kilnai/gateway-contracts/image-input-parts";
-import {
-  createVoiceInputParts,
-  selectVoiceInputCaptureMimeType,
-  voiceInputDisplayText,
-} from "@kilnai/gateway-contracts/voice-input-parts";
+import { useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
 import type { ContextUsageProjection, WorkflowGoalActivity } from "@kilnai/gateway-contracts";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { ComposerLeadingActions, ComposerTrailingActions } from "./composer-actions.js";
 import { ComposerFrame, type ComposerCommandMenuState } from "./composer-frame.js";
 import { ActiveGoalDock } from "./active-goal-dock.js";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  ComposerAttachments,
+} from "./composer-attachments.js";
+import { useComposerMedia } from "./use-composer-media.js";
+
+export interface ComposerSubmission {
+  readonly text: string;
+  readonly parts?: readonly unknown[];
+  readonly displayContent?: string;
+}
 
 interface ComposerProps {
   readonly status: SessionStatus;
@@ -36,39 +38,44 @@ interface ComposerProps {
   readonly deliberationControl?: ReactNode;
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
-  readonly onSubmit: (text: string) => void;
-  readonly onSubmitParts?: (parts: readonly unknown[], displayContent: string) => void;
+  readonly onSubmit: (submission: ComposerSubmission) => boolean;
   readonly onCancel: () => void;
   readonly cancelPending?: boolean;
   readonly onTogglePlanMode: (enabled: boolean) => void;
   readonly onGovernedWorkItemCountChange: (count: number | null) => void;
 }
 
-function selectedInputFile(event: ChangeEvent<HTMLInputElement>): File | undefined {
-  const [file] = Array.from(event.currentTarget.files ?? []);
-  event.currentTarget.value = "";
-  return file;
-}
-
 export function Composer(props: ComposerProps) {
   const [draft, setDraft] = useState("");
-  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "encoding">("idle");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const audioFileInputRef = useRef<HTMLInputElement | null>(null);
-  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const startedAtRef = useRef<number>(0);
-  const canSubmit = props.status === "ready" && draft.trim().length > 0;
   const isBusy = props.status === "running" || props.status === "connecting";
-  const canCaptureVoice = Boolean(props.onSubmitParts)
-    && typeof navigator !== "undefined"
-    && Boolean(navigator.mediaDevices?.getUserMedia)
-    && typeof MediaRecorder !== "undefined";
-  const voiceButtonDisabled = !canCaptureVoice || (isBusy && voiceState !== "recording") || voiceState === "encoding";
-  const mediaFileInputDisabled = !props.onSubmitParts || isBusy || voiceState !== "idle";
-  const fileButtonDisabled = mediaFileInputDisabled;
-  const imageButtonDisabled = mediaFileInputDisabled;
+  const {
+    attachments,
+    audioFileInputRef,
+    composerError,
+    fileButtonDisabled,
+    handleAudioFileChange,
+    handleImageFileChange,
+    handlePaste,
+    hasAttachmentError,
+    imageButtonDisabled,
+    imageFileInputRef,
+    isPreparingAttachment,
+    removeAttachment,
+    resetPreparedMedia,
+    toggleVoiceCapture,
+    voiceButtonDisabled,
+    voiceState,
+  } = useComposerMedia({
+    isBusy,
+    onPasteText: (text, selectionStart, selectionEnd) => {
+      setDraft((current) => `${current.slice(0, selectionStart)}${text}${current.slice(selectionEnd)}`);
+    },
+  });
+  const hasReadyAttachment = attachments.some((attachment) => attachment.state === "done");
+  const canSubmit = props.status === "ready"
+    && !isPreparingAttachment
+    && !hasAttachmentError
+    && (draft.trim().length > 0 || hasReadyAttachment);
   const activity = props.activityPhase && props.activityPhase !== "idle"
     ? {
         phase: props.activityPhase,
@@ -77,7 +84,6 @@ export function Composer(props: ComposerProps) {
       }
     : undefined;
   const foregroundGoal = props.foregroundGoal;
-
 
   function handleDraftChange(value: string): void {
     if (value.trim() === "/") {
@@ -88,140 +94,25 @@ export function Composer(props: ComposerProps) {
     setDraft(value);
   }
 
-  function stopVoiceStream(): void {
-    for (const track of streamRef.current?.getTracks() ?? []) {
-      track.stop();
-    }
-    streamRef.current = null;
-  }
-
-  async function startVoiceCapture(): Promise<void> {
-    if (!props.onSubmitParts || !canCaptureVoice) {
-      return;
-    }
-
-    try {
-      const mimeType = selectVoiceInputCaptureMimeType((candidate) => MediaRecorder.isTypeSupported(candidate));
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      startedAtRef.current = performance.now();
-      const recorder = new MediaRecorder(stream, { mimeType });
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        void finishVoiceCapture(recorder.mimeType || mimeType);
-      };
-      recorder.start();
-      setVoiceState("recording");
-    } catch (error) {
-      stopVoiceStream();
-      setVoiceState("idle");
-      console.warn("[Composer] Voice capture failed:", error);
-    }
-  }
-
-  async function finishVoiceCapture(mimeType: string): Promise<void> {
-    const durationMs = Math.max(0, Math.round(performance.now() - startedAtRef.current));
-    setVoiceState("encoding");
-    try {
-      const blob = new Blob(chunksRef.current, { type: mimeType });
-      const parts = await createVoiceInputParts({ audio: blob, durationMs });
-      props.onSubmitParts?.(parts, voiceInputDisplayText(durationMs));
-    } catch (error) {
-      console.warn("[Composer] Voice input encoding failed:", error);
-    } finally {
-      chunksRef.current = [];
-      recorderRef.current = null;
-      stopVoiceStream();
-      setVoiceState("idle");
-    }
-  }
-
-  function toggleVoiceCapture(): void {
-    if (voiceState === "recording") {
-      recorderRef.current?.stop();
-      return;
-    }
-    void startVoiceCapture();
-  }
-
-  async function submitMediaFile(input: {
-    readonly file: File;
-    readonly disabled: boolean;
-    readonly createParts: (file: File) => Promise<readonly unknown[]>;
-    readonly displayContent: string;
-    readonly failureMessage: string;
-  }): Promise<void> {
-    if (!props.onSubmitParts || input.disabled) {
-      return;
-    }
-
-    try {
-      const parts = await input.createParts(input.file);
-      props.onSubmitParts(parts, input.displayContent);
-    } catch (error) {
-      console.warn(input.failureMessage, error);
-    }
-  }
-
-  function handleAudioFileChange(event: ChangeEvent<HTMLInputElement>): void {
-    const file = selectedInputFile(event);
-    if (!file) {
-      return;
-    }
-    void submitMediaFile({
-      file,
-      disabled: fileButtonDisabled,
-      createParts: (audio) => createVoiceInputParts({ audio }),
-      displayContent: voiceInputDisplayText(),
-      failureMessage: "[Composer] Audio file input failed:",
-    });
-  }
-
-  async function submitImageFile(file: File): Promise<void> {
-    return submitMediaFile({
-      file,
-      disabled: imageButtonDisabled,
-      createParts: (image) => createImageInputParts({ image }),
-      displayContent: imageInputDisplayText(file.name),
-      failureMessage: "[Composer] Image file input failed:",
-    });
-  }
-
-  function handleImageFileChange(event: ChangeEvent<HTMLInputElement>): void {
-    const file = selectedInputFile(event);
-    if (!file) {
-      return;
-    }
-    void submitImageFile(file);
-  }
-
-  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>): void {
-    if (!props.onSubmitParts || imageButtonDisabled) {
-      return;
-    }
-
-    const clipboardData = event.clipboardData as DataTransfer | undefined;
-    const image = Array.from(clipboardData?.files ?? []).find((file) => file.type.startsWith("image/"));
-    if (!image) {
-      return;
-    }
-
-    event.preventDefault();
-    void submitImageFile(image);
-  }
-
   function submitDraft(): void {
     if (!canSubmit) {
       return;
     }
-    props.onSubmit(draft);
+    const readyAttachments = attachments.filter((attachment) => attachment.state === "done" && attachment.parts);
+    const parts = readyAttachments.flatMap((attachment) => attachment.parts ?? []);
+    const text = draft.trim();
+    const displayContent = [text, ...readyAttachments.map((attachment) => attachment.displayContent)]
+      .filter(Boolean)
+      .join("\n");
+    const accepted = props.onSubmit({
+      text,
+      ...(parts.length > 0 ? { parts, displayContent } : {}),
+    });
+    if (!accepted) {
+      return;
+    }
     setDraft("");
+    resetPreparedMedia();
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
@@ -288,43 +179,41 @@ export function Composer(props: ComposerProps) {
       onDraftChange={handleDraftChange}
       onKeyDown={handleComposerKeyDown}
       onPaste={handlePaste}
+      attachments={(
+        <ComposerAttachments
+          attachments={attachments}
+          onRemove={removeAttachment}
+        />
+      )}
+      feedback={composerError ? (
+        <Alert variant="destructive">
+          <AlertTitle>Composer input failed</AlertTitle>
+          <AlertDescription>{composerError}</AlertDescription>
+        </Alert>
+      ) : null}
       leadingActions={(
         <ComposerLeadingActions
           planMode={props.planMode}
           governedWorkItemCount={props.governedWorkItemCount}
-          canSubmit={canSubmit}
           fileButtonDisabled={fileButtonDisabled}
           imageButtonDisabled={imageButtonDisabled}
-          voiceButtonDisabled={voiceButtonDisabled}
-          voiceState={voiceState}
           audioFileInputRef={audioFileInputRef}
           imageFileInputRef={imageFileInputRef}
           onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
           onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
-          onToggleVoiceCapture={toggleVoiceCapture}
           onAudioFileChange={handleAudioFileChange}
           onImageFileChange={handleImageFileChange}
         />
       )}
       trailingActions={(
         <ComposerTrailingActions
-          planMode={props.planMode}
-          governedWorkItemCount={props.governedWorkItemCount}
           canSubmit={canSubmit}
           turnActive={props.status === "running"}
           cancelPending={props.cancelPending === true}
           onCancel={props.onCancel}
-          fileButtonDisabled={fileButtonDisabled}
-          imageButtonDisabled={imageButtonDisabled}
           voiceButtonDisabled={voiceButtonDisabled}
           voiceState={voiceState}
-          audioFileInputRef={audioFileInputRef}
-          imageFileInputRef={imageFileInputRef}
-          onTogglePlanMode={() => props.onTogglePlanMode(!props.planMode)}
-          onGovernedWorkItemCountChange={props.onGovernedWorkItemCountChange}
           onToggleVoiceCapture={toggleVoiceCapture}
-          onAudioFileChange={handleAudioFileChange}
-          onImageFileChange={handleImageFileChange}
         />
       )}
     />

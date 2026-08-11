@@ -164,9 +164,12 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     const composerActivityBeam = page.locator('[data-role="composer-activity-beam"]');
     await expect(composerActivityBeam).toBeVisible();
     await expect(composerActivityBeam).toHaveAttribute("data-beam-motion", "pulse");
-    await expect(composerActivityBeam).toHaveAttribute("data-beam-palette", "colorful");
+    await expect(composerActivityBeam).toHaveAttribute("data-beam-palette", "mono");
     await expect(composerActivityBeam).toHaveAttribute("data-beam-theme", "dark");
-    await expect(page.locator('[data-role="live-activity-label"]')).toHaveCount(0);
+    const liveActivity = page.locator('[data-role="composer-activity"]');
+    await expect(liveActivity).toBeVisible();
+    await expect(liveActivity).toHaveAttribute("data-orb-state", "working");
+    await expect(liveActivity.locator('[data-role="activity-orb"]')).toBeVisible();
     await expect(page.locator('[aria-label="Transcript"] [aria-label="Streaming"]')).toHaveCount(0);
     await expect(page.locator('[aria-label="Transcript"] [role="status"]')).toHaveCount(0);
     await expect.poll(async () => composerActivityBeam.evaluate((element) => (

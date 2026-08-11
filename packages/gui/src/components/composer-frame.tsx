@@ -1,10 +1,10 @@
 import { useEffect, useRef, type ClipboardEventHandler, type FormEventHandler, type KeyboardEventHandler, type ReactNode } from "react";
-import { BorderBeam } from "border-beam";
+import { BorderBeam, type BorderBeamColorVariant } from "border-beam";
 import type { ActivityPhase, SessionStatus } from "../lib/session-store/index.js";
 import type { ComposerContinuityHint } from "../lib/session-continuity-view.js";
 import { resolveBorderBeamTheme } from "../lib/border-beam-theme.js";
 import { useUiStore } from "../lib/ui-store.js";
-import { ActivityPhaseAnnouncement } from "./activity-phase-announcement.js";
+import { ActivityPhaseIndicator } from "./activity-phase-indicator.js";
 import type { CommandPaletteItem } from "./command-menu-surface.js";
 import { ComposerCommandMenu } from "./composer-command-menu.js";
 import { ComposerContinuityChip } from "./composer-continuity-chip.js";
@@ -32,17 +32,21 @@ type BeamTreatment = "contained" | "completion" | "paused" | "off";
 interface ComposerBeamVisual {
   readonly treatment: BeamTreatment;
   readonly size: "pulse-inner" | "pulse-outside";
+  readonly colorVariant: BorderBeamColorVariant;
   readonly strength: number;
   readonly duration: number;
   readonly hueRange: number;
+  readonly staticColors: boolean;
 }
 
 const INACTIVE_BEAM: ComposerBeamVisual = {
   treatment: "off",
   size: "pulse-inner",
+  colorVariant: "mono",
   strength: 0,
   duration: 5.8,
   hueRange: 8,
+  staticColors: true,
 };
 
 function resolveComposerBeamVisual(
@@ -54,9 +58,11 @@ function resolveComposerBeamVisual(
     return {
       treatment: "completion",
       size: "pulse-outside",
+      colorVariant: "sunset",
       strength: 0.34,
       duration: 4.2,
       hueRange: 10,
+      staticColors: true,
     };
   }
   if (status !== "running" && status !== "connecting") {
@@ -71,33 +77,41 @@ function resolveComposerBeamVisual(
       return {
         treatment: "contained",
         size: "pulse-inner",
+        colorVariant: "mono",
         strength: 0.32,
         duration: 4.6,
         hueRange: 16,
+        staticColors: true,
       };
     case "tool_running":
       return {
         treatment: "contained",
         size: "pulse-inner",
+        colorVariant: "mono",
         strength: 0.26,
         duration: 5.2,
         hueRange: 12,
+        staticColors: true,
       };
     case "streaming":
       return {
         treatment: "contained",
         size: "pulse-inner",
+        colorVariant: "mono",
         strength: 0.2,
         duration: 5.8,
         hueRange: 10,
+        staticColors: true,
       };
     case "idle":
       return {
         treatment: "contained",
         size: "pulse-inner",
+        colorVariant: "mono",
         strength: 0.18,
         duration: 5.8,
         hueRange: 8,
+        staticColors: true,
       };
   }
 }
@@ -113,6 +127,8 @@ export function ComposerFrame(props: {
   readonly deliberationControl?: ReactNode;
   readonly authorityControl?: ReactNode;
   readonly commandMenu: ComposerCommandMenuState;
+  readonly attachments?: ReactNode;
+  readonly feedback?: ReactNode;
   readonly leadingActions: ReactNode;
   readonly trailingActions: ReactNode;
   readonly onSubmit: FormEventHandler<HTMLFormElement>;
@@ -120,6 +136,7 @@ export function ComposerFrame(props: {
   readonly onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   readonly onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
 }) {
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const hasRuntimeControls = Boolean(props.providerControl || props.deliberationControl || props.authorityControl);
   const kilnTheme = useUiStore((state) => state.theme);
   const beamTheme = resolveBorderBeamTheme(kilnTheme);
@@ -134,7 +151,7 @@ export function ComposerFrame(props: {
   }, [phase]);
 
   return (
-    <section className="relative z-10 bg-workspace-viewer px-4 pb-4 pt-2">
+    <section className="relative z-10 bg-transparent px-4 pb-4 pt-2">
       <form
         onSubmit={props.onSubmit}
         className="relative mx-auto flex w-full max-w-3xl flex-col gap-2"
@@ -145,14 +162,20 @@ export function ComposerFrame(props: {
           commands={props.commandMenu.commands}
           onQueryChange={props.commandMenu.onQueryChange}
           onExecute={props.commandMenu.onExecute}
-          onOpenChange={props.commandMenu.onOpenChange}
+          onOpenChange={(open) => {
+            props.commandMenu.onOpenChange(open);
+            if (!open) {
+              inputRef.current?.focus();
+            }
+          }}
         />
         {props.activeGoal}
+        {props.feedback}
         <label className="sr-only" htmlFor="composer-input">
           Message
         </label>
         {props.activity ? (
-          <ActivityPhaseAnnouncement
+          <ActivityPhaseIndicator
             phase={props.activity.phase}
             toolName={props.activity.toolName}
             details={props.activity.details}
@@ -161,10 +184,11 @@ export function ComposerFrame(props: {
         <BorderBeam
           active={beamActive}
           className="w-full"
-          colorVariant="colorful"
+          colorVariant={beam.colorVariant}
           data-beam-motion="pulse"
-          data-beam-palette="colorful"
+          data-beam-palette={beam.colorVariant}
           data-beam-size={beam.size}
+          data-beam-static={String(beam.staticColors)}
           data-beam-theme={beamTheme}
           data-beam-treatment={beam.treatment}
           data-role="composer-activity-beam"
@@ -172,6 +196,7 @@ export function ComposerFrame(props: {
           duration={beam.duration}
           hueRange={beam.hueRange}
           size={beam.size}
+          staticColors={beam.staticColors}
           strength={beam.strength}
           theme={beamTheme}
         >
@@ -180,6 +205,7 @@ export function ComposerFrame(props: {
             data-composer-surface="message"
           >
             <InputGroupTextarea
+              ref={inputRef}
               id="composer-input"
               value={props.draft}
               wrap="soft"
@@ -190,6 +216,7 @@ export function ComposerFrame(props: {
               className="min-h-14 max-h-44 px-3 py-2.5 text-sm leading-6"
               placeholder="Message Kiln"
             />
+            {props.attachments}
             <InputGroupAddon align="block-end" aria-label="Message options" className="px-2 py-1.5">
               <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 md:grid-cols-[auto_minmax(0,1fr)_auto]">
                 <div className="flex min-w-0 items-center gap-1">

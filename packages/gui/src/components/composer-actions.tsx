@@ -5,7 +5,7 @@ import { InputGroupButton } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { GovernedTaskControl } from "./governed-task-control.js";
 
-type VoiceState = "idle" | "recording" | "encoding";
+type VoiceState = "idle" | "requesting" | "recording" | "encoding";
 
 function ComposerTooltip(props: {
   readonly label: string;
@@ -19,27 +19,30 @@ function ComposerTooltip(props: {
   );
 }
 
-interface ComposerActionProps {
+interface ComposerLeadingActionsProps {
   readonly planMode: boolean;
   readonly governedWorkItemCount: number | null;
-  readonly canSubmit: boolean;
-  readonly turnActive?: boolean;
-  readonly cancelPending?: boolean;
   readonly fileButtonDisabled: boolean;
   readonly imageButtonDisabled: boolean;
-  readonly voiceButtonDisabled: boolean;
-  readonly voiceState: VoiceState;
   readonly audioFileInputRef: RefObject<HTMLInputElement | null>;
   readonly imageFileInputRef: RefObject<HTMLInputElement | null>;
   readonly onTogglePlanMode: () => void;
   readonly onGovernedWorkItemCountChange: (count: number | null) => void;
-  readonly onToggleVoiceCapture: () => void;
   readonly onAudioFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   readonly onImageFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}
+
+interface ComposerTrailingActionsProps {
+  readonly canSubmit: boolean;
+  readonly turnActive?: boolean;
+  readonly cancelPending?: boolean;
+  readonly voiceButtonDisabled: boolean;
+  readonly voiceState: VoiceState;
+  readonly onToggleVoiceCapture: () => void;
   readonly onCancel?: () => void;
 }
 
-export function ComposerLeadingActions(props: ComposerActionProps) {
+export function ComposerLeadingActions(props: ComposerLeadingActionsProps) {
   return (
     <TooltipProvider delay={300}>
       <div className="flex min-w-0 items-center gap-1">
@@ -110,9 +113,13 @@ export function ComposerLeadingActions(props: ComposerActionProps) {
   );
 }
 
-export function ComposerTrailingActions(props: ComposerActionProps) {
+export function ComposerTrailingActions(props: ComposerTrailingActionsProps) {
   const recording = props.voiceState === "recording";
-  const voiceLabel = recording ? "Stop voice recording" : "Record voice";
+  const voiceLabel = recording
+    ? "Stop voice recording"
+    : props.voiceState === "requesting"
+      ? "Requesting microphone access"
+      : "Record voice";
 
   return (
     <TooltipProvider delay={300}>
