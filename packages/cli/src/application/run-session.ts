@@ -9,6 +9,7 @@ import type {
 } from "../wrapper/index.js";
 import {
   assertScopedExecutionSessionToolEvent,
+  executionSessionBindingKey,
   resolveExecutionCostEvidence,
   type ExecutionCostEvidence,
   type ExecutionSessionBindingEvidence,
@@ -19,7 +20,7 @@ import type {
   ProviderCreateConfig,
   SessionRegistry,
 } from "../wrapper/session-registry.js";
-import type { DirectProviderAccountBinding } from "../wrapper/direct-provider-adapter-factory.js";
+import type { DirectProviderCredentialBinding } from "../wrapper/direct-provider-adapter-factory.js";
 import type { SessionRunOptions } from "../wrapper/session.js";
 import type { PersistedProviderTokenUsage } from "../wrapper/session-store.js";
 import { isDirectApiProvider } from "../wrapper/session-registry.js";
@@ -61,7 +62,9 @@ export interface RunSessionOptions {
 export interface RunSessionRouteCandidate {
   readonly provider: ProviderId;
   readonly model?: string;
-  readonly accountBinding?: DirectProviderAccountBinding;
+  readonly credentialBinding?: DirectProviderCredentialBinding;
+  /** Credential material resolved only after the canonical dispatch fence. */
+  readonly executionCredential?: import("@kilnai/runtime").ConfiguredExecutionCredential;
   readonly deliberationResolution?: DeliberationResolution;
 }
 
@@ -159,7 +162,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     const effectiveSessionConfig = {
       ...options.sessionConfig,
       ...(candidate.model ? { model: candidate.model } : {}),
-      ...(candidate.accountBinding ? { accountBinding: candidate.accountBinding } : {}),
+      ...(candidate.credentialBinding ? { credentialBinding: candidate.credentialBinding } : {}),
+      ...(candidate.executionCredential ? { executionCredential: candidate.executionCredential } : {}),
       ...(candidateDeliberation ? { deliberationResolution: candidateDeliberation } : {}),
       ...(scopedMcpToolAllowlist ? { mcpToolAllowlist: scopedMcpToolAllowlist } : {}),
     };
@@ -603,7 +607,7 @@ function recordExecutionBinding(
   bindings: Map<string, ExecutionSessionBindingEvidence>,
   binding: ExecutionSessionBindingEvidence,
 ): void {
-  bindings.set(`${binding.virtualModelId}\0${binding.accountId}`, binding);
+  bindings.set(executionSessionBindingKey(binding), binding);
 }
 
 function recordProviderTokenUsage(

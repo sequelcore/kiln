@@ -101,8 +101,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--ephemeral",
       ];
 
@@ -113,7 +113,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           ephemeral: true,
         }),
       );
@@ -126,8 +126,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--profile",
         "fast-lane",
       ];
@@ -139,7 +139,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           profile: "fast-lane",
         }),
       );
@@ -152,8 +152,8 @@ describe("run command", () => {
         "run",
         "continue",
         "work",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--continue",
       ];
 
@@ -164,7 +164,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "continue work",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           continuation: true,
         }),
       );
@@ -177,8 +177,8 @@ describe("run command", () => {
         "run",
         "continue",
         "work",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--continue-session",
         "a04d3014-2770-41e1-a98e-f1d4cc578b30",
       ];
@@ -190,7 +190,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "continue work",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           continuationSessionId: "a04d3014-2770-41e1-a98e-f1d4cc578b30",
         }),
       );
@@ -203,8 +203,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--skip-git-repo-check",
       ];
 
@@ -215,7 +215,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           skipGitRepoCheck: true,
         }),
       );
@@ -228,8 +228,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--output-schema",
         ".kiln/schemas/result.json",
       ];
@@ -241,7 +241,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           outputSchema: ".kiln/schemas/result.json",
         }),
       );
@@ -254,8 +254,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--output",
         "answer",
       ];
@@ -267,7 +267,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           output: "answer",
         }),
       );
@@ -280,8 +280,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--output",
         "json",
       ];
@@ -293,7 +293,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           output: "json",
         }),
       );
@@ -321,8 +321,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--add-dir",
         "C:/workspace/shared",
       ];
@@ -334,7 +334,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           addDir: "C:/workspace/shared",
         }),
       );
@@ -347,8 +347,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "codex",
+        "--route",
+        "test-route",
         "--local-provider",
         "ollama",
       ];
@@ -360,23 +360,21 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "codex",
+          route: "test-route",
           localProvider: "ollama",
         }),
       );
     });
 
-    it("forwards --model to runCommand flags", async () => {
+    it("forwards --route to runCommand flags", async () => {
       process.argv = [
         process.argv[0] ?? "bun",
         process.argv[1] ?? "kiln",
         "run",
         "ship",
         "it",
-        "--provider",
-        "openrouter",
-        "--model",
-        "meta-llama/llama-3.1-8b-instruct:free",
+        "--route",
+        "test-route",
       ];
 
       await createCli(MOCK_APP_CONFIG);
@@ -386,8 +384,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "openrouter",
-          model: "meta-llama/llama-3.1-8b-instruct:free",
+          route: "test-route",
         }),
       );
     });
@@ -399,8 +396,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "claude",
+        "--route",
+        "test-route",
         "--agent",
         "planner",
       ];
@@ -412,7 +409,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "claude",
+          route: "test-route",
           agent: "planner",
         }),
       );
@@ -425,8 +422,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "openai",
+        "--route",
+        "test-route",
         "--authority",
         "audited",
       ];
@@ -438,7 +435,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "openai",
+          route: "test-route",
           requestedAuthority: "audited",
         }),
       );
@@ -451,8 +448,8 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--provider",
-        "openai",
+        "--route",
+        "test-route",
         "--authority",
         "destructive",
       ];
@@ -464,7 +461,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          provider: "openai",
+          route: "test-route",
           requestedAuthority: "destructive",
         }),
       );
@@ -511,10 +508,10 @@ describe("run command", () => {
       await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow("process.exit called");
 
       const text = output.join("\n");
-      expect(text).toContain("--model");
+      expect(text).toContain("--route");
       expect(text).toContain("--agent");
-      expect(text).toContain("openrouter");
-      expect(text).toContain("ollama");
+      expect(text).not.toContain("--model");
+      expect(text).not.toContain("--api-key");
 
       consoleSpy.mockRestore();
       exitSpy.mockRestore();
@@ -540,14 +537,31 @@ describe("run command", () => {
 
       const text = output.join("\n");
       expect(text).toContain("Usage: kiln run");
-      expect(text).toContain("--provider");
-      expect(text).toContain("--model");
+      expect(text).toContain("--route");
+      expect(text).not.toContain("--provider");
+      expect(text).not.toContain("--api-key");
       expect(text).toContain("--continue");
       expect(text).toContain("--continue-session");
       expect(text).not.toContain("Kiln session starting");
 
       consoleSpy.mockRestore();
       exitSpy.mockRestore();
+    });
+
+    it("rejects retired credential overrides instead of treating them as task text", async () => {
+      process.argv = [
+        process.argv[0] ?? "bun",
+        process.argv[1] ?? "kiln",
+        "run",
+        "--api-key",
+        "secret",
+        "do work",
+      ];
+
+      await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow(
+        "Operator execution accepts route identity, not provider, model, or credential overrides",
+      );
+      expect(runCommandMock).not.toHaveBeenCalled();
     });
   });
 

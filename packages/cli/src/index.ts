@@ -9,9 +9,7 @@ import type { KilnAppConfig } from "./config.js";
 import { migrateConfigJson } from "./kiln-yaml.js";
 
 type RunArgFlags = {
-  apiKey?: string;
-  provider?: string;
-  model?: string;
+  route?: string;
   deliberationLevel?: string;
   requestedAuthority?: OperatorTurnRequestedAuthority;
   agent?: string;
@@ -105,11 +103,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       console.log(`  ${cmd.padEnd(12)} ${desc}`);
     }
     console.log("\nOptions:");
-    console.log("  --api-key    Anthropic API key (required for the subprocess runtime)");
-    console.log(
-      "  --provider   LLM provider (claude, codex, opencode, anthropic, openai, deepseek, openrouter, ollama, lmstudio)",
-    );
-    console.log("  --model      Model override for the selected provider");
+    console.log("  --route      Execution route for `run` and `plan` from global configuration");
+    console.log("  --provider   Provider setting for commands that edit project configuration (for example, init)");
     console.log("  --deliberation-level  Provider-advertised deliberation level override");
     console.log("  --authority  Requested turn authority (auto, read_only, audited, destructive)");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
@@ -148,7 +143,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       const portIdx = args.indexOf("--port");
       const port = portIdx >= 0 && portIdx + 1 < args.length ? parseInt(args[portIdx + 1]!, 10) : undefined;
       await tuiCommand(config, {
-        provider: findFlag(args, "--provider"),
         cwd: findFlag(args, "--cwd"),
         port: !Number.isNaN(port!) && port! > 0 ? port : undefined,
         theme: findFlag(args, "--theme"),
@@ -310,7 +304,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       cwd: findFlag(args, "--cwd"),
       connect: findFlag(args, "--connect"),
       open: parseOpenFlag(args),
-      provider: findFlag(args, "--provider"),
       theme: findFlag(args, "--theme"),
       plan: args.includes("--plan"),
     });
@@ -419,7 +412,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const portIdx = args.indexOf("--port");
     const port = portIdx >= 0 && portIdx + 1 < args.length ? parseInt(args[portIdx + 1]!, 10) : undefined;
     await tuiCommand(config, {
-      provider: findFlag(args, "--provider"),
       cwd: findFlag(args, "--cwd"),
       port: !Number.isNaN(port!) && port! > 0 ? port : undefined,
       theme: findFlag(args, "--theme"),
@@ -442,8 +434,7 @@ function printRunHelp(appName: string): void {
   console.log(`\nUsage: ${appName} run [options] <task>\n`);
   console.log("Start a CLI-only Kiln session.");
   console.log("\nOptions:");
-  console.log("  --provider <id>              Provider route (codex, opencode, codex-oauth, opencode-go, ...)");
-  console.log("  --model <model>              Model override for the selected provider");
+  console.log("  --route <id>                 Execution route from global configuration");
   console.log("  --deliberation-level <id>    Provider-advertised deliberation level override");
   console.log("  --authority <authority>      Requested authority (auto, read_only, audited, destructive)");
   console.log("  --agent <name>               Agent profile from .kiln/agents or ~/.kiln/agents");
@@ -507,14 +498,8 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
   let i = 0;
   while (i < rawArgs.length) {
     const arg = rawArgs[i]!;
-    if (arg === "--api-key" && i + 1 < rawArgs.length) {
-      flags.apiKey = rawArgs[i + 1];
-      i += 2;
-    } else if (arg === "--provider" && i + 1 < rawArgs.length) {
-      flags.provider = rawArgs[i + 1];
-      i += 2;
-    } else if (arg === "--model" && i + 1 < rawArgs.length) {
-      flags.model = rawArgs[i + 1];
+    if (arg === "--route" && i + 1 < rawArgs.length) {
+      flags.route = rawArgs[i + 1];
       i += 2;
     } else if (arg === "--deliberation-level" && i + 1 < rawArgs.length) {
       flags.deliberationLevel = parseDeliberationLevel(rawArgs[i + 1]);
@@ -562,6 +547,8 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
       const n = Number(rawArgs[i + 1]);
       if (!Number.isNaN(n) && n > 0) flags.workers = n;
       i += 2;
+    } else if (arg.startsWith("-")) {
+      throw new Error(`Unknown run option '${arg}'. Operator execution accepts route identity, not provider, model, or credential overrides.`);
     } else {
       taskParts.push(arg);
       i += 1;

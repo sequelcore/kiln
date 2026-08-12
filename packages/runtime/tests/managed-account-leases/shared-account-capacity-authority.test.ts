@@ -16,7 +16,12 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function createAuthority(path: string, kind: "managed-job-runtime" | "model-gateway-ingress", domain = kind, now = () => Date.now()) {
+function createAuthority(
+  path: string,
+  kind: "managed-job-runtime" | "model-gateway-ingress" | "operator-session",
+  domain = kind,
+  now = () => Date.now(),
+) {
   const authority = new SqliteManagedAccountLeaseAuthority({
     path, participantKind: kind, recoveryDomain: domain, ownerId: `${kind}-${domain}`,
     configurationRevision: "rev-1", now, ownerStaleMs: 10,
@@ -72,6 +77,32 @@ describe("shared account capacity in managed authority", () => {
 
     expect(gateway.acquireAccountCapacity(capacityInput("gateway")).status).toBe("acquired");
     expect(managed.acquireAccountCapacity(capacityInput("managed", "b".repeat(64)))).toMatchObject({ status: "unavailable" });
+  });
+
+  it("shares physical maxConcurrency with operator sessions instead of creating a surface-local pool", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const gateway = createAuthority(path, "model-gateway-ingress");
+    const operator = createAuthority(path, "operator-session");
+
+    expect(gateway.acquireAccountCapacity(capacityInput("gateway")).status).toBe("acquired");
+    expect(operator.acquireAccountCapacity(capacityInput("operator", "b".repeat(64))))
+      .toMatchObject({ status: "unavailable" });
+  });
+
+  it("projects shared capacity as advisory catalog evidence while atomic acquire remains authoritative", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const gateway = createAuthority(path, "model-gateway-ingress");
+    const operator = createAuthority(path, "operator-session");
+    const input = capacityInput("gateway");
+
+    expect(operator.observeCandidateCapacity(input.candidates)).toMatchObject([{ leaseCapacity: "available" }]);
+    expect(gateway.acquireAccountCapacity(input).status).toBe("acquired");
+    expect(operator.observeCandidateCapacity(input.candidates)).toMatchObject([{ leaseCapacity: "unavailable" }]);
+    expect(operator.acquireAccountCapacity(capacityInput("operator"))).toMatchObject({ status: "unavailable" });
   });
 
   it("fences, settles idempotently, and rejects settlement conflicts", () => {

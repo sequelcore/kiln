@@ -61,7 +61,7 @@ The current projection includes:
 - pending/resolved approvals summary
 - config health summary
 - route health summary
-- provider/model readiness summary
+- execution-route readiness summary with derived provider/model evidence
 - gateway/app health summary
 - linked resources
 - shared attention summary
@@ -102,9 +102,10 @@ Do not infer authority from a label, selected port, or visible app name. The
 runtime target must be represented by shared target identity.
 
 Do not add target identity to global control-plane actions unless they become
-target-bound. Provider refresh, provider authentication, provider switching,
-clear, operator-theme results, and voice synthesis are surface/catalog/message
-controls rather than selected app/tenant runtime actions.
+target-bound. Execution-route catalog refresh and selection, provider
+authentication, clear, operator-theme results, and voice synthesis are
+surface/catalog/message controls rather than selected app/tenant runtime
+actions.
 
 ## Resource Inspection
 

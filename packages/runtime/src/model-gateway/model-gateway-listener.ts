@@ -4,6 +4,12 @@ import type { ModelGatewayConfig } from "@kilnai/core";
 import { createOpenAIResponsesRoutes } from "../gateway/openai-responses-routes.js";
 import { createAnthropicMessagesRoutes } from "./anthropic-messages-routes.js";
 import { createModelGatewayIngress } from "./model-gateway-ingress.js";
+import type {
+  ModelGatewayExecutionCandidatePort,
+  ModelGatewayExecutionRoutingPort,
+} from "./model-gateway-ingress.js";
+import type { ExecutionCatalog } from "@kilnai/core";
+import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
 import pkg from "../../package.json" with { type: "json" };
 
 export const MODEL_GATEWAY_HEALTH_PATH = "/.well-known/kiln/model-gateway/ready";
@@ -29,6 +35,10 @@ export interface ModelGatewayListenerIdentity {
 
 export interface StartModelGatewayListenerOptions {
   readonly config: ModelGatewayConfig;
+  readonly executionCatalog: ExecutionCatalog;
+  readonly executionRouting: ModelGatewayExecutionRoutingPort;
+  readonly executionCandidates: ModelGatewayExecutionCandidatePort;
+  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
   readonly databasePath: string;
   readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -51,6 +61,10 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
   const env = options.env ?? process.env;
   const handle = await createModelGatewayIngress({
     config: options.config,
+    executionCatalog: options.executionCatalog,
+    executionRouting: options.executionRouting,
+    executionCandidates: options.executionCandidates,
+    accountCapacityAuthority: options.accountCapacityAuthority,
     databasePath: options.databasePath,
     ...(options.credentialRootDir === undefined ? {} : { credentialRootDir: options.credentialRootDir }),
     ...(options.env === undefined ? {} : { env: options.env }),

@@ -9,8 +9,9 @@ describe("operator session summary projection", () => {
     expect(projectOperatorSessionSummary({
       transcript: {
         sessionId: "session-1",
+        routeId: "codex-terra",
         provider: "codex-oauth",
-        providersUsed: ["codex-oauth"],
+        routesUsed: ["codex-terra"],
         title: "Plan shared session history",
         summary: "Initial session history plan.",
         tags: ["architecture"],
@@ -21,8 +22,9 @@ describe("operator session summary projection", () => {
         costUsd: 0,
       },
       ledger: {
+        routeId: "opencode-sonic",
         provider: "opencode",
-        providersUsed: ["opencode", "codex-oauth"],
+        routesUsed: ["opencode-sonic", "codex-terra"],
         summary: "Use one cross-surface session projection.",
         task: "interactive",
         completedAt: "2026-08-11T12:02:00.000Z",
@@ -33,8 +35,8 @@ describe("operator session summary projection", () => {
       title: "Plan shared session history",
       summary: "Use one cross-surface session projection.",
       tags: ["architecture"],
-      providersUsed: ["opencode", "codex-oauth"],
-      lastRoute: { provider: "opencode" },
+      routesUsed: ["opencode-sonic", "codex-terra"],
+      lastRoute: { routeId: "opencode-sonic", provider: "opencode" },
       lastTurnOutcome: "completed",
       updatedAt: "2026-08-11T12:02:00.000Z",
       costUsd: 0.3,
@@ -45,7 +47,9 @@ describe("operator session summary projection", () => {
     expect(projectOperatorSessionSummary({
       transcript: {
         sessionId: "session-2",
+        routeId: "claude-route",
         provider: "claude-code",
+        routesUsed: ["claude-route"],
         task: "Review the operator session boundary",
         startedAt: "2026-08-11T13:00:00.000Z",
       },
@@ -53,8 +57,8 @@ describe("operator session summary projection", () => {
       sessionId: "session-2",
       title: "Review the operator session boundary",
       tags: [],
-      providersUsed: ["claude-code"],
-      lastRoute: { provider: "claude-code" },
+      routesUsed: ["claude-route"],
+      lastRoute: { routeId: "claude-route", provider: "claude-code" },
       updatedAt: "2026-08-11T13:00:00.000Z",
       costUsd: 0,
     });
@@ -64,18 +68,45 @@ describe("operator session summary projection", () => {
     expect(projectOperatorSessionSummary({
       transcript: {
         sessionId: "session-route",
+        routeId: "codex-terra",
         provider: "codex-oauth",
+        routesUsed: ["codex-terra"],
         model: "gpt-5.6",
         task: "Verify route identity",
         startedAt: "2026-08-11T13:00:00.000Z",
       },
       ledger: {
+        routeId: "opencode-sonic",
         provider: "opencode",
+        routesUsed: ["opencode-sonic"],
         task: "Verify route identity",
         completedAt: "2026-08-11T13:01:00.000Z",
         accumulatedCostUsd: 0,
       },
-    }).lastRoute).toEqual({ provider: "opencode" });
+    }).lastRoute).toEqual({ routeId: "opencode-sonic", provider: "opencode" });
+  });
+
+  it("does not promote provider-only execution evidence into a route identity", () => {
+    expect(projectOperatorSessionSummary({
+      transcript: {
+        sessionId: "session-provider-only",
+        provider: "codex-oauth",
+        model: "gpt-5.6",
+        task: "Inspect legacy evidence",
+        startedAt: "2026-08-11T14:00:00.000Z",
+      },
+    })).toMatchObject({
+      routesUsed: [],
+    });
+    expect(projectOperatorSessionSummary({
+      transcript: {
+        sessionId: "session-provider-only",
+        provider: "codex-oauth",
+        model: "gpt-5.6",
+        task: "Inspect legacy evidence",
+        startedAt: "2026-08-11T14:00:00.000Z",
+      },
+    })).not.toHaveProperty("lastRoute");
   });
 
   it("rejects malformed session entries at the transport boundary", () => {
@@ -84,7 +115,7 @@ describe("operator session summary projection", () => {
         sessionId: "session-3",
         title: "Invalid timestamp",
         tags: [],
-        providersUsed: [],
+        routesUsed: [],
         updatedAt: "yesterday",
         costUsd: 0,
       }],

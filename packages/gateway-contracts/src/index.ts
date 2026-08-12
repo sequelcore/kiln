@@ -147,6 +147,28 @@ export {
 } from "./config-status.js";
 
 export type {
+  ExecutionRouteAvailability,
+  ExecutionRouteReasonCode,
+  ExecutionRouteRepairAction,
+  ExecutionRouteAccountSelectionSummary,
+  ExecutionRouteCatalogEntry,
+  ExecutionRouteCatalog,
+  ExecutionRouteSelectionIntent,
+  ExecutionRouteChanged,
+  ExecutionRouteChangeFailed,
+  ExecutionRouteThreadMeta,
+} from "./execution-route.js";
+export {
+  ExecutionRouteAvailabilitySchema,
+  ExecutionRouteReasonCodeSchema,
+  ExecutionRouteRepairActionSchema,
+  ExecutionRouteAccountSelectionSummarySchema,
+  ExecutionRouteCatalogEntrySchema,
+  ExecutionRouteCatalogSchema,
+  ExecutionRouteSelectionIntentSchema,
+} from "./execution-route.js";
+
+export type {
   GuiProviderDescriptor,
   GuiProviderDiscoveryResult,
   GuiProviderCatalogEvidenceStatus,
@@ -199,7 +221,6 @@ export type {
   GuiAppDescriptor,
   GuiAppTenantDescriptor,
   GuiContinuationInfo,
-  GuiProviderThreadMeta,
   GuiDashboardSnapshot,
   GuiSessionMeta,
   OperatorSessionEventKind,

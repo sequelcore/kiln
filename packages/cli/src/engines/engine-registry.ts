@@ -110,7 +110,7 @@ export function getEngineBudgetStatus(
   engineId: string,
   context: EngineRouteContext = {},
 ): EngineBudgetStatus {
-  const budget = config.routing?.budget?.[engineId];
+  const budget = config.workerRouting?.budget?.[engineId];
   const ceiling = budget?.dailyTokenCeiling ?? null;
   const tokensUsed = context.getDailyTokensUsed?.(engineId) ?? 0;
   return {
@@ -127,10 +127,10 @@ export function resolveEngineRoute(
 ): EngineRouteResolution {
   const orderedRoutes = normalizeRoutingRoutes(config);
   const defaultWorker = orderedRoutes[0]
-    ?? config.routing?.defaultWorker
+    ?? config.workerRouting?.defaultWorker
     ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled === true)?.[0];
   const fallback = orderedRoutes.find((provider) => provider !== defaultWorker)
-    ?? config.routing?.fallback;
+    ?? config.workerRouting?.fallback;
   if (!defaultWorker) {
     return { worker: undefined, reason: "missing-default" };
   }
@@ -143,7 +143,7 @@ export function resolveEngineRoute(
     };
   }
 
-  if (config.routing?.budgetAware === true) {
+  if (config.workerRouting?.budgetAware === true) {
     const budget = getEngineBudgetStatus(config, defaultWorker, context);
     if (!budget.withinBudget && fallback) {
       return {
@@ -161,7 +161,7 @@ export function resolveEngineRoute(
 }
 
 function normalizeRoutingRoutes(config: KilnGlobalConfig): readonly string[] {
-  const routes = config.routing?.routes ?? [];
+  const routes = config.workerRouting?.routes ?? [];
   const seen = new Set<string>();
   const providers: string[] = [];
   for (const route of routes) {

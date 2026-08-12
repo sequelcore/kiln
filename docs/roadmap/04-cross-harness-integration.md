@@ -117,6 +117,15 @@ adapter-local prose.
 
 Status: Code complete; live proof blocked.
 
+The execution-catalog authority is complete in portable code. Global V2
+`executionCatalog` and `executionRouting.defaultRouteId` govern CLI, GUI, TUI,
+Managed direct routes, and Model Gateway overlays. Automatic routes select the
+lowest-economic, least-pressured eligible account after safety, health, quota,
+and capacity gates; exact account selection never falls back. Runtime fences
+capacity and revalidates credential ID/revision immediately before dispatch.
+This closes the multi-credential start blocker without a separate direct-model
+catalog. Landing is tracked by [issue #71](https://github.com/sequelcore/kiln/issues/71).
+
 Apply the health-gated additive `provider.kiln` projection to the operator's
 OpenCode config. Prove `kiln/*` model discovery, one real turn, native-provider
 fallback while the gateway is stopped, restart/autostart, drift repair, update,

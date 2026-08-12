@@ -47,7 +47,13 @@ import { resolveContinuationSessionId } from "../application/session-continuatio
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
-import type { RunSessionAttemptResult, RunSessionRouteCandidate } from "../application/run-session.js";
+import type {
+  RunSessionAttemptResult,
+  RunSessionOptions,
+  RunSessionResult,
+  RunSessionRouteCandidate,
+} from "../application/run-session.js";
+import { createOperatorTurnDispatchComposition } from "../application/operator-turn-dispatch-composition.js";
 import {
   buildRunJsonOutputEnvelope,
   computeDelegationCapabilityGap,
@@ -66,10 +72,9 @@ import {
 } from "../wrapper/session-store.js";
 import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
-import { resolveEffectiveModel } from "../config/env-config.js";
-import { readGlobalConfig, resolveGlobalDefaultModel, type KilnGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
-import { inferRouteTask, resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
+import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
@@ -94,13 +99,12 @@ import {
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
 import {
-  SkillGenerator,
-  AnthropicAdapter,
   GoalRunStore,
   WorkItemStore,
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
   createSessionBuiltinToolOptions,
+  defineExecutionCatalog,
   defineDeliberationLevelId,
   type ManagedAgentOrchestrationAdmissionLimits,
   type ModelDeliberationCapabilities,
@@ -111,6 +115,7 @@ import {
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
+  fingerprintOperatorTurnIntent,
   ProviderModelRouteHealthStore,
   discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
@@ -135,9 +140,7 @@ import type {
 import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export interface RunFlags {
-  readonly apiKey?: string;
-  readonly provider?: string;
-  readonly model?: string;
+  readonly route?: string;
   readonly deliberationLevel?: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly agent?: string;
@@ -156,9 +159,7 @@ export interface RunFlags {
   readonly workers?: number;
 }
 
-function resolveMode(flags: RunFlags): SessionMode {
-  if (flags.apiKey && flags.provider) return "byok";
-  if (flags.apiKey) return "api-key";
+function resolveMode(): SessionMode {
   return "cli-wrapper";
 }
 
@@ -384,11 +385,10 @@ function requiresCliWrapperModelDiscovery(candidate: RunSessionRouteCandidate): 
   );
 }
 
-function buildConfig(flags: RunFlags, mode: SessionMode): WrapperConfig {
+function buildConfig(flags: RunFlags, mode: SessionMode, provider?: string): WrapperConfig {
   return {
     mode,
-    apiKey: flags.apiKey,
-    provider: flags.provider,
+    provider,
     permissionPolicy: flags.plan ? PLAN_POLICY : (flags.permissionPolicy ?? DEFAULT_POLICY),
   };
 }
@@ -403,11 +403,20 @@ async function resolveAdmittedRunRouteCandidates(input: {
   readonly cwd: string;
   readonly env: Record<string, string>;
   readonly routeHealthStore: ProviderModelRouteHealthStore;
+  /** Canonical direct execution already owns route/account admission. */
+  readonly canonicalExecution?: boolean;
 }): Promise<{
   readonly candidates: readonly AdmittedRunRouteCandidate[];
   readonly rejectedReasons: readonly string[];
   readonly routeCapabilities: ReadonlyMap<string, ModelDeliberationCapabilities>;
 }> {
+  if (input.canonicalExecution) {
+    return {
+      candidates: input.candidates as readonly AdmittedRunRouteCandidate[],
+      rejectedReasons: [],
+      routeCapabilities: new Map(),
+    };
+  }
   const rejectedReasons: string[] = [];
   const directCandidates = input.candidates.filter((candidate) => isDirectApiProvider(candidate.provider));
   const directDiscovery = directCandidates.length > 0
@@ -575,6 +584,63 @@ function applyDeliberationPolicyToRouteCandidates(input: {
 
 function formatRouteCandidate(candidate: RunSessionRouteCandidate): string {
   return candidate.model ? `${candidate.provider}/${candidate.model}` : candidate.provider;
+}
+
+type CanonicalRunSessionPayload = Omit<RunSessionOptions, "routeCandidates">;
+
+interface CanonicalRunSessionDispatcher {
+  readonly dispatch: (payload: CanonicalRunSessionPayload) => Promise<RunSessionResult>;
+  readonly close: () => void;
+}
+
+/**
+ * Binds CLI run to the same fenced operator-session authority used by the
+ * other operator surfaces. The callback receives the post-fence credential
+ * and passes exactly one bound candidate into the existing session pipeline.
+ */
+export function createCanonicalRunSessionDispatcher(input: {
+  readonly catalog: ReturnType<typeof defineExecutionCatalog>;
+  readonly cwd: string;
+  readonly executionId: string;
+  readonly routeId: string;
+}): CanonicalRunSessionDispatcher {
+  const composition = createOperatorTurnDispatchComposition<CanonicalRunSessionPayload, RunSessionResult>({
+    catalog: input.catalog,
+    cwd: input.cwd,
+  });
+  composition.bridge.bind(async ({ admission, binding, credential, payload }) => {
+    const provider = admission.providerId as ProviderId;
+    if (!isDirectApiProvider(provider)) {
+      throw new Error(`Execution route '${admission.routeId}' resolved to an unsupported direct provider.`);
+    }
+    return runSession({
+      ...payload,
+      routeCandidates: [{
+        provider,
+        model: admission.providerModelId,
+        credentialBinding: {
+          routeId: binding.routeId,
+          accountId: binding.accountId,
+          credentialId: binding.credentialId,
+          credentialRevision: binding.credentialRevision,
+        },
+        executionCredential: credential,
+      }],
+    });
+  });
+
+  return {
+    dispatch: (payload) => {
+      const intent = { routeId: input.routeId };
+      return composition.dispatcher.dispatchTurn({
+        executionId: input.executionId,
+        intentFingerprint: fingerprintOperatorTurnIntent({ executionId: input.executionId, intent }),
+        intent,
+        payload,
+      }).then(({ result }) => result);
+    },
+    close: composition.close,
+  };
 }
 
 function appendAgentInstructionsToSystemPrompt(
@@ -857,8 +923,8 @@ export async function runCommand(
       sessionId,
       task,
       domain: "unknown",
-      provider: flags.provider,
-      model: flags.model,
+      provider: undefined,
+      model: undefined,
       startedAt,
       startedAtMs,
       lastError: errorMessage,
@@ -873,8 +939,8 @@ export async function runCommand(
       sessionId,
       task,
       domain: "unknown",
-      provider: flags.provider,
-      model: flags.model,
+      provider: undefined,
+      model: undefined,
       startedAt,
       startedAtMs,
       lastError: errorMessage,
@@ -882,7 +948,6 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
 
-  const mode = resolveMode(flags);
   const cwd = resolveProjectRoot().rootPath;
   let resolvedAgent: KilnAgentDefinition | undefined;
   if (flags.agent) {
@@ -896,8 +961,8 @@ export async function runCommand(
         sessionId,
         task,
         domain: "unknown",
-        provider: flags.provider,
-        model: flags.model,
+        provider: undefined,
+        model: undefined,
         startedAt,
         startedAtMs,
         lastError: errorMessage,
@@ -922,26 +987,39 @@ export async function runCommand(
     text: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
   });
-  const agentProviderRouteCandidate: RunSessionRouteCandidate | undefined = resolvedAgent?.providerRoute
-    ? {
-      provider: resolvedAgent.providerRoute.providerId as ProviderId,
-      ...(resolvedAgent.providerRoute.model ? { model: resolvedAgent.providerRoute.model } : {}),
-    }
-    : undefined;
-  const configuredRouteCandidates = [
-    ...(agentProviderRouteCandidate && !flags.provider && !flags.model ? [agentProviderRouteCandidate] : []),
-    ...resolveProviderRouteCandidates({
+  const configuredRouteCandidates = resolveExecutionRouteCandidates({
     globalConfig,
-    flagProvider: flags.provider,
-    flagModel: flags.model,
-    taskText: task,
-    agentTaskAffinity: resolvedAgent?.taskAffinity,
-    }),
-  ];
-  if (flags.deliberationLevel && configuredRouteCandidates.length === 0) {
-    throw new Error("--deliberation-level requires a configured provider/model route with capability evidence.");
+    routeId: flags.route,
+  });
+  if (configuredRouteCandidates.length === 0) {
+    const errorMessage = "No execution routes are configured. Configure executionCatalog and executionRouting before running a session.";
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: undefined,
+      model: undefined,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
+    exitRunCommand(1, executionOptions);
   }
-  const preferredProvider = configuredRouteCandidates[0]?.provider;
+  // Routing policy may describe fallback route IDs for other surfaces, but a
+  // CLI invocation commits one selected route and never retries through a
+  // second provider without a separate canonical lifecycle.
+  const selectedExecutionRoute = configuredRouteCandidates[0]!;
+  const selectedRouteCandidates = [selectedExecutionRoute] as const;
+  const executionCatalog = globalConfig?.executionCatalog
+    ? defineExecutionCatalog(globalConfig.executionCatalog)
+    : undefined;
+  if (!executionCatalog) {
+    throw new Error("A canonical execution catalog is required for CLI run.");
+  }
+  const preferredProvider = selectedExecutionRoute.provider;
+  const mode = resolveMode();
   if (
     flags.requestedAuthority
     && flags.requestedAuthority !== "auto"
@@ -955,16 +1033,15 @@ export async function runCommand(
       task,
       domain: "unknown",
       provider: preferredProvider,
-      model: configuredRouteCandidates[0]?.model ?? flags.model,
+      model: configuredRouteCandidates[0]?.model,
       startedAt,
       startedAtMs,
       lastError: errorMessage,
     });
     exitRunCommand(1, executionOptions);
   }
-  const effectiveModel = configuredRouteCandidates[0]?.model
-    ?? resolveEffectiveModel(flags.model, resolveGlobalDefaultModel(globalConfig));
-  const config = buildConfig({ ...flags, provider: preferredProvider }, mode);
+  const effectiveModel = selectedExecutionRoute.model;
+  const config = buildConfig(flags, mode, preferredProvider);
   let identityAppConfig = withWorkGovernanceContext(
     withGlobalIdentityContext(resolvedAppConfig, globalConfig),
     resolvedKilnConfig?.workGovernance,
@@ -1096,23 +1173,18 @@ export async function runCommand(
   runOutput.writeTelemetryLine("");
 
   const env: Record<string, string> = {};
-  if (config.mode === "api-key" && config.apiKey) {
-    env.ANTHROPIC_API_KEY = config.apiKey;
-  }
-  if (config.mode === "byok" && config.provider && config.apiKey) {
-    env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
-  }
 
-  const directRouteHealthStore = configuredRouteCandidates.some((candidate) => isDirectApiProvider(candidate.provider))
+  const directRouteHealthStore = selectedRouteCandidates.some((candidate) => isDirectApiProvider(candidate.provider))
     ? new ProviderModelRouteHealthStore()
     : undefined;
-  const admittedRoutes = configuredRouteCandidates.length > 0
+  const admittedRoutes = selectedRouteCandidates.length > 0
     ? await resolveAdmittedRunRouteCandidates({
-        candidates: configuredRouteCandidates,
+        candidates: selectedRouteCandidates,
         registry,
         cwd,
         env,
         routeHealthStore: directRouteHealthStore ?? new ProviderModelRouteHealthStore(),
+        canonicalExecution: true,
       })
     : { candidates: [], rejectedReasons: [], routeCapabilities: new Map() };
   if (configuredRouteCandidates.length > 0 && admittedRoutes.candidates.length === 0) {
@@ -1147,7 +1219,7 @@ export async function runCommand(
     routeCapabilities: admittedRoutes.routeCapabilities,
   });
   const admittedRouteCandidates = deliberationRoutes.candidates;
-  if (configuredRouteCandidates.length > 0 && admittedRouteCandidates.length === 0) {
+  if (selectedRouteCandidates.length > 0 && admittedRouteCandidates.length === 0) {
     const errorMessage = "No configured provider routes satisfy the requested deliberation policy.";
     runOutput.writeErrorLine(`Error: ${errorMessage}`);
     for (const reason of [...admittedRoutes.rejectedReasons, ...deliberationRoutes.rejectedReasons]) {
@@ -1291,7 +1363,7 @@ export async function runCommand(
           workingDirectory: context.workingDirectory,
           worktreePath: context.worktreePath,
           lastError: workerError,
-          lastProvider: flags.provider ?? preferredProvider,
+          lastProvider: preferredProvider,
           toolCallCount: workerCount,
           turnDepth: 1,
         },
@@ -1353,7 +1425,7 @@ export async function runCommand(
     try {
       workerTranscriptInit = transcriptStore.init(sessionId, {
         kilnSessionId: sessionId,
-        provider: preferredProvider ?? flags.provider ?? "managed-fan-out",
+        provider: preferredProvider ?? "managed-fan-out",
         title: initialMetadata.title,
         summary: initialMetadata.summary,
         tags: initialMetadata.tags,
@@ -1456,6 +1528,13 @@ export async function runCommand(
     outputInteractive: process.stdout.isTTY === true,
   });
   const runAbortController = new AbortController();
+  const canonicalRunDispatcher = createCanonicalRunSessionDispatcher({
+    catalog: executionCatalog,
+    cwd,
+    executionId: sessionId,
+    routeId: selectedExecutionRoute.routeId,
+  });
+  cleanupRegistry.register(async () => canonicalRunDispatcher.close());
   let runtimeCleanup: Promise<void> | undefined;
   const cleanupRuntimeOnce = (): Promise<void> => {
     runtimeCleanup ??= cleanupRegistry.runAll();
@@ -1490,13 +1569,12 @@ export async function runCommand(
   sessionHooks.sessionStart();
   let runResult: Awaited<ReturnType<typeof runSession>>;
   try {
-    runResult = await runSession({
+    runResult = await canonicalRunDispatcher.dispatch({
       registry,
       cleanupRegistry,
       manager,
       context,
       requirements,
-      routeCandidates: admittedRouteCandidates.length > 0 ? admittedRouteCandidates : undefined,
       sessionConfig,
       permissionPolicy: config.permissionPolicy,
       permissionAgent: resolvedAgent?.name,
@@ -1724,31 +1802,6 @@ export async function runCommand(
       // fail-open
     }
 
-    const sg = appConfig.kilnYaml?.skillGeneration;
-    const threshold = sg?.complexityThreshold ?? 0.6;
-    const shouldAttemptSkillGeneration = sg?.enabled !== false
-      && scoreComplexity({ messageText: task, toolCount: toolCallCount, turnDepth }).score >= threshold;
-
-    if (shouldAttemptSkillGeneration && config.apiKey) {
-      try {
-        const skillsDir = join(cwd, ".kiln", "skills");
-        const generator = new SkillGenerator({
-          provider: new AnthropicAdapter({ apiKey: config.apiKey }),
-          registry: new (await import("@kilnai/core")).SkillRegistry(),
-          skillsDir,
-          complexityThreshold: sg?.complexityThreshold,
-        });
-        void generator.maybeGenerate(task, accumulatedText, toolCallCount, turnDepth, transcript);
-      } catch {
-        // fail-open
-      }
-    } else if (
-      shouldAttemptSkillGeneration
-      && config.mode === "cli-wrapper"
-      && !config.apiKey
-    ) {
-      runOutput.writeTelemetryLine('[kiln] Tip: run "kiln skill capture --last" after configuring ANTHROPIC_API_KEY to capture this session as a skill.');
-    }
   }
 
   try {
@@ -2200,13 +2253,10 @@ function appendCleanupFailure(primaryError: string, cleanupError: string | undef
 function resolveParallelWorkerAdmissionLimits(
   appConfig: KilnAppConfig,
   managedInvocation: ManagedInvocationToolOptions,
-  flags: RunFlags,
   task: string,
   workerCount: number,
 ): ManagedAgentOrchestrationAdmissionLimits {
   const lifecycleRoutes = managedInvocation.routes.filter((route) => {
-    if (flags.provider && route.providerId !== flags.provider) return false;
-    if (flags.model && route.model !== flags.model) return false;
     const profile = route.profiles["foundation-apply-approved-writes"];
     return profile !== undefined
       && route.createAdapter !== undefined
@@ -2257,7 +2307,6 @@ export async function runParallelWorkers(
   const admissionLimits = resolveParallelWorkerAdmissionLimits(
     appConfig,
     managedInvocationWithService,
-    flags,
     task,
     workerCount,
   );
@@ -2276,10 +2325,7 @@ export async function runParallelWorkers(
       orchestrationRequest: admission.request,
       managedInvocation: managedInvocationWithService,
       profile: "foundation-apply-approved-writes",
-      routeSelector: {
-        ...(flags.provider ? { providerId: flags.provider } : {}),
-        ...(flags.model ? { model: flags.model } : {}),
-      },
+      routeSelector: {},
       callerIdentity: createKilnRuntimeCallerIdentity("run", flags.requestedAuthority),
       requestedAuthority: flags.requestedAuthority ?? "audited",
     });

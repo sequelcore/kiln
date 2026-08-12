@@ -1,6 +1,7 @@
 import {
   OpenCodeAdapter,
   type DirectProviderId,
+  type ExecutionSessionBindingEvidence,
   type ProviderAdapter,
 } from "@kilnai/core";
 import type { OpenCodeTier } from "@kilnai/core";
@@ -8,40 +9,35 @@ import {
   CodexOAuthCredentialPoolService,
   DirectProviderCredentialPoolService,
   OpenCodeCredentialPoolService,
+  type ConfiguredExecutionCredential,
   isPooledDirectProviderId,
 } from "@kilnai/runtime";
 
 type EnvMap = Readonly<Record<string, string | undefined>>;
 
-export interface DirectProviderAccountBinding {
-  readonly virtualModelId: string;
+export interface DirectProviderCredentialBinding {
+  readonly routeId: string;
   readonly accountId: string;
   readonly credentialId: string;
-  /** Required when an upstream authority already committed a specific credential revision. */
   readonly credentialRevision?: string;
 }
 
-export interface DirectProviderExecutionBindingEvidence {
-  readonly status: "bound";
-  readonly virtualModelId: string;
-  readonly accountId: string;
-  readonly credentialRevision: string;
-}
+export type DirectProviderExecutionBindingEvidence = Extract<
+  ExecutionSessionBindingEvidence,
+  { readonly status: "bound" }
+>;
 
 export class DirectProviderBindingError extends Error {
-  readonly evidence: {
-    readonly status: "rejected-pre-dispatch";
-    readonly virtualModelId: string;
-    readonly accountId: string;
-  };
+  readonly evidence: Extract<ExecutionSessionBindingEvidence, { readonly status: "rejected-pre-dispatch" }>;
 
-  constructor(binding: DirectProviderAccountBinding) {
-    super(`Exact account binding for virtual model '${binding.virtualModelId}' was rejected before dispatch.`);
+  constructor(binding: DirectProviderCredentialBinding) {
+    super(`Exact credential binding for route '${binding.routeId}' was rejected before dispatch.`);
     this.name = "DirectProviderBindingError";
     this.evidence = {
       status: "rejected-pre-dispatch",
-      virtualModelId: binding.virtualModelId,
+      routeId: binding.routeId,
       accountId: binding.accountId,
+      credentialId: binding.credentialId,
     };
   }
 }
@@ -57,13 +53,15 @@ export function directProviderExecutionBinding(
   if (!candidate || typeof candidate !== "object") return undefined;
   const binding = candidate as Record<string, unknown>;
   return binding.status === "bound"
-    && typeof binding.virtualModelId === "string"
+    && typeof binding.routeId === "string"
     && typeof binding.accountId === "string"
+    && typeof binding.credentialId === "string"
     && typeof binding.credentialRevision === "string"
     ? {
         status: "bound",
-        virtualModelId: binding.virtualModelId,
+        routeId: binding.routeId,
         accountId: binding.accountId,
+        credentialId: binding.credentialId,
         credentialRevision: binding.credentialRevision,
       }
     : undefined;
@@ -72,7 +70,9 @@ export function directProviderExecutionBinding(
 export interface DirectProviderAdapterOptions {
   readonly provider: DirectProviderId;
   readonly model?: string;
-  readonly accountBinding?: DirectProviderAccountBinding;
+  readonly credentialBinding?: DirectProviderCredentialBinding;
+  /** Credential material resolved after the operator dispatch fence. */
+  readonly executionCredential?: ConfiguredExecutionCredential;
   readonly configEnv?: EnvMap;
   readonly runtimeEnv?: EnvMap;
   readonly processEnv?: EnvMap;
@@ -81,7 +81,8 @@ export interface DirectProviderAdapterOptions {
 interface DirectProviderAdapterContext {
   readonly provider: DirectProviderId;
   readonly model?: string;
-  readonly accountBinding?: DirectProviderAccountBinding;
+  readonly credentialBinding?: DirectProviderCredentialBinding;
+  readonly executionCredential?: ConfiguredExecutionCredential;
   readonly resolveEnv: (name: string) => string | undefined;
 }
 
@@ -134,8 +135,13 @@ export async function createDirectProviderAdapter(
   if (!definition) {
     throw new Error(`Unsupported direct provider: ${options.provider}`);
   }
-  if (options.accountBinding && !supportsExactAccountBinding(options.provider)) {
-    throw new Error(`Direct provider '${options.provider}' does not support exact account binding.`);
+  if (options.credentialBinding
+    && !options.executionCredential
+    && !supportsExactCredentialBinding(options.provider)) {
+    throw new Error(`Direct provider '${options.provider}' does not support exact credential binding.`);
+  }
+  if (options.executionCredential && !options.credentialBinding) {
+    throw new Error("A committed execution credential requires an exact binding.");
   }
 
   const processEnv = options.processEnv ?? process.env;
@@ -144,7 +150,8 @@ export async function createDirectProviderAdapter(
   return await definition.create({
     provider: options.provider,
     model: options.model,
-    accountBinding: options.accountBinding,
+    credentialBinding: options.credentialBinding,
+    executionCredential: options.executionCredential,
     resolveEnv,
   });
 }
@@ -154,28 +161,39 @@ async function createCodexOAuthAdapter(
 ): Promise<ProviderAdapter> {
   const service = new CodexOAuthCredentialPoolService();
   const defaultModel = requireSelectedModel(context);
-  if (!context.accountBinding) {
+  if (!context.credentialBinding) {
+    if (context.executionCredential) {
+      throw new Error("A committed execution credential requires an exact binding.");
+    }
     return service.createPooledAdapter({ defaultModel });
   }
+  if (context.executionCredential) {
+    assertCommittedCredential(context.provider, context.credentialBinding, context.executionCredential);
+    if (context.provider !== "codex-oauth" || "providerId" in context.executionCredential) {
+      throw new DirectProviderBindingError(context.credentialBinding);
+    }
+    const adapter = await service.createAdapterFromCredential({
+      credential: context.executionCredential,
+      defaultModel,
+    });
+    return Object.assign(adapter, {
+      executionBinding: boundExecutionEvidence(context.credentialBinding!, requireCommittedRevision(context.credentialBinding!)),
+    } satisfies Pick<BoundDirectProviderAdapter, "executionBinding">);
+  }
   const selected = (await service.listExecutionAccounts()).find(
-    (account) => account.credentialId === context.accountBinding!.credentialId,
+    (account) => account.credentialId === context.credentialBinding!.credentialId,
   );
-  if (!selected || !matchesCommittedRevision(selected.revision, context.accountBinding)) {
-    throw new DirectProviderBindingError(context.accountBinding);
+  if (!selected || !matchesCommittedRevision(selected.revision, context.credentialBinding)) {
+    throw new DirectProviderBindingError(context.credentialBinding);
   }
   let adapter: ProviderAdapter;
   try {
     adapter = await service.createExactAdapter({ selected, defaultModel });
   } catch {
-    throw new DirectProviderBindingError(context.accountBinding);
+    throw new DirectProviderBindingError(context.credentialBinding);
   }
   return Object.assign(adapter, {
-    executionBinding: {
-      status: "bound" as const,
-      virtualModelId: context.accountBinding.virtualModelId,
-      accountId: context.accountBinding.accountId,
-      credentialRevision: selected.revision,
-    },
+    executionBinding: boundExecutionEvidence(context.credentialBinding, selected.revision),
   } satisfies Pick<BoundDirectProviderAdapter, "executionBinding">);
 }
 
@@ -196,6 +214,21 @@ async function createPooledDirectProviderAdapter(
       LMSTUDIO_BASE_URL: context.resolveEnv("LMSTUDIO_BASE_URL"),
     },
   });
+  if (context.credentialBinding) {
+    if (!context.executionCredential || !isDirectExecutionCredential(context.executionCredential, context.provider)) {
+      throw new DirectProviderBindingError(context.credentialBinding);
+    }
+    assertCommittedCredential(context.provider, context.credentialBinding, context.executionCredential);
+    const adapter = await service.createAdapterFromCredential({
+      credential: context.executionCredential,
+      defaultModel: context.model,
+      openRouterAppUrl: context.resolveEnv("OPENROUTER_APP_URL"),
+      openRouterAppName: context.resolveEnv("OPENROUTER_APP_NAME"),
+    });
+    return Object.assign(adapter, {
+      executionBinding: boundExecutionEvidence(context.credentialBinding!, requireCommittedRevision(context.credentialBinding!)),
+    } satisfies Pick<BoundDirectProviderAdapter, "executionBinding">);
+  }
   const status = await service.listStatus(context.provider);
   if (status.length === 0) {
     throw new Error(`Missing required credentials for ${context.provider}`);
@@ -212,28 +245,36 @@ async function createOpenCodeAdapter(
   tier: OpenCodeTier,
   context: DirectProviderAdapterContext,
 ): Promise<ProviderAdapter> {
-  if (context.accountBinding) {
+  if (context.credentialBinding) {
     const defaultModel = requireSelectedModel(context);
     const service = new OpenCodeCredentialPoolService();
+    if (context.executionCredential) {
+      if (!isOpenCodeExecutionCredential(context.executionCredential, context.provider)) {
+        throw new DirectProviderBindingError(context.credentialBinding);
+      }
+      assertCommittedCredential(context.provider, context.credentialBinding, context.executionCredential);
+      const adapter = await service.createAdapterFromCredential({
+        credential: context.executionCredential,
+        defaultModel,
+      });
+      return Object.assign(adapter, {
+        executionBinding: boundExecutionEvidence(context.credentialBinding!, requireCommittedRevision(context.credentialBinding!)),
+      } satisfies Pick<BoundDirectProviderAdapter, "executionBinding">);
+    }
     const selected = (await service.listExecutionAccounts(tier)).find(
-      (account) => account.credentialId === context.accountBinding!.credentialId,
+      (account) => account.credentialId === context.credentialBinding!.credentialId,
     );
-    if (!selected || !matchesCommittedRevision(selected.revision, context.accountBinding)) {
-      throw new DirectProviderBindingError(context.accountBinding);
+    if (!selected || !matchesCommittedRevision(selected.revision, context.credentialBinding)) {
+      throw new DirectProviderBindingError(context.credentialBinding);
     }
     let adapter: ProviderAdapter;
     try {
       adapter = await service.createExactAdapter({ selected, defaultModel });
     } catch {
-      throw new DirectProviderBindingError(context.accountBinding);
+      throw new DirectProviderBindingError(context.credentialBinding);
     }
     return Object.assign(adapter, {
-      executionBinding: {
-        status: "bound" as const,
-        virtualModelId: context.accountBinding.virtualModelId,
-        accountId: context.accountBinding.accountId,
-        credentialRevision: selected.revision,
-      },
+      executionBinding: boundExecutionEvidence(context.credentialBinding, selected.revision),
     } satisfies Pick<BoundDirectProviderAdapter, "executionBinding">);
   }
 
@@ -258,13 +299,67 @@ async function createOpenCodeAdapter(
   });
 }
 
-function supportsExactAccountBinding(provider: DirectProviderId): boolean {
+function supportsExactCredentialBinding(provider: DirectProviderId): boolean {
   return provider === "codex-oauth" || provider === "opencode-go" || provider === "opencode-zen";
+}
+
+function assertCommittedCredential(
+  provider: DirectProviderId,
+  binding: DirectProviderCredentialBinding,
+  credential: ConfiguredExecutionCredential,
+): void {
+  if (credential.credentialId !== binding.credentialId || binding.credentialRevision === undefined) {
+    throw new DirectProviderBindingError(binding);
+  }
+  if ("providerId" in credential && credential.providerId !== provider) {
+    throw new DirectProviderBindingError(binding);
+  }
+  if (!("providerId" in credential) && provider !== "codex-oauth") {
+    throw new DirectProviderBindingError(binding);
+  }
+}
+
+function requireCommittedRevision(binding: DirectProviderCredentialBinding): string {
+  if (!binding.credentialRevision) {
+    throw new DirectProviderBindingError(binding);
+  }
+  return binding.credentialRevision;
+}
+
+function isDirectExecutionCredential(
+  credential: ConfiguredExecutionCredential,
+  provider: DirectProviderId,
+): credential is Extract<ConfiguredExecutionCredential, {
+  readonly providerId: "anthropic" | "openai" | "deepseek" | "openrouter" | "ollama" | "lmstudio";
+}> {
+  return "providerId" in credential && credential.providerId === provider;
+}
+
+function isOpenCodeExecutionCredential(
+  credential: ConfiguredExecutionCredential,
+  provider: DirectProviderId,
+): credential is Extract<ConfiguredExecutionCredential, { readonly providerId: "opencode-go" | "opencode-zen" }> {
+  return (provider === "opencode-go" || provider === "opencode-zen")
+    && "providerId" in credential
+    && credential.providerId === provider;
 }
 
 function matchesCommittedRevision(
   selectedRevision: string,
-  binding: DirectProviderAccountBinding,
+  binding: DirectProviderCredentialBinding,
 ): boolean {
   return binding.credentialRevision === undefined || binding.credentialRevision === selectedRevision;
+}
+
+function boundExecutionEvidence(
+  binding: DirectProviderCredentialBinding,
+  credentialRevision: string,
+): DirectProviderExecutionBindingEvidence {
+  return {
+    status: "bound",
+    routeId: binding.routeId,
+    accountId: binding.accountId,
+    credentialId: binding.credentialId,
+    credentialRevision,
+  };
 }

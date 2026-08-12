@@ -7,10 +7,11 @@ import { randomUUID } from "node:crypto";
 import {
   formatVoiceAudioOutputForTerminal,
   formatPresentationIntentAsText,
-  isGuiProviderModeless,
   operatorEventTargetsSurface,
   presentOperatorSessionEvent,
   projectVoiceAudioOutputParts,
+  type ExecutionRouteCatalog,
+  type ExecutionRouteSelectionIntent,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
   type OperatorTurnRequestedAuthority,
@@ -25,18 +26,18 @@ import type { TuiInboundFrame } from "./ws-client.js";
 const CONNECT_TIMEOUT_MS = 10_000;
 const SEND_CONNECTED_TIMEOUT_MS = 5_000;
 const CLEAR_TIMEOUT_MS = 5_000;
-const PROVIDER_REFRESH_TIMEOUT_MS = 5_000;
+const EXECUTION_ROUTE_REFRESH_TIMEOUT_MS = 5_000;
 const PROVIDER_AUTH_TIMEOUT_MS = 15 * 60 * 1000;
 
 const STOP = Symbol("STOP");
-let providerSwitchRequestOrdinal = 0;
+let executionRouteRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
 
 type QueueItem = SessionEventInternal | typeof STOP;
 
-function nextProviderSwitchRequestId(): string {
-  providerSwitchRequestOrdinal += 1;
-  return `provider-switch:${Date.now()}:${providerSwitchRequestOrdinal}`;
+function nextExecutionRouteRequestId(): string {
+  executionRouteRequestOrdinal += 1;
+  return `execution-route:${Date.now()}:${executionRouteRequestOrdinal}`;
 }
 
 function nextProviderAuthRequestId(): string {
@@ -49,16 +50,6 @@ function providerAuthDebug(message: string, context?: Record<string, unknown>): 
     return;
   }
   console.warn(`[tui-gateway-session:provider-auth][debug] ${message}`, context ?? {});
-}
-
-function normalizeModel(model: unknown): string | null {
-  if (typeof model !== "string") return null;
-  const trimmed = model.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function providerRequiresSelectedModelMessage(provider: string): string {
-  return `Provider '${provider}' requires a selected model.`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -269,14 +260,16 @@ export class GatewaySession implements SessionLike {
   private readonly client: TuiWsClient;
   private readonly userId: string;
   private _planMode = false;
+  private _executionRouteCatalog: ExecutionRouteCatalog = { routes: [] };
 
   get planMode(): boolean {
     return this._planMode;
   }
 
-  /** Callback invoked when a welcome frame is received. */
+  /** Callback invoked when the gateway publishes a route catalog or discovery evidence. */
   private onWelcome: ((
-    models: Record<string, string[]>,
+    executionRouteCatalog: ExecutionRouteCatalog,
+    models?: Record<string, string[]>,
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
     providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
   ) => void) | null = null;
@@ -290,17 +283,16 @@ export class GatewaySession implements SessionLike {
   private clearCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
   private lastAssistantSourceMessageId: string | null = null;
 
-  /** Pending provider change callbacks — set while waiting for "provider_changed" frame. */
-  private providerChangeCallbacks: {
-    provider: string;
-    model: string | null;
+  /** Pending route selection callbacks — set while waiting for route acknowledgement. */
+  private executionRouteCallbacks: {
+    routeId: string;
     requestId: string;
-    resolve: (provider: string) => void;
+    resolve: (routeId: string) => void;
     reject: (err: Error) => void;
   } | null = null;
 
-  /** Pending provider refresh callbacks — set while waiting for "providers_refreshed" frame. */
-  private providerRefreshCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
+  /** Pending route catalog refresh callbacks — set while waiting for route refresh. */
+  private executionRouteRefreshCallbacks: { resolve: () => void; reject: (err: Error) => void } | null = null;
 
   /** Pending provider auth callbacks — set while waiting for provider_auth_completed. */
   private providerAuthCallbacks: {
@@ -314,7 +306,8 @@ export class GatewaySession implements SessionLike {
   constructor(
     wsUrl: string,
     onWelcome?: (
-      models: Record<string, string[]>,
+      executionRouteCatalog: ExecutionRouteCatalog,
+      models?: Record<string, string[]>,
       providerDiscovery?: readonly GuiProviderDiscoveryResult[],
       providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
     ) => void,
@@ -335,6 +328,10 @@ export class GatewaySession implements SessionLike {
     });
 
     this.client.connect();
+  }
+
+  get executionRouteCatalog(): ExecutionRouteCatalog {
+    return this._executionRouteCatalog;
   }
 
   async *run(opts: {
@@ -410,73 +407,73 @@ export class GatewaySession implements SessionLike {
   }
 
   /**
-   * Send a provider frame to the gateway and wait for the provider_changed acknowledgement.
-   * Resolves with the new provider name. Rejects after timeout.
+   * Send route selection intent to the gateway and wait for its acknowledgement.
+   * Resolves with the selected route id. Provider/model remain derived evidence.
    */
-  async switchProvider(provider: string, model?: string): Promise<string> {
+  async switchExecutionRoute(routeId: string, accountOverrideId?: string): Promise<string> {
     if (!this.connected || !this.client.isConnected) {
-      throw new Error("Provider switch requires an active TUI gateway connection");
+      throw new Error("Execution route selection requires an active TUI gateway connection");
     }
-    const requestedModel = normalizeModel(model);
-    if (!requestedModel && !isGuiProviderModeless(provider)) {
-      throw new Error(providerRequiresSelectedModelMessage(provider));
+    const normalizedRouteId = routeId.trim();
+    if (!normalizedRouteId) {
+      throw new Error("Execution route selection requires a route id");
     }
-    const frame = requestedModel
-      ? { type: "provider" as const, provider, model: requestedModel, requestId: "" }
-      : { type: "provider" as const, provider, requestId: "" };
+    const intent: ExecutionRouteSelectionIntent = {
+      routeId: normalizedRouteId,
+      ...(accountOverrideId?.trim() ? { accountOverrideId: accountOverrideId.trim() } : {}),
+    };
     return new Promise<string>((resolve, reject) => {
-      const requestId = nextProviderSwitchRequestId();
+      const requestId = nextExecutionRouteRequestId();
       const timeout = setTimeout(() => {
-        this.providerChangeCallbacks = null;
-        reject(new Error("Provider switch timed out"));
-      }, CLEAR_TIMEOUT_MS);
+        this.executionRouteCallbacks = null;
+        reject(new Error("Execution route selection timed out"));
+      }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
 
-      this.providerChangeCallbacks = {
-        provider,
-        model: requestedModel,
+      this.executionRouteCallbacks = {
+        routeId: intent.routeId,
         requestId,
-        resolve: (newProvider: string) => {
+        resolve: (selectedRouteId: string) => {
           clearTimeout(timeout);
-          this.providerChangeCallbacks = null;
-          resolve(newProvider);
+          this.executionRouteCallbacks = null;
+          resolve(selectedRouteId);
         },
         reject: (err: Error) => {
           clearTimeout(timeout);
-          this.providerChangeCallbacks = null;
+          this.executionRouteCallbacks = null;
           reject(err);
         },
       };
 
-      this.client.send({ ...frame, requestId });
+      this.client.send({ type: "execution_route", requestId, ...intent });
     });
   }
 
   /**
-   * Refresh provider model discovery without reconnecting the gateway session.
+   * Refresh the execution route catalog without reconnecting the gateway session.
    * Not part of SessionLike — duck-typed in app.tsx.
    */
-  async refreshProviders(): Promise<void> {
+  async refreshExecutionRoutes(): Promise<void> {
     await this.waitForConnection();
     return new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.providerRefreshCallbacks = null;
-        reject(new Error("Provider refresh timed out"));
-      }, PROVIDER_REFRESH_TIMEOUT_MS);
+        this.executionRouteRefreshCallbacks = null;
+        reject(new Error("Execution route refresh timed out"));
+      }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
 
-      this.providerRefreshCallbacks = {
+      this.executionRouteRefreshCallbacks = {
         resolve: () => {
           clearTimeout(timeout);
-          this.providerRefreshCallbacks = null;
+          this.executionRouteRefreshCallbacks = null;
           resolve();
         },
         reject: (err) => {
           clearTimeout(timeout);
-          this.providerRefreshCallbacks = null;
+          this.executionRouteRefreshCallbacks = null;
           reject(err);
         },
       };
 
-      this.client.send({ type: "refresh_providers" });
+      this.client.send({ type: "refresh_execution_routes" });
     });
   }
 
@@ -604,15 +601,15 @@ export class GatewaySession implements SessionLike {
     } else if (frame.type === "voice_synthesis_failed") {
       this.push({ type: "error", message: frame.message });
     } else if (frame.type === "error") {
-      const pendingProviderSwitch = this.providerChangeCallbacks;
-      if (pendingProviderSwitch) {
-        this.providerChangeCallbacks = null;
-        pendingProviderSwitch.reject(new Error(frame.message));
+      const pendingRouteSelection = this.executionRouteCallbacks;
+      if (pendingRouteSelection) {
+        this.executionRouteCallbacks = null;
+        pendingRouteSelection.reject(new Error(frame.message));
       }
-      const pendingProviderRefresh = this.providerRefreshCallbacks;
-      if (pendingProviderRefresh) {
-        this.providerRefreshCallbacks = null;
-        pendingProviderRefresh.reject(new Error(frame.message));
+      const pendingRouteRefresh = this.executionRouteRefreshCallbacks;
+      if (pendingRouteRefresh) {
+        this.executionRouteRefreshCallbacks = null;
+        pendingRouteRefresh.reject(new Error(frame.message));
       }
       const pendingProviderAuth = this.providerAuthCallbacks;
       if (pendingProviderAuth) {
@@ -652,23 +649,15 @@ export class GatewaySession implements SessionLike {
         sessionId: frame.sessionId,
       });
     } else if (frame.type === "welcome") {
-      if (frame.models && this.onWelcome) {
-        this.onWelcome(
-          frame.models,
-          frame.providerDiscovery as readonly GuiProviderDiscoveryResult[] | undefined,
-          frame.providerModelDiscovery,
-        );
-      }
+      this._executionRouteCatalog = frame.executionRouteCatalog;
+      this.onWelcome?.(frame.executionRouteCatalog);
       if ("executionMode" in frame) {
         this._planMode = frame.executionMode === "plan";
       }
-    } else if (frame.type === "providers_refreshed") {
-      this.onWelcome?.(
-        frame.models,
-        frame.providerDiscovery as readonly GuiProviderDiscoveryResult[],
-        frame.providerModelDiscovery,
-      );
-      this.providerRefreshCallbacks?.resolve();
+    } else if (frame.type === "execution_routes_refreshed") {
+      this._executionRouteCatalog = frame.executionRouteCatalog;
+      this.onWelcome?.(frame.executionRouteCatalog);
+      this.executionRouteRefreshCallbacks?.resolve();
     } else if (frame.type === "provider_auth_started") {
       const pending = this.providerAuthCallbacks;
       if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {
@@ -697,12 +686,14 @@ export class GatewaySession implements SessionLike {
       providerAuthDebug("completed frame received", {
         provider: frame.provider,
         requestId: frame.requestId,
-        modelCount: frame.models?.[frame.provider]?.length,
-        discovery: frame.providerDiscovery?.find((entry) => entry.provider === frame.provider),
+        modelCount: frame.models[frame.provider]?.length,
+        discovery: frame.providerDiscovery.find((entry) => entry.provider === frame.provider),
       });
+      this._executionRouteCatalog = frame.executionRouteCatalog;
       this.onWelcome?.(
+        frame.executionRouteCatalog,
         frame.models,
-        frame.providerDiscovery as readonly GuiProviderDiscoveryResult[],
+        frame.providerDiscovery,
         frame.providerModelDiscovery,
       );
       const pending = this.providerAuthCallbacks;
@@ -738,22 +729,23 @@ export class GatewaySession implements SessionLike {
       this._planMode = frame.executionMode === "plan";
     } else if (frame.type === "cleared") {
       this.clearCallbacks?.resolve();
-    } else if (frame.type === "provider_changed") {
-      const pending = this.providerChangeCallbacks;
+    } else if (frame.type === "execution_route_changed") {
+      const pending = this.executionRouteCallbacks;
       if (
         pending
-        && frame.provider === pending.provider
-        && normalizeModel(frame.model) === pending.model
+        && frame.routeId === pending.routeId
         && frame.requestId === pending.requestId
       ) {
-        pending.resolve(frame.provider);
+        pending.resolve(frame.routeId);
       } else if (pending) {
-        pending.reject(new Error("Provider switch acknowledgement did not match the pending request"));
+        pending.reject(new Error("Execution route change acknowledgement did not match the pending request"));
       }
-    } else if (frame.type === "provider_change_failed") {
-      const pending = this.providerChangeCallbacks;
-      if (pending && frame.requestId === pending.requestId) {
+    } else if (frame.type === "execution_route_change_failed") {
+      const pending = this.executionRouteCallbacks;
+      if (pending && frame.routeId === pending.routeId && frame.requestId === pending.requestId) {
         pending.reject(new Error(frame.reason));
+      } else if (pending) {
+        pending.reject(new Error("Execution route failure did not match the pending request"));
       }
     }
   }

@@ -69,7 +69,7 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
   let inputTokens = 0;
   let outputTokens = 0;
   let turnCounter = 0;
-  let lastRoutedProvider = detail.meta.lastProvider ?? null;
+  let lastRoutedProvider: string | null = null;
   let lastRoutedModel: string | null = null;
   let lastAuthorityStatus: AuthorityStatus | null = null;
   let interactiveUseSnapshot: GuiInteractiveUseSnapshot | null = null;
@@ -609,7 +609,6 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
         content: fallback,
         createdAt: detail.meta?.completedAt ?? detail.meta?.startedAt ?? nowIso(),
         streaming: false,
-        routedProvider: detail.meta?.lastProvider,
       });
       timelineEntries.push({
         id: `${detail.id}:timeline:summary`,

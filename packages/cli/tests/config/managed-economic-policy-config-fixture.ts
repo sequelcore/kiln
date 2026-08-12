@@ -2,7 +2,7 @@ import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 /**
  * Canonical schema-v2 global config: a runtime-selected `codex-standard`
- * managed route covered by a matching `modelGateway.virtualModels` economic
+ * managed route covered by a matching `executionCatalog.routes` economic
  * route. Shared by `managed-economic-policy-config.test.ts` (schema/runtime
  * validation of this shape) and `operator-project-managed-jobs-runtime-config.test.ts`
  * (the real native-harness composition boundary), so both exercise the exact
@@ -10,19 +10,13 @@ import type { KilnGlobalConfig } from "../../src/config/global-config.js";
  */
 export function economicConfig(): KilnGlobalConfig {
   return {
-    version: "1",
+    version: "2",
     managedAgents: {
       schemaVersion: 2,
       routes: [{
         id: "codex-standard",
         kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.6-codex",
-        credentials: {
-          mode: "runtime-selected",
-          routeId: "codex-standard",
-          accountPolicyId: "codex-standard-policy",
-        },
+        executionRouteId: "codex-standard",
       }],
       economicPolicies: [{
         id: "default-economic-policy",
@@ -65,8 +59,7 @@ export function economicConfig(): KilnGlobalConfig {
         }],
       }],
     },
-    modelGateway: {
-      port: 4819,
+    executionCatalog: {
       accounts: [{
         id: "codex-account",
         providerId: "codex-oauth",
@@ -81,26 +74,17 @@ export function economicConfig(): KilnGlobalConfig {
           overagePosture: "disabled",
         },
       }],
-      replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
-      surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
-      principals: [{
-        tokenEnv: "KILN_RESPONSES_TOKEN",
-        ingress: "openai-responses",
-        tenantId: "tenant",
-        applicationId: "managed-agent",
-        callerId: "caller",
-        capabilityId: "model-invoke",
-        scopes: ["model.invoke"],
-        budgetEvidenceId: "budget",
-        virtualModelIds: ["codex-standard-policy"],
-      }],
-      virtualModels: [{
+      accountPolicies: [{
         id: "codex-standard-policy",
+        accountIds: ["codex-account"],
+        strategy: "economic-least-pressure",
+      }],
+      routes: [{
+        id: "codex-standard",
+        label: "Codex Standard",
         providerId: "codex-oauth",
         providerModelId: "gpt-5.6-codex",
-        accountIds: ["codex-account"],
-        capabilities: ["text"],
-        affinity: { continuity: "none" },
+        accountSelection: { mode: "automatic", accountPolicyId: "codex-standard-policy" },
         economics: {
           adapterCapabilityId: "codex-direct",
           adapterCapabilityVersion: "v1",

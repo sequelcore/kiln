@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v2-fixture.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),
@@ -23,11 +24,8 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   readGlobalConfig: vi.fn(),
   readKilnYaml: vi.fn(),
   recordRouteHealth: vi.fn(),
-  resolveEffectiveModel: vi.fn(),
   resolveEngineAvailabilityMap: vi.fn(),
-  resolveGlobalDefaultModel: vi.fn(),
   resolveManagedInvocationToolOptions: vi.fn(),
-  resolveProviderRouteCandidates: vi.fn(),
   resolveInstructionProfileContextCandidates: vi.fn(),
   runCleanup: vi.fn(),
   runSession: vi.fn(),
@@ -77,19 +75,10 @@ vi.mock("../../src/application/instruction-profile-context.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: benchmarkExecutorMocks.readGlobalConfig,
-  resolveGlobalDefaultModel: benchmarkExecutorMocks.resolveGlobalDefaultModel,
 }));
 
 vi.mock("../../src/config/config-merger.js", () => ({
   loadKilnConfig: benchmarkExecutorMocks.loadKilnConfig,
-}));
-
-vi.mock("../../src/config/env-config.js", () => ({
-  resolveEffectiveModel: benchmarkExecutorMocks.resolveEffectiveModel,
-}));
-
-vi.mock("../../src/config/provider-route-candidates.js", () => ({
-  resolveProviderRouteCandidates: benchmarkExecutorMocks.resolveProviderRouteCandidates,
 }));
 
 vi.mock("../../src/config/builtin-tool-surface-config.js", () => ({
@@ -310,11 +299,8 @@ describe("createBenchmarkSessionExecutor", () => {
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue({});
     benchmarkExecutorMocks.readKilnYaml.mockReturnValue({});
     benchmarkExecutorMocks.recordRouteHealth.mockResolvedValue(undefined);
-    benchmarkExecutorMocks.resolveEffectiveModel.mockReturnValue("benchmark-model");
     benchmarkExecutorMocks.resolveEngineAvailabilityMap.mockReturnValue(new Map());
-    benchmarkExecutorMocks.resolveGlobalDefaultModel.mockReturnValue("benchmark-model");
     benchmarkExecutorMocks.resolveManagedInvocationToolOptions.mockResolvedValue({});
-    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([]);
     benchmarkExecutorMocks.resolveInstructionProfileContextCandidates.mockReturnValue([]);
     benchmarkExecutorMocks.runCleanup.mockResolvedValue(undefined);
     benchmarkExecutorMocks.withGlobalIdentityContext.mockImplementation((config) => config);
@@ -490,9 +476,9 @@ describe("createBenchmarkSessionExecutor", () => {
   it("runs write profiles only in a disposable strict direct-provider lease", async () => {
     const fixturePath = "packages/core/evals/fixtures/model-roster-v1";
     benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
-    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
-      { provider: "opencode-go", model: "glm-5.2" },
-    ]);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
+    );
     benchmarkExecutorMocks.prepare.mockImplementationOnce(async (_task, cwd) => ({
       systemPrompt: "system",
       projectedContext: { blocks: [], estimatedTokens: 0 },
@@ -551,11 +537,11 @@ describe("createBenchmarkSessionExecutor", () => {
     });
   });
 
-  it("rejects native CLI routes for write profiles before execution", async () => {
+  it("rejects non-Kiln-executable routes for write profiles before execution", async () => {
     const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
-    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
-      { provider: "opencode", model: "glm-5.2" },
-    ]);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
+    );
     const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
 
     await expect(executor("Fix the fixture.", makeBenchmarkContext({
@@ -570,13 +556,38 @@ describe("createBenchmarkSessionExecutor", () => {
   });
 
   it("resolves a supported deliberation level and records exact route evidence", async () => {
-    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
-      { provider: "codex", model: "benchmark-model" },
-    ]);
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery.mockResolvedValue({
+      "codex-oauth": {
+        models: ["benchmark-model"],
+        modelCapabilities: {
+          "benchmark-model": {
+            deliberation: {
+              provider: "codex-oauth",
+              model: "benchmark-model",
+              levels: ["low", "medium", "high"].map((id) => ({ id })),
+              defaultLevel: "medium",
+              supportsAdaptive: false,
+              evidence: {
+                sourceIdentity: "synthetic-codex-catalog",
+                sourceRevision: "revision-1",
+                observedAt: "2026-08-02T00:00:00.000Z",
+              },
+            },
+          },
+        },
+        status: "available",
+        reason: "test",
+        authState: "authenticated",
+      },
+    });
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        provider: "codex",
+        provider: "codex-oauth",
         model: "benchmark-model",
         deliberationLevel: "high",
       },
@@ -601,7 +612,8 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(result.metadata?.deliberationResolution).toEqual(expectedResolution);
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       routeCandidates: [{
-        provider: "codex",
+        routeId: "benchmark-codex",
+        provider: "codex-oauth",
         model: "benchmark-model",
         deliberationResolution: expectedResolution,
       }],
@@ -610,13 +622,37 @@ describe("createBenchmarkSessionExecutor", () => {
   });
 
   it("resolves Claude deliberation from the executable-bound catalog", async () => {
-    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
-      { provider: "claude", model: "claude-sonnet-5" },
-    ]);
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("anthropic", "claude-sonnet-5", "benchmark-anthropic"),
+    );
+    benchmarkExecutorMocks.discoverGuiDirectProviderModelDiscovery.mockResolvedValue({
+      anthropic: {
+        models: ["claude-sonnet-5"],
+        modelCapabilities: {
+          "claude-sonnet-5": {
+            deliberation: {
+              provider: "anthropic",
+              model: "claude-sonnet-5",
+              levels: [{ id: "low" }, { id: "high" }],
+              supportsAdaptive: true,
+              evidence: {
+                sourceIdentity: "claude-code-model-catalog",
+                sourceRevision: "2.1.226",
+                observedAt: "2026-08-10T00:00:00.000Z",
+              },
+            },
+          },
+        },
+        status: "available",
+        reason: "test",
+        authState: "authenticated",
+      },
+    });
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        provider: "claude",
+        provider: "anthropic",
         model: "claude-sonnet-5",
         deliberationLevel: "low",
       },
@@ -637,7 +673,7 @@ describe("createBenchmarkSessionExecutor", () => {
     });
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       routeCandidates: [expect.objectContaining({
-        provider: "claude",
+        provider: "anthropic",
         model: "claude-sonnet-5",
         deliberationResolution: expect.objectContaining({ selectedLevel: "low" }),
       })],
@@ -646,13 +682,13 @@ describe("createBenchmarkSessionExecutor", () => {
 
   it("fails closed when a requested deliberation level lacks capability evidence", async () => {
     const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
-    benchmarkExecutorMocks.resolveProviderRouteCandidates.mockReturnValue([
-      { provider: "codex", model: "unknown-model" },
-    ]);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "unknown-model", "benchmark-unknown"),
+    );
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        provider: "codex",
+        provider: "codex-oauth",
         model: "unknown-model",
         deliberationLevel: "high",
       },

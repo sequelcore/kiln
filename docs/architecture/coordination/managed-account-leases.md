@@ -152,11 +152,11 @@ settlement rather than being released by recovery.
 
 ## Configuration Boundary
 
-Economic candidates are explicit direct managed routes. A `runtime-selected`
-route names its virtual account policy and remains supported. A
-`credentialless` route used by an economic policy must name
-`credentials.economicsRouteId`; that virtual economics route must match the
-managed route's provider and model exactly and contain zero `accountIds`.
+Managed direct routes reference exactly one `executionRouteId`. The global
+execution catalog owns that route's provider, provider model, automatic account
+policy or exact account, and economic evidence. Managed configuration does not
+duplicate credential selectors, account lists, or a second economic-route
+identity.
 
 Candidate collection is secret-free and performs no adapter construction,
 credential resolution, process launch, lease acquisition, reservation, or

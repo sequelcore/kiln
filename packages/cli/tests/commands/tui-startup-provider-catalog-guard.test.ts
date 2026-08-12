@@ -3,10 +3,44 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
 
 const tuiMocks = vi.hoisted(() => ({
   startTui: vi.fn().mockResolvedValue(undefined),
   waitForGateway: vi.fn().mockResolvedValue(undefined),
+}));
+
+const operatorCompositionMocks = vi.hoisted(() => ({
+  create: vi.fn(() => ({
+    accountRuntime: {
+      operatorSessionCandidates: {
+        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } } }) => {
+          const accountIds = admission.accountSelection.mode === "automatic"
+            ? admission.accountSelection.eligibleAccountIds ?? []
+            : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+          return accountIds.map((accountId) => ({
+            candidate: {
+              accountId,
+              safety: "eligible" as const,
+              health: "healthy" as const,
+              quota: "available" as const,
+              capacity: "available" as const,
+              economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } },
+              pressure: 0,
+            },
+            lease: {
+              candidate: { route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "operator-session" } },
+              credentialRevisionId: "a".repeat(64),
+            },
+          }));
+        }),
+      },
+    },
+    bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
+    dispatcher: { dispatchTurn: vi.fn() },
+    close: vi.fn(),
+  })),
+  resolveContinuation: vi.fn(async () => undefined),
 }));
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -76,55 +110,6 @@ const runtimeMocks = vi.hoisted(() => ({
       }),
     };
   }),
-  resolveGuiProviderSwitch: vi.fn((input: {
-    provider: string;
-    model?: string;
-    models?: Record<string, string[]>;
-    discovery?: ReadonlyArray<{ provider: string; available: boolean; reason: string }>;
-    providerModelDiscovery?: {
-      entries: ReadonlyArray<{
-        providerRoute: { providerId: string; providerModelId: string };
-        eligibility: { eligible: boolean; reasonCodes: readonly string[] };
-      }>;
-    };
-  }) => {
-    const provider = input.provider.trim();
-    const discovery = input.discovery?.find((entry) => entry.provider === provider);
-    if (discovery && !discovery.available) {
-      return { ok: false, error: discovery.reason } as const;
-    }
-    const route = input.providerModelDiscovery?.entries.find((entry) => (
-      entry.providerRoute.providerId === provider
-      && entry.providerRoute.providerModelId === input.model
-    ));
-    if (route && !route.eligibility.eligible) {
-      return {
-        ok: false,
-        error: `Provider '${provider}' model '${input.model}' is not eligible (${route.eligibility.reasonCodes.join(", ")})`,
-      } as const;
-    }
-    const providerModels = route
-      ? input.providerModelDiscovery?.entries
-          .filter((entry) => entry.providerRoute.providerId === provider)
-          .map((entry) => entry.providerRoute.providerModelId)
-      : input.models?.[provider];
-    if (!providerModels || providerModels.length === 0) {
-      return { ok: false, error: `Provider '${provider}' is unavailable` } as const;
-    }
-    const model = input.model?.trim() ?? "";
-    if (!model) {
-      return { ok: false, error: `Provider '${provider}' requires a selected model.` } as const;
-    }
-    if (!providerModels.includes(model)) {
-      return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` } as const;
-    }
-    return {
-      ok: true,
-      provider,
-      modelForSessionManager: model,
-      modelForAck: model,
-    } as const;
-  }),
   startTuiGateway: vi.fn(async () => ({
     port: 4801,
     url: "ws://localhost:4801/ws",
@@ -168,7 +153,7 @@ function gatewayProjection(provider: string, model: string, eligible: boolean) {
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
-    routing?: { defaultWorker?: string };
+    workerRouting?: { defaultWorker?: string };
     engines?: Record<string, { enabled?: boolean }>;
     managedAgents?: {
       enabled?: boolean;
@@ -179,10 +164,6 @@ const configMocks = vi.hoisted(() => ({
     ui?: { theme?: string };
   } | null,
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
-  resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
-    const value = provider?.trim() || globalProvider?.trim();
-    return value && value.length > 0 ? value : undefined;
-  }),
 }));
 
 const registryMocks = vi.hoisted(() => {
@@ -353,8 +334,12 @@ vi.mock("@kilnai/runtime", () => ({
   projectGuiProviderModelDiscovery: runtimeMocks.projectGuiProviderModelDiscovery,
   createProviderCatalogService: runtimeMocks.createProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
-  resolveGuiProviderSwitch: runtimeMocks.resolveGuiProviderSwitch,
   startTuiGateway: runtimeMocks.startTuiGateway,
+}));
+
+vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
+  createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
+  resolveOperatorContinuationBinding: operatorCompositionMocks.resolveContinuation,
 }));
 
 vi.mock("../../src/config/global-config.js", () => ({
@@ -362,15 +347,11 @@ vi.mock("../../src/config/global-config.js", () => ({
   resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
   resolveGlobalDefaultProvider: (config: typeof configMocks.globalConfig) => {
     if (!config) return undefined;
-    return config.routing?.defaultWorker
+    return config.workerRouting?.defaultWorker
       ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
   },
   resolveGlobalDefaultModel: () => undefined,
   resolveGlobalUiTheme: (config: typeof configMocks.globalConfig) => config?.ui?.theme,
-}));
-
-vi.mock("../../src/config/env-config.js", () => ({
-  resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
 }));
 
 vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
@@ -469,7 +450,7 @@ describe("tuiCommand startup provider catalog guard", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    configMocks.globalConfig = null;
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex");
     cwd = mkdtempSync(join(tmpdir(), "kiln-tui-startup-guard-"));
     registryMocks.providerDisplayInfo = [
       { id: "codex", group: "harness", models: [], free: false },
@@ -502,10 +483,11 @@ describe("tuiCommand startup provider catalog guard", () => {
 
   it("rejects gateway startup providers absent from the local registry", async () => {
     delete process.env.KILN_TUI_TRANSPORT;
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4");
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
-    ).rejects.toThrow("Unknown provider: openai");
+      tuiCommand(APP_CONFIG, { cwd }),
+    ).rejects.toThrow("configured TUI execution route uses unsupported provider 'openai'");
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
     expect(tuiMocks.waitForGateway).not.toHaveBeenCalled();
@@ -519,9 +501,10 @@ describe("tuiCommand startup provider catalog guard", () => {
       { id: "codex", group: "harness", models: [], free: false },
       { id: "opencode", group: "subscription", models: [], free: true },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4");
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+      tuiCommand(APP_CONFIG, { cwd }),
     ).resolves.toBeUndefined();
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
@@ -536,6 +519,7 @@ describe("tuiCommand startup provider catalog guard", () => {
     registryMocks.providerDisplayInfo = [
       { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4");
     runtimeMocks.projectGuiProviderModelDiscovery.mockImplementation(() => ({
       catalogEvidence: {
         status: "complete",
@@ -551,7 +535,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       }],
     }) as never);
     try {
-      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "openai" })).rejects.toThrow(
+      await expect(tuiCommand(APP_CONFIG, { cwd })).rejects.toThrow(
         "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: none",
       );
       expect(tuiMocks.startTui).not.toHaveBeenCalled();
@@ -560,12 +544,13 @@ describe("tuiCommand startup provider catalog guard", () => {
     }
   });
 
-  it("uses projection ineligibility reason codes to reject direct switches", async () => {
+  it("uses the canonical execution-route catalog to reject unavailable direct selections", async () => {
     process.env.KILN_TUI_TRANSPORT = "direct";
     registryMocks.providerDisplayInfo = [
       { id: "claude", group: "harness", models: [], free: false },
       { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6");
     runtimeMocks.projectGuiProviderModelDiscovery.mockImplementation(() => ({
       catalogEvidence: {
         status: "complete",
@@ -583,27 +568,18 @@ describe("tuiCommand startup provider catalog guard", () => {
     let switchError = "";
     tuiMocks.startTui.mockImplementationOnce(async (createSession: () => Promise<unknown>) => {
       const session = await createSession() as {
-        switchProvider: (provider: string, model?: string) => Promise<string>;
+        switchExecutionRoute: (routeId: string, accountOverrideId?: string) => Promise<string>;
       };
       try {
-        await session.switchProvider("openai", "gpt-5.4");
+        await session.switchExecutionRoute("openai-gpt-5");
       } catch (error) {
         switchError = error instanceof Error ? error.message : String(error);
       }
     });
 
     try {
-      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "claude" })).resolves.toBeUndefined();
-      expect(switchError).toBe("Provider 'openai' model 'gpt-5.4' is not eligible (stale-evidence)");
-      expect(runtimeMocks.resolveGuiProviderSwitch).toHaveBeenCalledWith(expect.objectContaining({
-        provider: "openai",
-        model: "gpt-5.4",
-        discovery: expect.any(Array),
-        providerModelDiscovery: expect.objectContaining({ entries: expect.any(Array) }),
-      }));
-      expect(runtimeMocks.resolveGuiProviderSwitch).not.toHaveBeenCalledWith(expect.objectContaining({
-        models: expect.anything(),
-      }));
+      await expect(tuiCommand(APP_CONFIG, { cwd })).resolves.toBeUndefined();
+      expect(switchError).toContain("Execution route");
     } finally {
       runtimeMocks.projectGuiProviderModelDiscovery.mockRestore();
     }
@@ -616,9 +592,10 @@ describe("tuiCommand startup provider catalog guard", () => {
       { id: "codex", group: "harness", models: [], free: false },
       { id: "opencode", group: "subscription", models: [], free: true },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6");
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+      tuiCommand(APP_CONFIG, { cwd }),
     ).resolves.toBeUndefined();
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
@@ -649,6 +626,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       { id: "codex", group: "harness", models: [], free: false },
       { id: "opencode", group: "subscription", models: [], free: true },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6");
     runtimeMocks.startTuiGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
@@ -659,7 +637,7 @@ describe("tuiCommand startup provider catalog guard", () => {
     });
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+      tuiCommand(APP_CONFIG, { cwd }),
     ).resolves.toBeUndefined();
 
     expect(runtimeMocks.startTuiGateway).toHaveBeenCalledTimes(1);
@@ -705,6 +683,7 @@ describe("tuiCommand startup provider catalog guard", () => {
     registryMocks.providerDisplayInfo = [
       { id: "openai", group: "direct-api", models: ["gpt-5.4"], free: false },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4");
     runtimeMocks.startTuiGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
@@ -717,7 +696,7 @@ describe("tuiCommand startup provider catalog guard", () => {
     });
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+      tuiCommand(APP_CONFIG, { cwd }),
     ).resolves.toBeUndefined();
 
     expect(tuiMocks.startTui).toHaveBeenCalledTimes(1);
@@ -737,6 +716,7 @@ describe("tuiCommand startup provider catalog guard", () => {
       { id: "opencode", group: "subscription", models: [], free: true },
     ];
     configMocks.globalConfig = {
+      ...makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex-spark"),
       managedAgents: {
         enabled: true,
         defaultProvider: "codex",
@@ -756,7 +736,7 @@ describe("tuiCommand startup provider catalog guard", () => {
         resolveDiscovery = resolve;
       }));
 
-    const command = tuiCommand(APP_CONFIG, { cwd, provider: "codex" });
+    const command = tuiCommand(APP_CONFIG, { cwd });
 
     try {
       for (let attempt = 0; attempt < 20 && runtimeMocks.startTuiGateway.mock.calls.length === 0; attempt += 1) {
@@ -773,6 +753,7 @@ describe("tuiCommand startup provider catalog guard", () => {
   it("emits startup profile markers through first TUI frame when profiling is enabled", async () => {
     delete process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_STARTUP_PROFILE = "1";
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex");
     const stderrWrites: string[] = [];
     const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: string | Uint8Array) => {
       stderrWrites.push(String(chunk));
@@ -801,7 +782,7 @@ describe("tuiCommand startup provider catalog guard", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "codex" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).resolves.toBeUndefined();
     } finally {
       stderrSpy.mockRestore();
@@ -824,9 +805,10 @@ describe("tuiCommand startup provider catalog guard", () => {
       { id: "codex", group: "harness", models: [], free: false },
       { id: "opencode", group: "subscription", models: [], free: true },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex");
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "codex" }),
+      tuiCommand(APP_CONFIG, { cwd }),
     ).resolves.toBeUndefined();
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
@@ -851,10 +833,11 @@ describe("tuiCommand startup provider catalog guard", () => {
 
   it("rejects direct startup providers that are only known through shared metadata and absent from the local registry", async () => {
     process.env.KILN_TUI_TRANSPORT = "direct";
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4");
 
     await expect(
-      tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
-    ).rejects.toThrow("Unknown provider: openai");
+      tuiCommand(APP_CONFIG, { cwd }),
+    ).rejects.toThrow("configured TUI execution route uses unsupported provider 'openai'");
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
     expect(tuiMocks.waitForGateway).not.toHaveBeenCalled();

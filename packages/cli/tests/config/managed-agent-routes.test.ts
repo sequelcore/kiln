@@ -1568,7 +1568,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         engines: {
           "opencode-go": { enabled: true, billing: "subscription" },
         },
-        routing: {
+        workerRouting: {
           routes: [
             {
               provider: "opencode-go",

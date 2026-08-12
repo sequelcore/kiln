@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
 
 const gatewayHarness = vi.hoisted(() => ({
   snapshot: null as {
@@ -63,6 +64,39 @@ const sessionManagerMocks = vi.hoisted(() => ({
   setContinuationSession: vi.fn(),
 }));
 
+const operatorCompositionMocks = vi.hoisted(() => ({
+  create: vi.fn(() => ({
+    accountRuntime: {
+      operatorSessionCandidates: {
+        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } } }) => {
+          const accountIds = admission.accountSelection.mode === "automatic"
+            ? admission.accountSelection.eligibleAccountIds ?? []
+            : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+          return accountIds.map((accountId) => ({
+            candidate: {
+              accountId,
+              safety: "eligible" as const,
+              health: "healthy" as const,
+              quota: "available" as const,
+              capacity: "available" as const,
+              economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } },
+              pressure: 0,
+            },
+            lease: {
+              candidate: { route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "operator-session" } },
+              credentialRevisionId: "a".repeat(64),
+            },
+          }));
+        }),
+      },
+    },
+    bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
+    dispatcher: { dispatchTurn: vi.fn() },
+    close: vi.fn(),
+  })),
+  resolveContinuation: vi.fn(async () => undefined),
+}));
+
 const registryMocks = vi.hoisted(() => {
   const mock = {
     providers: [{
@@ -104,7 +138,7 @@ const registryMocks = vi.hoisted(() => {
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
     version?: "1";
-    routing?: { defaultProvider?: string };
+    workerRouting?: { defaultProvider?: string };
     managedAgents?: {
       enabled?: boolean;
       defaultProvider?: string;
@@ -121,21 +155,14 @@ const configMocks = vi.hoisted(() => ({
   } | null,
   defaultGlobalConfig: vi.fn(() => ({ version: "1" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
-  writeGlobalConfig: vi.fn(),
-  resolveGlobalDefaultProvider: vi.fn((config: { routing?: { defaultProvider?: string } } | null) => {
-    const provider = config?.routing?.defaultProvider?.trim() ?? "";
+  mutateGlobalConfig: vi.fn(),
+  resolveGlobalDefaultProvider: vi.fn((config: { workerRouting?: { defaultProvider?: string } } | null) => {
+    const provider = config?.workerRouting?.defaultProvider?.trim() ?? "";
     return provider.length > 0 ? provider : undefined;
   }),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
   resolveGlobalConfigPath: vi.fn(() => "C:/Users/ExampleUser/.kiln/config.yaml"),
   resolveGlobalUiTheme: vi.fn((config: { ui?: { theme?: string } } | null) => config?.ui?.theme),
-  resolveEffectiveProvider: vi.fn((provider: string | undefined, globalProvider?: string) => {
-    const normalize = (value?: string) => {
-      const trimmed = value?.trim() ?? "";
-      return trimmed.length > 0 ? trimmed : undefined;
-    };
-    return normalize(provider) ?? normalize(globalProvider);
-  }),
 }));
 
 const managedProviderModelMocks = vi.hoisted(() => ({
@@ -235,6 +262,11 @@ vi.mock("@kilnai/runtime", () => ({
   startGuiGateway: gatewayHarness.startGuiGateway,
 }));
 
+vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
+  createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
+  resolveOperatorContinuationBinding: operatorCompositionMocks.resolveContinuation,
+}));
+
 vi.mock("@kilnai/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@kilnai/core")>();
   return {
@@ -256,11 +288,7 @@ vi.mock("../../src/config/global-config.js", () => ({
   resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
   resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
   resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
-  writeGlobalConfig: configMocks.writeGlobalConfig,
-}));
-
-vi.mock("../../src/config/env-config.js", () => ({
-  resolveEffectiveProvider: configMocks.resolveEffectiveProvider,
+  mutateGlobalConfig: configMocks.mutateGlobalConfig,
 }));
 
 vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
@@ -317,7 +345,10 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
 }));
 
 vi.mock("../../src/commands/tui.js", () => ({
-  makeMultiProviderSessionFactory: vi.fn().mockResolvedValue(sessionManagerMocks),
+  makeMultiProviderSessionFactory: vi.fn(async (provider: string) => {
+    sessionManagerMocks.setProvider(provider);
+    return sessionManagerMocks;
+  }),
 }));
 
 vi.mock("../../src/commands/gui-options.js", () => ({
@@ -389,10 +420,20 @@ describe("GUI dashboard provider availability", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    registryMocks.providers = [{
+      id: "openai",
+      group: "direct-api",
+      models: ["gpt-5.4"],
+      free: false,
+      health: "healthy",
+      isAvailable: () => false,
+    }];
     gatewayHarness.snapshot = null;
     gatewayHarness.operatorModels = {};
     gatewayHarness.lastOptions = null;
-    configMocks.globalConfig = null;
+    const startupProvider = registryMocks.providers[0]?.id ?? "openai";
+    const startupModel = registryMocks.providers[0]?.models[0] ?? "gpt-5.4";
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig(startupProvider, startupModel);
     guiSessionMocks.summaries = [];
     guiSessionMocks.detail = null;
     guiSessionMocks.loadSessionDetail.mockClear();
@@ -427,7 +468,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.lastOptions?.builtinToolOptions).toMatchObject({
@@ -476,7 +516,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: packageCliPath,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.lastOptions?.workingDirectory).toBe(tmpDir);
@@ -494,7 +533,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.snapshot?.operatorWorkspaceHome?.configHealth).toMatchObject({
@@ -527,7 +565,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledWith(
@@ -566,7 +603,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.snapshot?.operatorWorkspaceHome).toBeTruthy();
@@ -593,7 +629,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
@@ -623,7 +658,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.snapshot?.providers).toEqual(expect.arrayContaining([
@@ -644,6 +678,7 @@ describe("GUI dashboard provider availability", () => {
       health: "healthy",
       isAvailable: () => true,
     }];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6");
     gatewayHarness.operatorModels = { claude: [] };
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
@@ -651,7 +686,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.snapshot?.providers).toEqual(expect.arrayContaining([
@@ -684,8 +718,9 @@ describe("GUI dashboard provider availability", () => {
       health: "healthy",
       isAvailable: () => true,
     }];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6");
     configMocks.globalConfig = {
-      version: "1",
+      ...makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex-spark"),
       managedAgents: {
         enabled: true,
         defaultProvider: "codex",
@@ -704,7 +739,6 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: "codex",
     });
 
     try {
@@ -719,15 +753,15 @@ describe("GUI dashboard provider availability", () => {
   });
 
   it("seeds the GUI session manager from the durable provider preference", async () => {
-    configMocks.globalConfig = {
-      version: "1",
-      ui: {
-        providerSelection: {
-          provider: "codex-oauth",
-          model: "gpt-5.4",
-        },
-      },
-    };
+    registryMocks.providers = [{
+      id: "codex-oauth",
+      group: "direct-api",
+      models: ["gpt-5.4"],
+      free: false,
+      health: "healthy",
+      isAvailable: () => true,
+    }];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4");
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await guiCommand(APP_CONFIG, {
@@ -753,15 +787,15 @@ describe("GUI dashboard provider availability", () => {
     expect(registryMocks.createDefaultRegistry).not.toHaveBeenCalled();
   });
 
-  it("rejects an unknown configured provider instead of defaulting to the first advertised provider", async () => {
-    configMocks.globalConfig = { routing: { defaultProvider: "claude" } };
+  it("rejects an unsupported configured route provider instead of defaulting to the first advertised provider", async () => {
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6");
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await expect(guiCommand(APP_CONFIG, {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-    })).rejects.toThrow("Unknown GUI provider 'claude'. Configure one of: openai");
+    })).rejects.toThrow("configured GUI execution route uses unsupported provider 'claude'");
 
     expect(gatewayHarness.startGuiGateway).not.toHaveBeenCalled();
   });
@@ -775,13 +809,13 @@ describe("GUI dashboard provider availability", () => {
       health: "healthy",
       isAvailable: () => true,
     }];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("opencode", "openai/gpt-5");
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
@@ -804,13 +838,13 @@ describe("GUI dashboard provider availability", () => {
       health: "healthy",
       isAvailable: undefined,
     }];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("ollama", "llama3");
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.startGuiGateway).toHaveBeenCalledTimes(1);
@@ -867,13 +901,13 @@ describe("GUI dashboard provider availability", () => {
         isAvailable: () => false,
       },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("codex", "gpt-5.3-codex");
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.snapshot?.providers).toEqual(expect.arrayContaining([
@@ -938,13 +972,13 @@ describe("GUI dashboard provider availability", () => {
         isAvailable: () => false,
       },
     ];
+    configMocks.globalConfig = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4");
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
 
     await guiCommand(APP_CONFIG, {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-      provider: registryMocks.providers[0].id,
     });
 
     expect(gatewayHarness.snapshot?.providers).toEqual(expect.arrayContaining([

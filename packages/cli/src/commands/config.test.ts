@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { configCommand } from "./config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import { readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, resolveGlobalConfigPath } from "../config/global-config.js";
 
 const tempRoots: string[] = [];
 
@@ -92,5 +92,18 @@ describe("config command", () => {
         },
       },
     });
+  });
+
+  it("explicitly resets an invalid global config to V2 and preserves a backup", async () => {
+    const root = createTempRoot();
+    process.env.XDG_CONFIG_HOME = join(root, "xdg");
+    const configPath = resolveGlobalConfigPath();
+    mkdirSync(join(root, "xdg", "kiln"), { recursive: true });
+    writeFileSync(configPath, 'version: "1"\nidentity:\n  name: Previous\n', "utf-8");
+
+    await configCommand({} as never, "reset", ["--global"], root);
+
+    expect(readGlobalConfig()).toMatchObject({ version: "2" });
+    expect(consoleLog.mock.calls.flat().join("\n")).toContain("backed up");
   });
 });

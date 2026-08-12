@@ -257,15 +257,22 @@ export type ExecutionSessionEvent = (
 export type ExecutionSessionBindingEvidence =
   | {
       readonly status: "bound";
-      readonly virtualModelId: string;
+      readonly routeId: string;
       readonly accountId: string;
+      readonly credentialId: string;
       readonly credentialRevision: string;
     }
   | {
       readonly status: "rejected-pre-dispatch";
-      readonly virtualModelId: string;
-      readonly accountId: string;
+      /** Route/account/credential identity is included when known at rejection time. */
+      readonly routeId: string;
+      readonly accountId?: string;
+      readonly credentialId?: string;
     };
+
+export function executionSessionBindingKey(binding: ExecutionSessionBindingEvidence): string {
+  return `${binding.routeId}\0${binding.accountId ?? ""}\0${binding.credentialId ?? ""}`;
+}
 
 export type ScopedExecutionSessionToolEvent = Extract<
   ExecutionSessionEvent,

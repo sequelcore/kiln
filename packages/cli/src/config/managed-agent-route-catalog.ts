@@ -51,8 +51,8 @@ export async function createStagedManagedInvocationRouteCatalog(
     if (executionComposition && !context.managedEconomicAuthority && !managedAccountComposition && nextConfig) {
       managedAccountComposition = createManagedAccountRuntimeComposition(nextConfig, context.cwd);
     }
-    if (managedAccountComposition && nextConfig?.modelGateway) {
-      managedAccountComposition.updateConfig(nextConfig.modelGateway);
+    if (managedAccountComposition && nextConfig?.executionCatalog) {
+      managedAccountComposition.updateCatalog(nextConfig.executionCatalog);
     }
     return resolveManagedInvocationToolOptions(nextConfig, {
       ...context,

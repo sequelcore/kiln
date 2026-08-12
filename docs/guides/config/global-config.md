@@ -42,15 +42,12 @@ kiln config set --global skills.selection.mode auto
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | `string` | Breaking schema generation marker. Current version is `"1"`. Additive optional fields do not bump it, so a matching `version` is not evidence that the running build understands every field in the document. See [ADR-012](../../adr/ADR-012-global-config-schema-evolution.md). |
+| `version` | `"2"` | Canonical global schema version. V1 and partial documents are rejected; reset is an explicit backup-and-replace operation. |
 | `engines` | `Record<string, KilnGlobalEngineConfig>` | Engine availability and billing metadata. |
-| `routing.defaultWorker` | `string` | Default engine/provider route for operator sessions. |
-| `routing.fallback` | `string` | Optional fallback route for budget-aware routing. |
-| `routing.routes` | `{ provider: string, model?: string }[]` | Ordered provider/model execution candidates. When present, the first healthy route is the default fallback order. CLI run may reorder configured candidates by task suitability when no explicit provider is requested. |
-| `routing.budgetAware` | `boolean` | Enables budget-aware route selection when configured. |
-| `routing.budget` | `Record<string, KilnGlobalRoutingBudgetConfig>` | Optional per-engine budget ceilings. |
-| `models.default` | `string` | Default model used when a route-specific model does not override it. |
-| `models.<engine>` | `string` | Engine-specific model override. |
+| `executionCatalog` | `accounts`, `accountPolicies`, and `routes` | Canonical operator execution authority. Accounts hold private credential references; policies select eligible accounts; routes are the provider/model choices exposed to surfaces. |
+| `executionRouting.defaultRouteId` | `string` | The default operator execution route. |
+| `workerRouting` | worker-engine routing policy | Separate native worker/harness context; it does not select an operator execution account. |
+| `workerModels` | `Record<string, string>` | Worker-engine model defaults, separate from execution routes. |
 | `permissions` | `KilnPermissionPolicy` | Default approval and sandbox policy applied when no project-level override exists. |
 | `mcp.servers` | `Record<string, McpServerConfiguration>` | Canonical global MCP definitions; projects may add, narrow, override, or disable them. |
 | `hooks` | `Record<string, unknown>` | Global hook configuration shared across Kiln-managed workflows. |
@@ -70,13 +67,11 @@ kiln config set --global skills.selection.mode auto
 | `skills.selection.mode` | `advisory \| auto` | Controls whether route/task and explicit work-classification recommendations are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
-When `routing.budgetAware` is true, budget ceilings are projected into the
-runtime/session-turn budget admission service. CLI commands may provide the
-config source, but they do not own budget decisions. This policy does not admit
-managed children. Policy-bearing managed invocation and orchestration use the
-configured managed economic policy, provider quota/price evidence, and the
-Runtime atomic commitment authority instead of a local token shim or gateway
-billing state.
+`executionCatalog` is the only operator-session routing authority. Runtime
+admits routes against current safety, health, quota, and shared-capacity
+evidence; surfaces do not recreate those checks. `workerRouting` and
+`workerModels` remain a separate native worker context and must not be used as
+an execution fallback.
 
 MCP server entries may include `requestTimeoutMs` to override the default
 Kiln-owned MCP client request timeout for that server. Use it for servers with
@@ -96,23 +91,23 @@ they preserve the user's paid access path without spawning a native CLI
 harness. Native harness providers such as `codex` and `opencode` are fallback
 routes for cases where a provider's terms, available API surface, or local
 capability proof requires the native harness. Keep those harness engines
-disabled or out of `routing.routes` unless the operator intentionally chooses
+disabled or out of `workerRouting.routes` unless the operator intentionally chooses
 that fallback.
 
 Managed child invocation is derived from the same canonical routing hierarchy.
-When `routing.routes` is present, GUI, TUI, CLI run, and operator gateway
-sessions project eligible direct providers and harnesses with live-proven
+When `workerRouting.routes` is present, managed child composition projects
+eligible direct providers and harnesses with live-proven
 read-only result handoff into synthesized read-only
 `foundation-readonly-plan` routes for `managed_agent.invoke`.
 Direct-provider projections require an explicit model and that model must be
 known tool-call-capable for Kiln runtime tools. If no ordered route list exists,
-Kiln falls back to the enabled supported child engines: `routing.defaultWorker`
+Kiln falls back to the enabled supported child engines: `workerRouting.defaultWorker`
 is preferred when it names `codex` or `opencode`; otherwise Kiln chooses the
 first enabled supported child engine. `managedAgents.routes` declares explicit
 managed exceptions and authority-bearing routes. It is merged on top of derived
-read-only routes instead of replacing `routing.routes`; use it for write routes,
+read-only routes instead of replacing canonical catalog routes; use it for write routes,
 special read-only exceptions, or explicit overrides, not as a duplicated routing
-graph. When `routing.routes` contains multiple models for the same provider,
+graph. When `workerRouting.routes` contains multiple models for the same provider,
 derived managed route IDs include a model slug so each team member remains
 addressable. `managedAgents.enabled: false` disables the runtime tool even when
 a supported engine is enabled. A route whose provider has
@@ -134,9 +129,9 @@ compatibility facts, not route authority. Runtime remains the sole owner of
 timeouts, approval consumption, sandboxing, economic fencing, settlement, and
 replay, so CLI, MCP, SDK, GUI, and TUI do not carry provider-specific write
 logic.
-Synthesized child routes use `models.<engine>` when present, then
+Synthesized child routes use `workerModels.<engine>` when present, then
 the adapter's safe default for that engine. They do not inherit
-`models.default`, because model IDs are provider-specific. Write-capable routes
+`workerModels.default`, because model IDs are provider-specific. Write-capable routes
 are never synthesized. Synthesized managed-agent routes use a five-minute
 timeout budget by default. Explicit `managedAgents.routes[].timeoutMs` remains
 the route authority when a team deliberately wants a shorter probe or a longer
@@ -159,11 +154,9 @@ defaults. The resolved route catalog also carries first-party evaluation
 evidence, live route proof, and configured skill recommendations. Skill
 recommendations are advisory; a parent may request a skill only when the skill
 exists in the admitted skill catalog or on the selected agent profile.
-CLI run uses the same resolved suitability records to rank configured
-`routing.routes` when no explicit `--provider` is passed. Agent
-`taskAffinity` wins over prompt keyword inference, operator overrides win
-same-level ties over static profiles, and the original route order remains the
-fallback order for unknown tasks or equal scores.
+Operator execution does not rank worker routes. `kiln run`, GUI, and TUI use
+the admitted execution route selected by ID; suitability evidence may describe
+that route but cannot replace route authority.
 `deliberationPolicy` is intentionally separate from `modelTaskSuitability`.
 Suitability orders healthy routes; deliberation describes the authorized
 inference-work intent after selection. Runtime resolves the intent only against
@@ -276,44 +269,63 @@ versionable only when they define durable project behavior. Runtime state under
 should be ignored. See [Repository Hygiene](../ops/repo-hygiene.md).
 
 Supported operator themes are `phosphor`, `vesper`, `automata`, and
-`system-follow`. `phosphor` is the default dark glass-and-signal surface, `vesper` is the high-clarity alternate dark expression, and `automata` is the
-parchment-and-ink light expression. GUI
-and TUI validate theme names against the same contract.
+`system-follow`. `phosphor` is the default dark glass-and-signal surface,
+`vesper` is the high-clarity alternate dark expression, and `automata` is the
+parchment-and-ink light expression. GUI and TUI validate theme names against
+the same contract.
 When the CLI `operator_set_theme` tool is called with `scope: "persisted"`, it
 writes `ui.theme` because there is no live CLI visual surface to update.
 
-## Environment Variables
+## Operator Execution Routes
 
-| Variable | Description |
-|----------|-------------|
-| `KILN_PROVIDER` | Default provider — overrides `routing.defaultWorker`, overridden by `--provider` flag |
-| `KILN_MODEL` | Default model — overrides `models.default` or the selected engine model, overridden by `--model` flag |
-
-Priority order: CLI flag > environment variable > `~/.kiln/config.yaml` > built-in default.
-
-## Ordered Routes
-
-Use `routing.routes` when routing must express a durable hierarchy instead of
-a single default plus one fallback. Each entry is a provider/model execution
-candidate. Kiln evaluates them in order, skips direct provider/model routes
-that are cooling down, and passes the remaining healthy candidates to the
-runtime session loop.
+Operator sessions do not use `workerRouting.routes`. Configure one execution catalog
+and select its route by ID. Runtime, not the surface, applies safety, health,
+quota, and live-capacity gates before ordering automatic candidates by
+economics, pressure, and stable account ID.
 
 ```yaml
-routing:
+version: "2"
+executionCatalog:
+  accounts:
+    - id: codex-work
+      providerId: codex-oauth
+      credentialId: work
+      maxConcurrency: 2
+      economics: { costClass: subscription }
+  accountPolicies:
+    - id: codex-automatic
+      accountIds: [codex-work]
+      strategy: economic-least-pressure
   routes:
-    - provider: codex-oauth
-      model: gpt-5.6-terra
-    - provider: openrouter
-      model: openrouter/free
-    - provider: codex
-      model: gpt-5.3-codex-spark
+    - id: terra
+      label: Terra
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-terra
+      accountSelection: { mode: automatic, accountPolicyId: codex-automatic }
+executionRouting:
+  defaultRouteId: terra
 ```
 
-`routing.defaultWorker` remains the compact single-route form. Do not duplicate
-the same intent in both fields; use `routing.routes` when route order matters.
-For direct providers, prefer route-specific `model` values over `models.default`
-because model identifiers are provider-specific.
+An automatic route may move to the next eligible account only before provider
+dispatch when the first is saturated. Exact account selection and an eligible
+operator account override never fall back. Runtime fences capacity and
+revalidates the selected credential ID and revision before dispatch.
+
+## Running And Surface Selection
+
+Run the default route or select a configured route explicitly:
+
+```powershell
+kiln run "Inspect this repository"
+kiln run --route terra "Inspect this repository"
+```
+
+`--provider`, `--model`, `--api-key`, `KILN_PROVIDER`, `KILN_MODEL`,
+`directModels`, and `kiln model bind/list` are not execution-selection paths.
+They are rejected rather than interpreted as aliases. GUI and TUI show routes,
+their availability reason, and a repair action; an account override is limited
+to the selected automatic policy's eligible accounts. No surface displays or
+selects a credential ID.
 
 ## Example
 
@@ -781,7 +793,7 @@ after proof if it is not part of normal team policy.
 
 ### Write-capable managed routes
 
-Kiln never synthesizes write-capable child routes from `routing.routes` or
+Kiln never synthesizes write-capable child routes from execution routes or
 enabled engines. Implementation routes must be explicit because the route must
 declare bounded write scope and approval policy before the runtime can admit a
 child.
@@ -921,8 +933,8 @@ surface. Use explicit direct managed routes with
 also require an admitted current data-use and retention policy for the exact
 model.
 
-For a task-aware team, keep read-only managed routes derived from
-`routing.routes` and add explicit write routes only after the exact route passes
+For a task-aware team, keep read-only managed routes tied to admitted
+`executionRouteId` values and add explicit write routes only after the exact route passes
 its task-specific write profile. The current sanitized example exposes
 `opencode-go-service-approved-write` for GLM 5.2 service, adapter, and data-flow
 implementation. It intentionally has no Codex, frontend, DeepSeek, or research
@@ -991,7 +1003,7 @@ capability evidence fails closed.
 
 ### Supported providers
 
-`routing.defaultWorker` and `KILN_PROVIDER` accept engine/provider identifiers
+`workerRouting.defaultWorker` accepts engine/provider identifiers
 known to Kiln's registry. Direct subscription providers should appear before
 harness providers in normal user configs. Harness routes such as `claude`,
 `codex`, and `opencode` are valid where the corresponding engine is enabled, but
@@ -1063,7 +1075,8 @@ configs; edit Kiln config files, not the generated native configs directly.
 
 Kiln has one canonical global config schema. Partial or obsolete files are not
 loaded as compatibility inputs. Commands that intentionally replace invalid
-global config must write a backup first, then write canonical config.
+global config perform the backup and canonical replacement under the same
+interprocess mutation lock.
 
 ## Agent Sync
 

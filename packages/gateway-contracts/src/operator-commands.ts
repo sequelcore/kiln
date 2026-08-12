@@ -3,7 +3,7 @@ export type OperatorCommandSurfaceKind = "cli" | "gui" | "tui";
 export type OperatorCommandId =
   | "clear"
   | "theme"
-  | "provider"
+  | "route"
   | "deliberation"
   | "authority"
   | "continue"
@@ -40,11 +40,11 @@ export const OPERATOR_COMMANDS: readonly OperatorCommandDefinition[] = [
     surfaces: ["gui", "tui"],
   },
   {
-    id: "provider",
-    trigger: "provider",
-    title: "Provider",
-    description: "Open provider and model controls.",
-    keywords: ["model", "routing", "provider"],
+    id: "route",
+    trigger: "route",
+    title: "Execution route",
+    description: "Open configured execution route controls.",
+    keywords: ["route", "routing", "execution"],
     surfaces: ["gui", "tui"],
   },
   {

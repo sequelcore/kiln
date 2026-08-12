@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import readline from "node:readline";
 import { stringify as stringifyYaml } from "yaml";
@@ -12,7 +12,7 @@ import {
   defaultGlobalConfig,
   readGlobalConfig,
   resolveGlobalConfigPath,
-  writeGlobalConfig,
+  mutateGlobalConfig,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
@@ -179,12 +179,18 @@ export async function importNativeCommand(
     process.exit(1);
   }
 
-  if (currentGlobal.invalid) {
-    const backupPath = backupInvalidGlobalConfig(currentGlobal.path);
-    console.log(`Backed up invalid global config to ${backupPath}`);
+  const mutation = mutateGlobalConfig(
+    (current) => mergeImportedGlobalConfig(
+      current ?? defaultGlobalConfig(),
+      extractNativeConfig(target, nativeDocument),
+    ),
+    currentGlobal.invalid ? { invalidCurrent: "backup-and-replace" } : undefined,
+  );
+  if (mutation.invalidBackupPath) {
+    console.log(`Backed up invalid global config to ${mutation.invalidBackupPath}`);
   }
-  writeGlobalConfig(plan.after);
-  const syncResult = await syncNativePermissionProjections(globalToKilnYaml(plan.after), process.cwd(), { force: true });
+  const committed = mutation.config;
+  const syncResult = await syncNativePermissionProjections(globalToKilnYaml(committed), process.cwd(), { force: true });
   if (syncResult.errors.length > 0) {
     console.error("Error: imported config was written, but native re-projection failed:");
     for (const error of syncResult.errors) {
@@ -225,12 +231,6 @@ function readCurrentGlobalConfigForImport(): CurrentGlobalConfigForImport {
   }
 }
 
-function backupInvalidGlobalConfig(path: string): string {
-  const backupPath = `${path}.invalid-${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
-  copyFileSync(path, backupPath);
-  return backupPath;
-}
-
 interface ImportedNativeConfig {
   readonly provider: string;
   readonly model?: string;
@@ -259,20 +259,20 @@ function mergeImportedGlobalConfig(
       enabled: true,
     },
   };
-  const routing = {
-    ...base.routing,
+  const workerRouting = {
+    ...base.workerRouting,
     defaultWorker: imported.provider,
-    budgetAware: base.routing?.budgetAware ?? false,
+    budgetAware: base.workerRouting?.budgetAware ?? false,
   };
-  const models = imported.model
-    ? { ...base.models, [imported.provider]: imported.model }
-    : base.models;
+  const workerModels = imported.model
+    ? { ...base.workerModels, [imported.provider]: imported.model }
+    : base.workerModels;
   return {
     ...base,
     version: CANONICAL_GLOBAL_CONFIG_VERSION,
     engines,
-    routing,
-    models,
+    workerRouting,
+    workerModels,
     permissions: imported.permissions
       ? { ...base.permissions, ...imported.permissions }
       : base.permissions,

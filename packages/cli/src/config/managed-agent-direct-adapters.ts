@@ -21,11 +21,10 @@ import {
 import type { KilnManagedAgentRouteConfig } from "../kiln-yaml-types.js";
 import {
   createDirectProviderAdapter,
-  type DirectProviderAccountBinding,
+  type DirectProviderCredentialBinding,
   type DirectProviderAdapterOptions,
 } from "../wrapper/direct-provider-adapter-factory.js";
 import { createCanonicalMcpClient } from "./mcp-credentials.js";
-
 type EnvMap = Readonly<Record<string, string | undefined>>;
 type BuiltinToolOptionsSource =
   | DefaultBuiltinToolRegistryOptions
@@ -65,7 +64,7 @@ export function createManagedDirectProviderAdapterFactory(
   options: ManagedDirectProviderAdapterFactoryOptions = {},
 ): (
   route: KilnManagedAgentRouteConfig,
-  accountBinding: DirectProviderAccountBinding | undefined,
+  credentialBinding: DirectProviderCredentialBinding | undefined,
   abortSignal: AbortSignal | undefined,
   committedRequest: ManagedCommittedInvocationRequest,
 ) => Promise<ManagedAgentRuntimeAdapter | undefined> {
@@ -74,13 +73,14 @@ export function createManagedDirectProviderAdapterFactory(
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
-  return async (route, accountBinding, abortSignal, committedRequest) => {
+  return async (route, credentialBinding, abortSignal, committedRequest) => {
     throwIfAborted(abortSignal);
     if (route.kind !== "direct") {
       return undefined;
     }
-    const provider = requireDirectProvider(route.provider);
-    const model = requireRouteModel(route);
+    const committedRoute = committedRequest.commitment.reservation.selectedIdentity.route;
+    const provider = requireDirectProvider(committedRoute.providerId);
+    const model = committedRoute.modelId;
     const executionProfile = resolveDirectProviderExecutionProfile({
       provider,
       model,
@@ -91,12 +91,13 @@ export function createManagedDirectProviderAdapterFactory(
     }
     assertCommittedEconomicRoute(route.id, provider, executionProfile.model, committedRequest);
 
-    const providerAdapter = route.credentials?.mode === "runtime-selected" && !accountBinding
-      ? unboundManagedProvider(provider)
-      : await createProvider({
+    if (!credentialBinding) {
+      throw new Error(`Managed direct route '${route.id}' has no committed credential binding.`);
+    }
+    const providerAdapter = await createProvider({
         provider,
         model: executionProfile.model,
-        ...(accountBinding ? { accountBinding } : {}),
+        credentialBinding,
         configEnv: options.configEnv,
         runtimeEnv: options.runtimeEnv,
         processEnv: options.processEnv,
@@ -186,19 +187,6 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   throw signal.reason instanceof Error ? signal.reason : new Error("Managed adapter construction was aborted.");
 }
 
-function unboundManagedProvider(provider: DirectProviderId): ProviderAdapter {
-  const fail = (): never => {
-    throw new Error(`Managed provider '${provider}' cannot execute before account lease binding.`);
-  };
-  return {
-    name: provider,
-    createMessage: async () => fail(),
-    streamMessage: async function* () {
-      fail();
-    },
-  };
-}
-
 async function disconnectMcpClient(client: { readonly disconnect?: () => Promise<void> }): Promise<void> {
   if (!client.disconnect) return;
   await client.disconnect().catch(() => undefined);
@@ -224,12 +212,4 @@ function requireDirectProvider(provider: string): DirectProviderId {
     throw new Error(`Provider '${provider}' is not a direct provider.`);
   }
   return provider;
-}
-
-function requireRouteModel(route: KilnManagedAgentRouteConfig): string {
-  const model = route.model?.trim();
-  if (!model) {
-    throw new Error(`Direct managed invocation route '${route.id}' requires a model.`);
-  }
-  return model;
 }

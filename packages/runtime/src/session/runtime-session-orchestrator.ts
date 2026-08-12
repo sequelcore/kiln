@@ -151,7 +151,11 @@ function projectProviderRequestedAuthority(
 function buildProviderExecutionContext(
   config: PerCallToolConfig | undefined,
 ): ProviderExecutionContext | undefined {
-  if (!config?.workingDirectory && !config?.effectiveTurnAuthority && !config?.executionScope) {
+  if (!config?.workingDirectory
+    && !config?.effectiveTurnAuthority
+    && !config?.executionScope
+    && !config?.executionBinding
+    && config?.executionCredential === undefined) {
     return undefined;
   }
   return {
@@ -160,6 +164,8 @@ function buildProviderExecutionContext(
       ? { requestedAuthority: projectProviderRequestedAuthority(config.effectiveTurnAuthority) }
       : {}),
     ...(config.executionScope ? { executionScope: config.executionScope } : {}),
+    ...(config.executionBinding ? { executionBinding: config.executionBinding } : {}),
+    ...(config.executionCredential !== undefined ? { executionCredential: config.executionCredential } : {}),
   };
 }
 

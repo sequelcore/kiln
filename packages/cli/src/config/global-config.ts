@@ -1,4 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  fsyncSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { parse, stringify } from "yaml";
@@ -8,9 +21,16 @@ import {
   parseGatewayYaml,
   validateManagedEconomicAmount,
   validateVoiceConfig,
+  defineExecutionCatalog,
+  isDirectProviderId,
   type ManagedEconomicAmount,
   type ModelGatewayConfig,
   type VoiceConfig,
+  type ExecutionAccount,
+  type ExecutionAccountPolicy,
+  type ExecutionCatalog,
+  type ExecutionRoute,
+  type ExecutionRouteAccountSelection,
 } from "@kilnai/core";
 import { describeRunningCliBuild } from "../build-identity.js";
 import { KilnYamlError } from "../kiln-yaml.js";
@@ -41,37 +61,51 @@ export interface KilnGlobalEngineConfig {
   readonly billing?: KilnEngineBilling;
 }
 
-export interface KilnGlobalRoutingBudgetConfig {
+export interface KilnExecutionRoutingConfig {
+  readonly defaultRouteId: string;
+}
+
+export interface KilnWorkerRoutingBudgetConfig {
   readonly dailyTokenCeiling?: number | null;
   readonly onCeiling?: "fallback" | "stop";
 }
 
-export interface KilnGlobalRoutingRouteConfig {
+export interface KilnWorkerRoutingRouteConfig {
   readonly provider: string;
   readonly model?: string;
 }
 
-export interface KilnGlobalRoutingConfig {
+/** Native worker-engine policy; distinct from account-backed executionRouting. */
+export interface KilnWorkerRoutingConfig {
   readonly defaultWorker?: string;
   readonly fallback?: string;
-  readonly routes?: readonly KilnGlobalRoutingRouteConfig[];
+  readonly routes?: readonly KilnWorkerRoutingRouteConfig[];
   readonly budgetAware?: boolean;
-  readonly budget?: Record<string, KilnGlobalRoutingBudgetConfig>;
+  readonly budget?: Record<string, KilnWorkerRoutingBudgetConfig>;
 }
 
-export interface KilnGlobalModelsConfig {
+/** Per-native-worker model defaults; distinct from executionCatalog routes. */
+export interface KilnWorkerModelsConfig {
   readonly default?: string;
   readonly [engine: string]: string | undefined;
 }
 
+/** CLI config names whose structure is owned by Core's execution-routing contract. */
+export type KilnExecutionAccount = ExecutionAccount;
+export type KilnExecutionAccountPolicy = ExecutionAccountPolicy;
+export type KilnExecutionRouteAutomaticSelection = Extract<ExecutionRouteAccountSelection, { readonly mode: "automatic" }>;
+export type KilnExecutionRouteExactSelection = Extract<ExecutionRouteAccountSelection, { readonly mode: "exact" }>;
+export type KilnExecutionRoute = ExecutionRoute;
+export type KilnExecutionCatalog = ExecutionCatalog;
+
 export interface KilnGlobalUiConfig {
   readonly theme?: string;
-  readonly providerSelection?: KilnGlobalUiProviderSelectionConfig;
+  readonly executionRouteSelection?: KilnGlobalUiExecutionRouteSelectionConfig;
 }
 
-export interface KilnGlobalUiProviderSelectionConfig {
-  readonly provider: string;
-  readonly model?: string;
+export interface KilnGlobalUiExecutionRouteSelectionConfig {
+  readonly routeId: string;
+  readonly accountOverrideId?: string;
 }
 
 export interface KilnGlobalComponentsConfig {
@@ -84,7 +118,7 @@ export interface KilnGlobalWebConfig {
   readonly extractProvider?: KilnYamlWebExtractProvider;
 }
 
-export const CANONICAL_GLOBAL_CONFIG_VERSION = "1" as const;
+export const CANONICAL_GLOBAL_CONFIG_VERSION = "2" as const;
 
 export interface KilnGlobalConfig {
   readonly version: typeof CANONICAL_GLOBAL_CONFIG_VERSION;
@@ -92,11 +126,13 @@ export interface KilnGlobalConfig {
   readonly activeInstructionProfiles?: readonly string[];
   readonly workGovernance?: KilnWorkGovernanceConfig;
   readonly engines?: Record<string, KilnGlobalEngineConfig>;
-  readonly routing?: KilnGlobalRoutingConfig;
+  readonly executionCatalog?: KilnExecutionCatalog;
+  readonly executionRouting?: KilnExecutionRoutingConfig;
+  readonly workerRouting?: KilnWorkerRoutingConfig;
   readonly permissions?: KilnYamlPermissions;
   readonly mcp?: KilnYamlMcp;
   readonly hooks?: KilnHooksConfig;
-  readonly models?: KilnGlobalModelsConfig;
+  readonly workerModels?: KilnWorkerModelsConfig;
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
@@ -123,11 +159,13 @@ const ROOT_FIELDS = fieldNamesOf<KilnGlobalConfig>({
   activeInstructionProfiles: true,
   workGovernance: true,
   engines: true,
-  routing: true,
+  executionCatalog: true,
+  executionRouting: true,
+  workerRouting: true,
   permissions: true,
   mcp: true,
   hooks: true,
-  models: true,
+  workerModels: true,
   managedAgents: true,
   modelTaskSuitability: true,
   deliberationPolicy: true,
@@ -178,11 +216,266 @@ export function readGlobalConfig(): KilnGlobalConfig | null {
   }
 }
 
-export function writeGlobalConfig(config: KilnGlobalConfig): void {
-  validateGlobalConfig(config);
+export type GlobalConfigMutationErrorCode =
+  | "GLOBAL_CONFIG_LOCK_UNAVAILABLE"
+  | "GLOBAL_CONFIG_REVISION_CONFLICT"
+  | "GLOBAL_CONFIG_WRITE_FAILED";
+
+export interface GlobalConfigMutationEvidence {
+  readonly configPath: string;
+  readonly expectedRevision?: string;
+  readonly actualRevision?: string;
+  readonly lockOwnerPid?: number;
+  readonly lockAcquiredAt?: string;
+  readonly invalidBackupPath?: string;
+}
+
+function parseGlobalConfigRaw(raw: string | null): KilnGlobalConfig | null {
+  if (raw === null) return null;
+  try {
+    const parsed = parse(raw);
+    validateGlobalConfig(parsed);
+    return parsed as KilnGlobalConfig;
+  } catch (error) {
+    if (error instanceof KilnYamlError) throw error;
+    throw new KilnYamlError(
+      `Failed to parse global config: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function globalConfigRevision(raw: string | null): string {
+  return raw === null ? "absent" : `sha256:${createHash("sha256").update(raw).digest("hex")}`;
+}
+
+function globalConfigMutationMessage(
+  code: GlobalConfigMutationErrorCode,
+  evidence: GlobalConfigMutationEvidence,
+): string {
+  if (code === "GLOBAL_CONFIG_LOCK_UNAVAILABLE") {
+    return `Global config mutation is already in progress: ${evidence.configPath}`;
+  }
+  if (code === "GLOBAL_CONFIG_REVISION_CONFLICT") {
+    return `Global config revision conflict: expected ${evidence.expectedRevision}, found ${evidence.actualRevision}`;
+  }
+  return `Global config atomic write failed: ${evidence.configPath}`;
+}
+
+export class GlobalConfigMutationError extends Error {
+  readonly name = "GlobalConfigMutationError";
+
+  constructor(
+    readonly code: GlobalConfigMutationErrorCode,
+    readonly evidence: GlobalConfigMutationEvidence,
+    cause?: unknown,
+  ) {
+    super(globalConfigMutationMessage(code, evidence));
+    this.cause = cause;
+  }
+}
+
+export interface GlobalConfigMutationOptions {
+  readonly expectedRevision?: string;
+  readonly invalidCurrent?: "backup-and-replace";
+}
+
+export interface GlobalConfigMutationResult {
+  readonly config: KilnGlobalConfig;
+  readonly previousRevision: string;
+  readonly revision: string;
+  readonly invalidBackupPath?: string;
+}
+
+export function mutateGlobalConfig(
+  mutation: (current: KilnGlobalConfig | null) => KilnGlobalConfig,
+  options: GlobalConfigMutationOptions = {},
+): GlobalConfigMutationResult {
   const configPath = resolveGlobalConfigPath();
-  mkdirSync(dirname(configPath), { recursive: true });
-  writeFileSync(configPath, stringify(config), "utf-8");
+  const configDirectory = dirname(configPath);
+  const lockPath = `${configPath}.lock`;
+  mkdirSync(configDirectory, { recursive: true });
+  const lock = acquireGlobalConfigLock(configPath, lockPath);
+  const temporaryPath = `${configPath}.${lock.acquisitionId}.tmp`;
+
+  try {
+    const currentRaw = existsSync(configPath) ? readFileSync(configPath, "utf-8") : null;
+    const previousRevision = globalConfigRevision(currentRaw);
+    if (options.expectedRevision !== undefined && options.expectedRevision !== previousRevision) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_REVISION_CONFLICT", {
+        configPath,
+        expectedRevision: options.expectedRevision,
+        actualRevision: previousRevision,
+      });
+    }
+    let current: KilnGlobalConfig | null;
+    let invalidBackupPath: string | undefined;
+    try {
+      current = parseGlobalConfigRaw(currentRaw);
+    } catch (error) {
+      if (currentRaw === null || options.invalidCurrent !== "backup-and-replace") throw error;
+      const mode = statSync(configPath).mode & 0o777;
+      invalidBackupPath = `${configPath}.invalid-${lock.acquisitionId}.bak`;
+      try {
+        writeFileSync(invalidBackupPath, currentRaw, { encoding: "utf-8", flag: "wx", mode });
+      } catch (backupError) {
+        throw new GlobalConfigMutationError(
+          "GLOBAL_CONFIG_WRITE_FAILED",
+          { configPath, invalidBackupPath },
+          backupError,
+        );
+      }
+      current = null;
+    }
+    const next = mutation(current);
+    validateGlobalConfig(next);
+    const serialized = stringify(next);
+    if (current !== null && JSON.stringify(current) === JSON.stringify(next)) {
+      return {
+        config: next,
+        previousRevision,
+        revision: previousRevision,
+        ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
+      };
+    }
+    const mode = currentRaw === null ? 0o600 : statSync(configPath).mode & 0o777;
+    try {
+      writeFileSync(temporaryPath, serialized, { encoding: "utf-8", mode });
+      if (currentRaw !== null) chmodSync(temporaryPath, mode);
+      // Node replaces an existing destination on Windows and POSIX; never unlink
+      // the canonical path first because that would expose a missing-config gap.
+      renameSync(temporaryPath, configPath);
+    } catch (error) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", {
+        configPath,
+        ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
+      }, error);
+    } finally {
+      rmSync(temporaryPath, { force: true });
+    }
+    return {
+      config: next,
+      previousRevision,
+      revision: globalConfigRevision(serialized),
+      ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
+    };
+  } finally {
+    releaseGlobalConfigLock(lockPath, lock);
+  }
+}
+
+interface GlobalConfigLockOwner {
+  readonly pid: number;
+  readonly acquiredAt: string;
+  readonly acquisitionId: string;
+}
+
+interface AcquiredGlobalConfigLock extends GlobalConfigLockOwner {
+  readonly descriptor: number;
+}
+
+function acquireGlobalConfigLock(configPath: string, lockPath: string): AcquiredGlobalConfigLock {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const owner: GlobalConfigLockOwner = {
+      pid: process.pid,
+      acquiredAt: new Date().toISOString(),
+      acquisitionId: randomUUID(),
+    };
+    let descriptor: number;
+    try {
+      descriptor = openSync(lockPath, "wx", 0o600);
+    } catch (error) {
+      if (isNodeErrorWithCode(error, "EEXIST")) {
+        const existingOwner = readGlobalConfigLockOwner(lockPath);
+        if (existingOwner !== null && !isProcessAlive(existingOwner.pid)) {
+          const recoveryPath = `${lockPath}.recovery-${randomUUID()}`;
+          try {
+            renameSync(lockPath, recoveryPath);
+          } catch (claimError) {
+            if (isNodeErrorWithCode(claimError, "ENOENT")) continue;
+            throw new GlobalConfigMutationError("GLOBAL_CONFIG_LOCK_UNAVAILABLE", {
+              configPath,
+              lockOwnerPid: existingOwner.pid,
+              lockAcquiredAt: existingOwner.acquiredAt,
+            }, claimError);
+          }
+          try {
+            const claimedOwner = readGlobalConfigLockOwner(recoveryPath);
+            if (claimedOwner?.acquisitionId === existingOwner.acquisitionId) {
+              rmSync(`${configPath}.${claimedOwner.acquisitionId}.tmp`, { force: true });
+            }
+          } finally {
+            rmSync(recoveryPath, { force: true });
+          }
+          continue;
+        }
+        throw new GlobalConfigMutationError("GLOBAL_CONFIG_LOCK_UNAVAILABLE", {
+          configPath,
+          ...(existingOwner === null ? {} : {
+            lockOwnerPid: existingOwner.pid,
+            lockAcquiredAt: existingOwner.acquiredAt,
+          }),
+        }, error);
+      }
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_LOCK_UNAVAILABLE", { configPath }, error);
+    }
+    try {
+      writeFileSync(descriptor, JSON.stringify(owner), { encoding: "utf-8" });
+      fsyncSync(descriptor);
+      return { ...owner, descriptor };
+    } catch (error) {
+      try {
+        releaseGlobalConfigLock(lockPath, { ...owner, descriptor });
+      } catch {
+        // The release path always closes the descriptor and never removes an
+        // unclaimed canonical lock path.
+      }
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_LOCK_UNAVAILABLE", { configPath }, error);
+    }
+  }
+  throw new GlobalConfigMutationError("GLOBAL_CONFIG_LOCK_UNAVAILABLE", { configPath });
+}
+
+function releaseGlobalConfigLock(lockPath: string, lock: AcquiredGlobalConfigLock): void {
+  const releasePath = `${lockPath}.release-${lock.acquisitionId}`;
+  let claimed = false;
+  try {
+    renameSync(lockPath, releasePath);
+    claimed = true;
+  } finally {
+    closeSync(lock.descriptor);
+    if (claimed) rmSync(releasePath, { force: true });
+  }
+}
+
+function readGlobalConfigLockOwner(lockPath: string): GlobalConfigLockOwner | null {
+  try {
+    const value = JSON.parse(readFileSync(lockPath, "utf-8")) as unknown;
+    if (!isRecord(value)
+      || typeof value.pid !== "number"
+      || !Number.isSafeInteger(value.pid)
+      || value.pid <= 0
+      || typeof value.acquiredAt !== "string"
+      || Number.isNaN(Date.parse(value.acquiredAt))
+      || typeof value.acquisitionId !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value.acquisitionId)
+    ) return null;
+    return value as unknown as GlobalConfigLockOwner;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !isNodeErrorWithCode(error, "ESRCH");
+  }
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }
 
 export function defaultGlobalConfig(): KilnGlobalConfig {
@@ -192,10 +485,6 @@ export function defaultGlobalConfig(): KilnGlobalConfig {
       claude: { enabled: true, billing: "subscription" },
       codex: { enabled: false, billing: "plus-quota" },
       opencode: { enabled: false, billing: "free" },
-    },
-    routing: {
-      defaultWorker: "claude",
-      budgetAware: false,
     },
     permissions: {
       approval: "on-request",
@@ -217,24 +506,16 @@ export function resolveGlobalDefaultProvider(config: KilnGlobalConfig | null | u
   if (!config) {
     return undefined;
   }
-  const firstRouteProvider = config.routing?.routes?.find((route) => route.provider.trim().length > 0)?.provider;
-  if (firstRouteProvider) {
-    return firstRouteProvider;
-  }
-  return config.routing?.defaultWorker
-    ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled === true)?.[0];
+  const routeId = config.executionRouting?.defaultRouteId;
+  return config.executionCatalog?.routes.find((route) => route.id === routeId)?.providerId;
 }
 
 export function resolveGlobalDefaultModel(config: KilnGlobalConfig | null | undefined): string | undefined {
   if (!config) {
     return undefined;
   }
-  const firstRoute = config.routing?.routes?.find((route) => route.provider.trim().length > 0);
-  if (firstRoute?.model) {
-    return firstRoute.model;
-  }
-  const provider = resolveGlobalDefaultProvider(config);
-  return (provider ? config.models?.[provider] : undefined) ?? config.models?.default;
+  const routeId = config.executionRouting?.defaultRouteId;
+  return config.executionCatalog?.routes.find((route) => route.id === routeId)?.providerModelId;
 }
 
 export function resolveGlobalUiTheme(config: KilnGlobalConfig | null | undefined): string | undefined {
@@ -254,11 +535,11 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "identity");
   validateRecordField(config, "workGovernance");
   validateRecordField(config, "engines");
-  validateRecordField(config, "routing");
+  validateRecordField(config, "executionCatalog");
+  validateRecordField(config, "workerRouting");
   validateRecordField(config, "permissions");
   validateRecordField(config, "mcp");
   validateRecordField(config, "hooks");
-  validateRecordField(config, "models");
   validateRecordField(config, "managedAgents");
   validateRecordField(config, "deliberationPolicy");
   validateRecordField(config, "web");
@@ -271,7 +552,9 @@ export function validateGlobalConfig(config: unknown): void {
   validateStringArray(config.activeInstructionProfiles, "activeInstructionProfiles");
   validateWorkGovernance(config.workGovernance);
   validateEngines(config.engines);
-  validateRouting(config.routing);
+  validateExecutionCatalog(config.executionCatalog, config.executionRouting);
+  validateExecutionRouting(config.executionRouting, config.executionCatalog);
+  validateWorkerRouting(config.workerRouting);
   validateComponents(config.components);
   validateOperatorVoice(config.operatorVoice);
   validateManagedAgents(config.managedAgents, config.operatorVoice as VoiceConfig | undefined);
@@ -279,15 +562,16 @@ export function validateGlobalConfig(config: unknown): void {
   validateDeliberationPolicy(config.deliberationPolicy);
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
-  validateGlobalUi(config.ui);
+  validateGlobalUi(config.ui, config.executionCatalog);
   validateGlobalModelGateway(config.modelGateway);
-  validateManagedAccountPolicyReferences(config.managedAgents, config.modelGateway);
+  validateManagedAccountPolicyReferences(config.managedAgents, config.executionCatalog);
   readMcpConfigurationSource({
     value: config.mcp,
     scope: "global",
     sourcePath: resolveGlobalConfigPath(),
   });
 }
+
 
 export function resolveGlobalModelGatewayConfig(config: KilnGlobalConfig | null | undefined): ModelGatewayConfig {
   if (!config?.modelGateway) throw new KilnYamlError("Global config does not declare modelGateway.");
@@ -471,59 +755,206 @@ function validateEngines(value: unknown): void {
   }
 }
 
-function validateRouting(value: unknown): void {
+function validateExecutionCatalog(value: unknown, routing: unknown): void {
   if (value === undefined) {
+    if (routing !== undefined) throw new KilnYamlError("executionRouting requires executionCatalog");
     return;
   }
-  if (!isRecord(value)) {
-    throw new KilnYamlError("routing must be an object");
+  if (!isRecord(value)) throw new KilnYamlError("executionCatalog must be an object");
+  rejectUnknownFields(value, ["accounts", "accountPolicies", "routes"], "executionCatalog");
+  if (!Array.isArray(value.accounts) || !Array.isArray(value.accountPolicies) || !Array.isArray(value.routes)) {
+    throw new KilnYamlError("executionCatalog.accounts, executionCatalog.accountPolicies, and executionCatalog.routes must be arrays");
   }
-  if (value.defaultWorker !== undefined && typeof value.defaultWorker !== "string") {
-    throw new KilnYamlError("routing.defaultWorker must be a string");
-  }
-  if (value.fallback !== undefined && typeof value.fallback !== "string") {
-    throw new KilnYamlError("routing.fallback must be a string");
-  }
-  if (value.routes !== undefined) {
-    if (!Array.isArray(value.routes)) {
-      throw new KilnYamlError("routing.routes must be an array");
+
+  const accounts = new Map<string, Record<string, unknown>>();
+  value.accounts.forEach((account, index) => {
+    const path = `executionCatalog.accounts[${index}]`;
+    if (!isRecord(account)) throw new KilnYamlError(`${path} must be an object`);
+    rejectUnknownFields(account, ["id", "providerId", "credentialId", "maxConcurrency", "reservedAffinitySlots", "economics"], path);
+    validateCanonicalId(account.id, `${path}.id`);
+    validateCanonicalId(account.providerId, `${path}.providerId`);
+    validateCanonicalId(account.credentialId, `${path}.credentialId`);
+    if (accounts.has(account.id)) throw new KilnYamlError(`${path}.id must be unique`);
+    if (typeof account.maxConcurrency !== "number" || !Number.isSafeInteger(account.maxConcurrency) || account.maxConcurrency < 1) {
+      throw new KilnYamlError(`${path}.maxConcurrency must be a positive integer`);
     }
-    for (let index = 0; index < value.routes.length; index += 1) {
-      validateRoutingRoute(value.routes[index], index);
+    if (!Number.isSafeInteger(account.reservedAffinitySlots) || Number(account.reservedAffinitySlots) < 0 || Number(account.reservedAffinitySlots) > account.maxConcurrency) {
+      throw new KilnYamlError(`${path}.reservedAffinitySlots must be a non-negative integer no greater than maxConcurrency`);
     }
-  }
-  if (value.budgetAware !== undefined && typeof value.budgetAware !== "boolean") {
-    throw new KilnYamlError("routing.budgetAware must be a boolean");
-  }
-  if (value.budget !== undefined) {
-    if (!isRecord(value.budget)) {
-      throw new KilnYamlError("routing.budget must be an object");
-    }
-    for (const [engineId, budget] of Object.entries(value.budget)) {
-      if (!isRecord(budget)) {
-        throw new KilnYamlError(`routing.budget.${engineId} must be an object`);
-      }
-      const ceiling = budget.dailyTokenCeiling;
-      if (ceiling !== undefined && ceiling !== null && typeof ceiling !== "number") {
-        throw new KilnYamlError(`routing.budget.${engineId}.dailyTokenCeiling must be a number or null`);
-      }
-      if (budget.onCeiling !== undefined && budget.onCeiling !== "fallback" && budget.onCeiling !== "stop") {
-        throw new KilnYamlError(`routing.budget.${engineId}.onCeiling must be "fallback" or "stop"`);
-      }
-    }
+    validateExecutionAccountEconomics(account.economics, `${path}.economics`);
+    accounts.set(account.id, account);
+  });
+
+  const policies = new Map<string, Record<string, unknown>>();
+  value.accountPolicies.forEach((policy, index) => {
+    const path = `executionCatalog.accountPolicies[${index}]`;
+    if (!isRecord(policy)) throw new KilnYamlError(`${path} must be an object`);
+    rejectUnknownFields(policy, ["id", "accountIds", "strategy"], path);
+    validateCanonicalId(policy.id, `${path}.id`);
+    if (policies.has(policy.id)) throw new KilnYamlError(`${path}.id must be unique`);
+    if (!Array.isArray(policy.accountIds) || policy.accountIds.length === 0) throw new KilnYamlError(`${path}.accountIds must be a non-empty array`);
+    if (policy.strategy !== "economic-least-pressure") throw new KilnYamlError(`${path}.strategy must be "economic-least-pressure"`);
+    const policyAccountIds = new Set<string>();
+    let providerId: string | undefined;
+    policy.accountIds.forEach((accountId, accountIndex) => {
+      validateCanonicalId(accountId, `${path}.accountIds[${accountIndex}]`);
+      if (!accounts.has(accountId)) throw new KilnYamlError(`${path}.accountIds[${accountIndex}] references an unknown account`);
+      if (policyAccountIds.has(accountId)) throw new KilnYamlError(`${path}.accountIds[${accountIndex}] must be unique`);
+      policyAccountIds.add(accountId);
+      const accountProviderId = accounts.get(accountId)!.providerId as string;
+      if (providerId !== undefined && providerId !== accountProviderId) throw new KilnYamlError(`${path}.accountIds must all reference accounts from one provider`);
+      providerId = accountProviderId;
+    });
+    policies.set(policy.id, policy);
+  });
+
+  const routeIds = new Set<string>();
+  value.routes.forEach((route, index) => {
+    const path = `executionCatalog.routes[${index}]`;
+    if (!isRecord(route)) throw new KilnYamlError(`${path} must be an object`);
+    rejectUnknownFields(route, ["id", "label", "providerId", "providerModelId", "accountSelection", "economics"], path);
+    validateCanonicalId(route.id, `${path}.id`);
+    if (routeIds.has(route.id)) throw new KilnYamlError(`${path}.id must be unique`);
+    routeIds.add(route.id);
+    validateRequiredNonEmptyString(route, "label", `${path}.label`);
+    validateCanonicalId(route.providerId, `${path}.providerId`);
+    validateRequiredNonEmptyString(route, "providerModelId", `${path}.providerModelId`);
+    validateRouteAccountSelection(route.accountSelection, path, route.providerId, accounts, policies);
+    validateExecutionRouteEconomics(route.economics, `${path}.economics`);
+  });
+  try {
+    defineExecutionCatalog(value as unknown as ExecutionCatalog);
+  } catch (error) {
+    throw new KilnYamlError(`Invalid executionCatalog: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
-function validateRoutingRoute(value: unknown, index: number): void {
-  if (!isRecord(value)) {
-    throw new KilnYamlError(`routing.routes[${index}] must be an object`);
+function validateExecutionAccountEconomics(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["capacityIdentity", "subscriptionClass", "quotaClassId", "creditPosture", "overagePosture"], path);
+  validateRequiredNonEmptyString(value, "capacityIdentity", `${path}.capacityIdentity`);
+  if (!["subscription", "included", "free", "metered", "unknown"].includes(String(value.subscriptionClass))) throw new KilnYamlError(`${path}.subscriptionClass is invalid`);
+  validateRequiredNonEmptyString(value, "quotaClassId", `${path}.quotaClassId`);
+  if (value.creditPosture !== "disabled" && value.creditPosture !== "committed") throw new KilnYamlError(`${path}.creditPosture is invalid`);
+  if (value.overagePosture !== "disabled" && value.overagePosture !== "committed") throw new KilnYamlError(`${path}.overagePosture is invalid`);
+}
+
+function validateExecutionRouteEconomics(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["adapterCapabilityId", "adapterCapabilityVersion", "authBillingChannel", "executionMode", "serviceTier", "rateCardBasis", "envelopeSemantics", "fallbackPosture", "overagePosture", "contextClass", "cacheClass", "priceEvidence", "auxiliaryCharges", "executionEnvelope"], path);
+  for (const field of ["adapterCapabilityId", "adapterCapabilityVersion", "authBillingChannel", "executionMode", "serviceTier", "rateCardBasis", "envelopeSemantics", "contextClass", "cacheClass"]) validateRequiredNonEmptyString(value, field, `${path}.${field}`);
+  if (value.fallbackPosture !== "disabled" && value.fallbackPosture !== "committed") throw new KilnYamlError(`${path}.fallbackPosture is invalid`);
+  if (value.overagePosture !== "disabled" && value.overagePosture !== "committed") throw new KilnYamlError(`${path}.overagePosture is invalid`);
+  validateExecutionPriceEvidence(value.priceEvidence, `${path}.priceEvidence`);
+  if (!Array.isArray(value.auxiliaryCharges)) throw new KilnYamlError(`${path}.auxiliaryCharges must be an array`);
+  value.auxiliaryCharges.forEach((charge, index) => {
+    const chargePath = `${path}.auxiliaryCharges[${index}]`;
+    if (!isRecord(charge)) throw new KilnYamlError(`${chargePath} must be an object`);
+    rejectUnknownFields(charge, ["id", "amount"], chargePath);
+    validateCanonicalId(charge.id, `${chargePath}.id`);
+    validateEconomicAmount(charge.amount, `${chargePath}.amount`);
+  });
+  if (!isRecord(value.executionEnvelope)) throw new KilnYamlError(`${path}.executionEnvelope must be an object`);
+  rejectUnknownFields(value.executionEnvelope, ["limits"], `${path}.executionEnvelope`);
+  if (!Array.isArray(value.executionEnvelope.limits)) throw new KilnYamlError(`${path}.executionEnvelope.limits must be an array`);
+  value.executionEnvelope.limits.forEach((limit, index) => validateEconomicAmount(limit, `${path}.executionEnvelope.limits[${index}]`));
+}
+
+function validateExecutionPriceEvidence(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  const kind = value.kind;
+  if (!["subscription", "included", "free", "metered", "unknown", "estimated"].includes(String(kind))) throw new KilnYamlError(`${path}.kind is invalid`);
+  const fields = kind === "included" ? ["kind", "allowanceId", "rateCardId", "rateCardRevision", "evidence"]
+    : kind === "metered" || kind === "estimated" ? ["kind", ...(kind === "estimated" ? ["estimationMethod"] : []), "rateCardId", "rateCardRevision", "unitPrices", "evidence"]
+      : kind === "unknown" ? ["kind", "reason", "rateCardId", "rateCardRevision", "evidence"]
+        : ["kind", "rateCardId", "rateCardRevision", "evidence"];
+  rejectUnknownFields(value, fields, path);
+  for (const field of fields.filter((field) => !["kind", "evidence", "unitPrices"].includes(field))) validateRequiredNonEmptyString(value, field, `${path}.${field}`);
+  validateExecutionEconomicEvidence(value.evidence, `${path}.evidence`);
+  if (kind === "metered" || kind === "estimated") {
+    if (!Array.isArray(value.unitPrices)) throw new KilnYamlError(`${path}.unitPrices must be an array`);
+    value.unitPrices.forEach((unitPrice, index) => {
+      const unitPath = `${path}.unitPrices[${index}]`;
+      if (!isRecord(unitPrice)) throw new KilnYamlError(`${unitPath} must be an object`);
+      rejectUnknownFields(unitPrice, ["usageUnit", "price"], unitPath);
+      validateRequiredNonEmptyString(unitPrice, "usageUnit", `${unitPath}.usageUnit`);
+      validateEconomicAmount(unitPrice.price, `${unitPath}.price`);
+    });
   }
-  if (typeof value.provider !== "string" || value.provider.trim().length === 0) {
-    throw new KilnYamlError(`routing.routes[${index}].provider must be a non-empty string`);
+}
+
+function validateExecutionEconomicEvidence(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["sourceIdentity", "sourceRevision", "sourceDigest", "observedAt", "validUntil", "confidence", "authority"], path);
+  for (const field of ["sourceIdentity", "sourceRevision", "sourceDigest", "observedAt", "validUntil"]) validateRequiredNonEmptyString(value, field, `${path}.${field}`);
+  if (!["high", "medium", "low"].includes(String(value.confidence))) throw new KilnYamlError(`${path}.confidence is invalid`);
+  if (!["provider-reported", "configured", "calculated-estimate"].includes(String(value.authority))) throw new KilnYamlError(`${path}.authority is invalid`);
+}
+
+function validateRouteAccountSelection(
+  value: unknown,
+  routePath: string,
+  providerId: unknown,
+  accounts: ReadonlyMap<string, Record<string, unknown>>,
+  policies: ReadonlyMap<string, Record<string, unknown>>,
+): void {
+  const path = `${routePath}.accountSelection`;
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, ["mode", "accountPolicyId", "accountId"], path);
+  if (value.mode === "automatic") {
+    validateCanonicalId(value.accountPolicyId, `${path}.accountPolicyId`);
+    if (value.accountId !== undefined) throw new KilnYamlError(`${path}.automatic mode cannot set accountId`);
+    const policy = policies.get(value.accountPolicyId);
+    if (!policy) throw new KilnYamlError(`${path}.accountPolicyId references an unknown account policy`);
+    const policyProviderId = accounts.get((policy.accountIds as readonly string[])[0]!)!.providerId;
+    if (policyProviderId !== providerId) throw new KilnYamlError(`${path}.accountPolicyId provider must match route providerId`);
+    return;
   }
-  if (value.model !== undefined && typeof value.model !== "string") {
-    throw new KilnYamlError(`routing.routes[${index}].model must be a string`);
+  if (value.mode === "exact") {
+    validateCanonicalId(value.accountId, `${path}.accountId`);
+    if (value.accountPolicyId !== undefined) throw new KilnYamlError(`${path}.exact mode cannot set accountPolicyId`);
+    const account = accounts.get(value.accountId);
+    if (!account) throw new KilnYamlError(`${path}.accountId references an unknown account`);
+    if (account.providerId !== providerId) throw new KilnYamlError(`${path}.accountId provider must match route providerId`);
+    return;
   }
+  throw new KilnYamlError(`${path}.mode must be "automatic" or "exact"`);
+}
+
+function validateExecutionRouting(value: unknown, executionCatalog: unknown): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError("executionRouting must be an object");
+  rejectUnknownFields(value, ["defaultRouteId"], "executionRouting");
+  validateCanonicalId(value.defaultRouteId, "executionRouting.defaultRouteId");
+  if (!isRecord(executionCatalog) || !Array.isArray(executionCatalog.routes)) throw new KilnYamlError("executionRouting requires executionCatalog.routes");
+  const routeIds = new Set(executionCatalog.routes.map((route) => isRecord(route) ? route.id : undefined));
+  if (!routeIds.has(value.defaultRouteId)) throw new KilnYamlError("executionRouting.defaultRouteId references an unknown route");
+}
+
+function validateWorkerRouting(value: unknown): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError("workerRouting must be an object");
+  rejectUnknownFields(value, ["defaultWorker", "fallback", "routes", "budgetAware", "budget"], "workerRouting");
+  if (value.defaultWorker !== undefined && typeof value.defaultWorker !== "string") throw new KilnYamlError("workerRouting.defaultWorker must be a string");
+  if (value.fallback !== undefined && typeof value.fallback !== "string") throw new KilnYamlError("workerRouting.fallback must be a string");
+  if (value.routes !== undefined) {
+    if (!Array.isArray(value.routes)) throw new KilnYamlError("workerRouting.routes must be an array");
+    value.routes.forEach((route, index) => validateWorkerRoutingRoute(route, index));
+  }
+  if (value.budgetAware !== undefined && typeof value.budgetAware !== "boolean") throw new KilnYamlError("workerRouting.budgetAware must be a boolean");
+  if (value.budget === undefined) return;
+  if (!isRecord(value.budget)) throw new KilnYamlError("workerRouting.budget must be an object");
+  for (const [engineId, budget] of Object.entries(value.budget)) {
+    if (!isRecord(budget)) throw new KilnYamlError(`workerRouting.budget.${engineId} must be an object`);
+    if (budget.dailyTokenCeiling !== undefined && budget.dailyTokenCeiling !== null && typeof budget.dailyTokenCeiling !== "number") throw new KilnYamlError(`workerRouting.budget.${engineId}.dailyTokenCeiling must be a number or null`);
+    if (budget.onCeiling !== undefined && budget.onCeiling !== "fallback" && budget.onCeiling !== "stop") throw new KilnYamlError(`workerRouting.budget.${engineId}.onCeiling must be \"fallback\" or \"stop\"`);
+  }
+}
+
+function validateWorkerRoutingRoute(value: unknown, index: number): void {
+  if (!isRecord(value)) throw new KilnYamlError(`workerRouting.routes[${index}] must be an object`);
+  if (typeof value.provider !== "string" || value.provider.trim().length === 0) throw new KilnYamlError(`workerRouting.routes[${index}].provider must be a non-empty string`);
+  if (value.model !== undefined && typeof value.model !== "string") throw new KilnYamlError(`workerRouting.routes[${index}].model must be a string`);
 }
 
 function validateComponents(value: unknown): void {
@@ -542,10 +973,10 @@ function validateComponents(value: unknown): void {
 
 const GLOBAL_UI_FIELDS = fieldNamesOf<KilnGlobalUiConfig>({
   theme: true,
-  providerSelection: true,
+  executionRouteSelection: true,
 });
 
-function validateGlobalUi(value: unknown): void {
+function validateGlobalUi(value: unknown, executionCatalog: unknown): void {
   if (value === undefined) {
     return;
   }
@@ -556,21 +987,40 @@ function validateGlobalUi(value: unknown): void {
   if (value.theme !== undefined && typeof value.theme !== "string") {
     throw new KilnYamlError("ui.theme must be a string");
   }
-  if (value.providerSelection === undefined) {
+  if (value.executionRouteSelection === undefined) {
     return;
   }
-  if (!isRecord(value.providerSelection)) {
-    throw new KilnYamlError("ui.providerSelection must be an object");
+  if (!isRecord(value.executionRouteSelection)) {
+    throw new KilnYamlError("ui.executionRouteSelection must be an object");
   }
-  const providerSelectionFields = new Set(["provider", "model"]);
-  for (const key of Object.keys(value.providerSelection)) {
-    if (!providerSelectionFields.has(key)) {
-      throw new KilnYamlError(`Unknown global ui.providerSelection field: ${key}`);
+  const selection = value.executionRouteSelection;
+  const executionRouteSelectionFields = new Set(["routeId", "accountOverrideId"]);
+  for (const key of Object.keys(selection)) {
+    if (!executionRouteSelectionFields.has(key)) {
+      throw new KilnYamlError(`Unknown global ui.executionRouteSelection field: ${key}`);
     }
   }
-  validateRequiredNonEmptyString(value.providerSelection, "provider", "ui.providerSelection.provider");
-  if (value.providerSelection.model !== undefined && typeof value.providerSelection.model !== "string") {
-    throw new KilnYamlError("ui.providerSelection.model must be a string");
+  validateCanonicalId(selection.routeId, "ui.executionRouteSelection.routeId");
+  if (!isRecord(executionCatalog) || !Array.isArray(executionCatalog.routes)) {
+    throw new KilnYamlError("ui.executionRouteSelection requires executionCatalog.routes");
+  }
+  const selectedRoute = executionCatalog.routes.find((route) => isRecord(route) && route.id === selection.routeId);
+  if (!isRecord(selectedRoute)) {
+    throw new KilnYamlError("ui.executionRouteSelection.routeId references an unknown route");
+  }
+  if (selection.accountOverrideId !== undefined) {
+    validateCanonicalId(selection.accountOverrideId, "ui.executionRouteSelection.accountOverrideId");
+    const routeSelection = selectedRoute.accountSelection;
+    if (!isRecord(routeSelection) || routeSelection.mode !== "automatic") {
+      throw new KilnYamlError("ui.executionRouteSelection.accountOverrideId requires an automatic route");
+    }
+    if (!Array.isArray(executionCatalog.accountPolicies)) {
+      throw new KilnYamlError("ui.executionRouteSelection.accountOverrideId requires executionCatalog.accountPolicies");
+    }
+    const policy = executionCatalog.accountPolicies.find((entry) => isRecord(entry) && entry.id === routeSelection.accountPolicyId);
+    if (!isRecord(policy) || !Array.isArray(policy.accountIds) || !policy.accountIds.includes(selection.accountOverrideId)) {
+      throw new KilnYamlError("ui.executionRouteSelection.accountOverrideId is not eligible for the selected route");
+    }
   }
 }
 
@@ -639,12 +1089,12 @@ function validateManagedAgents(value: unknown, operatorVoice: VoiceConfig | unde
     "routes",
     "economicPolicies",
   ], "managedAgents");
-  const hasRuntimeSelectedRoute = Array.isArray(value.routes) && value.routes.some(
-    (route) => isRecord(route) && isRecord(route.credentials) && route.credentials.mode === "runtime-selected",
+  const hasDirectRoute = Array.isArray(value.routes) && value.routes.some(
+    (route) => isRecord(route) && route.kind === "direct",
   );
-  if (hasRuntimeSelectedRoute && value.schemaVersion !== 2) {
+  if (hasDirectRoute && value.schemaVersion !== 2) {
     throw new KilnYamlError(
-      "managedAgents runtime-selected routes use the retired pre-v2 schema and must be re-authored as schemaVersion 2; no automatic migration can infer economic authority. See docs/guides/global-config.md#managed-economic-policy-schema-v2.",
+      "managedAgents direct routes require schemaVersion 2; no automatic migration can infer execution-route authority. See docs/guides/global-config.md#managed-economic-policy-schema-v2.",
     );
   }
   if (value.economicPolicies !== undefined && value.schemaVersion !== 2) {
@@ -682,6 +1132,7 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   rejectUnknownFields(value, [
     "id",
     "kind",
+    "executionRouteId",
     "provider",
     "model",
     "voiceProfile",
@@ -692,7 +1143,6 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
     "memory",
     "readAuthority",
     "writeAuthority",
-    "credentials",
     "remoteHarness",
     "externalRuntimeAttachment",
   ], `managedAgents.routes[${index}]`);
@@ -702,8 +1152,23 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   if (value.kind !== "harness" && value.kind !== "direct") {
     throw new KilnYamlError(`managedAgents.routes[${index}].kind must be "harness" or "direct"`);
   }
-  if (typeof value.provider !== "string" || value.provider.trim().length === 0) {
-    throw new KilnYamlError(`managedAgents.routes[${index}].provider is required`);
+  if (value.kind === "direct") {
+    if (typeof value.executionRouteId !== "string" || value.executionRouteId.trim().length === 0) {
+      throw new KilnYamlError(`managedAgents.routes[${index}].executionRouteId is required`);
+    }
+    validateCanonicalId(value.executionRouteId, `managedAgents.routes[${index}].executionRouteId`);
+    if (value.provider !== undefined || value.model !== undefined || value.remoteHarness !== undefined) {
+      throw new KilnYamlError(
+        `managedAgents.routes[${index}] direct routes may only select an executionRouteId; provider, model, and remoteHarness belong to harness routes`,
+      );
+    }
+  } else {
+    if (typeof value.provider !== "string" || value.provider.trim().length === 0) {
+      throw new KilnYamlError(`managedAgents.routes[${index}].provider is required`);
+    }
+    if (value.executionRouteId !== undefined) {
+      throw new KilnYamlError(`managedAgents.routes[${index}] harness routes cannot declare executionRouteId`);
+    }
   }
   if (value.timeoutMs !== undefined && (typeof value.timeoutMs !== "number" || value.timeoutMs <= 0)) {
     throw new KilnYamlError(`managedAgents.routes[${index}].timeoutMs must be positive`);
@@ -719,7 +1184,6 @@ function validateManagedAgentRoute(value: unknown, index: number, operatorVoice:
   validateManagedAgentVoiceProfile(value.voiceProfile, `managedAgents.routes[${index}].voiceProfile`, operatorVoice);
   validateManagedAgentReadAuthority(value.readAuthority, `managedAgents.routes[${index}].readAuthority`);
   validateManagedAgentWriteAuthority(value.writeAuthority, `managedAgents.routes[${index}].writeAuthority`);
-  validateManagedAgentCredentials(value.credentials, `managedAgents.routes[${index}].credentials`);
   validateManagedAgentRemoteHarness(value.remoteHarness, value.kind, `managedAgents.routes[${index}].remoteHarness`);
 }
 
@@ -891,72 +1355,21 @@ function validateEconomicScheme(value: unknown, path: string): void {
   rejectUnknownFields(value, ["kind"], path);
 }
 
-function validateManagedAgentCredentials(value: unknown, path: string): void {
-  if (!isRecord(value)) {
-    throw new KilnYamlError(`${path} must explicitly select an account policy`);
+function validateManagedAccountPolicyReferences(managedAgents: unknown, executionCatalog: unknown): void {
+  if (!isRecord(managedAgents) || !Array.isArray(managedAgents.economicPolicies)) return;
+  if (!isRecord(executionCatalog)) {
+    throw new KilnYamlError("managedAgents.economicPolicies require executionCatalog");
   }
-  if (value.mode === "credentialless") {
-    if (Object.keys(value).some((key) => !["mode", "economicsRouteId"].includes(key))) {
-      throw new KilnYamlError(`${path} credentialless mode does not accept account routing fields`);
-    }
-    if (
-      value.economicsRouteId !== undefined
-      && (typeof value.economicsRouteId !== "string" || value.economicsRouteId.trim().length === 0)
-    ) {
-      throw new KilnYamlError(`${path}.economicsRouteId must be a non-empty string`);
-    }
-    return;
-  }
-  if (value.mode !== "runtime-selected") {
-    throw new KilnYamlError(`${path}.mode must be "runtime-selected" or "credentialless"`);
-  }
-  for (const key of Object.keys(value)) {
-    if (!["mode", "routeId", "accountPolicyId"].includes(key)) {
-      throw new KilnYamlError(`Unknown ${path} field: ${key}`);
-    }
-  }
-  if (typeof value.accountPolicyId !== "string" || value.accountPolicyId.trim().length === 0) {
-    throw new KilnYamlError(`${path}.accountPolicyId is required`);
-  }
-  if (value.routeId !== undefined && (typeof value.routeId !== "string" || value.routeId.trim().length === 0)) {
-    throw new KilnYamlError(`${path}.routeId must be a non-empty string`);
-  }
-}
-
-function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGateway: unknown): void {
-  if (!isRecord(managedAgents)) return;
   const routes = Array.isArray(managedAgents.routes) ? managedAgents.routes.filter(isRecord) : [];
-  const policies = isRecord(modelGateway) && Array.isArray(modelGateway.virtualModels)
-    ? modelGateway.virtualModels.filter(isRecord)
+  const executionRoutes = Array.isArray(executionCatalog.routes)
+    ? executionCatalog.routes.filter(isRecord)
     : [];
-  for (let index = 0; index < routes.length; index += 1) {
-    const route = routes[index];
-    if (!isRecord(route) || !isRecord(route.credentials) || route.credentials.mode !== "runtime-selected") {
-      continue;
-    }
-    const credentials = route.credentials;
-    if (route.kind !== "direct") {
-      throw new KilnYamlError(
-        `managedAgents.routes[${index}] runtime-selected credentials require a direct route`,
-      );
-    }
-    const policy = policies.find((candidate) => candidate.id === credentials.accountPolicyId);
-    if (!policy) {
-      throw new KilnYamlError(
-        `managedAgents.routes[${index}].credentials.accountPolicyId must reference modelGateway.virtualModels`,
-      );
-    }
-    if (policy.providerId !== route.provider || policy.providerModelId !== route.model) {
-      throw new KilnYamlError(
-        `managedAgents.routes[${index}] provider and model must match its modelGateway account policy`,
-      );
-    }
-  }
-  if (!Array.isArray(managedAgents.economicPolicies)) return;
-  const accounts = isRecord(modelGateway) && Array.isArray(modelGateway.accounts)
-    ? modelGateway.accounts.filter(isRecord)
+  const accounts = Array.isArray(executionCatalog.accounts)
+    ? executionCatalog.accounts.filter(isRecord)
     : [];
-  const directProviders = new Set(["codex-oauth", "opencode-go", "opencode-zen"]);
+  const accountPolicies = Array.isArray(executionCatalog.accountPolicies)
+    ? executionCatalog.accountPolicies.filter(isRecord)
+    : [];
   for (let policyIndex = 0; policyIndex < managedAgents.economicPolicies.length; policyIndex += 1) {
     const economicPolicy = managedAgents.economicPolicies[policyIndex];
     if (!isRecord(economicPolicy) || !Array.isArray(economicPolicy.candidates)) continue;
@@ -966,31 +1379,23 @@ function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGat
       const path = `managedAgents.economicPolicies[${policyIndex}].candidates[${candidateIndex}]`;
       const route = routes.find((entry) => entry.id === candidate.routeId);
       if (!route) throw new KilnYamlError(`${path}.routeId must reference managedAgents.routes`);
-      if (route.kind !== "direct" || !directProviders.has(String(route.provider))) {
-        throw new KilnYamlError(`${path}.routeId must reference a supported direct economic route`);
+      if (route.kind !== "direct" || typeof route.executionRouteId !== "string") {
+        throw new KilnYamlError(`${path}.routeId must reference a direct managed route with executionRouteId`);
       }
-      if (!isRecord(route.credentials)) {
-        throw new KilnYamlError(`${path}.routeId must reference explicit route credentials`);
+      const executionRoute = executionRoutes.find((entry) => entry.id === route.executionRouteId);
+      if (!executionRoute || !isDirectProviderId(String(executionRoute.providerId))) {
+        throw new KilnYamlError(`${path}.routeId must reference a supported direct execution route`);
       }
-      const economicsRouteId = route.credentials.mode === "runtime-selected"
-        ? route.credentials.accountPolicyId
-        : route.credentials.mode === "credentialless"
-          ? route.credentials.economicsRouteId
-          : undefined;
-      if (typeof economicsRouteId !== "string") {
-        throw new KilnYamlError(`${path}.routeId requires an explicit virtual economics route reference`);
+      const selection = isRecord(executionRoute.accountSelection) ? executionRoute.accountSelection : undefined;
+      if (!selection || selection.mode !== "automatic" || typeof selection.accountPolicyId !== "string") {
+        throw new KilnYamlError(`${path}.routeId must reference an automatic execution route for managed economics`);
       }
-      const matchingVirtualModels = policies.filter((entry) => entry.id === economicsRouteId);
-      if (matchingVirtualModels.length !== 1) {
-        throw new KilnYamlError(`${path}.routeId must reference exactly one modelGateway virtual model`);
+      const accountPolicy = accountPolicies.find((entry) => entry.id === selection.accountPolicyId);
+      if (!accountPolicy || !Array.isArray(accountPolicy.accountIds)) {
+        throw new KilnYamlError(`${path}.routeId must reference an execution route with a valid account policy`);
       }
-      const virtualModel = matchingVirtualModels[0]!;
-      if (!virtualModel || !isRecord(virtualModel.economics)) {
-        throw new KilnYamlError(`${path}.routeId must reference a virtual model with economics`);
-      }
-      if (virtualModel.providerId !== route.provider || virtualModel.providerModelId !== route.model) {
-        throw new KilnYamlError(`${path}.routeId provider and model must match its virtual economics route`);
-      }
+      const economics = isRecord(executionRoute.economics) ? executionRoute.economics : undefined;
+      if (!economics) throw new KilnYamlError(`${path}.routeId must reference execution route economics`);
       const domain = Array.isArray(economicPolicy.comparisonDomains)
         ? economicPolicy.comparisonDomains.find((entry) =>
             isRecord(entry) && entry.id === candidate.comparisonDomainId)
@@ -998,30 +1403,23 @@ function validateManagedAccountPolicyReferences(managedAgents: unknown, modelGat
       if (!isRecord(domain)) {
         throw new KilnYamlError(`${path}.comparisonDomainId must reference a policy comparison domain`);
       }
-      if (domain.rateCardBasis !== virtualModel.economics.rateCardBasis) {
+      if (domain.rateCardBasis !== economics.rateCardBasis) {
         throw new KilnYamlError(`${path} comparison domain rateCardBasis must match route economics`);
       }
-      if (domain.envelopeSemantics !== virtualModel.economics.envelopeSemantics) {
+      if (domain.envelopeSemantics !== economics.envelopeSemantics) {
         throw new KilnYamlError(`${path} comparison domain envelopeSemantics must match route economics`);
       }
       validateReservationPriceClass(
         candidate.worstCaseReservation,
-        isRecord(virtualModel.economics.priceEvidence)
-          ? virtualModel.economics.priceEvidence.kind
-          : undefined,
+        isRecord(economics.priceEvidence) ? economics.priceEvidence.kind : undefined,
         path,
       );
-      validateRouteEconomicSchemes(virtualModel.economics, domain, path);
-      validateDerivedRouteReservation(candidate.worstCaseReservation, virtualModel.economics, domain, path);
-      if (virtualModel.economics.fallbackPosture !== "disabled" || virtualModel.economics.overagePosture !== "disabled") {
+      validateRouteEconomicSchemes(economics, domain, path);
+      validateDerivedRouteReservation(candidate.worstCaseReservation, economics, domain, path);
+      if (economics.fallbackPosture !== "disabled" || economics.overagePosture !== "disabled") {
         throw new KilnYamlError(`${path}.routeId cannot activate uncommitted fallback or overage`);
       }
-      const accountIds = Array.isArray(virtualModel.accountIds) ? virtualModel.accountIds : [];
-      if (route.credentials.mode === "credentialless" && accountIds.length !== 0) {
-        throw new KilnYamlError(`${path}.routeId credentialless economics route must have zero accountIds`);
-      }
-      if (route.credentials.mode === "credentialless") continue;
-      for (const accountId of accountIds) {
+      for (const accountId of accountPolicy.accountIds) {
         const account = accounts.find((entry) => entry.id === accountId);
         if (!account || !isRecord(account.economics)) {
           throw new KilnYamlError(`${path}.routeId requires economics for every account candidate`);

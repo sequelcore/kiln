@@ -144,6 +144,66 @@ describe("runSession", () => {
     })]);
   });
 
+  it("dispatches one exact post-fence credential-bound candidate without fallback", async () => {
+    const run = vi.fn(async function* () {
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+    });
+    const createSession = vi.fn(() => ({
+      run,
+      dispose: vi.fn(async () => undefined),
+    }));
+    const executionCredential = {
+      credentialId: "credential-terra",
+      accessToken: "synthetic-access-token",
+      chatgptAccountId: "synthetic-account",
+    };
+    const credentialBinding = {
+      routeId: "terra",
+      accountId: "account-terra",
+      credentialId: "credential-terra",
+      credentialRevision: "post-fence-revision",
+    };
+
+    await runSession({
+      registry: {
+        createSession,
+        selectBest: vi.fn(),
+        reportSuccess: vi.fn(),
+        reportFailure: vi.fn(),
+      } as unknown as SessionRegistry,
+      cleanupRegistry: { register: vi.fn() } as never,
+      manager: {} as never,
+      context: {
+        mode: "cli-wrapper",
+        domain: { name: "test", displayName: "Test", toolTags: new Set(), qualityGates: [], detectPatterns: [], multishotExamples: "", phaseExamples: "" },
+        systemPrompt: "system",
+        projectedContext: { blocks: [], totalTokens: 0, omitted: [] },
+        mcpServerEntryPath: "",
+        workingDirectory: "/repo",
+        task: "Run one committed route",
+        resumeStrategy: "none",
+      } as unknown as SessionContext,
+      requirements: {},
+      routeCandidates: [{
+        provider: "codex-oauth",
+        model: "gpt-5.5",
+        credentialBinding,
+        executionCredential,
+      }],
+      sessionConfig: { task: "Run one committed route", permissionPolicy: { approval: "never", sandbox: "read-only" } },
+      permissionPolicy: { approval: "never", sandbox: "read-only" },
+      env: {},
+      sessionHooks: { userPromptSubmit: vi.fn() } as unknown as SessionHooks,
+    });
+
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(createSession).toHaveBeenCalledWith("codex-oauth", expect.objectContaining({
+      model: "gpt-5.5",
+      credentialBinding,
+      executionCredential,
+    }));
+  });
+
   it("records managed child provider routes in the session provider list", async () => {
     const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
     const run = vi.fn(async function* () {

@@ -2,10 +2,8 @@ import {
   isOperatorThemeName,
   type GuiInboundFrame,
   type GuiOutboundFrame,
-  type GuiProviderModelDiscoveryProjection,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
-import type { ProviderDescriptor } from "../lib/session-store/index.js";
 
 type ThemeResultFrame = Extract<GuiOutboundFrame, { type: "operator_theme_set_result" }>;
 
@@ -20,16 +18,12 @@ interface AppShellFrameHandlerInput {
   readonly onVoiceSynthesisFailed: (frame: Extract<GuiInboundFrame, { type: "voice_synthesis_failed" }>) => void;
   readonly onError: (frame: Extract<GuiInboundFrame, { type: "error" }>) => void;
   readonly onCleared: () => void;
-  readonly onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
-  readonly onProviderChangeFailed: (frame: Extract<GuiInboundFrame, { type: "provider_change_failed" }>) => void;
+  readonly onExecutionRouteChanged: (frame: Extract<GuiInboundFrame, { type: "execution_route_changed" }>) => void;
+  readonly onExecutionRouteChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_route_change_failed" }>) => void;
   readonly onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   readonly onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   readonly onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
-  readonly onProvidersRefreshed: (
-    providers: readonly ProviderDescriptor[],
-    providerDiscovery?: Extract<GuiInboundFrame, { type: "providers_refreshed" }>["providerDiscovery"],
-    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
-  ) => void;
+  readonly onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
   readonly onExecConfirmed: () => void;
   readonly onActivityPhase: (frame: Extract<GuiInboundFrame, { type: "activity_phase" }>) => void;
   readonly onInteractiveUseUpdated: (frame: Extract<GuiInboundFrame, { type: "interactive_use_updated" }>) => void;
@@ -44,8 +38,6 @@ interface AppShellFrameHandlerInput {
   readonly setTheme: (theme: OperatorThemeName) => void;
   readonly persistThemePreference: (theme: OperatorThemeName) => void;
   readonly sendThemeResult: (frame: ThemeResultFrame) => void;
-  readonly getProviders: () => readonly ProviderDescriptor[];
-  readonly refetchDashboard: () => void;
   readonly onManagedAgentControlResult: (frame: Extract<GuiInboundFrame, { type: "managed_agent_control_result" }>) => void;
   readonly invalidateMemoryLattice: () => void;
 }
@@ -112,33 +104,23 @@ export function createAppShellFrameHandler(input: AppShellFrameHandlerInput) {
       case "cleared":
         input.onCleared();
         return;
-      case "provider_changed":
-        input.onProviderChanged(frame);
+      case "execution_route_changed":
+        input.onExecutionRouteChanged(frame);
         return;
-      case "provider_change_failed":
-        input.onProviderChangeFailed(frame);
+      case "execution_route_change_failed":
+        input.onExecutionRouteChangeFailed(frame);
         return;
       case "provider_auth_started":
         input.onProviderAuthStarted(frame);
         return;
       case "provider_auth_completed":
         input.onProviderAuthCompleted(frame);
-        input.onProvidersRefreshed(
-          frame.providers ?? input.getProviders(),
-          frame.providerDiscovery,
-          frame.providerModelDiscovery,
-        );
-        input.refetchDashboard();
         return;
       case "provider_auth_failed":
         input.onProviderAuthFailed(frame);
         return;
-      case "providers_refreshed":
-        input.onProvidersRefreshed(
-          frame.providers ?? input.getProviders(),
-          frame.providerDiscovery,
-          frame.providerModelDiscovery,
-        );
+      case "execution_routes_refreshed":
+        input.onExecutionRoutesRefreshed(frame);
         return;
       case "execution_mode_transitioned":
         input.onExecConfirmed();

@@ -145,7 +145,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme" || text === "/provider" || text === "/deliberation" || text === "/authority" || text === "/continue" || text === "/plan" || text === "/exec" || text === "/setup") {
+        if (text === "/clear" || text === "/theme" || text === "/route" || text === "/deliberation" || text === "/authority" || text === "/continue" || text === "/plan" || text === "/exec" || text === "/setup") {
           return;
         }
         onSubmit(text);
@@ -185,7 +185,7 @@ export function initUI(
 
   const commandBarText = new TextRenderable(renderer, {
     id: "command-bar-text",
-    content: t`${fg(theme.textMuted)("/setup /theme /provider  ctrl+shift+P commands")}`,
+    content: t`${fg(theme.textMuted)("/setup /theme /route  ctrl+shift+P commands")}`,
   });
   commandBar.add(commandBarText);
 
@@ -498,7 +498,7 @@ export function destroyThemePicker(picker: ThemePickerComponents): void {
 }
 
 /**
- * Provider picker overlay components.
+ * Execution-route picker overlay components.
  *
  * ARCHITECTURE NOTE:
  * title and hint live OUTSIDE the scrollBox (in a wrapper column panel) so
@@ -506,7 +506,7 @@ export function destroyThemePicker(picker: ThemePickerComponents): void {
  * scrollBox.  Only data rows are ever added to / removed from scrollBox.content.
  * This makes scrollChildIntoView() work correctly with no manual math.
  */
-export interface ProviderPickerComponents {
+export interface ExecutionRoutePickerComponents {
   scrim: InstanceType<typeof BoxRenderable>;
   /** Outer column panel that holds title + scrollBox + hint. */
   panel: InstanceType<typeof BoxRenderable>;
@@ -516,11 +516,11 @@ export interface ProviderPickerComponents {
   hint: InstanceType<typeof TextRenderable>;
   /** Live data rows currently in scrollBox.content. */
   rows: InstanceType<typeof TextRenderable>[];
-  mode: "providers" | "models" | "auth-key" | "auth-confirm";
+  mode: "routes" | "accounts" | "auth-key" | "auth-confirm";
 }
 
 /**
- * Creates the provider picker overlay shell.
+ * Creates the execution-route picker overlay shell.
  *
  * Layout (top→bottom inside panel):
  *   ┌─────────────────────────┐
@@ -531,16 +531,16 @@ export interface ProviderPickerComponents {
  *   │  hint   (TextRenderable) │  ← fixed, outside scroll
  *   └─────────────────────────┘
  *
- * Data rows are managed entirely by app.tsx via renderProviderPicker().
+ * Data rows are managed entirely by app.tsx via renderExecutionRoutePicker().
  */
-export function createProviderPicker(
+export function createExecutionRoutePicker(
   renderer: CliRenderer,
   theme: KilnTheme,
   terminalWidth: number,
   terminalHeight: number
-): ProviderPickerComponents {
+): ExecutionRoutePickerComponents {
   const scrim = new BoxRenderable(renderer, {
-    id: "provider-picker-scrim",
+    id: "execution-route-picker-scrim",
     position: "absolute",
     left: 0,
     top: 0,
@@ -561,7 +561,7 @@ export function createProviderPicker(
 
   // Outer column panel: border + title + scrollbox + hint
   const panel = new BoxRenderable(renderer, {
-    id: "provider-picker-panel",
+    id: "execution-route-picker-panel",
     flexDirection: "column",
     width: panelWidth,
     backgroundColor: theme.backgroundPanel,
@@ -572,8 +572,8 @@ export function createProviderPicker(
 
   // Title row — fixed, never scrolls
   const title = new TextRenderable(renderer, {
-    id: "provider-picker-title",
-    content: t`${fg(theme.accent)(" Select Provider ")}`,
+    id: "execution-route-picker-title",
+    content: t`${fg(theme.accent)(" Select Execution Route ")}`,
     width: "100%",
     height: 2,
   });
@@ -581,7 +581,7 @@ export function createProviderPicker(
 
   // Scrollable data area — ONLY data rows go in here
   const scrollBox = new ScrollBoxRenderable(renderer, {
-    id: "provider-picker-scrollbox",
+    id: "execution-route-picker-scrollbox",
     width: "100%",
     height: scrollBoxHeight,
     backgroundColor: theme.backgroundPanel,
@@ -591,7 +591,7 @@ export function createProviderPicker(
 
   // Hint row — fixed, never scrolls
   const hint = new TextRenderable(renderer, {
-    id: "provider-picker-hint",
+    id: "execution-route-picker-hint",
     content: t`${fg(theme.textMuted)("↑↓ navigate  Enter select  Esc cancel")}`,
     width: "100%",
     height: 2,
@@ -605,13 +605,13 @@ export function createProviderPicker(
     scrollBox,
     hint,
     rows: [],
-    mode: "providers",
+    mode: "routes",
   };
 }
 
 /**
- * Destroys provider picker overlay.
+ * Destroys execution-route picker overlay.
  */
-export function destroyProviderPicker(picker: ProviderPickerComponents): void {
+export function destroyExecutionRoutePicker(picker: ExecutionRoutePickerComponents): void {
   picker.scrim.destroy();
 }

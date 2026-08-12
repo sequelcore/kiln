@@ -26,28 +26,36 @@ import {
   type ManagedEconomicSelectionDecision,
   type ManagedEconomicSettlement,
   type ManagedEconomicEvidenceIdentity,
+  type ModelGatewayAccountUsageEvidence,
   type SessionManagedEconomicRejection,
   validateManagedEconomicSettlement,
-  type ModelGatewayAccountEconomicsConfig,
+  type ExecutionAccountEconomicsConfig,
   selectManagedEconomicExecutionAlternative,
   validateManagedEconomicAdoptedSnapshot,
 } from "@kilnai/core";
 import { projectManagedEconomicDenialRejections } from "./managed-economic-denial-rejections.js";
 import type { ManagedAgentProviderRoute } from "@kilnai/core";
-import type { ModelGatewayBoundUsageEvidence } from "../model-gateway/model-gateway-account-binding.js";
 
 export interface ManagedAccountCandidateBinding {
   readonly candidate: ModelGatewayAccountCandidate;
   /** Stable configured account identity used for capacity across credential revisions. */
   readonly capacityIdentity: string;
   readonly credentialRevisionId: string;
-  readonly usageEvidence: ModelGatewayBoundUsageEvidence;
-  readonly accountEconomics?: ModelGatewayAccountEconomicsConfig;
+  readonly usageEvidence: ModelGatewayAccountUsageEvidence;
+  readonly accountEconomics?: ExecutionAccountEconomicsConfig;
   readonly quotaEvidence?: ManagedEconomicQuotaEvidence | null;
   readonly capacity: {
     readonly maxConcurrency: number;
     readonly reservedAffinitySlots: number;
   };
+}
+
+/** Secret-free current capacity observation for a configured account binding. */
+export interface ManagedAccountCapacityObservation {
+  readonly account: AccountRef;
+  readonly capacityIdentity: string;
+  readonly leaseCapacity: "available" | "unavailable";
+  readonly reservedForNewWork: boolean;
 }
 
 export type ManagedAccountAffinityRequest =
@@ -261,6 +269,26 @@ export class SqliteManagedAccountLeaseAuthority {
       Math.max(250, Math.floor(this.#ownerStaleMs / 3)),
     );
     this.#heartbeatTimer.unref?.();
+  }
+
+  /**
+   * Reads shared SQLite capacity without acquiring a lease. Admission still
+   * rechecks it transactionally when a lease is acquired.
+   */
+  observeCandidateCapacity(
+    candidates: readonly ManagedAccountCandidateBinding[],
+    work: "new" | "existing" = "new",
+  ): readonly ManagedAccountCapacityObservation[] {
+    if (this.#closed) throw new Error("Managed account lease authority is closed.");
+    return candidates.map((binding) => {
+      const candidate = this.#candidateWithCurrentCapacity(binding, work);
+      return Object.freeze({
+        account: candidate.account,
+        capacityIdentity: binding.capacityIdentity,
+        leaseCapacity: candidate.leaseCapacity,
+        reservedForNewWork: candidate.reservedForNewWork,
+      });
+    });
   }
 
   close(): void {
@@ -1783,7 +1811,10 @@ export interface ManagedEconomicAuthorityDecisionEvidence {
 }
 
 /** Participants are intentionally named by the recovery protocol they own, not by a UI surface. */
-export type SharedAccountCapacityParticipantKind = "managed-job-runtime" | "model-gateway-ingress";
+export type SharedAccountCapacityParticipantKind =
+  | "managed-job-runtime"
+  | "model-gateway-ingress"
+  | "operator-session";
 
 /** Account-only capacity is intentionally separate from #34 commitments. */
 export interface AccountCapacityAcquireInput {

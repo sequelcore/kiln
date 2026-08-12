@@ -7,7 +7,7 @@ import {
 } from "@kilnai/core";
 import {
   CodexOAuthCredentialPoolService,
-  ConfiguredManagedAccountRuntime,
+  ConfiguredExecutionAccountRuntime,
   SqliteManagedAccountLeaseAuthority,
   runManagedAgentOrchestrationLifecycle,
 } from "../../src/index.js";
@@ -85,7 +85,7 @@ describeManagedAgentProviderLive(
         credentialResolutions.mockClear();
         const runtimeDirectory = join(workspace.workspaceRoot, ".kiln", "runtime");
         await mkdir(runtimeDirectory, { recursive: true });
-        const routing = new ConfiguredManagedAccountRuntime({
+        const routing = new ConfiguredExecutionAccountRuntime({
           config: config.modelGateway,
           codexPool,
         });

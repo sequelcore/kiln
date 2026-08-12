@@ -57,14 +57,16 @@ import {
   DirectProviderBindingError,
   directProviderExecutionBinding,
 } from "./direct-provider-adapter-factory.js";
-import type { DirectProviderAccountBinding } from "./direct-provider-adapter-factory.js";
+import type { DirectProviderCredentialBinding } from "./direct-provider-adapter-factory.js";
+import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
 import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
 
 export interface ProviderSessionConfig {
   readonly provider: DirectProviderId;
   readonly runtimeSessionId?: string;
   readonly model?: string;
-  readonly accountBinding?: DirectProviderAccountBinding;
+  readonly credentialBinding?: DirectProviderCredentialBinding;
+  readonly executionCredential?: ConfiguredExecutionCredential;
   readonly deliberationResolution?: DeliberationResolution;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly task: string;
@@ -478,7 +480,8 @@ export class ProviderSession implements IKilnSession {
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
-      accountBinding: this.config.accountBinding,
+      credentialBinding: this.config.credentialBinding,
+      executionCredential: this.config.executionCredential,
       configEnv: this.config.env,
       runtimeEnv: options.env,
     });
@@ -726,7 +729,8 @@ export class ProviderSession implements IKilnSession {
     const adapter = await createDirectProviderAdapter({
       provider: this.config.provider,
       model: this.resolvedModel,
-      accountBinding: this.config.accountBinding,
+      credentialBinding: this.config.credentialBinding,
+      executionCredential: this.config.executionCredential,
       configEnv: this.config.env,
       runtimeEnv: options.env,
     });

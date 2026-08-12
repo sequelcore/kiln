@@ -208,7 +208,7 @@ plan-mode or safe-defaults gaps recur that a broader allowlist can't
 reasonably absorb; no roadmap track currently owns this and none should be
 opened speculatively ahead of that evidence.
 
-### Codex OAuth virtual-model binding (short-term, closed)
+### Superseded direct-model-binding proposal (2026-08-11)
 
 Confirmed not owned by issue #34: `packages/runtime/src/agents/credential-pool/codex-oauth-credential-pool.ts`
 (`createPooledAdapter`) refuses ambiguous auto-selection among multiple
@@ -221,28 +221,32 @@ Code and Codex both assume one explicit active credential, switched via
 login/logout) — confirming Kiln's ambiguity refusal is the correct default,
 not a gap to remove.
 
-The actual gap was narrower than the smoke doc's original framing: the
-explicit-binding surface already existed end to end
-(`ProviderRouteCandidate.accountBinding` in `packages/cli/src/config/
-provider-route-candidates.ts`, resolved from a `modelGateway.virtualModels`
-entry matched against `kiln run --model <virtualModelId>`, threaded through
-`packages/cli/src/wrapper/direct-provider-adapter-factory.ts::createCodexOAuthAdapter`
-and `CodexOAuthCredentialPoolService.createExactAdapter`). What was missing
-was that hitting the ambiguity case produced an opaque error with no
-indication of *how* to resolve it. Fixed by attaching a `KilnError.suggestion`
-at the throw site (`codex-oauth-credential-pool.ts`) naming the exact
-executable credential ids and the `modelGateway.virtualModels` + `--model`
-steps to bind one — surfaced automatically by the CLI's existing
-`formatError` (`packages/cli/src/formatters.ts`), no new architecture, no
-duplicated eligibility logic at the CLI layer. Covered by
-`packages/runtime/tests/agents/codex-oauth-credential-pool.test.ts`
-("rejects pooled execution when multiple Codex OAuth subscriptions are
-executable").
+Operator friction demonstrated that the prior Model Gateway reuse was the
+wrong boundary, not merely a missing convenience command. The first proposal
+was an independent `directModels` catalog plus `kiln model bind/list` and
+`kiln run --model`. That proposal was implemented provisionally, then
+superseded before adoption because it exposed credential-level selection as a
+surface concept and duplicated the route catalog now described below.
 
-No CLI command creates `modelGateway.virtualModels` entries yet; the
-operator edits the global config directly. A dedicated `kiln model bind`
-(or similar) convenience command is deferred, not scheduled — open only if
-operators report the manual YAML edit as friction in practice.
+The useful persistence work survived: global config mutation is consolidated
+behind validation, revision conflicts, an interprocess lock, and
+same-directory atomic replacement. No binding command or `directModels`
+reader remains.
+
+### Execution catalog resolution (2026-08-11)
+
+The proposal above is historical evidence, not current guidance. The V2
+execution catalog owns `accounts`, `accountPolicies`, and operator-facing
+`routes`; `executionRouting.defaultRouteId` selects the default. Surfaces
+select a route and may request an eligible account override, never a
+credential. Runtime gates safety, health, quota, and live capacity, then orders
+automatic candidates by economics and pressure, fences capacity, and verifies
+credential ID and revision before dispatch. Exact selection never falls back.
+
+Model Gateway virtual models and managed direct routes reference
+`executionRouteId`; neither duplicates catalog authority. `kiln run` uses the
+default route or `--route`; `directModels`, `kiln model bind/list`, and
+provider/model/API-key execution overrides are retired and rejected.
 
 ## Follow-Up: Live Re-Proof, Claude Arm Only (2026-08-08)
 

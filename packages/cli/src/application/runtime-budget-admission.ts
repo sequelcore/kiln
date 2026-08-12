@@ -16,7 +16,7 @@ export function createRuntimeBudgetAdmissionFromGlobalConfig(
   globalConfig: KilnGlobalConfig | null | undefined,
   usageReader: RuntimeBudgetUsageReader,
 ): RuntimeBudgetAdmissionPort | undefined {
-  if (globalConfig?.routing?.budgetAware !== true) {
+  if (globalConfig?.workerRouting?.budgetAware !== true) {
     return undefined;
   }
   return new RuntimeBudgetAdmissionService({
@@ -49,8 +49,8 @@ export function createCliTranscriptBudgetUsageReader(
 
 export function projectGlobalRoutingBudgetPolicy(globalConfig: KilnGlobalConfig): BudgetAdmissionPolicy {
   return {
-    enabled: globalConfig.routing?.budgetAware === true,
-    routeBudgets: Object.entries(globalConfig.routing?.budget ?? {}).map(([providerId, budget]) => ({
+    enabled: globalConfig.workerRouting?.budgetAware === true,
+    routeBudgets: Object.entries(globalConfig.workerRouting?.budget ?? {}).map(([providerId, budget]) => ({
       providerId,
       dailyTokenCeiling: budget.dailyTokenCeiling ?? null,
       ...(budget.onCeiling ? { onCeiling: budget.onCeiling } : {}),

@@ -24,6 +24,7 @@ import {
   type GuiOutboundFrame,
   type GuiInboundFrame,
   type GuiDeliberationLevelId,
+  type ExecutionRouteCatalog,
   type KilnConfigSetupAction,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
@@ -36,7 +37,6 @@ import { deriveSessionContinuity } from "../lib/session-continuity.js";
 import { buildComposerContinuityHint } from "../lib/session-continuity-view.js";
 import type { OperatorSurfaceKind } from "./operator-surface-tabs.js";
 import type { CommandPaletteItem } from "./command-palette.js";
-import { ProviderStatus } from "./provider-status.js";
 import { WorkbenchSurfaces } from "./workbench-surfaces.js";
 import { useWorkspaceDocuments } from "./use-workspace-documents.js";
 import { useCockpitActions, type ManagedAgentActionFailure } from "./use-cockpit-actions.js";
@@ -49,8 +49,10 @@ import {
 } from "./app-shell-view-model.js";
 import { createAppShellCommandExecutor } from "./app-shell-command-actions.js";
 import { buildComposerTurnOptions } from "./app-shell-composer-submission.js";
-import { createProviderPickerActions } from "./app-shell-provider-actions.js";
+import { createExecutionRoutePickerActions } from "./app-shell-execution-route-actions.js";
 import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
+import { ExecutionRoutePicker } from "./execution-route-picker.js";
+import { ModelSelector } from "./ai-elements/model-selector.js";
 import {
   WorkbenchInspectorPanel,
 } from "./workbench-side-panels.js";
@@ -90,14 +92,11 @@ import {
 } from "./workbench-navigation.js";
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../lib/timeline-visibility.js";
+import { Button } from "@/components/ui/button";
 
 const CommandPalette = lazy(async () => {
   const module = await import("./command-palette.js");
   return { default: module.CommandPalette };
-});
-const ProviderPicker = lazy(async () => {
-  const module = await import("./provider-picker.js");
-  return { default: module.ProviderPicker };
 });
 const OperatorTerminalDock = lazy(async () => {
   const module = await import("./operator-terminal-dock.js");
@@ -108,6 +107,7 @@ const NARROW_LAYOUT_QUERY = "(max-width: 1024px)";
 const GATEWAY_BOOTSTRAP_TIMEOUT_MS = 10_000;
 const EMPTY_DELIBERATION_LEVELS: readonly GuiDeliberationLevelId[] = [];
 const EMPTY_APP_DESCRIPTORS: readonly GuiAppDescriptor[] = [];
+const EMPTY_EXECUTION_ROUTE_CATALOG: ExecutionRouteCatalog = { routes: [] };
 
 const GUI_COCKPIT_INSTANCE_ID = "local-gui";
 
@@ -230,18 +230,18 @@ function useAppShellRuntimeView() {
     dispatchCommandSurface({ type: "set-composer-query", query });
   };
   const [governedWorkItemCount, setGovernedWorkItemCount] = useState<number | null>(null);
-  const [isProviderPickerOpen, setIsProviderPickerOpen] = useState(false);
-  const [hasMountedProviderPicker, setHasMountedProviderPicker] = useState(false);
-  const providerPickerInvokerRef = useRef<HTMLElement | null>(null);
-  const openProviderPicker = useCallback(() => {
-    if (isProviderPickerOpen) return;
+  const [isExecutionRoutePickerOpen, setIsExecutionRoutePickerOpen] = useState(false);
+  const [hasMountedExecutionRoutePicker, setHasMountedExecutionRoutePicker] = useState(false);
+  const executionRoutePickerInvokerRef = useRef<HTMLElement | null>(null);
+  const openExecutionRoutePicker = useCallback(() => {
+    if (isExecutionRoutePickerOpen) return;
     const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    providerPickerInvokerRef.current = activeElement?.closest('[data-slot="command"]')
+    executionRoutePickerInvokerRef.current = activeElement?.closest('[data-slot="command"]')
       ? document.getElementById("composer-input")
       : activeElement;
-    setHasMountedProviderPicker(true);
-    setIsProviderPickerOpen(true);
-  }, [isProviderPickerOpen]);
+    setHasMountedExecutionRoutePicker(true);
+    setIsExecutionRoutePickerOpen(true);
+  }, [isExecutionRoutePickerOpen]);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia(NARROW_LAYOUT_QUERY).matches);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mobileDrawerMode, setMobileDrawerMode] = useState<MobileDrawerMode>("sessions");
@@ -311,20 +311,14 @@ function useAppShellRuntimeView() {
   const status = useSessionStore((state) => state.status);
   const timelineEntries = useSessionStore((state) => state.timelineEntries);
   const sessionEvents = useSessionStore((state) => state.sessionEvents);
-  const providers = useSessionStore((state) => state.providers);
-  const providerModelDiscovery = useSessionStore((state) => state.providerModelDiscovery);
   const providerDiscovery = useSessionStore((state) => state.providerDiscovery);
   const planMode = useSessionStore((state) => state.planMode);
   const activity = useSessionStore((state) => state.activity);
   const sessionControlFailure = useSessionStore((state) => state.sessionControlFailure);
   const providerCatalogStatus = useSessionStore((state) => state.providerCatalogStatus);
   const providerCatalogError = useSessionStore((state) => state.providerCatalogError);
-  const activeProvider = useSessionStore((state) => state.activeProvider);
-  const activeModel = useSessionStore((state) => state.activeModel);
-  const providerAuthenticating = useSessionStore((state) => state.providerAuthenticating);
-  const providerAuthProvider = useSessionStore((state) => state.providerAuthTarget?.provider ?? null);
-  const providerAuthMessage = useSessionStore((state) => state.providerAuthMessage);
-  const providerAuthDetails = useSessionStore((state) => state.providerAuthDetails);
+  const executionRouteCatalog = useSessionStore((state) => state.executionRouteCatalog ?? EMPTY_EXECUTION_ROUTE_CATALOG);
+  const activeRouteId = useSessionStore((state) => state.activeRouteId);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const liveSessionId = useSessionStore((state) => state.liveSessionId);
@@ -346,7 +340,7 @@ function useAppShellRuntimeView() {
   const markProviderCatalogRefreshing = useSessionStore((state) => state.markProviderCatalogRefreshing);
   const markProviderCatalogError = useSessionStore((state) => state.markProviderCatalogError);
   const onWelcome = useSessionStore((state) => state.onWelcome);
-  const onProvidersRefreshed = useSessionStore((state) => state.onProvidersRefreshed);
+  const onExecutionRoutesRefreshed = useSessionStore((state) => state.onExecutionRoutesRefreshed);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
   const onTurnCancelResult = useSessionStore((state) => state.onTurnCancelResult);
@@ -354,8 +348,8 @@ function useAppShellRuntimeView() {
   const onVoiceSynthesisFailed = useSessionStore((state) => state.onVoiceSynthesisFailed);
   const onError = useSessionStore((state) => state.onError);
   const onCleared = useSessionStore((state) => state.onCleared);
-  const onProviderChanged = useSessionStore((state) => state.onProviderChanged);
-  const onProviderChangeFailed = useSessionStore((state) => state.onProviderChangeFailed);
+  const onExecutionRouteChanged = useSessionStore((state) => state.onExecutionRouteChanged);
+  const onExecutionRouteChangeFailed = useSessionStore((state) => state.onExecutionRouteChangeFailed);
   const onProviderAuthStarted = useSessionStore((state) => state.onProviderAuthStarted);
   const onProviderAuthCompleted = useSessionStore((state) => state.onProviderAuthCompleted);
   const onProviderAuthFailed = useSessionStore((state) => state.onProviderAuthFailed);
@@ -379,7 +373,7 @@ function useAppShellRuntimeView() {
   const turnCancelPending = useSessionStore((state) => state.turnCancelPending);
   const sendClear = useSessionStore((state) => state.sendClear);
   const setPlanMode = useSessionStore((state) => state.setPlanMode);
-  const switchProvider = useSessionStore((state) => state.switchProvider);
+  const selectExecutionRoute = useSessionStore((state) => state.selectExecutionRoute);
   const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
@@ -457,8 +451,10 @@ function useAppShellRuntimeView() {
   const managedAgentEconomicAttempts = localOperatorWorkspaceState.cockpitView.economicAttempts;
   const managedAgentUnprojectableEvidence = localOperatorWorkspaceState.cockpitView.unprojectableEvidence;
   const approvalCount = pendingApprovals.length;
-  const activeModelCapabilities = activeProvider && activeModel
-    ? providerDiscovery.find((entry) => entry.provider === activeProvider)?.modelCapabilities?.[activeModel]
+  const activeExecutionRoute = executionRouteCatalog.routes.find((route) => route.routeId === activeRouteId) ?? null;
+  const activeModelCapabilities = activeExecutionRoute
+    ? providerDiscovery.find((entry) => entry.provider === activeExecutionRoute.providerId)
+      ?.modelCapabilities?.[activeExecutionRoute.providerModelId]
     : undefined;
   const deliberationLevelOptions = activeModelCapabilities?.deliberation?.levels.map((level) => level.id)
     ?? EMPTY_DELIBERATION_LEVELS;
@@ -562,7 +558,7 @@ function useAppShellRuntimeView() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
-        openProviderPicker();
+        openExecutionRoutePicker();
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "1") {
         event.preventDefault();
@@ -611,13 +607,13 @@ function useAppShellRuntimeView() {
       if (event.key === "Escape") {
         dispatchCommandSurface({ type: "close-all" });
         setDrawerOpen(false);
-        setIsProviderPickerOpen(false);
+        setIsExecutionRoutePickerOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // Effect Events intentionally stay outside effect dependency arrays.
-  }, [isNarrow, isPaletteOpen, openProviderPicker]);
+  }, [isNarrow, isPaletteOpen, openExecutionRoutePicker]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
@@ -652,12 +648,12 @@ function useAppShellRuntimeView() {
       onVoiceSynthesisFailed,
       onError,
       onCleared,
-      onProviderChanged,
-      onProviderChangeFailed,
+      onExecutionRouteChanged,
+      onExecutionRouteChangeFailed,
       onProviderAuthStarted,
       onProviderAuthCompleted,
       onProviderAuthFailed,
-      onProvidersRefreshed,
+      onExecutionRoutesRefreshed,
       onExecConfirmed,
       onActivityPhase,
       onInteractiveUseUpdated,
@@ -672,10 +668,6 @@ function useAppShellRuntimeView() {
       setTheme,
       persistThemePreference,
       sendThemeResult: (result) => sendRef.current?.(result),
-      getProviders: () => useSessionStore.getState().providers,
-      refetchDashboard: () => {
-        void dashboardQuery.refetch();
-      },
       onManagedAgentControlResult: (frame) => {
         if (frame.status === "failed") {
           setManagedAgentActionFailure({
@@ -793,9 +785,12 @@ function useAppShellRuntimeView() {
 
   useEffect(() => {
     if (!dashboardQuery.error && dashboardQuery.data) {
-      onProvidersRefreshed(dashboardQuery.data.providers);
+      onExecutionRoutesRefreshed({
+        type: "execution_routes_refreshed",
+        executionRouteCatalog: dashboardQuery.data.executionRouteCatalog,
+      });
     }
-  }, [dashboardQuery.data, dashboardQuery.error, onProvidersRefreshed]);
+  }, [dashboardQuery.data, dashboardQuery.error, onExecutionRoutesRefreshed]);
 
   useEffect(() => {
     const nodes = memoryLatticeQuery.data?.snapshot?.nodes ?? [];
@@ -814,7 +809,6 @@ function useAppShellRuntimeView() {
   const operatorWorkspaceHome = dashboardData?.operatorWorkspaceHome ?? localOperatorWorkspaceState.home;
   const managedAgentAttentionCount = operatorWorkspaceHome.managedAgents.attentionCount;
   const workingDirectory = dashboardData?.workingDirectory;
-  const domainLabel = dashboardData?.domainLabel;
   const appDescriptors = dashboardData?.apps ?? EMPTY_APP_DESCRIPTORS;
   const runtimeAppDescriptors = useMemo(
     () => appDescriptors.filter((app) => app.runtimeCapable),
@@ -920,7 +914,7 @@ function useAppShellRuntimeView() {
     setGatewayAttempt((count) => count + 1);
     markProviderCatalogRefreshing();
     if (wsState === "open") {
-      send({ type: "refresh_providers" });
+      send({ type: "refresh_execution_routes" });
     }
     void dashboardQuery.refetch();
   };
@@ -941,7 +935,7 @@ function useAppShellRuntimeView() {
     setPaletteMode,
     setPaletteQuery,
     setPaletteOpen,
-    openProviderPicker,
+    openExecutionRoutePicker,
     deliberationLevelOptions,
     selectedDeliberationLevel,
     setDeliberationLevel,
@@ -1031,17 +1025,9 @@ function useAppShellRuntimeView() {
   });
   const workbenchTitle = resolveWorkbenchTitle(workbenchSurface, activeChatWorkspaceSurface);
   const drawerLabels = resolveDrawerLabels(mobileDrawerMode);
-  const providerPickerActions = createProviderPickerActions({
-    switchProvider,
-    authenticateProvider,
-    readProviderOperationFailure: () => useSessionStore.getState().providerOperationFailure,
-    onProvidersRefreshed,
-    sendRefreshProviders: () => {
-      if (wsState === "open") {
-        send({ type: "refresh_providers" });
-      }
-    },
-    refetchDashboard: () => dashboardQuery.refetch(),
+  const executionRoutePickerActions = createExecutionRoutePickerActions({
+    selectExecutionRoute,
+    readFailure: () => useSessionStore.getState().providerOperationFailure,
   });
 
   const closeDrawer = () => {
@@ -1233,13 +1219,19 @@ function useAppShellRuntimeView() {
               goalControlFailure: goalControlFailure ?? undefined,
               sessionControlFailure: sessionControlFailure?.message,
               providerControl: (
-                <ProviderStatus
-                  compact
-                  open={isProviderPickerOpen}
-                  onOpenPicker={openProviderPicker}
-                  domainLabel={domainLabel}
-                  workingDirectory={workingDirectory}
-                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Execution route selector. Current selection: ${activeExecutionRoute?.label ?? "none"}. Click to change.`}
+                  aria-expanded={isExecutionRoutePickerOpen}
+                  aria-controls="execution-route-picker"
+                  aria-haspopup="dialog"
+                  onClick={openExecutionRoutePicker}
+                  className="h-8 min-w-0 max-w-full shrink justify-start px-2 text-left"
+                >
+                  <span className="min-w-0 truncate">{activeExecutionRoute?.label ?? "Select execution route"}</span>
+                </Button>
               ),
               deliberationControl: deliberationLevelOptions.length > 0 ? (
                 <DeliberationControl
@@ -1367,24 +1359,37 @@ function useAppShellRuntimeView() {
         {mobileDrawerMode === "sessions" ? sessionsPanel : inspector}
       </MobileWorkbenchDrawer>
 
-      {hasMountedProviderPicker ? (
+      {hasMountedExecutionRoutePicker ? (
         <Suspense fallback={null}>
-          <ProviderPicker
-            open={isProviderPickerOpen}
-            providers={providers}
-            providerModelDiscovery={providerModelDiscovery}
-            activeProvider={activeProvider}
-            activeModel={activeModel}
-            onSwitchProvider={providerPickerActions.onSwitchProvider}
-            onRefreshProviders={providerPickerActions.onRefreshProviders}
-            onAuthenticateProvider={providerPickerActions.onAuthenticateProvider}
-            providerAuthenticating={providerAuthenticating}
-            providerAuthProvider={providerAuthProvider}
-            providerAuthMessage={providerAuthMessage}
-            providerAuthDetails={providerAuthDetails}
-            finalFocus={providerPickerInvokerRef}
-            onOpenChange={(open) => setIsProviderPickerOpen(open)}
-          />
+          <ModelSelector
+            open={isExecutionRoutePickerOpen}
+            onOpenChange={setIsExecutionRoutePickerOpen}
+            title="Execution route"
+            description="Choose an available execution route or an eligible account override."
+            finalFocus={executionRoutePickerInvokerRef}
+          >
+            <ExecutionRoutePicker
+              catalog={executionRouteCatalog}
+              activeRouteId={activeRouteId}
+              onSelect={(selection) => {
+                void executionRoutePickerActions.onSelectRoute(
+                  selection.routeId,
+                  selection.accountOverrideId,
+                ).then(() => setIsExecutionRoutePickerOpen(false));
+              }}
+              onRepair={(request) => {
+                switch (request.action) {
+                  case "authenticate-provider":
+                    authenticateProvider(request.providerId);
+                    return;
+                  case "refresh-route-catalog":
+                    markProviderCatalogRefreshing();
+                    send({ type: "refresh_execution_routes" });
+                    return;
+                }
+              }}
+            />
+          </ModelSelector>
         </Suspense>
       ) : null}
     </WorkbenchChrome>

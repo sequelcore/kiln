@@ -1,6 +1,6 @@
 import type { StateCreator } from "zustand";
 import { clearStoredContinuationTarget } from "./session-store-persistence.js";
-import { resolveStoredProviderSelectionRestore } from "./provider-selection-restore.js";
+import { resolveStoredExecutionRouteSelectionRestore } from "./execution-route-selection-restore.js";
 import { MAX_DETACHED_SESSION_IDS } from "./session-store-state.js";
 import type { ConnectionLifecycleActions, SessionStore } from "./session-store-state.js";
 
@@ -34,9 +34,9 @@ export const createConnectionLifecycleSlice: StateCreator<
   setSender: (send) => {
     set({ outboundSend: send });
     if (send) {
-      const restore = resolveStoredProviderSelectionRestore(get());
+      const restore = resolveStoredExecutionRouteSelectionRestore(get());
       if (restore) {
-        get().switchProvider(restore.provider, restore.model ?? undefined);
+        get().selectExecutionRoute(restore.routeId, restore.accountOverrideId);
       }
     }
   },
@@ -46,8 +46,8 @@ export const createConnectionLifecycleSlice: StateCreator<
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
-    if (state.providerSwitchTimeoutId) {
-      clearTimeout(state.providerSwitchTimeoutId);
+    if (state.executionRouteSelectionTimeoutId) {
+      clearTimeout(state.executionRouteSelectionTimeoutId);
     }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
@@ -67,7 +67,6 @@ export const createConnectionLifecycleSlice: StateCreator<
       continuationTargetId: null,
       routedProvider: null,
       routedModel: null,
-      routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
       interactiveUseSnapshot: null,
@@ -84,9 +83,9 @@ export const createConnectionLifecycleSlice: StateCreator<
       approvalResponseFailure: null,
       approvalResponsesPending: [],
       clearTimeoutId: null,
-      providerSwitching: false,
-      providerSwitchTarget: null,
-      providerSwitchTimeoutId: null,
+      executionRouteSelecting: false,
+      executionRouteSelectionTarget: null,
+      executionRouteSelectionTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,
@@ -135,8 +134,8 @@ export const createConnectionLifecycleSlice: StateCreator<
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
-    if (state.providerSwitchTimeoutId) {
-      clearTimeout(state.providerSwitchTimeoutId);
+    if (state.executionRouteSelectionTimeoutId) {
+      clearTimeout(state.executionRouteSelectionTimeoutId);
     }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
@@ -147,7 +146,6 @@ export const createConnectionLifecycleSlice: StateCreator<
       activityPhase: "idle",
       interactiveUseSnapshot: null,
       browserSessionState: null,
-      routeMode: state.providerExplicitSelection ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
       clearPending: false,
@@ -158,9 +156,9 @@ export const createConnectionLifecycleSlice: StateCreator<
       approvalResponseFailure: null,
       approvalResponsesPending: [],
       clearTimeoutId: null,
-      providerSwitching: false,
-      providerSwitchTarget: null,
-      providerSwitchTimeoutId: null,
+      executionRouteSelecting: false,
+      executionRouteSelectionTarget: null,
+      executionRouteSelectionTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,

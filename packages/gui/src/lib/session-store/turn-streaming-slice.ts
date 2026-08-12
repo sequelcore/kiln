@@ -38,6 +38,14 @@ import { syncTimelineMessages, timelineTurnId } from "./session-timeline-types.j
 import type { ActivityPhase, Message } from "./session-timeline-types.js";
 import type { SessionStore, TurnStreamingActions } from "./session-store-state.js";
 
+function activeExecutionRouteIdentity(state: SessionStore): { readonly providerId: string; readonly providerModelId: string } | null {
+  return state.executionRouteCatalog?.routes.find((route) => route.routeId === state.activeRouteId) ?? null;
+}
+
+function settledRouteMode(state: SessionStore): "auto" | "user" {
+  return state.activeAccountOverrideId ? "user" : "auto";
+}
+
 /**
  * The active turn: outbound `sendMessage`/`cancelActiveTurn`/plan-mode
  * control, and every inbound frame that projects onto the running turn —
@@ -510,7 +518,7 @@ function handleAgentInvocationCancelled(ctx: SessionEventContext): void {
 
 function handleContinuityDecided(ctx: SessionEventContext): void {
   const { set, get, state, event, payload } = ctx;
-  const provider = state.respondingProvider ?? state.activeProvider;
+  const provider = state.respondingProvider ?? activeExecutionRouteIdentity(state)?.providerId;
   const strategy = readString(payload.decision);
   if (!provider || !strategy) {
     return;
@@ -574,7 +582,7 @@ function handleTurnCompleted(ctx: SessionEventContext): void {
     authorityStatus: authorityStatus ?? current.authorityStatus,
     routedProvider,
     routedModel,
-    routeMode: current.providerExplicitSelection ? "user" : "auto",
+    routeMode: settledRouteMode(current),
     respondingProvider: null,
     respondingModel: null,
     currentTurnTrackedInputTokens: 0,
@@ -772,8 +780,9 @@ export const createTurnStreamingSlice: StateCreator<
       return;
     }
 
-    const nextRespondingProvider = current.respondingProvider ?? current.activeProvider;
-    const nextRespondingModel = current.respondingModel ?? current.activeModel;
+    const activeRoute = activeExecutionRouteIdentity(current);
+    const nextRespondingProvider = current.respondingProvider ?? activeRoute?.providerId ?? null;
+    const nextRespondingModel = current.respondingModel ?? activeRoute?.providerModelId ?? null;
 
     const baseActivity = frame.activity.trim();
     const phase = baseActivity.length > 0 ? baseActivity : undefined;
@@ -830,8 +839,9 @@ export const createTurnStreamingSlice: StateCreator<
     if (!shouldApplySessionScopedFrame(state, frame.kilnSessionId)) {
       return;
     }
-    const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? state.activeProvider ?? undefined;
-    const finalizedModel = frame.routedModel ?? state.respondingModel ?? state.activeModel ?? undefined;
+    const activeRoute = activeExecutionRouteIdentity(state);
+    const finalizedProvider = frame.routedProvider ?? state.respondingProvider ?? activeRoute?.providerId ?? undefined;
+    const finalizedModel = frame.routedModel ?? state.respondingModel ?? activeRoute?.providerModelId ?? undefined;
     const responseParts = frame.parts && frame.parts.length > 0 ? frame.parts : undefined;
     const voiceSynthesisStatus = responseParts && hasAudioPart(responseParts) ? "ready" as const : "idle" as const;
     const outcomePresentation = turnOutcomePresentation(frame.outcome);
@@ -942,7 +952,7 @@ export const createTurnStreamingSlice: StateCreator<
       authorityStatus: frame.authorityStatus ?? state.authorityStatus,
       routedProvider: finalizedProvider ?? state.routedProvider,
       routedModel: finalizedModel ?? state.routedModel,
-      routeMode: state.providerExplicitSelection ? "user" : "auto",
+      routeMode: settledRouteMode(state),
       respondingProvider: null,
       respondingModel: null,
       currentTurnTrackedInputTokens: 0,
@@ -1022,8 +1032,8 @@ export const createTurnStreamingSlice: StateCreator<
       activity: { phase: "thinking" },
       activityPhase: "thinking",
       routeMode: "responding",
-      respondingProvider: state.activeProvider,
-      respondingModel: state.activeModel,
+      respondingProvider: activeExecutionRouteIdentity(state)?.providerId ?? null,
+      respondingModel: activeExecutionRouteIdentity(state)?.providerModelId ?? null,
       currentTurnTrackedInputTokens: 0,
       currentTurnTrackedOutputTokens: 0,
       contextUsage: null,

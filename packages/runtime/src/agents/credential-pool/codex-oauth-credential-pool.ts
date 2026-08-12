@@ -264,6 +264,14 @@ export class CodexOAuthCredentialPoolService {
     return accounts;
   }
 
+  /** Secret-free exact-account evidence restricted to credentials admitted by pooled execution. */
+  async listExecutableAccounts(): Promise<readonly CodexOAuthExecutionAccount[]> {
+    const executableIds = new Set(
+      (await this.listStatus()).filter(isExecutableCredentialStatus).map((entry) => entry.id),
+    );
+    return (await this.listExecutionAccounts()).filter((account) => executableIds.has(account.credentialId));
+  }
+
   /** Resolves exactly one already-selected credential after its account lease is held. */
   async resolveExecutionCredential(selected: CodexOAuthExecutionAccount): Promise<CodexOAuthExecutionCredential> {
     if (!selected || typeof selected !== "object") throw new Error("Selected Codex OAuth account is invalid.");
@@ -418,7 +426,7 @@ export class CodexOAuthCredentialPoolService {
     if (executable.length !== 1) {
       throw new KilnError(
         "CONFIG_INVALID",
-        "Codex OAuth pooled execution requires exactly one executable credential; bind additional accounts through explicit virtual models.",
+        "Codex OAuth pooled execution requires exactly one executable credential; select an account through an explicit direct model binding.",
         { context: { availableCredentials: executable.map((entry) => entry.id) }, suggestion: buildAmbiguousAccountSuggestion(executable) },
       );
     }
@@ -440,6 +448,20 @@ export class CodexOAuthCredentialPoolService {
   /** Materializes one previously selected account revision without consulting pooled order. */
   async createExactAdapter(options: CreateExactCodexOAuthAdapterOptions): Promise<ProviderAdapter> {
     const credential = await this.resolveExecutionCredential(options.selected);
+    return this.createAdapterFromCredential({
+      credential,
+      defaultModel: options.defaultModel,
+      ...(options.createAdapter ? { createAdapter: options.createAdapter } : {}),
+    });
+  }
+
+  /** Materializes the credential already resolved by the fenced execution. */
+  async createAdapterFromCredential(options: {
+    readonly credential: CodexOAuthExecutionCredential;
+    readonly defaultModel: string;
+    readonly createAdapter?: (credential: CodexOAuthExecutionCredential) => ProviderAdapter;
+  }): Promise<ProviderAdapter> {
+    const credential = options.credential;
     const delegate = options.createAdapter?.(credential) ?? new CodexOAuthAdapter({
       auth: { getValidAccessToken: async () => credential.accessToken },
       defaultModel: options.defaultModel,
@@ -810,7 +832,7 @@ function isExecutableCredentialStatus(status: CodexOAuthCredentialStatus): boole
 
 function buildAmbiguousAccountSuggestion(executable: readonly CodexOAuthCredentialStatus[]): string {
   const ids = executable.map((entry) => entry.id).join(", ");
-  return `Add an entry under modelGateway.virtualModels in the Kiln global config binding one of these executable credential ids to a model (${ids}), then pass --model <virtualModelId> to kiln run.`;
+  return `Add one account per executable credential id (${ids}) to executionCatalog.accounts, group the eligible accounts in an account policy, and select that policy from an execution route. Operator surfaces select the route; Kiln selects the account automatically unless the operator explicitly narrows it.`;
 }
 
 function buildCodexOAuthExhaustionDiagnostic(

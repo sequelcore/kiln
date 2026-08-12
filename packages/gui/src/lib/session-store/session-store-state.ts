@@ -7,6 +7,7 @@ import type {
   GuiInboundFrame,
   GuiInteractiveUseSnapshot,
   GuiOutboundFrame,
+  ExecutionRouteCatalog,
   GuiProviderDiscoveryResult,
   GuiProviderModelDiscoveryProjection,
   GuiSessionDetail,
@@ -36,9 +37,9 @@ import type { ProviderCatalogStatus, ProviderDescriptor } from "./provider-catal
 
 export const MAX_DETACHED_SESSION_IDS = 20;
 
-export interface ProviderSwitchTarget {
-  readonly provider: string;
-  readonly model: string | null;
+export interface PendingExecutionRouteSelection {
+  readonly routeId: string;
+  readonly accountOverrideId?: string;
   readonly requestId: string;
 }
 
@@ -61,7 +62,7 @@ export type ProviderAuthDetails =
 export type RouteMode = "user" | "auto" | "responding";
 
 export interface ProviderOperationFailure {
-  readonly operation: "catalog" | "switch" | "authenticate";
+  readonly operation: "catalog" | "select-route" | "authenticate";
   readonly message: string;
   readonly provider?: string;
   readonly model?: string | null;
@@ -108,8 +109,10 @@ export interface SessionStoreState {
   readonly providers: readonly ProviderDescriptor[];
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection | null;
-  readonly activeProvider: string | null;
-  readonly activeModel: string | null;
+  /** Operator selection authority. Provider/model identities are derived evidence only. */
+  readonly executionRouteCatalog: ExecutionRouteCatalog;
+  readonly activeRouteId: string | null;
+  readonly activeAccountOverrideId: string | null;
   readonly sessionList: readonly OperatorSessionSummary[];
   readonly selectedSessionId: string | null;
   readonly liveSessionId: string | null;
@@ -136,13 +139,12 @@ export interface SessionStoreState {
   readonly goalControlFailure: GoalControlFailure | null;
   readonly approvalResponseFailure: ApprovalResponseFailure | null;
   readonly approvalResponsesPending: readonly ApprovalResponsePending[];
-  readonly providerSwitching: boolean;
-  readonly providerSwitchTarget: ProviderSwitchTarget | null;
+  readonly executionRouteSelecting: boolean;
+  readonly executionRouteSelectionTarget: PendingExecutionRouteSelection | null;
   readonly providerAuthenticating: boolean;
   readonly providerAuthTarget: ProviderAuthTarget | null;
   readonly providerAuthMessage: string | null;
   readonly providerAuthDetails: ProviderAuthDetails | null;
-  readonly providerExplicitSelection: boolean;
   readonly authorityStatus: AuthorityStatus | null;
   readonly contextUsage: ContextUsageProjection | null;
   readonly interactiveUseSnapshot: GuiInteractiveUseSnapshot | null;
@@ -151,7 +153,7 @@ export interface SessionStoreState {
   readonly browserOperatorInputAck: GuiBrowserOperatorInputAckFrame | null;
   readonly outboundSend: ((frame: GuiOutboundFrame) => void) | null;
   readonly clearTimeoutId: ReturnType<typeof setTimeout> | null;
-  readonly providerSwitchTimeoutId: ReturnType<typeof setTimeout> | null;
+  readonly executionRouteSelectionTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly providerAuthTimeoutId: ReturnType<typeof setTimeout> | null;
   readonly activityPhase: ActivityPhase;
 }
@@ -196,21 +198,17 @@ export interface TurnStreamingActions {
   setPlanMode: (enabled: boolean, options?: { readonly gatewayTargetId?: string }) => void;
 }
 
-export interface ProviderLifecycleActions {
+export interface ExecutionRouteLifecycleActions {
   markProviderCatalogRefreshing: () => void;
   markProviderCatalogError: (message: string) => void;
   onWelcome: (frame: Extract<GuiInboundFrame, { type: "welcome" }>) => void;
-  onProvidersRefreshed: (
-    providers: readonly ProviderDescriptor[],
-    providerDiscovery?: readonly GuiProviderDiscoveryResult[],
-    providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
-  ) => void;
-  onProviderChanged: (frame: Extract<GuiInboundFrame, { type: "provider_changed" }>) => void;
-  onProviderChangeFailed: (frame: Extract<GuiInboundFrame, { type: "provider_change_failed" }>) => void;
+  onExecutionRoutesRefreshed: (frame: Extract<GuiInboundFrame, { type: "execution_routes_refreshed" }>) => void;
+  onExecutionRouteChanged: (frame: Extract<GuiInboundFrame, { type: "execution_route_changed" }>) => void;
+  onExecutionRouteChangeFailed: (frame: Extract<GuiInboundFrame, { type: "execution_route_change_failed" }>) => void;
   onProviderAuthStarted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_started" }>) => void;
   onProviderAuthCompleted: (frame: Extract<GuiInboundFrame, { type: "provider_auth_completed" }>) => void;
   onProviderAuthFailed: (frame: Extract<GuiInboundFrame, { type: "provider_auth_failed" }>) => void;
-  switchProvider: (provider: string, model?: string) => boolean;
+  selectExecutionRoute: (routeId: string, accountOverrideId?: string) => boolean;
   authenticateProvider: (provider: string, options?: { apiKey?: string; tier?: "go" | "zen" }) => boolean;
 }
 
@@ -263,7 +261,7 @@ export type SessionStoreActions =
   & ConnectionLifecycleActions
   & SessionListActions
   & TurnStreamingActions
-  & ProviderLifecycleActions
+  & ExecutionRouteLifecycleActions
   & InteractiveUseActions
   & VoiceActions
   & ApprovalGoalActions

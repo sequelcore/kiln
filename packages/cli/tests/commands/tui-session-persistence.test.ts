@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
 import { createSessionEvent, InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
 
@@ -14,7 +15,6 @@ const {
   mockResolveGuiOperatorDiscoveryResults,
   mockProjectGuiOperatorModels,
   mockProjectGuiProviderModelDiscovery,
-  mockResolveGuiProviderSwitch,
   mockCreateProviderCatalogService,
   mockGlobalConfig,
 } = vi.hoisted(() => ({
@@ -97,48 +97,42 @@ const {
       }),
     };
   }),
-  mockResolveGuiProviderSwitch: vi.fn((input: {
-    provider: string;
-    model?: string;
-    discovery?: ReadonlyArray<{ provider: string; models: string[] }>;
-    providerModelDiscovery?: {
-      entries: ReadonlyArray<{
-        providerRoute: { providerId: string; providerModelId: string };
-      }>;
-    };
-  }) => {
-    const provider = input.provider.trim();
-    const providerModels = provider === "claude"
-      ? input.discovery?.find((entry) => entry.provider === provider)?.models
-      : input.providerModelDiscovery?.entries
-          .filter((entry) => entry.providerRoute.providerId === provider)
-          .map((entry) => entry.providerRoute.providerModelId);
-    if (!providerModels) {
-      return { ok: false, error: `Provider '${provider}' is unavailable` } as const;
-    }
-    if (providerModels.length === 0 && provider === "claude") {
-      return { ok: true, provider, modelForSessionManager: "", modelForAck: "" } as const;
-    }
-    if (providerModels.length === 0) {
-      return { ok: false, error: `Provider '${provider}' has no available models` } as const;
-    }
-    const model = input.model?.trim() ?? "";
-    if (!model) {
-      return { ok: false, error: `Provider '${provider}' requires a selected model.` } as const;
-    }
-    if (!providerModels.includes(model)) {
-      return { ok: false, error: `Provider '${provider}' does not advertise model '${model}'` } as const;
-    }
-    return {
-      ok: true,
-      provider,
-      modelForSessionManager: model,
-      modelForAck: model,
-    } as const;
-  }),
   mockGlobalConfig: {
     value: null as { ui?: { theme?: string } } | null,
   },
+}));
+
+const operatorCompositionMocks = vi.hoisted(() => ({
+  create: vi.fn(() => ({
+    accountRuntime: {
+      operatorSessionCandidates: {
+        resolve: vi.fn(async ({ admission }: { admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } } }) => {
+          const accountIds = admission.accountSelection.mode === "automatic"
+            ? admission.accountSelection.eligibleAccountIds ?? []
+            : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+          return accountIds.map((accountId) => ({
+            candidate: {
+              accountId,
+              safety: "eligible" as const,
+              health: "healthy" as const,
+              quota: "available" as const,
+              capacity: "available" as const,
+              economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } },
+              pressure: 0,
+            },
+            lease: {
+              candidate: { route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "operator-session" } },
+              credentialRevisionId: "a".repeat(64),
+            },
+          }));
+        }),
+      },
+    },
+    bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
+    dispatcher: { dispatchTurn: vi.fn() },
+    close: vi.fn(),
+  })),
+  resolveContinuation: vi.fn(async () => undefined),
 }));
 
 vi.mock("@kilnai/tui", () => ({
@@ -244,7 +238,10 @@ vi.mock("@kilnai/runtime", () => ({
   projectGuiProviderModelDiscovery: mockProjectGuiProviderModelDiscovery,
   createProviderCatalogService: mockCreateProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
-  resolveGuiProviderSwitch: mockResolveGuiProviderSwitch,
+}));
+vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
+  createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
+  resolveOperatorContinuationBinding: operatorCompositionMocks.resolveContinuation,
 }));
 vi.mock("../../src/wrapper/session-manager.js", () => ({
   SessionManager: class MockSessionManager {
@@ -371,7 +368,7 @@ describe("makeMultiProviderSessionFactory", () => {
     mockWaitForGateway.mockResolvedValue(undefined);
     mockGetProjectContextArtifactCache.mockResolvedValue(new InMemoryContextArtifactCache());
     mockSessionManagerPrepare.mockRejectedValue(new Error("missing gateway config"));
-    mockGlobalConfig.value = null;
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig();
     mockStartTuiGateway.mockResolvedValue({
       port: 4801,
       url: "ws://localhost:4801/ws",
@@ -556,7 +553,6 @@ describe("makeMultiProviderSessionFactory", () => {
   it("does not pass a default tool-round budget into the interactive TUI gateway", async () => {
     await tuiCommand(APP_CONFIG as never, {
       cwd: "/p",
-      provider: "claude",
     });
 
     expect(mockStartTuiGateway).toHaveBeenCalledWith(
@@ -1676,7 +1672,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
@@ -1707,7 +1703,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
@@ -1731,6 +1727,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-runtime-provider-"));
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4") as never;
 
     mockStartTuiGateway.mockResolvedValue({
       port: 4801,
@@ -1752,7 +1749,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).rejects.toThrow(
         "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: claude",
       );
@@ -1771,6 +1768,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-gateway-authority-"));
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4") as never;
 
     mockStartTuiGateway.mockResolvedValue({
       port: 4801,
@@ -1789,7 +1787,7 @@ describe("makeMultiProviderSessionFactory", () => {
     });
 
     try {
-      await expect(tuiCommand(APP_CONFIG, { cwd, provider: "openai" })).rejects.toThrow(
+      await expect(tuiCommand(APP_CONFIG, { cwd })).rejects.toThrow(
         "Provider 'openai' is not available in the runtime TUI model catalog. Available providers: none",
       );
     } finally {
@@ -1809,6 +1807,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-gateway-"));
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("ollama", "llama3") as never;
 
     const events: Array<{ type: string; message?: string }> = [];
     mockCreateProviderCatalogService.mockImplementationOnce((resolveDiscovery: () => Promise<readonly unknown[]>) => {
@@ -1836,7 +1835,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "ollama" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
@@ -1861,6 +1860,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-direct-stable-"));
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6") as never;
     const runtimeSessionIds: string[] = [];
     const findSessionIds: string[] = [];
     const initSessionIds: string[] = [];
@@ -1922,7 +1922,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "claude" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).resolves.toBeUndefined();
     } finally {
       createSessionSpy.mockRestore();
@@ -1944,40 +1944,41 @@ describe("makeMultiProviderSessionFactory", () => {
     expect(appendSessionIds.every((sessionId) => sessionId === runtimeSessionIds[0])).toBe(true);
   });
 
-  it("direct bootstrap switch path allows model-less registry harness providers and rejects direct API switches without discovered models", async () => {
+  it("direct bootstrap route path uses canonical route selection and rejects unavailable routes", async () => {
     const previousTransport = process.env.KILN_TUI_TRANSPORT;
     process.env.KILN_TUI_TRANSPORT = "direct";
     const { mkdtemp, rm } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-direct-switch-"));
-    let switchToModelessProviderResult: string | undefined;
-    let directApiSwitchError = "";
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6", "claude-default") as never;
+    let switchToModelessRouteResult: string | undefined;
+    let directRouteSelectionError = "";
 
     mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
-      const session = await createSession() as { switchProvider?: (provider: string, model?: string) => Promise<string> };
-      if (typeof session.switchProvider !== "function") {
-        throw new Error("direct session did not expose switchProvider");
+      const session = await createSession() as { switchExecutionRoute?: (routeId: string, accountOverrideId?: string) => Promise<string> };
+      if (typeof session.switchExecutionRoute !== "function") {
+        throw new Error("direct session did not expose switchExecutionRoute");
       }
-      switchToModelessProviderResult = await session.switchProvider("claude", undefined);
+      switchToModelessRouteResult = await session.switchExecutionRoute("claude-default");
       try {
-        await session.switchProvider("openai", undefined);
+        await session.switchExecutionRoute("missing-route");
       } catch (error) {
-        directApiSwitchError = error instanceof Error ? error.message : String(error);
+        directRouteSelectionError = error instanceof Error ? error.message : String(error);
       }
     });
 
     try {
       await expect(
-        tuiCommand(APP_CONFIG, { cwd, provider: "openai" }),
+        tuiCommand(APP_CONFIG, { cwd }),
       ).resolves.toBeUndefined();
     } finally {
       process.env.KILN_TUI_TRANSPORT = previousTransport;
       await rm(cwd, { recursive: true, force: true });
     }
 
-    expect(switchToModelessProviderResult).toBe("claude");
-    expect(directApiSwitchError).toContain("model");
+    expect(switchToModelessRouteResult).toBe("claude-default");
+    expect(directRouteSelectionError).toContain("Execution route");
     expect(mockResolveGuiOperatorDiscoveryResults).toHaveBeenCalled();
     expect(mockProjectGuiProviderModelDiscovery).toHaveBeenCalled();
   });

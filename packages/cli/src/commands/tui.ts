@@ -20,8 +20,6 @@ import {
 } from "../application/context-artifact-keys.js";
 import {
   readGlobalConfig,
-  resolveGlobalDefaultModel,
-  resolveGlobalDefaultProvider,
   resolveGlobalUiTheme,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -40,7 +38,10 @@ import {
 } from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
-import { resolveEffectiveProvider } from "../config/env-config.js";
+import {
+  createOperatorExecutionRouteSelectionPort,
+  resolveOperatorStartupExecutionRoute,
+} from "../application/operator-execution-route-selection.js";
 import { resolveOperatorVoiceRuntime, type OperatorVoiceRuntime } from "../config/operator-voice.js";
 import { createStartupProfiler, type StartupProfiler } from "../application/startup-profiler.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -76,7 +77,10 @@ import {
   formatPresentationIntentAsText,
   getGuiProviderMetadata,
   type OperatorSessionSummary,
+  type ExecutionRouteCatalog,
+  type ExecutionRouteSelectionIntent,
   isGuiProviderModeless,
+  isOperatorThemeName,
   parseOperatorToolResultEnvelope,
   presentOperatorEventPayload,
   type GuiProviderDiscoveryResult,
@@ -96,11 +100,16 @@ import {
   type ExecutionSessionRunOptions,
   type SessionEventSource,
   type SessionTurnOutcome,
+  type ExecutionSessionBindingEvidence,
+  defineExecutionCatalog,
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
+  OperatorSessionExecutionBridge,
   getProjectContextArtifactCache,
   withManagedInvocationService,
+  type OperatorExecutionRouteSelectionPort,
+  type ConfiguredExecutionCredential,
 } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
@@ -108,7 +117,6 @@ import {
   projectGuiProviderModelDiscovery,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
-  resolveGuiProviderSwitch,
 } from "@kilnai/runtime";
 import {
   managedInvocationPersistedTranscriptEventDrafts,
@@ -121,12 +129,20 @@ import type {
   ManagedInvocationToolAttachment,
   RuntimeBudgetAdmissionPort,
   RuntimeSessionHydrator,
+  OperatorTurnDispatchPort,
 } from "@kilnai/runtime";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import {
+  createOperatorTurnDispatchComposition,
+  resolveOperatorContinuationBinding,
+} from "../application/operator-turn-dispatch-composition.js";
+import type {
+  OperatorTurnDispatchResult,
+  OperatorTurnTuiDispatchPayload,
+} from "@kilnai/runtime";
 
 export interface TuiFlags {
-  provider?: string;
   cwd?: string;
   port?: number;
   theme?: string;
@@ -140,6 +156,7 @@ interface TuiBootstrapOptions {
   readonly cwd: string;
   readonly sessionManager: MultiProviderSessionManager;
   readonly registry: ReturnType<typeof createDefaultRegistry>["registry"];
+  readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
   readonly contextArtifactCache: ContextArtifactCache;
   readonly systemPrompt: string;
   readonly operatorTimeZone?: string;
@@ -151,6 +168,9 @@ interface TuiBootstrapOptions {
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
   readonly startupProfiler?: StartupProfiler;
+  readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly closeOperatorTurnComposition: () => void;
 }
 
 interface TuiBootstrapResult {
@@ -158,12 +178,15 @@ interface TuiBootstrapResult {
   readonly providerModelsRef: { current: Record<string, string[]> };
   readonly providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] };
   readonly providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null };
+  readonly executionRouteCatalogRef: { current: ExecutionRouteCatalog | null };
+  readonly refreshProviderDiscovery?: () => Promise<void>;
   shutdown(): void;
 }
 type TuiControlSession = SessionLike & {
   clear?: () => Promise<void>;
-  refreshProviders?: () => Promise<void>;
-  switchProvider?: (provider: string, model?: string) => Promise<string>;
+  readonly executionRouteCatalog?: ExecutionRouteCatalog;
+  refreshExecutionRoutes?: () => Promise<void>;
+  switchExecutionRoute?: (routeId: string, accountOverrideId?: string) => Promise<string>;
   approve?: (sessionId?: string) => void;
   reject?: (reason: string, sessionId?: string) => void;
 };
@@ -338,12 +361,12 @@ function parseProvider(
 ): ProviderId {
   const requestedProvider = p?.trim() ?? "";
   if (requestedProvider.length === 0) {
-    throw new Error("No provider configured. Set --provider, KILN_PROVIDER, or global provider.");
+    throw new Error("The configured execution route does not specify a provider.");
   }
   if (providerIds.includes(requestedProvider as ProviderId)) {
     return requestedProvider as ProviderId;
   }
-  throw new Error(`Unknown provider: ${requestedProvider}`);
+  throw new Error(`The configured TUI execution route uses unsupported provider '${requestedProvider}'. Configure one of: ${providerIds.join(", ")}`);
 }
 
 function toPersistedTranscriptEvent(
@@ -536,6 +559,17 @@ export async function makeMultiProviderSessionFactory(
           continuationSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
           sessionLedgerOwner: "host",
           model: modelForTurn,
+          ...(context?.executionBinding ? {
+            credentialBinding: {
+              routeId: context.executionBinding.routeId,
+              accountId: context.executionBinding.accountId,
+              credentialId: context.executionBinding.credentialId,
+              credentialRevision: context.executionBinding.credentialRevision,
+            },
+          } : {}),
+          ...(context?.executionCredential ? {
+            executionCredential: context.executionCredential as ConfiguredExecutionCredential,
+          } : {}),
           deliberationResolution: options.deliberationResolution,
           ...(context?.requestedAuthority ? { requestedAuthority: context.requestedAuthority } : {}),
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
@@ -596,6 +630,7 @@ export async function makeMultiProviderSessionFactory(
         let turnCacheWriteTokens = 0;
         let turnProviderTokenUsage: PersistedProviderTokenUsage | undefined;
         const managedProviderTokenUsage = new Map<string, PersistedProviderTokenUsage>();
+        const executionBindings = new Map<string, Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>>();
         let assistantContent = "";
         let assistantDeltaIndex = 0;
         const pendingToolCallIds = new Map<string, string[]>();
@@ -725,6 +760,10 @@ export async function makeMultiProviderSessionFactory(
                 }, transcriptSurface, turnId),
               );
             } else if (event.type === "cost_update") {
+              if (event.executionBinding?.status === "bound") {
+                const binding = event.executionBinding;
+                executionBindings.set(`${binding.routeId}\0${binding.accountId}\0${binding.credentialId}`, binding);
+              }
               const usageProvider = event.provider ?? providerForTurn;
               const usageModel = event.model ?? modelForTurn;
               turnCostUsd = event.usd;
@@ -832,6 +871,7 @@ export async function makeMultiProviderSessionFactory(
                   ...managedProviderTokenUsage.values(),
                 ],
               } : {}),
+              ...(executionBindings.size > 0 ? { executionBindings: [...executionBindings.values()] } : {}),
               providerThread: resumedSession.providerSessionId
                 ? { provider: providerForTurn, nativeSessionId: resumedSession.providerSessionId }
                 : undefined,
@@ -1013,6 +1053,9 @@ async function bootstrapGatewaySession(
     operatorTimeZone: options.operatorTimeZone,
     onClear: sessionManager.onClear,
     getProviderAvailability: () => getRuntimeProviderAvailability(options.registry),
+    executionRouteSelection: options.executionRouteSelection,
+    operatorTurnDispatcher: options.operatorTurnDispatcher,
+    operatorTurnExecutionBridge: options.operatorTurnExecutionBridge,
     contextArtifactCache,
     artifactStore: options.builtinToolOptions?.artifactResources?.store,
     voiceConfig: options.operatorVoice?.voiceConfig,
@@ -1046,6 +1089,9 @@ async function bootstrapGatewaySession(
   const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = {
     current: gateway.providerModelDiscovery,
   };
+  const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = {
+    current: await options.executionRouteSelection.getCatalog(),
+  };
 
   let session: GatewaySession | null = null;
   const createSession = async (): Promise<SessionLike> => {
@@ -1053,17 +1099,21 @@ async function bootstrapGatewaySession(
       session = new GatewaySession(
         gateway.url,
         (
-          models: Record<string, string[]>,
+          executionRouteCatalog: ExecutionRouteCatalog,
+          models?: Record<string, string[]>,
           discovery?: readonly GuiProviderDiscoveryResult[],
           providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
         ) => {
-          providerModelsRef.current = models;
+          executionRouteCatalogRef.current = executionRouteCatalog;
+          if (models) {
+            providerModelsRef.current = models;
+          }
           providerDiscoveryRef.current = discovery ?? [];
           providerModelDiscoveryRef.current = providerModelDiscovery ?? null;
           providerModelsRef.current = projectEligibleTuiProviderModels(
             providerModelDiscoveryRef.current,
             providerDiscoveryRef.current,
-            Object.keys(models),
+            Object.keys(providerModelsRef.current),
           );
         },
       );
@@ -1076,9 +1126,11 @@ async function bootstrapGatewaySession(
     providerModelsRef,
     providerDiscoveryRef,
     providerModelDiscoveryRef,
+    executionRouteCatalogRef,
     shutdown: () => {
       void session?.dispose();
       gateway.shutdown();
+      options.closeOperatorTurnComposition();
     },
   };
 }
@@ -1196,6 +1248,7 @@ async function bootstrapDirectSession(
   const providerModelsRef: { current: Record<string, string[]> } = { current: {} };
   const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = { current: [] };
   const providerModelDiscoveryRef: { current: GuiProviderModelDiscoveryProjection | null } = { current: null };
+  const executionRouteCatalogRef: { current: ExecutionRouteCatalog | null } = { current: null };
   const providerCatalog = createProviderCatalogService<readonly GuiProviderDiscoveryResult[]>(
     () => resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(options.registry)),
     [],
@@ -1224,12 +1277,18 @@ async function bootstrapDirectSession(
   const ensureProviderModels = async (): Promise<Record<string, string[]>> => applyProviderDiscovery(
     (await providerCatalog.ensureReady()).discovery,
   );
+  const refreshExecutionRouteCatalog = async (): Promise<ExecutionRouteCatalog> => {
+    const catalog = await options.executionRouteSelection.getCatalog();
+    executionRouteCatalogRef.current = catalog;
+    return catalog;
+  };
   providerCatalog.subscribe((snapshot) => {
     applyProviderDiscovery(snapshot.discovery);
   });
   writeTuiBootstrapStatus("Loading provider and model discovery...");
   options.startupProfiler?.mark("direct-provider-catalog-refresh-started");
   providerCatalog.startBackgroundRefresh({ force: true });
+  await refreshExecutionRouteCatalog();
   const directRuntimeSessionId = `kiln-tui:direct:${randomUUID()}`;
 
   const createSession = async (): Promise<SessionLike> => {
@@ -1244,6 +1303,9 @@ async function bootstrapDirectSession(
     );
 
     session = {
+      get executionRouteCatalog() {
+        return executionRouteCatalogRef.current ?? { routes: [] };
+      },
       async *run(opts: { prompt: string; cwd?: string; kilnSessionId?: string }) {
         const providerForTurn = sessionManager.getProvider();
         let modelForTurn = sessionManager.getModel();
@@ -1292,27 +1354,25 @@ async function bootstrapDirectSession(
       async clear() {
         await sessionManager.onClear(sessionManager.getProvider());
       },
-      async refreshProviders() {
+      async refreshExecutionRoutes() {
+        await refreshExecutionRouteCatalog();
         await refreshProviderModels({ force: true });
       },
-      async switchProvider(providerName: string, modelName?: string) {
-        const provider = providerName.trim() as ProviderId;
-        const requestedModel = typeof modelName === "string" ? modelName.trim() : "";
-        await ensureProviderModels();
-        const resolution = resolveGuiProviderSwitch({
-          provider,
-          model: requestedModel,
-          discovery: providerDiscoveryRef.current,
-          ...(providerModelDiscoveryRef.current
-            ? { providerModelDiscovery: providerModelDiscoveryRef.current }
-            : {}),
-        });
-        if (!resolution.ok) {
-          throw new Error(resolution.error);
+      async switchExecutionRoute(routeId: string, accountOverrideId?: string) {
+        const intent: ExecutionRouteSelectionIntent = {
+          routeId: routeId.trim(),
+          ...(accountOverrideId?.trim() ? { accountOverrideId: accountOverrideId.trim() } : {}),
+        };
+        const admission = await options.executionRouteSelection.admit(intent);
+        if (!admission.ok) {
+          throw new Error(admission.reason);
         }
-        sessionManager.setProvider(resolution.provider);
-        sessionManager.setModel(resolution.modelForSessionManager);
-        return resolution.provider;
+        if (!sessionManager.setProvider(admission.admission.providerId)) {
+          throw new Error(`Execution route '${admission.admission.routeId}' resolved to an unsupported provider.`);
+        }
+        sessionManager.setModel(admission.admission.providerModelId);
+        executionRouteCatalogRef.current = await options.executionRouteSelection.getCatalog();
+        return admission.admission.routeId;
       },
     };
     return session;
@@ -1323,7 +1383,11 @@ async function bootstrapDirectSession(
     providerModelsRef,
     providerDiscoveryRef,
     providerModelDiscoveryRef,
-    shutdown: () => {},
+    executionRouteCatalogRef,
+    refreshProviderDiscovery: async () => {
+      await refreshProviderModels({ force: true });
+    },
+    shutdown: () => { options.closeOperatorTurnComposition(); },
   };
 }
 
@@ -1362,8 +1426,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     }),
   );
   const startupTransport = resolveTuiStartupTransport(flags);
-  const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
-  const startupModel = resolveGlobalDefaultModel(globalConfig);
+  if (!globalConfig) throw new Error("An execution-route global configuration is required to start the TUI.");
+  if (!globalConfig.executionCatalog) throw new Error("An execution catalog is required to start the TUI.");
+  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig);
+  const provider = parseProvider(startupRoute.providerId, providerIds);
+  const startupModel = startupRoute.providerModelId;
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
@@ -1496,11 +1563,21 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
+  const operatorExecutionCatalog = defineExecutionCatalog(globalConfig.executionCatalog);
+  const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>({
+    catalog: operatorExecutionCatalog,
+    cwd,
+  });
+  const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
+    readConfig: () => readGlobalConfig() ?? globalConfig,
+    resolveAccountAvailability: operatorTurnComposition.resolveExecutionRouteAccountAvailability,
+  });
   const bootstrap = await bootstrapTuiSession({
     flags,
     cwd,
     sessionManager,
     registry,
+    executionRouteSelection,
     contextArtifactCache,
     systemPrompt,
     operatorTimeZone: runtimeAppConfig.operatorTimeZone,
@@ -1512,6 +1589,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     initialProviderDiscovery,
     onProviderDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
     startupProfiler,
+    operatorTurnDispatcher: operatorTurnComposition.dispatcher,
+    operatorTurnExecutionBridge: operatorTurnComposition.bridge,
+    closeOperatorTurnComposition: operatorTurnComposition.close,
   });
   startupProfiler.mark("bootstrap-context-ready", { transport: startupTransport });
   stagedManagedInvocation?.startBackgroundRefresh();
@@ -1538,8 +1618,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
-  const resolvedTheme = themes[flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? DEFAULT_OPERATOR_THEME_NAME]
-    ?? defaultTheme;
+  const requestedTheme = flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? DEFAULT_OPERATOR_THEME_NAME;
+  const resolvedTheme = isOperatorThemeName(requestedTheme) ? themes[requestedTheme] : defaultTheme;
 
   // Session list loader for sidebar browser
   async function loadOperatorSessionHistory() {
@@ -1551,12 +1631,36 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   }
 
   // Session continuation requires an evidenced route; never guess from current selection.
+  const continuationBindings = new Map<string, Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>>();
+  const persistedOperatorSessions = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
+  await Promise.all(persistedOperatorSessions.map(async (candidate) => {
+    const meta = await transcriptStore.readMeta(candidate.sessionId);
+    const binding = [...(meta?.executionBindings ?? [])].reverse().find((entry) => entry.status === "bound");
+    const routeId = candidate.lastRoute?.routeId;
+    const route = routeId
+      ? bootstrap.executionRouteCatalogRef.current?.routes.find((entry) => entry.routeId === routeId)
+      : undefined;
+    if (!binding || !route || route.availability !== "available") return;
+    const continuation = await resolveOperatorContinuationBinding({
+      catalog: operatorExecutionCatalog,
+      accountRuntime: operatorTurnComposition.accountRuntime,
+      binding,
+      requestedRouteId: route.routeId,
+    });
+    if (continuation) continuationBindings.set(candidate.sessionId, binding);
+  }));
   const handleResumeSession = (session: OperatorSessionSummary) => {
-    if (!session.lastRoute || !sessionManager.setProvider(session.lastRoute.provider)) return false;
-    if (session.lastRoute.model) {
-      sessionManager.setModel(session.lastRoute.model);
+    const routeId = session.lastRoute?.routeId?.trim();
+    const route = routeId
+      ? bootstrap.executionRouteCatalogRef.current?.routes.find((candidate) => candidate.routeId === routeId)
+      : undefined;
+    const binding = continuationBindings.get(session.sessionId);
+    if (!route || route.availability !== "available" || !binding) {
+      return false;
     }
-    return sessionManager.setContinuationSession(session.sessionId, session.lastRoute.provider);
+    if (!sessionManager.setProvider(route.providerId)) return false;
+    sessionManager.setModel(route.providerModelId);
+    return sessionManager.setContinuationSession(session.sessionId, route.providerId);
   };
 
   const startupProviderDisplayInfo = buildTuiStartupProviderDisplayInfo({
@@ -1588,13 +1692,12 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     bootstrap.providerDiscoveryRef,
     startupTransport === "direct" ? loadOperatorSessionHistory : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,
-    () => bootstrap.createSession().then((session) => (
-      session as unknown as { refreshProviders?: () => Promise<void> | void }
-    ).refreshProviders?.()),
+    bootstrap.refreshProviderDiscovery,
     (themeName) => persistTuiThemePreference(themeName, globalConfig),
     async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
     () => startupProfiler.mark("tui-first-frame-rendered"),
     bootstrap.providerModelDiscoveryRef,
+    bootstrap.executionRouteCatalogRef,
   );
 
   bootstrap.shutdown();

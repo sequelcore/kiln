@@ -11,7 +11,7 @@ import type { KilnGlobalConfig } from "./global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import type { KilnModelTaskSuitabilityOverride, KilnYaml, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { join } from "node:path";
-import { inferRouteTask } from "./provider-route-candidates.js";
+import { inferRouteTask } from "./execution-route-resolver.js";
 import { resolveTaskSkillSelection } from "./task-skill-selection.js";
 
 export function createManagedInvocationContextResolver(

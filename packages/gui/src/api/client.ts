@@ -29,6 +29,7 @@ import {
   OperatorResourceReadRequestSchema,
   OperatorResourceReadResultSchema,
   OperatorSessionHistoryResponseSchema,
+  ExecutionRouteCatalogSchema,
   projectOperatorResourceReadPresentation,
 } from "@kilnai/gateway-contracts";
 import { GuiSessionClient, type GuiSessionClientOptions } from "./session-client.js";
@@ -528,6 +529,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   if (!Array.isArray(snapshot.providers)) {
     throw new Error("Invalid dashboard providers payload.");
   }
+  const executionRouteCatalog = ExecutionRouteCatalogSchema.parse(snapshot.executionRouteCatalog);
   if (!isTelemetrySnapshot(snapshot.telemetry)) {
     throw new Error("Invalid dashboard telemetry payload.");
   }
@@ -538,6 +540,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   const apps = normalizeAppDescriptors(snapshot.apps);
   const workspaceTree = normalizeWorkspaceTreeSnapshot(snapshot.workspaceTree);
   return {
+    executionRouteCatalog,
     providers: snapshot.providers,
     telemetry: snapshot.telemetry,
     continuationInfoByProvider: snapshot.continuationInfoByProvider as Record<string, GuiContinuationInfo>,

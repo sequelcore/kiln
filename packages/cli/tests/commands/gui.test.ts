@@ -41,7 +41,6 @@ describe("gui CLI command wiring", () => {
       originalArgv[0] ?? "bun",
       originalArgv[1] ?? "index.ts",
       "gui",
-      "--provider", "codex",
       "--theme", "automata",
       "--plan",
       "--cwd", "C:/repo",
@@ -61,7 +60,6 @@ describe("gui CLI command wiring", () => {
       cwd: "C:/repo",
       connect: "http://localhost:3800",
       open: false,
-      provider: "codex",
       theme: "automata",
       plan: true,
     });

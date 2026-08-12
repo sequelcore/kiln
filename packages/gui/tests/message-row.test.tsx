@@ -162,6 +162,39 @@ describe("MessageRow", () => {
     expect(screen.getByRole("button", { name: "Generate audio" })).toBeInTheDocument();
   });
 
+  it("uses the active execution route only as streaming display evidence", () => {
+    useSessionStore.setState({
+      executionRouteCatalog: {
+        routes: [{
+          routeId: "terra",
+          label: "Terra",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.6-terra",
+          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
+          availability: "available",
+          reasonCodes: [],
+          repairActions: [],
+        }],
+      },
+      activeRouteId: "terra",
+    });
+
+    render(
+      <MessageRow
+        message={{
+          id: "streaming-route-evidence",
+          role: "assistant",
+          content: "Streaming response.",
+          createdAt: "2026-08-11T00:00:00.000Z",
+          streaming: true,
+          parts: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Codex OAuth / gpt-5.6-terra")).toBeInTheDocument();
+  });
+
   it("keeps voice synthesis failure and retry on the source message", () => {
     const outboundSend = vi.fn();
     const message = {

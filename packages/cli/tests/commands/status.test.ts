@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { statusCommand } from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
-import { writeGlobalConfig } from "../../src/config/global-config.js";
+import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+
+function persistGlobalConfig(config: KilnGlobalConfig): void {
+  mutateGlobalConfig(() => config);
+}
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ProviderModelEligibilityRequirements } from "@kilnai/core";
 
@@ -114,7 +118,7 @@ describe("statusCommand", () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, {
-      version: "1",
+      version: "2",
       domain: "react-typescript",
       channels: ["cli", "web"],
       teamMode: "sequential",
@@ -216,13 +220,13 @@ describe("statusCommand", () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
-    writeGlobalConfig({
-      version: "1",
+    persistGlobalConfig({
+      version: "2",
       engines: {
         codex: { enabled: true, billing: "plus-quota" },
         opencode: { enabled: true, billing: "free" },
       },
-      routing: {
+      workerRouting: {
         defaultWorker: "codex",
         fallback: "opencode",
         budgetAware: true,
@@ -304,8 +308,8 @@ describe("statusCommand", () => {
     const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
     process.env.TAVILY_API_KEY = "tv-test";
     process.env.FIRECRAWL_API_KEY = "fc-test";
-    writeGlobalConfig({
-      version: "1",
+    persistGlobalConfig({
+      version: "2",
       web: {
         searchProvider: {
           type: "tavily",

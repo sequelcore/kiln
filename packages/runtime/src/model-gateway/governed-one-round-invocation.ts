@@ -3,9 +3,12 @@ import {
   advanceAttemptCommit,
   createAttemptCommit,
   dispatchModelGatewayOneRound,
+  createAccountPolicyId,
+  selectExecutionAccountCandidate,
   validateModelTurn,
-  type AccountPolicyId,
   type AttemptCommitPhase,
+  type AdmittedExecutionRoute,
+  type ExecutionAccountCandidate,
   type ModelGatewayAccountSelectionResult,
   type ModelGatewayAffinity,
   type ModelGatewayOneRoundDispatcher,
@@ -17,8 +20,8 @@ import type {
   AccountCapacitySettlement,
   ManagedAccountAffinityRequest,
   ManagedAccountCandidateBinding,
-  SqliteManagedAccountLeaseAuthority,
 } from "../managed-account-leases/managed-account-lease-authority.js";
+import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
 
 export type GovernedOneRoundToolExecutionMode = "caller-owned" | "kiln-owned";
 export interface GovernedOneRoundIdentity {
@@ -60,9 +63,13 @@ export interface GovernedOneRoundInvocationInput {
 }
 export interface GovernedOneRoundCandidateCatalog {
   list(input: Pick<GovernedOneRoundInvocationInput, "identity" | "route" | "authority" | "budget">): Promise<{
-    readonly accountPolicyId: AccountPolicyId;
-    readonly candidates: readonly ManagedAccountCandidateBinding[];
+    readonly admission: AdmittedExecutionRoute;
+    readonly candidates: readonly GovernedOneRoundCandidate[];
   }>;
+}
+export interface GovernedOneRoundCandidate {
+  readonly candidate: ExecutionAccountCandidate;
+  readonly lease: ManagedAccountCandidateBinding;
 }
 export type GovernedOneRoundAttemptPhase = AttemptCommitPhase;
 export interface GovernedOneRoundAttemptEvidence {
@@ -86,6 +93,7 @@ export interface GovernedOneRoundAttemptEvidenceSink {
 export interface GovernedOneRoundDispatcherResolver {
   resolve(input: {
     readonly identity: GovernedOneRoundIdentity;
+    readonly accountId: string;
     readonly route: ModelGatewayRoute;
     readonly account: ModelGatewayAffinity["account"];
     readonly leaseId: string;
@@ -95,7 +103,7 @@ export interface GovernedOneRoundDispatcherResolver {
 }
 export interface GovernedOneRoundInvocationPorts {
   readonly candidateCatalog: GovernedOneRoundCandidateCatalog;
-  readonly accountCapacityAuthority: SqliteManagedAccountLeaseAuthority;
+  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
   readonly attemptEvidence: GovernedOneRoundAttemptEvidenceSink;
   readonly dispatcherResolver: GovernedOneRoundDispatcherResolver;
 }
@@ -177,12 +185,30 @@ export async function invokeGovernedOneRound(
           ...(input.affinity.allowRebind ? { allowRebind: true } : {}),
         };
   const runtimeInvocationId = input.attemptId;
+  const candidateSelection = selectExecutionAccountCandidate(
+    catalog.admission,
+    catalog.candidates.map(({ candidate }) => candidate),
+  );
+  if (candidateSelection.kind !== "selected")
+    throw new GovernedOneRoundInvocationError(
+      input.affinity.continuity === "require" ? "affinity-required" : "no-eligible-account",
+      "No eligible account capacity is admitted for this one-round invocation.",
+    );
+  const selectedCandidate = catalog.candidates.find(({ candidate }) => candidate.accountId === candidateSelection.accountId);
+  if (!selectedCandidate) throw new GovernedOneRoundInvocationError("no-eligible-account", "The selected execution account has no lease binding.");
+  if (
+    selectedCandidate.lease.candidate.route.providerId !== catalog.admission.providerId
+    || selectedCandidate.lease.candidate.route.providerModelId !== catalog.admission.providerModelId
+    || selectedCandidate.lease.candidate.route.scope !== input.route.scope
+  ) throw new GovernedOneRoundInvocationError("invalid-input", "The selected execution account lease does not match the admitted route.");
   const acquired = ports.accountCapacityAuthority.acquireAccountCapacity({
     runtimeInvocationId,
-    intentFingerprint: intentFingerprint(input),
-    accountPolicyId: catalog.accountPolicyId,
+    intentFingerprint: intentFingerprint(input, catalog.admission),
+    accountPolicyId: executionAccountPolicyId(catalog.admission),
     route: input.route,
-    candidates: catalog.candidates,
+    // Core has selected exactly one eligible account. Passing only that
+    // binding prevents capacity races from silently changing the route choice.
+    candidates: [selectedCandidate.lease],
     affinityRequest,
   });
   if (acquired.status === "conflict")
@@ -218,6 +244,7 @@ export async function invokeGovernedOneRound(
   try {
     dispatcher = await ports.dispatcherResolver.resolve({
       identity: input.identity,
+      accountId: candidateSelection.accountId,
       route: input.route,
       account: capacity.accountRef,
       leaseId: capacity.leaseId,
@@ -381,13 +408,14 @@ export async function invokeGovernedOneRound(
   };
 }
 
-function intentFingerprint(input: GovernedOneRoundInvocationInput): `sha256:${string}` {
+function intentFingerprint(input: GovernedOneRoundInvocationInput, admission: AdmittedExecutionRoute): `sha256:${string}` {
   return `sha256:${createHash("sha256")
     .update(
       JSON.stringify({
         attemptId: input.attemptId,
         identity: input.identity,
         route: input.route,
+        admission,
         turn: input.turn,
       }),
     )
@@ -431,4 +459,12 @@ function validateAdmission(input: GovernedOneRoundInvocationInput): void {
       error instanceof Error ? error.message : "Model turn is invalid.",
     );
   }
+}
+
+function executionAccountPolicyId(admission: AdmittedExecutionRoute) {
+  return createAccountPolicyId(
+    admission.accountSelection.mode === "automatic"
+      ? admission.accountSelection.accountPolicyId
+      : `execution-route:${admission.routeId}`,
+  );
 }

@@ -81,6 +81,13 @@ export interface ProviderExecutionContext {
   readonly workingDirectory?: string;
   readonly requestedAuthority?: ProviderExecutionRequestedAuthority;
   readonly executionScope?: import("../events/session-execution-scope.js").SessionExecutionScope;
+  /** Secret-free identity of the account and credential committed by the host. */
+  readonly executionBinding?: Extract<
+    import("../events/execution-session-event.js").ExecutionSessionBindingEvidence,
+    { readonly status: "bound" }
+  >;
+  /** Opaque credential material resolved after the host's dispatch fence. */
+  readonly executionCredential?: unknown;
 }
 
 /** Stable host-owned identity for one provider request; session affinity is separate. */
@@ -295,6 +302,30 @@ export type {
   ExecutionIdentity,
   ResolveExecutionIdentityOptions,
 } from "./execution-identity.js";
+export {
+  admitOperatorExecutionIntent,
+  defineExecutionCatalog,
+  ExecutionRoutingValidationError,
+  selectExecutionAccountCandidate,
+} from "./execution-routing/index.js";
+export type {
+  AdmittedExecutionRoute,
+  ExecutionAccount,
+  ExecutionAccountCandidate,
+  ExecutionAccountEconomicsConfig,
+  ExecutionAccountPolicy,
+  ExecutionAccountRejection,
+  ExecutionAccountRejectionReason,
+  ExecutionAccountSelection,
+  ExecutionCatalog,
+  ExecutionCatalogInput,
+  ExecutionRoute,
+  ExecutionRouteAccountSelection,
+  ExecutionPriceEvidenceConfig,
+  ExecutionRouteEconomicsConfig,
+  ExecutionUnitPriceConfig,
+  OperatorExecutionIntent,
+} from "./execution-routing/index.js";
 export type {
   DirectProviderId,
   DirectProviderExecutionMode,

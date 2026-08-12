@@ -25,7 +25,7 @@ The projection is intentionally read-only. It summarizes:
 - config health
 - permission integrity as part of config health
 - route health
-- provider/model readiness
+- execution-route readiness with derived provider/model evidence
 - gateway/app health
 - linked resources
 - shared attention state
@@ -60,7 +60,7 @@ projection is available.
 - CLI exposes a workspace home projection from managed-agent list JSON.
 - Runtime, CLI, GUI fallback, TUI, and native producers pass normalized
   operator events into the shared projector so work/goals, approvals, route
-  health, and provider readiness stay cross-surface.
+  health, and execution-route readiness stay cross-surface.
 - Gateway/app health is projected from explicit target identity. Config health
   is present in the contract; local GUI setup diagnostics feed it, including
   permission-integrity entries for trusted/full-access execution evidence.
@@ -109,10 +109,10 @@ target identity. Surfaces must not infer target authority from labels, selected
 ports, or local instance strings.
 
 Global control-plane frames do not carry gateway target identity unless they
-become target-bound actions. Provider discovery, provider authentication,
-provider switching, clear, operator-theme results, and voice-synthesis requests
-operate on the connected operator surface, provider catalog, UI preference, or
-source message rather than a selected app/tenant runtime target.
+become target-bound actions. Execution-route catalog refresh and selection,
+provider authentication, clear, operator-theme results, and voice-synthesis
+requests operate on the connected operator surface, route catalog, UI
+preference, or source message rather than a selected app/tenant runtime target.
 
 ## Resource Inspector
 

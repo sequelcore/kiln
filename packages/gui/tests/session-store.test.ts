@@ -111,24 +111,6 @@ function efficiencyEvidenceFixture(input: {
   };
 }
 
-function providerModelDiscovery(
-  providerId: string,
-  providerModelId: string,
-): GuiProviderModelDiscoveryProjection {
-  return {
-    catalogEvidence: {
-      status: "complete",
-      source: { kind: "test", id: "session-store" },
-      observedAt: "2026-07-01T00:00:00.000Z",
-      counts: { total: 1, returned: 1, omitted: 0 },
-    },
-    entries: [{
-      providerRoute: { providerId, providerModelId },
-      eligibility: { eligible: true, reasonCodes: [] },
-    } as GuiProviderModelDiscoveryProjection["entries"][number]],
-  };
-}
-
 function defaultProviderModelDiscovery(): GuiProviderModelDiscoveryProjection {
   return {
     catalogEvidence: {
@@ -148,40 +130,31 @@ describe("session-store", () => {
     resetSessionStore();
   });
 
-  it("onWelcome seeds providers, restores plan mode, and clears stale continuation targets", () => {
+  it("onWelcome seeds execution routes, restores plan mode, and clears stale continuation targets", () => {
     localStorage.setItem("kiln.gui.planMode", "true");
     localStorage.setItem("kiln.gui.continuationTarget", "session-123");
 
     useSessionStore.getState().onWelcome({
       type: "welcome",
-      providers: [
-        {
-          id: "claude",
-          label: "Claude",
-          group: "harness",
-          free: false,
-          available: true,
-          models: ["sonnet"],
-        },
-        {
-          id: "codex",
-          label: "Codex",
-          group: "harness",
-          free: false,
-          available: true,
-          models: ["o3"],
-        },
-      ],
-      activeProvider: "claude",
-      activeModel: "sonnet",
-      providerModelDiscovery: providerModelDiscovery("claude", "sonnet"),
+      executionRouteCatalog: {
+        routes: [{
+          routeId: "claude-sonnet",
+          label: "Claude Sonnet",
+          providerId: "claude",
+          providerModelId: "sonnet",
+          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: false },
+          availability: "available",
+          reasonCodes: [],
+          repairActions: [],
+        }],
+      },
+      activeRouteId: "claude-sonnet",
       executionMode: "execute",
     });
 
     const state = useSessionStore.getState();
-    expect(state.providers.map((provider) => provider.id)).toEqual(["claude", "codex"]);
-    expect(state.activeProvider).toBe("claude");
-    expect(state.activeModel).toBe("sonnet");
+    expect(state.executionRouteCatalog.routes.map((route) => route.routeId)).toEqual(["claude-sonnet"]);
+    expect(state.activeRouteId).toBe("claude-sonnet");
     expect(state.planMode).toBe(true);
     expect(state.continuationTargetId).toBeNull();
     expect(localStorage.getItem("kiln.gui.continuationTarget")).toBeNull();
@@ -2633,10 +2606,6 @@ describe("session-store", () => {
   it("onCleared empties transcript and drops the session-scoped continuation target", () => {
     const send = vi.fn();
     useSessionStore.getState().setSender(send);
-    useSessionStore.getState().onProviderChanged({
-      type: "provider_changed",
-      provider: "claude",
-    });
     useSessionStore.getState().setContinuation("session-a");
     useSessionStore.setState({ status: "ready" });
     useSessionStore.getState().sendMessage("test");
@@ -2773,8 +2742,19 @@ describe("session-store", () => {
     useSessionStore.getState().setSender(send);
     useSessionStore.setState({
       status: "ready",
-      activeProvider: "anthropic",
-      activeModel: "claude-sonnet",
+      executionRouteCatalog: {
+        routes: [{
+          routeId: "anthropic-sonnet",
+          label: "Claude Sonnet",
+          providerId: "anthropic",
+          providerModelId: "claude-sonnet",
+          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: false },
+          availability: "available",
+          reasonCodes: [],
+          repairActions: [],
+        }],
+      },
+      activeRouteId: "anthropic-sonnet",
       contextUsage: {
         state: "authoritative",
         usedTokens: 2_000,

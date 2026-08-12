@@ -76,6 +76,14 @@ export interface CreateDirectProviderPooledAdapterOptions {
   readonly createAdapter?: (auth: DirectProviderAuth) => ProviderAdapter;
 }
 
+export interface CreateDirectProviderExactAdapterOptions {
+  readonly credential: DirectProviderExecutionCredential;
+  readonly defaultModel?: string;
+  readonly openRouterAppUrl?: string;
+  readonly openRouterAppName?: string;
+  readonly createAdapter?: (auth: DirectProviderAuth) => ProviderAdapter;
+}
+
 interface ProviderRuntimeConfig {
   readonly envKey?: string;
   readonly baseUrlEnvKey?: string;
@@ -258,6 +266,44 @@ export class DirectProviderCredentialPoolService {
       createAdapter: options.createAdapter ?? ((auth) => this.createAdapter(options, auth)),
       mapError: mapDirectProviderError,
     });
+  }
+
+  /** Materializes the credential already resolved by the fenced execution. */
+  async createAdapterFromCredential(options: CreateDirectProviderExactAdapterOptions): Promise<ProviderAdapter> {
+    const credential = options.credential;
+    assertPooledProvider(credential.providerId);
+    const delegate = options.createAdapter?.(credential.auth) ?? this.createAdapter({
+      provider: credential.providerId,
+      defaultModel: options.defaultModel,
+      openRouterAppUrl: options.openRouterAppUrl,
+      openRouterAppName: options.openRouterAppName,
+    }, credential.auth);
+    const recordOutcome = async (error?: unknown): Promise<void> => {
+      await this.recordProviderOutcome(credential.providerId, credential.credentialId, error);
+    };
+    return {
+      name: delegate.name,
+      deliberationTransport: delegate.deliberationTransport,
+      createMessage: async (messageOptions: import("@kilnai/core").CreateMessageOptions) => {
+        try {
+          const response = await delegate.createMessage(messageOptions);
+          await recordOutcome();
+          return response;
+        } catch (error) {
+          await recordOutcome(error);
+          throw error;
+        }
+      },
+      streamMessage: async function* (messageOptions: import("@kilnai/core").CreateMessageOptions) {
+        try {
+          yield* delegate.streamMessage(messageOptions);
+          await recordOutcome();
+        } catch (error) {
+          await recordOutcome(error);
+          throw error;
+        }
+      },
+    };
   }
 
   async createPool(provider: PooledDirectProviderId): Promise<CredentialPool<DirectProviderAuth>> {

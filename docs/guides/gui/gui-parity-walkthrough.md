@@ -34,8 +34,9 @@ Before recording:
    `bun run test`, `bun run typecheck`, and `bun run build`
 5. Launch the app through the real operator entry point:
    `kiln gui`
-6. Record the full screen or app window with enough resolution that provider
-   labels, telemetry values, and transcript headers are readable.
+6. Record the full screen or app window with enough resolution that route
+   labels, derived provider/model evidence, telemetry values, and transcript
+   headers are readable.
 
 ## Walkthrough script
 
@@ -65,29 +66,35 @@ Pass condition:
   continues the selected conversation, plan mode is visible and reversible, and
   close exits without leaving the GUI surface hanging.
 
-### 2. Provider and model selection
+### 2. Execution-route selection
 
 Show:
 
-- Provider picker with all grouped providers visible.
-- Provider switch acknowledgement in the GUI status/header.
-- Model selection for at least one provider with visible model label.
-- Reasoning effort control visible beside model selection for a model that
-  advertises supported reasoning levels, such as Codex OAuth.
+- Execution-route picker with all configured routes visible, including an
+  unavailable route with its reason and repair action when one is configured.
+- Where configured, invoke `Authenticate <provider>` or `Refresh execution
+  routes` from that unavailable route. Authentication must refresh the picker
+  catalog, but it must not silently select a route.
+- Execution-route change acknowledgement in the GUI status/header.
+- Derived provider and model evidence visible for the selected route.
+- Where an automatic route exposes account aliases, demonstrate that an override
+  is an alias-only choice and no credential ID is displayed.
+- Reasoning effort control visible beside the selected route for a derived model
+  that advertises supported reasoning levels, such as Codex OAuth.
 - One turn submitted with a non-default reasoning effort.
 - A turn whose route status changes to `responding`.
 - The final assistant message header showing the routed provider and model.
-- A single session that contains turns from at least two providers without the
-  session disappearing from history when the active provider changes.
+- A single session that contains turns from at least two execution routes without
+  the session disappearing from history when the selected route changes.
 
 Pass condition:
 
-- Provider choice, model choice, route status, and final assistant route label
-  are all visible and coherent.
+- Route choice, route status, and final assistant label with derived
+  provider/model evidence are all visible and coherent.
 - Reasoning effort is discoverability-driven: visible when supported by the
   active model, hidden when unsupported, and applied to the next turn only.
-- Provider switching changes the next execution route only; it does not create
-  or reveal a provider-owned session namespace.
+- Execution-route selection changes the next turn only; it does not create or
+  reveal a provider-owned session namespace.
 
 ### 3. Cost and telemetry
 
@@ -121,15 +128,15 @@ Show:
 - Session selection loading the selected conversation directly into the main
   chat; no sidebar-only preview or separate resume confirmation should be
   required.
-- Arrow-key navigation through the provider picker, command palette, and
+- Arrow-key navigation through the execution-route picker, command palette, and
   session list.
 
 Pass condition:
 
 - The GUI supports the keyboard-first operator path without requiring active
   TUI development.
-- Session history navigation operates over Kiln sessions, not the active
-  provider's private history.
+- Session history navigation operates over Kiln sessions, not the selected
+  route's provider-private history.
 
 ### 5. Theming and visual behavior
 
@@ -196,7 +203,6 @@ Pass condition:
 
 Show:
 
-- `kiln gui --provider <name>`
 - `kiln gui --theme <name>`
 - `kiln gui --plan`
 - `kiln gui --cwd <path>`

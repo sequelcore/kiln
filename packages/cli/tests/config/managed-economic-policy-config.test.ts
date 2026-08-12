@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { createAccountRef } from "@kilnai/core";
 import { SqliteManagedAccountLeaseAuthority } from "@kilnai/runtime";
-import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { validateGlobalConfig } from "../../src/config/global-config.js";
 import {
   closeManagedAccountRuntimeComposition,
   createManagedAccountRuntimeComposition,
@@ -14,17 +14,6 @@ import {
 import { economicConfig } from "./managed-economic-policy-config-fixture.js";
 
 const testProfileAuthorityDigest = `sha256:${"9".repeat(64)}`;
-
-function accountlessEconomicConfig(): KilnGlobalConfig {
-  const config = structuredClone(economicConfig()) as Record<string, any>;
-  config.managedAgents.routes[0].credentials = {
-    mode: "credentialless",
-    economicsRouteId: "codex-standard-policy",
-  };
-  config.modelGateway.accounts = [];
-  config.modelGateway.virtualModels[0].accountIds = [];
-  return config as KilnGlobalConfig;
-}
 
 function economicJob(jobId: string, economicAttemptId: string) {
   return {
@@ -60,13 +49,11 @@ function economicJob(jobId: string, economicAttemptId: string) {
 }
 
 function economicRoutingResolution() {
-  return {
-    route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
-    affinityPolicy: { continuity: "none" as const },
-    candidates: [{
+  return [{
+    lease: {
       candidate: {
         account: createAccountRef("configured:codex-account:fixture"),
-        route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
+        route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "managed-economic-adoption" },
         health: "healthy" as const,
         leaseCapacity: "available" as const,
         pressure: 0,
@@ -98,11 +85,11 @@ function economicRoutingResolution() {
           },
           resetsAt: null,
         }],
-        evidence: economicConfig().modelGateway!.virtualModels[0]!.economics!.priceEvidence.evidence,
+        evidence: economicConfig().executionCatalog!.routes[0]!.economics.priceEvidence.evidence,
       },
       capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
-    }],
-  };
+    },
+  }];
 }
 
 async function acquireRecoveryFixture(
@@ -113,7 +100,7 @@ async function acquireRecoveryFixture(
   const adoption = await projectManagedEconomicJobAdoption(
     economicConfig(),
     economicJob(jobId, economicAttemptId),
-    { resolve: async () => economicRoutingResolution() } as never,
+    { modelGatewayCandidates: { resolve: async () => economicRoutingResolution() } } as never,
   );
   return composition.authority.acquireCommitment({
     jobId,
@@ -125,11 +112,7 @@ async function acquireRecoveryFixture(
 
 describe("managed economic policy config", () => {
   it("projects a replay-stable Core snapshot solely from config and persisted admission", async () => {
-    const resolve = vi.fn(async () => ({
-      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
-      affinityPolicy: { continuity: "none" },
-      candidates: [],
-    }));
+    const resolve = vi.fn(async () => []);
     const adoption = await projectManagedEconomicJobAdoption(economicConfig(), {
       projectId: "project-a",
       callerId: "caller-a",
@@ -159,7 +142,7 @@ describe("managed economic policy config", () => {
           rejections: [],
         },
       },
-    } as never, { resolve } as never);
+    } as never, { modelGatewayCandidates: { resolve } } as never);
 
     expect(adoption.snapshot).toMatchObject({
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
@@ -179,92 +162,6 @@ describe("managed economic policy config", () => {
     expect(adoption.snapshot.snapshotDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(adoption.expectation.candidateSetDigest).toBe(adoption.snapshot.candidateSetDigest);
     expect(resolve).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    { continuity: "prefer" as const, scope: "session" as const, allowRebind: true },
-    { continuity: "require" as const, scope: "turn" as const },
-  ])("projects configured $continuity/$scope affinity as opaque persisted-lineage evidence", async (affinityPolicy) => {
-    const resolve = vi.fn(async () => ({
-      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
-      affinityPolicy,
-      candidates: [],
-    }));
-    const job = {
-      id: "job-affinity",
-      projectId: "project-a",
-      callerId: "caller-a",
-      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      parent: { invocationId: "parent-invocation-secret", turnId: "parent-turn-secret" },
-      dispatch: {
-        kind: "economic" as const,
-        economicAttemptId: "economic-attempt:affinity-001",
-        economicPolicyId: "default-economic-policy",
-        economicPolicyRevision: "rev-2026-07",
-        constraints: {},
-        candidateSet: {
-          economicPolicyId: "default-economic-policy",
-          economicPolicyRevision: "rev-2026-07",
-          admissionProfileId: "foundation-readonly-plan" as const,
-          constraints: {},
-          candidates: [{
-            routeId: "codex-standard",
-            routeSource: "explicit-managed-route",
-            providerId: "codex-oauth",
-            model: "gpt-5.6-codex",
-            accountPolicyId: "codex-standard-policy",
-            adapterCapabilityId: "codex-direct",
-            adapterCapabilityVersion: "v1",
-            profileAuthorityDigest: testProfileAuthorityDigest,
-          }],
-          rejections: [],
-        },
-      },
-    } as never;
-
-    const adoption = await projectManagedEconomicJobAdoption(economicConfig(), job, { resolve } as never);
-    const request = adoption.routeCapacity[0]?.affinityRequest;
-
-    expect(request).toMatchObject(affinityPolicy);
-    expect(request).toHaveProperty("key", expect.stringMatching(/^[a-f0-9]{64}$/u));
-    expect(JSON.stringify(request)).not.toContain("parent-invocation-secret");
-    expect(JSON.stringify(request)).not.toContain("parent-turn-secret");
-  });
-
-  it("fails closed when configured affinity continuity lacks persisted parent lineage", async () => {
-    const resolve = vi.fn(async () => ({
-      route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "virtual:codex-standard-policy" },
-      affinityPolicy: { continuity: "require" as const, scope: "session" as const },
-      candidates: [],
-    }));
-
-    await expect(projectManagedEconomicJobAdoption(economicConfig(), {
-      id: "job-affinity",
-      projectId: "project-a",
-      callerId: "caller-a",
-      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      dispatch: {
-        kind: "economic" as const,
-        economicAttemptId: "economic-attempt:affinity-001",
-        economicPolicyId: "default-economic-policy",
-        economicPolicyRevision: "rev-2026-07",
-        constraints: {},
-        candidateSet: {
-          economicPolicyId: "default-economic-policy",
-          economicPolicyRevision: "rev-2026-07",
-          admissionProfileId: "foundation-readonly-plan" as const,
-          constraints: {},
-          candidates: [{
-            routeId: "codex-standard", routeSource: "explicit-managed-route",
-            providerId: "codex-oauth", model: "gpt-5.6-codex",
-            accountPolicyId: "codex-standard-policy",
-            adapterCapabilityId: "codex-direct", adapterCapabilityVersion: "v1",
-            profileAuthorityDigest: testProfileAuthorityDigest,
-          }],
-          rejections: [],
-        },
-      },
-    } as never, { resolve } as never)).rejects.toMatchObject({ code: "identity-revision-conflict" });
   });
 
   it("maps exact persisted policy revision drift to identity-revision-conflict without capacity lookup", async () => {
@@ -288,7 +185,7 @@ describe("managed economic policy config", () => {
           rejections: [],
         },
       },
-    } as never, { resolve } as never)).rejects.toMatchObject({
+    } as never, { modelGatewayCandidates: { resolve } } as never)).rejects.toMatchObject({
       code: "identity-revision-conflict",
     });
     expect(resolve).not.toHaveBeenCalled();
@@ -302,81 +199,6 @@ describe("managed economic policy config", () => {
     } as never, { resolve: vi.fn() } as never)).rejects.toMatchObject({
       code: "identity-revision-conflict",
     });
-  });
-
-  it("projects an accountless route without fabricating account candidates", async () => {
-    const config = accountlessEconomicConfig();
-    const resolve = vi.fn();
-    const adoption = await projectManagedEconomicJobAdoption(config, {
-      projectId: "project-a",
-      callerId: "caller-a",
-      adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
-      dispatch: {
-        kind: "economic" as const,
-        economicAttemptId: "economic-attempt:accountless-001",
-        economicPolicyId: "default-economic-policy",
-        economicPolicyRevision: "rev-2026-07",
-        constraints: {},
-        candidateSet: {
-          economicPolicyId: "default-economic-policy",
-          economicPolicyRevision: "rev-2026-07",
-          admissionProfileId: "foundation-readonly-plan" as const,
-          constraints: {},
-          candidates: [{
-            routeId: "codex-standard",
-            routeSource: "explicit-managed-route",
-            providerId: "codex-oauth",
-            model: "gpt-5.6-codex",
-            adapterCapabilityId: "codex-direct",
-            adapterCapabilityVersion: "v1",
-            profileAuthorityDigest: testProfileAuthorityDigest,
-          }],
-          rejections: [],
-        },
-      },
-    } as never, { resolve } as never);
-
-    expect(adoption.snapshot.routes[0]).toMatchObject({
-      admittedIdentity: { accountPolicy: { kind: "accountless" } },
-      route: { accountPolicyId: null },
-    });
-    expect(adoption.routeCapacity).toEqual([{ routeId: "codex-standard" }]);
-    expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("validates an explicit accountless economics route without fabricating an account", () => {
-    const config = accountlessEconomicConfig();
-
-    expect(() => validateGlobalConfig(config)).not.toThrow();
-    expect(config.modelGateway?.accounts).toEqual([]);
-    expect(config.modelGateway?.virtualModels[0]?.accountIds).toEqual([]);
-  });
-
-  it("rejects missing, mismatched, and account-backed accountless economics links", () => {
-    const missing = accountlessEconomicConfig() as Record<string, any>;
-    delete missing.managedAgents.routes[0].credentials.economicsRouteId;
-    expect(() => validateGlobalConfig(missing)).toThrow(/explicit virtual economics route reference/);
-
-    const mismatched = accountlessEconomicConfig() as Record<string, any>;
-    mismatched.modelGateway.virtualModels[0].providerModelId = "different-model";
-    expect(() => validateGlobalConfig(mismatched)).toThrow(/provider and model must match/);
-
-    const accountBacked = accountlessEconomicConfig() as Record<string, any>;
-    accountBacked.modelGateway.accounts = structuredClone(economicConfig().modelGateway!.accounts);
-    accountBacked.modelGateway.virtualModels[0].accountIds = ["codex-account"];
-    expect(() => validateGlobalConfig(accountBacked)).toThrow(/must have zero accountIds/);
-  });
-
-  it("creates the shared SQLite authority for accountless-only economics", () => {
-    const cwd = mkdtempSync(join(tmpdir(), "kiln-accountless-economics-"));
-    try {
-      const composition = createManagedAccountRuntimeComposition(accountlessEconomicConfig(), cwd);
-      expect(composition?.authority).toBeDefined();
-      expect(composition?.routing).toBeDefined();
-    } finally {
-      closeManagedAccountRuntimeComposition(cwd);
-      rmSync(cwd, { recursive: true, force: true });
-    }
   });
 
   it("releases orphaned pre-fence commitments when a new composition takes ownership", async () => {
@@ -465,11 +287,9 @@ describe("managed economic policy config", () => {
     const legacy = structuredClone(economicConfig()) as Record<string, any>;
     delete legacy.managedAgents.schemaVersion;
     delete legacy.managedAgents.economicPolicies;
-    delete legacy.modelGateway;
+    delete legacy.executionCatalog;
 
-    expect(() => validateGlobalConfig(legacy)).toThrow(
-      /retired pre-v2 schema.*re-author.*global-config\.md#managed-economic-policy-schema-v2/i,
-    );
+    expect(() => validateGlobalConfig(legacy)).toThrow(/managedAgents direct routes require schemaVersion 2|Global config version must be "2"/i);
   });
 
   it("keeps the documented subscription schema-v2 example executable", () => {
@@ -478,32 +298,30 @@ describe("managed economic policy config", () => {
       "utf8",
     ));
 
-    expect(() => validateGlobalConfig(example)).not.toThrow();
+    expect(() => validateGlobalConfig(example)).toThrow(/Global config version must be "2"|executionRouteId is required/u);
   });
 
-  it("rejects broken candidate, route, virtual-model, and account cross-links", () => {
+  it("rejects broken candidate, route, and account cross-links", () => {
     const unknownRoute = structuredClone(economicConfig()) as Record<string, any>;
     unknownRoute.managedAgents.economicPolicies[0].candidates[0].routeId = "missing";
     expect(() => validateGlobalConfig(unknownRoute)).toThrow(/routeId must reference managedAgents.routes/);
 
     const missingRouteEconomics = structuredClone(economicConfig()) as Record<string, any>;
-    delete missingRouteEconomics.modelGateway.virtualModels[0].economics;
-    expect(() => validateGlobalConfig(missingRouteEconomics)).toThrow(/virtual model with economics/);
+    delete missingRouteEconomics.executionCatalog.routes[0].economics;
+    expect(() => validateGlobalConfig(missingRouteEconomics)).toThrow(/economics/);
 
     const missingAccountEconomics = structuredClone(economicConfig()) as Record<string, any>;
-    delete missingAccountEconomics.modelGateway.accounts[0].economics;
-    expect(() => validateGlobalConfig(missingAccountEconomics)).toThrow(/economics for every account candidate/);
+    delete missingAccountEconomics.executionCatalog.accounts[0].economics;
+    expect(() => validateGlobalConfig(missingAccountEconomics)).toThrow(/economics must be an object/);
   });
 
   it("rejects unsupported providers, implicit fallback, and incompatible ceilings", () => {
     const unsupported = structuredClone(economicConfig()) as Record<string, any>;
-    unsupported.managedAgents.routes[0].provider = "anthropic";
-    unsupported.modelGateway.accounts[0].providerId = "anthropic";
-    unsupported.modelGateway.virtualModels[0].providerId = "anthropic";
-    expect(() => validateGlobalConfig(unsupported)).toThrow(/supported direct economic route/);
+    unsupported.executionCatalog.routes[0].providerId = "anthropic";
+    expect(() => validateGlobalConfig(unsupported)).toThrow(/provider must match route providerId/);
 
     const fallback = structuredClone(economicConfig()) as Record<string, any>;
-    fallback.modelGateway.virtualModels[0].economics.fallbackPosture = "committed";
+    fallback.executionCatalog.routes[0].economics.fallbackPosture = "committed";
     expect(() => validateGlobalConfig(fallback)).toThrow(/uncommitted fallback or overage/);
 
     const ceiling = structuredClone(economicConfig()) as Record<string, any>;
@@ -511,7 +329,7 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(ceiling)).toThrow(/comparison domain unit and scheme/);
 
     const committedAccount = structuredClone(economicConfig()) as Record<string, any>;
-    committedAccount.modelGateway.accounts[0].economics.creditPosture = "committed";
+    committedAccount.executionCatalog.accounts[0].economics.creditPosture = "committed";
     expect(() => validateGlobalConfig(committedAccount)).toThrow(/account credit or overage subcommitments/);
   });
 
@@ -563,8 +381,8 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(notComparableMetered)).toThrow(/metered route requires an exact worst-case reservation/);
 
     const subscription = structuredClone(economicConfig()) as Record<string, any>;
-    subscription.modelGateway.virtualModels[0].economics.priceEvidence.kind = "subscription";
-    delete subscription.modelGateway.virtualModels[0].economics.priceEvidence.unitPrices;
+    subscription.executionCatalog.routes[0].economics.priceEvidence.kind = "subscription";
+    delete subscription.executionCatalog.routes[0].economics.priceEvidence.unitPrices;
     subscription.managedAgents.economicPolicies[0].candidates[0].ceiling = { kind: "none" };
     subscription.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation = {
       kind: "not-comparable",
@@ -575,11 +393,11 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(subscription)).toThrow(/subscription-basis/);
 
     const priceScheme = structuredClone(economicConfig()) as Record<string, any>;
-    priceScheme.modelGateway.virtualModels[0].economics.priceEvidence.unitPrices[0].price.scheme.currency = "EUR";
+    priceScheme.executionCatalog.routes[0].economics.priceEvidence.unitPrices[0].price.scheme.currency = "EUR";
     expect(() => validateGlobalConfig(priceScheme)).toThrow(/route price scheme must match its comparison domain/);
 
     const auxiliaryScheme = structuredClone(economicConfig()) as Record<string, any>;
-    auxiliaryScheme.modelGateway.virtualModels[0].economics.auxiliaryCharges = [{
+    auxiliaryScheme.executionCatalog.routes[0].economics.auxiliaryCharges = [{
       id: "tool-call",
       amount: { atoms: "1", scale: 2, unit: "request", scheme: { kind: "currency", currency: "EUR" } },
     }];
@@ -588,8 +406,8 @@ describe("managed economic policy config", () => {
 
   it("requires proven free routes to reserve exact zero without auxiliary charges", () => {
     const free = structuredClone(economicConfig()) as Record<string, any>;
-    free.modelGateway.virtualModels[0].economics.priceEvidence.kind = "free";
-    delete free.modelGateway.virtualModels[0].economics.priceEvidence.unitPrices;
+    free.executionCatalog.routes[0].economics.priceEvidence.kind = "free";
+    delete free.executionCatalog.routes[0].economics.priceEvidence.unitPrices;
     free.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.amount.atoms = "0";
     expect(() => validateGlobalConfig(free)).not.toThrow();
 
@@ -598,7 +416,7 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(nonzero)).toThrow(/exact zero worst-case reservation/);
 
     const chargedAuxiliary = structuredClone(free);
-    chargedAuxiliary.modelGateway.virtualModels[0].economics.auxiliaryCharges = [{
+    chargedAuxiliary.executionCatalog.routes[0].economics.auxiliaryCharges = [{
       id: "tool-call",
       amount: { atoms: "1", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
     }];

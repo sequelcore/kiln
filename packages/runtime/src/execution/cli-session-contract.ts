@@ -4,6 +4,7 @@ import type {
   ExecutionSessionEphemeralHarnessStateEvidence,
   DeliberationResolution,
   ProviderExecutionRequestedAuthority,
+  ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
 import type { OperatorSurfaceController } from "../operator/operator-surface-controller.js";
 
@@ -19,6 +20,8 @@ export interface CliSession {
 export interface CliSessionFactoryContext {
   readonly kilnSessionId?: string;
   readonly requestedAuthority?: ProviderExecutionRequestedAuthority;
+  readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+  readonly executionCredential?: unknown;
   readonly operatorSurface?: OperatorSurfaceController;
   /** Route-admitted deliberation decision forwarded unchanged to the native wrapper. */
   readonly deliberationResolution?: DeliberationResolution;

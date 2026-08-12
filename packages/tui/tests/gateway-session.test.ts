@@ -54,18 +54,18 @@ class MockWebSocket {
   }
 }
 
-function sentProviderFrame(ws: MockWebSocket): { provider: string; model?: string; requestId: string } {
-  const providerCall = ws.send.mock.calls.find(([payload]) => {
+function sentExecutionRouteFrame(ws: MockWebSocket): { routeId: string; accountOverrideId?: string; requestId: string } {
+  const routeCall = ws.send.mock.calls.find(([payload]) => {
     if (typeof payload !== "string" || payload === "ping") return false;
-    return (JSON.parse(payload) as { type?: string }).type === "provider";
+    return (JSON.parse(payload) as { type?: string }).type === "execution_route";
   });
-  expect(providerCall).toBeDefined();
-  const frame = JSON.parse(providerCall?.[0] as string) as { type?: string; provider?: string; model?: string; requestId?: string };
-  expect(frame.type).toBe("provider");
-  expect(typeof frame.provider).toBe("string");
+  expect(routeCall).toBeDefined();
+  const frame = JSON.parse(routeCall?.[0] as string) as { type?: string; routeId?: string; accountOverrideId?: string; requestId?: string };
+  expect(frame.type).toBe("execution_route");
+  expect(typeof frame.routeId).toBe("string");
   expect(typeof frame.requestId).toBe("string");
   expect(frame.requestId?.trim()).not.toBe("");
-  return frame as { provider: string; model?: string; requestId: string };
+  return frame as { routeId: string; accountOverrideId?: string; requestId: string };
 }
 
 function sentProviderAuthFrame(ws: MockWebSocket): { provider: string; apiKey?: string; tier?: "go" | "zen"; requestId: string } {
@@ -147,7 +147,7 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
   throw lastError;
 }
 
-describe("GatewaySession provider switching", () => {
+describe("GatewaySession execution-route switching", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     wsInstances = [];
@@ -159,60 +159,58 @@ describe("GatewaySession provider switching", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects immediately when provider_changed does not match the pending request", async () => {
+  it("rejects immediately when execution_route_changed does not match the pending request", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const promise = session.switchProvider("openai", "gpt-5");
+    const promise = session.switchExecutionRoute("openai-gpt-5", "work");
     await Promise.resolve();
 
-    const frame = sentProviderFrame(ws);
+    const frame = sentExecutionRouteFrame(ws);
     expect(frame).toMatchObject({
-      provider: "openai",
-      model: "gpt-5",
+      routeId: "openai-gpt-5",
+      accountOverrideId: "work",
     });
 
     ws.simulateMessage(JSON.stringify({
-      type: "provider_changed",
-      provider: "openai",
+      type: "execution_route_changed",
+      routeId: "openai-gpt-5",
       requestId: "stale-request",
-      model: "gpt-5",
     }));
 
-    await expect(promise).rejects.toThrow("Provider switch acknowledgement did not match the pending request");
+    await expect(promise).rejects.toThrow("Execution route change acknowledgement did not match the pending request");
     await session.dispose();
   });
 
-  it("sends a requestId and resolves the matching provider_changed acknowledgement", async () => {
+  it("sends a requestId and resolves the matching execution_route_changed acknowledgement", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const promise = session.switchProvider("openai", "gpt-5");
+    const promise = session.switchExecutionRoute("openai-gpt-5");
     await Promise.resolve();
 
-    const frame = sentProviderFrame(ws);
+    const frame = sentExecutionRouteFrame(ws);
     ws.simulateMessage(JSON.stringify({
-      type: "provider_changed",
-      provider: "openai",
+      type: "execution_route_changed",
+      routeId: "openai-gpt-5",
       requestId: frame.requestId,
-      model: "gpt-5",
     }));
 
-    await expect(promise).resolves.toBe("openai");
+    await expect(promise).resolves.toBe("openai-gpt-5");
     await session.dispose();
   });
 
-  it("rejects a pending provider switch from its correlated failure frame", async () => {
+  it("rejects a pending route switch from its correlated failure frame", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const promise = session.switchProvider("openai", "gpt-5");
+    const promise = session.switchExecutionRoute("openai-gpt-5");
     await Promise.resolve();
 
-    const frame = sentProviderFrame(ws);
+    const frame = sentExecutionRouteFrame(ws);
 
     let rejection: Error | null = null;
     promise.catch((error: Error) => {
@@ -221,11 +219,12 @@ describe("GatewaySession provider switching", () => {
     });
 
     ws.simulateMessage(JSON.stringify({
-      type: "provider_change_failed",
-      provider: "openai",
-      model: "gpt-5",
+      type: "execution_route_change_failed",
+      routeId: "openai-gpt-5",
       requestId: frame.requestId,
       reason: "Provider switch failed",
+      reasonCode: "provider-unavailable",
+      repairActions: ["retry-route"],
     }));
     await Promise.resolve();
     await Promise.resolve();
@@ -236,35 +235,68 @@ describe("GatewaySession provider switching", () => {
     await session.dispose();
   });
 
-  it("rejects missing models for non-modeless providers and allows modeless provider-only switches", async () => {
+  it("requires an active connection before sending route selection intent", async () => {
     const disconnectedSession = new GatewaySession("ws://localhost:4801/tui/ws");
     const disconnectedWs = wsInstances[0];
 
-    await expect(disconnectedSession.switchProvider("openai", "gpt-5")).rejects.toThrow("active TUI gateway connection");
+    await expect(disconnectedSession.switchExecutionRoute("openai-gpt-5")).rejects.toThrow("active TUI gateway connection");
     expect(disconnectedWs.send).not.toHaveBeenCalled();
 
     disconnectedWs.simulateOpen();
 
-    await expect(disconnectedSession.switchProvider("openai")).rejects.toThrow("Provider 'openai' requires a selected model.");
-    expect(disconnectedWs.send).not.toHaveBeenCalledWith(expect.stringContaining("\\\"type\\\":\\\"provider\\\""));
-
-    const modelessSwitch = disconnectedSession.switchProvider("claude");
+    const modelessSwitch = disconnectedSession.switchExecutionRoute("claude-default");
     await Promise.resolve();
 
-    const modelessFrame = sentProviderFrame(disconnectedWs);
+    const modelessFrame = sentExecutionRouteFrame(disconnectedWs);
     expect(modelessFrame).toMatchObject({
-      provider: "claude",
+      routeId: "claude-default",
     });
-    expect(modelessFrame).not.toHaveProperty("model");
 
     disconnectedWs.simulateMessage(JSON.stringify({
-      type: "provider_changed",
-      provider: "claude",
+      type: "execution_route_changed",
+      routeId: "claude-default",
       requestId: modelessFrame.requestId,
     }));
 
-    await expect(modelessSwitch).resolves.toBe("claude");
+    await expect(modelessSwitch).resolves.toBe("claude-default");
     await disconnectedSession.dispose();
+  });
+
+  it("refreshes and exposes the canonical execution-route catalog", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+
+    const promise = session.refreshExecutionRoutes();
+    await Promise.resolve();
+
+    const refreshFrame = ws.send.mock.calls.find(([payload]) => (
+      typeof payload === "string"
+      && payload !== "ping"
+      && (JSON.parse(payload) as { type?: string }).type === "refresh_execution_routes"
+    ));
+    expect(refreshFrame).toBeDefined();
+
+    const executionRouteCatalog = {
+      routes: [{
+        routeId: "claude-default",
+        label: "Claude",
+        providerId: "claude",
+        providerModelId: "claude-sonnet-4-6",
+        accountSelection: { mode: "exact", eligibleAccountCount: 1, allowOperatorOverride: false },
+        availability: "available",
+        reasonCodes: ["configured"],
+        repairActions: [],
+      }],
+    } as const;
+    ws.simulateMessage(JSON.stringify({
+      type: "execution_routes_refreshed",
+      executionRouteCatalog,
+    }));
+
+    await expect(promise).resolves.toBeUndefined();
+    expect(session.executionRouteCatalog).toEqual(executionRouteCatalog);
+    await session.dispose();
   });
 });
 
@@ -1088,7 +1120,7 @@ describe("GatewaySession execution modes", () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: "welcome",
-      models: {},
+      executionRouteCatalog: { routes: [] },
       executionMode: "plan",
     }));
 
@@ -1181,6 +1213,7 @@ describe("GatewaySession provider authentication", () => {
       type: "provider_auth_completed",
       provider: "opencode-go",
       requestId: frame.requestId,
+      executionRouteCatalog: { routes: [] },
       models: { "opencode-go": ["minimax-m2.5"] },
       providerDiscovery: [],
       providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
@@ -1188,6 +1221,7 @@ describe("GatewaySession provider authentication", () => {
 
     await expect(promise).resolves.toBeUndefined();
     expect(onWelcome).toHaveBeenCalledWith(
+      { routes: [] },
       { "opencode-go": ["minimax-m2.5"] },
       [],
       EMPTY_PROVIDER_MODEL_DISCOVERY,
@@ -1224,6 +1258,7 @@ describe("GatewaySession provider authentication", () => {
       type: "provider_auth_completed",
       provider: "codex-oauth",
       requestId: frame.requestId,
+      executionRouteCatalog: { routes: [] },
       models: { "codex-oauth": ["gpt-5.4"] },
       providerDiscovery: [],
       providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,

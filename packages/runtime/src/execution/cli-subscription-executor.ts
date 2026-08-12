@@ -73,6 +73,12 @@ export class CliSubscriptionExecutor implements ProviderAdapter {
       ...(options.executionContext?.requestedAuthority
         ? { requestedAuthority: options.executionContext.requestedAuthority }
         : {}),
+      ...(options.executionContext?.executionBinding
+        ? { executionBinding: options.executionContext.executionBinding }
+        : {}),
+      ...(options.executionContext?.executionCredential !== undefined
+        ? { executionCredential: options.executionContext.executionCredential }
+        : {}),
       ...(operatorSurface ? { operatorSurface } : {}),
     });
     const assembler = new CliResponseAssembler();

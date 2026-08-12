@@ -49,53 +49,33 @@ No GUI, TUI, runtime, SDK, or MCP surface may rebuild these rules independently.
 Those surfaces consume resolved config, route health, gateway contracts, or
 runtime tool options.
 
-## Managed Economic Route Projection
+## Execution Catalog Projection
 
-`managedAgents.economicPolicies` names the only routes eligible for an economic
-decision. Each candidate must reference one supported direct managed route and
-one comparison domain. Projection validates the candidate against exactly one
-canonical `modelGateway.virtualModels` economics route; provider, model,
-rate-card basis, envelope semantics, price class, tariff units, fallback
-posture, and overage posture must agree before the route is admitted.
+`executionCatalog` is the single source for provider/model routes, accounts,
+account policies, economics, and capacity intent. Config projection validates
+references only; it cannot resolve a credential, acquire capacity, choose an
+account, or construct an adapter.
 
-Both credential contracts are explicit:
+Runtime owns selection and commitment in its shared local capacity authority.
+Automatic policies gate safety, health, quota, and live capacity before
+economics and pressure. A direct managed route names `executionRouteId`; the
+same reference is used by Model Gateway virtual models. Neither overlay copies
+an account list, credential, or economics route.
 
-- `credentials.mode: runtime-selected` remains supported and uses its required
-  `accountPolicyId` as the virtual economics route reference. Every configured
-  account candidate must carry valid economics evidence.
-- `credentials.mode: credentialless` may omit `economicsRouteId` only when the
-  route is not an economic-policy candidate. Once used economically,
-  `economicsRouteId` is required, must resolve exactly once, must match the
-  managed route's provider and model, and its virtual route must contain zero
-  `accountIds`.
-
-Candidate projection is secret-free and cannot construct an adapter, resolve a
-credential, acquire capacity, or dispatch a provider call. CLI adopts Core's
-immutable economic snapshot outside Runtime's SQLite transaction; canonical
-sorted SHA-256 digests bind the adopted policy, candidate set, price/rate
-evidence, and full snapshot. Runtime alone selects and commits a route.
-
-Deferred adapter construction accepts only the exact committed
-route/provider/model identity. A mismatch emits sanitized typed
-`committed-route-mismatch` evidence before adapter construction and fails
-closed. It never falls back to another configured route or account.
-
-Economic commitment is Kiln-local Runtime authority. Runtime composes the
-user-scoped SQLite ledger, whose single writer shares account capacity and
-affinity between Gateway ingress and managed jobs while project-namespacing
-economic commitments. Config projection neither selects a route nor owns a
-ledger. It makes no provider-global or subscription-global capacity claim.
-Adapters remain deferred mechanism kinds; callers can only narrow admitted
-capabilities, and an encoder is transport-only. Native projections must expose
-unavailable or unresolved evidence explicitly.
+The committed binding contains one route ID, account ID, credential ID, and
+credential revision. Adapter construction accepts only that binding and
+rejection is fail-closed on mismatch, saturation, or post-fence credential
+drift. Projection remains secret-free and exposes unavailable-route reasons and
+repair guidance rather than a guessed fallback.
 
 ## Global Config
 
 Global config is the active user-level contract. It includes:
 
 - `engines` for harness availability and billing metadata
-- `routing` and optional budget-aware fallback behavior
-- `models.default` and provider-specific `models.<engine>` values
+- `executionCatalog` and `executionRouting.defaultRouteId` for operator
+  execution
+- `workerRouting` and `workerModels` for separate native worker context
 - `permissions`, `mcp`, and `hooks`
 - `managedAgents` route policy
 - `identity`, `ui.theme`, and bundled `components`
@@ -104,6 +84,14 @@ The current canonical schema version is `"1"`. Kiln does not support
 compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.
+
+All global-config writers use one mutation owner in the CLI config layer. The
+owner validates the current and proposed documents, serializes writers with an
+acquisition-specific interprocess lock, detects expected-revision conflicts,
+writes a same-directory temporary file, and atomically replaces the canonical
+path. Lock recovery and release claim only acquisition-specific paths, so a
+writer cannot delete a successor's lock. Direct-only bindings do not trigger
+native projection.
 
 Instruction profiles, agents, and skills are canonical filesystem config, not
 inline YAML fields. Global definitions live under `~/.kiln/instructions/`,
@@ -595,28 +583,16 @@ available for surgical removal.
 
 ## Managed Agent Route Projection
 
-Ordered `routing.routes` project into governed read-only managed-agent runtime
-routes. Explicit `managedAgents.routes` entries are merged on top as authority
-exceptions or overrides; they do not replace the canonical route hierarchy.
-Eligible direct providers require an explicit tool-call-capable model; harnesses
-require live-proven result handoff for the requested managed profile and use
-their route model, provider-specific `models.<engine>`, or the adapter's safe
-default. If the same provider appears with multiple models, the synthesized
-managed route IDs include a model slug so those candidates remain distinct. If
-no ordered route list exists, enabled supported child engines project into the
-same read-only route contract only when their handoff proof is complete. The CLI
-resolves route health once using global config, engine availability, credential
-state, provider-advertised model catalogs, model capability, profile-specific
-harness proof, and optional managed-agent overrides, then passes the same
-`ManagedInvocationToolOptions` to
-GUI, TUI, CLI run, and operator gateway sessions.
+Managed-agent direct routes reference one canonical `executionRouteId`.
+They do not carry or derive provider, model, account, credential, economics,
+or fallback data. Runtime resolves the same route health, capacity, admission,
+fence, and exact credential binding used by GUI, TUI, CLI run, and Gateway
+ingress. Native-harness managed routes remain a separate physical-harness
+concern and must carry only the evidence their boundary requires.
 
-CLI run also consumes the same provider/model task suitability contract when
-ordering configured `routing.routes`. This is a ranking step over canonical
-config, not a native harness projection and not a second route graph. Explicit
-`managedAgents.routes` is the exception layer for child invocation; task
-suitability can explain and rank healthy child routes but cannot synthesize
-write authority or bypass managed-agent admission.
+CLI run consumes one admitted execution route. Task suitability can describe
+healthy routes but cannot replace route selection, synthesize write authority,
+or bypass managed-agent admission.
 
 When at least one healthy route exists, runtime tool projection exposes
 `managed_agent.invoke`. Missing or unhealthy routes fail closed with operator
@@ -648,7 +624,7 @@ the resolved route profile.
 Route-source provenance is a separate projection field and is required before
 managed invocation admission. CLI projection records:
 
-- `ordered-routing` for synthesized read-only routes from `routing.routes`
+- `execution-catalog` for managed direct routes tied to `executionRouteId`
 - `explicit-managed-route` for `managedAgents.routes[]`
 - `managed-default-route` for `managedAgents.enabled` with default provider or
   profile settings
@@ -695,7 +671,7 @@ tool behavior or write authority.
   canonical workflow evidence; status surfaces may report drift, but must not
   repair them implicitly.
 - Managed-agent route projection is governed config, not assistant preference.
-- `routing.routes`, explicit `managedAgents.routes[]`, managed-agent defaults,
+- execution catalog routes, explicit `managedAgents.routes[]`, managed-agent defaults,
   and enabled-engine fallback paths have distinct `routeSource` values; runtime
   and operator surfaces consume those projected values instead of inferring
   route provenance.

@@ -34,12 +34,12 @@ describe("import-native command helpers", () => {
 
   it("merges imported Codex fields without clobbering unrelated Kiln fields", () => {
     const currentConfig: KilnGlobalConfig = {
-      version: "1",
+      version: "2",
       identity: { name: "Alex", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
       },
-      routing: { defaultWorker: "claude", budgetAware: false },
+      workerRouting: { defaultWorker: "claude", budgetAware: false },
       permissions: {
         approval: "never",
         tools: [{ tool: "Read", action: "allow" }],
@@ -64,19 +64,19 @@ describe("import-native command helpers", () => {
     });
 
     expect(plan.after).toEqual({
-      version: "1",
+      version: "2",
       identity: { name: "Alex", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: true },
       },
-      routing: { defaultWorker: "codex", budgetAware: false },
+      workerRouting: { defaultWorker: "codex", budgetAware: false },
       permissions: {
         approval: "on-request",
         sandbox: "workspace-write",
         tools: [{ tool: "Read", action: "allow" }],
       },
-      models: { codex: "gpt-5.4" },
+      workerModels: { codex: "gpt-5.4" },
       mcp: {
         servers: {
           kiln: { transport: "stdio", command: "kiln-mcp" },

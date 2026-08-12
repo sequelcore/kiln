@@ -1,6 +1,6 @@
-import type { ModelGatewayConfig, ProviderUsageSnapshot } from "@kilnai/core";
+import type { ExecutionCatalog, ProviderUsageSnapshot } from "@kilnai/core";
 import { CodexOAuthCredentialPoolService } from "@kilnai/runtime";
-import { readGlobalConfig, resolveGlobalModelGatewayConfig } from "../config/global-config.js";
+import { readGlobalConfig } from "../config/global-config.js";
 
 export interface AccountUsageInspectionService {
   inspect(): Promise<AccountUsageInspection>;
@@ -9,7 +9,7 @@ export interface AccountUsageInspectionService {
 export interface AccountUsageInspection {
   readonly operation: "account-usage";
   readonly accounts: readonly AccountUsageInspectionEntry[];
-  readonly evidence: { readonly authority: "global-model-gateway"; readonly observedAt: string };
+  readonly evidence: { readonly authority: "global-execution-catalog"; readonly observedAt: string };
 }
 
 export interface AccountUsageInspectionEntry {
@@ -27,7 +27,7 @@ export interface AccountUsageInspectionEntry {
 }
 
 export interface CreateAccountUsageInspectionServiceOptions {
-  readonly readModelGateway: () => ModelGatewayConfig;
+  readonly readExecutionCatalog: () => ExecutionCatalog;
   readonly readProviderUsage: (provider: string) => Promise<readonly ProviderUsageSnapshot[]>;
   readonly listCredentialIds: (provider: string) => Promise<readonly string[]>;
   readonly now?: () => Date;
@@ -40,14 +40,14 @@ export function createAccountUsageInspectionService(
   return {
     async inspect() {
       const now = defaults.now?.() ?? new Date();
-      const config = defaults.readModelGateway();
+      const catalog = defaults.readExecutionCatalog();
       const usageByProvider = new Map<string, readonly ProviderUsageSnapshot[]>();
       const credentialsByProvider = new Map<string, ReadonlySet<string>>();
-      for (const provider of new Set(config.accounts.map((account) => account.providerId))) {
+      for (const provider of new Set(catalog.accounts.map((account) => account.providerId))) {
         usageByProvider.set(provider, await defaults.readProviderUsage(provider));
         credentialsByProvider.set(provider, new Set(await defaults.listCredentialIds(provider)));
       }
-      const accounts = config.accounts.map((account): AccountUsageInspectionEntry => {
+      const accounts = catalog.accounts.map((account): AccountUsageInspectionEntry => {
         const usage = usageByProvider.get(account.providerId)?.find((entry) => entry.credentialId === account.credentialId);
         const executable = credentialsByProvider.get(account.providerId)?.has(account.credentialId) === true;
         const fresh = usage !== undefined && Date.parse(usage.observedAt) <= now.getTime() && Date.parse(usage.validUntil) > now.getTime();
@@ -64,10 +64,10 @@ export function createAccountUsageInspectionService(
           freshness,
           source: usage?.source ?? "unknown",
           confidence: usage?.confidence ?? "unknown",
-          eligibleRoutes: blocked ? [] : config.virtualModels.filter((model) => model.accountIds.includes(account.id)).map((model) => model.id).sort(),
+          eligibleRoutes: blocked ? [] : eligibleRouteIds(catalog, account.id),
         };
       }).sort((a, b) => a.accountId.localeCompare(b.accountId));
-      return { operation: "account-usage", accounts, evidence: { authority: "global-model-gateway", observedAt: now.toISOString() } };
+      return { operation: "account-usage", accounts, evidence: { authority: "global-execution-catalog", observedAt: now.toISOString() } };
     },
   };
 }
@@ -75,8 +75,24 @@ export function createAccountUsageInspectionService(
 function defaultOptions(): CreateAccountUsageInspectionServiceOptions {
   const codex = new CodexOAuthCredentialPoolService();
   return {
-    readModelGateway: () => resolveGlobalModelGatewayConfig(readGlobalConfig()),
+    readExecutionCatalog: () => {
+      const catalog = readGlobalConfig()?.executionCatalog;
+      if (!catalog) throw new Error("Execution catalog is required to inspect account usage.");
+      return catalog;
+    },
     readProviderUsage: async (provider) => provider === "codex-oauth" ? codex.listUsage() : [],
     listCredentialIds: async (provider) => provider === "codex-oauth" ? (await codex.listExecutionAccounts()).map((entry) => entry.credentialId) : [],
   };
+}
+
+function eligibleRouteIds(catalog: ExecutionCatalog, accountId: string): string[] {
+  const policyById = new Map(catalog.accountPolicies.map((policy) => [policy.id, policy]));
+  return catalog.routes.flatMap((route) => {
+    if (route.accountSelection.mode === "exact") {
+      return route.accountSelection.accountId === accountId ? [route.id] : [];
+    }
+    return policyById.get(route.accountSelection.accountPolicyId)?.accountIds.includes(accountId)
+      ? [route.id]
+      : [];
+  }).sort();
 }

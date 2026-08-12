@@ -92,6 +92,9 @@ describe("CodexOAuthCredentialPoolService", () => {
     expect(accounts.map((entry) => entry.credentialId)).toEqual(["selected", "unselected"]);
     expect(accounts.every((entry) => /^[a-f0-9]{64}$/.test(entry.revision))).toBe(true);
     expect(JSON.stringify(accounts)).not.toMatch(/access|refresh|token/i);
+    await expect(service.listExecutableAccounts()).resolves.toEqual([
+      expect.objectContaining({ credentialId: "selected" }),
+    ]);
     await expect(service.resolveExecutionCredential(accounts.find((entry) => entry.credentialId === "selected")!)).resolves.toMatchObject({ credentialId: "selected", chatgptAccountId: "account-a", accessToken: expect.any(String) });
     await expect(service.resolveExecutionCredential({ credentialId: "missing", fileIdentity: "0".repeat(64), revision: "0".repeat(64) })).rejects.toThrow("unavailable");
     await expect(service.resolveExecutionCredential({ credentialId: "../escape", fileIdentity: "0".repeat(64), revision: "0".repeat(64) })).rejects.toThrow("Invalid");
@@ -573,13 +576,14 @@ describe("CodexOAuthCredentialPoolService", () => {
       expect(error).toBeInstanceOf(KilnError);
       const kilnError = error as KilnError;
       expect(kilnError.code).toBe("CONFIG_INVALID");
-      // The suggestion must name the exact executable credential ids so the
-      // operator knows which one to bind -- an opaque "bind a virtual model"
-      // message with no candidates is not actionable.
+      // The repair points to the canonical execution catalog and names the
+      // executable credential ids without making credentials a surface choice.
       expect(kilnError.suggestion).toContain("first");
       expect(kilnError.suggestion).toContain("second");
-      expect(kilnError.suggestion).toContain("modelGateway.virtualModels");
-      expect(kilnError.suggestion).toContain("--model");
+      expect(kilnError.suggestion).toContain("executionCatalog.accounts");
+      expect(kilnError.suggestion).toContain("account policy");
+      expect(kilnError.suggestion).toContain("execution route");
+      expect(kilnError.suggestion).not.toContain("kiln model bind");
     }
   });
 

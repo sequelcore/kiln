@@ -241,6 +241,20 @@ export class OpenCodeCredentialPoolService {
   /** Materializes one previously selected account revision without consulting pooled order. */
   async createExactAdapter(options: CreateExactOpenCodeAdapterOptions): Promise<ProviderAdapter> {
     const credential = await this.resolveExecutionCredential(options.selected);
+    return this.createAdapterFromCredential({
+      credential,
+      defaultModel: options.defaultModel,
+      ...(options.createAdapter ? { createAdapter: options.createAdapter } : {}),
+    });
+  }
+
+  /** Materializes the credential already resolved by the fenced execution. */
+  async createAdapterFromCredential(options: {
+    readonly credential: OpenCodeExecutionCredential;
+    readonly defaultModel: string;
+    readonly createAdapter?: (credential: OpenCodeExecutionCredential) => ProviderAdapter;
+  }): Promise<ProviderAdapter> {
+    const credential = options.credential;
     const delegate = options.createAdapter?.(credential) ?? new OpenCodeAdapter({
       apiKey: credential.auth.api_key,
       tier: credential.tier,

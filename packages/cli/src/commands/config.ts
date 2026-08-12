@@ -22,8 +22,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import {
   defaultGlobalConfig,
-  readGlobalConfig,
-  writeGlobalConfig,
+  mutateGlobalConfig,
   type KilnGlobalConfig,
   type KilnGlobalIdentity,
 } from "../config/global-config.js";
@@ -196,12 +195,13 @@ export async function configCommand(
         console.log(`Not initialized. Run 'kiln init' first.`);
         return;
       }
-      const updated = hasGlobalFlag(args)
-        ? setGlobalNestedKey(readGlobalConfig() ?? defaultGlobalConfig(), scopedKey, value)
-        : setProjectNestedKey(projectConfig!, scopedKey, value);
+      let updated: KilnGlobalConfig | KilnYaml;
       if (hasGlobalFlag(args)) {
-        writeGlobalConfig(updated as KilnGlobalConfig);
+        updated = mutateGlobalConfig((current) =>
+          setGlobalNestedKey(current ?? defaultGlobalConfig(), scopedKey, value) as KilnGlobalConfig
+        ).config;
       } else {
+        updated = setProjectNestedKey(projectConfig!, scopedKey, value);
         writeKilnYaml(kilnDir, updated as KilnYaml);
       }
 
@@ -211,6 +211,17 @@ export async function configCommand(
     }
 
     case "reset": {
+      if (hasGlobalFlag(args)) {
+        const result = mutateGlobalConfig(
+          () => defaultGlobalConfig(),
+          { invalidCurrent: "backup-and-replace" },
+        );
+        console.log("Global config reset to V2 defaults.");
+        if (result.invalidBackupPath) {
+          console.log(`Previous invalid config backed up to ${result.invalidBackupPath}`);
+        }
+        break;
+      }
       writeKilnYaml(kilnDir, defaultKilnYaml("generic"));
       console.log("Config reset to defaults.");
       break;
@@ -578,7 +589,7 @@ function printConfigHelp(): void {
   console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
-  console.log("  reset             Reset config to defaults");
+  console.log("  reset [--global]  Reset project config, or explicitly adopt clean global V2 defaults");
   console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");

@@ -26,6 +26,19 @@ describe("validateGlobalConfig root fields", () => {
       notARealField: true,
     })).toThrow(/Unknown global config field: notARealField/);
   });
+
+  it("rejects retired root routing and models fields", () => {
+    expect(() => validateGlobalConfig({ ...baseConfig(), routing: {} })).toThrow(/Unknown global config field: routing/u);
+    expect(() => validateGlobalConfig({ ...baseConfig(), models: {} })).toThrow(/Unknown global config field: models/u);
+  });
+
+  it("accepts explicit native worker fields", () => {
+    expect(() => validateGlobalConfig({
+      ...baseConfig(),
+      workerRouting: { defaultWorker: "codex", budgetAware: true },
+      workerModels: { codex: "gpt-5.6-terra" },
+    })).not.toThrow();
+  });
 });
 
 describe("unknown-field diagnostics identify the running build", () => {

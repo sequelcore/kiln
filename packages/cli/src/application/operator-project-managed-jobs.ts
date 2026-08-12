@@ -67,7 +67,7 @@ const TRUSTED_WRITE_APPROVER_ID = "operator";
 const MANAGED_WRITE_APPROVAL_DB_FILE = "managed-write-approvals.sqlite";
 
 /**
- * `modelGateway`, `engines`, `routing`, and `models` are global Runtime
+ * `executionCatalog` and `engines` are global Runtime
  * route authority; none of them are project `KilnYaml` fields, so
  * `globalToKilnYaml` (and therefore the effective-`KilnYaml` projection)
  * never carries them. Read canonical global config and canonical project
@@ -85,10 +85,8 @@ function loadOperatorProjectManagedRouteConfig(
   if (!effectiveConfig) return undefined;
   return {
     ...effectiveConfig,
-    modelGateway: globalConfig?.modelGateway,
+    executionCatalog: globalConfig?.executionCatalog,
     engines: globalConfig?.engines,
-    routing: globalConfig?.routing,
-    models: globalConfig?.models,
   };
 }
 
@@ -305,6 +303,16 @@ export async function createOperatorProjectManagedJobApplicationComposition(
   const root = resolveNativeHarnessProjectRoot(options.projectPath);
   if (root.status !== "resolved") {
     throw new ManagedJobApplicationError("project_identity_unavailable", "Use a trusted project composition boundary.");
+  }
+  const startupRouteConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
+  if (
+    startupRouteConfig?.managedAgents?.routes?.some((route) => route.kind === "direct")
+    && !startupRouteConfig.executionCatalog
+  ) {
+    throw new ManagedJobApplicationError(
+      "route_unavailable",
+      "Managed direct routes require executionCatalog in global config.",
+    );
   }
   const mcpResolution = loadResolvedKilnMcpConfiguration(root.rootPath);
   if (mcpResolution.diagnostics.length > 0) {

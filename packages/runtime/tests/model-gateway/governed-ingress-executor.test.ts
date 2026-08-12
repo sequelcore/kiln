@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccountPolicyId, createAccountRef, type ModelTurnResult } from "@kilnai/core";
+import { createAccountRef, type ModelTurnResult } from "@kilnai/core";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { executeGovernedIngress } from "../../src/model-gateway/governed-ingress-executor.js";
 import type { GovernedOneRoundInvocationPorts } from "../../src/model-gateway/governed-one-round-invocation.js";
 import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 
 const route = { providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" };
+const admission = { routeId: "fixture-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account-1", source: "route" as const } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "done" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" };
 
 async function eventually(assertion: () => void, timeoutMs = 1000): Promise<void> {
@@ -27,7 +28,7 @@ function fixture(overrides: { readonly guard?: ModelGatewayReplayGuard; readonly
   const dispatch = vi.fn(overrides.execute ?? (async () => result));
   const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `executor-test-${crypto.randomUUID()}`, configurationRevision: "test" });
   const ports: GovernedOneRoundInvocationPorts = {
-    candidateCatalog: { list: async () => ({ accountPolicyId: createAccountPolicyId("gateway:test"), candidates: [{ candidate: { account: createAccountRef("account-1"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } }] }) },
+    candidateCatalog: { list: async () => ({ admission, candidates: [{ candidate: { accountId: "account-1", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createAccountRef("account-1"), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }) },
     accountCapacityAuthority: authority,
     attemptEvidence: { record: async () => undefined },
     dispatcherResolver: { resolve: async () => ({ dispatchOneRound: dispatch }) },
@@ -68,7 +69,7 @@ describe("governed ingress executor", () => {
     const waiting = new Promise<void>((resolve) => { release = resolve; });
     const guard = new InMemoryModelGatewayReplayGuard({ hmacKey: "executor-concurrent-key-with-at-least-32" });
     const first = fixture({ guard });
-    const catalog = vi.fn(async () => { await waiting; return { accountPolicyId: createAccountPolicyId("gateway:test"), candidates: [{ candidate: { account: createAccountRef("account-1"), route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } }] }; });
+    const catalog = vi.fn(async () => { await waiting; return { admission, candidates: [{ candidate: { accountId: "account-1", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createAccountRef("account-1"), route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }; });
     first.input.invocationPorts.candidateCatalog.list = catalog;
     const pending = executeGovernedIngress(first.input);
     await eventually(() => expect(catalog).toHaveBeenCalledTimes(1));

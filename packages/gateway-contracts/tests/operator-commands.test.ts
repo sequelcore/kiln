@@ -23,6 +23,13 @@ describe("operator command contract", () => {
     expect(listOperatorCommands("gui").map((command) => command.trigger)).not.toContain("resume");
   });
 
+  it("publishes execution-route controls without a provider command alias", () => {
+    expect(findOperatorCommand("/route", "tui")?.id).toBe("route");
+    expect(findOperatorCommand("route", "gui")?.id).toBe("route");
+    expect(findOperatorCommand("/provider", "tui")).toBeUndefined();
+    expect(findOperatorCommand("provider", "gui")).toBeUndefined();
+  });
+
   it("publishes the embedded operator terminal only on the GUI surface", () => {
     expect(findOperatorCommand("terminal", "gui")?.id).toBe("terminal");
     expect(findOperatorCommand("terminal", "cli")).toBeUndefined();

@@ -6,7 +6,7 @@ import type {
   KilnPermissionPolicy,
   KilnToolPermissionRule,
 } from "./session.js";
-import type { DirectProviderAccountBinding } from "./direct-provider-adapter-factory.js";
+import type { DirectProviderCredentialBinding } from "./direct-provider-adapter-factory.js";
 import { debug } from "./debug.js";
 import {
   getFieldStrength,
@@ -162,7 +162,8 @@ export interface ProviderCreateConfig {
   readonly mcpToolAllowlist?: ReadonlySet<string>;
   readonly permissionPolicy: KilnPermissionPolicy;
   readonly model?: string;
-  readonly accountBinding?: DirectProviderAccountBinding;
+  readonly credentialBinding?: DirectProviderCredentialBinding;
+  readonly executionCredential?: import("@kilnai/runtime").ConfiguredExecutionCredential;
   readonly deliberationResolution?: DeliberationResolution;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly continuationSessionId?: string;
@@ -1078,7 +1079,8 @@ function createDirectProviderSession(
     provider,
     ...(config.runtimeSessionId ? { runtimeSessionId: config.runtimeSessionId } : {}),
     model: config.model,
-    ...(config.accountBinding ? { accountBinding: config.accountBinding } : {}),
+    ...(config.credentialBinding ? { credentialBinding: config.credentialBinding } : {}),
+    ...(config.executionCredential ? { executionCredential: config.executionCredential } : {}),
     requestedAuthority: config.requestedAuthority,
     task: config.task,
     systemPrompt: config.systemPrompt,

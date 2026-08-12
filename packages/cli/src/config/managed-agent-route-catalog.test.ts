@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deriveProviderModelEligibility,
   defineManagedAgentAdapterDescriptor,
+  type ExecutionCatalog,
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core";
 import {
@@ -31,6 +32,71 @@ const READONLY_POLICY: KilnPermissionPolicy = {
   sandbox: "read-only",
 };
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
+
+function makeExecutionCatalog(
+  routeId: string,
+  providerId = "opencode-go",
+  providerModelId = "qwen3.6-plus",
+  accountId = "research",
+): ExecutionCatalog {
+  return {
+    accounts: [{
+      id: accountId,
+      providerId,
+      credentialId: `credential-${accountId}`,
+      maxConcurrency: 1,
+      reservedAffinitySlots: 0,
+      economics: {
+        capacityIdentity: `capacity-${accountId}`,
+        subscriptionClass: "metered",
+        quotaClassId: `quota-${accountId}`,
+        creditPosture: "disabled",
+        overagePosture: "disabled",
+      },
+    }],
+    accountPolicies: [{
+      id: `policy-${accountId}`,
+      accountIds: [accountId],
+      strategy: "economic-least-pressure",
+    }],
+    routes: [{
+      id: routeId,
+      label: routeId,
+      providerId,
+      providerModelId,
+      accountSelection: { mode: "automatic", accountPolicyId: `policy-${accountId}` },
+      economics: {
+        adapterCapabilityId: `${providerId}:managed-agent`,
+        adapterCapabilityVersion: "v1",
+        authBillingChannel: "fixture",
+        executionMode: "direct",
+        serviceTier: "default",
+        rateCardBasis: "fixture",
+        envelopeSemantics: "request",
+        fallbackPosture: "disabled",
+        overagePosture: "disabled",
+        contextClass: "standard",
+        cacheClass: "none",
+        priceEvidence: {
+          kind: "free",
+          rateCardId: "fixture",
+          rateCardRevision: "v1",
+          evidence: {
+            sourceIdentity: "managed-agent-route-catalog.test",
+            sourceRevision: "v1",
+            sourceDigest: "fixture",
+            observedAt: FIXTURE_OBSERVED_AT,
+            validUntil: "2027-07-01T12:00:00.000Z",
+            confidence: "high",
+            authority: "configured",
+          },
+        },
+        auxiliaryCharges: [],
+        executionEnvelope: { limits: [] },
+      },
+    }],
+  };
+}
 
 function createTempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "kiln-managed-route-catalog-"));
@@ -185,28 +251,9 @@ function createRegistry(provider: ProviderId): SessionRegistry {
 
 function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
   return {
-    modelGateway: {
-      port: 4819,
-      accounts: [{
-        id: "research",
-        providerId: "opencode-go",
-        credentialId: "synthetic-research",
-        maxConcurrency: 1,
-        reservedAffinitySlots: 0,
-      }],
-      replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
-      surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
-      principals: [],
-      virtualModels: [{
-        id: "managed-research",
-        providerId: "opencode-go",
-        providerModelId: "qwen3.6-plus",
-        accountIds: ["research"],
-        capabilities: ["text"],
-        affinity: { continuity: "none" },
-      }],
-    },
+    executionCatalog: makeExecutionCatalog("opencode-go-research-readonly"),
     managedAgents: {
+      schemaVersion: 2,
       enabled: true,
       economicPolicies: [{
         id: "research-policy",
@@ -232,8 +279,7 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
       routes: [{
         id: "opencode-go-research-readonly",
         kind: "direct",
-        provider: "opencode-go",
-        model: "qwen3.6-plus",
+        executionRouteId: "opencode-go-research-readonly",
         profiles: ["foundation-readonly-plan"],
         workingDirectory: "project",
         tools: {
@@ -242,7 +288,6 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
           writes: false,
         },
         memory: { access: "read-only" },
-        credentials: { mode: "runtime-selected", accountPolicyId: "managed-research" },
       }],
     },
   };
@@ -269,7 +314,6 @@ function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
           writes: true,
         },
         memory: { access: "read-only" },
-        credentials: { mode: "credentialless" },
         writeAuthority: {
           workspace: {
             mode: "apply-approved",
@@ -463,6 +507,7 @@ describe("managed agent route catalog", () => {
     const cwd = "C:/workspace/kiln";
     const resolution = await resolveManagedInvocationToolOptions({
       managedAgents: {
+        schemaVersion: 2,
         enabled: true,
         economicPolicies: [{
           id: "frontend-reference-policy",
@@ -488,8 +533,7 @@ describe("managed agent route catalog", () => {
         routes: [{
           id: "opencode-go-frontend-reference-readonly",
           kind: "direct",
-          provider: "opencode-go",
-          model: "qwen3.6-plus",
+          executionRouteId: "opencode-go-frontend-reference-readonly",
           profiles: ["foundation-readonly-plan"],
           workingDirectory: "project",
           tools: {
@@ -507,9 +551,9 @@ describe("managed agent route catalog", () => {
             },
           },
           memory: { access: "read-only" },
-          credentials: { mode: "credentialless" },
         }],
       },
+      executionCatalog: makeExecutionCatalog("opencode-go-frontend-reference-readonly"),
     }, {
       cwd,
       registry: createRegistry("opencode-go"),
@@ -556,6 +600,7 @@ describe("managed agent route catalog", () => {
       "role: reviewer",
       "goal: Review repository evidence.",
       "tier: reasoning",
+      "economicPolicyId: codex-reviewer-economic-policy",
       "routeId: opencode-go-research-readonly",
       "providerRoute:",
       "  providerId: codex-oauth",
@@ -575,7 +620,7 @@ describe("managed agent route catalog", () => {
       directAdapterFactory: async () => makeAdapter(),
     });
 
-    expect(resolution.managedInvocation?.agentCatalog?.some((agent) => agent.name === "contradictory")).toBe(false);
+    expect(resolution.managedInvocation?.agentCatalog?.some((agent) => agent.name === "contradictory") ?? false).toBe(false);
     expect(resolution.agentHealth).toContainEqual({
       agentName: "contradictory",
       available: false,

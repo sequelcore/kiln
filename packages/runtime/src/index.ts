@@ -74,17 +74,50 @@ export type {
   OpenAIResponsesTrustedPrincipal,
 } from "./gateway/openai-responses-routes.js";
 export {
-  ConfiguredManagedAccountRuntime,
-} from "./managed-account-leases/configured-managed-account-runtime.js";
+  ConfiguredExecutionAccountRuntime,
+} from "./managed-account-leases/configured-execution-account-runtime.js";
 export type {
-  ConfiguredManagedCodexAccountPool,
-  ConfiguredManagedAccountRuntimeOptions,
-} from "./managed-account-leases/configured-managed-account-runtime.js";
+  ConfiguredCodexExecutionAccountPool,
+  ConfiguredExecutionCredential,
+  ConfiguredExecutionAccountRuntimeOptions,
+} from "./managed-account-leases/configured-execution-account-runtime.js";
 export {
   SqliteManagedAccountLeaseAuthority,
 } from "./managed-account-leases/managed-account-lease-authority.js";
+export {
+  createOperatorSessionAccountCapacityAuthority,
+  OperatorSessionExecutionRoutingError,
+  OperatorSessionExecutionRoutingService,
+} from "./execution-routing/operator-session-execution-routing-service.js";
+export type {
+  OperatorSessionAccountCapacityAuthority,
+  OperatorSessionCommittedExecution,
+  OperatorSessionCommittedExecutionEvidence,
+  OperatorSessionCredentialPort,
+  OperatorSessionExecutionCandidate,
+  OperatorSessionExecutionCandidatePort,
+  OperatorSessionExecutionDispatch,
+  OperatorSessionExecutionRequest,
+  OperatorSessionExecutionResult,
+  OperatorSessionExecutionRoutingServiceOptions,
+  OperatorSessionResolvedCredential,
+} from "./execution-routing/operator-session-execution-routing-service.js";
+export {
+  OperatorSessionExecutionBridge,
+  OperatorTurnDispatcher,
+  fingerprintOperatorTurnIntent,
+} from "./execution-routing/operator-turn-dispatcher.js";
+export type {
+  OperatorTurnDispatchPayload,
+  OperatorTurnDispatchPort,
+  OperatorTurnDispatchRequest,
+  OperatorTurnDispatchResult,
+  OperatorTurnGuiDispatchPayload,
+  OperatorTurnTuiDispatchPayload,
+} from "./execution-routing/operator-turn-dispatcher.js";
 export type {
   ManagedAccountCandidateBinding,
+  ManagedAccountCapacityObservation,
   ManagedAccountCandidatePort,
   ManagedAccountCandidateResolution,
   ManagedAccountAffinityRequest,
@@ -115,6 +148,9 @@ export {
   GovernedOneRoundInvocationError,
   invokeGovernedOneRound,
 } from "./model-gateway/governed-one-round-invocation.js";
+export type {
+  GovernedOneRoundCandidate,
+} from "./model-gateway/governed-one-round-invocation.js";
 export {
   InMemoryModelGatewayReplayGuard,
   MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION,
@@ -123,13 +159,13 @@ export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-stor
 export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "./model-gateway/governed-ingress-executor.js";
 export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
 export type { LocalModelGatewayStoreOptions } from "./model-gateway/local-model-gateway-store.js";
-export { createModelGatewayIngress } from "./model-gateway/model-gateway-ingress.js";
-export type { ModelGatewayIngressHandle, ModelGatewayIngressOptions } from "./model-gateway/model-gateway-ingress.js";
-export {
-  buildModelGatewayBoundCandidates,
-  createModelGatewayCredentialRevisionId,
-} from "./model-gateway/model-gateway-account-binding.js";
-export type { ModelGatewayBoundCandidate, ModelGatewayAccountBinding, ModelGatewayBoundUsageEvidence } from "./model-gateway/model-gateway-account-binding.js";
+export { createModelGatewayIngress, createModelGatewayExecutionRoutingPort } from "./model-gateway/model-gateway-ingress.js";
+export type {
+  ModelGatewayExecutionCandidatePort,
+  ModelGatewayExecutionRoutingPort,
+  ModelGatewayIngressHandle,
+  ModelGatewayIngressOptions,
+} from "./model-gateway/model-gateway-ingress.js";
 export {
   MODEL_GATEWAY_HEALTH_PATH,
   MODEL_GATEWAY_HEALTH_PROTOCOL_VERSION,
@@ -222,7 +258,7 @@ export type {
 export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js";
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
-export type { StartGatewayOptions } from "./gateway/gateway-server.js";
+export type { ModelGatewayExecutionBundle, StartGatewayOptions } from "./gateway/gateway-server.js";
 export { startDevServer } from "./gateway/gateway-server.js";
 export type { DevServerOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
@@ -254,7 +290,6 @@ export {
   projectGuiOperatorModels,
   providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
-  resolveGuiProviderSwitch,
 } from "./gateway/gui-provider-models.js";
 export type {
   ClaudeCodeExecutableResolution,
@@ -656,7 +691,6 @@ export type {
 export type {
   StartGuiGatewayOptions,
   GuiGateway,
-  OperatorProviderPreference,
   GuiDashboardSnapshot,
   GuiSessionDetail,
   GuiSessionEvent,
@@ -667,6 +701,11 @@ export type {
   GuiOutboundFrame,
   GuiInboundFrame,
 } from "./gateway/gui-gateway.js";
+export type {
+  OperatorExecutionRouteAdmission,
+  OperatorExecutionRouteAdmissionResult,
+  OperatorExecutionRouteSelectionPort,
+} from "./gateway/operator-execution-route-selection.js";
 export { startTuiGateway } from "./gateway/tui-gateway.js";
 export type { TuiGatewayOptions, TuiGateway } from "./gateway/tui-gateway.js";
 export { resolveApps } from "./gateway/app-resolver.js";

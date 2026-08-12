@@ -443,7 +443,7 @@ function budgetAwareGlobalConfig() {
         enabled: true,
       },
     },
-    routing: {
+    workerRouting: {
       budgetAware: true,
       budget: {
         codex: {

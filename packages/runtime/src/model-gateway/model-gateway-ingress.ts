@@ -10,11 +10,14 @@ import {
   OpenCodeAdapter,
   OpenRouterAdapter,
   createAccountRef,
-  createAccountPolicyId,
   defineDeliberationLevelId,
+  isDirectProviderId,
   type DirectProviderId,
-  type ModelGatewayAccountConfig,
   type ModelGatewayConfig,
+  type ExecutionCatalog,
+  type AdmittedExecutionRoute,
+  type ModelGatewayRoute,
+  type OperatorExecutionIntent,
   type ProviderAdapter,
 } from "@kilnai/core";
 import { CodexOAuthCredentialPoolService } from "../agents/credential-pool/codex-oauth-credential-pool.js";
@@ -37,15 +40,40 @@ import type { AnthropicMessagesIngressConfig, AnthropicMessagesTrustedPrincipal 
 import { CodexOAuthModelTurnDispatcher, CodexOAuthModelTurnError } from "./codex-oauth-model-turn-dispatcher.js";
 import { ProviderAdapterOneRoundDispatcher } from "./provider-adapter-one-round-dispatcher.js";
 import { LocalModelGatewayStore } from "./local-model-gateway-store.js";
-import { SqliteManagedAccountLeaseAuthority } from "../managed-account-leases/managed-account-lease-authority.js";
-import type { GovernedOneRoundInvocationPorts } from "./governed-one-round-invocation.js";
-import {
-  buildModelGatewayBoundCandidates,
-  createModelGatewayCredentialRevisionId,
-} from "./model-gateway-account-binding.js";
+import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
+import { admitOperatorExecutionIntent } from "@kilnai/core";
+import type {
+  GovernedOneRoundCandidate,
+  GovernedOneRoundInvocationPorts,
+} from "./governed-one-round-invocation.js";
+
+export interface ModelGatewayExecutionRoutingPort {
+  admit(intent: OperatorExecutionIntent): AdmittedExecutionRoute;
+}
+
+export interface ModelGatewayExecutionCandidatePort {
+  resolve(input: {
+    readonly admission: AdmittedExecutionRoute;
+    /** Protocol-neutral route identity used by the shared lease authority. */
+    readonly route: ModelGatewayRoute;
+  }): Promise<readonly GovernedOneRoundCandidate[]>;
+}
+
+/** Small composition adapter for the canonical Core admission function. */
+export function createModelGatewayExecutionRoutingPort(catalog: ExecutionCatalog): ModelGatewayExecutionRoutingPort {
+  return { admit: (intent) => admitOperatorExecutionIntent(catalog, intent) };
+}
 
 export interface ModelGatewayIngressOptions {
   readonly config: ModelGatewayConfig;
+  /** Canonical accounts, policies, routes, and economics owned by composition. */
+  readonly executionCatalog: ExecutionCatalog;
+  /** Canonical route admission service owned by composition. */
+  readonly executionRouting: ModelGatewayExecutionRoutingPort;
+  /** Canonical candidate evidence and lease bindings owned by composition. */
+  readonly executionCandidates: ModelGatewayExecutionCandidatePort;
+  /** Shared account-capacity authority; ingress does not create or close it. */
+  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
   readonly databasePath: string;
   readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -55,7 +83,7 @@ export interface ModelGatewayIngressHandle {
   readonly openAIResponses?: OpenAIResponsesIngressConfig;
   readonly anthropicMessages?: AnthropicMessagesIngressConfig;
   readonly store: LocalModelGatewayStore;
-  readonly accountCapacityAuthority: SqliteManagedAccountLeaseAuthority;
+  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
   close(): void;
 }
 
@@ -105,104 +133,79 @@ export async function createModelGatewayIngress(
     replayTtlMs: options.config.replay.ttlMs,
     replayMaxEntries: options.config.replay.maxEntries,
   });
-  const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({
-    path: options.databasePath,
-    participantKind: "model-gateway-ingress",
-    recoveryDomain: "model-gateway",
-    configurationRevision: gatewayConfigurationRevision(options.config),
-  });
   try {
     if (options.databasePath !== ":memory:" && process.platform !== "win32") await chmod(options.databasePath, 0o600);
   } catch (error) {
-    accountCapacityAuthority.close();
     store.close();
     throw error;
   }
-  const accounts = new Map(options.config.accounts.map((account) => [account.id, account]));
   const routes = new Map(
-    options.config.virtualModels.map((model) => [
-      model.id,
-      {
-        model,
-        route: {
-          providerId: model.providerId,
-          providerModelId: model.providerModelId,
-          scope: `virtual:${model.id}`,
+    options.config.virtualModels.map((model) => {
+      const canonicalRoute = options.executionCatalog.routes.find(({ id }) => id === model.executionRouteId);
+      if (!canonicalRoute) throw new Error(`Virtual model '${model.id}' references unknown execution route '${model.executionRouteId}'.`);
+      const admission = options.executionRouting.admit({ routeId: model.executionRouteId });
+      if (
+        admission.routeId !== canonicalRoute.id
+        || admission.providerId !== canonicalRoute.providerId
+        || admission.providerModelId !== canonicalRoute.providerModelId
+      ) throw new Error(`Execution admission for virtual model '${model.id}' does not match its canonical route.`);
+      if (!isDirectProviderId(admission.providerId)) throw new Error(`Execution route '${admission.routeId}' is not available to the model gateway.`);
+      return [
+        model.id,
+        {
+          model,
+          admission,
+          route: {
+            providerId: admission.providerId,
+            providerModelId: admission.providerModelId,
+            scope: `virtual:${model.id}`,
+          },
         },
-      },
-    ]),
+      ] as const;
+    }),
   );
   const candidateCatalog: GovernedOneRoundInvocationPorts["candidateCatalog"] = {
     list: async ({ route }) => {
       if (store.isRouteCooling(route))
-        return {
-          accountPolicyId: createAccountPolicyId("gateway:cooling"),
-          candidates: [],
-        };
-      const model = [...routes.values()].find(
+        return { admission: findAdmission(route), candidates: [] };
+      const admitted = [...routes.values()].find(
         (entry) =>
           entry.route.providerId === route.providerId &&
           entry.route.providerModelId === route.providerModelId &&
           entry.route.scope === route.scope,
-      )?.model;
-      if (!model)
-        return {
-          accountPolicyId: createAccountPolicyId("gateway:unavailable"),
-          candidates: [],
-        };
-      const execution = await listExecutionAccounts(route.providerId as DirectProviderId);
-      const usage = route.providerId === "codex-oauth" ? await codexPool.listUsage() : [];
-      const bound = buildModelGatewayBoundCandidates({
-        virtualModel: model,
-        accounts: [...accounts.values()],
-        executionAccounts: execution,
-        usage,
-      });
+      );
+      if (!admitted) return { admission: findAdmission(route), candidates: [] };
+      const candidates = await options.executionCandidates.resolve({ admission: admitted.admission, route });
       return {
-        accountPolicyId: createAccountPolicyId(`gateway:${model.id}`),
-        candidates: bound.map((entry) => ({
-          candidate: entry.candidate,
-          capacityIdentity: entry.capacityIdentity,
-          credentialRevisionId: entry.credentialRevisionId,
-          usageEvidence: entry.usageEvidence,
-          capacity: entry.capacity,
-        })),
+        admission: admitted.admission,
+        candidates: candidates as readonly GovernedOneRoundCandidate[],
       };
     },
   };
+  function findAdmission(route: { readonly providerId: string; readonly providerModelId: string; readonly scope: string }): AdmittedExecutionRoute {
+    const admitted = [...routes.values()].find(
+      (entry) =>
+        entry.route.providerId === route.providerId
+        && entry.route.providerModelId === route.providerModelId
+        && entry.route.scope === route.scope,
+    );
+    if (!admitted) throw new Error("The requested provider route is unavailable.");
+    return admitted.admission;
+  }
   const dispatcherResolver: GovernedOneRoundInvocationPorts["dispatcherResolver"] = {
-    resolve: async ({ route, account, capacityIdentity, credentialRevisionId }) => {
+    resolve: async ({ route, accountId, account }) => {
       const admittedModel = [...routes.values()].find(
         (entry) =>
           entry.route.providerId === route.providerId &&
           entry.route.providerModelId === route.providerModelId &&
           entry.route.scope === route.scope,
-      )?.model;
-      if (!admittedModel) throw new Error("Selected provider route is unavailable.");
-      const admittedAccounts = admittedModel.accountIds
-        .map((id) => accounts.get(id))
-        .filter((value): value is ModelGatewayAccountConfig => value !== undefined);
-      const execution = await listExecutionAccounts(route.providerId as DirectProviderId);
-      const current = execution.find((entry) =>
-        admittedAccounts.some(
-          (config) =>
-            config.providerId === route.providerId &&
-            config.credentialId === entry.credentialId &&
-            `configured:${config.providerId}:${config.id}` === capacityIdentity,
-        ),
       );
+      if (!admittedModel) throw new Error("Selected provider route is unavailable.");
+      const canonicalAccount = options.executionCatalog.accounts.find(({ id }) => id === accountId);
+      if (!canonicalAccount || canonicalAccount.providerId !== route.providerId) throw new Error("Selected execution account is unavailable.");
+      const execution = await listExecutionAccounts(route.providerId as DirectProviderId);
+      const current = execution.find((entry) => entry.credentialId === canonicalAccount.credentialId);
       if (!current) throw new Error("Selected credential identity changed.");
-      const currentConfig = admittedAccounts.find((config) => config.credentialId === current.credentialId);
-      if (
-        currentConfig === undefined ||
-        createModelGatewayCredentialRevisionId({
-          providerId: currentConfig.providerId,
-          credentialId: currentConfig.credentialId,
-          execution: current,
-        }) !== credentialRevisionId
-      ) {
-        throw new Error("Selected credential revision changed.");
-      }
       const dispatcher = await resolveDispatcher(
         route.providerId as DirectProviderId,
         route.providerModelId,
@@ -218,9 +221,9 @@ export async function createModelGatewayIngress(
           } catch (error) {
             const status = providerStatus(error);
             try {
-              if (admittedModel.accountIds.length === 1 && status === 429)
+              if (singleAccountRoute(admittedModel.admission) && status === 429)
                 store.coolRoute(route, Date.now() + 60_000, "rate-limited");
-              else if (admittedModel.accountIds.length === 1 && [408, 425, 500, 502, 503, 504].includes(status ?? 0))
+              else if (singleAccountRoute(admittedModel.admission) && [408, 425, 500, 502, 503, 504].includes(status ?? 0))
                 store.coolRoute(route, Date.now() + 30_000, "upstream-transient");
             } catch (circuitError) {
               throw new AggregateError(
@@ -237,7 +240,7 @@ export async function createModelGatewayIngress(
   };
   const invocationPorts: GovernedOneRoundInvocationPorts = {
     candidateCatalog,
-    accountCapacityAuthority,
+    accountCapacityAuthority: options.accountCapacityAuthority,
     attemptEvidence: store,
     dispatcherResolver,
   };
@@ -333,14 +336,12 @@ export async function createModelGatewayIngress(
           maxBodyBytes: anthropicSurface.maxBodyBytes,
           maxConcurrentRequests: anthropicSurface.maxConcurrentRequests,
         };
-  accountCapacityAuthority.recoverAccountCapacity();
   return {
     ...(openAIResponses ? { openAIResponses } : {}),
     ...(anthropicMessages ? { anthropicMessages } : {}),
     store,
-    accountCapacityAuthority,
+    accountCapacityAuthority: options.accountCapacityAuthority,
     close: () => {
-      accountCapacityAuthority.close();
       store.close();
     },
   };
@@ -377,8 +378,8 @@ export async function createModelGatewayIngress(
           };
     const deliberation = found.model.deliberation
       ? {
-          provider: found.model.providerId,
-          model: found.model.providerModelId,
+          provider: found.admission.providerId,
+          model: found.admission.providerModelId,
           levels: found.model.deliberation.levels.map((id) => ({
             id: defineDeliberationLevelId(id),
           })),
@@ -397,6 +398,7 @@ export async function createModelGatewayIngress(
       : undefined;
     return {
       route: found.route,
+      admission: found.admission,
       capabilities: new Set(found.model.capabilities),
       ...(deliberation ? { deliberation } : {}),
       affinity,
@@ -454,15 +456,9 @@ export async function createModelGatewayIngress(
   }
 }
 
-function gatewayConfigurationRevision(config: ModelGatewayConfig): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        accounts: config.accounts,
-        virtualModels: config.virtualModels,
-      }),
-    )
-    .digest("hex");
+function singleAccountRoute(admission: AdmittedExecutionRoute): boolean {
+  return admission.accountSelection.mode === "exact"
+    || admission.accountSelection.eligibleAccountIds.length === 1;
 }
 
 type ExecutionAccount =

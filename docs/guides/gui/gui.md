@@ -75,9 +75,10 @@ runtime-capable apps, enabled tenants, active app/tenant selection, and
 target-bound operator actions with `gatewayTargetId`, and prefers the
 gateway-published Operator Workspace home projection for workspace
 summary/attention state before falling back to local reconstruction. Global
-control-plane frames such as provider switching, clear, provider auth, theme
-results, and voice synthesis remain targetless because they operate on the
-connected operator surface, provider catalog, UI preference, or source message.
+ control-plane frames such as execution-route selection, execution-route catalog
+ refresh, provider authentication, clear, theme results, and voice synthesis
+ remain targetless because they operate on the connected operator surface, route
+ catalog, UI preference, or source message.
 
 ## Operator terminal
 
@@ -101,7 +102,6 @@ tools continue through canonical tool authority and do not share this PTY.
 
 | Flag | Description |
 |------|-------------|
-| `--provider <name>` | Initial provider selection |
 | `--theme <name>` | Initial GUI theme from the shared operator theme catalog |
 | `--plan` | Start with plan mode enabled |
 | `--cwd <path>` | Working directory used by the session |
@@ -154,10 +154,11 @@ The GUI command palette projects `listOperatorCommands("gui")` from
 `packages/gateway-contracts/src/operator-commands.ts`; do not add GUI-only
 duplicates for governed operator controls.
 
-The shared GUI catalog includes `goal`, `plan`, `exec`, `provider`, `theme`,
-`effort`, `authority`, `resume`, `setup`, and `clear`. `goal` opens the governed
-work/goal surface, and `plan`/`exec` toggle the same planning state used by the
-composer controls.
+The shared GUI catalog includes `goal`, `plan`, `exec`, `route`, `theme`,
+`deliberation`, `authority`, `continue`, `setup`, `clear`, and `terminal`.
+`route` opens execution-route controls, `goal` opens the governed work/goal
+surface, and `plan`/`exec` toggle the same planning state used by the composer
+controls.
 
 ## Active Goal Dock
 
@@ -224,7 +225,7 @@ The GUI shell uses a supervision layout rather than a dashboard layout:
   files, Approvals, Activity, Memory, and Setup
 - the expanded mode panel owns the selected mode's list or navigation content
 - the main chat column owns conversation, turn composition, and active-turn
-  controls such as provider/model route and app target selection
+  controls such as execution-route and app-target selection
 - the Activity mode owns runtime evidence such as routing, tool calls, cost
   updates, continuity, and turn completion details
 - the Setup mode owns durable configuration diagnostics, projection status, and
@@ -242,31 +243,45 @@ The composer rail renders the shared per-turn context projection. A percentage
 appears only when Runtime supplied a compatible numerator and denominator; `P`
 marks partial evidence, an em dash is unavailable, and `H` marks restored
 historical evidence. The focusable control has a matching accessible name and
-tooltip. It is not transcript length or a current provider probe. GUI validates
+tooltip. It is not transcript length or a derived provider probe. GUI validates
 the Gateway DTO but does not change state, freshness, or authority locally.
 
-Selecting a provider/model affects the next turn only. A completed or restored
-context observation remains bound to the route that produced it; incompatible
-new route evidence is rejected by Runtime rather than displayed as a retained
-percentage.
+Selecting an execution route affects the next turn only. A completed or
+restored context observation remains bound to the route that produced it;
+incompatible new route evidence is rejected by Runtime rather than displayed as
+a retained percentage.
 
-Provider/model selection is an anchored, non-modal composer surface. Search
-matches provider and model evidence across all admitted routes. The left rail
-groups concrete routes by canonical provider brand. A compact secondary route-
-type selector can narrow the list to subscription, harness, direct API, or
-local execution without clearing the selected brand.
-Brand grouping is visual recognition only: it must not collapse concrete route
-identity, authentication method, eligibility, or runtime authority. The route
-list continues to expose unavailable reasons and authentication actions from
-canonical discovery, and the rest of the workspace remains operable while the
-picker is open.
+Initial selection is route-configured: a persisted
+`ui.executionRouteSelection` takes precedence over
+`executionRouting.defaultRouteId`. GUI has no one-off `--route` startup flag.
+The in-surface picker changes the next-turn selection only after Runtime
+acknowledges the route intent.
 
-Manual provider refresh is an in-place picker operation after bootstrap. It
-must preserve the usable catalog, workspace, picker filters, scroll position,
-and focus while new discovery is pending. Refresh failure is reported beside
-the initiating control and does not return the application to its startup gate;
-the global provider-catalog bootstrap state is reserved for initial connection
-and explicit runtime recovery.
+Execution-route selection is an anchored, non-modal composer surface. The
+picker renders the runtime `ExecutionRouteCatalog`: configured route labels,
+availability, reason codes, and repair actions. Route ID is the sole selection
+input. Provider and model labels are derived execution evidence for recognition
+and diagnostics; they do not become alternate selection keys. A configured
+route remains visible when unavailable so its repair action is actionable.
+
+An automatic route may expose eligible account aliases as an optional override.
+Those aliases narrow that route's configured account policy; they never expose
+or select credential IDs. Exact routes do not offer an override. Provider
+authentication remains a provider-scoped repair action for a route diagnostic,
+not a second route-selection mechanism.
+
+Unavailable routes render the repair actions supplied by the catalog. GUI
+offers `Authenticate <provider>` for `authenticate-provider` and `Refresh
+execution routes` for `refresh-route-catalog`. Authentication uses the
+route's derived provider only to repair account evidence. On success, the
+Gateway returns a fresh execution-route catalog and GUI replaces the picker
+catalog; the operator must still select an admitted route for a later turn.
+
+Manual execution-route refresh is an in-place picker operation after bootstrap.
+It preserves the workspace and current route state while Runtime refreshes
+availability evidence. Refresh failure is reported beside the initiating
+control and does not return the application to its startup gate; bootstrap
+state is reserved for initial connection and explicit runtime recovery.
 
 Activity details must be projections of the canonical session timeline. Do not
 maintain separate GUI-only caches for changed files, continuity, approval
@@ -358,7 +373,7 @@ working directory. It uses the shared `OperatorWorkspaceExplorer` contract from
 `@kilnai/gateway-contracts`, so future operator surfaces can consume the same
 directory and file-preview model instead of inventing GUI-only workspace state.
 It must not duplicate session summary fields such as domain, session ID,
-provider/model route, phase, turns, tokens, or cost; those belong to the main
+derived provider/model evidence, phase, turns, tokens, or cost; those belong to the main
 session header and inspector surfaces.
 
 The local GUI gateway exposes that contract through:
@@ -411,7 +426,7 @@ File preview support is intentionally conservative:
   state
 
 Document tabs are local presentation state. They do not mutate the runtime
-session, provider route, approval state, changed-file events, or working tree.
+session, execution-route state, approval state, changed-file events, or working tree.
 Editing, save semantics, structured diff viewing, and provider tool invocation
 remain outside this read-only workspace slice.
 
@@ -513,49 +528,49 @@ orb. The containing Border Beam remains a low-strength monochrome pulse during
 work and uses a short controlled ember completion signal. Neither effect may
 infer provider state, replace event evidence, or bypass reduced-motion support.
 
-Provider/model selection and deliberation live in the composer action rail
+Execution-route selection and deliberation live in the composer action rail
 because they shape the next submitted turn. The deliberation control appears
-only when the active model advertises ordered deliberation levels. It remains at
-provider default until the operator explicitly selects a level; that selection
-is sent as a fixed intent with the next message and is not a global GUI
-preference.
+only when the selected route's derived model evidence advertises ordered levels.
+It remains at the provider default until the operator explicitly selects a
+level; that selection is sent as a fixed intent with the next message and is
+not a global GUI preference.
 
 Turn authority in the composer has two parts: the operator request and the
 gateway admission result. The authority selector sends the requested limit
 (`auto`, `read_only`, `audited`, or `destructive`) with the next turn, while the
-provider status chip displays the latest admitted authority projected by the
-runtime (`requested -> admitted`, sandbox, and completeness). Do not infer write
-capability from the selected provider alone; managed-agent writes require an
-explicit write-capable route in global config.
+execution status chip displays the latest admitted authority projected by the
+runtime (`requested -> admitted`, sandbox, and completeness). Do not infer
+write capability from a route's derived provider/model alone; managed-agent
+writes require an explicit write-capable route in global config.
 
-For Codex OAuth, the model catalog is discovered from the authenticated Codex
-model endpoint. Reasoning levels are derived from that catalog, including the
-object-shaped `supported_reasoning_levels` response returned by ChatGPT-backed
-Codex models. Do not add a static reasoning fallback in the GUI; if discovery
-does not advertise levels, the control must stay hidden.
+When a selected route's derived provider is Codex OAuth, Runtime discovers model
+capabilities from the authenticated Codex endpoint. Reasoning levels are
+derived from that evidence, including the object-shaped
+`supported_reasoning_levels` response returned by ChatGPT-backed Codex models.
+Do not add a static reasoning fallback in the GUI; if discovery does not
+advertise levels, the control stays hidden.
 
-Codex authentication from the provider picker uses browser OAuth with PKCE and
-a short-lived loopback callback owned by the Kiln runtime. The picker exposes
-the provider authorization URL but never displays or transports access or
-refresh tokens. Device-code login is reserved for CLI/TUI and headless use; the
-GUI must not project it as its default browser sign-in path.
+The Codex provider-authentication repair flow uses browser OAuth with PKCE and a
+short-lived loopback callback owned by the Kiln runtime. It exposes the provider
+authorization URL but never displays or transports access or refresh tokens.
+Device-code login is reserved for CLI/TUI and headless use; the GUI must not
+project it as its default browser sign-in path.
 
 ## Session Model
 
 The GUI session rail shows canonical Kiln sessions. It is not filtered by the
-active provider.
+selected execution route or its derived provider.
 
-Provider/model selection controls the next turn's execution route. A single
-Kiln session can contain turns from multiple providers, and the GUI should keep
-that session visible while the operator switches providers. Provider-native
-thread IDs, when available, are stored as provider-thread metadata under the
-Kiln session and are used only for the matching provider.
+Execution-route selection controls the next turn. A single Kiln session can
+contain turns from multiple execution routes, and the GUI keeps that session
+visible while the operator changes routes. Provider-native thread IDs, when
+available, are provider-scoped metadata under the Kiln session and are used only
+by the matching provider.
 
-At startup, the GUI may render cached provider discovery immediately. Cached
-entries are `stale` diagnostics and remain unavailable until background runtime
-discovery refreshes them. The GUI must not enable model selection, provider
-switching, prompt execution, or managed invocation execution from stale
-metadata.
+At startup, the GUI may render cached provider-model discovery as diagnostic
+evidence. Cached entries are `stale` and do not make a route selectable;
+Runtime must refresh route availability before prompt execution or managed
+invocation execution proceeds.
 
 Selecting a session from the rail loads that session's transcript into the main
 chat as a preview. It does not silently mark the session as the active
@@ -585,8 +600,8 @@ history, and type a normal prompt. The expected result is a fresh session, not
 hidden continuation. Then select the first conversation again and use the
 explicit resume action; the expected result is that the runtime logs show the
 first canonical Kiln session ID and the assistant has the selected
-conversation's prior context. Provider switching should still produce one
-continued Kiln conversation with per-provider telemetry attribution, not
+conversation's prior context. Execution-route selection should still produce
+one continued Kiln conversation with derived provider telemetry attribution, not
 separate provider-owned histories.
 
 For session-scoping validation, start a turn that uses a tool, switch to another
@@ -601,10 +616,10 @@ layout. The Chat tab remains available beside the opened files. Opening files
 must not create session events, approvals, changed-file entries, or provider
 tool calls.
 
-For reasoning validation, select a Codex OAuth model that advertises reasoning
-levels, choose a non-default effort from the composer control, and send a turn.
-The request should complete through the same runtime session and the selected
-effort should apply only to that turn.
+For reasoning validation, select a route whose derived provider/model is Codex
+OAuth and advertises reasoning levels, choose a non-default effort from the
+composer control, and send a turn. The request should complete through the same
+runtime session and the selected effort should apply only to that turn.
 
 For authority validation, select `Auto`, send a turn, and verify the composer
 status shows the admitted authority and sandbox. If the task delegates

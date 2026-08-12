@@ -385,15 +385,14 @@ describe("GuiWsClient", () => {
       vi.useRealTimers();
     });
 
-    it("does not queue provider switches while disconnected", () => {
+    it("does not queue execution route selection while disconnected", () => {
       client = createClient();
 
       expect(() => client.send({
-        type: "provider",
-        provider: "openai",
-        model: "gpt-5",
-        requestId: "provider-switch-1",
-      })).toThrow("Cannot send provider switch while WebSocket is not open");
+        type: "execution_route",
+        routeId: "openai-gpt-5",
+        requestId: "route-switch-1",
+      })).toThrow("Cannot select execution route while WebSocket is not open");
 
       client.connect();
       const wsInstance = wsInstances[wsInstances.length - 1];
@@ -1148,18 +1147,20 @@ describe("GuiWsClient", () => {
         },
         {
           json: {
-            type: "provider_change_failed",
-            provider: "openai",
-            model: "gpt-5",
-            requestId: "provider-change-1",
+            type: "execution_route_change_failed",
+            routeId: "openai-gpt-5",
+            requestId: "route-change-1",
+            reasonCode: "route-health-unavailable",
             reason: "The selected route is cooling down.",
+            repairActions: ["retry-route"],
           },
           expected: {
-            type: "provider_change_failed",
-            provider: "openai",
-            model: "gpt-5",
-            requestId: "provider-change-1",
+            type: "execution_route_change_failed",
+            routeId: "openai-gpt-5",
+            requestId: "route-change-1",
+            reasonCode: "route-health-unavailable",
             reason: "The selected route is cooling down.",
+            repairActions: ["retry-route"],
           },
         },
         {
@@ -1322,28 +1323,26 @@ describe("GuiWsClient", () => {
         { json: { type: "cleared" }, expected: { type: "cleared" } },
         {
           json: {
-            type: "provider_changed",
-            provider: "anthropic",
-            model: "claude-sonnet-4-6",
-            requestId: "provider-switch-1",
+            type: "execution_route_changed",
+            routeId: "claude-sonnet",
+            requestId: "route-switch-1",
           },
           expected: {
-            type: "provider_changed",
-            provider: "anthropic",
-            model: "claude-sonnet-4-6",
-            requestId: "provider-switch-1",
+            type: "execution_route_changed",
+            routeId: "claude-sonnet",
+            requestId: "route-switch-1",
           },
         },
         {
           json: {
-            type: "provider_changed",
-            provider: "claude",
-            requestId: "provider-switch-2",
+            type: "execution_route_changed",
+            routeId: "claude-default",
+            requestId: "route-switch-2",
           },
           expected: {
-            type: "provider_changed",
-            provider: "claude",
-            requestId: "provider-switch-2",
+            type: "execution_route_changed",
+            routeId: "claude-default",
+            requestId: "route-switch-2",
           },
         },
         {
@@ -1365,7 +1364,7 @@ describe("GuiWsClient", () => {
       }
     });
 
-    it("rejects provider_changed frames with an empty model instead of hanging model-less switch semantics", () => {
+    it("rejects execution route acknowledgements with an empty route id", () => {
       client = createClient();
       client.connect();
 
@@ -1373,15 +1372,13 @@ describe("GuiWsClient", () => {
       wsInstance.simulateOpen();
 
       wsInstance.simulateMessage(JSON.stringify({
-        type: "provider_changed",
-        provider: "claude",
-        model: "",
-        requestId: "provider-switch-empty-model",
+        type: "execution_route_changed",
+        routeId: "",
+        requestId: "route-switch-empty",
       }));
 
       expect(onFrame).not.toHaveBeenCalledWith(expect.objectContaining({
-        type: "provider_changed",
-        provider: "claude",
+        type: "execution_route_changed",
       }));
     });
   });

@@ -1,10 +1,14 @@
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { userInfo } from "node:os";
 import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
 import {
+  ConfiguredExecutionAccountRuntime,
   ModelGatewaySupervisor,
+  SqliteManagedAccountLeaseAuthority,
   WindowsModelGatewayAutostartAdapter,
+  createModelGatewayExecutionRoutingPort,
   createModelGatewayConfigDigest,
   inspectModelGatewayListener,
   startModelGatewayListener,
@@ -12,6 +16,7 @@ import {
   type ModelGatewayAutostartStatus,
   type ModelGatewaySupervisorDoctor,
   type ModelGatewaySupervisorStatus,
+  type ModelGatewayExecutionBundle,
   type StartModelGatewayListenerOptions,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
@@ -103,7 +108,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   const config = resolveGlobalModelGatewayConfig(globalConfig);
   if (subcommand === "serve") {
     if (!flags.globalRuntime || !flags.instanceId) throw new Error("serve requires --config for development or the internal global runtime identity.");
-    await serveGlobalRuntime(config, runtimeDir, flags.instanceId, dependencies);
+    await serveGlobalRuntime(config, runtimeDir, flags.instanceId, globalConfig, dependencies);
     return;
   }
   const token = subcommand === "doctor" ? resolveOptionalHealthToken(config, dependencies.env) : resolveHealthToken(config, dependencies.env);
@@ -140,26 +145,94 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
 
 async function serveDevelopmentConfig(configPath: string, dependencies: ModelGatewayCommandDependencies): Promise<void> {
   const config = loadDevelopmentModelGateway(configPath);
-  const runtime = await dependencies.startModelGatewayListener({
+  const globalConfig = dependencies.readGlobalConfig();
+  const runtime = await startConfiguredModelGatewayListener(globalConfig, config, {
     config,
     databasePath: join(dirname(configPath), ".kiln", "model-gateway", "model-gateway.sqlite"),
-    env: dependencies.env,
     identity: { instanceId: `dev-${dependencies.pid}`, version: dependencies.version, configDigest: createModelGatewayConfigDigest(config), pid: dependencies.pid },
-  });
+  }, dependencies);
   dependencies.registerShutdown(runtime.close);
   dependencies.log(`Development model gateway ready at http://127.0.0.1:${config.port}`);
 }
 
-async function serveGlobalRuntime(config: ModelGatewayConfig, runtimeDir: string, instanceId: string, dependencies: ModelGatewayCommandDependencies): Promise<void> {
+async function serveGlobalRuntime(config: ModelGatewayConfig, runtimeDir: string, instanceId: string, globalConfig: KilnGlobalConfig | null, dependencies: ModelGatewayCommandDependencies): Promise<void> {
   requireRuntimeSecrets(config, dependencies.env);
-  const runtime = await dependencies.startModelGatewayListener({
+  const runtime = await startConfiguredModelGatewayListener(globalConfig, config, {
     config,
     databasePath: join(runtimeDir, "model-gateway.sqlite"),
-    env: dependencies.env,
     identity: { instanceId, version: dependencies.version, configDigest: createModelGatewayConfigDigest(config), pid: dependencies.pid },
-  });
+  }, dependencies);
   dependencies.registerShutdown(runtime.close);
   dependencies.log(`Model gateway ready at http://127.0.0.1:${config.port}`);
+}
+
+async function startConfiguredModelGatewayListener(
+  globalConfig: KilnGlobalConfig | null,
+  config: ModelGatewayConfig,
+  listener: Pick<StartModelGatewayListenerOptions, "config" | "databasePath" | "identity">,
+  dependencies: ModelGatewayCommandDependencies,
+): Promise<{ close(): void }> {
+  const composition = createModelGatewayExecutionComposition(globalConfig, config, listener.databasePath, dependencies.env);
+  let runtime: { close(): void };
+  try {
+    runtime = await dependencies.startModelGatewayListener({
+      ...listener,
+      ...composition.bundle,
+      env: dependencies.env,
+    });
+  } catch (error) {
+    composition.close();
+    throw error;
+  }
+  let closed = false;
+  return {
+    close: () => {
+      if (closed) return;
+      closed = true;
+      try {
+        runtime.close();
+      } finally {
+        composition.close();
+      }
+    },
+  };
+}
+
+function createModelGatewayExecutionComposition(
+  globalConfig: KilnGlobalConfig | null,
+  config: ModelGatewayConfig,
+  databasePath: string,
+  env: Readonly<Record<string, string | undefined>>,
+): { readonly bundle: ModelGatewayExecutionBundle; close(): void } {
+  if (globalConfig?.version !== "2" || !globalConfig.executionCatalog || !globalConfig.executionRouting) {
+    throw new Error("Model gateway execution requires a global V2 config with executionCatalog and executionRouting.");
+  }
+  mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
+  const accountRuntime = new ConfiguredExecutionAccountRuntime({
+    catalog: globalConfig.executionCatalog,
+    env,
+  });
+  const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({
+    path: databasePath,
+    participantKind: "model-gateway-ingress",
+    recoveryDomain: "model-gateway",
+    configurationRevision: createModelGatewayExecutionConfigurationRevision(globalConfig, config),
+  });
+  return {
+    bundle: {
+      executionCatalog: globalConfig.executionCatalog,
+      executionRouting: createModelGatewayExecutionRoutingPort(globalConfig.executionCatalog),
+      executionCandidates: accountRuntime.modelGatewayCandidates,
+      accountCapacityAuthority,
+    },
+    close: () => accountCapacityAuthority.close(),
+  };
+}
+
+function createModelGatewayExecutionConfigurationRevision(globalConfig: KilnGlobalConfig, config: ModelGatewayConfig): string {
+  return createHash("sha256")
+    .update(JSON.stringify({ executionCatalog: globalConfig.executionCatalog, executionRouting: globalConfig.executionRouting, modelGateway: config }), "utf8")
+    .digest("hex");
 }
 
 function resolveLaunchDescriptor(dependencies: ModelGatewayCommandDependencies, config: ModelGatewayConfig): ModelGatewayLaunchDescriptor {

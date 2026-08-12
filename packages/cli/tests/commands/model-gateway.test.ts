@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseGatewayYaml } from "@kilnai/core";
+import { defineExecutionCatalog, parseGatewayYaml } from "@kilnai/core";
 import type { StartModelGatewayListenerOptions } from "@kilnai/runtime";
 import { modelGatewayCommand } from "../../src/commands/model-gateway.js";
 
@@ -10,15 +10,73 @@ const yaml = `port: 4800
 apps: []
 modelGateway:
   port: 4819
-  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]
   replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }
   surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }
   principals:
     - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }
   virtualModels:
-    - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+    - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, executionRouteId: codex-route, capabilities: [text], affinity: { continuity: none } }
 `;
 const modelGateway = parseGatewayYaml(yaml).modelGateway!;
+const executionCatalog = defineExecutionCatalog({
+  accounts: [{
+    id: "account",
+    providerId: "codex-oauth",
+    credentialId: "credential",
+    maxConcurrency: 1,
+    reservedAffinitySlots: 0,
+    economics: {
+      capacityIdentity: "account",
+      subscriptionClass: "subscription",
+      quotaClassId: "quota",
+      creditPosture: "committed",
+      overagePosture: "disabled",
+    },
+  }],
+  accountPolicies: [{ id: "account-policy", accountIds: ["account"], strategy: "economic-least-pressure" }],
+  routes: [{
+    id: "codex-route",
+    label: "Codex route",
+    providerId: "codex-oauth",
+    providerModelId: "model",
+    accountSelection: { mode: "automatic", accountPolicyId: "account-policy" },
+    economics: {
+      adapterCapabilityId: "text",
+      adapterCapabilityVersion: "1",
+      authBillingChannel: "oauth",
+      executionMode: "direct",
+      serviceTier: "default",
+      rateCardBasis: "subscription",
+      envelopeSemantics: "turn",
+      fallbackPosture: "disabled",
+      overagePosture: "disabled",
+      contextClass: "default",
+      cacheClass: "none",
+      priceEvidence: {
+        kind: "subscription",
+        rateCardId: "codex",
+        rateCardRevision: "1",
+        evidence: {
+          sourceIdentity: "test",
+          sourceRevision: "1",
+          sourceDigest: `sha256:${"a".repeat(64)}`,
+          observedAt: "2026-08-01T00:00:00.000Z",
+          validUntil: "2026-09-01T00:00:00.000Z",
+          confidence: "high",
+          authority: "configured",
+        },
+      },
+      auxiliaryCharges: [],
+      executionEnvelope: { limits: [{ atoms: "1", scale: 0, unit: "request", scheme: { kind: "unit" } }] },
+    },
+  }],
+});
+const globalConfig = {
+  version: "2" as const,
+  executionCatalog,
+  executionRouting: { defaultRouteId: "codex-route" },
+  modelGateway,
+};
 
 describe("modelGatewayCommand", () => {
   let root: string | undefined;
@@ -35,6 +93,7 @@ describe("modelGatewayCommand", () => {
     await modelGatewayCommand(["serve", "--config", configPath], {
       startModelGatewayListener: start,
       inspectModelGatewayListener: vi.fn(),
+      readGlobalConfig: () => globalConfig,
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       version: "3.0.0-test",
       pid: 99,
@@ -50,6 +109,72 @@ describe("modelGatewayCommand", () => {
     });
     expect(registerShutdown).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("127.0.0.1:4819"));
+    registerShutdown.mock.calls[0]![0]!();
+  });
+
+  it("passes the canonical execution bundle to the foreground listener", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-bundle-"));
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(configPath, yaml, "utf8");
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+    const registerShutdown = vi.fn();
+
+    await modelGatewayCommand(["serve", "--config", configPath], {
+      startModelGatewayListener: start,
+      readGlobalConfig: () => globalConfig,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      pid: 99,
+      registerShutdown,
+      log: vi.fn(),
+    });
+
+    const options = start.mock.calls[0]![0];
+    expect(options.executionCatalog).toBe(executionCatalog);
+    expect(options.executionRouting.admit({ routeId: "codex-route" })).toMatchObject({
+      routeId: "codex-route",
+      providerId: "codex-oauth",
+      providerModelId: "model",
+    });
+    expect(options.executionCandidates).toBeDefined();
+    expect(options.accountCapacityAuthority).toBeDefined();
+    registerShutdown.mock.calls[0]![0]!();
+  });
+
+  it("passes the same explicit execution bundle to the global runtime listener", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-global-bundle-"));
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+    const registerShutdown = vi.fn();
+
+    await modelGatewayCommand(["serve", "--global-runtime", "--instance-id", "global-1"], {
+      startModelGatewayListener: start,
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      pid: 100,
+      registerShutdown,
+      log: vi.fn(),
+    });
+
+    const options = start.mock.calls[0]![0];
+    expect(options.executionCatalog).toBe(executionCatalog);
+    expect(options.executionRouting.admit({ routeId: "codex-route" }).routeId).toBe("codex-route");
+    expect(options.databasePath).toBe(join(root, "runtime", "model-gateway", "model-gateway.sqlite"));
+    registerShutdown.mock.calls[0]![0]!();
+  });
+
+  it("fails closed before starting a listener when global execution authority is incomplete", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-missing-execution-"));
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(configPath, yaml, "utf8");
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+
+    await expect(modelGatewayCommand(["serve", "--config", configPath], {
+      startModelGatewayListener: start,
+      readGlobalConfig: () => ({ version: "2", modelGateway }),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      log: vi.fn(),
+    })).rejects.toThrow("executionCatalog and executionRouting");
+    expect(start).not.toHaveBeenCalled();
   });
 
   it.each(["start", "ensure", "stop", "restart", "status"] as const)("dispatches %s against the user-scoped supervisor without --config", async (command) => {
@@ -59,7 +184,7 @@ describe("modelGatewayCommand", () => {
     methods[command].mockResolvedValue({ state: "stopped" });
 
     await modelGatewayCommand([command, "--json"], {
-      readGlobalConfig: () => ({ version: "1", modelGateway }),
+      readGlobalConfig: () => globalConfig,
       resolveGlobalConfigPath: () => join(root!, "config.yaml"),
       createSupervisor: vi.fn(() => methods),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
@@ -79,7 +204,7 @@ describe("modelGatewayCommand", () => {
     const doctor = vi.fn(async () => ({ status: { state: "stopped" as const }, stateFile: "absent" as const, configDigest: "a".repeat(64), version: "3.0.0-test", diagnostics: [] }));
     const log = vi.fn();
     await modelGatewayCommand(["doctor", "--json"], {
-      readGlobalConfig: () => ({ version: "1", modelGateway }), resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      readGlobalConfig: () => globalConfig, resolveGlobalConfigPath: () => join(root!, "config.yaml"),
       createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor }),
       env: { BEARER_TOKEN: "b".repeat(32) }, version: "3.0.0-test", execPath: "bun", entrypoint: "cli.js", log,
     });
@@ -93,7 +218,7 @@ describe("modelGatewayCommand", () => {
     const install = vi.fn(async () => ({ state: "installed" as const, digest: "a".repeat(64) }));
     const uninstall = vi.fn(async () => ({ state: "absent" as const }));
     const base = {
-      readGlobalConfig: () => ({ version: "1" as const, modelGateway }),
+      readGlobalConfig: () => globalConfig,
       resolveGlobalConfigPath: () => join(root!, "config.yaml"),
       createAutostartAdapter: () => ({ status, install, uninstall }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
@@ -121,7 +246,7 @@ describe("modelGatewayCommand", () => {
     const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "install" as const, changed: true, targetPath: "opencode.json" }));
 
     await modelGatewayCommand(["sync-native", "--client", "opencode", "--json"], {
-      readGlobalConfig: () => ({ version: "1", modelGateway }), resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      readGlobalConfig: () => globalConfig, resolveGlobalConfigPath: () => join(root!, "config.yaml"),
       createSupervisor: () => ({ start: vi.fn(), ensure, stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
       syncOpenCodeNativeProjection,
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) }, version: "3.0.0-test", execPath: "bun", entrypoint: "cli.js", log: vi.fn(),
@@ -134,7 +259,7 @@ describe("modelGatewayCommand", () => {
   it("does not write a native projection when ensure is not ready", async () => {
     const syncOpenCodeNativeProjection = vi.fn();
     await expect(modelGatewayCommand(["sync-native", "--client", "opencode"], {
-      readGlobalConfig: () => ({ version: "1", modelGateway }), createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => ({ state: "foreign", reason: "identity-mismatch" })), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      readGlobalConfig: () => globalConfig, createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => ({ state: "foreign", reason: "identity-mismatch" })), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
       syncOpenCodeNativeProjection, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) }, entrypoint: "cli.js",
     })).rejects.toThrow("not owned and ready");
     expect(syncOpenCodeNativeProjection).not.toHaveBeenCalled();

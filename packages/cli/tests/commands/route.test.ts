@@ -12,7 +12,7 @@ vi.mock("../../src/config/global-config.js", () => ({
     engines: {
       claude: { enabled: true, billing: "subscription" },
     },
-    routing: { defaultWorker: "claude", budgetAware: false },
+    workerRouting: { defaultWorker: "claude", budgetAware: false },
   }),
   readGlobalConfig: globalConfigMocks.readGlobalConfig,
 }));
@@ -28,7 +28,7 @@ describe("routeCommand", () => {
         codex: { enabled: true },
         opencode: { enabled: true },
       },
-      routing: {
+      workerRouting: {
         defaultWorker: "codex",
         fallback: "opencode",
         budgetAware: true,

@@ -84,8 +84,8 @@ vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
 
-vi.mock("../src/components/provider-picker.js", () => ({
-  ProviderPicker: () => null,
+vi.mock("../src/components/execution-route-picker.js", () => ({
+  ExecutionRoutePicker: () => null,
 }));
 
 vi.mock("../src/components/provider-status.js", () => ({

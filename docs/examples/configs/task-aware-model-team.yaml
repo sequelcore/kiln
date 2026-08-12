@@ -1,60 +1,210 @@
-# Sanitized task-aware model team example.
-# Copy the shape, not the exact model list. Credentials stay in environment
-# variables or Kiln credential pools, never in this file.
-# This example is subscription-first: direct Codex OAuth and OpenCode Go are
-# normal routes; native CLI harness engines stay disabled unless intentionally
-# selected as fallback escape hatches.
-# OpenCode Go DeepSeek V4 Flash is intentionally absent because its current
-# provider matrix permits model training and has no retention agreement.
-version: "1"
-engines:
-  codex-oauth:
-    enabled: true
-    billing: subscription
-  opencode-go:
-    enabled: true
-    billing: subscription
-  codex:
-    enabled: false
-    billing: plus-quota
-  opencode:
-    enabled: false
-    billing: free
-routing:
-  defaultWorker: codex-oauth
-  fallback: opencode-go
+# Sanitized global V2 configuration for an account-backed model team.
+# Route labels carry the work intent. GUI, TUI, and `kiln run` select a route;
+# Kiln selects an eligible account automatically. Credential IDs are opaque
+# references resolved by the credential subsystem, never secret material.
+version: "2"
+
+identity:
+  name: Alex
+  timezone: America/Tijuana
+
+executionCatalog:
+  accounts:
+    - id: codex-oauth-primary
+      providerId: codex-oauth
+      credentialId: codex-oauth-primary
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics:
+        capacityIdentity: codex-oauth-primary
+        subscriptionClass: subscription
+        quotaClassId: codex-oauth-primary
+        creditPosture: disabled
+        overagePosture: disabled
+    - id: codex-oauth-secondary
+      providerId: codex-oauth
+      credentialId: codex-oauth-secondary
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics:
+        capacityIdentity: codex-oauth-secondary
+        subscriptionClass: subscription
+        quotaClassId: codex-oauth-secondary
+        creditPosture: disabled
+        overagePosture: disabled
+    - id: opencode-go-primary
+      providerId: opencode-go
+      credentialId: opencode-go-primary
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics:
+        capacityIdentity: opencode-go-primary
+        subscriptionClass: subscription
+        quotaClassId: opencode-go-primary
+        creditPosture: disabled
+        overagePosture: disabled
+
+  accountPolicies:
+    - id: codex-oauth-automatic
+      accountIds:
+        - codex-oauth-primary
+        - codex-oauth-secondary
+      strategy: economic-least-pressure
+    - id: opencode-go-automatic
+      accountIds:
+        - opencode-go-primary
+      strategy: economic-least-pressure
+
   routes:
-    - provider: codex-oauth
-      model: gpt-5.6-terra
-    - provider: codex-oauth
-      model: gpt-5.6-sol
-    - provider: codex-oauth
-      model: gpt-5.6-luna
-    - provider: opencode-go
-      model: kimi-k2.7-code
-    - provider: opencode-go
-      model: glm-5.2
-    - provider: opencode-go
-      model: deepseek-v4-pro
-    - provider: opencode-go
-      model: qwen3.7-max
-  budgetAware: false
-models:
-  codex-oauth: gpt-5.6-terra
-  opencode-go: glm-5.2
+    - id: codex-terra
+      label: Terra — balanced implementation
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-terra
+      accountSelection:
+        mode: automatic
+        accountPolicyId: codex-oauth-automatic
+      economics:
+        adapterCapabilityId: codex-oauth-direct
+        adapterCapabilityVersion: v1
+        authBillingChannel: oauth-subscription
+        executionMode: direct
+        serviceTier: standard
+        rateCardBasis: provider-subscription
+        envelopeSemantics: configured-upper-bound
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard-context
+        cacheClass: provider-cache
+        priceEvidence:
+          kind: subscription
+          rateCardId: codex-oauth-subscription
+          rateCardRevision: rev-2026-08
+          evidence:
+            sourceIdentity: operator-subscription-terms
+            sourceRevision: rev-2026-08
+            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            observedAt: 2026-08-01T00:00:00.000Z
+            validUntil: 2026-09-01T00:00:00.000Z
+            confidence: high
+            authority: provider-reported
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits: []
+    - id: codex-sol
+      label: Sol — architecture and review
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-sol
+      accountSelection:
+        mode: automatic
+        accountPolicyId: codex-oauth-automatic
+      economics:
+        adapterCapabilityId: codex-oauth-direct
+        adapterCapabilityVersion: v1
+        authBillingChannel: oauth-subscription
+        executionMode: direct
+        serviceTier: standard
+        rateCardBasis: provider-subscription
+        envelopeSemantics: configured-upper-bound
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard-context
+        cacheClass: provider-cache
+        priceEvidence:
+          kind: subscription
+          rateCardId: codex-oauth-subscription
+          rateCardRevision: rev-2026-08
+          evidence:
+            sourceIdentity: operator-subscription-terms
+            sourceRevision: rev-2026-08
+            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            observedAt: 2026-08-01T00:00:00.000Z
+            validUntil: 2026-09-01T00:00:00.000Z
+            confidence: high
+            authority: provider-reported
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits: []
+    - id: codex-luna
+      label: Luna — bounded mechanical edits
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-luna
+      accountSelection:
+        mode: automatic
+        accountPolicyId: codex-oauth-automatic
+      economics:
+        adapterCapabilityId: codex-oauth-direct
+        adapterCapabilityVersion: v1
+        authBillingChannel: oauth-subscription
+        executionMode: direct
+        serviceTier: standard
+        rateCardBasis: provider-subscription
+        envelopeSemantics: configured-upper-bound
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard-context
+        cacheClass: provider-cache
+        priceEvidence:
+          kind: subscription
+          rateCardId: codex-oauth-subscription
+          rateCardRevision: rev-2026-08
+          evidence:
+            sourceIdentity: operator-subscription-terms
+            sourceRevision: rev-2026-08
+            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            observedAt: 2026-08-01T00:00:00.000Z
+            validUntil: 2026-09-01T00:00:00.000Z
+            confidence: high
+            authority: provider-reported
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits: []
+    - id: opencode-go-glm
+      label: GLM — approved service work
+      providerId: opencode-go
+      providerModelId: glm-5.2
+      accountSelection:
+        mode: automatic
+        accountPolicyId: opencode-go-automatic
+      economics:
+        adapterCapabilityId: opencode-go-direct
+        adapterCapabilityVersion: v1
+        authBillingChannel: oauth-subscription
+        executionMode: direct
+        serviceTier: standard
+        rateCardBasis: provider-subscription
+        envelopeSemantics: configured-upper-bound
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard-context
+        cacheClass: provider-cache
+        priceEvidence:
+          kind: subscription
+          rateCardId: opencode-go-subscription
+          rateCardRevision: rev-2026-08
+          evidence:
+            sourceIdentity: operator-subscription-terms
+            sourceRevision: rev-2026-08
+            sourceDigest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            observedAt: 2026-08-01T00:00:00.000Z
+            validUntil: 2026-09-01T00:00:00.000Z
+            confidence: high
+            authority: provider-reported
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits: []
+
+executionRouting:
+  defaultRouteId: codex-terra
+
+# The initial GUI/TUI preference names a route, not a provider or credential.
+ui:
+  executionRouteSelection:
+    routeId: codex-terra
+
+# Model Gateway is an ingress and virtual-name overlay. The canonical provider,
+# model, account policy, and economics remain in executionCatalog.
 modelGateway:
   port: 4819
-  accounts:
-    - id: codex-subscription
-      providerId: codex-oauth
-      credentialId: codex-subscription
-      maxConcurrency: 1
-      reservedAffinitySlots: 0
-    - id: opencode-go-subscription
-      providerId: opencode-go
-      credentialId: opencode-go-subscription
-      maxConcurrency: 1
-      reservedAffinitySlots: 0
   replay:
     ttlMs: 300000
     maxEntries: 1000
@@ -74,94 +224,121 @@ modelGateway:
         - model.invoke
       budgetEvidenceId: example-subscription-budget
       virtualModelIds:
-        - managed-codex-luna
+        - managed-codex-terra
         - managed-codex-sol
-        - managed-opencode-go-kimi
+        - managed-codex-luna
         - managed-opencode-go-glm
-        - managed-opencode-go-deepseek-pro
-        - managed-opencode-go-qwen
   virtualModels:
-    - id: managed-codex-luna
-      providerId: codex-oauth
-      providerModelId: gpt-5.6-luna
-      accountIds: [codex-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
+    - id: managed-codex-terra
+      executionRouteId: codex-terra
+      capabilities:
+        - text
+      affinity:
+        continuity: none
     - id: managed-codex-sol
-      providerId: codex-oauth
-      providerModelId: gpt-5.6-sol
-      accountIds: [codex-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-go-kimi
-      providerId: opencode-go
-      providerModelId: kimi-k2.7-code
-      accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
+      executionRouteId: codex-sol
+      capabilities:
+        - text
+      affinity:
+        continuity: none
+    - id: managed-codex-luna
+      executionRouteId: codex-luna
+      capabilities:
+        - text
+      affinity:
+        continuity: none
     - id: managed-opencode-go-glm
-      providerId: opencode-go
-      providerModelId: glm-5.2
-      accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-go-deepseek-pro
-      providerId: opencode-go
-      providerModelId: deepseek-v4-pro
-      accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-    - id: managed-opencode-go-qwen
-      providerId: opencode-go
-      providerModelId: qwen3.7-max
-      accountIds: [opencode-go-subscription]
-      capabilities: [text]
-      affinity: { continuity: none }
-deliberationPolicy:
-  default: { mode: fixed, preferredLevel: medium, onUnsupported: omit }
-  byTask:
-    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
-    backend-coding: { mode: fixed, preferredLevel: high, onUnsupported: deny }
-    frontend-design: { mode: fixed, preferredLevel: high, onUnsupported: deny }
-    test-writing: { mode: fixed, preferredLevel: high, onUnsupported: deny }
-    research: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: omit }
-    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
-modelTaskSuitability:
-  - provider: codex-oauth
-    model: gpt-5.6-sol
-    task: architecture-review
-    level: preferred
-    reason: Prefer GPT-5.6 Sol for architecture decisions, backend-critical changes, and final review.
-  - provider: codex-oauth
-    model: gpt-5.6-terra
-    task: backend-coding
-    level: preferred
-    reason: Prefer GPT-5.6 Terra as the balanced workday Codex route for everyday implementation.
-  - provider: codex-oauth
-    model: gpt-5.6-luna
-    task: mechanical-edit
-    level: preferred
-    reason: Prefer GPT-5.6 Luna for small bounded edits and repetitive low-risk work.
-  - provider: opencode-go
-    model: kimi-k2.7-code
-    task: frontend-design
-    level: preferred
-    reason: Prefer the OpenCode Go frontend route for UI, layout, and visual implementation.
-  - provider: opencode-go
-    model: glm-5.2
-    task: backend-coding
-    level: capable
-    reason: Keep GLM available for backend services, adapters, and data-flow reasoning when the preferred backend route is unavailable.
-  - provider: opencode-go
-    model: deepseek-v4-pro
-    task: backend-coding
-    level: preferred
-    reason: Prefer the OpenCode Go backend/debugging route for complex coding and provider/runtime issues.
-  - provider: opencode-go
-    model: qwen3.7-max
-    task: research
-    level: preferred
-    reason: Prefer the OpenCode Go research route for synthesis and comparison work.
+      executionRouteId: opencode-go-glm
+      capabilities:
+        - text
+      affinity:
+        continuity: none
+
+managedAgents:
+  schemaVersion: 2
+  enabled: true
+  defaultProfile: foundation-readonly-plan
+  requireApproval: true
+  routes:
+    - id: architecture-review
+      kind: direct
+      executionRouteId: codex-sol
+      profiles:
+        - foundation-readonly-plan
+      workingDirectory: project
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+        network: false
+        writes: false
+      memory:
+        access: read-only
+    - id: approved-service-work
+      kind: direct
+      executionRouteId: opencode-go-glm
+      profiles:
+        - foundation-apply-approved-writes
+      workingDirectory: project
+      tools:
+        allowed:
+          - read
+          - tree
+          - grep
+          - glob
+          - write
+          - edit
+          - apply-patch
+        network: false
+        writes: true
+      memory:
+        access: write-proposals
+      writeAuthority:
+        workspace:
+          mode: apply-approved
+          allowedPaths:
+            - .
+          deniedPaths:
+            - .git
+            - node_modules
+            - .kiln
+        approval:
+          mode: required-before-apply
+  economicPolicies:
+    - id: subscription-priority
+      revision: rev-2026-08
+      evidenceRequirements:
+        quota: required-for-account-bound
+        price: required
+      noRouteAction: deny
+      comparisonDomains:
+        - id: subscription-priority
+          rank: 0
+          unit: request
+          scheme:
+            kind: unit
+          rateCardBasis: provider-subscription
+          envelopeSemantics: configured-upper-bound
+      candidates:
+        - routeId: architecture-review
+          comparisonDomainId: subscription-priority
+          priorityRank: 0
+          ceiling:
+            kind: none
+          worstCaseReservation:
+            kind: not-comparable
+            reason: subscription-basis
+        - routeId: approved-service-work
+          comparisonDomainId: subscription-priority
+          priorityRank: 1
+          ceiling:
+            kind: none
+          worstCaseReservation:
+            kind: not-comparable
+            reason: subscription-basis
+
 skills:
   selection:
     mode: auto
@@ -180,77 +357,11 @@ skills:
       - managed-agent-risk-review
       - benchmark-readiness-review
       - config-projection-review
-managedAgents:
-  enabled: true
-  defaultProvider: codex-oauth
-  defaultProfile: foundation-readonly-plan
-  requireApproval: true
-  # Read-only managed routes are derived from routing.routes. Keep this list
-  # for authority-bearing routes and deliberate exceptions only.
-  routes:
-    - id: codex-oauth-scout-readonly
-      kind: direct
-      provider: codex-oauth
-      model: gpt-5.6-luna
-      profiles:
-        - foundation-readonly-plan
-      workingDirectory: project
-      timeoutMs: 300000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-        network: false
-        writes: false
-      memory:
-        access: read-only
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-codex-luna
-    # Only GLM 5.2 passed the 2026-08-01 strict backend write admission.
-    - id: opencode-go-service-approved-write
-      kind: direct
-      provider: opencode-go
-      model: glm-5.2
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      timeoutMs: 120000
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-glm
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - "."
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
+
 permissions:
   approval: on-request
   sandbox: read-only
-identity:
-  name: Alex
-  timezone: America/Tijuana
+
 workGovernance:
   defaultPosture: orchestrate
   directExecution:
@@ -276,5 +387,6 @@ workGovernance:
     - tests
     - typecheck
     - residual-risk
+
 activeInstructionProfiles:
   - sequel-engineering

@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveProviderModelEligibility, type ProviderModelEligibilityRequirements } from "@kilnai/core";
 import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
-import { writeGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+
+function persistGlobalConfig(config: KilnGlobalConfig): void {
+  mutateGlobalConfig(() => config);
+}
 import { createOperatorProjectManagedJobApplicationComposition } from "../../src/application/operator-project-managed-jobs.js";
 import { createNativeHarnessInspectionService } from "../../src/application/native-harness-inspection.js";
 import { NativeHarnessMcpTools } from "../../src/native-harness/native-harness-mcp-tools.js";
@@ -22,7 +26,7 @@ const routeCatalogTrace = vi.hoisted(() => ({
 }));
 const adapterTrace = vi.hoisted(() => ({
   createCalls: 0,
-  requests: [] as Array<{ readonly route: unknown; readonly accountBinding: unknown; readonly committedRequest: unknown }>,
+  requests: [] as Array<{ readonly route: unknown; readonly credentialBinding: unknown; readonly committedRequest: unknown }>,
   adapter: {
     descriptor: {
       adapterKind: "direct",
@@ -118,9 +122,9 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
   const actual = await importOriginal<typeof import("../../src/config/managed-agent-direct-adapters.js")>();
   return {
     ...actual,
-    createManagedDirectProviderAdapterFactory: vi.fn(() => async (route, accountBinding, _abortSignal, committedRequest) => {
+    createManagedDirectProviderAdapterFactory: vi.fn(() => async (route, credentialBinding, _abortSignal, committedRequest) => {
       adapterTrace.createCalls += 1;
-      adapterTrace.requests.push({ route, accountBinding, committedRequest });
+      adapterTrace.requests.push({ route, credentialBinding, committedRequest });
       return adapterTrace.adapter as never;
     }),
   };
@@ -129,7 +133,7 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
 /**
  * Regression proof for #56 revised S1: the operator-supervised project Runtime
  * composition must derive its managed-route config
- * (`modelGateway`, `engines`, `routing`, `models`, `managedAgents`, ...) from
+ * (`executionCatalog`, `engines`, `routing`, `models`, `managedAgents`, ...) from
  * canonical global/project config with the correct authority split, not from
  * `readConfigStatusSnapshot().effectiveConfig` (a project/status projection
  * that never carries global-only Runtime route authority). Unlike
@@ -140,7 +144,7 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
  * (`createOperatorProjectManagedJobApplicationComposition`) and the real MCP
  * surface (`NativeHarnessMcpTools`). A fake `effectiveConfig` mock (as the
  * existing sibling test uses) can assert whatever shape it likes, including a
- * `modelGateway` field that `KilnYaml` never actually produces -- which is
+ * `executionCatalog` field that `KilnYaml` never actually produces -- which is
  * exactly how the original defect went uncaught.
  */
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
@@ -259,7 +263,7 @@ const NATIVE_CODEX_DELIBERATION_AGENT = [
 
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
   return {
-    version: "1",
+    version: "2",
     managedAgents: {
       enabled: true,
       routes: [{
@@ -271,36 +275,28 @@ function nativeCodexDeliberationConfig(): KilnGlobalConfig {
         workingDirectory: "project",
         tools: { allowed: ["read"], network: false, writes: false },
         memory: { access: "read-only" },
-        credentials: { mode: "credentialless" },
       }],
     },
   };
 }
 
-function accountlessEconomicConfig(): KilnGlobalConfig {
+function accountBoundEconomicConfig(): KilnGlobalConfig {
   const configured = economicConfig();
   return {
     ...configured,
     managedAgents: {
       ...configured.managedAgents!,
-      routes: configured.managedAgents!.routes.map((route) => ({
-        ...route,
-        credentials: { mode: "credentialless" as const, economicsRouteId: "codex-standard-policy" },
-      })),
-    },
-    modelGateway: {
-      ...configured.modelGateway!,
-      virtualModels: configured.modelGateway!.virtualModels.map((model) => ({
-        ...model,
-        accountIds: [],
+      economicPolicies: configured.managedAgents!.economicPolicies!.map((policy) => ({
+        ...policy,
+        evidenceRequirements: { ...policy.evidenceRequirements, quota: "optional" as const },
       })),
     },
   };
 }
 
-/** A provider-free OpenCode Go route used to prove the direct-provider path without live credentials. */
-function accountlessOpenCodeGoEconomicConfig(): KilnGlobalConfig {
-  const configured = accountlessEconomicConfig();
+/** An alternate direct route used to prove route identity is carried by the execution catalog. */
+function openCodeGoEconomicConfig(): KilnGlobalConfig {
+  const configured = accountBoundEconomicConfig();
   return {
     ...configured,
     managedAgents: {
@@ -308,34 +304,40 @@ function accountlessOpenCodeGoEconomicConfig(): KilnGlobalConfig {
       routes: configured.managedAgents!.routes.map((route) => ({
         ...route,
         id: "opencode-go-direct",
-        provider: "opencode-go",
-        model: "kimi-k2.6",
-        credentials: { mode: "credentialless" as const, economicsRouteId: "opencode-go-policy" },
+        executionRouteId: "opencode-go-direct",
       })),
       economicPolicies: configured.managedAgents!.economicPolicies!.map((policy) => ({
         ...policy,
         candidates: policy.candidates.map((candidate) => ({ ...candidate, routeId: "opencode-go-direct" })),
       })),
     },
-    modelGateway: {
-      ...configured.modelGateway!,
-      principals: configured.modelGateway!.principals.map((principal) => ({
-        ...principal,
-        virtualModelIds: ["opencode-go-policy"],
+    executionCatalog: {
+      ...configured.executionCatalog!,
+      accounts: configured.executionCatalog!.accounts.map((account) => ({
+        ...account,
+        id: "opencode-go-account",
+        providerId: "opencode-go",
+        credentialId: "opencode-go-credential",
       })),
-      virtualModels: configured.modelGateway!.virtualModels.map((model) => ({
-        ...model,
+      accountPolicies: configured.executionCatalog!.accountPolicies.map((policy) => ({
+        ...policy,
         id: "opencode-go-policy",
+        accountIds: ["opencode-go-account"],
+      })),
+      routes: configured.executionCatalog!.routes.map((route) => ({
+        ...route,
+        id: "opencode-go-direct",
         providerId: "opencode-go",
         providerModelId: "kimi-k2.6",
-        economics: { ...model.economics, adapterCapabilityId: "opencode-go-direct" },
+        accountSelection: { mode: "automatic" as const, accountPolicyId: "opencode-go-policy" },
+        economics: { ...route.economics, adapterCapabilityId: "opencode-go-direct" },
       })),
     },
   };
 }
 
-function accountlessOpenCodeGoWriteEconomicConfig(): KilnGlobalConfig {
-  const configured = accountlessOpenCodeGoEconomicConfig();
+function openCodeGoWriteEconomicConfig(): KilnGlobalConfig {
+  const configured = openCodeGoEconomicConfig();
   return {
     ...configured,
     managedAgents: {
@@ -402,6 +404,34 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     process.env.XDG_CONFIG_HOME = globalHome;
     process.env.HOME = globalHome;
     process.env.USERPROFILE = globalHome;
+    const authRoot = join(globalHome, ".kiln", "auth");
+    mkdirSync(join(authRoot, "codex-oauth"), { recursive: true });
+    const tokenHeader = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+    const tokenClaims = Buffer.from(JSON.stringify({
+      "https://api.openai.com/auth": { chatgpt_account_id: "fixture-account" },
+    })).toString("base64url");
+    writeFileSync(join(authRoot, "codex-oauth", "codex-credential.json"), JSON.stringify({
+      access_token: `${tokenHeader}.${tokenClaims}.`,
+      refresh_token: "fixture-refresh-token",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      client_id: "fixture-client",
+    }), "utf8");
+    mkdirSync(join(authRoot, "opencode-api"), { recursive: true });
+    writeFileSync(join(authRoot, "opencode-api", "opencode-go-credential.json"), JSON.stringify({
+      id: "opencode-go-credential",
+      label: "opencode-go-credential",
+      providerId: "opencode-api",
+      source: "manual",
+      priority: 0,
+      tier: "go",
+      auth: {
+        api_key: "fixture-opencode-key",
+        tier: "go",
+        created_at: "2026-01-01T00:00:00.000Z",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }), "utf8");
   }
 
   function createProjectRoot(kilnYamlContents: string, agents: Readonly<Record<string, string>> = {}): string {
@@ -420,7 +450,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("constructs the real composition from canonical schema-v2 config and surfaces the admitted managed agent through the real MCP server", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(economicConfig());
+    persistGlobalConfig(economicConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
     const composition = await createOperatorProjectManagedJobApplicationComposition({
@@ -465,7 +495,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
   it("persists exact native deliberation evidence through status and replay", async () => {
     useIsolatedGlobalConfigHome();
     routeCatalogTrace.injectNativeDeliberationCapabilities = true;
-    writeGlobalConfig(nativeCodexDeliberationConfig());
+    persistGlobalConfig(nativeCodexDeliberationConfig());
     const projectRoot = createProjectRoot('version: "1"\n', {
       "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT,
     });
@@ -512,7 +542,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     useIsolatedGlobalConfigHome();
     routeCatalogTrace.injectNativeDeliberationCapabilities = true;
     routeCatalogTrace.mutateExecutionDeliberationEvidence = true;
-    writeGlobalConfig(nativeCodexDeliberationConfig());
+    persistGlobalConfig(nativeCodexDeliberationConfig());
     const projectRoot = createProjectRoot('version: "1"\n', {
       "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT,
     });
@@ -540,7 +570,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("rebuilds an execution composition after the economic dispatch fence", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(accountlessEconomicConfig());
+    persistGlobalConfig(accountBoundEconomicConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockImplementation(async (
       _request,
@@ -586,7 +616,9 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
       expect(result.state).toBe("queued");
       await composition.close();
-      await expect(composition.application.getStatus({ callerId: "codex-app" }, result.id)).resolves.toMatchObject({ state: "succeeded" });
+      const debugStatus = await composition.application.getStatus({ callerId: "codex-app" }, result.id);
+      console.log("DEBUG_STATUS", JSON.stringify(debugStatus), "CREATE", adapterTrace.createCalls, "START", start.mock.calls.length, "JOIN", join.mock.calls.length, "REQ", JSON.stringify(adapterTrace.requests));
+      expect(debugStatus).toMatchObject({ state: "succeeded" });
       expect(adapterTrace.createCalls).toBe(1);
       expect(start).toHaveBeenCalledOnce();
       expect(join).toHaveBeenCalledWith(`managed-job:${result.id}`);
@@ -607,7 +639,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("admits, commits, dispatches, and replays the exact credentialless opencode-go direct route", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(accountlessOpenCodeGoEconomicConfig());
+    persistGlobalConfig(openCodeGoEconomicConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
     const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockResolvedValue({
@@ -671,8 +703,13 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       });
       expect(adapterTrace.createCalls).toBe(1);
       expect(adapterTrace.requests).toMatchObject([{
-        route: { id: "opencode-go-direct", provider: "opencode-go", model: "kimi-k2.6" },
-        accountBinding: undefined,
+        route: { id: "opencode-go-direct" },
+        credentialBinding: {
+          routeId: "opencode-go-direct",
+          accountId: "opencode-go-account",
+          credentialId: "opencode-go-credential",
+          credentialRevision: expect.any(String),
+        },
         committedRequest: { commitment: { reservation: { selectedIdentity: { route: { routeId: "opencode-go-direct", providerId: "opencode-go", modelId: "kimi-k2.6" } } } } },
       }]);
       expect(start).toHaveBeenCalledWith(expect.objectContaining({
@@ -692,7 +729,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("holds an opencode-go direct write until one exact trusted approval is consumed", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(accountlessOpenCodeGoWriteEconomicConfig());
+    persistGlobalConfig(openCodeGoWriteEconomicConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "opencode-write-worker.md": OPENCODE_WRITE_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
     const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockImplementation(async (invocationId) => ({
@@ -794,20 +831,20 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("projects an economic lifecycle abort as a provider timeout", async () => {
     useIsolatedGlobalConfigHome();
-    const config = accountlessOpenCodeGoEconomicConfig();
+    const config = openCodeGoEconomicConfig();
     const route = config.managedAgents?.routes?.[0];
     if (!route) throw new Error("Expected one managed OpenCode Go route fixture.");
-    writeGlobalConfig({
+    persistGlobalConfig({
       ...config,
       managedAgents: {
         ...config.managedAgents,
-        routes: [{ ...route, timeoutMs: 10 }],
+        routes: [{ ...route, timeoutMs: 150 }],
       },
     });
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
     const join = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "join").mockImplementation(async (invocationId) => {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 200));
       return {
         status: "completed",
         record: {
@@ -865,7 +902,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("fails closed before Runtime start when post-fence adapter capability changes", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(accountlessEconomicConfig());
+    persistGlobalConfig(accountBoundEconomicConfig());
     routeCatalogTrace.mutateExecutionCapabilityVersion = true;
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({
@@ -895,7 +932,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("fails closed before Runtime start when execution authority changes under the same adapter identity", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(accountlessEconomicConfig());
+    persistGlobalConfig(accountBoundEconomicConfig());
     routeCatalogTrace.mutateExecutionProfileAuthority = true;
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({
@@ -929,7 +966,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       ...economicConfig(),
       engines: { "codex-oauth": { enabled: false } },
     };
-    writeGlobalConfig(globalConfig);
+    persistGlobalConfig(globalConfig);
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
     const composition = await createOperatorProjectManagedJobApplicationComposition({
@@ -952,21 +989,21 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
-  it("does not let a project kiln.yaml override global modelGateway or engine authority", async () => {
+  it("does not let a project kiln.yaml override global execution-route or engine authority", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig(economicConfig());
-    // `KilnYaml` has neither a `modelGateway` nor an `engines` field; this
+    persistGlobalConfig(economicConfig());
+    // `KilnYaml` has neither an `executionCatalog` nor an `engines` field; this
     // simulates an operator (or a regression) hand-editing project kiln.yaml
     // with out-of-schema keys attempting to disable the provider the global
-    // config allows, and to replace modelGateway with a value that would crash
-    // `ConfiguredManagedAccountRuntime` if it were ever used. Both global
+    // config allows, and to replace executionCatalog with a value that would
+    // crash the configured account runtime if it were ever used. Both global
     // authorities must keep governing composition unchanged.
     const projectRoot = createProjectRoot([
       'version: "1"',
       "engines:",
       "  codex-oauth:",
       "    enabled: false",
-      "modelGateway: not-a-gateway",
+      "executionCatalog: not-a-catalog",
     ].join("\n"), { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
     const composition = await createOperatorProjectManagedJobApplicationComposition({
@@ -986,9 +1023,9 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
-  it("stays fail-closed when a project-declared runtime-selected route has no reachable global modelGateway", async () => {
+  it("stays fail-closed when a project-declared direct route has no reachable global execution catalog", async () => {
     useIsolatedGlobalConfigHome();
-    writeGlobalConfig({ version: "1" });
+    persistGlobalConfig({ version: "2" });
     const projectRoot = createProjectRoot([
       'version: "1"',
       "managedAgents:",
@@ -996,16 +1033,15 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       "  routes:",
       "    - id: project-declared-route",
       "      kind: direct",
-      "      provider: codex-oauth",
-      "      model: gpt-5.6-terra",
-      "      credentials:",
-      "        mode: runtime-selected",
-      "        accountPolicyId: unresolvable-policy",
+      "      executionRouteId: unresolvable-route",
     ].join("\n"));
 
     await expect(createOperatorProjectManagedJobApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => ({}),
-    })).rejects.toThrow("Managed account or economic routes require modelGateway configuration.");
+    })).rejects.toMatchObject({
+      code: "route_unavailable",
+      operatorAction: "Managed direct routes require executionCatalog in global config.",
+    });
   });
 });

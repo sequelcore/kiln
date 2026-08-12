@@ -10,7 +10,10 @@ export const OperatorSessionTurnOutcomeSchema = z.enum([
 export type OperatorSessionTurnOutcome = z.infer<typeof OperatorSessionTurnOutcomeSchema>;
 
 export interface OperatorSessionRouteIdentity {
-  readonly provider: string;
+  readonly routeId: string;
+  /** Derived execution evidence; routeId remains the identity authority. */
+  readonly provider?: string;
+  /** Derived execution evidence; routeId remains the identity authority. */
   readonly model?: string;
 }
 
@@ -19,7 +22,7 @@ export interface OperatorSessionSummary {
   readonly title: string;
   readonly summary?: string;
   readonly tags: readonly string[];
-  readonly providersUsed: readonly string[];
+  readonly routesUsed: readonly string[];
   readonly lastRoute?: OperatorSessionRouteIdentity;
   readonly lastTurnOutcome?: OperatorSessionTurnOutcome;
   readonly updatedAt: string;
@@ -31,7 +34,8 @@ export interface OperatorSessionHistoryResponse {
 }
 
 export const OperatorSessionRouteIdentitySchema: z.ZodType<OperatorSessionRouteIdentity> = z.object({
-  provider: z.string().trim().min(1),
+  routeId: z.string().trim().min(1),
+  provider: z.string().trim().min(1).optional(),
   model: z.string().trim().min(1).optional(),
 });
 
@@ -40,7 +44,7 @@ export const OperatorSessionSummarySchema: z.ZodType<OperatorSessionSummary> = z
   title: z.string().trim().min(1),
   summary: z.string().trim().min(1).optional(),
   tags: z.array(z.string().trim().min(1)),
-  providersUsed: z.array(z.string().trim().min(1)),
+  routesUsed: z.array(z.string().trim().min(1)),
   lastRoute: OperatorSessionRouteIdentitySchema.optional(),
   lastTurnOutcome: OperatorSessionTurnOutcomeSchema.optional(),
   updatedAt: z.string().datetime({ offset: true }),
@@ -53,9 +57,12 @@ export const OperatorSessionHistoryResponseSchema: z.ZodType<OperatorSessionHist
 
 export interface OperatorSessionTranscriptEvidence {
   readonly sessionId: string;
+  readonly routeId?: string;
+  readonly routesUsed?: readonly string[];
+  /** Derived execution evidence; never sufficient to identify a route. */
   readonly provider?: string;
+  /** Derived execution evidence; never sufficient to identify a route. */
   readonly model?: string;
-  readonly providersUsed?: readonly string[];
   readonly title?: string;
   readonly summary?: string;
   readonly tags?: readonly string[];
@@ -67,9 +74,12 @@ export interface OperatorSessionTranscriptEvidence {
 }
 
 export interface OperatorSessionLedgerEvidence {
-  readonly provider: string;
+  readonly routeId?: string;
+  readonly routesUsed?: readonly string[];
+  /** Derived execution evidence; never sufficient to identify a route. */
+  readonly provider?: string;
+  /** Derived execution evidence; never sufficient to identify a route. */
   readonly model?: string;
-  readonly providersUsed?: readonly string[];
   readonly title?: string;
   readonly summary?: string;
   readonly tags?: readonly string[];
@@ -124,11 +134,12 @@ export function projectOperatorSessionSummary(
     ?? meaningful(secondary?.task)
     ?? "Untitled session";
   const summary = meaningful(primary?.summary) ?? meaningful(secondary?.summary);
-  const routeEvidence = primary?.provider?.trim()
+  const routeEvidence = primary?.routeId?.trim()
     ? primary
-    : secondary?.provider?.trim()
+    : secondary?.routeId?.trim()
       ? secondary
       : undefined;
+  const lastRouteId = routeEvidence?.routeId?.trim();
   const lastProvider = routeEvidence?.provider?.trim();
   const lastModel = routeEvidence?.model?.trim();
   const costUsd = ledger?.accumulatedCostUsd ?? transcript.costUsd ?? 0;
@@ -138,20 +149,21 @@ export function projectOperatorSessionSummary(
     title,
     ...(summary ? { summary } : {}),
     tags: unique([...(transcript.tags ?? []), ...(ledger?.tags ?? [])]),
-    providersUsed: unique(ledgerIsNewer ? [
-      ...(ledger?.providersUsed ?? []),
-      ledger?.provider,
-      ...(transcript.providersUsed ?? []),
-      transcript.provider,
+    routesUsed: unique(ledgerIsNewer ? [
+      ...(ledger?.routesUsed ?? []),
+      ledger?.routeId,
+      ...(transcript.routesUsed ?? []),
+      transcript.routeId,
     ] : [
-      ...(transcript.providersUsed ?? []),
-      transcript.provider,
-      ...(ledger?.providersUsed ?? []),
-      ledger?.provider,
+      ...(transcript.routesUsed ?? []),
+      transcript.routeId,
+      ...(ledger?.routesUsed ?? []),
+      ledger?.routeId,
     ]),
-    ...(lastProvider ? {
+    ...(lastRouteId ? {
       lastRoute: {
-        provider: lastProvider,
+        routeId: lastRouteId,
+        ...(lastProvider ? { provider: lastProvider } : {}),
         ...(lastModel ? { model: lastModel } : {}),
       },
     } : {}),

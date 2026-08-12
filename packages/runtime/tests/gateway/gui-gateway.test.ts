@@ -39,7 +39,6 @@ import {
   projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
   resolveGuiOperatorDiscoveryResults,
-  resolveGuiProviderSwitch,
   type GuiCliProviderModelDiscovery,
 } from "../../src/gateway/gui-provider-models.js";
 import type {
@@ -102,12 +101,119 @@ const guiSocketHarness = vi.hoisted(() => {
   };
 });
 
+const guiTestRouting = vi.hoisted(() => ({
+  create(providerId?: string, providerModelId?: string) {
+    let handler: ((input: unknown) => Promise<unknown>) | undefined;
+    const admission = {
+      routeId: "test-route",
+      providerId: providerId?.trim() || "claude",
+      providerModelId: providerModelId?.trim() || "claude-sonnet-4-6",
+    };
+    const executionRouteSelection = {
+      getCatalog: vi.fn(async () => ({
+        routes: [{
+          routeId: admission.routeId,
+          label: "Test route",
+          providerId: admission.providerId,
+          providerModelId: admission.providerModelId,
+          accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
+          availability: "available",
+          reasonCodes: [],
+          repairActions: [],
+        }],
+      })),
+      admit: vi.fn(async (intent: { readonly routeId: string }) => ({
+        ok: true,
+        admission: { ...admission, routeId: intent.routeId },
+      })),
+    };
+    const bridge = {
+      bind(nextHandler: (input: unknown) => Promise<unknown>) {
+        if (handler) throw new Error("Test execution bridge is already bound.");
+        handler = nextHandler;
+      },
+      dispatchCommittedTurn(input: unknown) {
+        if (!handler) throw new Error("Test execution bridge is not bound.");
+        return handler(input);
+      },
+    };
+    const dispatcher = {
+      dispatchTurn: vi.fn(async (request: {
+        readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
+        readonly payload: unknown;
+      }) => {
+        const accountId = request.intent.accountOverrideId ?? "test-account";
+        const selectedAdmission = { ...admission, routeId: request.intent.routeId };
+        const result = await bridge.dispatchCommittedTurn({
+          admission: selectedAdmission,
+          accountId,
+          binding: {
+            status: "bound",
+            routeId: request.intent.routeId,
+            accountId,
+            credentialId: "test-credential",
+            credentialRevision: "sha256:test-revision",
+          },
+          credential: { kind: "test" },
+          payload: request.payload,
+        });
+        return {
+          admission: selectedAdmission,
+          accountId,
+          leaseId: "test-lease",
+          evidence: {
+            routeId: request.intent.routeId,
+            accountId,
+            credentialId: "test-credential",
+            credentialRevision: "sha256:test-revision",
+            capacityIdentity: "test-capacity",
+            leaseId: "test-lease",
+            dispatchFenceId: "test-dispatch",
+            status: "completed",
+          },
+          result,
+        };
+      }),
+    };
+    return {
+      operatorTurnDispatcher: dispatcher,
+      operatorTurnExecutionBridge: bridge,
+      executionRouteSelection,
+    };
+  },
+}));
+
 vi.mock("hono/bun", () => ({
   createBunWebSocket: () => ({
     upgradeWebSocket: guiSocketHarness.upgradeWebSocket,
     websocket: {},
   }),
 }));
+
+vi.mock("../../src/gateway/gui-gateway.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/gateway/gui-gateway.js")>();
+  return {
+    ...actual,
+    startGuiGateway: (input: Parameters<typeof actual.startGuiGateway>[0]) => {
+      if (!input.operatorTransport) {
+        return actual.startGuiGateway(input);
+      }
+      const routing = guiTestRouting.create(
+        input.operatorTransport.sessionManager.getProvider(),
+        input.operatorTransport.sessionManager.getModel(),
+      );
+      return actual.startGuiGateway({
+        ...input,
+        executionRouteSelection: input.executionRouteSelection ?? routing.executionRouteSelection as never,
+        operatorTransport: {
+          ...input.operatorTransport,
+          operatorTurnDispatcher: input.operatorTransport.operatorTurnDispatcher ?? routing.operatorTurnDispatcher as never,
+          operatorTurnExecutionBridge: input.operatorTransport.operatorTurnExecutionBridge ?? routing.operatorTurnExecutionBridge as never,
+        },
+      });
+    },
+  };
+});
 
 vi.mock("../../src/gateway/message-pipeline/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/gateway/message-pipeline/index.js")>();
@@ -168,6 +274,18 @@ async function waitForCondition(condition: () => boolean, message: string): Prom
     await flushAsyncWork();
   }
   throw new Error(message);
+}
+
+async function selectGuiTestExecutionRoute(
+  handlers: { readonly onMessage?: (event: MessageEvent, ws: never) => Promise<void> | void },
+  wsCtx: unknown,
+): Promise<void> {
+  await handlers.onMessage?.(
+    new MessageEvent("message", {
+      data: JSON.stringify({ type: "execution_route", routeId: "test-route", requestId: "test-route-selection" }),
+    }),
+    wsCtx as never,
+  );
 }
 
 function createTempDir(): string {
@@ -955,24 +1073,6 @@ describe("startGuiGateway static mount", () => {
     });
   });
 
-  it("uses structured discovery reasons when rejecting provider switches", () => {
-    const discovery = buildGuiOperatorDiscoveryResults({
-      opencodeModels: [],
-      codexModels: [],
-      providerAvailability: { openai: true },
-      lastCheckedAt: "2026-04-28T12:00:00.000Z",
-    });
-
-    expect(resolveGuiProviderSwitch({
-      provider: "openai",
-      model: "gpt-5.4",
-      discovery,
-    })).toEqual({
-      ok: false,
-      error: "No models were discovered for OpenAI.",
-    });
-  });
-
   it("projects unhealthy direct provider model routes into structured discovery", () => {
     const discovery = buildGuiOperatorDiscoveryResults({
       opencodeModels: [],
@@ -1053,20 +1153,6 @@ describe("startGuiGateway static mount", () => {
       entry.providerRoute.providerId === "openrouter"
       && entry.providerRoute.providerModelId === "qwen/qwen3-coder:free"
     )?.eligibility.reasonCodes).not.toContain("missing-route-health-evidence");
-  });
-
-  it("uses one provider readiness wording path for switches and prompt execution", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "openai",
-      model: undefined,
-      models: {
-        openai: ["gpt-5.4"],
-      },
-    });
-    expect(resolution).toMatchObject({
-      ok: false,
-      error: "Provider 'openai' requires a selected model.",
-    });
   });
 
   it("keeps Claude model-less when availability says it is live", () => {
@@ -1245,13 +1331,12 @@ describe("startGuiGateway static mount", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection();
       await handlers.onOpen!(new Event("open"), wsCtx);
       const welcome = mockWs.send.mock.calls
-        .map(([payload]) => JSON.parse(payload as string) as { type: string; activeProvider?: string })
+        .map(([payload]) => JSON.parse(payload as string) as { type: string })
         .find((frame) => frame.type === "welcome");
 
       expect(discoverOperatorProviders).toHaveBeenCalled();
       expect(welcome).toMatchObject({
         type: "welcome",
-        activeProvider: "claude",
       });
     } finally {
       gateway?.shutdown();
@@ -1493,448 +1578,6 @@ describe("startGuiGateway static mount", () => {
       rmSync(distDir, { recursive: true, force: true });
     }
   });
-
-  it("omits stale active provider/model selections from the welcome frame when they are absent from the authoritative models map", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "claude",
-            setProvider: vi.fn(),
-            getModel: () => "claude-sonnet-4-6",
-            setModel: vi.fn(),
-          },
-        },
-      });
-      await flushAsyncWork();
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
-
-      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
-        type: string;
-        activeProvider?: string;
-        activeModel?: string;
-      };
-
-      expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.activeProvider).toBeUndefined();
-      expect(welcomeFrame.activeModel).toBeUndefined();
-    } finally {
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects a durable operator provider preference without canonical eligibility", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openrouter: ["openrouter/free"] }));
-    const setProvider = vi.fn();
-    const setModel = vi.fn();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        resolveProviderPreference: () => ({ provider: "openrouter", model: "openrouter/free" }),
-        operatorTransport: {
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "",
-            setProvider,
-            getModel: () => "",
-            setModel,
-          },
-        },
-      });
-      await flushAsyncWork();
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-
-      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
-        type: string;
-        activeProvider?: string;
-        activeModel?: string;
-      };
-
-      expect(setProvider).toHaveBeenCalledWith("");
-      expect(setModel).toHaveBeenCalledWith("");
-      expect(welcomeFrame).toMatchObject({
-        type: "welcome",
-      });
-      expect(welcomeFrame.activeProvider).toBeUndefined();
-      expect(welcomeFrame.activeModel).toBeUndefined();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("omits stale active provider/model selections from the welcome frame when the authoritative provider model list is empty", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
-    let activeProvider = "openai";
-    let activeModel = "gpt-4o";
-    const factory = vi.fn() as never;
-    const setProvider = vi.fn((provider: string) => {
-      activeProvider = provider;
-    });
-    const setModel = vi.fn((model: string) => {
-      activeModel = model;
-    });
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory,
-            getProvider: () => activeProvider,
-            setProvider,
-            getModel: () => activeModel,
-            setModel,
-          },
-        },
-      });
-      await waitForCondition(
-        () => (gateway?.operatorDiscovery?.length ?? 0) > 0,
-        "Expected GUI provider discovery to finish before authoritative welcome validation.",
-      );
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
-
-      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
-        type: string;
-        activeProvider?: string;
-        activeModel?: string;
-      };
-
-      expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.activeProvider).toBeUndefined();
-      expect(welcomeFrame.activeModel).toBeUndefined();
-      expect(setModel).toHaveBeenCalledWith("");
-      expect(setProvider).toHaveBeenCalledWith("");
-      expect(activeProvider).toBe("");
-      expect(activeModel).toBe("");
-      expect(factory).not.toHaveBeenCalled();
-    } finally {
-      vi.mocked(processAdmittedTurn).mockReset();
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it.each([
-    ["blank", ""],
-    ["stale", "gpt-4o-stale"],
-  ])("does not fall back to providerModels[0] in the welcome frame when the stored model is %s", async (_kind, storedModel) => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    let activeProvider = "openai";
-    let activeModel = storedModel;
-    const factory = vi.fn() as never;
-    const setProvider = vi.fn((provider: string) => {
-      activeProvider = provider;
-    });
-    const setModel = vi.fn((model: string) => {
-      activeModel = model;
-    });
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory,
-            getProvider: () => activeProvider,
-            setProvider,
-            getModel: () => activeModel,
-            setModel,
-          },
-        },
-      });
-      await waitForCondition(
-        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
-        "Expected GUI provider models to be ready before welcome validation.",
-      );
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-
-      expect(mockWs.send).toHaveBeenCalledTimes(1);
-
-      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
-        type: string;
-        activeProvider?: string;
-        activeModel?: string;
-      };
-
-      expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.activeProvider).toBeUndefined();
-      expect(welcomeFrame.activeModel).toBeUndefined();
-      expect(setProvider).toHaveBeenCalledWith("");
-      expect(setModel).toHaveBeenCalledWith("");
-      expect(activeProvider).toBe("");
-      expect(activeModel).toBe("");
-      expect(factory).not.toHaveBeenCalled();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects turn execution when the active provider is advertised with an empty model list", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
-    const factory = vi.fn() as never;
-    vi.mocked(processAdmittedTurn).mockReset();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory,
-            getProvider: () => "openai",
-            setProvider: vi.fn(),
-            getModel: () => "gpt-4o",
-            setModel: vi.fn(),
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "hello from gui" }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
-
-      expect(outboundFrames).toContainEqual({ type: "thinking" });
-      expect(outboundFrames).toContainEqual({
-        type: "error",
-        message: "No models were discovered for OpenAI.",
-      });
-      expect(processAdmittedTurn).not.toHaveBeenCalled();
-      expect(factory).not.toHaveBeenCalled();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects turn execution with a clear error when no provider is selected", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const factory = vi.fn() as never;
-    vi.mocked(processAdmittedTurn).mockReset();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory,
-            getProvider: () => "",
-            setProvider: vi.fn(),
-            getModel: () => "",
-            setModel: vi.fn(),
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "hello from gui" }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string });
-
-      expect(outboundFrames).toContainEqual({
-        type: "error",
-        message: "No provider selected. Choose a provider before sending a message.",
-      });
-      expect(processAdmittedTurn).not.toHaveBeenCalled();
-      expect(factory).not.toHaveBeenCalled();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("admits model-less Claude turns without leaking a stale stored model", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
-    const setModel = vi.fn();
-    vi.mocked(processAdmittedTurn).mockReset();
-    vi.mocked(processAdmittedTurn).mockResolvedValue({
-      ok: true,
-      result: {
-        parts: [{ type: "text", text: "hello" }],
-        inputTokens: 1,
-        outputTokens: 1,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        queued: false,
-        sessionId: "session-1",
-        sessionMode: "mode-a",
-        traceId: "trace-1",
-      },
-    } as never);
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "claude",
-            setProvider: vi.fn(),
-            getModel: () => "stale-model",
-            setModel,
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "hello from gui" }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; routedProvider?: string; routedModel?: string });
-
-      expect(setModel).toHaveBeenCalledWith("");
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "done",
-        routedProvider: "claude",
-        routedModel: "",
-      }));
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
   it("clears transport resume state before admitting a fresh GUI message", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -1985,6 +1628,7 @@ describe("startGuiGateway static mount", () => {
       });
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "hello from gui", sessionIntent: "fresh" }),
@@ -2007,14 +1651,34 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("omits model from model-less Claude provider switch acknowledgements", async () => {
+  it("acknowledges admitted execution-route selections", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
-    const setProvider = vi.fn();
-    const setModel = vi.fn();
+    const executionRouteSelection = {
+      getCatalog: vi.fn(async () => ({
+        routes: [{
+          routeId: "claude-default",
+          label: "Claude",
+          providerId: "claude",
+          providerModelId: "claude-sonnet-4-6",
+          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          availability: "available" as const,
+          reasonCodes: [],
+          repairActions: [],
+        }],
+      })),
+      admit: vi.fn(async () => ({
+        ok: true as const,
+        admission: {
+          routeId: "claude-default",
+          providerId: "claude",
+          providerModelId: "claude-sonnet-4-6",
+        },
+      })),
+    };
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -2030,13 +1694,14 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
+        executionRouteSelection,
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
-            setProvider,
+            setProvider: vi.fn(),
             getModel: () => "",
-            setModel,
+            setModel: vi.fn(),
           },
         },
       });
@@ -2044,77 +1709,22 @@ describe("startGuiGateway static mount", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "provider", provider: "claude", requestId: "request-claude" }),
+          data: JSON.stringify({ type: "execution_route", routeId: "claude-default", requestId: "request-claude" }),
         }),
         wsCtx,
       );
 
-      expect(setProvider).toHaveBeenCalledWith("claude");
-      expect(setModel).toHaveBeenCalledWith("");
-      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "provider_changed",
-        provider: "claude",
+      expect(executionRouteSelection.admit).toHaveBeenCalledWith({
+        type: "execution_route",
+        routeId: "claude-default",
         requestId: "request-claude",
-      }));
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("uses the initial canonical projection to reject an ineligible provider switch before socket welcome", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openrouter: ["openrouter/free"] }))
-      .mockImplementationOnce(() => new Promise(() => undefined));
-    const setProvider = vi.fn();
-    const setModel = vi.fn();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "",
-            setProvider,
-            getModel: () => "",
-            setModel,
-          },
-        },
       });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "provider", provider: "openrouter", model: "openrouter/free", requestId: "request-drift" }),
-        }),
-        wsCtx,
-      );
-
-      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
-      expect(setProvider).not.toHaveBeenCalled();
-      expect(setModel).not.toHaveBeenCalled();
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; reason?: string });
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "provider_change_failed",
-        requestId: "request-drift",
-        reason: expect.stringContaining("not eligible"),
+      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
+        type: "execution_route_changed",
+        routeId: "claude-default",
+        requestId: "request-claude",
+        providerId: "claude",
+        providerModelId: "claude-sonnet-4-6",
       }));
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -2123,92 +1733,31 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("uses the cached canonical projection to reject ineligible switches without cold rediscovery", async () => {
+  it("refreshes the execution-route catalog on request without reconnecting", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openrouter: ["openrouter/free"] }))
-      .mockImplementationOnce(() => new Promise(() => undefined));
-    const setProvider = vi.fn();
-    const setModel = vi.fn();
-    const updateProviderPreference = vi.fn();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
+    let routeAvailable = false;
+    const executionRouteSelection = {
+      getCatalog: vi.fn(async () => ({
+        routes: [{
+          routeId: "openai-gpt",
+          label: "OpenAI GPT",
+          providerId: "openai",
+          providerModelId: GPT4O,
+          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          availability: routeAvailable ? "available" as const : "unavailable" as const,
+          reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
+          repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
+        }],
       })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        updateProviderPreference,
-        operatorTransport: {
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "",
-            setProvider,
-            getModel: () => "",
-            setModel,
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen?.(new Event("open"), wsCtx);
-
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({
-            type: "provider",
-            provider: "openrouter",
-            model: "openrouter/free",
-            requestId: "request-openrouter",
-          }),
-        }),
-        wsCtx,
-      );
-
-      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
-      expect(setProvider).not.toHaveBeenCalled();
-      expect(setModel).not.toHaveBeenCalled();
-      expect(updateProviderPreference).not.toHaveBeenCalled();
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; reason?: string });
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "provider_change_failed",
-        requestId: "request-openrouter",
-        reason: expect.stringContaining("not eligible"),
-      }));
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("refreshes GUI provider discovery on request without reconnecting", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    let openAiAvailable = false;
+      admit: vi.fn(async () => ({
+        ok: true as const,
+        admission: { routeId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
+      })),
+    };
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockImplementation(async () => [
-        {
-          provider: "openai",
-          available: openAiAvailable,
-          models: openAiAvailable ? [GPT4O] : [],
-          status: openAiAvailable ? "available" : "missing_auth",
-          reason: openAiAvailable ? "OpenAI models discovered." : "OPENAI_API_KEY is missing.",
-          authState: openAiAvailable ? "authenticated" : "missing",
-          lastCheckedAt: openAiAvailable ? "2026-04-28T12:01:00.000Z" : "2026-04-28T12:00:00.000Z",
-        },
-      ]);
+      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
         port: port ?? 4810,
@@ -2224,6 +1773,7 @@ describe("startGuiGateway static mount", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         getProviderAvailability: () => ({ openai: true }),
+        executionRouteSelection,
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -2238,25 +1788,20 @@ describe("startGuiGateway static mount", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen?.(new Event("open"), wsCtx);
 
-      openAiAvailable = true;
+      routeAvailable = true;
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_providers" }),
+          data: JSON.stringify({ type: "refresh_execution_routes" }),
         }),
         wsCtx,
       );
 
       const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
       expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "providers_refreshed",
-        models: { openai: [GPT4O] },
-        providers: [
-          expect.objectContaining({
-            id: "openai",
-            available: true,
-            models: [GPT4O],
-          }),
-        ],
+        type: "execution_routes_refreshed",
+        executionRouteCatalog: {
+          routes: [expect.objectContaining({ routeId: "openai-gpt", availability: "available" })],
+        },
       }));
     } finally {
       resolveGuiOperatorDiscoverySpy.mockRestore();
@@ -2315,112 +1860,6 @@ describe("startGuiGateway static mount", () => {
         gatewayTargetId: "gateway:local-app",
       }));
     } finally {
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("uses cached provider models before admitting a turn", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }))
-      .mockResolvedValueOnce(makeGuiOperatorDiscoveryFromModels({ openai: [] }));
-    const factory = vi.fn() as never;
-    vi.mocked(processAdmittedTurn).mockReset();
-    vi.mocked(processAdmittedTurn).mockResolvedValue({
-      ok: true,
-      result: {
-        parts: [{ type: "text", text: "cached discovery admitted" }],
-        inputTokens: 1,
-        outputTokens: 1,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        queued: false,
-        sessionId: "session-1",
-        sessionMode: "mode-a",
-        traceId: "trace-1",
-        routingDecision: {
-          provider: "openai",
-          model: GPT4O,
-          routingTier: "rule",
-          reasoning: "GUI route selected",
-          selectionMode: "automatic",
-          rationale: {
-            selectedProvider: "openai",
-            selectedModel: GPT4O,
-            selectionMode: "automatic",
-            routingReason: "GUI route selected",
-            confidence: 1,
-            routingTier: "rule",
-            inputsUsed: {
-              tenantId: "default",
-              complexityClass: "simple",
-              complexityScore: 0.2,
-              hasTools: false,
-              toolCount: 0,
-              requiresStreaming: false,
-            },
-            rankingEvidence: [],
-            diagnostics: [],
-          },
-        },
-      },
-    } as never);
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory,
-            getProvider: () => "openai",
-            setProvider: vi.fn(),
-            getModel: () => GPT4O,
-            setModel: vi.fn(),
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onOpen!(new Event("open"), wsCtx);
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "hello from gui" }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string; message?: string; routingRationale?: Record<string, unknown> });
-
-      expect(outboundFrames).toContainEqual({ type: "thinking" });
-      expect(outboundFrames).toContainEqual(expect.objectContaining({
-        type: "done",
-        content: "cached discovery admitted",
-        routingRationale: expect.objectContaining({
-          selectedProvider: "openai",
-          selectedModel: GPT4O,
-          selectionMode: "automatic",
-          routingReason: "GUI route selected",
-        }),
-      }));
-      expect(resolveGuiOperatorDiscoverySpy).toHaveBeenCalledTimes(1);
-      expect(processAdmittedTurn).toHaveBeenCalledTimes(1);
-      expect(factory).not.toHaveBeenCalled();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
     }
@@ -2517,6 +1956,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "delegate from gui" }),
@@ -2734,6 +2174,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start unavailable child" }),
@@ -3023,6 +2464,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start unavailable child requirements" }),
@@ -3192,6 +2634,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start conflicting write child" }),
@@ -3438,6 +2881,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start conflicting write child" }),
@@ -3613,6 +3057,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "open the browser" }),
@@ -3749,6 +3194,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "open the browser" }),
@@ -4114,6 +3560,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -4351,6 +3798,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -4576,6 +4024,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -4757,6 +4206,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start isolated write child" }),
@@ -5094,6 +4544,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start child" }),
@@ -5275,6 +4726,7 @@ describe("startGuiGateway static mount", () => {
 
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       await handlers.onMessage!(
         new MessageEvent("message", {
           data: JSON.stringify({ type: "message", content: "start browser work" }),
@@ -5355,131 +4807,6 @@ describe("startGuiGateway static mount", () => {
   });
 
   it.each([
-    ["blank", ""],
-    ["stale", "gpt-4o-stale"],
-  ])("does not fall back to providerModels[0] in the message path when the stored model is %s", async (_kind, storedModel) => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const factory = vi.fn() as never;
-    const setModel = vi.fn();
-    vi.mocked(processAdmittedTurn).mockReset();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory,
-            getProvider: () => "openai",
-            setProvider: vi.fn(),
-            getModel: () => storedModel,
-            setModel,
-          },
-        },
-      });
-      await waitForCondition(
-        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
-        "Expected GUI provider models to be ready before message validation.",
-      );
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "message", content: "hello from gui" }),
-        }),
-        wsCtx,
-      );
-
-      const outboundFrames = mockWs.send.mock.calls.map(([payload]) => JSON.parse(payload as string) as { type: string });
-
-      expect(outboundFrames).toContainEqual({ type: "thinking" });
-      expect(outboundFrames).toContainEqual({
-        type: "error",
-        message: storedModel
-          ? `Provider 'openai' does not advertise model '${storedModel}'`
-          : "Provider 'openai' requires a selected model.",
-      });
-      expect(setModel).not.toHaveBeenCalled();
-      expect(processAdmittedTurn).not.toHaveBeenCalled();
-      expect(factory).not.toHaveBeenCalled();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects provider switch frames without a nonblank requestId before mutating provider state", async () => {
-    const distDir = createGuiDist();
-    const stop = vi.fn();
-    const resolveGuiOperatorDiscoverySpy = vi
-      .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
-      .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ openai: [GPT4O] }));
-    const setProvider = vi.fn();
-    const setModel = vi.fn();
-    vi.stubGlobal("Bun", {
-      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
-        port: port ?? 4810,
-        stop,
-      })),
-    });
-
-    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
-
-    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
-
-    try {
-      gateway = await startGuiGateway({
-        guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
-          sessionManager: {
-            factory: vi.fn() as never,
-            getProvider: () => "",
-            setProvider,
-            getModel: () => "",
-            setModel,
-          },
-        },
-      });
-
-      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
-
-      await handlers.onMessage!(
-        new MessageEvent("message", {
-          data: JSON.stringify({ type: "provider", provider: "openai", model: GPT4O, requestId: "   " }),
-        }),
-        wsCtx,
-      );
-
-      expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({
-        type: "error",
-        message: "Provider switch requestId is required",
-      }));
-      expect(setProvider).not.toHaveBeenCalled();
-      expect(setModel).not.toHaveBeenCalled();
-    } finally {
-      resolveGuiOperatorDiscoverySpy.mockRestore();
-      gateway?.shutdown();
-      rmSync(distDir, { recursive: true, force: true });
-    }
-  });
-
-  it.each([
     ["approve", "approve"],
     ["reject", "reject"],
   ] as const)("returns a correlated failure for an unknown %s approval", async (frameType, decision) => {
@@ -5537,7 +4864,7 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
-  it("publishes no provider descriptors in the fallback websocket welcome frame when no operator transport is available", async () => {
+  it("does not publish execution routes in the fallback websocket welcome frame without operator transport", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     vi.stubGlobal("Bun", {
@@ -5564,11 +4891,11 @@ describe("startGuiGateway static mount", () => {
 
       const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
         type: string;
-        providers: unknown[];
+        executionRouteCatalog?: { routes: unknown[] };
       };
 
       expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.providers).toEqual([]);
+      expect(welcomeFrame.executionRouteCatalog?.routes ?? []).toEqual([]);
     } finally {
       gateway?.shutdown();
       rmSync(distDir, { recursive: true, force: true });
@@ -5576,10 +4903,28 @@ describe("startGuiGateway static mount", () => {
   });
 
 
-  it("reuses cached provider availability on welcome and refreshes drifted direct provider models on request", async () => {
+  it("publishes the current execution-route catalog on welcome and refresh", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
-    let providerAvailability: Record<string, boolean> = { openai: true };
+    let routeAvailable = true;
+    const executionRouteSelection = {
+      getCatalog: vi.fn(async () => ({
+        routes: [{
+          routeId: "openai-gpt",
+          label: "OpenAI GPT",
+          providerId: "openai",
+          providerModelId: GPT4O,
+          accountSelection: { mode: "automatic" as const, eligibleAccountCount: 1, allowOperatorOverride: true },
+          availability: routeAvailable ? "available" as const : "unavailable" as const,
+          reasonCodes: routeAvailable ? [] as const : ["missing-credentials"] as const,
+          repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
+        }],
+      })),
+      admit: vi.fn(async () => ({
+        ok: true as const,
+        admission: { routeId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
+      })),
+    };
     vi.stubEnv("OPENAI_API_KEY", "test-openai-key");
     vi.stubGlobal("fetch", vi.fn(async () => ({
       ok: true,
@@ -5600,7 +4945,8 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        getProviderAvailability: () => providerAvailability,
+        getProviderAvailability: () => ({ openai: true }),
+        executionRouteSelection,
         operatorTransport: {
           sessionManager: {
             factory: vi.fn() as never,
@@ -5611,51 +4957,47 @@ describe("startGuiGateway static mount", () => {
           },
         },
       });
-      await waitForCondition(
-        () => gateway?.operatorModels?.openai?.includes(GPT4O) ?? false,
-        "Expected GUI provider models to be ready before cached welcome validation.",
-      );
-
-      expect(gateway.operatorModels?.openai).toContain(GPT4O);
-      providerAvailability = { openai: false };
-
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
 
       const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
         type: string;
-        models: Record<string, string[]>;
-        providers: GuiProviderDescriptor[];
+        executionRouteCatalog: {
+          routes: Array<{ routeId: string; availability: string }>;
+        };
       };
 
       expect(welcomeFrame.type).toBe("welcome");
-      expect(welcomeFrame.models.openai).toEqual([GPT4O]);
-      expect(welcomeFrame.providers.find((descriptor) => descriptor.id === "openai")).toMatchObject({
-        id: "openai",
-        available: true,
-        models: [GPT4O],
-      });
+      expect(welcomeFrame.executionRouteCatalog.routes).toEqual([
+        expect.objectContaining({ routeId: "openai-gpt", availability: "available" }),
+      ]);
 
+      routeAvailable = false;
       await handlers.onMessage!(
         new MessageEvent("message", {
-          data: JSON.stringify({ type: "refresh_providers" }),
+          data: JSON.stringify({ type: "refresh_execution_routes" }),
         }),
         wsCtx,
       );
       const refreshFrame = mockWs.send.mock.calls
         .map(([payload]) => JSON.parse(payload as string) as {
           type: string;
-          models?: Record<string, string[]>;
-          providers?: GuiProviderDescriptor[];
+          executionRouteCatalog?: {
+            routes: Array<{ routeId: string; availability: string; reasonCodes: string[]; repairActions: string[] }>;
+          };
         })
-        .find((frame) => frame.type === "providers_refreshed");
+        .find((frame) => frame.type === "execution_routes_refreshed");
 
-      expect(refreshFrame?.models?.openai).toBeUndefined();
-      expect(refreshFrame?.providers?.find((descriptor) => descriptor.id === "openai")).toMatchObject({
-        id: "openai",
-        available: false,
-        models: [],
-        reason: "OpenAI is unavailable in this runtime.",
+      expect(refreshFrame).toMatchObject({
+        type: "execution_routes_refreshed",
+        executionRouteCatalog: {
+          routes: [expect.objectContaining({
+            routeId: "openai-gpt",
+            availability: "unavailable",
+            reasonCodes: ["missing-credentials"],
+            repairActions: ["authenticate-provider"],
+          })],
+        },
       });
     } finally {
       gateway?.shutdown();
@@ -7973,205 +7315,7 @@ describe("buildWelcomeProviderDescriptors", () => {
   });
 });
 
-describe("resolveGuiProviderSwitch", () => {
-  it("rejects unavailable providers", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "openai",
-      model: undefined,
-      models: {
-        claude: ["claude-sonnet-4-6"],
-      },
-    });
-
-    expect(resolution.ok).toBe(false);
-    if (resolution.ok) {
-      throw new Error("expected unavailable provider resolution failure");
-    }
-    expect(resolution.error).toContain("openai");
-  });
-
-  it("rejects providers whose advertised model list is empty", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "opencode",
-      model: undefined,
-      models: {
-        opencode: [],
-      },
-    });
-
-    expect(resolution.ok).toBe(false);
-    if (resolution.ok) {
-      throw new Error("expected empty-provider-model resolution failure");
-    }
-    expect(resolution.error).toContain("opencode");
-  });
-
-  it("accepts model-less Claude switches without requiring a fake model id", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "claude",
-      model: undefined,
-      models: {
-        claude: [],
-      },
-    });
-
-    expect(resolution.ok).toBe(true);
-    if (!resolution.ok) {
-      throw new Error(`expected model-less Claude switch to resolve: ${resolution.error}`);
-    }
-    expect(resolution.modelForSessionManager).toBe("");
-    expect(resolution.modelForAck).toBeUndefined();
-  });
-
-  it("rejects provider switches without an explicit model", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "anthropic",
-      model: undefined,
-      models: {
-        anthropic: ["claude-sonnet-4-6"],
-      },
-    });
-
-    expect(resolution.ok).toBe(false);
-    if (resolution.ok) {
-      throw new Error("expected missing model resolution failure");
-    }
-    expect(resolution.error).toContain("model");
-  });
-
-  it("rejects requested models that are not advertised by the selected provider", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "anthropic",
-      model: "gpt-5.4",
-      models: {
-        anthropic: ["claude-sonnet-4-6"],
-      },
-    });
-
-    expect(resolution.ok).toBe(false);
-    if (resolution.ok) {
-      throw new Error("expected invalid provider-model resolution failure");
-    }
-    expect(resolution.error).toContain("anthropic");
-    expect(resolution.error).toContain("gpt-5.4");
-  });
-
-  it("rejects requested models that are cooling down", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "openrouter",
-      model: "qwen/qwen3-coder:free",
-      discovery: [{
-        provider: "openrouter",
-        available: true,
-        models: ["openrouter/free", "qwen/qwen3-coder:free"],
-        modelRouteHealth: {
-          "qwen/qwen3-coder:free": {
-            healthy: false,
-            reason: "qwen route is temporarily rate-limited.",
-          },
-        },
-        status: "available",
-        reason: "OpenRouter models discovered.",
-        authState: "authenticated",
-        lastCheckedAt: "2026-04-28T12:00:00.000Z",
-      }],
-    });
-
-    expect(resolution.ok).toBe(false);
-    if (resolution.ok) {
-      throw new Error("expected cooling provider-model route resolution failure");
-    }
-    expect(resolution.error).toBe("qwen route is temporarily rate-limited.");
-  });
-
-  it("rejects legacy-listed routes that canonical discovery marks ineligible", () => {
-    const discovery = buildGuiOperatorDiscoveryResults({
-      opencodeModels: ["openai/gpt-5.4-mini"],
-      opencodeDiscovery: {
-        models: ["openai/gpt-5.4-mini"],
-        status: "available",
-        reason: "OpenCode CLI models discovered.",
-        authState: "authenticated",
-      },
-      codexModels: [],
-      providerAvailability: { opencode: true },
-      lastCheckedAt: "2026-07-01T12:00:00.000Z",
-    });
-    const providerModelDiscovery = projectGuiProviderModelDiscovery(discovery, {
-      observedAt: "2026-07-01T12:00:00.000Z",
-    });
-
-    const resolution = resolveGuiProviderSwitch({
-      provider: "opencode",
-      model: "openai/gpt-5.4-mini",
-      models: { opencode: ["openai/gpt-5.4-mini"] },
-      discovery,
-      providerModelDiscovery,
-    });
-
-    expect(resolution).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("not eligible"),
-    });
-  });
-
-  it("does not let legacy route health override canonical eligibility", () => {
-    const discovery = [{
-      provider: "openrouter",
-      available: true,
-      models: ["openrouter/free"],
-      modelRouteHealth: {
-        "openrouter/free": {
-          healthy: false,
-          reason: "legacy diagnostic says cooling down",
-        },
-      },
-      status: "available" as const,
-      reason: "OpenRouter models discovered.",
-      authState: "authenticated" as const,
-      lastCheckedAt: "2026-07-01T12:00:00.000Z",
-    }];
-    const projected = projectGuiProviderModelDiscovery(discovery, {
-      observedAt: "2026-07-01T12:00:00.000Z",
-    });
-    const providerModelDiscovery = {
-      ...projected,
-      entries: projected.entries.map((entry) => ({
-        ...entry,
-        routeHealth: { status: "healthy" as const },
-        eligibility: { eligible: true, reasonCodes: [] },
-      })),
-    };
-
-    expect(resolveGuiProviderSwitch({
-      provider: "openrouter",
-      model: "openrouter/free",
-      discovery,
-      providerModelDiscovery,
-    })).toEqual({
-      ok: true,
-      provider: "openrouter",
-      modelForSessionManager: "openrouter/free",
-      modelForAck: "openrouter/free",
-    });
-  });
-
-  it("rejects unknown providers even when the models map contains them", () => {
-    const resolution = resolveGuiProviderSwitch({
-      provider: "unknown",
-      model: "mystery-model",
-      models: {
-        unknown: ["mystery-model"],
-      },
-    });
-
-    expect(resolution.ok).toBe(false);
-    if (resolution.ok) {
-      throw new Error("expected unknown provider resolution failure");
-    }
-    expect(resolution.error).toContain("unknown");
-  });
-
+describe("GUI active turn lifecycle", () => {
   it("aborts the active turn and acknowledges operator cancellation", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
@@ -8211,6 +7355,7 @@ describe("resolveGuiProviderSwitch", () => {
         "Expected GUI provider models before cancellation test.",
       );
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       const activeMessage = handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
         wsCtx,
@@ -8294,6 +7439,7 @@ describe("resolveGuiProviderSwitch", () => {
       );
       const { handlers, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
+      await selectGuiTestExecutionRoute(handlers, wsCtx);
       const activeMessage = handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "long task" }) }),
         wsCtx,
@@ -8305,6 +7451,7 @@ describe("resolveGuiProviderSwitch", () => {
       expect(observedSignal?.aborted).toBe(false);
       const reconnect = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await reconnect.handlers.onOpen!(new Event("open"), reconnect.wsCtx);
+      await selectGuiTestExecutionRoute(reconnect.handlers, reconnect.wsCtx);
       await reconnect.handlers.onMessage!(
         new MessageEvent("message", { data: JSON.stringify({ type: "message", content: "duplicate task" }) }),
         reconnect.wsCtx,

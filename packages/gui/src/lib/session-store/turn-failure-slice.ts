@@ -16,9 +16,6 @@ export const createTurnFailureSlice: StateCreator<
     if (state.clearTimeoutId) {
       clearTimeout(state.clearTimeoutId);
     }
-    if (state.providerSwitchTimeoutId) {
-      clearTimeout(state.providerSwitchTimeoutId);
-    }
     if (state.providerAuthTimeoutId) {
       clearTimeout(state.providerAuthTimeoutId);
     }
@@ -43,16 +40,13 @@ export const createTurnFailureSlice: StateCreator<
       activity: null,
       sessionControlFailure: null,
       currentAssistant: null,
-      routeMode: state.providerExplicitSelection ? "user" : "auto",
+      routeMode: state.activeAccountOverrideId ? "user" : "auto",
       respondingProvider: null,
       respondingModel: null,
       clearPending: false,
       turnCancelPending: false,
       goalControlPending: null,
       clearTimeoutId: null,
-      providerSwitching: false,
-      providerSwitchTarget: null,
-      providerSwitchTimeoutId: null,
       providerAuthenticating: false,
       providerAuthTarget: null,
       providerAuthMessage: null,

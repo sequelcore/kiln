@@ -3,6 +3,7 @@ import type { Context, Next } from "hono";
 import type { WSContext } from "hono/ws";
 import {
   EventBus,
+  defineTurnTemporalContext,
   extractText,
   type ApprovalReceivedEvent,
   type ApprovalRequestedEvent,
@@ -12,7 +13,6 @@ import {
   type ModelRoutedEvent,
   type ToolAuthorizedEvent,
   type DefaultBuiltinToolRegistryOptions,
-  defineTurnTemporalContext,
   type TurnTemporalContext,
   assertScopedExecutionSessionToolEvent,
   type ExecutionSessionEvent,
@@ -30,19 +30,16 @@ import type {
   RuntimeTurnFileChange,
   RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
-import type { OnProviderSwitch, OnContinueSession, OperatorSessionTransportOptions } from "./operator-gateway.js";
+import type { OnContinueSession, OperatorGuiSessionTransportOptions } from "./operator-gateway.js";
 import {
   mountGuiStaticAssets,
   resolveGuiDistPath,
 } from "./gui-static-assets.js";
 import {
-  buildWelcomeProviderDescriptors,
   markGuiProviderDiscoveryStale,
   projectGuiProviderModelDiscovery,
   projectGuiOperatorModels,
-  providerRequiresSelectedModelMessage,
   resolveGuiOperatorDiscoveryResults,
-  resolveGuiProviderSwitch,
 } from "./gui-provider-models.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
@@ -54,8 +51,8 @@ import {
   type AttachedRuntimeBuiltinToolSurface,
 } from "./attached-runtime-tool-surface.js";
 import {
-  attachManagedInvocationSessionEventSink,
   withManagedInvocationService,
+  attachManagedInvocationSessionEventSink,
   type ManagedInvocationToolAttachment,
 } from "../agents/managed-invocation/runtime-tool/index.js";
 import { appendManagedInvocationTerminalSessionEvent } from "../agents/managed-invocation/session-events.js";
@@ -91,7 +88,6 @@ import {
   type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
-  type GuiProviderModelRouteHealth,
   type GuiAuthorityStatus,
   type KilnConfigSetupAction,
   type KilnConfigSetupActionResult,
@@ -105,6 +101,17 @@ import {
   type OperatorWorkspaceExplorer,
 } from "@kilnai/gateway-contracts";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
+import {
+  rejectUnavailableExecutionRoute,
+  type OperatorExecutionRouteSelectionPort,
+} from "./operator-execution-route-selection.js";
+import {
+  fingerprintOperatorTurnIntent,
+  type OperatorTurnDispatchPort,
+  type OperatorTurnDispatchResult,
+  type OperatorTurnGuiDispatchPayload,
+} from "../execution-routing/operator-turn-dispatcher.js";
+import type { OperatorSessionCommittedExecution } from "../execution-routing/operator-session-execution-routing-service.js";
 
 export type {
   GuiDashboardSnapshot,
@@ -147,12 +154,12 @@ export interface StartGuiGatewayOptions {
   readonly domainLabel?: string;
   readonly workspaceExplorer?: OperatorWorkspaceExplorer;
   readonly updateThemePreference?: (theme: string) => Promise<void> | void;
-  readonly resolveProviderPreference?: () => OperatorProviderPreference | null | undefined;
-  readonly updateProviderPreference?: (selection: OperatorProviderPreference) => Promise<void> | void;
+  /** Route selection is the only operator execution-selection authority. */
+  readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
   readonly onConnectionCountChange?: (count: number) => void;
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
-  readonly operatorTransport?: OperatorSessionTransportOptions;
+  readonly operatorTransport?: OperatorGuiSessionTransportOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
   readonly operatorTerminalAdapter?: OperatorPtyAdapter;
@@ -167,11 +174,6 @@ export interface GuiGoalController {
     readonly reason?: string;
     readonly requestedBy: string;
   }): Promise<CanonicalSessionEvent>;
-}
-
-export interface OperatorProviderPreference {
-  readonly provider: string;
-  readonly model?: string | null;
 }
 
 export interface GuiGateway {
@@ -667,8 +669,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
       builtinToolOptions,
       managedInvocation,
-      resolveProviderPreference: options.resolveProviderPreference,
-      updateProviderPreference: options.updateProviderPreference,
+      executionRouteSelection: options.executionRouteSelection,
       operatorTerminalCapability,
       operatorTerminalService,
       goalController: options.goalController,
@@ -691,17 +692,13 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     app.get(
       "/gui/ws",
       upgradeWebSocket(() => ({
-        onOpen(_event: Event, ws: WSContext) {
+        async onOpen(_event: Event, ws: WSContext) {
           activeConnections += 1;
           updateConnectionCount(activeConnections);
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
           ws.send(JSON.stringify({
             type: "welcome",
-            providerModelDiscovery: projectGuiProviderModelDiscovery([]),
-            models: {},
-            providers: [],
-            activeProvider: undefined,
-            activeModel: undefined,
+            executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
             executionMode: "execute",
             workingDirectory: options.workingDirectory,
             domainLabel: options.domainLabel,
@@ -766,69 +763,19 @@ async function resolveOperatorDiscovery(
   return resolveGuiOperatorDiscoveryResults(providerAvailability);
 }
 
-function resolveOperatorActiveProviderSelection(input: {
-  readonly transport: OperatorSessionTransportOptions;
-  readonly discovery: readonly GuiProviderDiscoveryResult[];
-  readonly preference?: OperatorProviderPreference | null;
-}): { readonly provider?: string; readonly model?: string } {
-  const providerModelDiscovery = projectGuiProviderModelDiscovery(input.discovery);
-  const currentProvider = input.transport.sessionManager.getProvider().trim();
-  const currentModel = input.transport.sessionManager.getModel().trim();
-  if (currentProvider.length > 0) {
-    const currentResolution = resolveGuiProviderSwitch({
-      provider: currentProvider,
-      model: currentModel.length > 0 ? currentModel : undefined,
-      discovery: input.discovery,
-      providerModelDiscovery,
-    });
-    if (currentResolution.ok) {
-      return {
-        provider: currentResolution.provider,
-        ...(currentResolution.modelForAck ? { model: currentResolution.modelForAck } : {}),
-      };
-    }
-  }
-
-  const preferredProvider = input.preference?.provider?.trim();
-  const preferredModel = typeof input.preference?.model === "string" ? input.preference.model.trim() : "";
-  if (preferredProvider) {
-    const preferredResolution = resolveGuiProviderSwitch({
-      provider: preferredProvider,
-      model: preferredModel.length > 0 ? preferredModel : undefined,
-      discovery: input.discovery,
-      providerModelDiscovery,
-    });
-    if (preferredResolution.ok) {
-      input.transport.sessionManager.setProvider(preferredResolution.provider);
-      input.transport.sessionManager.setModel(preferredResolution.modelForSessionManager);
-      return {
-        provider: preferredResolution.provider,
-        ...(preferredResolution.modelForAck ? { model: preferredResolution.modelForAck } : {}),
-      };
-    }
-  }
-
-  if (input.discovery.length > 0) {
-    input.transport.sessionManager.setModel("");
-    input.transport.sessionManager.setProvider("");
-  }
-  return {};
-}
-
 function wireOperatorTransport(
   app: Hono,
   upgradeWebSocket: BunUpgradeWebSocket,
   input: {
     port: number;
-    transport: OperatorSessionTransportOptions;
+    transport: OperatorGuiSessionTransportOptions;
     initialDiscovery: readonly GuiProviderDiscoveryResult[];
     getDiscovery: (options?: { readonly force?: boolean }) => Promise<readonly GuiProviderDiscoveryResult[]>;
     getDiscoverySnapshot: () => readonly GuiProviderDiscoveryResult[];
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
     managedInvocation?: ManagedInvocationToolAttachment;
-    resolveProviderPreference?: () => OperatorProviderPreference | null | undefined;
-    updateProviderPreference?: (selection: OperatorProviderPreference) => Promise<void> | void;
+    executionRouteSelection?: OperatorExecutionRouteSelectionPort;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -844,10 +791,6 @@ function wireOperatorTransport(
     managedInvocation: input.managedInvocation,
   });
   const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
-  const rememberToolSurface = (surface: AttachedRuntimeBuiltinToolSurface): void => {
-    resourceSurfaces.unshift(surface);
-    resourceSurfaces.splice(8);
-  };
   const activityStreamer = new GuiActivityStreamer(approvalRegistry, builtinToolSurface.toolCallMetadata);
   bindBrowserSessionUpdateHandler(input.builtinToolOptions, (state) => activityStreamer.forwardBrowserSessionState(state));
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
@@ -871,6 +814,90 @@ function wireOperatorTransport(
   activityStreamer.bindApprovalBridge({
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
+  });
+  input.transport.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnGuiDispatchPayload>) => {
+    const payload = committed.payload;
+    input.transport.sessionManager.setProvider(committed.admission.providerId);
+    input.transport.sessionManager.setModel(committed.admission.providerModelId);
+    if (payload.freshSessionRequested) {
+      await sessionRegistry.detachActive(GUI_APP_NAME, payload.userId, GUI_TENANT_ID);
+      await input.transport.onClear?.();
+    }
+    const activeModelCapabilities = findProviderModelCapabilities(
+      payload.providerDiscovery,
+      committed.admission.providerId,
+      committed.admission.providerModelId,
+    );
+    const deliberationIntent = toCoreDeliberationIntent(payload.message.deliberationIntent);
+    const executionMode = resolveExecutionMode(payload.message.executionMode);
+    const requestedAuthority = resolveGuiRequestedAuthority(payload.message.requestedAuthority);
+    const governedWorkRequirement = resolveGuiGovernedWorkRequirement(payload.message.governedWorkRequirement);
+    assertGuiTurnModeCompatibility(executionMode, governedWorkRequirement);
+    const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: input.builtinToolOptions,
+      executionMode,
+      managedInvocation: attachManagedInvocationSessionEventSink(
+        input.managedInvocation,
+        { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+      ),
+      operatorSurface: activeOperatorSurface,
+    });
+    const perCallConfig = {
+      ...buildGuiTurnPerCallConfig(
+        committed.admission.providerId,
+        committed.admission.providerModelId,
+        turnBuiltinToolSurface,
+        activeModelCapabilities,
+        deliberationIntent,
+        executionMode,
+        requestedAuthority,
+        input.transport.workingDirectory,
+        governedWorkRequirement,
+        payload.operatorTimeZone
+          ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone })
+          : undefined,
+      ),
+      abortSignal: payload.abortSignal,
+      executionBinding: committed.binding,
+      executionCredential: committed.credential,
+    } satisfies PerCallToolConfig;
+    return processAdmittedTurn({
+      orchestrator,
+      sessionRegistry,
+      appName: GUI_APP_NAME,
+      tenantId: GUI_TENANT_ID,
+      userId: payload.userId,
+      sessionId: payload.sessionId,
+      systemPrompt: payload.systemPrompt,
+      userParts: payload.userParts,
+      channel: "gui",
+      resumeSessionHydrator: input.transport.resumeSessionHydrator,
+      providerValidation: payload.providerDiscovery,
+      contextUsageWindow: contextUsageWindowEvidence(
+        committed.admission.providerId,
+        committed.admission.providerModelId,
+        activeModelCapabilities,
+        payload.providerDiscovery,
+      ),
+      executionMode,
+      contextArtifactCache: input.transport.contextArtifactCache,
+      artifactStore: input.transport.artifactStore,
+      voiceConfig: input.transport.voiceConfig,
+      sttAdapter: input.transport.sttAdapter,
+      ttsAdapter: input.transport.ttsAdapter,
+      callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
+      perCallConfig,
+      turnCapture: {
+        start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
+        finish: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
+        abort: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
+      },
+      publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
+        events.filter((event) => event.kind === "context_usage_observed"
+          || event.kind === "cost_updated"
+          || (event.kind === "turn_completed" && event.outcome === "cancelled")),
+      ),
+    });
   });
 
   app.post("/gui/api/resources/read", async (c) => {
@@ -910,7 +937,6 @@ function wireOperatorTransport(
         discovery = [...nextDiscovery];
         return discovery;
       };
-      const readDiscovery = (): readonly GuiProviderDiscoveryResult[] => applyDiscovery(input.getDiscoverySnapshot());
       const refreshDiscovery = async (
         options?: { readonly force?: boolean },
       ): Promise<readonly GuiProviderDiscoveryResult[]> => {
@@ -918,6 +944,7 @@ function wireOperatorTransport(
       };
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
+      let selectedRouteIntent: { readonly routeId: string; readonly accountOverrideId?: string } | undefined;
       const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame satisfies GuiInboundFrame));
@@ -932,44 +959,14 @@ function wireOperatorTransport(
           unsubscribeDiscovery?.();
           unsubscribeDiscovery = input.onDiscoveryUpdated((currentDiscovery) => {
             applyDiscovery(currentDiscovery);
-            ws.send(JSON.stringify({
-              type: "providers_refreshed",
-              providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-              models: projectGuiOperatorModels(currentDiscovery),
-              providerDiscovery: currentDiscovery,
-              providers: buildWelcomeProviderDescriptors(currentDiscovery),
-            } satisfies GuiInboundFrame));
           });
-          const currentDiscovery = readDiscovery();
-          const currentModels = projectGuiOperatorModels(currentDiscovery);
-          const activeSelection = resolveOperatorActiveProviderSelection({
-            transport: input.transport,
-            discovery: currentDiscovery,
-            preference: input.resolveProviderPreference?.() ?? null,
-          });
-          const activeProvider = activeSelection.provider;
-          const activeModel = activeSelection.model;
-          const activeModelCapabilities = findProviderModelCapabilities(
-            currentDiscovery,
-            activeProvider,
-            activeModel,
-          );
+          const catalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(
-            buildGuiTurnPerCallConfig(
-              activeProvider ?? "",
-              activeModel,
-              builtinToolSurface,
-              activeModelCapabilities,
-            ),
+            buildGuiTurnPerCallConfig("", undefined, builtinToolSurface),
           );
           ws.send(JSON.stringify({
             type: "welcome",
-            providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-            models: currentModels,
-            providerDiscovery: currentDiscovery,
-            providers: buildWelcomeProviderDescriptors(currentDiscovery),
-            activeProvider,
-            activeModel,
+            executionRouteCatalog: catalog,
             executionMode: input.transport.executionMode ?? "execute",
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
@@ -1022,14 +1019,11 @@ function wireOperatorTransport(
               return;
             }
 
-            if (frame.type === "refresh_providers") {
-              const currentDiscovery = await refreshDiscovery({ force: true });
+            if (frame.type === "refresh_execution_routes") {
+              const executionRouteCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
               ws.send(JSON.stringify({
-                type: "providers_refreshed",
-                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-                models: projectGuiOperatorModels(currentDiscovery),
-                providerDiscovery: currentDiscovery,
-                providers: buildWelcomeProviderDescriptors(currentDiscovery),
+                type: "execution_routes_refreshed",
+                executionRouteCatalog,
               } satisfies GuiInboundFrame));
               return;
             }
@@ -1104,58 +1098,25 @@ function wireOperatorTransport(
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
-                providers: buildWelcomeProviderDescriptors(currentDiscovery),
+                executionRouteCatalog: await input.executionRouteSelection?.getCatalog() ?? { routes: [] },
               } satisfies GuiInboundFrame));
               return;
             }
 
-            if (frame.type === "provider") {
-              const requestId = typeof frame.requestId === "string" && frame.requestId.trim().length > 0
-                ? frame.requestId.trim()
-                : undefined;
-              if (!requestId) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: "Provider switch requestId is required",
-                } satisfies GuiInboundFrame));
+            if (frame.type === "execution_route") {
+              const selectionFrame = frame as Extract<GuiOutboundFrame, { type: "execution_route" }>;
+              const catalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+              const localRejection = rejectUnavailableExecutionRoute(catalog, selectionFrame);
+              const admission = localRejection ?? await input.executionRouteSelection?.admit(selectionFrame) ?? {
+                ok: false as const, reasonCode: "route-evidence-pending" as const,
+                reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const,
+              };
+              if (!admission.ok) {
+                ws.send(JSON.stringify({ type: "execution_route_change_failed", routeId: selectionFrame.routeId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions } satisfies GuiInboundFrame));
                 return;
               }
-              const currentDiscovery = discovery.length > 0 ? discovery : await refreshDiscovery();
-              const resolution = resolveGuiProviderSwitch({
-                provider: frame.provider,
-                model: frame.model,
-                discovery: currentDiscovery,
-                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-              });
-              if (!resolution.ok) {
-                ws.send(JSON.stringify({
-                  type: "provider_change_failed",
-                  ...(typeof frame.provider === "string" && frame.provider.trim().length > 0
-                    ? { provider: frame.provider.trim() }
-                    : {}),
-                  ...(typeof frame.model === "string" && frame.model.trim().length > 0
-                    ? { model: frame.model.trim() }
-                    : {}),
-                  requestId,
-                  reason: resolution.error,
-                } satisfies GuiInboundFrame));
-                return;
-              }
-
-              input.transport.sessionManager.setProvider(resolution.provider);
-              input.transport.sessionManager.setModel(resolution.modelForSessionManager);
-              await input.updateProviderPreference?.({
-                provider: resolution.provider,
-                model: resolution.modelForAck ?? null,
-              });
-              fireAndForgetProviderSwitch(input.transport.onProviderSwitch, resolution.provider);
-              const providerChangedFrame = {
-                type: "provider_changed",
-                provider: resolution.provider,
-                requestId,
-                ...(resolution.modelForAck ? { model: resolution.modelForAck } : {}),
-              } satisfies GuiInboundFrame;
-              ws.send(JSON.stringify(providerChangedFrame));
+              selectedRouteIntent = { routeId: selectionFrame.routeId, ...(selectionFrame.accountOverrideId ? { accountOverrideId: selectionFrame.accountOverrideId } : {}) };
+              ws.send(JSON.stringify({ type: "execution_route_changed", routeId: admission.admission.routeId, requestId: selectionFrame.requestId, providerId: admission.admission.providerId, providerModelId: admission.admission.providerModelId } satisfies GuiInboundFrame));
               return;
             }
 
@@ -1701,7 +1662,7 @@ function wireOperatorTransport(
                 await applyContinuationSelection(
                   input.transport.onContinueSession,
                   continuationSessionId,
-                  input.transport.sessionManager.getProvider(),
+                  selectedRouteIntent?.routeId,
                 );
               } catch {
                 ws.send(JSON.stringify({
@@ -1713,163 +1674,50 @@ function wireOperatorTransport(
             }
 
             ws.send(JSON.stringify({ type: "thinking" } satisfies GuiInboundFrame));
-            let result;
-            let turnPerCallConfig: PerCallToolConfig | undefined;
+            let result: import("./message-pipeline/index.js").ProcessResult;
             let turnProvider: string | undefined;
             let turnModel: string | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
-              const activeProvider = input.transport.sessionManager.getProvider().trim();
-              if (activeProvider.length === 0) {
+              if (!selectedRouteIntent) {
                 ws.send(JSON.stringify({
                   type: "error",
-                  message: "No provider selected. Choose a provider before sending a message.",
+                  message: "No execution route selected. Choose an execution route before sending a message.",
                 } satisfies GuiInboundFrame));
                 return;
               }
-              if (freshSessionRequested) {
-                try {
-                  await sessionRegistry.detachActive(GUI_APP_NAME, userId, GUI_TENANT_ID);
-                  await input.transport.onClear?.();
-                } catch {
-                  ws.send(JSON.stringify({
-                    type: "error",
-                    message: "Fresh session reset failed",
-                  } satisfies GuiInboundFrame));
-                  return;
-                }
-              }
-              const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
-              const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
-              if (!providerModels || (providerModels.length === 0 && !isGuiProviderModeless(activeProvider))) {
+              const dispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult> = input.transport.operatorTurnDispatcher;
+              if (!dispatcher) {
                 ws.send(JSON.stringify({
                   type: "error",
-                  message: activeDiscovery?.reason ?? `Provider '${activeProvider}' is unavailable`,
+                  code: "route-evidence-pending",
+                  message: "Operator execution routing is unavailable.",
                 } satisfies GuiInboundFrame));
                 return;
               }
-              const storedModel = input.transport.sessionManager.getModel().trim();
-              let activeModel = storedModel.length > 0 ? storedModel : undefined;
-              if (providerModels.length === 0 && isGuiProviderModeless(activeProvider)) {
-                if (activeModel) {
-                  input.transport.sessionManager.setModel("");
-                }
-                activeModel = undefined;
-              }
-              if (providerModels.length > 0 && !activeModel) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: providerRequiresSelectedModelMessage(activeProvider),
-                } satisfies GuiInboundFrame));
-                return;
-              }
-              if (activeModel && !providerModels.includes(activeModel)) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: `Provider '${activeProvider}' does not advertise model '${activeModel}'`,
-                } satisfies GuiInboundFrame));
-                return;
-              }
-              const activeModelRouteHealth = findProviderModelRouteHealth(
-                currentDiscovery,
-                activeProvider,
-                activeModel,
-              );
-              if (activeModelRouteHealth && !activeModelRouteHealth.healthy) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: activeModelRouteHealth.reason ?? `Provider '${activeProvider}' model '${activeModel}' is cooling down`,
-                } satisfies GuiInboundFrame));
-                return;
-              }
-              const activeModelCapabilities = findProviderModelCapabilities(
-                currentDiscovery,
-                activeProvider,
-                activeModel,
-              );
-              const deliberationIntent = toCoreDeliberationIntent(messageFrame.deliberationIntent);
-              const executionMode = resolveExecutionMode(messageFrame.executionMode);
-              const requestedAuthority = resolveGuiRequestedAuthority(messageFrame.requestedAuthority);
-              const governedWorkRequirement = resolveGuiGovernedWorkRequirement(messageFrame.governedWorkRequirement);
-              assertGuiTurnModeCompatibility(executionMode, governedWorkRequirement);
-              turnProvider = activeProvider;
-              turnModel = activeModel;
-              const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-                builtinToolOptions: input.builtinToolOptions,
-                executionMode,
-                managedInvocation: attachManagedInvocationSessionEventSink(
-                  input.managedInvocation,
-                  { publish: (events) => activityStreamer.forwardSessionEvents(events) },
-                ),
-                operatorSurface: {
-                  theme: {
-                    setTheme: operatorThemeBridge.request,
-                  },
+              const executionId = crypto.randomUUID();
+              const execution = await dispatcher.dispatchTurn({
+                executionId,
+                intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedRouteIntent }),
+                intent: selectedRouteIntent,
+                payload: {
+                  surface: "gui",
+                  appName: GUI_APP_NAME,
+                  tenantId: GUI_TENANT_ID,
+                  userId,
+                  userParts,
+                  sessionId: continuationSessionId || undefined,
+                  systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
+                  message: messageFrame,
+                  providerDiscovery: currentDiscovery,
+                  freshSessionRequested,
+                  abortSignal: currentTurn.controller.signal,
+                  operatorTimeZone: input.transport.operatorTimeZone,
                 },
               });
-              rememberToolSurface(turnBuiltinToolSurface);
-              turnPerCallConfig = buildGuiTurnPerCallConfig(
-                activeProvider,
-                activeModel,
-                turnBuiltinToolSurface,
-                activeModelCapabilities,
-                deliberationIntent,
-                executionMode,
-                requestedAuthority,
-                input.transport.workingDirectory,
-                governedWorkRequirement,
-                input.transport.operatorTimeZone
-                  ? defineTurnTemporalContext({
-                    observedAt: new Date().toISOString(),
-                    timeZone: input.transport.operatorTimeZone,
-                  })
-                  : undefined,
-              );
-              turnPerCallConfig = {
-                ...turnPerCallConfig,
-                abortSignal: currentTurn.controller.signal,
-              };
-              result = await processAdmittedTurn({
-                orchestrator,
-                sessionRegistry,
-                appName: GUI_APP_NAME,
-                tenantId: GUI_TENANT_ID,
-                userId,
-                sessionId: continuationSessionId || undefined,
-                systemPrompt: input.transport.systemPrompt ?? "You are a helpful assistant.",
-                userParts,
-                channel: "gui",
-                resumeSessionHydrator: input.transport.resumeSessionHydrator,
-                providerValidation: currentDiscovery,
-                contextUsageWindow: contextUsageWindowEvidence(
-                  activeProvider,
-                  activeModel,
-                  activeModelCapabilities,
-                  currentDiscovery,
-                ),
-                executionMode,
-                contextArtifactCache: input.transport.contextArtifactCache,
-                artifactStore: input.transport.artifactStore,
-                voiceConfig: input.transport.voiceConfig,
-                sttAdapter: input.transport.sttAdapter,
-                ttsAdapter: input.transport.ttsAdapter,
-                callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
-                perCallConfig: turnPerCallConfig,
-                turnCapture: {
-                  start: (sessionId, nextSequence) => {
-                    activityStreamer.beginTurnCapture(sessionId, nextSequence);
-                  },
-                  finish: (sessionId) => activityStreamer.endTurnCapture(sessionId),
-                  abort: (sessionId) => {
-                    activityStreamer.endTurnCapture(sessionId);
-                  },
-                },
-                publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
-                  events.filter((event) => event.kind === "context_usage_observed"
-                    || event.kind === "cost_updated"
-                    || (event.kind === "turn_completed" && event.outcome === "cancelled")),
-                ),
-              });
+              result = execution.result;
+              turnProvider = execution.admission.providerId;
+              turnModel = execution.admission.providerModelId;
             } catch (err) {
               if (currentTurn.controller.signal.aborted) {
                 return;
@@ -1928,7 +1776,7 @@ function wireOperatorTransport(
               routedModel,
               routingRationale: output.routingDecision?.rationale,
               runtimeContinuity,
-              authorityStatus: deriveGuiDoneAuthorityStatus(turnPerCallConfig),
+              authorityStatus: deriveGuiDoneAuthorityStatus(undefined),
             } satisfies GuiInboundFrame));
             } finally {
               currentTurn.markSettled();
@@ -1960,13 +1808,6 @@ function wireOperatorTransport(
   );
 
   input.onReady(`ws://localhost:${input.port}/gui/ws`);
-}
-
-function fireAndForgetProviderSwitch(onProviderSwitch: OnProviderSwitch | undefined, provider: string): void {
-  if (!onProviderSwitch) return;
-  Promise.resolve(onProviderSwitch(provider)).catch(() => {
-    // parity with clear behavior: provider switch errors should not tear down transport
-  });
 }
 
 export function buildGuiTurnPerCallConfig(
@@ -2027,24 +1868,6 @@ export function resolveGuiRequestedAuthority(value: unknown): OperatorTurnReques
   throw new Error(`Unknown requested authority '${String(value)}'.`);
 }
 
-function findProviderModelCapabilities(
-  discovery: readonly GuiProviderDiscoveryResult[],
-  provider: string | undefined,
-  model: string | undefined,
-): GuiProviderModelCapabilities | undefined {
-  if (!provider || !model) return undefined;
-  return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
-}
-
-function findProviderModelRouteHealth(
-  discovery: readonly GuiProviderDiscoveryResult[],
-  provider: string | undefined,
-  model: string | undefined,
-): GuiProviderModelRouteHealth | undefined {
-  if (!provider || !model) return undefined;
-  return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
-}
-
 export function resolveGuiGovernedWorkRequirement(
   value: unknown,
 ): PerCallToolConfig["governedWorkRequirement"] | undefined {
@@ -2076,6 +1899,26 @@ export function assertGuiTurnModeCompatibility(
   }
 }
 
+async function applyContinuationSelection(
+  onContinueSession: OnContinueSession | undefined,
+  sessionId: string,
+  routeId?: string,
+): Promise<void> {
+  if (!onContinueSession) {
+    throw new Error("continuation selection unsupported");
+  }
+  await onContinueSession(sessionId, routeId);
+}
+
+function findProviderModelCapabilities(
+  discovery: readonly GuiProviderDiscoveryResult[],
+  provider: string | undefined,
+  model: string | undefined,
+): GuiProviderModelCapabilities | undefined {
+  if (!provider || !model) return undefined;
+  return discovery.find((entry) => entry.provider === provider)?.modelCapabilities?.[model];
+}
+
 function contextUsageWindowEvidence(
   providerId: string,
   modelId: string | undefined,
@@ -2083,31 +1926,15 @@ function contextUsageWindowEvidence(
   discovery: readonly GuiProviderDiscoveryResult[],
 ) {
   const tokens = capabilities?.contextWindow;
-  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) {
-    return undefined;
-  }
+  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) return undefined;
   const status = discovery.find((entry) => entry.provider === providerId)?.status;
   return {
     providerId,
     modelId,
     tokens,
-    // Discovery establishes route eligibility, not a provider contract for a
-    // model's context window. Treat it as runtime-observed until an adapter
-    // carries explicit provider-window provenance.
     authority: "runtime_observed" as const,
     freshness: status === "stale" ? "stale" as const : "fresh" as const,
   };
-}
-
-async function applyContinuationSelection(
-  onContinueSession: OnContinueSession | undefined,
-  sessionId: string,
-  provider?: string,
-): Promise<void> {
-  if (!onContinueSession) {
-    throw new Error("continuation selection unsupported");
-  }
-  await onContinueSession(sessionId, provider);
 }
 
 function summarizeBrowserOperatorInput(input: GuiBrowserOperatorInput): Record<string, unknown> {

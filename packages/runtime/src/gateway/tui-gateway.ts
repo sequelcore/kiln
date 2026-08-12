@@ -2,13 +2,14 @@ import { Hono } from "hono";
 import type { WSContext } from "hono/ws";
 import {
   buildOperatorToolResultPayload,
+  type ExecutionRouteCatalog,
   isGuiProviderModeless,
   type GuiAuthorityStatus,
   type GuiInboundFrame,
+  type GuiOutboundFrame,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelCapabilities,
   type GuiProviderModelDiscoveryProjection,
-  type GuiProviderModelRouteHealth,
   type OperatorSessionTurnOutcome,
   type OperatorExecutionMode,
   type OperatorTurnRequestedAuthority,
@@ -33,8 +34,8 @@ import {
   type SttAdapter,
   type TtsAdapter,
   type VoiceConfig,
-  defineTurnTemporalContext,
   type TurnTemporalContext,
+  defineTurnTemporalContext,
   assertScopedExecutionSessionToolEvent,
   type ExecutionSessionEvent,
 } from "@kilnai/core";
@@ -74,6 +75,18 @@ import type {
   RuntimeTurnFileChange,
   RuntimeTurnToolCompletion,
 } from "../session/runtime-turn-record.js";
+import {
+  rejectUnavailableExecutionRoute,
+  type OperatorExecutionRouteSelectionPort,
+} from "./operator-execution-route-selection.js";
+import {
+  fingerprintOperatorTurnIntent,
+  type OperatorSessionExecutionBridge,
+  type OperatorTurnDispatchPort,
+  type OperatorTurnDispatchResult,
+  type OperatorTurnTuiDispatchPayload,
+} from "../execution-routing/operator-turn-dispatcher.js";
+import type { OperatorSessionCommittedExecution } from "../execution-routing/operator-session-execution-routing-service.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
 const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
@@ -81,11 +94,6 @@ const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
 async function loadBunHonoAdapters(): Promise<BunHonoAdapters> {
   return import("hono/bun");
 }
-
-/**
- * Provider switch handler - called by the gateway when user switches provider.
- */
-export type OnProviderSwitch = (provider: string) => void | Promise<void>;
 
 export interface TuiGatewayOptions {
   /** Port for the TUI gateway. Default: 4801. */
@@ -112,8 +120,12 @@ export interface TuiGatewayOptions {
    * Fail-open: errors are swallowed and { type: "cleared" } is still sent.
    */
   readonly onClear?: () => Promise<void>;
-  /** Optional callback invoked when user switches provider in TUI. */
-  readonly onProviderSwitch?: OnProviderSwitch;
+  /** Route catalog projection and fail-closed admission supplied by composition. */
+  readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
+  /** Per-turn routing authority. Picker admission is UX evidence only. */
+  readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
+  /** Composition-owned bridge bound to this gateway's local orchestrator. */
+  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   /** Optional context-artifact cache used to hydrate and persist runtime summaries. */
   readonly contextArtifactCache?: ContextArtifactCache;
   /** Artifact store used to persist replayable multimodal turn inputs. */
@@ -227,6 +239,7 @@ export function deriveTuiDoneAuthorityStatus(
 }
 
 export function buildTuiWelcomeFramePayload(input: {
+  readonly executionRouteCatalog: ExecutionRouteCatalog;
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -234,6 +247,7 @@ export function buildTuiWelcomeFramePayload(input: {
   readonly authorityStatus: TuiAuthorityStatus;
 }): {
   readonly type: "welcome";
+  readonly executionRouteCatalog: ExecutionRouteCatalog;
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -242,6 +256,7 @@ export function buildTuiWelcomeFramePayload(input: {
 } {
   return {
     type: "welcome",
+    executionRouteCatalog: input.executionRouteCatalog,
     providerModelDiscovery: input.providerModelDiscovery,
     models: input.models,
     ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
@@ -303,9 +318,7 @@ function buildTuiContextUsageWindowEvidence(
   discovery: readonly GuiProviderDiscoveryResult[],
 ) {
   const tokens = capabilities?.contextWindow;
-  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) {
-    return undefined;
-  }
+  if (!modelId || !Number.isInteger(tokens) || !tokens || tokens < 1) return undefined;
   const status = discovery.find((entry) => entry.provider === providerId)?.status;
   return {
     providerId,
@@ -314,15 +327,6 @@ function buildTuiContextUsageWindowEvidence(
     authority: "runtime_observed" as const,
     freshness: status === "stale" ? "stale" as const : "fresh" as const,
   };
-}
-
-function findProviderModelRouteHealth(
-  discovery: readonly GuiProviderDiscoveryResult[],
-  provider: string | undefined,
-  model: string | undefined,
-): GuiProviderModelRouteHealth | undefined {
-  if (!provider || !model) return undefined;
-  return discovery.find((entry) => entry.provider === provider)?.modelRouteHealth?.[model];
 }
 
 export function buildTuiDoneFramePayload(input: {
@@ -435,10 +439,6 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     ),
   });
   const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
-  const rememberToolSurface = (surface: AttachedRuntimeBuiltinToolSurface): void => {
-    resourceSurfaces.unshift(surface);
-    resourceSurfaces.splice(8);
-  };
   activityStreamer.setToolCallMetadata(builtinToolSurface.toolCallMetadata);
   let activeOperatorSurface: { theme: { setTheme: ReturnType<typeof createOperatorThemeBridge>["request"] } } | undefined;
 
@@ -462,6 +462,78 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     approve: (approvalId) => orchestrator.continue(approvalId),
     reject: (approvalId, reason) => orchestrator.emitApprovalReceived(false, reason, approvalId),
   });
+  options.operatorTurnExecutionBridge.bind(async (committed: OperatorSessionCommittedExecution<unknown, OperatorTurnTuiDispatchPayload>) => {
+    const payload = committed.payload;
+    options.sessionManager.setProvider(committed.admission.providerId);
+    options.sessionManager.setModel(committed.admission.providerModelId);
+    const activeModelCapabilities = findProviderModelCapabilities(
+      payload.providerDiscovery,
+      committed.admission.providerId,
+      committed.admission.providerModelId,
+    );
+    const deliberationIntent = toCoreDeliberationIntent(payload.message.deliberationIntent);
+    const executionMode = resolveExecutionMode(payload.message.executionMode);
+    const requestedAuthority = resolveTuiRequestedAuthority(payload.message.requestedAuthority);
+    const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions,
+      executionMode,
+      managedInvocation: attachManagedInvocationSessionEventSink(
+        managedInvocation,
+        { publish: (events) => activityStreamer.forwardSessionEvents(events) },
+      ),
+      operatorSurface: activeOperatorSurface,
+    });
+    const perCallConfig = {
+      ...buildTuiTurnPerCallConfig(
+        committed.admission.providerId,
+        committed.admission.providerModelId,
+        turnBuiltinToolSurface,
+        activeModelCapabilities,
+        deliberationIntent,
+        executionMode,
+        requestedAuthority,
+        payload.operatorTimeZone
+          ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone })
+          : undefined,
+      ),
+      executionBinding: committed.binding,
+      executionCredential: committed.credential,
+    } satisfies PerCallToolConfig;
+    return processAdmittedTurn({
+      orchestrator,
+      sessionRegistry,
+      appName: TUI_APP_NAME,
+      tenantId: TUI_TENANT_ID,
+      userId: payload.userId,
+      systemPrompt: payload.systemPrompt,
+      userParts: payload.userParts,
+      channel: "tui",
+      resumeSessionHydrator: options.resumeSessionHydrator,
+      providerValidation: payload.providerDiscovery,
+      contextUsageWindow: buildTuiContextUsageWindowEvidence(
+        committed.admission.providerId,
+        committed.admission.providerModelId,
+        activeModelCapabilities,
+        payload.providerDiscovery,
+      ),
+      executionMode,
+      contextArtifactCache: options.contextArtifactCache,
+      artifactStore: options.artifactStore,
+      voiceConfig: options.voiceConfig,
+      sttAdapter: options.sttAdapter,
+      ttsAdapter: options.ttsAdapter,
+      callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
+      perCallConfig,
+      turnCapture: {
+        start: (sessionId, nextSequence) => activityStreamer.beginTurnCapture(sessionId, nextSequence),
+        finish: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
+        abort: (sessionId) => { activityStreamer.endTurnCapture(sessionId); },
+      },
+      publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
+        events.filter((event) => event.kind === "context_usage_observed"),
+      ),
+    });
+  });
 
   const { upgradeWebSocket, websocket } = (await loadBunHonoAdapters()).createBunWebSocket();
 
@@ -477,6 +549,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       const userId = c.req.query("userId") ?? crypto.randomUUID();
       let operatorSocket: WSContext | null = null;
       let unsubscribeDiscovery: (() => void) | undefined;
+      let selectedRouteIntent: { readonly routeId: string; readonly accountOverrideId?: string } | undefined;
       const operatorThemeBridge = createOperatorThemeBridge((frame) => {
         operatorSocket?.send(JSON.stringify(frame));
       });
@@ -503,9 +576,6 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
           const providerModels = currentModels[activeProvider];
           let activeModel = storedModel.length > 0 ? storedModel : undefined;
           if (providerModels?.length === 0 && isGuiProviderModeless(activeProvider)) {
-            if (activeModel) {
-              options.sessionManager.setModel("");
-            }
             activeModel = undefined;
           }
           const activeModelCapabilities = findProviderModelCapabilities(
@@ -522,6 +592,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             ),
           );
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
+            executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
             providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
             models: currentModels,
             providerDiscovery: currentDiscovery,
@@ -536,7 +607,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               ? event.data
               : new TextDecoder().decode(event.data as ArrayBuffer);
 
-            const frame = JSON.parse(raw) as Record<string, unknown>;
+            const frame = JSON.parse(raw) as GuiOutboundFrame;
 
             if (frame.type === "operator_theme_set_result") {
               operatorThemeBridge.resolve(frame as {
@@ -559,13 +630,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               return;
             }
 
-            if (frame.type === "refresh_providers") {
-              const currentDiscovery = await refreshDiscovery({ force: true });
+            if (frame.type === "refresh_execution_routes") {
               ws.send(JSON.stringify({
-                type: "providers_refreshed",
-                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-                models: projectGuiOperatorModels(currentDiscovery),
-                providerDiscovery: currentDiscovery,
+                type: "execution_routes_refreshed",
+                executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
               }));
               return;
             }
@@ -640,45 +708,22 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
+                executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
               }));
               return;
             }
 
-            if (frame.type === "provider") {
-              const requestId = typeof frame.requestId === "string" && frame.requestId.trim().length > 0
-                ? frame.requestId.trim()
-                : undefined;
-              if (!requestId) {
-                ws.send(JSON.stringify({ type: "error", message: "Provider switch requestId is required" }));
+            if (frame.type === "execution_route") {
+              const selectionFrame = frame as { readonly type: "execution_route"; readonly requestId: string; readonly routeId: string; readonly accountOverrideId?: string };
+              const catalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+              const localRejection = rejectUnavailableExecutionRoute(catalog, selectionFrame);
+              const admission = localRejection ?? await options.executionRouteSelection?.admit(selectionFrame) ?? { ok: false as const, reasonCode: "route-evidence-pending" as const, reason: "Execution route admission is unavailable.", repairActions: ["refresh-route-catalog"] as const };
+              if (!admission.ok) {
+                ws.send(JSON.stringify({ type: "execution_route_change_failed", routeId: selectionFrame.routeId, requestId: selectionFrame.requestId, reasonCode: admission.reasonCode, reason: admission.reason, repairActions: admission.repairActions }));
                 return;
               }
-              const currentDiscovery = await refreshDiscovery();
-              const resolution = resolveTuiProviderSwitch({
-                provider: frame.provider,
-                model: frame.model,
-                discovery: currentDiscovery,
-                providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
-              });
-              if (!resolution.ok) {
-                ws.send(JSON.stringify({
-                  type: "provider_change_failed",
-                  provider: frame.provider,
-                  ...(frame.model ? { model: frame.model } : {}),
-                  requestId,
-                  reason: resolution.error,
-                }));
-                return;
-              }
-              options.sessionManager.setProvider(resolution.provider);
-              options.sessionManager.setModel(resolution.model);
-              options.onProviderSwitch?.(resolution.provider);
-              const providerChangedFrame = {
-                type: "provider_changed",
-                provider: resolution.provider,
-                requestId,
-                ...(resolution.model ? { model: resolution.model } : {}),
-              };
-              ws.send(JSON.stringify(providerChangedFrame));
+              selectedRouteIntent = { routeId: selectionFrame.routeId, ...(selectionFrame.accountOverrideId ? { accountOverrideId: selectionFrame.accountOverrideId } : {}) };
+              ws.send(JSON.stringify({ type: "execution_route_changed", routeId: admission.admission.routeId, requestId: selectionFrame.requestId, providerId: admission.admission.providerId, providerModelId: admission.admission.providerModelId }));
               return;
             }
 
@@ -807,133 +852,40 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             if (!userContent.trim()) return;
             // Send "thinking" status to indicate work has started
             ws.send(JSON.stringify({ type: "thinking" }));
-            let result;
-            let turnPerCallConfig: PerCallToolConfig | undefined;
+            let result: import("./message-pipeline/index.js").ProcessResult;
             let turnProvider: string | undefined;
             let turnModel: string | undefined;
             try {
               const currentDiscovery = await refreshDiscovery();
-              const activeProvider = options.sessionManager.getProvider();
-              const activeDiscovery = currentDiscovery.find((entry) => entry.provider === activeProvider);
-              const providerModels = activeDiscovery?.available ? activeDiscovery.models : undefined;
-              if (!providerModels || (providerModels.length === 0 && !isGuiProviderModeless(activeProvider))) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: activeDiscovery?.reason ?? `Provider '${activeProvider}' is unavailable`,
-                }));
+              if (!selectedRouteIntent) {
+                ws.send(JSON.stringify({ type: "error", message: "No execution route selected. Choose an execution route before sending a message." }));
                 return;
               }
-              const storedModel = options.sessionManager.getModel().trim();
-              let activeModel = storedModel.length > 0 ? storedModel : undefined;
-              if (providerModels.length === 0 && isGuiProviderModeless(activeProvider)) {
-                if (activeModel) {
-                  options.sessionManager.setModel("");
-                }
-                activeModel = undefined;
-              }
-              if (providerModels.length > 0 && !activeModel) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: providerRequiresSelectedModelMessage(activeProvider),
-                }));
+              const dispatcher = options.operatorTurnDispatcher;
+              if (!dispatcher) {
+                ws.send(JSON.stringify({ type: "error", code: "route-evidence-pending", message: "Operator execution routing is unavailable." }));
                 return;
               }
-              if (activeModel && !providerModels.includes(activeModel)) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: `Provider '${activeProvider}' does not advertise model '${activeModel}'`,
-                }));
-                return;
-              }
-              const activeModelRouteHealth = findProviderModelRouteHealth(
-                currentDiscovery,
-                activeProvider,
-                activeModel,
-              );
-              if (activeModelRouteHealth && !activeModelRouteHealth.healthy) {
-                ws.send(JSON.stringify({
-                  type: "error",
-                  message: activeModelRouteHealth.reason ?? `Provider '${activeProvider}' model '${activeModel}' is cooling down`,
-                }));
-                return;
-              }
-              const activeModelCapabilities = findProviderModelCapabilities(
-                currentDiscovery,
-                activeProvider,
-                activeModel,
-              );
-              const deliberationIntent = toCoreDeliberationIntent(frame.deliberationIntent);
-              const executionMode = resolveExecutionMode(frame.executionMode);
-              const requestedAuthority = resolveTuiRequestedAuthority(frame.requestedAuthority);
-              turnProvider = activeProvider;
-              turnModel = activeModel;
-              const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
-                builtinToolOptions,
-                executionMode,
-                managedInvocation: attachManagedInvocationSessionEventSink(
-                  managedInvocation,
-                  { publish: (events) => activityStreamer.forwardSessionEvents(events) },
-                ),
-                operatorSurface: {
-                  theme: {
-                    setTheme: operatorThemeBridge.request,
-                  },
+              const executionId = crypto.randomUUID();
+              const execution = await dispatcher.dispatchTurn({
+                executionId,
+                intentFingerprint: fingerprintOperatorTurnIntent({ executionId, intent: selectedRouteIntent }),
+                intent: selectedRouteIntent,
+                payload: {
+                  surface: "tui",
+                  appName: TUI_APP_NAME,
+                  tenantId: TUI_TENANT_ID,
+                  userId,
+                  userParts: textParts(userContent),
+                  systemPrompt,
+                  message: frame,
+                  providerDiscovery: currentDiscovery,
+                  operatorTimeZone: options.operatorTimeZone,
                 },
               });
-              rememberToolSurface(turnBuiltinToolSurface);
-              turnPerCallConfig = buildTuiTurnPerCallConfig(
-                activeProvider,
-                activeModel,
-                turnBuiltinToolSurface,
-                activeModelCapabilities,
-                deliberationIntent,
-                executionMode,
-                requestedAuthority,
-                options.operatorTimeZone
-                  ? defineTurnTemporalContext({
-                    observedAt: new Date().toISOString(),
-                    timeZone: options.operatorTimeZone,
-                  })
-                  : undefined,
-              );
-              result = await processAdmittedTurn({
-                orchestrator,
-                sessionRegistry,
-                appName: TUI_APP_NAME,
-                tenantId: TUI_TENANT_ID,
-                userId,
-                systemPrompt,
-                userParts: textParts(userContent),
-                channel: "tui",
-                resumeSessionHydrator: options.resumeSessionHydrator,
-                providerValidation: currentDiscovery,
-                contextUsageWindow: buildTuiContextUsageWindowEvidence(
-                  activeProvider,
-                  activeModel,
-                  activeModelCapabilities,
-                  currentDiscovery,
-                ),
-                publishCanonicalSessionEvents: (events) => activityStreamer.forwardSessionEvents(
-                  events.filter((event) => event.kind === "context_usage_observed"),
-                ),
-                executionMode,
-                contextArtifactCache: options.contextArtifactCache,
-                artifactStore: options.artifactStore,
-                voiceConfig: options.voiceConfig,
-                sttAdapter: options.sttAdapter,
-                ttsAdapter: options.ttsAdapter,
-                callBuiltinTools: turnBuiltinToolSurface.callBuiltinTools,
-                perCallConfig: turnPerCallConfig,
-                turnCapture: {
-                  start: (sessionId, nextSequence) => {
-                    activityStreamer.beginTurnCapture(sessionId, nextSequence);
-                  },
-                  finish: (sessionId) => activityStreamer.endTurnCapture(sessionId),
-                  abort: (sessionId) => {
-                    activityStreamer.endTurnCapture(sessionId);
-                  },
-                },
-              });
+              result = execution.result;
+              turnProvider = execution.admission.providerId;
+              turnModel = execution.admission.providerModelId;
             } catch (err) {
               ws.send(JSON.stringify({
                 type: "error",
@@ -963,7 +915,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               ? ""
               : turnModel ?? "";
             const routedModel = output.routingDecision?.model ?? fallbackRoutedModel;
-            const authorityStatus = deriveTuiDoneAuthorityStatus(turnPerCallConfig);
+            const authorityStatus = deriveTuiDoneAuthorityStatus(undefined);
             const sourceMessageId = crypto.randomUUID();
             voiceSynthesisSources.set(sourceMessageId, {
               parts: output.parts,

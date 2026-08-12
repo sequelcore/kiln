@@ -13,12 +13,13 @@ Credential availability comes from provider credential pools, but it is only
 one input into eligibility. Execution also needs canonical config evidence,
 authentication evidence, entitlement evidence when available, required
 capabilities, catalog freshness, route health, policy admission, and a concrete
-selected model where the provider requires one.
+route configuration with a model where the provider requires one.
 
 ## Discovery Result
 
-GUI, TUI, and direct CLI execution consume the same structured discovery
-result:
+Runtime consumes the structured discovery result below to derive execution-route
+availability and diagnostics. GUI and TUI may render it as evidence, but select
+only from the separate execution-route catalog:
 
 - `provider`
 - `available`
@@ -43,10 +44,12 @@ Common statuses include:
 - `model_selection_not_required`
 - `stale`
 
-The discovery result drives operator diagnostics and contributes catalog
-observations to provider/model evidence. It is not, by itself, execution
-authority. Surfaces may abbreviate the human-facing reason, but they must not
-derive selectability from a different source.
+The discovery result drives operator diagnostics and contributes observations to
+provider/model evidence. It is not execution authority. An operator surface
+selects a configured execution route by route ID; Runtime derives provider,
+model, account, and credential evidence after that intent. Surfaces may
+abbreviate the human-facing reason, but they must not derive route selectability
+from a different source.
 
 `model_version_unsupported` means the harness or provider is installed and
 authenticated enough to answer, but the selected or requested model requires a
@@ -68,8 +71,8 @@ Canonical provider-model evidence keeps these concepts separate:
   endpoint, or catalog
 - harness identity: the local or remote harness that reported a route
 - normalized model identity: provider-neutral family/version metadata
-- provider route identity: the concrete provider/model/scope that execution
-  would use
+- provider route identity: the concrete provider/model/scope that an admitted
+  execution route may use as derived evidence
 - credential/authentication evidence
 - entitlement evidence when the provider can expose it
 - freshness evidence for catalog observations
@@ -105,13 +108,13 @@ projected as `status: stale`, `available: false`, and `authState: unknown`.
 This makes prior provider diagnostics visible immediately while preserving the
 same fail-closed execution contract.
 
-While discovery is pending, surfaces may render the provider catalog as loading
-or include locally known providers as pending selections, but they must not
-claim runtime availability. Once discovery completes, subscribers receive the
-authoritative catalog and the same snapshot updates GUI, TUI, and direct TUI
-state. Normal dashboard reads, socket opens, provider switches, and prompt
-admission then reuse fresh discovery results instead of re-probing every
-provider on every turn.
+While discovery is pending, surfaces may render the execution-route catalog as
+loading or unresolved, but they must not claim runtime availability. Configured
+routes remain visible so the operator can see the route's reason and repair
+action. Once discovery completes, subscribers receive fresh evidence and the
+same snapshot updates GUI and TUI route availability. Normal dashboard reads,
+socket opens, execution-route selection, and prompt admission then reuse fresh
+discovery results instead of re-probing every provider on every turn.
 
 Fresh background discovery replaces the stale projection and rewrites the
 project cache. Stale startup projections are never written back as cache data
@@ -122,45 +125,59 @@ force a new discovery pass. This preserves operator correctness after login or
 manual refresh while keeping ordinary chat turns from paying repeated CLI,
 network, and local daemon discovery costs.
 
-The cache is an optimization only. Prompt admission, provider switches, and
-direct TUI execution call the provider catalog before mutating session routing
-or admitting work. If the catalog is still pending, that operation awaits the
-in-flight discovery; if discovery proves the provider/model unavailable, the
-operation fails closed. Turn records keep the discovery evidence used for
-admission.
+A successful provider-auth completion also carries the freshly projected
+`ExecutionRouteCatalog`. GUI and TUI replace their picker catalog from that
+completion rather than retaining pre-auth route availability.
+
+The cache is an optimization only. Prompt admission and execution-route
+selection consult fresh evidence before changing session routing or admitting
+work. If evidence is still pending, that operation waits; if it proves a route's
+derived provider/model unavailable, the operation fails closed. Turn records
+keep the discovery evidence used for admission.
 
 If the only available startup evidence is `stale`, operator surfaces may show
-the provider as pending/unavailable, but model selection, provider switching,
-managed invocation route admission, and prompt execution must wait for or
-require fresh runtime discovery. Static provider display metadata and stale
-cache entries are diagnostics, not permission.
+the configured route as unresolved or unavailable, but execution-route
+selection, managed invocation route admission, and prompt execution must wait
+for or require fresh runtime discovery. Static provider display metadata and
+stale cache entries are diagnostics, not permission.
 
-`kiln run --provider <provider> --model <model>` performs the same
-fail-closed model admission before creating a provider session when runtime
-discovery can validate that provider. Direct API providers require an explicit
-selected model that is present in live runtime discovery. CLI wrapper providers
-such as Codex and OpenCode may still run without an explicit model so their
-native harness default remains authoritative, but an explicitly selected model
-must be advertised by shared CLI discovery or pass a provider-owned live
-readiness probe before execution starts. Stale static IDs and typos are
-rejected before the chat/completions or wrapper request. Command-line
-`--api-key` values participate in discovery for that process only, the same way
-they participate in execution.
+`kiln run` admits the configured execution route before dispatch begins.
+`--route <id>` narrows that configured catalog; provider, model, and
+API-key command-line overrides are rejected. Discovery validates the selected
+route's provider/model evidence and current configured account candidates, but
+cannot choose a credential or widen the route authority.
 
 ## Gateway And Operator Projection
 
-Gateway frames project provider-model discovery through a canonical summary and
-route entries. Each entry includes raw evidence summary, normalized model
-identity, provider route identity, optional harness route identity,
-credential/auth evidence, entitlement evidence, freshness, route health, policy
-admission, final eligibility, and reason codes.
+Gateway frames project provider-model discovery as diagnostic evidence and
+project `ExecutionRouteCatalog` separately as the operator selection contract.
+Each configured catalog entry has route ID, label, availability, reason codes,
+repair actions, account-selection summary, and derived provider/model evidence.
+Configured routes remain in the catalog even when Runtime cannot admit them.
 
-GUI and TUI provider pickers display diagnostic catalog counts and reason codes
-from this projection. A large OpenCode, OpenRouter, direct-provider, Ollama, or
-LM Studio catalog remains searchable and explainable, but only entries with
-canonical `eligibility.eligible = true` are selectable. When the canonical
-projection is absent for a modeled route, modeled selection fails closed
-instead of falling back to provider display metadata or stale model arrays.
+GUI and TUI execution-route pickers select only catalog route IDs. They send an
+`execution_route` frame with `routeId` and, only for an automatic route, an
+eligible `accountOverrideId`. The gateway responds with
+`execution_route_changed` or `execution_route_change_failed`; a refresh uses
+`refresh_execution_routes` and returns `execution_routes_refreshed`. Provider
+and model identifiers on frames are derived evidence, never alternate selection
+inputs. Authentication remains a provider-scoped repair action. Its successful
+completion returns refreshed route evidence, and no frame or catalog entry
+exposes a credential ID or credential material.
+
+## Configuration And Surface Selection
+
+`executionCatalog` is durable configuration. It defines each route's stable
+ID, provider/model attributes, and exact or automatic account policy.
+`executionRouting.defaultRouteId` supplies the normal startup default, while
+`ui.executionRouteSelection` can persist a surface route and eligible account
+alias override. Both are route references, never provider/model or credential
+selection fields.
+
+Runtime projects that configuration plus fresh availability into
+`ExecutionRouteCatalog`. GUI and TUI render and select from that runtime
+projection; they do not expose the YAML account-to-credential binding or turn
+provider/model display evidence into a second selector.
 
 Model-less harness providers remain explicit model-less routes. They do not
 receive fake model IDs and do not convert native ambient defaults into
@@ -172,9 +189,9 @@ plane for proving that a harness default matches Kiln's resolved route.
 When a provider exposes per-model capability metadata, discovery carries it
 under `modelCapabilities[modelId]`. The capability record is advisory for UI
 controls and strict for request shaping: operator surfaces may only expose
-controls that discovery says the active model supports, and execution must send
-the selected capability value through the normal turn request rather than
-storing it in surface-local state.
+controls that discovery says the selected route's derived model supports, and
+execution must send the selected capability value through the normal turn
+request rather than storing it in surface-local state.
 
 Current capability fields include:
 
@@ -214,10 +231,11 @@ provider/model capability record. Provider-native discovery fields such as
 Codex `supported_reasoning_levels` are translated at this boundary while their
 order and revision evidence are preserved.
 
-If a model advertises no deliberation capabilities, surfaces render no level
-selector and Runtime follows the intent's explicit unsupported policy. GUI and
-TUI preserve provider default until the operator selects a level; they never
-turn the first advertised level into an implicit override.
+If a selected route's derived model advertises no deliberation capabilities,
+surfaces render no level selector and Runtime follows the intent's explicit
+unsupported policy. GUI and TUI preserve the provider default until the operator
+selects a level; they never turn the first advertised level into an implicit
+override.
 
 `deliberationPolicy` may declare default, task, and exact-route intents. Runtime
 resolves the winning intent after route selection and records the capability
@@ -273,15 +291,10 @@ health, provider availability, authority profile admission, configured agent
 profiles, and skill admission. Suitability can choose between eligible routes;
 it cannot make an unavailable or unauthorized route admissible.
 
-CLI run uses the same evidence when `routing.routes` declares multiple
-provider/model candidates and the operator has not passed an explicit
-`--provider`. Kiln infers a coarse task from the selected agent profile first
-and from the prompt text second, then ranks configured candidates by resolved
-task suitability. Static profiles, live proof, and operator overrides are
-merged before ranking. Operator overrides win ties at the same suitability
-level because they are local routing policy. The original `routing.routes`
-order remains the stable fallback order for unknown tasks, equal scores, and
-models without suitability evidence.
+CLI run uses discovery only to validate the selected execution route. It does
+not turn task suitability or stale provider/model evidence into an unconfigured
+routing graph. Automatic account selection remains the catalog policy after
+route admission.
 
 ## Provider Classes
 
@@ -324,22 +337,21 @@ Direct API providers:
 ## Selection Rules
 
 - no static model fallback lists
-- no default-to-first-provider behavior
-- no hidden default-to-first-model behavior
-- unavailable providers are non-selectable for execution
-- catalog membership alone never makes a model selectable
-- stale, partial, or failed catalogs remain diagnostic and fail closed
-- model-less providers are explicit and do not use fake model IDs
-- prompt execution revalidates the active provider/model before admission
-- provider switch errors and prompt execution errors use the same wording for
-  the same readiness failure
+- no default-to-first-provider or model behavior
+- the surface selects a configured route ID, never a provider or raw model ID
+- unavailable configured routes remain visible but are non-selectable
+- discovery membership alone never makes a route selectable
+- stale, partial, or failed evidence remains diagnostic and fails closed
+- model-less providers are explicit and do not receive fake model IDs
+- prompt execution revalidates the selected route's derived provider/model
+  evidence before admission
+- route-selection and prompt-admission failures use the same route-level
+  readiness reason
 
-If a provider has selectable models, execution requires a concrete selected
-model ID. If no selected model exists, the canonical error wording is:
-
-```text
-Provider '<provider>' requires a selected model.
-```
+A configured execution route must carry a concrete provider model ID whenever
+its provider requires one. Incomplete route configuration is rejected as a
+route-level `missing-model` condition; no surface falls back to a raw-model
+picker or a native ambient default.
 
 Native harness defaults follow the same fail-closed rule. A native harness may
 have an ambient default, but Kiln does not treat that ambient selection as
@@ -378,11 +390,12 @@ outcomes such as `rate-limited`, `quota-exceeded`, and `connection-failed`
 place the provider/model route in cooldown. A selected route in cooldown is not
 healthy just because discovery still lists the model.
 
-When `routing.routes` declares ordered execution candidates, discovery and
-route health are admission gates for each direct provider/model candidate.
-Unhealthy direct routes are skipped before the runtime loop starts; healthy
-fallback candidates remain eligible. Explicit one-off provider/model requests
-are not silently widened into unrelated providers.
+For an admitted execution route, discovery and route health are candidate
+admission gates. An automatic route applies its configured
+`economic-least-pressure` policy among eligible accounts before dispatch; the
+surface does not choose an account unless the operator explicitly narrows that
+same route to an eligible alias. An exact account selection is never widened
+into a different account or provider route.
 
 For OpenRouter free capacity, model-specific `:free` routes are volatile
 candidates. `openrouter/free` is the stable free router because OpenRouter
@@ -393,28 +406,29 @@ another healthy candidate or `openrouter/free` when policy allows it.
 
 ## Operator UX
 
-Provider pickers show concise unavailable reasons while preserving structured
-diagnostics in the runtime result. Examples:
+Execution-route pickers show concise unavailable reasons while preserving
+structured diagnostics in the runtime result. Examples:
 
 - missing API keys or credentials become "Auth is missing."
 - local daemon or connection failures become "Local service is unreachable."
 - empty catalogs become "No models found."
 - failed model endpoints become "Model endpoint failed."
 
-GUI and TUI expose provider refresh without restarting the process. Refresh
-re-runs runtime discovery, updates the selectable model catalog, and leaves the
+GUI and TUI refresh the execution-route catalog without restarting the process.
+Refresh re-runs runtime discovery, updates route availability, and leaves the
 current operator session alive.
 
-Deliberation is shown next to provider/model selection when the active model
-advertises ordered levels. GUI renders it as a compact composer control; TUI
-cycles provider default and explicit levels with `/deliberation`. Both surfaces
-send only an explicit selection on the next turn.
+Deliberation is shown next to execution-route selection when the selected
+route's derived model advertises ordered levels. GUI renders it as a compact
+composer control; TUI cycles provider default and explicit levels with
+`/deliberation`. Both surfaces send only an explicit selection on the next turn.
 
 ## Turn Records
 
-Live prompt admission records provider validation provider-by-provider in the
-runtime turn record. This preserves the evidence used to admit or reject a turn
-and makes post-hoc diagnosis possible without replaying discovery.
+Live prompt admission records the selected execution route and its derived
+provider/model validation in the runtime turn record. This preserves the
+evidence used to admit or reject a turn and makes post-hoc diagnosis possible
+without replaying discovery.
 
 ## Invariants
 
@@ -427,6 +441,8 @@ does so. See [Context Usage Projection](../context/context-usage-projection.md).
 - execution uses the same canonical eligibility truth shown to the operator
 - diagnostics are provider-specific and fail closed
 - model IDs passed to execution are concrete provider model IDs
+- operator selection contains route ID and, where allowed, an account alias;
+  it never contains provider, model, or credential authority
 - local providers do not imply cloud auth or remote model availability
 - unavailable reasons are actionable, not generic placeholders
 - live provider probes, credential use, quota consumption, and paid inference

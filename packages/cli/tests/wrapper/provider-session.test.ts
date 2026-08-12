@@ -786,8 +786,8 @@ describe("ProviderSession.run()", () => {
     const session = new ProviderSession(baseConfig({
       provider: "codex-oauth",
       model: "gpt-terra",
-      accountBinding: {
-        virtualModelId: "managed-terra",
+      credentialBinding: {
+        routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
       },
@@ -808,8 +808,9 @@ describe("ProviderSession.run()", () => {
       type: "cost_update",
       executionBinding: {
         status: "bound",
-        virtualModelId: "managed-terra",
+        routeId: "terra",
         accountId: "secondary",
+        credentialId: "subscription-secondary",
         credentialRevision: "d".repeat(64),
       },
     }));
@@ -819,8 +820,8 @@ describe("ProviderSession.run()", () => {
     const session = new ProviderSession(baseConfig({
       provider: "codex-oauth",
       model: "gpt-terra",
-      accountBinding: {
-        virtualModelId: "managed-terra",
+      credentialBinding: {
+        routeId: "terra",
         accountId: "missing-account",
         credentialId: "subscription-missing",
       },
@@ -833,8 +834,9 @@ describe("ProviderSession.run()", () => {
       type: "error",
       executionBinding: {
         status: "rejected-pre-dispatch",
-        virtualModelId: "managed-terra",
+        routeId: "terra",
         accountId: "missing-account",
+        credentialId: "subscription-missing",
       },
     }));
     expect(adapterMocks["codex-oauth"].stream).not.toHaveBeenCalled();

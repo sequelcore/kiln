@@ -130,7 +130,7 @@ describe("runtime budget admission helpers", () => {
 
   it("creates no admission port when global budget-aware routing is disabled", () => {
     expect(createRuntimeBudgetAdmissionFromGlobalConfig(null, vi.fn())).toBeUndefined();
-    expect(createRuntimeBudgetAdmissionFromGlobalConfig({ routing: { budgetAware: false } } as never, vi.fn()))
+    expect(createRuntimeBudgetAdmissionFromGlobalConfig({ workerRouting: { budgetAware: false } } as never, vi.fn()))
       .toBeUndefined();
   });
 });

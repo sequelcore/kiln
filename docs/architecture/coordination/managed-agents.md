@@ -821,7 +821,7 @@ sessions that need a governed child invocation. It is not part of the core
 developer-tool registry and is not exposed by default. Runtime operator surfaces
 attach it only when the CLI provides a resolved managed invocation route
 registry. That registry is normally derived from eligible ordered
-`routing.routes`, with explicit `managedAgents.routes` merged on top for
+the execution catalog, with explicit `managedAgents.routes` merged on top for
 authority-bearing routes, special read-only exceptions, or overrides. If no
 ordered route exists, Kiln may synthesize the default read-only route from
 enabled supported child engines. Direct-provider projections must name a

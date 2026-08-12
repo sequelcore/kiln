@@ -2,13 +2,13 @@ import { isObjectRecord, readString } from "./unknown-value.js";
 
 /**
  * localStorage boundary for session-store persisted preferences: plan mode,
- * the continuation target, and the last explicit provider selection. Pure
+ * the continuation target, and the last explicit execution-route selection. Pure
  * (fails open on storage errors), no store dependency.
  */
 
 const PLAN_MODE_KEY = "kiln.gui.planMode";
 const CONTINUATION_TARGET_KEY = "kiln.gui.continuationTarget";
-const PROVIDER_SELECTION_KEY = "kiln.gui.providerSelection:v1";
+const EXECUTION_ROUTE_SELECTION_KEY = "kiln.gui.executionRouteSelection:v1";
 
 export function readStoredPlanMode(): boolean | null {
   try {
@@ -28,28 +28,28 @@ export function persistPlanMode(value: boolean): void {
   }
 }
 
-export function readStoredProviderSelection(): { readonly provider: string; readonly model: string | null } | null {
+export function readStoredExecutionRouteSelection(): { readonly routeId: string; readonly accountOverrideId?: string } | null {
   try {
-    const raw = localStorage.getItem(PROVIDER_SELECTION_KEY);
+    const raw = localStorage.getItem(EXECUTION_ROUTE_SELECTION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!isObjectRecord(parsed)) return null;
-    const provider = readString(parsed.provider);
-    if (!provider) return null;
+    const routeId = readString(parsed.routeId);
+    if (!routeId) return null;
     return {
-      provider,
-      model: readString(parsed.model),
+      routeId,
+      ...(readString(parsed.accountOverrideId) ? { accountOverrideId: readString(parsed.accountOverrideId)! } : {}),
     };
   } catch {
     return null;
   }
 }
 
-export function writeStoredProviderSelection(provider: string, model: string | null): void {
+export function writeStoredExecutionRouteSelection(routeId: string, accountOverrideId?: string): void {
   try {
-    localStorage.setItem(PROVIDER_SELECTION_KEY, JSON.stringify({
-      provider,
-      ...(model ? { model } : {}),
+    localStorage.setItem(EXECUTION_ROUTE_SELECTION_KEY, JSON.stringify({
+      routeId,
+      ...(accountOverrideId ? { accountOverrideId } : {}),
     }));
   } catch {
     // fail-open

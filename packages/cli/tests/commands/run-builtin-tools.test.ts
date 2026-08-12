@@ -10,6 +10,7 @@ import {
   runCommand,
 } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -76,6 +77,106 @@ const runWiringMocks = vi.hoisted(() => {
       authState: "authenticated",
     }),
   };
+});
+
+const operatorCompositionMocks = vi.hoisted(() => {
+  const state: { dispatchError?: Error } = {};
+  const create = vi.fn((input: {
+    readonly catalog: {
+      readonly accounts: readonly {
+        readonly id: string;
+        readonly credentialId: string;
+      }[];
+      readonly accountPolicies: readonly {
+        readonly id: string;
+        readonly accountIds: readonly string[];
+      }[];
+      readonly routes: readonly {
+        readonly id: string;
+        readonly providerId: string;
+        readonly providerModelId: string;
+        readonly accountSelection:
+          | { readonly mode: "automatic"; readonly accountPolicyId: string }
+          | { readonly mode: "exact"; readonly accountId: string };
+      }[];
+    };
+  }) => {
+    let handler: ((input: unknown) => Promise<unknown>) | undefined;
+    const bridge = {
+      bind(nextHandler: (input: unknown) => Promise<unknown>) {
+        if (handler) throw new Error("Test execution bridge is already bound.");
+        handler = nextHandler;
+      },
+      dispatchCommittedTurn(committedTurn: unknown) {
+        if (!handler) throw new Error("Test execution bridge is not bound.");
+        return handler(committedTurn);
+      },
+    };
+    return {
+      accountRuntime: {},
+      bridge,
+      dispatcher: {
+        dispatchTurn: vi.fn(async (request: {
+          readonly intent: { readonly routeId: string; readonly accountOverrideId?: string };
+          readonly payload: unknown;
+        }) => {
+          if (state.dispatchError) throw state.dispatchError;
+          const route = input.catalog.routes.find((candidate) => candidate.id === request.intent.routeId);
+          if (!route) throw new Error("Unknown test execution route '" + request.intent.routeId + "'.");
+          const accountId = request.intent.accountOverrideId
+            ?? (route.accountSelection.mode === "exact"
+              ? route.accountSelection.accountId
+              : input.catalog.accountPolicies.find((policy) => policy.id === route.accountSelection.accountPolicyId)
+                ?.accountIds[0]);
+          if (!accountId) throw new Error("No test account is available for route '" + route.id + "'.");
+          const account = input.catalog.accounts.find((candidate) => candidate.id === accountId);
+          if (!account) throw new Error("Unknown test account '" + accountId + "'.");
+          const admission = {
+            routeId: route.id,
+            providerId: route.providerId,
+            providerModelId: route.providerModelId,
+            accountSelection: route.accountSelection.mode === "exact"
+              ? { mode: "exact" as const, accountId, source: "route" as const }
+              : {
+                  mode: "automatic" as const,
+                  accountPolicyId: route.accountSelection.accountPolicyId,
+                  eligibleAccountIds: [accountId],
+                },
+          };
+          const result = await bridge.dispatchCommittedTurn({
+            admission,
+            binding: {
+              status: "bound",
+              routeId: route.id,
+              accountId,
+              credentialId: account.credentialId,
+              credentialRevision: "sha256:test-revision",
+            },
+            credential: { kind: "test" },
+            payload: request.payload,
+          });
+          return {
+            admission,
+            accountId,
+            leaseId: "test-lease",
+            evidence: {
+              routeId: route.id,
+              accountId,
+              credentialId: account.credentialId,
+              credentialRevision: "sha256:test-revision",
+              capacityIdentity: "test-capacity",
+              leaseId: "test-lease",
+              dispatchFenceId: "test-dispatch",
+              status: "completed",
+            },
+            result,
+          };
+        }),
+      },
+      close: vi.fn(),
+    };
+  });
+  return { create, state };
 });
 
 vi.mock("@kilnai/runtime", async (importOriginal) => {
@@ -295,14 +396,12 @@ vi.mock("../../src/config/global-config.js", () => ({
   resolveGlobalDefaultProvider: vi.fn(() => undefined),
 }));
 
-vi.mock("../../src/config/env-config.js", () => ({
-  resolveEffectiveModel: vi.fn((model: string | undefined) => model),
-  resolveEnvModel: vi.fn(() => undefined),
-  resolveEnvProvider: vi.fn(() => undefined),
-}));
-
 vi.mock("../../src/application/project-root-resolver.js", () => ({
   resolveProjectRoot: vi.fn(() => ({ rootPath: REPO_ROOT, source: "cwd" })),
+}));
+
+vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
+  createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
 }));
 
 vi.mock("../../src/kiln-yaml.js", () => ({
@@ -464,6 +563,16 @@ const APP_CONFIG: KilnAppConfig = {
 
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 
+function configureExecutionRoute(
+  providerId = "codex-oauth",
+  providerModelId = "gpt-5.5",
+  routeId = "codex-route",
+) {
+  const config = makeOperatorSurfaceGlobalConfig(providerId, providerModelId, routeId);
+  readGlobalConfigMock.mockReturnValue(config);
+  return config;
+}
+
 describe("run command builtin tool wiring", () => {
   it("exposes runtime approval only on an interactive human CLI surface", async () => {
     const prompt = vi.fn().mockResolvedValue(true);
@@ -569,7 +678,8 @@ describe("run command builtin tool wiring", () => {
     runWiringMocks.transcriptInit.mockResolvedValue(undefined);
     runWiringMocks.transcriptFinalize.mockResolvedValue(undefined);
     runWiringMocks.preparedWorkingDirectory = undefined;
-    readGlobalConfigMock.mockReturnValue(undefined);
+    operatorCompositionMocks.state.dispatchError = undefined;
+    configureExecutionRoute();
   });
 
   afterEach(() => {
@@ -577,7 +687,7 @@ describe("run command builtin tool wiring", () => {
   });
 
   it("builds model-facing governed builtin tool options and passes them into sessionConfig", async () => {
-    await runCommand(APP_CONFIG, "ship it", { provider: "openai", model: "gpt-4o", apiKey: "sk-test" });
+    await runCommand(APP_CONFIG, "ship it", {});
 
     expect(runWiringMocks.loadConfiguredWebToolSurfaceOptions).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -625,7 +735,7 @@ describe("run command builtin tool wiring", () => {
     await runCommand({
       ...APP_CONFIG,
       managedInvocation,
-    }, "ship it", { provider: "codex" });
+    }, "ship it", {});
 
     expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith(expect.objectContaining({
       service: managedInvocation.invocationService,
@@ -652,8 +762,8 @@ describe("run command builtin tool wiring", () => {
 
   it("keeps routing budget admission out of parallel fan-out and preserves session lineage", async () => {
     readGlobalConfigMock.mockReturnValue({
-      version: "1",
-      routing: {
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.5", "codex-route"),
+      workerRouting: {
         budgetAware: true,
         budget: {
           codex: {
@@ -667,7 +777,7 @@ describe("run command builtin tool wiring", () => {
     await runCommand({
       ...APP_CONFIG,
       managedInvocation: parallelManagedInvocation(),
-    }, "parallel budget", { provider: "codex", workers: 2 });
+    }, "parallel budget", { workers: 2 });
 
     const input = runWiringMocks.runManagedAgentOrchestrationLifecycle.mock.calls[0]?.[0] as
       | ManagedAgentOrchestrationLifecycleInput
@@ -688,8 +798,8 @@ describe("run command builtin tool wiring", () => {
 
   it("projects runtime-owned budget admission into normal run sessions", async () => {
     readGlobalConfigMock.mockReturnValue({
-      version: "1",
-      routing: {
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.5", "codex-route"),
+      workerRouting: {
         budgetAware: true,
         budget: {
           codex: {
@@ -700,7 +810,7 @@ describe("run command builtin tool wiring", () => {
       },
     });
 
-    await runCommand(APP_CONFIG, "budgeted run", { provider: "codex" });
+    await runCommand(APP_CONFIG, "budgeted run", {});
 
     const sessionConfig = runWiringMocks.capturedSessionConfigs[0] as {
       readonly budgetAdmission?: {
@@ -715,19 +825,19 @@ describe("run command builtin tool wiring", () => {
     await expect(sessionConfig.budgetAdmission?.admit({
       subject: "runtime-session-turn",
       sessionId: "next-session",
-      routeCandidates: [{ providerId: "codex" }],
+      routeCandidates: [{ providerId: "codex-oauth" }],
     })).resolves.toMatchObject({
       status: "admitted",
     });
   });
 
-  it("does not require MCP when a harness provider is explicitly selected", async () => {
-    await runCommand(APP_CONFIG, "use codex", { provider: "codex" });
+  it("does not require MCP when a configured execution route is selected", async () => {
+    await runCommand(APP_CONFIG, "use configured route", {});
 
     expect(runWiringMocks.capturedRunSessionInputs).toHaveLength(1);
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
       requirements: {
-        preferredProvider: "codex",
+        preferredProvider: "codex-oauth",
         requiresMcp: false,
       },
     });
@@ -736,7 +846,7 @@ describe("run command builtin tool wiring", () => {
   it("uses the prepared working directory for isolated session execution", async () => {
     runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-1";
 
-    await runCommand(APP_CONFIG, "use isolated cwd", { provider: "codex", isolate: true });
+    await runCommand(APP_CONFIG, "use isolated cwd", { isolate: true });
 
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       cwd: "C:/repo/.kiln-worktrees/session-1",
@@ -767,7 +877,7 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    await runCommand(APP_CONFIG, "exact output", { provider: "codex", output: "answer" });
+    await runCommand(APP_CONFIG, "exact output", { output: "answer" });
 
     expect(stdout.text()).toBe("Only four bullets.\n");
     expect(stdout.text()).not.toContain("Kiln session starting");
@@ -803,7 +913,7 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    await runCommand(APP_CONFIG, "structured output", { provider: "codex", output: "json" });
+    await runCommand(APP_CONFIG, "structured output", { output: "json" });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
     expect(parsed).toMatchObject({
@@ -865,7 +975,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand(
       APP_CONFIG,
       "structured failure",
-      { provider: "codex", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -890,15 +1000,13 @@ describe("run command builtin tool wiring", () => {
   it("writes structured failure diagnostics for early route admission failure in json output mode", async () => {
     const stdout = captureStdout();
     vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
-    runWiringMocks.evaluateRouteHealth.mockResolvedValue({
-      healthy: false,
-      reason: "configured route is cooling down.",
-    });
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
+    operatorCompositionMocks.state.dispatchError = new Error("Execution route 'openrouter-qwen' is unavailable.");
 
     await expect(runCommand(
       APP_CONFIG,
       "early route failure",
-      { provider: "openrouter", model: "qwen/qwen3-coder:free", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -915,7 +1023,7 @@ describe("run command builtin tool wiring", () => {
         model: "qwen/qwen3-coder:free",
       },
       diagnostics: {
-        lastError: "No configured provider routes are currently available.",
+        lastError: "Execution route 'openrouter-qwen' is unavailable.",
         attempts: [],
       },
       resources: {
@@ -928,16 +1036,14 @@ describe("run command builtin tool wiring", () => {
   it("includes cleanup failure in early route admission json diagnostics", async () => {
     const stdout = captureStdout();
     vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
-    runWiringMocks.evaluateRouteHealth.mockResolvedValue({
-      healthy: false,
-      reason: "configured route is cooling down.",
-    });
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
+    operatorCompositionMocks.state.dispatchError = new Error("Execution route 'openrouter-qwen' is unavailable.");
     runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
 
     await expect(runCommand(
       APP_CONFIG,
       "early route cleanup failure",
-      { provider: "openrouter", model: "qwen/qwen3-coder:free", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -948,7 +1054,7 @@ describe("run command builtin tool wiring", () => {
         sessionSucceeded: false,
       },
       diagnostics: {
-        lastError: "No configured provider routes are currently available.; Failed to cleanup worktree. cleanup failed",
+        lastError: "Execution route 'openrouter-qwen' is unavailable.; Failed to cleanup worktree. cleanup failed",
       },
     });
   });
@@ -961,7 +1067,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand(
       APP_CONFIG,
       "thrown session failure",
-      { provider: "codex", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -972,7 +1078,7 @@ describe("run command builtin tool wiring", () => {
         task: "thrown session failure",
         domain: "Kiln",
         sessionSucceeded: false,
-        provider: "codex",
+        provider: "codex-oauth",
       },
       diagnostics: {
         lastError: "session exploded",
@@ -991,7 +1097,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand(
       APP_CONFIG,
       "thrown cleanup failure",
-      { provider: "codex", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -1031,11 +1137,12 @@ describe("run command builtin tool wiring", () => {
       exactArtifacts: [],
       submittedPlan: undefined,
     });
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
 
     await runCommand(
       APP_CONFIG,
       "route health persistence",
-      { provider: "openrouter", model: "qwen/qwen3-coder:free", output: "json" },
+      { output: "json" },
     );
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1081,7 +1188,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand(
       APP_CONFIG,
       "provider cleanup failure",
-      { provider: "codex", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -1126,7 +1233,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand(
       APP_CONFIG,
       "cleanup failure",
-      { provider: "codex", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -1177,7 +1284,7 @@ describe("run command builtin tool wiring", () => {
         ...APP_CONFIG.kilnYaml,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
-    }, "verification throw cleanup failure", { provider: "codex", output: "json" }, { exitOnFailure: false }))
+    }, "verification throw cleanup failure", { output: "json" }, { exitOnFailure: false }))
       .rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1227,7 +1334,7 @@ describe("run command builtin tool wiring", () => {
         ...APP_CONFIG.kilnYaml,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
-    }, "verification failure", { provider: "codex", output: "json" }, { exitOnFailure: false }))
+    }, "verification failure", { output: "json" }, { exitOnFailure: false }))
       .rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1280,7 +1387,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand(
       APP_CONFIG,
       "report cleanup failure",
-      { provider: "codex", output: "json" },
+      { output: "json" },
       { exitOnFailure: false },
     )).rejects.toMatchObject({ code: 1 });
 
@@ -1332,7 +1439,7 @@ describe("run command builtin tool wiring", () => {
         ...APP_CONFIG.kilnYaml,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
-    }, "verification cleanup failure", { provider: "codex", output: "json" }, { exitOnFailure: false }))
+    }, "verification cleanup failure", { output: "json" }, { exitOnFailure: false }))
       .rejects.toMatchObject({ code: 1 });
 
     const parsed = JSON.parse(stdout.text()) as Record<string, any>;
@@ -1435,55 +1542,35 @@ describe("run command builtin tool wiring", () => {
     })).toEqual({ ok: true });
   });
 
-  it("blocks wrapper execution before runSession when explicit model readiness fails", async () => {
-    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
-      throw new Error("process.exit");
-    }) as never);
-    runWiringMocks.probeCodexCliModelReadiness.mockResolvedValueOnce({
-      provider: "codex",
-      model: "gpt-5.5",
-      runnable: false,
-      status: "model_version_unsupported",
-      reason: "Codex CLI model support is out of date: The 'gpt-5.5' model requires a newer version of Codex.",
-      authState: "authenticated",
-    });
-
+  it("rejects an unknown explicit execution route before running a session", async () => {
     await expect(runCommand(APP_CONFIG, "ship it", {
-      provider: "codex",
-      model: "gpt-5.5",
-    })).rejects.toThrow("process.exit");
+      route: "missing-route",
+    })).rejects.toThrow("Execution route 'missing-route' is not configured.");
 
-    expect(runWiringMocks.discoverGuiCliOperatorModels).toHaveBeenCalledWith(expect.objectContaining({
-      codex: true,
-      opencode: false,
-    }));
-    expect(runWiringMocks.probeCodexCliModelReadiness).toHaveBeenCalledWith(expect.objectContaining({
-      model: "gpt-5.5",
-    }));
     expect(runWiringMocks.runSession).not.toHaveBeenCalled();
-    exit.mockRestore();
   });
 
-  it("admits wrapper execution when explicit missing model passes live readiness probe", async () => {
+  it("binds the explicit execution route into canonical dispatch", async () => {
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
+
     await runCommand(APP_CONFIG, "ship it", {
-      provider: "codex",
-      model: "gpt-5.5",
+      route: "openrouter-qwen",
     });
 
-    expect(runWiringMocks.probeCodexCliModelReadiness).toHaveBeenCalledWith(expect.objectContaining({
-      model: "gpt-5.5",
-    }));
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
-      routeCandidates: [
-        { provider: "codex", model: "gpt-5.5" },
-      ],
+      routeCandidates: [expect.objectContaining({
+        provider: "openrouter",
+        model: "qwen/qwen3-coder:free",
+        credentialBinding: expect.objectContaining({ routeId: "openrouter-qwen" }),
+      })],
     });
   });
 
-  it("checks route health before direct provider execution and records success", async () => {
-    await runCommand(APP_CONFIG, "ship it", { provider: "openrouter", model: "qwen/qwen3-coder:free" });
+  it("records canonical direct route success as a route health outcome", async () => {
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
+    await runCommand(APP_CONFIG, "ship it", {});
 
-    expect(runWiringMocks.evaluateRouteHealth).toHaveBeenCalledWith("openrouter", "qwen/qwen3-coder:free");
+    expect(runWiringMocks.evaluateRouteHealth).not.toHaveBeenCalled();
     expect(runWiringMocks.recordRouteOutcome).toHaveBeenCalledWith({
       providerId: "openrouter",
       modelId: "qwen/qwen3-coder:free",
@@ -1491,33 +1578,16 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
-  it("skips cooling configured routes and passes healthy fallback candidates to runSession", async () => {
-    readGlobalConfigMock.mockReturnValue({
-      version: "1",
-      routing: {
-        routes: [
-          { provider: "openrouter", model: "qwen/qwen3-coder:free" },
-          { provider: "openrouter", model: "openrouter/free" },
-          { provider: "codex" },
-        ],
-      },
-    });
-    runWiringMocks.evaluateRouteHealth.mockImplementation((provider: string, model: string) =>
-      provider === "openrouter" && model === "qwen/qwen3-coder:free"
-        ? Promise.resolve({
-            healthy: false,
-            reason: "qwen route is temporarily rate-limited.",
-          })
-        : Promise.resolve({ healthy: true })
-    );
-
-    await runCommand(APP_CONFIG, "ship it", {});
+  it("binds only the selected execution route without client-side fallback", async () => {
+    configureExecutionRoute("openrouter", "openrouter/free", "openrouter-free");
+    await runCommand(APP_CONFIG, "ship it", { route: "openrouter-free" });
 
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
-      routeCandidates: [
-        { provider: "openrouter", model: "openrouter/free" },
-        { provider: "codex" },
-      ],
+      routeCandidates: [expect.objectContaining({
+        provider: "openrouter",
+        model: "openrouter/free",
+        credentialBinding: expect.objectContaining({ routeId: "openrouter-free" }),
+      })],
     });
   });
 
@@ -1526,14 +1596,10 @@ describe("run command builtin tool wiring", () => {
       throw new Error("process.exit");
     }) as never);
     runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-unavailable";
-    runWiringMocks.evaluateRouteHealth.mockResolvedValue({
-      healthy: false,
-      reason: "configured route is cooling down.",
-    });
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
+    operatorCompositionMocks.state.dispatchError = new Error("Execution route 'openrouter-qwen' is unavailable.");
 
     await expect(runCommand(APP_CONFIG, "ship it", {
-      provider: "openrouter",
-      model: "qwen/qwen3-coder:free",
       isolate: true,
     })).rejects.toThrow("process.exit");
 
@@ -1569,10 +1635,8 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(APP_CONFIG, "ship it", {
-      provider: "openrouter",
-      model: "qwen/qwen3-coder:free",
-    })).rejects.toThrow("process.exit");
+    configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
+    await expect(runCommand(APP_CONFIG, "ship it", {})).rejects.toThrow("process.exit");
 
     expect(runWiringMocks.recordRouteOutcome).toHaveBeenCalledWith({
       providerId: "openrouter",
@@ -1587,7 +1651,7 @@ describe("run command builtin tool wiring", () => {
     const beforeSigint = process.listenerCount("SIGINT");
     const beforeSigterm = process.listenerCount("SIGTERM");
 
-    await runCommand(APP_CONFIG, "cleanup lifecycle", { provider: "codex" });
+    await runCommand(APP_CONFIG, "cleanup lifecycle", {});
 
     expect(process.listenerCount("SIGINT")).toBe(beforeSigint);
     expect(process.listenerCount("SIGTERM")).toBe(beforeSigterm);
@@ -1628,7 +1692,7 @@ describe("run command builtin tool wiring", () => {
       };
     });
 
-    const run = runCommand(APP_CONFIG, "interrupt active run", { provider: "codex" }, { exitOnFailure: false });
+    const run = runCommand(APP_CONFIG, "interrupt active run", {}, { exitOnFailure: false });
     const expectedFailure = expect(run).rejects.toThrow("Kiln run exited with code 1");
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
@@ -1684,7 +1748,7 @@ describe("run command builtin tool wiring", () => {
     const run = runCommand({
       ...APP_CONFIG,
       managedInvocation: parallelManagedInvocation(),
-    }, "parallel cleanup", { provider: "codex", workers: 2 }, { exitOnFailure: false });
+    }, "parallel cleanup", { workers: 2 }, { exitOnFailure: false });
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     process.emit("SIGINT", "SIGINT");
@@ -1738,7 +1802,7 @@ describe("run command builtin tool wiring", () => {
     const run = runCommand({
       ...APP_CONFIG,
       managedInvocation: parallelManagedInvocation(),
-    }, "parallel cleanup", { provider: "codex", workers: 2 }, { exitOnFailure: false });
+    }, "parallel cleanup", { workers: 2 }, { exitOnFailure: false });
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     process.emit("SIGINT", "SIGINT");
@@ -1764,7 +1828,7 @@ describe("run command builtin tool wiring", () => {
         ...APP_CONFIG.kilnYaml,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
-    }, "verify isolated cwd", { provider: "codex", isolate: true });
+    }, "verify isolated cwd", { isolate: true });
 
     expect(runWiringMocks.runVerification).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: "typecheck" })]),
@@ -1796,7 +1860,7 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
-    await expect(runCommand(APP_CONFIG, "ship it", { provider: "codex", isolate: true })).rejects.toThrow(
+    await expect(runCommand(APP_CONFIG, "ship it", { isolate: true })).rejects.toThrow(
       "process.exit",
     );
 

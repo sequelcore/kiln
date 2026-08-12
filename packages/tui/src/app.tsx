@@ -10,9 +10,10 @@ import {
   DEFAULT_OPERATOR_THEME_NAME,
   OPERATOR_THEME_LABELS,
   getGuiProviderMetadata,
-  isGuiProviderModeless,
   isOperatorThemeName,
   listOperatorCommands,
+  type ExecutionRouteCatalog,
+  type ExecutionRouteCatalogEntry,
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
@@ -31,8 +32,8 @@ import {
   initUI,
   createThemePicker,
   destroyThemePicker,
-  createProviderPicker,
-  destroyProviderPicker,
+  createExecutionRoutePicker,
+  destroyExecutionRoutePicker,
 } from "./ui.js";
 import { sendMessage } from "./handlers.js";
 import {
@@ -96,11 +97,12 @@ export async function startTui(
   providerDiscoveryRef?: { current: readonly GuiProviderDiscoveryResult[] },
   loadOperatorSessionHistory?: () => Promise<readonly OperatorSessionSummary[]>,
   onContinueSession?: (session: OperatorSessionSummary) => boolean,
-  refreshProviders?: () => Promise<void> | void,
+  refreshProviderDiscovery?: () => Promise<void> | void,
   persistThemePreference?: (themeName: string) => Promise<void> | void,
   loadSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>,
   onFirstFrame?: () => void,
   providerModelDiscoveryRef?: { current: GuiProviderModelDiscoveryProjection | null },
+  executionRouteCatalogRef?: { current: ExecutionRouteCatalog | null },
 ): Promise<void> {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -134,26 +136,21 @@ export async function startTui(
   let localThemeIndex = 0;
   let themePickerOpen = false;
   let themePicker: ReturnType<typeof createThemePicker> | null = null;
-  let providerPickerOpen = false;
-  let providerPicker: ReturnType<typeof createProviderPicker> | null = null;
+  let executionRoutePickerOpen = false;
+  let executionRoutePicker: ReturnType<typeof createExecutionRoutePicker> | null = null;
 
-  const validProviders = providerDisplayInfo.map((entry) => entry.id);
   const providerInfoById = new Map(providerDisplayInfo.map((entry) => [entry.id, entry]));
-  const providerGroups = [
-    { title: "Subscription", providers: providerDisplayInfo.filter((entry) => entry.group === "subscription").map((entry) => entry.id) },
-    { title: "Harness", providers: providerDisplayInfo.filter((entry) => entry.group === "harness").map((entry) => entry.id) },
-    { title: "Direct API", providers: providerDisplayInfo.filter((entry) => entry.group === "direct-api").map((entry) => entry.id) },
-  ].filter((group) => group.providers.length > 0);
+  let executionRouteCatalog = executionRouteCatalogRef?.current ?? { routes: [] };
+  let routeIds = executionRouteCatalog.routes.map((route) => route.routeId);
+  const routeGroups = () => [{ title: "Execution routes", routes: routeIds }];
 
-  let providerPickerState = {
+  let routePickerState = {
+    routeIndex: 0,
     providerIndex: 0,
-    modelIndex: 0,
-    mode: "providers" as "providers" | "models" | "auth-key" | "auth-confirm",
+    accountOverrideIndex: 0,
+    mode: "providers" as "providers" | "accounts" | "auth-key" | "auth-confirm",
     authKeyBuffer: "",
   };
-  let providerModels = Object.fromEntries(
-    providerDisplayInfo.map((entry) => [entry.id, [...entry.models]]),
-  ) as Record<string, string[]>;
   let providerDiscovery = providerDiscoveryRef?.current ?? [];
   let providerModelDiscovery = providerModelDiscoveryRef?.current ?? null;
   let providerCatalogStatus: GuiProviderCatalogStatus = "ready";
@@ -179,13 +176,15 @@ export async function startTui(
     }
   };
   update(state, "currentProvider", provider);
-  const initialProviderIndex = validProviders.findIndex((providerName) => providerName === provider);
-  if (initialProviderIndex >= 0) {
-    providerPickerState.providerIndex = initialProviderIndex;
-    update(state, "providerPickerIndex", initialProviderIndex);
-    const initialModel = getSelectableProviderModels(provider)[0];
-    if (initialModel) {
-      update(state, "currentModel", initialModel);
+  const initialRouteIndex = executionRouteCatalog.routes.findIndex((route) => route.providerId === provider);
+  if (initialRouteIndex >= 0) {
+    routePickerState.routeIndex = initialRouteIndex;
+    routePickerState.providerIndex = initialRouteIndex;
+    update(state, "executionRoutePickerIndex", initialRouteIndex);
+    const initialRoute = executionRouteCatalog.routes[initialRouteIndex];
+    if (initialRoute) {
+      update(state, "currentProvider", initialRoute.providerId);
+      update(state, "currentModel", initialRoute.providerModelId);
     }
   }
   syncDeliberationLevel();
@@ -210,14 +209,11 @@ export async function startTui(
     const pollModels = () => {
       const models = providerModelsRef.current;
       if (models) {
-        providerModels = Object.fromEntries(
-          validProviders.map((providerName) => [providerName, models[providerName] ?? []]),
-        );
         providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
         providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
         syncDeliberationLevel();
-        if (providerPicker) {
-          renderProviderPicker();
+        if (executionRoutePicker) {
+          renderExecutionRoutePicker();
         }
       }
     };
@@ -225,7 +221,28 @@ export async function startTui(
     pollModels();
   }
 
-  const themeNames = listThemeNames();
+  if (executionRouteCatalogRef) {
+    const pollRouteCatalog = () => {
+      const catalog = executionRouteCatalogRef.current;
+      if (!catalog) return;
+      const selectedRouteId = executionRouteCatalog.routes[routePickerState.routeIndex]?.routeId
+        ?? catalog.routes.find((route) => route.providerId === state.currentProvider)?.routeId;
+      executionRouteCatalog = catalog;
+      routeIds = catalog.routes.map((route) => route.routeId);
+      const selectedIndex = selectedRouteId ? routeIds.indexOf(selectedRouteId) : -1;
+      if (selectedIndex >= 0) {
+        routePickerState.routeIndex = selectedIndex;
+        routePickerState.providerIndex = selectedIndex;
+      }
+      if (executionRoutePicker) {
+        renderExecutionRoutePicker();
+      }
+    };
+    setInterval(pollRouteCatalog, 500);
+    pollRouteCatalog();
+  }
+
+  const themeNames = listThemeNames() as Array<keyof typeof themes>;
   const themeValues = Object.values(themes);
 
   const { t, fg } = await import("@opentui/core");
@@ -311,8 +328,8 @@ export async function startTui(
         return;
       }
 
-      if (text === "/provider") {
-        openProviderPicker();
+      if (text === "/route") {
+        openExecutionRoutePicker();
         return;
       }
 
@@ -461,29 +478,33 @@ export async function startTui(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Provider picker helpers
+  // Execution route picker helpers
   // ─────────────────────────────────────────────────────────────────────────
 
-  function getCurrentProvider(): string {
-    return validProviders[providerPickerState.providerIndex] ?? "";
+  function getRouteEntries(): readonly ExecutionRouteCatalogEntry[] {
+    return executionRouteCatalog.routes;
   }
 
-  function getCurrentModels(): string[] {
-    return getSelectableProviderModels(getCurrentProvider());
+  function getCurrentRoute(): ExecutionRouteCatalogEntry | undefined {
+    return getRouteEntries()[routePickerState.routeIndex];
+  }
+
+  function getAccountOverrideOptions(
+    route: ExecutionRouteCatalogEntry | undefined = getCurrentRoute(),
+  ): readonly (string | undefined)[] {
+    if (route?.accountSelection.mode !== "automatic") {
+      return [];
+    }
+    const accountOverrideIds = route.accountOverrideIds ?? [];
+    return accountOverrideIds.length > 0 ? [undefined, ...accountOverrideIds] : [];
+  }
+
+  function getCurrentProvider(): string {
+    return getCurrentRoute()?.providerId ?? "";
   }
 
   function getProviderDiscovery(providerName: string): GuiProviderDiscoveryResult | undefined {
     return providerDiscovery.find((entry) => entry.provider === providerName);
-  }
-
-  function getSelectableProviderModels(providerName: string): string[] {
-    const entries = providerModelDiscovery?.entries;
-    if (!entries) {
-      return providerModels[providerName] ?? [];
-    }
-    return entries
-      .filter((entry) => entry.providerRoute.providerId === providerName && entry.eligibility.eligible)
-      .map((entry) => entry.providerRoute.providerModelId);
   }
 
   function getProviderDiagnosticReason(providerName: string): string | undefined {
@@ -494,26 +515,18 @@ export async function startTui(
     ))?.eligibility.reasonCodes.join(", ");
   }
 
-  function providerIsSelectable(providerName: string): boolean {
-    if (providerModelDiscovery) {
-      return isGuiProviderModeless(providerName)
-        ? getProviderDiscovery(providerName)?.available === true
-        : getSelectableProviderModels(providerName).length > 0;
-    }
-    const info = providerInfoById.get(providerName);
-    if (info?.available === false) {
-      return false;
-    }
-    const models = getSelectableProviderModels(providerName);
-    return models.length > 0 || isGuiProviderModeless(providerName);
+  function routeIsSelectable(route: ExecutionRouteCatalogEntry | undefined): boolean {
+    return route?.availability === "available";
   }
 
   function providerCanAuthenticate(providerName: string): boolean {
-    const metadata = getGuiProviderMetadata(providerName);
+    const route = executionRouteCatalog.routes.find((entry) => entry.routeId === providerName);
+    const providerId = route?.providerId ?? providerName;
+    const metadata = getGuiProviderMetadata(providerId);
     if (!metadata?.authMethod) {
       return false;
     }
-    const discovery = getProviderDiscovery(providerName);
+    const discovery = getProviderDiscovery(providerId);
     if (!discovery || discovery.available) {
       return false;
     }
@@ -523,17 +536,34 @@ export async function startTui(
   }
 
   function getProviderReason(providerName: string): string | undefined {
+    const route = executionRouteCatalog.routes.find((entry) => entry.routeId === providerName);
+    if (route) return getRouteReason(route);
     const reason = getProviderDiagnosticReason(providerName)
       ?? getProviderDiscovery(providerName)?.reason
       ?? providerInfoById.get(providerName)?.reason;
     return reason ? conciseUnavailableReason(reason) : undefined;
   }
 
+  function providerIsSelectable(providerName: string): boolean {
+    return routeIsSelectable(executionRouteCatalog.routes.find((entry) => entry.routeId === providerName));
+  }
+
+  function getRouteReason(route: ExecutionRouteCatalogEntry | undefined): string | undefined {
+    if (!route || route.availability === "available") return undefined;
+    const reason = route.reasonCodes.join(", ");
+    const repair = route.repairActions.length > 0
+      ? " (" + route.repairActions.join(", ") + ")"
+      : "";
+    return conciseUnavailableReason(
+      route.availability + ": " + (reason || "route evidence unavailable") + repair,
+    );
+  }
+
   function markProviderCatalog(status: GuiProviderCatalogStatus, error: string | null = null): void {
     providerCatalogStatus = status;
     providerCatalogError = error;
-    if (providerPicker) {
-      renderProviderPicker();
+    if (executionRoutePicker) {
+      renderExecutionRoutePicker();
     }
   }
 
@@ -558,21 +588,23 @@ export async function startTui(
   }
 
   function getProviderLabel(providerName: string): string {
+    const route = executionRouteCatalog.routes.find((entry) => entry.routeId === providerName);
+    if (route) return route.label;
     return providerInfoById.get(providerName)?.free
       ? `${providerName} (free)`
       : providerName;
   }
 
   function getProviderRowId(providerName: string): string {
-    return `provider-item-${providerName}`;
+    return `route-item-${providerName}`;
   }
 
   function findProviderRow(providerName: string):
     | InstanceType<typeof TextRenderable>
     | undefined {
-    if (!providerPicker) return undefined;
+    if (!executionRoutePicker) return undefined;
     const targetId = getProviderRowId(providerName);
-    return providerPicker.rows.find((row) => row.id === targetId);
+    return executionRoutePicker.rows.find((row) => row.id === targetId);
   }
 
   /**
@@ -581,11 +613,11 @@ export async function startTui(
    * unaffected.
    */
   function clearPickerRows(): void {
-    if (!providerPicker) return;
-    for (const row of providerPicker.rows) {
+    if (!executionRoutePicker) return;
+    for (const row of executionRoutePicker.rows) {
       row.destroy();
     }
-    providerPicker.rows = [];
+    executionRoutePicker.rows = [];
   }
 
   /**
@@ -612,23 +644,23 @@ export async function startTui(
 
   /**
    * Fully rebuilds the data rows in the scrollBox.
-   * Called only on mode/provider switches — NOT on every up/down keypress.
+   * Called only on mode/route switches — NOT on every up/down keypress.
    * Navigation updates are handled by updatePickerSelection() instead.
    */
-  function renderProviderPicker(): void {
-    if (!providerPicker) return;
+  function renderExecutionRoutePicker(): void {
+    if (!executionRoutePicker) return;
 
     clearPickerRows();
 
-    const scrollContent = providerPicker.scrollBox.content;
+    const scrollContent = executionRoutePicker.scrollBox.content;
     if (providerCatalogStatus !== "ready") {
-      providerPicker.mode = "providers";
-      providerPicker.title.content = t`${fg(currentTheme.accent)(" Providers ")}`;
+      executionRoutePicker.mode = "routes";
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(" Execution routes ")}`;
       const loadingLabel = providerCatalogStatus === "error"
         ? (providerCatalogError ?? "Provider discovery failed.")
         : providerCatalogStatus === "refreshing"
-          ? "Refreshing provider and model discovery..."
-          : "Loading provider and model discovery...";
+          ? "Refreshing execution routes..."
+          : "Loading execution route catalog...";
       const row = makePickerRow(
         "provider-catalog-status",
         loadingLabel,
@@ -638,18 +670,18 @@ export async function startTui(
         "",
       );
       scrollContent.add(row);
-      providerPicker.rows.push(row);
-      providerPicker.hint.content = providerCatalogStatus === "error"
+      executionRoutePicker.rows.push(row);
+      executionRoutePicker.hint.content = providerCatalogStatus === "error"
         ? t`${fg(currentTheme.textMuted)("r retry  Esc cancel")}`
         : t`${fg(currentTheme.textMuted)("please wait  Esc cancel")}`;
       return;
     }
 
-    if (providerPickerState.mode === "providers") {
-      providerPicker.mode = "providers";
-      providerPicker.title.content = t`${fg(currentTheme.accent)(" Select Provider ")}`;
+    if (routePickerState.mode === "providers") {
+      executionRoutePicker.mode = "routes";
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(" Select Execution Route ")}`;
 
-      for (const group of providerGroups) {
+      for (const group of routeGroups()) {
         const groupId = group.title.toLowerCase().replace(/\s+/g, "-");
         const headerRow = makePickerRow(
           `provider-group-${groupId}`,
@@ -660,16 +692,16 @@ export async function startTui(
           "",
         );
         scrollContent.add(headerRow);
-        providerPicker.rows.push(headerRow);
+        executionRoutePicker.rows.push(headerRow);
 
-        for (const providerName of group.providers) {
-          const selected = validProviders[providerPickerState.providerIndex] === providerName;
-          const label = getProviderLabel(providerName);
-          const reason = getProviderReason(providerName);
-          const selectable = providerIsSelectable(providerName);
-          const authenticatable = providerCanAuthenticate(providerName);
+        for (const routeId of group.routes) {
+          const selected = routeIds[routePickerState.routeIndex] === routeId;
+          const label = getProviderLabel(routeId);
+          const reason = getProviderReason(routeId);
+          const selectable = providerIsSelectable(routeId);
+          const authenticatable = providerCanAuthenticate(routeId);
           const row = makePickerRow(
-            getProviderRowId(providerName),
+            getProviderRowId(routeId),
             selectable || !reason
               ? label
               : `${label} - ${authenticatable ? "sign in" : reason}`,
@@ -679,20 +711,42 @@ export async function startTui(
             selected ? "● " : "○ ",
           );
           scrollContent.add(row);
-          providerPicker.rows.push(row);
+          executionRoutePicker.rows.push(row);
         }
       }
 
-      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter select/login  r refresh  Esc cancel")}`;
+      executionRoutePicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter select/login  r refresh  Esc cancel")}`;
       return;
     }
 
-    if (providerPickerState.mode === "auth-key") {
-      providerPicker.mode = "auth-key";
+    if (routePickerState.mode === "accounts") {
+      const route = getCurrentRoute();
+      const accountOptions = getAccountOverrideOptions(route);
+      executionRoutePicker.mode = "accounts";
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(` ${route?.label ?? "Execution route"} account `)}`;
+      for (const [index, accountOverrideId] of accountOptions.entries()) {
+        const selected = index === routePickerState.accountOverrideIndex;
+        const row = makePickerRow(
+          `route-account-${index}`,
+          accountOverrideId ?? "Automatic (Kiln)",
+          selected,
+          currentTheme.accent,
+          currentTheme.textMuted,
+          selected ? "• " : "◦ ",
+        );
+        scrollContent.add(row);
+        executionRoutePicker.rows.push(row);
+      }
+      executionRoutePicker.hint.content = t`${fg(currentTheme.textMuted)("up/down navigate  Enter select  Esc back")}`;
+      return;
+    }
+
+    if (routePickerState.mode === "auth-key") {
+      executionRoutePicker.mode = "auth-key";
       const providerName = getCurrentProvider();
-      providerPicker.title.content = t`${fg(currentTheme.accent)(` ${providerName} API key `)}`;
-      const masked = providerPickerState.authKeyBuffer.length > 0
-        ? "*".repeat(Math.min(providerPickerState.authKeyBuffer.length, 48))
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(` ${providerName} API key `)}`;
+      const masked = routePickerState.authKeyBuffer.length > 0
+        ? "*".repeat(Math.min(routePickerState.authKeyBuffer.length, 48))
         : "<paste key>";
       const row = makePickerRow(
         `provider-auth-key-${providerName}`,
@@ -703,15 +757,15 @@ export async function startTui(
         "",
       );
       scrollContent.add(row);
-      providerPicker.rows.push(row);
-      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("paste key  Backspace edit  Enter link  Esc back")}`;
+      executionRoutePicker.rows.push(row);
+      executionRoutePicker.hint.content = t`${fg(currentTheme.textMuted)("paste key  Backspace edit  Enter link  Esc back")}`;
       return;
     }
 
-    if (providerPickerState.mode === "auth-confirm") {
-      providerPicker.mode = "auth-confirm";
+    if (routePickerState.mode === "auth-confirm") {
+      executionRoutePicker.mode = "auth-confirm";
       const providerName = getCurrentProvider();
-      providerPicker.title.content = t`${fg(currentTheme.accent)(` Authenticate ${providerName} `)}`;
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(` Authenticate ${providerName} `)}`;
       const row = makePickerRow(
         `provider-auth-confirm-${providerName}`,
         `Press Enter to start browser sign-in for ${providerName}`,
@@ -721,34 +775,13 @@ export async function startTui(
         "",
       );
       scrollContent.add(row);
-      providerPicker.rows.push(row);
-      providerPicker.hint.content = t`${fg(currentTheme.textMuted)("Enter authenticate  Esc back")}`;
+      executionRoutePicker.rows.push(row);
+      executionRoutePicker.hint.content = t`${fg(currentTheme.textMuted)("Enter authenticate  Esc back")}`;
       return;
     }
 
-    // Model mode
-    providerPicker.mode = "models";
-    const providerName = getCurrentProvider();
-    const models = getCurrentModels();
-
-    providerPicker.title.content = t`${fg(currentTheme.accent)(` ${providerName} models `)}`;
-
-    for (let i = 0; i < models.length; i++) {
-      const selected = i === providerPickerState.modelIndex;
-      const label = models[i] ?? "";
-      const row = makePickerRow(
-        `model-item-${providerName}-${i}`,
-        label,
-        selected,
-        currentTheme.primary,
-        currentTheme.textMuted,
-        selected ? "● " : "  ",
-      );
-      scrollContent.add(row);
-      providerPicker.rows.push(row);
-    }
-
-    providerPicker.hint.content = t`${fg(currentTheme.textMuted)("↑↓ navigate  Enter select  Esc back")}`;
+    // The route catalog is the sole picker authority. Authentication modes
+    // return to the route list above; provider/model discovery is evidence only.
   }
 
   /**
@@ -757,13 +790,13 @@ export async function startTui(
    * remain stable and scrollChildIntoView() works correctly on the same tick.
    */
   function updatePickerSelection(prevIdx: number, nextIdx: number): void {
-    if (!providerPicker) return;
+    if (!executionRoutePicker) return;
 
-    const isProviders = providerPickerState.mode === "providers";
+    const isProviders = routePickerState.mode === "providers";
 
     if (isProviders) {
-      const prevProvider = validProviders[prevIdx];
-      const nextProvider = validProviders[nextIdx];
+      const prevProvider = routeIds[prevIdx];
+      const nextProvider = routeIds[nextIdx];
       if (!prevProvider || !nextProvider) return;
 
       const prevRow = findProviderRow(prevProvider);
@@ -786,9 +819,22 @@ export async function startTui(
       return;
     }
 
-    const names = getCurrentModels();
-    const prevRow = providerPicker.rows[prevIdx];
-    const nextRow = providerPicker.rows[nextIdx];
+    if (routePickerState.mode === "accounts") {
+      const accountOptions = getAccountOverrideOptions();
+      const prevRow = executionRoutePicker.rows[prevIdx];
+      const nextRow = executionRoutePicker.rows[nextIdx];
+      if (prevRow) {
+        prevRow.content = t`${fg(currentTheme.textMuted)(`◦ ${accountOptions[prevIdx] ?? "Automatic (Kiln)"}`)}`;
+      }
+      if (nextRow) {
+        nextRow.content = t`${fg(currentTheme.accent)(`• ${accountOptions[nextIdx] ?? "Automatic (Kiln)"}`)}`;
+      }
+      return;
+    }
+
+    const names = routeIds;
+    const prevRow = executionRoutePicker.rows[prevIdx];
+    const nextRow = executionRoutePicker.rows[nextIdx];
 
     if (prevRow) {
       const label = names[prevIdx] ?? "";
@@ -808,20 +854,23 @@ export async function startTui(
    *                viewport (used on open / mode switch).
    */
   function scrollToSelectedRow(center = false): void {
-    if (!providerPicker) return;
+    if (!executionRoutePicker) return;
 
     const targetRow = (() => {
-      if (providerPickerState.mode === "providers") {
-        const selectedProvider = validProviders[providerPickerState.providerIndex];
+      if (routePickerState.mode === "providers") {
+        const selectedProvider = routeIds[routePickerState.providerIndex];
         return selectedProvider
           ? findProviderRow(selectedProvider)
           : undefined;
       }
-      return providerPicker.rows[providerPickerState.modelIndex];
+      if (routePickerState.mode === "accounts") {
+        return executionRoutePicker.rows[routePickerState.accountOverrideIndex];
+      }
+      return undefined;
     })();
     if (!targetRow) return;
 
-    const scrollBox = providerPicker.scrollBox;
+    const scrollBox = executionRoutePicker.scrollBox;
 
     if (center) {
       const contentY = scrollBox.content.y;
@@ -841,49 +890,82 @@ export async function startTui(
     scrollBox.scrollChildIntoView(targetRow.id);
   }
 
+  async function loadExecutionRouteCatalogFromSession(): Promise<void> {
+    try {
+      const session = await createSession();
+      const catalog = (session as unknown as {
+        executionRouteCatalog?: ExecutionRouteCatalog;
+      }).executionRouteCatalog;
+      if (!catalog || !Array.isArray(catalog.routes) || catalog.routes.length === 0) return;
+      const selectedRouteId = executionRouteCatalog.routes[routePickerState.routeIndex]?.routeId
+        ?? catalog.routes.find((route) => route.providerId === state.currentProvider)?.routeId;
+      executionRouteCatalog = catalog;
+      routeIds = catalog.routes.map((route) => route.routeId);
+      const selectedIndex = selectedRouteId ? routeIds.indexOf(selectedRouteId) : -1;
+      routePickerState.routeIndex = selectedIndex >= 0 ? selectedIndex : 0;
+      routePickerState.providerIndex = routePickerState.routeIndex;
+      const selectedRoute = catalog.routes[routePickerState.routeIndex];
+      if (selectedRoute) {
+        update(state, "currentProvider", selectedRoute.providerId);
+        update(state, "currentModel", selectedRoute.providerModelId);
+      }
+    update(state, "executionRoutePickerIndex", routePickerState.routeIndex);
+      renderExecutionRoutePicker();
+      process.nextTick(() => {
+        scrollToSelectedRow(true);
+      });
+    } catch {
+      // The picker remains usable with the latest catalog/ref projection.
+    }
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
-  // Provider picker lifecycle
+  // Execution route picker lifecycle
   // ─────────────────────────────────────────────────────────────────────────
 
-  function openProviderPicker(): void {
-    if (providerPicker) return;
+  void loadExecutionRouteCatalogFromSession();
 
-    const activeProviderIndex = validProviders.findIndex(
-      (providerName) => providerName === state.currentProvider,
+  function openExecutionRoutePicker(): void {
+    if (executionRoutePicker) return;
+
+    const activeRouteIndex = executionRouteCatalog.routes.findIndex(
+      (route) => route.routeId === state.currentProvider || route.providerId === state.currentProvider,
     );
-    providerPickerState.providerIndex =
-      activeProviderIndex >= 0 ? activeProviderIndex : 0;
-    const activeModels = getCurrentModels();
-    const activeModelIndex = activeModels.indexOf(state.currentModel);
-    providerPickerState.modelIndex = activeModelIndex >= 0 ? activeModelIndex : 0;
-    providerPickerState.mode = "providers";
+    routePickerState.providerIndex = activeRouteIndex >= 0 ? activeRouteIndex : 0;
+    routePickerState.routeIndex = routePickerState.providerIndex;
+    routePickerState.accountOverrideIndex = 0;
+    routePickerState.mode = "providers";
 
-    providerPickerOpen = true;
-    providerPicker = createProviderPicker(
+    executionRoutePickerOpen = true;
+    executionRoutePicker = createExecutionRoutePicker(
       renderer,
       currentTheme,
       terminalWidth,
       terminalHeight,
     );
 
-    update(state, "providerPickerOpen", true);
+    update(state, "executionRoutePickerOpen", true);
 
-    renderProviderPicker();
-    providerPicker.scrollBox.scrollTo(0);
+    renderExecutionRoutePicker();
+    executionRoutePicker.scrollBox.scrollTo(0);
     process.nextTick(() => {
       scrollToSelectedRow(true);
     });
+    void loadExecutionRouteCatalogFromSession();
   }
 
-  async function closeProviderPicker(apply: boolean): Promise<void> {
-    if (!providerPicker) return;
+  async function closeExecutionRoutePicker(
+    apply: boolean,
+    accountOverrideId?: string,
+  ): Promise<void> {
+    if (!executionRoutePicker) return;
 
     const destroyPicker = () => {
-      if (!providerPicker) return;
-      destroyProviderPicker(providerPicker);
-      providerPicker = null;
-      providerPickerOpen = false;
-      update(state, "providerPickerOpen", false);
+      if (!executionRoutePicker) return;
+      destroyExecutionRoutePicker(executionRoutePicker);
+      executionRoutePicker = null;
+      executionRoutePickerOpen = false;
+      update(state, "executionRoutePickerOpen", false);
     };
 
     if (!apply) {
@@ -897,119 +979,102 @@ export async function startTui(
           ? (providerCatalogError ?? "Provider discovery is unavailable")
           : "Provider discovery is still loading");
       }
-      const selectedProvider = getCurrentProvider();
-      if (!providerIsSelectable(selectedProvider)) {
-        throw new Error(getProviderReason(selectedProvider) ?? `Provider '${selectedProvider}' is unavailable`);
-      }
-      const models = getCurrentModels();
-      const selectedModel =
-        providerPickerState.mode === "models"
-          ? (models[providerPickerState.modelIndex] ?? "")
-          : state.currentProvider === selectedProvider
-            ? state.currentModel
-            : "";
-      const canSwitchWithoutModel = isGuiProviderModeless(selectedProvider);
-      if (!selectedModel && !canSwitchWithoutModel) {
-        throw new Error(`Provider '${selectedProvider}' requires a selected model.`);
+      const selectedRoute = getRouteEntries()[routePickerState.routeIndex];
+      if (!selectedRoute || !routeIsSelectable(selectedRoute)) {
+        throw new Error(getRouteReason(selectedRoute) ?? "Execution route is unavailable");
       }
 
       const session = await createSession();
-      const switchProvider =
+      const switchExecutionRoute =
         (
           session as unknown as {
-            switchProvider?: unknown;
+            switchExecutionRoute?: unknown;
           }
-        ).switchProvider;
-      if (typeof switchProvider !== "function") {
-        throw new Error("Active session does not support provider switching");
+        ).switchExecutionRoute;
+      if (typeof switchExecutionRoute !== "function") {
+        throw new Error("Active session does not support execution route selection");
       }
 
-      await (
-        switchProvider as (
-          providerName: string,
-          modelName?: string,
-        ) => Promise<string>
-      )(selectedProvider, selectedModel || undefined);
+      const selectRoute = switchExecutionRoute as (
+        routeId: string,
+        accountOverrideId?: string,
+      ) => Promise<string>;
+      if (accountOverrideId) {
+        await selectRoute(selectedRoute.routeId, accountOverrideId);
+      } else {
+        await selectRoute(selectedRoute.routeId);
+      }
 
-      update(state, "currentProvider", selectedProvider);
-      update(state, "currentModel", selectedModel);
+      update(state, "currentProvider", selectedRoute.providerId);
+      update(state, "currentModel", selectedRoute.providerModelId);
       syncDeliberationLevel();
       update(state, "routeMode", "user");
-      update(state, "providerPickerIndex", providerPickerState.providerIndex);
+      update(state, "executionRoutePickerIndex", routePickerState.routeIndex);
       renderSidebarProvider(state, currentTheme, ui, domain);
       renderSidebarContinuation(state, currentTheme, ui);
     } catch (error) {
       const message =
         error instanceof Error && error.message.trim().length > 0
           ? error.message
-          : "Provider switch failed";
-      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider switch failed: ${message}`)}`;
+          : "Execution route selection failed";
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Execution route selection failed: ${message}`)}`;
     } finally {
       destroyPicker();
     }
   }
 
-  async function refreshProviderDiscoveryFromPicker(): Promise<void> {
-    if (!providerPicker) return;
+  async function refreshExecutionRoutesFromPicker(): Promise<void> {
+    if (!executionRoutePicker) return;
     markProviderCatalog("refreshing");
-    ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Refreshing provider and model discovery...")}`;
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Refreshing execution routes...")}`;
     try {
       const session = await createSession();
-      const sessionRefreshProviders = (
-        session as unknown as { refreshProviders?: unknown }
-      ).refreshProviders;
-      if (typeof sessionRefreshProviders === "function") {
-        await (sessionRefreshProviders as () => Promise<void>).call(session);
+      const sessionRefreshRoutes = (
+        session as unknown as { refreshExecutionRoutes?: unknown }
+      ).refreshExecutionRoutes;
+      if (typeof sessionRefreshRoutes === "function") {
+        await (sessionRefreshRoutes as () => Promise<void>).call(session);
       }
-      await refreshProviders?.();
+      const refreshedCatalog = (session as unknown as {
+        executionRouteCatalog?: ExecutionRouteCatalog;
+      }).executionRouteCatalog;
+      if (refreshedCatalog && refreshedCatalog.routes.length > 0) {
+        const selectedRouteId = getCurrentRoute()?.routeId;
+        executionRouteCatalog = refreshedCatalog;
+        routeIds = refreshedCatalog.routes.map((route) => route.routeId);
+        const selectedIndex = selectedRouteId ? routeIds.indexOf(selectedRouteId) : -1;
+        if (selectedIndex >= 0) {
+          routePickerState.routeIndex = selectedIndex;
+          routePickerState.providerIndex = selectedIndex;
+        }
+      }
+      await refreshProviderDiscovery?.();
       providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
       providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
-      const refreshedModels = providerModelsRef?.current;
-      if (refreshedModels) {
-        providerModels = Object.fromEntries(
-          validProviders.map((providerName) => [providerName, refreshedModels[providerName] ?? []]),
-        );
-      }
       markProviderCatalog("ready");
-      renderProviderPicker();
+      renderExecutionRoutePicker();
       process.nextTick(() => {
         scrollToSelectedRow(false);
       });
-      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Provider discovery refreshed")}`;
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Execution route catalog refreshed")}`;
     } catch (error) {
       const message = error instanceof Error && error.message.trim().length > 0
         ? error.message
-        : "Provider discovery refresh failed";
+        : "Execution route refresh failed";
       markProviderCatalog("error", message);
-      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Provider discovery refresh failed: ${message}`)}`;
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Execution route refresh failed: ${message}`)}`;
     }
   }
 
   function returnToProviderMode(): void {
-    if (!providerPicker) return;
-    if (providerPickerState.mode === "providers") return;
+    if (!executionRoutePicker) return;
+    if (routePickerState.mode === "providers") return;
 
-    providerPickerState.mode = "providers";
-    providerPickerState.authKeyBuffer = "";
-    renderProviderPicker();
-    providerPicker.scrollBox.scrollTo(0);
-    process.nextTick(() => {
-      scrollToSelectedRow(true);
-    });
-  }
-
-  function enterModelMode(): void {
-    if (!providerPicker) return;
-    const models = getCurrentModels();
-    if (models.length === 0) {
-      return;
-    }
-
-    const activeModelIndex = models.indexOf(state.currentModel);
-    providerPickerState.modelIndex = activeModelIndex >= 0 ? activeModelIndex : 0;
-    providerPickerState.mode = "models";
-    renderProviderPicker();
-    providerPicker.scrollBox.scrollTo(0);
+    routePickerState.mode = "providers";
+    routePickerState.accountOverrideIndex = 0;
+    routePickerState.authKeyBuffer = "";
+    renderExecutionRoutePicker();
+    executionRoutePicker.scrollBox.scrollTo(0);
     process.nextTick(() => {
       scrollToSelectedRow(true);
     });
@@ -1048,19 +1113,25 @@ export async function startTui(
           ui.commandBarStatus.content = t`${fg(currentTheme.accent)(`Open ${details.verificationUri} and enter ${details.userCode}`)}`;
         },
       });
-      await refreshProviders?.();
+      const authenticatedCatalog = (session as unknown as {
+        executionRouteCatalog?: ExecutionRouteCatalog;
+      }).executionRouteCatalog;
+      if (!authenticatedCatalog || !Array.isArray(authenticatedCatalog.routes)) {
+        throw new Error("Provider authentication completed without an execution route catalog");
+      }
+      const selectedRouteId = getCurrentRoute()?.routeId;
+      executionRouteCatalog = authenticatedCatalog;
+      routeIds = authenticatedCatalog.routes.map((route) => route.routeId);
+      const selectedIndex = selectedRouteId ? routeIds.indexOf(selectedRouteId) : -1;
+      routePickerState.routeIndex = selectedIndex >= 0 ? selectedIndex : 0;
+      routePickerState.providerIndex = routePickerState.routeIndex;
+      routePickerState.accountOverrideIndex = 0;
       providerDiscovery = providerDiscoveryRef?.current ?? providerDiscovery;
       providerModelDiscovery = providerModelDiscoveryRef?.current ?? providerModelDiscovery;
-      const refreshedModels = providerModelsRef?.current;
-      if (refreshedModels) {
-        providerModels = Object.fromEntries(
-          validProviders.map((providerName) => [providerName, refreshedModels[providerName] ?? []]),
-        );
-      }
       markProviderCatalog("ready");
-      providerPickerState.mode = "providers";
-      providerPickerState.authKeyBuffer = "";
-      renderProviderPicker();
+      routePickerState.mode = "providers";
+      routePickerState.authKeyBuffer = "";
+      renderExecutionRoutePicker();
       ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Provider authentication completed")}`;
     } catch (error) {
       const message = error instanceof Error && error.message.trim().length > 0
@@ -1071,24 +1142,30 @@ export async function startTui(
     }
   }
 
-  function navigateProviderPicker(direction: number): void {
-    if (!providerPicker) return;
+  function navigateExecutionRoutePicker(direction: number): void {
+    if (!executionRoutePicker) return;
 
-    const inProviderMode = providerPickerState.mode === "providers";
-    const choices = inProviderMode ? validProviders : getCurrentModels();
+    const inProviderMode = routePickerState.mode === "providers";
+    const inAccountMode = routePickerState.mode === "accounts";
+    const choices = inAccountMode ? getAccountOverrideOptions() : routeIds;
     if (choices.length === 0) return;
 
     const prevIdx = inProviderMode
-      ? providerPickerState.providerIndex
-      : providerPickerState.modelIndex;
+      ? routePickerState.providerIndex
+      : inAccountMode
+        ? routePickerState.accountOverrideIndex
+        : routePickerState.routeIndex;
     const nextIdx = (prevIdx + direction + choices.length) % choices.length;
     if (nextIdx === prevIdx) return;
 
     if (inProviderMode) {
-      providerPickerState.providerIndex = nextIdx;
-      update(state, "providerPickerIndex", nextIdx);
+      routePickerState.providerIndex = nextIdx;
+      routePickerState.routeIndex = nextIdx;
+      update(state, "executionRoutePickerIndex", nextIdx);
+    } else if (inAccountMode) {
+      routePickerState.accountOverrideIndex = nextIdx;
     } else {
-      providerPickerState.modelIndex = nextIdx;
+      routePickerState.routeIndex = nextIdx;
     }
 
     updatePickerSelection(prevIdx, nextIdx);
@@ -1184,13 +1261,13 @@ export async function startTui(
     ui.sidebarTurnsText.content = t`${fg(currentTheme.textMuted)(`turns: ${state.turns}  tok: ${state.inputTokens >= 1000 ? (state.inputTokens / 1000).toFixed(1) + "k" : state.inputTokens}/${state.outputTokens >= 1000 ? (state.outputTokens / 1000).toFixed(1) + "k" : state.outputTokens}`)}`;
     ui.sidebarDivider.content = t`${fg(currentTheme.border)("─".repeat(38))}`;
 
-    if (providerPicker) {
-      renderProviderPicker();
+    if (executionRoutePicker) {
+      renderExecutionRoutePicker();
     }
 
     renderInput();
     renderCommandBarStatus();
-    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/setup /theme /provider  ctrl+shift+P commands")}`;
+    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/setup /theme /route  ctrl+shift+P commands")}`;
 
     for (const { msg, node } of messageNodes) {
       const parent = node.parent;
@@ -1384,61 +1461,73 @@ export async function startTui(
       return;
     }
 
-    // ── Provider picker ───────────────────────────────────────────────────
-    if (providerPickerOpen) {
-      if (!providerPicker) return;
+    // ── Execution route picker ────────────────────────────────────────────
+    if (executionRoutePickerOpen) {
+      if (!executionRoutePicker) return;
 
       if (key.sequence === "\x1b") {
         if (
           providerCatalogStatus === "ready"
           && (
-            providerPickerState.mode === "models"
-            || providerPickerState.mode === "auth-key"
-            || providerPickerState.mode === "auth-confirm"
+            routePickerState.mode === "accounts"
+            || routePickerState.mode === "auth-key"
+            || routePickerState.mode === "auth-confirm"
           )
         ) {
           returnToProviderMode();
           return;
         }
-        void closeProviderPicker(false);
+        void closeExecutionRoutePicker(false);
         return;
       }
 
       if (providerCatalogStatus !== "ready") {
         if (providerCatalogStatus !== "refreshing" && key.name === "r") {
-          void refreshProviderDiscoveryFromPicker();
+          void refreshExecutionRoutesFromPicker();
         }
         return;
       }
 
       if (key.sequence === "\r" || key.sequence === "\n") {
-        if (providerPickerState.mode === "providers") {
-          const selectedProvider = getCurrentProvider();
-          if (!providerIsSelectable(selectedProvider) && providerCanAuthenticate(selectedProvider)) {
+        if (routePickerState.mode === "providers") {
+          const selectedRoute = getCurrentRoute();
+          const selectedProvider = selectedRoute?.providerId ?? "";
+          if (!routeIsSelectable(selectedRoute) && providerCanAuthenticate(selectedRoute?.routeId ?? "")) {
             const metadata = getGuiProviderMetadata(selectedProvider);
             if (metadata?.authMethod === "api_key") {
-              providerPickerState.mode = "auth-key";
-              providerPickerState.authKeyBuffer = "";
-              renderProviderPicker();
+              routePickerState.mode = "auth-key";
+              routePickerState.authKeyBuffer = "";
+              renderExecutionRoutePicker();
               return;
             }
-            providerPickerState.mode = "auth-confirm";
-            renderProviderPicker();
+            routePickerState.mode = "auth-confirm";
+            renderExecutionRoutePicker();
             return;
           }
-          if (
-            getCurrentModels().length === 0
-            && isGuiProviderModeless(selectedProvider)
-            && providerIsSelectable(selectedProvider)
-          ) {
-            void closeProviderPicker(true);
+          if (!routeIsSelectable(selectedRoute)) {
+            ui.commandBarStatus.content = t`${fg(currentTheme.warning)(getRouteReason(selectedRoute) ?? "Execution route is unavailable")}`;
             return;
           }
-          enterModelMode();
+          if (getAccountOverrideOptions(selectedRoute).length > 0) {
+            routePickerState.mode = "accounts";
+            routePickerState.accountOverrideIndex = 0;
+            renderExecutionRoutePicker();
+            executionRoutePicker.scrollBox.scrollTo(0);
+            process.nextTick(() => {
+              scrollToSelectedRow(true);
+            });
+            return;
+          }
+          void closeExecutionRoutePicker(true);
           return;
         }
-        if (providerPickerState.mode === "auth-key") {
-          const apiKey = providerPickerState.authKeyBuffer.trim();
+        if (routePickerState.mode === "accounts") {
+          const accountOverrideId = getAccountOverrideOptions()[routePickerState.accountOverrideIndex];
+          void closeExecutionRoutePicker(true, accountOverrideId);
+          return;
+        }
+        if (routePickerState.mode === "auth-key") {
+          const apiKey = routePickerState.authKeyBuffer.trim();
           if (apiKey.length === 0) {
             ui.commandBarStatus.content = t`${fg(currentTheme.error)("API key is required")}`;
             return;
@@ -1446,34 +1535,34 @@ export async function startTui(
           void authenticateSelectedProvider(apiKey);
           return;
         }
-        if (providerPickerState.mode === "auth-confirm") {
+        if (routePickerState.mode === "auth-confirm") {
           void authenticateSelectedProvider();
           return;
         }
-        void closeProviderPicker(true);
+        void closeExecutionRoutePicker(true);
         return;
       }
 
-      if (providerPickerState.mode === "auth-key") {
+      if (routePickerState.mode === "auth-key") {
         if (key.name === "backspace" || key.sequence === "\x7f" || key.sequence === "\b") {
-          providerPickerState.authKeyBuffer = providerPickerState.authKeyBuffer.slice(0, -1);
-          renderProviderPicker();
+          routePickerState.authKeyBuffer = routePickerState.authKeyBuffer.slice(0, -1);
+          renderExecutionRoutePicker();
           return;
         }
         if (typeof key.sequence === "string" && key.sequence.length === 1 && key.sequence >= " ") {
-          providerPickerState.authKeyBuffer += key.sequence;
-          renderProviderPicker();
+          routePickerState.authKeyBuffer += key.sequence;
+          renderExecutionRoutePicker();
           return;
         }
         return;
       }
 
-      if (providerPickerState.mode === "auth-confirm") {
+      if (routePickerState.mode === "auth-confirm") {
         return;
       }
 
-      if (providerPickerState.mode === "providers" && key.name === "r") {
-        void refreshProviderDiscoveryFromPicker();
+      if (routePickerState.mode === "providers" && key.name === "r") {
+        void refreshExecutionRoutesFromPicker();
         return;
       }
 
@@ -1482,7 +1571,7 @@ export async function startTui(
         key.sequence === "\x1b[A" ||
         key.name === "k"
       ) {
-        navigateProviderPicker(-1);
+        navigateExecutionRoutePicker(-1);
         return;
       }
 
@@ -1491,7 +1580,7 @@ export async function startTui(
         key.sequence === "\x1b[B" ||
         key.name === "j"
       ) {
-        navigateProviderPicker(1);
+        navigateExecutionRoutePicker(1);
         return;
       }
 
@@ -1627,15 +1716,21 @@ export async function startTui(
           ui.commandBarStatus.content = t`${fg(currentTheme.warning)("Cannot continue: session route evidence is unavailable.")}`;
           return;
         }
-        if (!onContinueSession?.(selectedSession)) {
+        const selectedRoute = executionRouteCatalog.routes.find(
+          (route) => route.routeId === selectedSession.lastRoute?.routeId,
+        );
+        if (!selectedRoute || !routeIsSelectable(selectedRoute)) {
           update(state, "sessionContinuationMode", false);
-          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: provider ${selectedSession.lastRoute.provider} is unavailable.`)}`;
+          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: execution route ${selectedSession.lastRoute.routeId} is unavailable.`)}`;
           return;
         }
-        update(state, "currentProvider", selectedSession.lastRoute.provider);
-        if (selectedSession.lastRoute.model) {
-          update(state, "currentModel", selectedSession.lastRoute.model);
+        if (!onContinueSession?.(selectedSession)) {
+          update(state, "sessionContinuationMode", false);
+          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: execution route ${selectedRoute.routeId} is unavailable.`)}`;
+          return;
         }
+        update(state, "currentProvider", selectedRoute.providerId);
+        update(state, "currentModel", selectedRoute.providerModelId);
         update(state, "routeMode", "user");
         update(state, "sessionContinuationMode", false);
         renderSidebarProvider(state, currentTheme, ui, domain);
@@ -1648,7 +1743,7 @@ export async function startTui(
         return;
       }
 
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/provider" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/route" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1685,8 +1780,8 @@ export async function startTui(
             return;
           }
 
-          if (inputText === "/provider") {
-            openProviderPicker();
+          if (inputText === "/route") {
+            openExecutionRoutePicker();
             return;
           }
 
@@ -1802,8 +1897,8 @@ export async function startTui(
             openThemePicker();
             return;
           }
-          if (cmd.id === "provider") {
-            openProviderPicker();
+          if (cmd.id === "route") {
+            openExecutionRoutePicker();
             return;
           }
           if (cmd.id === "deliberation") {

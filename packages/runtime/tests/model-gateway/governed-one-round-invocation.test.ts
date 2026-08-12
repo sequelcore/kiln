@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createAccountPolicyId,
   createAccountRef,
   type ModelTurnResult,
 } from "@kilnai/core";
@@ -15,6 +14,12 @@ const route = {
   providerId: "fixture",
   providerModelId: "model",
   scope: "virtual:fixture",
+};
+const admission = {
+  routeId: "route",
+  providerId: route.providerId,
+  providerModelId: route.providerModelId,
+  accountSelection: { mode: "exact" as const, accountId: "account", source: "route" as const },
 };
 const result: ModelTurnResult = {
   parts: [{ type: "text", text: "ok" }],
@@ -39,9 +44,18 @@ function fixture() {
   const ports: GovernedOneRoundInvocationPorts = {
     candidateCatalog: {
       list: async () => ({
-        accountPolicyId: createAccountPolicyId("gateway:test"),
-        candidates: [
-          {
+        admission,
+        candidates: [{
+          candidate: {
+            accountId: "account",
+            safety: "eligible",
+            health: "healthy",
+            quota: "available",
+            capacity: "available",
+            economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" } },
+            pressure: 0,
+          },
+          lease: {
             candidate: {
               account: createAccountRef("account"),
               route,
@@ -55,7 +69,7 @@ function fixture() {
             usageEvidence: { health: "healthy", freshness: "missing" },
             capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
           },
-        ],
+        }],
       }),
     },
     accountCapacityAuthority: authority,

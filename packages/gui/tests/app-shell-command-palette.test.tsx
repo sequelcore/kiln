@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
@@ -9,7 +10,7 @@ const waitForHealthMock = vi.fn();
 const sendMock = vi.fn();
 let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open";
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
-const providerPickerPropsLog: Array<{
+const executionRoutePickerPropsLog: Array<{
   open: boolean;
   finalFocus?: { readonly current: HTMLElement | null };
   onOpenChange: (open: boolean) => void;
@@ -180,19 +181,16 @@ vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
 
-vi.mock("../src/components/provider-picker.js", () => ({
-  ProviderPicker: (props: {
+vi.mock("../src/components/ai-elements/model-selector.js", () => ({
+  ModelSelector: (props: {
     open: boolean;
     finalFocus?: { readonly current: HTMLElement | null };
     onOpenChange: (open: boolean) => void;
+    children: ReactNode;
   }) => {
-    providerPickerPropsLog.push(props);
-    return null;
+    executionRoutePickerPropsLog.push(props);
+    return <>{props.children}</>;
   },
-}));
-
-vi.mock("../src/components/provider-status.js", () => ({
-  ProviderStatus: () => <div>Provider status</div>,
 }));
 
 vi.mock("../src/components/transcript.js", () => ({
@@ -218,8 +216,8 @@ vi.mock("../src/components/composer.js", () => ({
         Open composer commands
       </button>
       <div data-slot="command">
-        <button type="button" onClick={() => commandMenu.onExecute({ id: "provider", label: "Provider" })}>
-          Run provider command
+        <button type="button" onClick={() => commandMenu.onExecute({ id: "route", label: "Execution route" })}>
+          Run execution-route command
         </button>
       </div>
       <button type="button" onClick={() => onSubmit({ text: "hello target" })}>
@@ -329,7 +327,7 @@ function latestPaletteProps(): { open: boolean } | undefined {
 
 describe("AppShell command palette and telemetry regressions", () => {
   beforeEach(() => {
-    providerPickerPropsLog.length = 0;
+    executionRoutePickerPropsLog.length = 0;
     vi.restoreAllMocks();
     wsState = "open";
     appShellFrameInput = null;
@@ -387,37 +385,37 @@ describe("AppShell command palette and telemetry regressions", () => {
     });
   });
 
-  it("preserves the original provider-picker focus authority across repeated Ctrl+P", async () => {
+  it("preserves the original execution-route-picker focus authority across repeated Ctrl+P", async () => {
     render(<AppShell />);
     const origin = await screen.findByRole("button", { name: "Open composer commands" });
     origin.focus();
 
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     await waitFor(() => {
-      expect(providerPickerPropsLog.at(-1)?.open).toBe(true);
+      expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true);
     });
-    expect(providerPickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+    expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
 
     screen.getByRole("button", { name: "Switch to execute" }).focus();
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
 
-    expect(providerPickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+    expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
   });
 
-  it("mounts the provider picker on first use from a composer command", async () => {
+  it("mounts the execution route picker on first use from a composer command", async () => {
     render(<AppShell />);
 
-    const command = await screen.findByRole("button", { name: "Run provider command" });
+    const command = await screen.findByRole("button", { name: "Run execution-route command" });
     command.focus();
     fireEvent.click(command);
 
-    await waitFor(() => expect(providerPickerPropsLog.at(-1)?.open).toBe(true));
-    expect(providerPickerPropsLog.at(-1)?.finalFocus?.current).toBe(screen.getByLabelText("Mock composer input"));
+    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
+    expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(screen.getByLabelText("Mock composer input"));
 
-    act(() => providerPickerPropsLog.at(-1)?.onOpenChange(false));
-    await waitFor(() => expect(providerPickerPropsLog.at(-1)?.open).toBe(false));
+    act(() => executionRoutePickerPropsLog.at(-1)?.onOpenChange(false));
+    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(false));
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
-    await waitFor(() => expect(providerPickerPropsLog.at(-1)?.open).toBe(true));
+    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
   });
 
   it("toggles one persistent terminal panel across workbench surfaces with Ctrl+`", async () => {
@@ -587,20 +585,22 @@ describe("AppShell command palette and telemetry regressions", () => {
     });
   });
 
-  it("applies fresh dashboard providers to the provider store", async () => {
+  it("applies the fresh dashboard execution-route catalog to the route store", async () => {
     dashboardQueryResult = {
       data: {
         ...dashboardData,
-        providers: [
-          {
-            id: "openai",
-            label: "OpenAI",
-            group: "direct-api" as const,
-            free: false,
-            available: true,
-            models: ["gpt-5.4"],
-          },
-        ],
+        executionRouteCatalog: {
+          routes: [{
+            routeId: "openai-gpt",
+            label: "OpenAI GPT",
+            providerId: "openai",
+            providerModelId: "gpt-5.4",
+            accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true },
+            availability: "available",
+            reasonCodes: [],
+            repairActions: [],
+          }],
+        },
       },
       error: null,
       isSuccess: true,
@@ -610,12 +610,8 @@ describe("AppShell command palette and telemetry regressions", () => {
     render(<AppShell />);
 
     await waitFor(() => {
-      expect(useSessionStore.getState().providers).toEqual([
-        expect.objectContaining({
-          id: "openai",
-          available: true,
-          models: ["gpt-5.4"],
-        }),
+      expect(useSessionStore.getState().executionRouteCatalog.routes).toEqual([
+        expect.objectContaining({ routeId: "openai-gpt", availability: "available" }),
       ]);
     });
   });

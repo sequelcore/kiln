@@ -28,6 +28,7 @@ import type {
   TurnTemporalContext,
   ProviderTransportObserver,
   ProviderTransportWatchdog,
+  ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { KilnMcpClient } from "@kilnai/core";
@@ -328,6 +329,10 @@ export interface PerCallToolConfig {
   /** Per-turn temporal reference, derived at the operator surface rather than persisted in the session prompt. */
   readonly temporalContext?: TurnTemporalContext;
   readonly executionScope?: SessionExecutionScope;
+  /** Exact account/credential identity fenced for this operator turn. */
+  readonly executionBinding?: Extract<ExecutionSessionBindingEvidence, { readonly status: "bound" }>;
+  /** Credential material resolved after the dispatch fence. */
+  readonly executionCredential?: unknown;
   readonly workingDirectory?: string;
   /** Sandbox policy and validators applied to builtin tool execution for this call. */
   readonly sandbox?: unknown;

@@ -27,7 +27,7 @@ import {
   isPooledDirectProviderId,
   OpenCodeCredentialPoolService,
 } from "../agents/credential-pool/index.js";
-import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer } from "@kilnai/core";
+import type { ProviderAdapter, ProviderConfig, App, ToolDefinition, SttAdapter, TtsAdapter, VoiceConfig, Capability, IntegrationAdapter, SecurityConfig, ResolvedMcpServer, ExecutionCatalog } from "@kilnai/core";
 import { ActionEffectAuthorizer } from "@kilnai/core";
 import type { AppGraphResponse } from "./dev-routes-types.js";
 import { EventBus, CostTracker } from "@kilnai/core";
@@ -38,6 +38,11 @@ import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
 import { startModelGatewayListener } from "../model-gateway/model-gateway-listener.js";
+import type {
+  ModelGatewayExecutionCandidatePort,
+  ModelGatewayExecutionRoutingPort,
+} from "../model-gateway/model-gateway-ingress.js";
+import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
@@ -145,8 +150,21 @@ export interface StartGatewayOptions {
   /** Canonical effective project MCP servers. Apps may only admit these identities by id. */
   readonly canonicalMcpServers?: ReadonlyMap<string, ResolvedMcpServer>;
   readonly mcpCredentialResolver?: (credentialId: string) => string | undefined;
+  /**
+   * Canonical execution authority for the private model gateway. This bundle
+   * is required whenever `modelGateway` is enabled in the gateway config;
+   * startup never derives it from the model-gateway overlay.
+   */
+  readonly modelGatewayExecution?: ModelGatewayExecutionBundle;
   /** Test seam for the dedicated loopback model-gateway listener. */
   readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void };
+}
+
+export interface ModelGatewayExecutionBundle {
+  readonly executionCatalog: ExecutionCatalog;
+  readonly executionRouting: ModelGatewayExecutionRoutingPort;
+  readonly executionCandidates: ModelGatewayExecutionCandidatePort;
+  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
 }
 
 export async function closeGatewayResources(actions: readonly (() => void | Promise<void>)[]): Promise<void> {
@@ -367,8 +385,16 @@ export async function startGateway(configPath: string, options?: StartGatewayOpt
   const gatewayConfig = parseGatewayYaml(content);
   const gatewayYamlDir = dirname(configPath);
   const port = options?.port ?? gatewayConfig.port;
+  const modelGatewayExecution = options?.modelGatewayExecution;
   if (gatewayConfig.modelGateway?.port === port) {
     throw new KilnError("CONFIG_INVALID", "The effective main gateway port must differ from the model gateway port.", { context: { port } });
+  }
+  if (gatewayConfig.modelGateway && modelGatewayExecution === undefined) {
+    throw new KilnError(
+      "CONFIG_INVALID",
+      "Model gateway execution composition is required when modelGateway is configured.",
+      { context: { configPath } },
+    );
   }
 
   const resolvedApps = resolveApps(gatewayConfig, gatewayYamlDir);
@@ -1516,6 +1542,7 @@ REASONING: <one sentence explanation>`;
     if (gatewayConfig.modelGateway) {
       modelGatewayRuntime = await startModelGatewayListener({
         config: gatewayConfig.modelGateway,
+        ...modelGatewayExecution!,
         databasePath: join(gatewayYamlDir, ".kiln", "model-gateway", "model-gateway.sqlite"),
         ...(options?.modelGatewayListener === undefined ? {} : { listen: options.modelGatewayListener }),
       });

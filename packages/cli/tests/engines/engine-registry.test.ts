@@ -13,7 +13,7 @@ const baseConfig: KilnGlobalConfig = {
     codex: { enabled: true, billing: "plus-quota" },
     opencode: { enabled: true, billing: "free" },
   },
-  routing: {
+  workerRouting: {
     defaultWorker: "codex",
     fallback: "opencode",
     budgetAware: true,
@@ -92,8 +92,8 @@ describe("EngineRegistry", () => {
   it("uses ordered routing routes before scalar default and fallback fields", () => {
     const route = resolveEngineRoute({
       ...baseConfig,
-      routing: {
-        ...baseConfig.routing,
+      workerRouting: {
+        ...baseConfig.workerRouting,
         defaultWorker: "opencode",
         fallback: "opencode",
         routes: [
@@ -112,7 +112,7 @@ describe("EngineRegistry", () => {
   it("keeps default worker when budget awareness is disabled", () => {
     const route = resolveEngineRoute({
       ...baseConfig,
-      routing: { ...baseConfig.routing, budgetAware: false },
+      workerRouting: { ...baseConfig.workerRouting, budgetAware: false },
     }, {
       getDailyTokensUsed: () => 150,
     });

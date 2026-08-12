@@ -8,9 +8,17 @@
 import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
 import type { OperatorSessionTurnOutcome } from "./operator-session-summary.js";
 import type { OperatorWorkspaceHomeProjection } from "./operator-workspace-home.js";
+import type {
+  ExecutionRouteCatalog,
+  ExecutionRouteChangeFailed,
+  ExecutionRouteChanged,
+  ExecutionRouteSelectionIntent,
+  ExecutionRouteThreadMeta,
+} from "./execution-route.js";
 
 // --- Dashboard / HTTP response shapes ---
 
+/** Provider discovery metadata; this is diagnostic evidence, not selection authority. */
 export interface GuiProviderDescriptor {
   readonly id: string;
   readonly label: string;
@@ -158,6 +166,7 @@ export interface GuiAuthorityStatus {
   readonly completeness: GuiAuthorityCompleteness;
 }
 
+/** Provider/model capability evidence; not an operator route selection contract. */
 export interface GuiProviderModelCapabilities {
   readonly supportsFunctionTools?: boolean;
   readonly supportsRuntimeTools?: boolean;
@@ -221,6 +230,7 @@ export interface GuiModelRoutingRationale {
   readonly overrideSource?: string;
 }
 
+/** Runtime provider discovery evidence, retained separately from route authority. */
 export interface GuiProviderDiscoveryResult {
   readonly provider: string;
   readonly available: boolean;
@@ -328,6 +338,7 @@ export interface GuiProviderModelRouteEntry {
   readonly eligibility: GuiProviderModelEligibility;
 }
 
+/** Provider discovery projection; route selection uses ExecutionRouteCatalog instead. */
 export interface GuiProviderModelDiscoveryProjection {
   readonly catalogEvidence: GuiProviderCatalogEvidenceSummary;
   readonly entries: readonly GuiProviderModelRouteEntry[];
@@ -358,9 +369,13 @@ export interface GuiProviderAuthCompleted {
   readonly type: "provider_auth_completed";
   readonly provider: string;
   readonly requestId: string;
+  readonly executionRouteCatalog: ExecutionRouteCatalog;
+  /** Provider discovery evidence retained for setup diagnostics. */
   readonly models: Record<string, string[]>;
+  /** Provider discovery evidence retained for setup diagnostics. */
   readonly providerDiscovery: readonly GuiProviderDiscoveryResult[];
   readonly providers?: readonly GuiProviderDescriptor[];
+  /** Provider discovery projection; never a route-selection authority. */
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
 }
 
@@ -371,13 +386,6 @@ export interface GuiProviderAuthFailed {
   readonly message: string;
 }
 
-export interface GuiProviderChangeFailed {
-  readonly type: "provider_change_failed";
-  readonly provider?: string;
-  readonly model?: string;
-  readonly requestId: string;
-  readonly reason: string;
-}
 export interface GuiTelemetrySnapshot {
   readonly status: string;
   readonly dominantRegions: readonly string[];
@@ -388,13 +396,6 @@ export interface GuiTelemetrySnapshot {
 export interface GuiContinuationInfo {
   readonly strategy: string;
   readonly feedbackLabel?: string;
-}
-
-export interface GuiProviderThreadMeta {
-  readonly provider: string;
-  readonly providerSessionId?: string;
-  readonly lastModel?: string;
-  readonly lastUsedAt?: string;
 }
 
 export interface GuiWorkspaceTreeEntry {
@@ -426,6 +427,8 @@ export interface GuiAppDescriptor {
 }
 
 export interface GuiDashboardSnapshot {
+  readonly executionRouteCatalog: ExecutionRouteCatalog;
+  /** Provider discovery/status evidence; route selection uses executionRouteCatalog. */
   readonly providers: readonly GuiProviderDescriptor[];
   readonly telemetry: GuiTelemetrySnapshot;
   readonly continuationInfoByProvider: Readonly<Record<string, GuiContinuationInfo>>;
@@ -445,9 +448,9 @@ export interface GuiSessionMeta {
   readonly title?: string;
   readonly summary?: string;
   readonly tags?: readonly string[];
-  readonly providersUsed?: readonly string[];
-  readonly lastProvider?: string;
-  readonly providerThreads?: readonly GuiProviderThreadMeta[];
+  readonly routesUsed?: readonly string[];
+  readonly lastRouteId?: string;
+  readonly routeThreads?: readonly ExecutionRouteThreadMeta[];
   readonly task: string;
   readonly startedAt: string;
   readonly completedAt?: string;
@@ -463,7 +466,11 @@ export interface GuiSessionMeta {
   };
   readonly resumeOutcome?: {
     readonly succeeded: boolean;
+    readonly finalRouteId?: string;
+    /** Derived execution evidence, not a selection authority. */
     readonly finalProvider?: string;
+    /** Derived execution evidence, not a selection authority. */
+    readonly finalModel?: string;
     readonly costUsd: number;
     readonly toolCallCount: number;
     readonly durationMs: number;
@@ -475,7 +482,11 @@ export interface GuiSessionMeta {
     readonly workingDirectory?: string;
     readonly worktreePath?: string;
     readonly lastError?: string;
+    readonly lastRouteId?: string;
+    /** Derived execution evidence, not a selection authority. */
     readonly lastProvider?: string;
+    /** Derived execution evidence, not a selection authority. */
+    readonly lastModel?: string;
     readonly toolCallCount?: number;
     readonly turnDepth?: number;
   };
@@ -1184,7 +1195,7 @@ export type GuiOutboundFrame =
       reason?: string;
     }
   | { type: "clear" }
-  | { type: "refresh_providers" }
+  | { type: "refresh_execution_routes" }
   | {
       type: "provider_auth";
       provider: string;
@@ -1193,7 +1204,7 @@ export type GuiOutboundFrame =
       tier?: "go" | "zen";
       flow?: "browser" | "device_code";
     }
-  | { type: "provider"; provider: string; model?: string; requestId: string }
+  | ({ type: "execution_route"; requestId: string } & ExecutionRouteSelectionIntent)
   | OperatorThemeSetResultFrame
   | { type: "continue"; sessionId: string; gatewayTargetId?: string }
   | GuiBrowserSessionControlFrame
@@ -1252,7 +1263,10 @@ export type GuiInboundFrame =
       inputTokens: number;
       outputTokens: number;
       outcome: OperatorSessionTurnOutcome;
+      routedRouteId?: string;
+      /** Derived execution evidence; route identity remains authoritative. */
       routedProvider?: string;
+      /** Derived execution evidence; route identity remains authoritative. */
       routedModel?: string;
       routingRationale?: GuiModelRoutingRationale;
       runtimeContinuity?: {
@@ -1283,12 +1297,12 @@ export type GuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
-      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
+      executionRouteCatalog: ExecutionRouteCatalog;
       greeting?: string;
-      models?: Record<string, string[]>;
-      providerDiscovery?: readonly GuiProviderDiscoveryResult[];
-      providers?: readonly GuiProviderDescriptor[];
+      activeRouteId?: string;
+      /** Derived execution evidence; route identity remains authoritative. */
       activeProvider?: string;
+      /** Derived execution evidence; route identity remains authoritative. */
       activeModel?: string;
       executionMode?: OperatorExecutionMode;
       workingDirectory?: string;
@@ -1309,14 +1323,11 @@ export type GuiInboundFrame =
     | GuiProviderAuthCompleted
     | GuiProviderAuthFailed
     | {
-      type: "providers_refreshed";
-      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
-      models?: Record<string, string[]>;
-      providerDiscovery?: readonly GuiProviderDiscoveryResult[];
-      providers?: readonly GuiProviderDescriptor[];
+      type: "execution_routes_refreshed";
+      executionRouteCatalog: ExecutionRouteCatalog;
     }
-    | { type: "provider_changed"; provider: string; model?: string; requestId: string }
-    | GuiProviderChangeFailed
+    | ExecutionRouteChanged
+    | ExecutionRouteChangeFailed
     | { type: "continuation_selected"; sessionId: string; gatewayTargetId?: string };
 
 /** Connection lifecycle states for the GUI session WebSocket client. */

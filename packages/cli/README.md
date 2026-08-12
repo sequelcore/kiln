@@ -74,8 +74,7 @@ kiln run "Implement the login page"
 
 Useful flags:
 
-- `--provider <name>` to select the provider for the run
-- `--model <name>` to select the model for providers that require model selection
+- `--route <id>` to select an admitted execution route from the global catalog
 - `--output answer` to write only assistant content to stdout for exact-format evals
 - `--output json` to write a structured `kiln.run.output.v1` envelope
 - `--deliberation-level <id>` to request one advertised model deliberation level
@@ -107,8 +106,6 @@ kiln tui
 
 Useful flags:
 
-- `--provider <name>` to select the initial provider
-- `--model <name>` to select the initial model
 - `--theme <name>` to select a theme
 - `--port <number>` to override the local TUI gateway port
 - `--plan` to start in plan mode
@@ -122,8 +119,9 @@ The default gateway path keeps TUI conversations on the runtime session
 pipeline so provider routing, continuity, approvals, deliberation, and
 sidebar route labels reflect the actual backend used for each turn.
 
-Inside the TUI, use `/provider` to change provider/model and `/deliberation` to
-cycle provider default and the active model's advertised levels.
+Inside the TUI, use `/route` to choose an execution route and, for automatic
+routes, either `Automatic (Kiln)` or an eligible account override. Use
+`/deliberation` to cycle the admitted model's advertised levels.
 
 ### `kiln gateway`
 

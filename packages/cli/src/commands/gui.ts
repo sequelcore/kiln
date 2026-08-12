@@ -4,8 +4,6 @@ import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import {
   readGlobalConfig,
-  resolveGlobalDefaultModel,
-  resolveGlobalDefaultProvider,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
@@ -32,7 +30,6 @@ import {
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
-import { resolveEffectiveProvider } from "../config/env-config.js";
 import { resolveOperatorVoiceRuntime } from "../config/operator-voice.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
@@ -56,10 +53,17 @@ import {
 import { makeMultiProviderSessionFactory } from "./tui.js";
 import {
   getProjectContextArtifactCache,
+  type OperatorTurnDispatchResult,
+  type OperatorTurnGuiDispatchPayload,
   withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
 } from "@kilnai/runtime";
+import {
+  createOperatorTurnDispatchComposition,
+  resolveOperatorContinuationBinding,
+} from "../application/operator-turn-dispatch-composition.js";
+import { defineExecutionCatalog } from "@kilnai/core";
 import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
 import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
@@ -71,13 +75,13 @@ import { createGuiDevServerOutput } from "./gui-dev-server-output.js";
 import { stopGuiChildProcess } from "./gui-child-process.js";
 import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
 import {
+  createOperatorExecutionRouteSelectionPort,
+  resolveOperatorStartupExecutionRoute,
+} from "../application/operator-execution-route-selection.js";
+import {
   createGuiCommandOutput,
   type GuiCommandOutput,
 } from "./gui-command-output.js";
-import {
-  persistGuiProviderSelectionPreference,
-  resolveGuiProviderSelectionPreference,
-} from "../application/operator-provider-preferences.js";
 import {
   createOperatorCockpitReadOnlyViewState,
   createOperatorWorkspaceConfigHealthSummary,
@@ -101,7 +105,6 @@ export interface GuiFlags {
   readonly cwd?: string;
   readonly connect?: string;
   readonly open?: boolean;
-  readonly provider?: string;
   readonly theme?: string;
   readonly plan?: boolean;
 }
@@ -146,8 +149,11 @@ export async function guiCommand(
   const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
-  const provider = parseProvider(resolveEffectiveProvider(flags.provider, resolveGlobalDefaultProvider(globalConfig)), providerIds);
-  const startupModel = resolveGlobalDefaultModel(globalConfig);
+  if (!globalConfig) throw new Error("An execution-route global configuration is required to start the GUI.");
+  if (!globalConfig.executionCatalog) throw new Error("An execution catalog is required to start the GUI.");
+  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig);
+  const provider = parseStartupProvider(startupRoute.providerId, providerIds);
+  const startupModel = startupRoute.providerModelId;
   const transcriptStore = new TranscriptStore(cwd);
   await recoverStaleOpenTranscriptSessions({
     transcriptStore,
@@ -256,33 +262,40 @@ export async function guiCommand(
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
-  const startupProviderSelection = resolveGuiProviderSelectionPreference(globalConfig);
-  if (!flags.provider && startupProviderSelection) {
-    sessionManager.setProvider(startupProviderSelection.provider);
-    sessionManager.setModel(startupProviderSelection.model ?? "");
-  }
   const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
   startupProfiler.mark("bootstrap-context-ready");
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
+  const operatorExecutionCatalog = defineExecutionCatalog(globalConfig.executionCatalog);
+  const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>({
+    catalog: operatorExecutionCatalog,
+    cwd,
+  });
+  const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
+    readConfig: () => readGlobalConfig() ?? globalConfig,
+    resolveAccountAvailability: operatorTurnComposition.resolveExecutionRouteAccountAvailability,
+  });
   const { startGuiGateway } = await import("@kilnai/runtime");
   startupProfiler.mark("gateway-start-requested");
   const gateway = await startGuiGateway({
     port,
     guiAssetMode: mode === "dev" ? "external" : "bundled",
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
-    getSnapshot: async (context) => buildDashboardSnapshot(
-      registry,
-      sessionStore,
-      transcriptStore,
-      providerDisplay,
-      context?.operatorModels ?? {},
-      context?.operatorDiscovery ?? [],
-      cwd,
-      bootstrapContext.domainLabel,
-      workspaceExplorer,
-    ),
+    getSnapshot: async (context) => ({
+      ...await buildDashboardSnapshot(
+        registry,
+        sessionStore,
+        transcriptStore,
+        providerDisplay,
+        context?.operatorModels ?? {},
+        context?.operatorDiscovery ?? [],
+        cwd,
+        bootstrapContext.domainLabel,
+        workspaceExplorer,
+      ),
+      executionRouteCatalog: await executionRouteSelection.getCatalog(),
+    }),
     getSetupSnapshot: async () => (await readConfigStatusSnapshot({ projectPath: cwd })).setup,
     executeSetupAction: async (action) => executeConfigSetupAction({ projectPath: cwd, action }),
     loadOperatorSessionHistory: () => loadOperatorSessionSummaries(sessionStore, transcriptStore),
@@ -291,10 +304,7 @@ export async function guiCommand(
     domainLabel: bootstrapContext.domainLabel,
     workspaceExplorer,
     updateThemePreference: (theme) => persistGuiThemePreference(theme, globalConfig),
-    resolveProviderPreference: () => resolveGuiProviderSelectionPreference(readGlobalConfig() ?? globalConfig),
-    updateProviderPreference: (selection) => {
-      persistGuiProviderSelectionPreference(selection.provider, selection.model ?? null);
-    },
+    executionRouteSelection,
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     initialOperatorDiscovery,
@@ -304,10 +314,31 @@ export async function guiCommand(
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,
+      operatorTurnDispatcher: operatorTurnComposition.dispatcher,
+      operatorTurnExecutionBridge: operatorTurnComposition.bridge,
       systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
-      onContinueSession: (sessionId) => {
-        sessionManager.setContinuationSession(sessionId);
+      onContinueSession: async (sessionId, requestedRouteId) => {
+        const meta = await transcriptStore.readMeta(sessionId);
+        const binding = [...(meta?.executionBindings ?? [])].reverse().find((entry) => entry.status === "bound");
+        const routeId = requestedRouteId ?? binding?.routeId;
+        const route = routeId
+          ? operatorExecutionCatalog.routes.find((candidate) => candidate.id === routeId)
+          : undefined;
+        if (!binding || !route) throw new Error("Continuation account binding is unavailable.");
+        const continuation = await resolveOperatorContinuationBinding({
+          catalog: operatorExecutionCatalog,
+          accountRuntime: operatorTurnComposition.accountRuntime,
+          binding,
+          requestedRouteId: route.id,
+        });
+        if (!continuation || !sessionManager.setProvider(route.providerId)) {
+          throw new Error("Continuation route/account binding is no longer executable.");
+        }
+        sessionManager.setModel(route.providerModelId);
+        if (!sessionManager.setContinuationSession(sessionId, route.providerId)) {
+          throw new Error("Continuation session is unavailable for the committed provider.");
+        }
       },
       resumeSessionHydrator,
       contextArtifactCache,
@@ -368,6 +399,7 @@ export async function guiCommand(
       } finally {
         operatorEconomicAuthority?.close();
         gateway.shutdown();
+        operatorTurnComposition.close();
       }
     }
     throw error;
@@ -386,6 +418,7 @@ export async function guiCommand(
       } finally {
         operatorEconomicAuthority?.close();
         gateway.shutdown();
+        operatorTurnComposition.close();
       }
     }
   }, output, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
@@ -416,16 +449,16 @@ async function guiAttachCommand(
   }
 }
 
-function parseProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId | null {
+function parseStartupProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
   const provider = typeof p === "string" ? p.trim() : "";
   if (provider.length === 0) {
-    return null;
+    throw new Error("The configured execution route does not specify a provider.");
   }
   if (providerIds.includes(provider as ProviderId)) {
     return provider as ProviderId;
   }
   throw new Error(
-    `Unknown GUI provider '${provider}'. Configure one of: ${providerIds.join(", ")}`,
+    `The configured GUI execution route uses unsupported provider '${provider}'. Configure one of: ${providerIds.join(", ")}`,
   );
 }
 
@@ -525,6 +558,7 @@ async function buildDashboardSnapshot(
   });
 
   return {
+    executionRouteCatalog: { routes: [] },
     providers: providerDescriptors,
     telemetry,
     continuationInfoByProvider,

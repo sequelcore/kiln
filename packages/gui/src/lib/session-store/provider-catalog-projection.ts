@@ -1,10 +1,7 @@
 import type {
   GuiProviderCatalogStatus,
-  GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import { isGuiProviderModeless } from "@kilnai/gateway-contracts";
-import { providerRequiresSelectedModelMessage } from "./provider-request-correlation.js";
-
 /**
  * Provider-catalog shape and canonical-eligibility projection. Runtime is the
  * authority on provider/model eligibility (`GuiProviderModelDiscoveryProjection`);
@@ -102,64 +99,4 @@ export function areProviderDescriptorsEqual(
     }
   }
   return true;
-}
-
-export function providerSelectionEligibility(
-  provider: ProviderDescriptor,
-  model: string | null,
-  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
-): { readonly eligible: boolean; readonly reasonCodes: readonly string[] } {
-  if (!provider.available) {
-    return { eligible: false, reasonCodes: [] };
-  }
-  if (isGuiProviderModeless(provider.id) && provider.models.length === 0) {
-    return { eligible: model === null, reasonCodes: [] };
-  }
-  if (!discovery) {
-    return {
-      eligible: false,
-      reasonCodes: ["canonical provider model discovery is unavailable"],
-    };
-  }
-  const entry = model === null
-    ? undefined
-    : discovery.entries.find((candidate) => (
-        candidate.providerRoute.providerId === provider.id
-        && candidate.providerRoute.providerModelId === model
-      ));
-  return entry?.eligibility ?? {
-    eligible: false,
-    reasonCodes: ["not present in canonical provider model discovery"],
-  };
-}
-
-export function providerSupportsSelection(
-  provider: ProviderDescriptor,
-  model: string | null,
-  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
-): boolean {
-  return providerSelectionEligibility(provider, model, discovery).eligible;
-}
-
-export function providerHasSelectableSurface(provider: ProviderDescriptor): boolean {
-  return provider.available && (provider.models.length > 0 || isGuiProviderModeless(provider.id));
-}
-
-export function providerSelectionFailureMessage(
-  provider: ProviderDescriptor,
-  model: string | null,
-  discovery: GuiProviderModelDiscoveryProjection | null | undefined,
-): string {
-  if (!providerHasSelectableSurface(provider)) {
-    return `${provider.label} is unavailable.`;
-  }
-  const reasonCodes = providerSelectionEligibility(provider, model, discovery).reasonCodes;
-  if (reasonCodes.length > 0) {
-    const selection = model === null ? provider.label : `${provider.label} model ${model}`;
-    return `${selection} is not eligible: ${reasonCodes.join(", ")}.`;
-  }
-  if (model === null && provider.models.length > 0) {
-    return providerRequiresSelectedModelMessage(provider.id);
-  }
-  return `${provider.label} does not advertise the requested model.`;
 }

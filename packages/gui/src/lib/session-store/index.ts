@@ -3,7 +3,7 @@ import { readStoredPlanMode } from "./session-store-persistence.js";
 import { createConnectionLifecycleSlice } from "./connection-lifecycle-slice.js";
 import { createSessionListSlice } from "./session-list-slice.js";
 import { createTurnStreamingSlice } from "./turn-streaming-slice.js";
-import { createProviderLifecycleSlice } from "./provider-lifecycle-slice.js";
+import { createExecutionRouteLifecycleSlice } from "./execution-route-lifecycle-slice.js";
 import { createInteractiveUseSlice } from "./interactive-use-slice.js";
 import { createVoiceSlice } from "./voice-slice.js";
 import { createApprovalGoalSlice } from "./approval-goal-slice.js";
@@ -34,8 +34,9 @@ const initialState: SessionStoreState = {
   providers: [],
   providerDiscovery: [],
   providerModelDiscovery: null,
-  activeProvider: null,
-  activeModel: null,
+  executionRouteCatalog: { routes: [] },
+  activeRouteId: null,
+  activeAccountOverrideId: null,
   sessionList: [],
   selectedSessionId: null,
   liveSessionId: null,
@@ -58,13 +59,12 @@ const initialState: SessionStoreState = {
   goalControlFailure: null,
   approvalResponseFailure: null,
   approvalResponsesPending: [],
-  providerSwitching: false,
-  providerSwitchTarget: null,
+  executionRouteSelecting: false,
+  executionRouteSelectionTarget: null,
   providerAuthenticating: false,
   providerAuthTarget: null,
   providerAuthMessage: null,
   providerAuthDetails: null,
-  providerExplicitSelection: false,
   authorityStatus: null,
   contextUsage: null,
   interactiveUseSnapshot: null,
@@ -73,7 +73,7 @@ const initialState: SessionStoreState = {
   browserOperatorInputAck: null,
   outboundSend: null,
   clearTimeoutId: null,
-  providerSwitchTimeoutId: null,
+  executionRouteSelectionTimeoutId: null,
   providerAuthTimeoutId: null,
   activityPhase: "idle",
 };
@@ -83,7 +83,7 @@ export const useSessionStore = create<SessionStore>()((...api) => ({
   ...createConnectionLifecycleSlice(...api),
   ...createSessionListSlice(...api),
   ...createTurnStreamingSlice(...api),
-  ...createProviderLifecycleSlice(...api),
+  ...createExecutionRouteLifecycleSlice(...api),
   ...createInteractiveUseSlice(...api),
   ...createVoiceSlice(...api),
   ...createApprovalGoalSlice(...api),

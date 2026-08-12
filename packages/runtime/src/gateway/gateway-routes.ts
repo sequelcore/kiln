@@ -63,7 +63,6 @@ import type {
   OperatorCockpitAttachTarget,
   OperatorSessionEvent,
   OperatorTurnRequestedAuthority,
-  GuiProviderModelDiscoveryProjection,
 } from "@kilnai/gateway-contracts";
 import { projectAppGatewayOperatorSessionHistory } from "./app-gateway-operator-session-history.js";
 import {
@@ -132,30 +131,6 @@ export interface GatewayServerConfig {
   readonly validateToken?: WsRoutesConfig["validateToken"];
   /** Gateway-level JWT verifier. When set, applied to all API and admin routes. */
   readonly jwtVerifier?: JwtVerifyFn;
-}
-
-function emptyGuiProviderModelDiscoveryProjection(sourceId: string): GuiProviderModelDiscoveryProjection {
-  const observedAt = new Date().toISOString();
-  return {
-    catalogEvidence: {
-      status: "failed",
-      source: {
-        kind: "runtime-provider-catalog",
-        id: sourceId,
-      },
-      observedAt,
-      counts: {
-        total: 0,
-        returned: 0,
-        omitted: 0,
-      },
-      failure: {
-        classification: "catalog-unavailable",
-        summary: "Provider model discovery is unavailable for this gateway route.",
-      },
-    },
-    entries: [],
-  };
 }
 
 export function createGatewayApp(config: GatewayServerConfig): Hono {
@@ -278,9 +253,7 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
           const selectedRuntime = resolveAppGatewayGuiRuntime(config);
           ws.send(JSON.stringify({
             type: "welcome",
-            providerModelDiscovery: emptyGuiProviderModelDiscoveryProjection("app-gateway"),
-            models: {},
-            providers: [],
+            executionRouteCatalog: { routes: [] },
             executionMode: "execute",
             domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
             authorityStatus: { effective: "unknown", completeness: "partial" },
@@ -312,13 +285,10 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             ws.send(JSON.stringify({ type: "cleared" } satisfies GuiInboundFrame));
             return;
           }
-          if (frame.type === "refresh_providers") {
+          if (frame.type === "refresh_execution_routes") {
             ws.send(JSON.stringify({
-              type: "providers_refreshed",
-              providerModelDiscovery: emptyGuiProviderModelDiscoveryProjection("app-gateway"),
-              models: {},
-              providerDiscovery: [],
-              providers: [],
+              type: "execution_routes_refreshed",
+              executionRouteCatalog: { routes: [] },
             } satisfies GuiInboundFrame));
             return;
           }
@@ -624,6 +594,7 @@ async function buildAppGatewayGuiDashboard(config: GatewayServerConfig): Promise
   const projectedAt = new Date().toISOString();
   const runtimeSessions = await collectAppGatewayRuntimeSessions(config);
   return {
+    executionRouteCatalog: { routes: [] },
     providers: [],
     telemetry: {
       status: "stable",

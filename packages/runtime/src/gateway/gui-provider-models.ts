@@ -31,8 +31,6 @@ import {
 } from "@kilnai/gateway-contracts";
 import { normalizeRuntimeProviderDiscoveryCatalog } from "./provider-model-adapters/runtime-discovery-catalogs.js";
 
-const KNOWN_GUI_PROVIDER_IDS = new Set<string>(GUI_PROVIDER_DISPLAY_ORDER);
-
 export interface GuiCliOperatorModelDiscovery {
   readonly claudeModels: string[];
   readonly claudeDiscovery: GuiCliProviderModelDiscovery;
@@ -218,23 +216,23 @@ export function buildGuiOperatorDiscoveryResults(input: {
 
     const directDiscovery = input.directProviderDiscovery?.[provider];
     if (directDiscovery) {
-      const directModels = normalizeModelIds(directDiscovery.models);
+      const discoveredModels = normalizeModelIds(directDiscovery.models);
       const available = (
         directDiscovery.status === "available"
-        && directModels.length > 0
+        && discoveredModels.length > 0
         && availability !== false
       );
       const status = available ? "available" : directDiscovery.status;
       const modelCapabilities = available
-        ? filterModelCapabilities(directDiscovery.modelCapabilities, directModels)
+        ? filterModelCapabilities(directDiscovery.modelCapabilities, discoveredModels)
         : undefined;
       const modelRouteHealth = available
-        ? filterModelRouteHealth(directDiscovery.modelRouteHealth, directModels)
+        ? filterModelRouteHealth(directDiscovery.modelRouteHealth, discoveredModels)
         : undefined;
       results.push({
         provider,
         available,
-        models: available ? directModels : [],
+        models: available ? discoveredModels : [],
         ...(modelCapabilities ? { modelCapabilities } : {}),
         ...(modelRouteHealth ? { modelRouteHealth } : {}),
         status,
@@ -2824,128 +2822,8 @@ function findExecutable(candidates: readonly string[]): string | undefined {
   return resolveExecutable(candidates, () => true)?.path;
 }
 
-export type GuiProviderSwitchResolution =
-  | {
-      readonly ok: true;
-      readonly provider: string;
-      readonly modelForSessionManager: string;
-      readonly modelForAck?: string;
-    }
-  | {
-      readonly ok: false;
-      readonly error: string;
-    };
-
 export function providerRequiresSelectedModelMessage(provider: string): string {
   return `Provider '${provider}' requires a selected model.`;
-}
-
-export function resolveGuiProviderSwitch(input: {
-  readonly provider: unknown;
-  readonly model: unknown;
-  readonly models?: Record<string, string[]>;
-  readonly discovery?: readonly GuiProviderDiscoveryResult[];
-  readonly providerModelDiscovery?: GuiProviderModelDiscoveryProjection;
-}): GuiProviderSwitchResolution {
-  const nextProvider = typeof input.provider === "string" ? input.provider.trim() : "";
-  if (!nextProvider) {
-    return {
-      ok: false,
-      error: "Provider switch request must include a provider id",
-    };
-  }
-  if (!KNOWN_GUI_PROVIDER_IDS.has(nextProvider)) {
-    return {
-      ok: false,
-      error: `Provider '${nextProvider}' is unknown`,
-    };
-  }
-
-  const discoveryResult = input.discovery?.find((entry) => entry.provider === nextProvider);
-  if (discoveryResult && !discoveryResult.available) {
-    return {
-      ok: false,
-      error: discoveryResult.reason,
-    };
-  }
-  const discoveredProviderModels = input.providerModelDiscovery
-    ? input.providerModelDiscovery.entries
-        .filter((entry) => entry.providerRoute.providerId === nextProvider)
-        .map((entry) => entry.providerRoute.providerModelId)
-    : discoveryResult
-      ? [...discoveryResult.models]
-      : input.models?.[nextProvider];
-  if (discoveredProviderModels === undefined) {
-    return {
-      ok: false,
-      error: `Provider '${nextProvider}' is unavailable`,
-    };
-  }
-  const providerModels = isGuiProviderModeless(nextProvider) ? [] : discoveredProviderModels;
-  if (providerModels.length === 0) {
-    if (!isGuiProviderModeless(nextProvider)) {
-      return {
-        ok: false,
-        error: `Provider '${nextProvider}' has no available models`,
-      };
-    }
-    const requestedModel = typeof input.model === "string" ? input.model.trim() : "";
-    if (requestedModel.length > 0) {
-      return {
-        ok: false,
-        error: `Provider '${nextProvider}' does not advertise model '${requestedModel}'`,
-      };
-    }
-    return {
-      ok: true,
-      provider: nextProvider,
-      modelForSessionManager: "",
-    };
-  }
-
-  const requestedModel = typeof input.model === "string" ? input.model.trim() : "";
-  if (requestedModel.length === 0) {
-    return {
-      ok: false,
-      error: providerRequiresSelectedModelMessage(nextProvider),
-    };
-  }
-  const canonicalRoute = input.providerModelDiscovery?.entries.find((entry) =>
-    entry.providerRoute.providerId === nextProvider
-    && entry.providerRoute.providerModelId === requestedModel
-  );
-  if (input.providerModelDiscovery && !canonicalRoute) {
-    return {
-      ok: false,
-      error: `Provider '${nextProvider}' does not advertise model '${requestedModel}'`,
-    };
-  }
-  if (canonicalRoute && !canonicalRoute.eligibility.eligible) {
-    return {
-      ok: false,
-      error: canonicalRoute.routeHealth.reason
-        ?? `Provider '${nextProvider}' model '${requestedModel}' is not eligible (${canonicalRoute.eligibility.reasonCodes.join(", ")})`,
-    };
-  }
-  if (!input.providerModelDiscovery && !providerModels.includes(requestedModel)) {
-    return {
-      ok: false,
-      error: `Provider '${nextProvider}' does not advertise model '${requestedModel}'`,
-    };
-  }
-  const routeHealth = discoveryResult?.modelRouteHealth?.[requestedModel];
-  if (!input.providerModelDiscovery && routeHealth && !routeHealth.healthy) {
-    return {
-      ok: false,
-      error: routeHealth.reason ?? `Provider '${nextProvider}' model '${requestedModel}' is cooling down`,
-    };
-  }
-  return {
-    ok: true,
-    provider: nextProvider,
-    modelForSessionManager: requestedModel,
-    modelForAck: requestedModel,
-  };
 }
 
 export function buildWelcomeProviderDescriptors(

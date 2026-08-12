@@ -36,10 +36,9 @@ import {
   isDirectApiProvider,
   type ProviderId,
 } from "../wrapper/session-registry.js";
-import { resolveProviderRouteCandidates } from "../config/provider-route-candidates.js";
-import { readGlobalConfig, resolveGlobalDefaultModel } from "../config/global-config.js";
+import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
+import { readGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
-import { resolveEffectiveModel } from "../config/env-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "./instruction-profile-context.js";
@@ -138,18 +137,13 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? readKilnYaml(join(repositoryRoot, ".kiln"))
       : undefined;
     const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
-    const configuredRouteCandidates = resolveProviderRouteCandidates({
-      globalConfig,
-      flagProvider: options.flags?.provider,
-      flagModel: options.flags?.model,
-    });
+    const configuredRouteCandidates = resolveExecutionRouteCandidates({ globalConfig });
     if (writeMode && (configuredRouteCandidates.length === 0
       || configuredRouteCandidates.some((candidate) => !isDirectApiProvider(candidate.provider)))) {
       throw new Error("Benchmark write profiles require explicit Kiln-executable direct-provider routes.");
     }
     const preferredProvider = configuredRouteCandidates[0]?.provider;
-    const effectiveModel = configuredRouteCandidates[0]?.model
-      ?? resolveEffectiveModel(options.flags?.model, resolveGlobalDefaultModel(globalConfig));
+    const effectiveModel = configuredRouteCandidates[0]?.model;
     const permissionPolicy = writeMode ? BENCHMARK_WRITE_POLICY : BENCHMARK_POLICY;
     const wrapperConfig = {
       mode,

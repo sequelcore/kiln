@@ -3,8 +3,14 @@
  * @module @kilnai/tui
  */
 import type {
-  GuiProviderModelDiscoveryProjection,
   GuiProviderModelCapabilities,
+  GuiProviderDiscoveryResult,
+  GuiProviderAuthCompleted,
+  GuiProviderAuthFailed,
+  ExecutionRouteCatalog,
+  ExecutionRouteChangeFailed,
+  ExecutionRouteChanged,
+  ExecutionRouteSelectionIntent,
   OperatorActivityPhaseFrame,
   OperatorExecutionMode,
   OperatorSessionEvent,
@@ -16,17 +22,7 @@ import type {
  * Inbound frames the TUI gateway sends.
  */
 export type TuiProviderModelCapabilities = GuiProviderModelCapabilities;
-
-export interface TuiProviderDiscoveryFrame {
-  readonly provider: string;
-  readonly available: boolean;
-  readonly models: string[];
-  readonly modelCapabilities?: Record<string, TuiProviderModelCapabilities>;
-  readonly status: string;
-  readonly reason: string;
-  readonly authState: string;
-  readonly lastCheckedAt: string;
-}
+export type TuiProviderDiscoveryFrame = GuiProviderDiscoveryResult;
 
 export type TuiInboundFrame =
   | { type: "thinking" }
@@ -56,7 +52,10 @@ export type TuiInboundFrame =
       inputTokens: number;
       outputTokens: number;
       outcome: "completed" | "failed" | "cancelled" | "paused";
+      routedRouteId?: string;
+      /** Derived execution evidence; route identity remains authoritative. */
       routedProvider?: string;
+      /** Derived execution evidence; route identity remains authoritative. */
       routedModel?: string;
       runtimeContinuity?: {
         strategy: string;
@@ -85,10 +84,8 @@ export type TuiInboundFrame =
   | { type: "error"; message: string; code?: string }
   | {
       type: "welcome";
+      executionRouteCatalog: ExecutionRouteCatalog;
       greeting?: string;
-      models?: Record<string, string[]>;
-      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
-      providerDiscovery?: TuiProviderDiscoveryFrame[];
       executionMode?: OperatorExecutionMode;
     }
   | {
@@ -108,29 +105,14 @@ export type TuiInboundFrame =
       userCode: string;
       message?: string;
     }
+  | GuiProviderAuthCompleted
+  | GuiProviderAuthFailed
   | {
-      type: "provider_auth_completed";
-      provider: string;
-      requestId: string;
-      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
-      models: Record<string, string[]>;
-      providerDiscovery: TuiProviderDiscoveryFrame[];
+      type: "execution_routes_refreshed";
+      executionRouteCatalog: ExecutionRouteCatalog;
     }
-  | { type: "provider_auth_failed"; provider: string; requestId: string; message: string }
-  | {
-      type: "providers_refreshed";
-      providerModelDiscovery: GuiProviderModelDiscoveryProjection;
-      models: Record<string, string[]>;
-      providerDiscovery: TuiProviderDiscoveryFrame[];
-    }
-  | { type: "provider_changed"; provider: string; model?: string; requestId: string }
-  | {
-      type: "provider_change_failed";
-      provider?: string;
-      model?: string;
-      requestId: string;
-      reason: string;
-    }
+  | ExecutionRouteChanged
+  | ExecutionRouteChangeFailed
   | {
       type: "operator_theme_set";
       requestId: string;
@@ -154,9 +136,9 @@ export type TuiOutboundFrame =
     }
   | { type: "voice_synthesis_request"; requestId: string; sourceMessageId: string }
   | { type: "clear" }
-  | { type: "refresh_providers" }
+  | { type: "refresh_execution_routes" }
   | { type: "provider_auth"; provider: string; requestId: string; apiKey?: string; tier?: "go" | "zen" }
-  | { type: "provider"; provider: string; model?: string; requestId: string }
+  | ({ type: "execution_route"; requestId: string } & ExecutionRouteSelectionIntent)
   | { type: "operator_theme_set_result"; requestId: string; ok: boolean; appliedTheme?: string; error?: string }
   | { type: "approve"; approvalId: string }
   | { type: "reject"; reason: string; approvalId: string }

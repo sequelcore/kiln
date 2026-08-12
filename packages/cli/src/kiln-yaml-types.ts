@@ -414,17 +414,6 @@ export interface KilnManagedAgentWriteAuthorityConfig {
   readonly approval: KilnManagedAgentWriteApprovalConfig;
 }
 
-export type KilnManagedAgentCredentialsConfig =
-  | {
-    readonly mode: "runtime-selected";
-    readonly routeId?: string;
-    readonly accountPolicyId: string;
-  }
-  | {
-    readonly mode: "credentialless";
-    readonly economicsRouteId?: string;
-  };
-
 export interface KilnManagedAgentWorktreeLeaseConfig {
   readonly mode: "git";
   readonly rootPath: string;
@@ -451,11 +440,8 @@ export interface KilnManagedAgentExternalRuntimeAttachmentConfig {
   readonly attachmentId: string;
 }
 
-export interface KilnManagedAgentRouteConfig {
+interface KilnManagedAgentRouteCommonConfig {
   readonly id: string;
-  readonly kind: KilnManagedAgentRouteKind;
-  readonly provider: string;
-  readonly model?: string;
   readonly voiceProfile?: string;
   readonly profiles?: readonly KilnManagedAgentProfile[];
   readonly workingDirectory?: "project" | "isolated-worktree" | "sandbox";
@@ -464,10 +450,26 @@ export interface KilnManagedAgentRouteConfig {
   readonly memory?: KilnManagedAgentMemoryConfig;
   readonly readAuthority?: KilnManagedAgentReadAuthorityConfig;
   readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
-  readonly credentials?: KilnManagedAgentCredentialsConfig;
-  readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
   readonly externalRuntimeAttachment?: KilnManagedAgentExternalRuntimeAttachmentConfig;
 }
+
+/**
+ * A managed route is either a physical harness target or a reference to the
+ * canonical operator execution catalog.  Direct routes deliberately carry no
+ * provider, model, credential, or economic account data of their own: those
+ * facts are admitted and committed from `executionCatalog` at invocation time.
+ */
+export type KilnManagedAgentRouteConfig =
+  | (KilnManagedAgentRouteCommonConfig & {
+    readonly kind: "direct";
+    readonly executionRouteId: string;
+  })
+  | (KilnManagedAgentRouteCommonConfig & {
+    readonly kind: "harness";
+    readonly provider: string;
+    readonly model?: string;
+    readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
+  });
 
 export interface KilnManagedEconomicComparisonDomainConfig {
   readonly id: string;

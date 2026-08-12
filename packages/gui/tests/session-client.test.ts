@@ -16,12 +16,11 @@ class MockWebSocket {
 
   readonly send = vi.fn((data: string) => {
     if (data === "ping") return;
-    const frame = JSON.parse(data) as { type?: string; provider?: string; model?: string; requestId?: string };
-    if (frame.type === "provider" && frame.provider === "openai" && frame.model === "gpt-5") {
+    const frame = JSON.parse(data) as { type?: string; routeId?: string; requestId?: string };
+    if (frame.type === "execution_route" && frame.routeId === "terra") {
       this.simulateMessage(JSON.stringify({
-        type: "provider_changed",
-        provider: "openai",
-        model: "gpt-5",
+        type: "execution_route_changed",
+        routeId: "terra",
         requestId: frame.requestId,
       }));
     }
@@ -50,17 +49,17 @@ function createClient(onFrame = vi.fn()): GuiSessionClient {
   });
 }
 
-function sentProviderFrame(ws: MockWebSocket, index: number): { provider: string; model?: string; requestId: string } {
+function sentRouteFrame(ws: MockWebSocket, index: number): { routeId: string; accountOverrideId?: string; requestId: string } {
   const raw = ws.send.mock.calls[index]?.[0];
   expect(typeof raw).toBe("string");
-  const frame = JSON.parse(raw as string) as { type?: string; provider?: string; model?: string; requestId?: string };
-  expect(frame.type).toBe("provider");
-  expect(typeof frame.provider).toBe("string");
+  const frame = JSON.parse(raw as string) as { type?: string; routeId?: string; accountOverrideId?: string; requestId?: string };
+  expect(frame.type).toBe("execution_route");
+  expect(typeof frame.routeId).toBe("string");
   expect(typeof frame.requestId).toBe("string");
-  return frame as { provider: string; model?: string; requestId: string };
+  return frame as { routeId: string; accountOverrideId?: string; requestId: string };
 }
 
-describe("GuiSessionClient provider switching", () => {
+describe("GuiSessionClient execution route selection", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     wsInstances = [];
@@ -72,7 +71,7 @@ describe("GuiSessionClient provider switching", () => {
     vi.restoreAllMocks();
   });
 
-  it("rejects a pending provider switch from a mismatched provider_changed ack", async () => {
+  it("rejects a pending route switch from a mismatched acknowledgement", async () => {
     const onFrame = vi.fn();
     const client = createClient(onFrame);
     client.connect();
@@ -80,93 +79,88 @@ describe("GuiSessionClient provider switching", () => {
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const promise = client.switchProvider("openai", "gpt-5-other");
-    const request = sentProviderFrame(ws, 0);
+    const promise = client.switchExecutionRoute("terra-other");
+    const request = sentRouteFrame(ws, 0);
     ws.simulateMessage(JSON.stringify({
-      type: "provider_changed",
-      provider: "claude",
-      model: "claude-sonnet-4-6",
+      type: "execution_route_changed",
+      routeId: "other",
       requestId: request.requestId,
     }));
 
-    await expect(promise).rejects.toThrow("Provider switch acknowledgement did not match the pending request");
+    await expect(promise).rejects.toThrow("Execution route acknowledgement did not match the pending request");
     expect(onFrame).toHaveBeenCalledWith({
-      type: "provider_changed",
-      provider: "claude",
-      model: "claude-sonnet-4-6",
+      type: "execution_route_changed",
+      routeId: "other",
       requestId: request.requestId,
     });
   });
 
-  it("resolves a synchronous matching provider_changed ack without arming a stale timeout", async () => {
+  it("resolves a synchronous matching route acknowledgement without arming a stale timeout", async () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const promise = client.switchProvider("openai", "gpt-5");
+    const promise = client.switchExecutionRoute("terra");
 
-    await expect(promise).resolves.toBe("openai");
+    await expect(promise).resolves.toBe("terra");
 
     vi.advanceTimersByTime(5_000);
 
-    expect(sentProviderFrame(ws, 0)).toMatchObject({
-      provider: "openai",
-      model: "gpt-5",
+    expect(sentRouteFrame(ws, 0)).toMatchObject({
+      routeId: "terra",
     });
   });
 
-  it("resolves model-less provider switches when the acknowledgement omits model", async () => {
+  it("preserves an explicit account override", async () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const promise = client.switchProvider("claude");
-    const request = sentProviderFrame(ws, 0);
+    const promise = client.switchExecutionRoute("terra-work", "work");
+    const request = sentRouteFrame(ws, 0);
     ws.simulateMessage(JSON.stringify({
-      type: "provider_changed",
-      provider: "claude",
+      type: "execution_route_changed",
+      routeId: "terra-work",
       requestId: request.requestId,
     }));
 
-    await expect(promise).resolves.toBe("claude");
+    await expect(promise).resolves.toBe("terra-work");
     expect(request).toMatchObject({
-      provider: "claude",
+      routeId: "terra-work",
+      accountOverrideId: "work",
     });
-    expect(request).not.toHaveProperty("model");
   });
 
-  it("rejects a retry from a stale ack for the same provider with a different model", async () => {
+  it("rejects a retry from a stale route acknowledgement", async () => {
     const client = createClient();
     client.connect();
     vi.advanceTimersByTime(0);
     const ws = wsInstances[0];
     ws.simulateOpen();
 
-    const firstPromise = client.switchProvider("openai", "gpt-5-previous");
-    sentProviderFrame(ws, 0);
+    const firstPromise = client.switchExecutionRoute("previous");
+    sentRouteFrame(ws, 0);
 
     vi.advanceTimersByTime(5_000);
-    await expect(firstPromise).rejects.toThrow("Provider switch timed out");
+    await expect(firstPromise).rejects.toThrow("Execution route switch timed out");
 
-    const retryPromise = client.switchProvider("openai", "gpt-5-current");
-    const retryFrame = sentProviderFrame(ws, 1);
+    const retryPromise = client.switchExecutionRoute("current");
+    const retryFrame = sentRouteFrame(ws, 1);
 
     ws.simulateMessage(JSON.stringify({
-      type: "provider_changed",
-      provider: "openai",
-      model: "gpt-5-previous",
+      type: "execution_route_changed",
+      routeId: "previous",
       requestId: retryFrame.requestId,
     }));
 
     expect(retryFrame).toMatchObject({
-      provider: "openai",
-      model: "gpt-5-current",
+      routeId: "current",
     });
-    await expect(retryPromise).rejects.toThrow("Provider switch acknowledgement did not match the pending request");
+    await expect(retryPromise).rejects.toThrow("Execution route acknowledgement did not match the pending request");
   });
 
   it("closes heartbeat timeouts with the reconnectable pong timeout code", () => {

@@ -8,6 +8,7 @@ import type {
   SessionEventSource,
   SessionTurnOutcome,
 } from '@kilnai/core';
+import { executionSessionBindingKey } from '@kilnai/core';
 
 export interface ProviderThreadMeta {
   provider: string;
@@ -405,7 +406,7 @@ function mergeExecutionBindings(
 ): readonly ExecutionSessionBindingEvidence[] {
   const bindings = new Map<string, ExecutionSessionBindingEvidence>();
   for (const binding of [...(existing ?? []), ...updates]) {
-    bindings.set(`${binding.virtualModelId}\0${binding.accountId}`, binding);
+    bindings.set(executionSessionBindingKey(binding), binding);
   }
   return [...bindings.values()];
 }

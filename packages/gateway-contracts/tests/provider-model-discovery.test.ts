@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  ExecutionRouteCatalog,
   GuiInboundFrame,
   GuiProviderModelDiscoveryProjection,
 } from "../src/index.js";
@@ -101,26 +102,49 @@ function createProjection(): GuiProviderModelDiscoveryProjection {
   };
 }
 
-describe("provider model discovery frames", () => {
-  it.each(["welcome", "providers_refreshed"] as const)(
-    "carries the provider-neutral public projection on %s",
-    (type) => {
-      const providerModelDiscovery = createProjection();
-      const frame: GuiInboundFrame = type === "welcome"
-        ? { type, providerModelDiscovery }
-        : { type, providerModelDiscovery };
+function createCatalog(): ExecutionRouteCatalog {
+  return {
+    routes: [{
+      routeId: "codex-terra",
+      label: "Codex Terra",
+      providerId: "codex-oauth",
+      providerModelId: "gpt-5.6-terra",
+      accountSelection: {
+        mode: "automatic",
+        eligibleAccountCount: 1,
+        allowOperatorOverride: true,
+      },
+      availability: "available",
+      reasonCodes: [],
+      repairActions: [],
+    }],
+  };
+}
 
-      expect(frame.providerModelDiscovery.catalogEvidence.counts).toEqual({
-        total: 397,
-        returned: 3,
-        omitted: 394,
-      });
-      expect(frame.providerModelDiscovery.entries.filter((entry) => entry.eligibility.eligible)).toHaveLength(1);
-      expect(frame.providerModelDiscovery.entries.filter((entry) => entry.freshness.status === "stale")).toEqual([
-        expect.objectContaining({ eligibility: expect.objectContaining({ eligible: false }) }),
-      ]);
-      expect(JSON.stringify(frame)).not.toContain(SECRET_BEARING_ERROR);
-      expect(JSON.stringify(frame)).not.toContain("sk-test-secret");
-    },
-  );
+describe("provider model discovery frames", () => {
+  it("retains the provider-neutral public projection as setup evidence after auth", () => {
+    const providerModelDiscovery = createProjection();
+    const frame: GuiInboundFrame = {
+      type: "provider_auth_completed",
+      provider: "codex-oauth",
+      requestId: "auth-1",
+      executionRouteCatalog: createCatalog(),
+      models: { "codex-oauth": ["gpt-5.5"] },
+      providerDiscovery: [],
+      providerModelDiscovery,
+    };
+
+    if (frame.type !== "provider_auth_completed") throw new Error("unexpected frame");
+    expect(frame.providerModelDiscovery.catalogEvidence.counts).toEqual({
+      total: 397,
+      returned: 3,
+      omitted: 394,
+    });
+    expect(frame.providerModelDiscovery.entries.filter((entry) => entry.eligibility.eligible)).toHaveLength(1);
+    expect(frame.providerModelDiscovery.entries.filter((entry) => entry.freshness.status === "stale")).toEqual([
+      expect.objectContaining({ eligibility: expect.objectContaining({ eligible: false }) }),
+    ]);
+    expect(JSON.stringify(frame)).not.toContain(SECRET_BEARING_ERROR);
+    expect(JSON.stringify(frame)).not.toContain("sk-test-secret");
+  });
 });

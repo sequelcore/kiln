@@ -32,7 +32,7 @@ export type {
   ProviderRequestToolProjectionSetEvidence,
   ScopedExecutionSessionToolEvent,
 } from "./execution-session-event.js";
-export { assertScopedExecutionSessionToolEvent } from "./execution-session-event.js";
+export { assertScopedExecutionSessionToolEvent, executionSessionBindingKey } from "./execution-session-event.js";
 
 /** Streaming granularity levels, from coarsest to finest */
 export type StreamLevel = "state" | "phase" | "tool" | "token";

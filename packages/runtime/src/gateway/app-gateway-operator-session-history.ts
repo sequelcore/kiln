@@ -22,6 +22,7 @@ function routeFromSessionEvents(session: RuntimeSession): {
     if (event.kind === "provider_routed" || event.kind === "cost_updated") {
       providersUsed.add(event.provider.provider);
       lastRoute = {
+        routeId: `${event.provider.provider}:${event.provider.model ?? "default"}`,
         provider: event.provider.provider,
         ...(event.provider.model ? { model: event.provider.model } : {}),
       };
@@ -65,7 +66,7 @@ export function projectAppGatewayOperatorSessionSummary(session: RuntimeSession)
       sessionId: session.id,
       ...(route ? { provider: route.provider } : {}),
       ...(route?.model ? { model: route.model } : {}),
-      providersUsed: evidence.providersUsed,
+      routesUsed: evidence.lastRoute ? [evidence.lastRoute.routeId] : [],
       title: session.appName,
       ...(summary ? { summary } : {}),
       task: summary || `${session.appName} session`,

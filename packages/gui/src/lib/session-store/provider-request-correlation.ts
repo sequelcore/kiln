@@ -4,12 +4,12 @@
  * and an opt-in console log; no store dependency.
  */
 
-let providerSwitchRequestOrdinal = 0;
+let executionRouteSelectionRequestOrdinal = 0;
 let providerAuthRequestOrdinal = 0;
 
-export function nextProviderSwitchRequestId(): string {
-  providerSwitchRequestOrdinal += 1;
-  return `provider-switch:${Date.now()}:${providerSwitchRequestOrdinal}`;
+export function nextExecutionRouteSelectionRequestId(): string {
+  executionRouteSelectionRequestOrdinal += 1;
+  return `execution-route-selection:${Date.now()}:${executionRouteSelectionRequestOrdinal}`;
 }
 
 export function nextProviderAuthRequestId(): string {

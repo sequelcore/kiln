@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +20,13 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
+  openSync: vi.fn(),
+  closeSync: vi.fn(),
+  renameSync: vi.fn(),
+  rmSync: vi.fn(),
+  statSync: vi.fn(),
+  chmodSync: vi.fn(),
+  fsyncSync: vi.fn(),
 }));
 
 vi.mock("node:os", () => ({
@@ -23,14 +42,44 @@ import {
   resolveGlobalUiTheme,
   resolveGlobalConfigPath,
   resolveGlobalModelGatewayConfig,
-  writeGlobalConfig,
+  GlobalConfigMutationError,
+  mutateGlobalConfig,
 } from "./global-config.js";
 
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
 const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const writeFileSyncMock = writeFileSync as unknown as ReturnType<typeof vi.fn>;
 const mkdirSyncMock = mkdirSync as unknown as ReturnType<typeof vi.fn>;
+const openSyncMock = openSync as unknown as ReturnType<typeof vi.fn>;
+const closeSyncMock = closeSync as unknown as ReturnType<typeof vi.fn>;
+const renameSyncMock = renameSync as unknown as ReturnType<typeof vi.fn>;
+const rmSyncMock = rmSync as unknown as ReturnType<typeof vi.fn>;
+const statSyncMock = statSync as unknown as ReturnType<typeof vi.fn>;
+const chmodSyncMock = chmodSync as unknown as ReturnType<typeof vi.fn>;
+const fsyncSyncMock = fsyncSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = homedir as unknown as ReturnType<typeof vi.fn>;
+
+const CODEX_EXECUTION_CATALOG_YAML = [
+  "executionCatalog:",
+  "  accounts: [{ id: codex-reviewer-account, providerId: codex-oauth, credentialId: codex-reviewer-credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: codex-reviewer-account, subscriptionClass: subscription, quotaClassId: codex-reviewer, creditPosture: disabled, overagePosture: disabled } }]",
+  "  accountPolicies: [{ id: codex-reviewer-account-policy, accountIds: [codex-reviewer-account], strategy: economic-least-pressure }]",
+  "  routes: [{ id: codex-reviewer-route, label: Codex Reviewer, providerId: codex-oauth, providerModelId: gpt-5.4-mini, accountSelection: { mode: automatic, accountPolicyId: codex-reviewer-account-policy }, economics: { adapterCapabilityId: codex-oauth, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: configured, envelopeSemantics: bounded, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: codex-reviewer, rateCardRevision: v1, evidence: { sourceIdentity: global-config.test, sourceRevision: v1, sourceDigest: fixture, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }]",
+];
+
+function managedPolicyYaml(routeId = "codex-reviewer"): readonly string[] {
+  return [
+    "  schemaVersion: 2",
+    "  economicPolicies:",
+    "    - id: codex-reviewer-economic-policy",
+    "      revision: rev-1",
+    "      evidenceRequirements: { quota: optional, price: optional }",
+    "      noRouteAction: deny",
+    "      comparisonDomains:",
+    "        - { id: priority-only, rank: 0, unit: request, scheme: { kind: unit }, rateCardBasis: configured, envelopeSemantics: bounded }",
+    "      candidates:",
+    `        - { routeId: ${routeId}, comparisonDomainId: priority-only, priorityRank: 0, ceiling: { kind: none }, worstCaseReservation: { kind: not-comparable, reason: subscription-basis } }`,
+  ];
+}
 
 describe("global-config", () => {
   const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
@@ -41,6 +90,14 @@ describe("global-config", () => {
     readFileSyncMock.mockReset();
     writeFileSyncMock.mockReset();
     mkdirSyncMock.mockReset();
+    openSyncMock.mockReset();
+    closeSyncMock.mockReset();
+    renameSyncMock.mockReset();
+    rmSyncMock.mockReset();
+    statSyncMock.mockReset();
+    chmodSyncMock.mockReset();
+    fsyncSyncMock.mockReset();
+    openSyncMock.mockReturnValue(7);
     homedirMock.mockReset();
     homedirMock.mockReturnValue("/home/test-user");
     delete process.env.XDG_CONFIG_HOME;
@@ -81,59 +138,79 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
-        "engines:",
-        "  codex:",
-        "    enabled: true",
-        "    billing: plus-quota",
-        "routing:",
-        "  defaultWorker: codex",
-        "  budgetAware: false",
-        "models:",
-        "  default: claude-opus-4-7",
-        "  codex: gpt-5.4",
+        "version: \"2\"",
+        "executionCatalog:",
+        "  accounts:",
+        "    - { id: codex-primary, providerId: codex-oauth, credentialId: codex-primary, maxConcurrency: 2, reservedAffinitySlots: 1, economics: { capacityIdentity: codex-primary, subscriptionClass: subscription, quotaClassId: codex, creditPosture: disabled, overagePosture: disabled } }",
+        "  accountPolicies:",
+        "    - { id: codex-automatic, accountIds: [codex-primary], strategy: economic-least-pressure }",
+        "  routes:",
+        "    - id: terra",
+        "      label: Terra",
+        "      providerId: codex-oauth",
+        "      providerModelId: codex/gpt-5.6-terra",
+        "      accountSelection: { mode: automatic, accountPolicyId: codex-automatic }",
+        "      economics: { adapterCapabilityId: codex-oauth, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: subscription, envelopeSemantics: request, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: codex, rateCardRevision: v1, evidence: { sourceIdentity: provider, sourceRevision: v1, sourceDigest: digest, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } }",
+        "executionRouting:",
+        "  defaultRouteId: terra",
       ].join("\n"),
     );
 
     const config = readGlobalConfig();
 
     expect(config).toEqual({
-      version: "1",
-      engines: {
-        codex: {
-          enabled: true,
-          billing: "plus-quota",
-        },
+      version: "2",
+      executionCatalog: {
+        accounts: [{ id: "codex-primary", providerId: "codex-oauth", credentialId: "codex-primary", maxConcurrency: 2, reservedAffinitySlots: 1, economics: { capacityIdentity: "codex-primary", subscriptionClass: "subscription", quotaClassId: "codex", creditPosture: "disabled", overagePosture: "disabled" } }],
+        accountPolicies: [{ id: "codex-automatic", accountIds: ["codex-primary"], strategy: "economic-least-pressure" }],
+        routes: [{
+          id: "terra",
+          label: "Terra",
+          providerId: "codex-oauth",
+          providerModelId: "codex/gpt-5.6-terra",
+          accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" },
+          economics: { adapterCapabilityId: "codex-oauth", adapterCapabilityVersion: "v1", authBillingChannel: "subscription", executionMode: "direct", serviceTier: "default", rateCardBasis: "subscription", envelopeSemantics: "request", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "none", priceEvidence: { kind: "subscription", rateCardId: "codex", rateCardRevision: "v1", evidence: { sourceIdentity: "provider", sourceRevision: "v1", sourceDigest: "digest", observedAt: "2026-01-01T00:00:00Z", validUntil: "2027-01-01T00:00:00Z", confidence: "high", authority: "configured" } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } },
+        }],
       },
-      routing: {
-        defaultWorker: "codex",
-        budgetAware: false,
-      },
-      models: {
-        default: "claude-opus-4-7",
-        codex: "gpt-5.4",
+      executionRouting: {
+        defaultRouteId: "terra",
       },
     });
   });
 
-  it("readGlobalConfig() accepts GUI provider selection preference", () => {
+  it.each([
+    ["V1", 'version: "1"', 'Global config version must be "2"'],
+    ["legacy direct models", 'version: "2"\ndirectModels: []', "Unknown global config field: directModels"],
+    ["secret", 'version: "2"\nexecutionCatalog: { accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: account, subscriptionClass: subscription, quotaClassId: quota, creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], routes: [] }', "Unknown executionCatalog.accounts[0] field: token"],
+  ])("rejects %s", (_case, yaml, message) => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(yaml);
+    expect(() => readGlobalConfig()).toThrow(message);
+  });
+
+  it("readGlobalConfig() accepts GUI execution-route selection preference", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
+        "executionCatalog:",
+        "  accounts: [{ id: work, providerId: codex-oauth, credentialId: work, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: work, subscriptionClass: subscription, quotaClassId: quota, creditPosture: disabled, overagePosture: disabled } }]",
+        "  accountPolicies: [{ id: work-policy, accountIds: [work], strategy: economic-least-pressure }]",
+        "  routes: [{ id: terra, label: Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, accountSelection: { mode: automatic, accountPolicyId: work-policy }, economics: { adapterCapabilityId: adapter, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: subscription, envelopeSemantics: request, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: card, rateCardRevision: v1, evidence: { sourceIdentity: provider, sourceRevision: v1, sourceDigest: digest, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }]",
+        "executionRouting: { defaultRouteId: terra }",
         "ui:",
         "  theme: phosphor",
-        "  providerSelection:",
-        "    provider: codex-oauth",
-        "    model: gpt-5.5",
+        "  executionRouteSelection:",
+        "    routeId: terra",
+        "    accountOverrideId: work",
       ].join("\n"),
     );
 
     expect(readGlobalConfig()?.ui).toEqual({
       theme: "phosphor",
-      providerSelection: {
-        provider: "codex-oauth",
-        model: "gpt-5.5",
+      executionRouteSelection: {
+        routeId: "terra",
+        accountOverrideId: "work",
       },
     });
   });
@@ -141,66 +218,63 @@ describe("global-config", () => {
   it("reads and validates the user-scoped model gateway without secret values", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue([
-      'version: "1"',
+      'version: "2"',
       "modelGateway:",
       "  port: 4819",
-      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]",
       "  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }",
       "  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }",
       "  principals:",
       "    - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }",
       "  virtualModels:",
-      "    - { id: codex, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }",
+      "    - { id: codex, executionRouteId: codex-reviewer-route, capabilities: [text], affinity: { continuity: none } }",
     ].join("\n"));
     expect(resolveGlobalModelGatewayConfig(readGlobalConfig())).toMatchObject({ port: 4819, replay: { hmacKeyEnv: "REPLAY_SECRET" } });
 
-    readFileSyncMock.mockReturnValue(['version: "1"', "modelGateway:", "  port: 4819", "  token: raw-secret"].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "2"', "modelGateway:", "  port: 4819", "  token: raw-secret"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("Invalid global modelGateway");
   });
 
   it("rejects runtime-selected managed routes at the pre-v2 boundary", () => {
     existsSyncMock.mockReturnValue(true);
     const config = [
-      'version: "1"',
+      'version: "2"',
       "modelGateway:",
       "  port: 4819",
-      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]",
       "  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }",
       "  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }",
       "  principals:",
       "    - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [managed-codex] }",
       "  virtualModels:",
-      "    - { id: managed-codex, providerId: codex-oauth, providerModelId: gpt-5.6-terra, accountIds: [account], capabilities: [text], affinity: { continuity: none } }",
+      "    - { id: managed-codex, executionRouteId: codex-reviewer-route, capabilities: [text], affinity: { continuity: none } }",
       "managedAgents:",
       "  routes:",
       "    - id: codex-readonly",
       "      kind: direct",
       "      provider: codex-oauth",
       "      model: gpt-5.6-terra",
-      "      credentials: { mode: runtime-selected, accountPolicyId: managed-codex }",
     ];
     readFileSyncMock.mockReturnValue(config.join("\n"));
     expect(() => readGlobalConfig()).toThrow(
-      /retired pre-v2 schema.*re-authored as schemaVersion 2/,
+      /managedAgents direct routes require schemaVersion 2/,
     );
   });
 
   it("readGlobalConfig() rejects non-canonical configs", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));
+    readFileSyncMock.mockReturnValue(["version: \"1\"", "provider: codex"].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(
-      'Global config version must be "1". Recreate the canonical config through an explicit adoption flow.',
+      'Global config version must be "2". Recreate the canonical config through an explicit adoption flow.',
     );
   });
 
   it("readGlobalConfig() rejects unknown top-level fields and invalid billing modes", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(["version: \"1\"", "provider: codex"].join("\n"));
+    readFileSyncMock.mockReturnValue(["version: \"2\"", "provider: codex"].join("\n"));
     expect(() => readGlobalConfig()).toThrow("Unknown global config field: provider");
 
     readFileSyncMock.mockReturnValue(
-      ["version: \"1\"", "engines:", "  codex:", "    billing: credits"].join("\n"),
+      ["version: \"2\"", "engines:", "  codex:", "    billing: credits"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("engines.codex.billing has an unknown billing mode");
   });
@@ -209,7 +283,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "identity:",
         "  name: Alex",
         "  timezone: America/Tijuana",
@@ -222,7 +296,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "identity:",
         "  personality: helpful",
       ].join("\n"),
@@ -231,7 +305,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "identity:",
         "  timezone: \"\"",
       ].join("\n"),
@@ -240,7 +314,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "identity:",
         "  timezone: Not/A_Timezone",
       ].join("\n"),
@@ -252,7 +326,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "activeInstructionProfiles:",
         "  - sequel-engineering",
       ].join("\n"),
@@ -261,7 +335,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "activeInstructionProfiles:",
         "  - \"\"",
       ].join("\n"),
@@ -273,7 +347,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "skills:",
         "  builtin:",
         "    enabled: true",
@@ -298,7 +372,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "skills:",
         "  builtin:",
         "    enabled: yes",
@@ -308,7 +382,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "skills:",
         "  selection:",
         "    mode: eager",
@@ -321,7 +395,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "workGovernance:",
         "  defaultPosture: orchestrate",
         "  directExecution:",
@@ -348,7 +422,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "workGovernance:",
         "  requireDelegationFor:",
         "    - vibes",
@@ -360,7 +434,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "workGovernance:",
         "  directExecution:",
         "    maxFiles: 0",
@@ -375,7 +449,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "web:",
         "  searchProvider:",
         "    type: tavily",
@@ -402,7 +476,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -457,7 +531,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -468,16 +542,15 @@ describe("global-config", () => {
         "      style: calm reviewer",
         "      voice: af_bella",
         "      speed: 1",
+        ...CODEX_EXECUTION_CATALOG_YAML,
         "managedAgents:",
+        ...managedPolicyYaml(),
         "  enabled: true",
         "  defaultVoiceProfile: reviewer-voice",
         "  routes:",
         "    - id: codex-reviewer",
         "      kind: direct",
-        "      provider: codex-oauth",
-        "      model: gpt-5.4-mini",
-        "      credentials:",
-        "        mode: credentialless",
+        "      executionRouteId: codex-reviewer-route",
         "      voiceProfile: reviewer-voice",
       ].join("\n"),
     );
@@ -497,7 +570,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -508,12 +581,14 @@ describe("global-config", () => {
         "      style: calm reviewer",
         "      voice: af_bella",
         "      speed: 1",
+        ...CODEX_EXECUTION_CATALOG_YAML,
         "managedAgents:",
+        ...managedPolicyYaml(),
         "  enabled: true",
         "  routes:",
         "    - id: codex-reviewer",
         "      kind: direct",
-        "      provider: codex-oauth",
+        "      executionRouteId: codex-reviewer-route",
         "      voiceProfile: missing-voice",
       ].join("\n"),
     );
@@ -527,7 +602,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "operatorVoice:",
         "  stt:",
         "    provider: imaginary-stt",
@@ -546,7 +621,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "web:",
         "  enabled: true",
       ].join("\n"),
@@ -557,60 +632,35 @@ describe("global-config", () => {
     );
   });
 
-  it("readGlobalConfig() accepts null budget ceilings", () => {
+  it("readGlobalConfig() rejects invalid execution catalog references and account selection", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      [
-        "version: \"1\"",
-        "routing:",
-        "  budgetAware: true",
-        "  budget:",
-        "    opencode:",
-        "      dailyTokenCeiling: null",
-      ].join("\n"),
-    );
+    const valid = [
+      'version: "2"',
+      "executionCatalog:",
+      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: account, subscriptionClass: subscription, quotaClassId: quota, creditPosture: disabled, overagePosture: disabled } }]",
+      "  accountPolicies: [{ id: policy, accountIds: [account], strategy: economic-least-pressure }]",
+      "  routes: [{ id: route, label: Route, providerId: codex-oauth, providerModelId: gpt-5.6-terra, accountSelection: { mode: automatic, accountPolicyId: policy }, economics: { adapterCapabilityId: adapter, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: subscription, envelopeSemantics: request, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: card, rateCardRevision: v1, evidence: { sourceIdentity: provider, sourceRevision: v1, sourceDigest: digest, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }]",
+      "executionRouting: { defaultRouteId: route }",
+    ].join("\n");
 
-    expect(readGlobalConfig()?.routing?.budget?.opencode?.dailyTokenCeiling).toBeNull();
-  });
+    readFileSyncMock.mockReturnValue(valid.replace("accountPolicyId: policy", "accountPolicyId: missing"));
+    expect(() => readGlobalConfig()).toThrow("references an unknown account policy");
 
-  it("readGlobalConfig() accepts ordered provider/model routes", () => {
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      [
-        "version: \"1\"",
-        "routing:",
-        "  routes:",
-        "    - provider: codex-oauth",
-        "      model: gpt-5.4-mini",
-        "    - provider: openrouter",
-        "      model: openrouter/free",
-      ].join("\n"),
-    );
+    readFileSyncMock.mockReturnValue(valid.replace("providerId: codex-oauth, providerModelId", "providerId: other-provider, providerModelId"));
+    expect(() => readGlobalConfig()).toThrow("provider must match route providerId");
 
-    const config = readGlobalConfig();
+    readFileSyncMock.mockReturnValue(valid.replace("defaultRouteId: route", "defaultRouteId: missing"));
+    expect(() => readGlobalConfig()).toThrow("executionRouting.defaultRouteId references an unknown route");
 
-    expect(config?.routing?.routes).toEqual([
-      { provider: "codex-oauth", model: "gpt-5.4-mini" },
-      { provider: "openrouter", model: "openrouter/free" },
-    ]);
-    expect(resolveGlobalDefaultProvider(config)).toBe("codex-oauth");
-    expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.4-mini");
-  });
-
-  it("readGlobalConfig() rejects malformed ordered routes", () => {
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(
-      ["version: \"1\"", "routing:", "  routes:", "    - model: gpt-5.4-mini"].join("\n"),
-    );
-
-    expect(() => readGlobalConfig()).toThrow("routing.routes[0].provider must be a non-empty string");
+    readFileSyncMock.mockReturnValue(valid.replace("defaultRouteId: route", "defaultRouteId: route, fallbackRouteIds: []"));
+    expect(() => readGlobalConfig()).toThrow("Unknown executionRouting field: fallbackRouteIds.");
   });
 
   it("readGlobalConfig() validates model task suitability overrides", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "modelTaskSuitability:",
         "  - provider: codex-oauth",
         "    model: gpt-5.4-mini",
@@ -630,7 +680,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "modelTaskSuitability:",
         "  - provider: codex-oauth",
         "    model: gpt-5.4-mini",
@@ -649,7 +699,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "deliberationPolicy:",
         "  default:",
         "    mode: adaptive",
@@ -695,7 +745,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "deliberationPolicy:",
         "  byTask:",
         "    frontend-design:",
@@ -709,7 +759,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "reasoningPolicy:",
         "  default: medium",
       ].join("\n"),
@@ -722,15 +772,13 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  enabled: true",
         "  routes:",
         "    - id: codex-approved-write",
         "      kind: harness",
         "      provider: codex",
-        "      credentials:",
-        "        mode: credentialless",
         "      profiles:",
         "        - foundation-apply-approved-writes",
         "      writeAuthority:",
@@ -755,14 +803,12 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  routes:",
         "    - id: codex-approved-write",
         "      kind: harness",
         "      provider: codex",
-        "      credentials:",
-        "        mode: credentialless",
         "      writeAuthority:",
         "        approval:",
         "          mode: auto",
@@ -778,7 +824,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  enabled: true",
         "  worktreeLease:",
@@ -789,8 +835,6 @@ describe("global-config", () => {
         "    - id: codex-approved-write",
         "      kind: harness",
         "      provider: codex",
-        "      credentials:",
-        "        mode: credentialless",
         "      workingDirectory: isolated-worktree",
         "      profiles:",
         "        - foundation-apply-approved-writes",
@@ -823,14 +867,14 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
+        ...CODEX_EXECUTION_CATALOG_YAML,
         "managedAgents:",
+        ...managedPolicyYaml("codex-oauth-sandbox-readonly"),
         "  routes:",
         "    - id: codex-oauth-sandbox-readonly",
         "      kind: direct",
-        "      provider: codex-oauth",
-        "      credentials:",
-        "        mode: credentialless",
+        "      executionRouteId: codex-reviewer-route",
         "      workingDirectory: sandbox",
       ].join("\n"),
     );
@@ -845,15 +889,13 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  routes:",
         "    - id: codex-cloud-remote-readonly",
         "      kind: harness",
         "      provider: codex-cloud",
         "      model: gpt-5.5",
-        "      credentials:",
-        "        mode: credentialless",
         "      workingDirectory: sandbox",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
@@ -873,32 +915,29 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
+        ...managedPolicyYaml("codex-cloud-remote-readonly"),
         "  routes:",
         "    - id: codex-cloud-remote-readonly",
         "      kind: direct",
-        "      provider: codex-cloud",
-        "      credentials:",
-        "        mode: credentialless",
+        "      executionRouteId: codex-cloud-remote-readonly",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
         "        cancelUrl: https://remote.example.test/managed-agent/cancel",
       ].join("\n"),
     );
 
-    expect(() => readGlobalConfig()).toThrow("managedAgents.routes[0].remoteHarness requires kind \"harness\"");
+    expect(() => readGlobalConfig()).toThrow("managedAgents.routes[0] direct routes may only select an executionRouteId");
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  routes:",
         "    - id: codex-cloud-remote-readonly",
         "      kind: harness",
         "      provider: codex-cloud",
-        "      credentials:",
-        "        mode: credentialless",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
         "        cancelUrl: ''",
@@ -909,14 +948,12 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  routes:",
         "    - id: codex-cloud-remote-readonly",
         "      kind: harness",
         "      provider: codex-cloud",
-        "      credentials:",
-        "        mode: credentialless",
         "      remoteHarness:",
         "        invokeUrl: http://remote.example.test/managed-agent/invoke",
         "        cancelUrl: https://remote.example.test/managed-agent/cancel",
@@ -930,7 +967,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  worktreeLease:",
         "    mode: shell",
@@ -942,7 +979,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  worktreeLease:",
         "    mode: git",
@@ -953,7 +990,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  routes:",
         "    - id: codex-approved-write",
@@ -969,7 +1006,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        "version: \"1\"",
+        "version: \"2\"",
         "managedAgents:",
         "  worktreeLease:",
         "    mode: git",
@@ -989,36 +1026,258 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("Global config must be an object");
   });
 
-  it("writeGlobalConfig() creates parent directories and writes stringified YAML", () => {
-    writeGlobalConfig({
-      version: "1",
-      routing: { defaultWorker: "codex", budgetAware: false },
-      models: { codex: "gpt-5.4" },
+  it("mutateGlobalConfig() atomically replaces on Windows without unlinking the destination", () => {
+    existsSyncMock.mockImplementation((path: string) => String(path).endsWith("config.yaml"));
+    readFileSyncMock.mockReturnValue('version: "2"\nui:\n  theme: phosphor\n');
+    statSyncMock.mockReturnValue({ mode: 0o100640 });
+
+    const result = mutateGlobalConfig((current) => ({
+      ...(current ?? defaultGlobalConfig()),
+      ui: { theme: "vesper" },
+    }));
+
+    const configPath = join("/home/test-user", ".kiln", "config.yaml");
+    const lockPath = `${configPath}.lock`;
+    const temporaryPath = renameSyncMock.mock.calls[0]?.[0] as string;
+    expect(temporaryPath).toMatch(new RegExp(`${configPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.[0-9a-f-]+\\.tmp$`, "i"));
+    expect(mkdirSyncMock).toHaveBeenCalledWith(join("/home/test-user", ".kiln"), { recursive: true });
+    expect(openSyncMock).toHaveBeenCalledWith(lockPath, "wx", 0o600);
+    expect(openSyncMock.mock.invocationCallOrder[0]).toBeLessThan(readFileSyncMock.mock.invocationCallOrder[0]!);
+    expect(writeFileSyncMock).toHaveBeenCalledWith(temporaryPath, expect.stringContaining("theme: vesper"), {
+      encoding: "utf-8",
+      mode: 0o640,
+    });
+    expect(chmodSyncMock).toHaveBeenCalledWith(temporaryPath, 0o640);
+    expect(renameSyncMock).toHaveBeenCalledWith(temporaryPath, configPath);
+    expect(rmSyncMock).not.toHaveBeenCalledWith(configPath, expect.anything());
+    expect(rmSyncMock).toHaveBeenCalledWith(temporaryPath, { force: true });
+    const releasePath = renameSyncMock.mock.calls.find(([from]) => from === lockPath)?.[1] as string;
+    expect(releasePath).toMatch(/\.lock\.release-[0-9a-f-]+$/i);
+    expect(closeSyncMock.mock.invocationCallOrder.at(-1)).toBeLessThan(rmSyncMock.mock.invocationCallOrder.at(-1)!);
+    expect(rmSyncMock).toHaveBeenCalledWith(releasePath, { force: true });
+    expect(rmSyncMock).not.toHaveBeenCalledWith(lockPath, { force: true });
+    expect(result.previousRevision).toMatch(/^sha256:/);
+    expect(result.revision).toMatch(/^sha256:/);
+    expect(result.revision).not.toBe(result.previousRevision);
+  });
+
+  it("mutateGlobalConfig() returns deterministic revision conflict evidence without invoking the mutation", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue('version: "2"\n');
+    const mutation = vi.fn((current) => current ?? defaultGlobalConfig());
+
+    expect(() => mutateGlobalConfig(mutation, { expectedRevision: "sha256:stale" })).toThrow(
+      expect.objectContaining<Partial<GlobalConfigMutationError>>({
+        code: "GLOBAL_CONFIG_REVISION_CONFLICT",
+        evidence: expect.objectContaining({ expectedRevision: "sha256:stale" }),
+      }),
+    );
+    expect(mutation).not.toHaveBeenCalled();
+    expect(writeFileSyncMock.mock.calls.some(([path]) => typeof path === "string")).toBe(false);
+    expect(rmSyncMock).not.toHaveBeenCalledWith(`${join("/home/test-user", ".kiln", "config.yaml")}.lock`, { force: true });
+  });
+
+  it("mutateGlobalConfig() preserves revision and avoids replacement for a semantic no-op", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue('version: "2"\nui:\n  theme: phosphor\n');
+
+    const result = mutateGlobalConfig((current) => ({ ...current! }));
+
+    expect(result.revision).toBe(result.previousRevision);
+    expect(renameSyncMock.mock.calls.some(([, destination]) => destination === join("/home/test-user", ".kiln", "config.yaml"))).toBe(false);
+    expect(writeFileSyncMock.mock.calls.some(([path]) => typeof path === "string")).toBe(false);
+  });
+
+  it("mutateGlobalConfig() cannot delete a successor lock acquired after its atomic release claim", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue('version: "2"\n');
+    const configPath = join("/home/test-user", ".kiln", "config.yaml");
+    const lockPath = `${configPath}.lock`;
+    let successorAcquired = false;
+    renameSyncMock.mockImplementation((from: string, destination: string) => {
+      if (from === lockPath && destination.includes(".release-")) successorAcquired = true;
+    });
+    rmSyncMock.mockImplementation((path: string) => {
+      if (successorAcquired && path === lockPath) throw new Error("successor lock was deleted");
     });
 
-    expect(mkdirSyncMock).toHaveBeenCalledWith(join("/home/test-user", ".kiln"), {
-      recursive: true,
+    expect(() => mutateGlobalConfig((current) => current!)).not.toThrow();
+
+    expect(successorAcquired).toBe(true);
+    expect(rmSyncMock).not.toHaveBeenCalledWith(lockPath, { force: true });
+    expect(rmSyncMock).toHaveBeenCalledWith(expect.stringContaining(".lock.release-"), { force: true });
+  });
+
+  it("mutateGlobalConfig() ownership-safely claims a partially initialized lock before cleanup", () => {
+    const configPath = join("/home/test-user", ".kiln", "config.yaml");
+    const lockPath = `${configPath}.lock`;
+    fsyncSyncMock.mockImplementation(() => {
+      throw new Error("lock fsync failed");
     });
-    expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
-    expect(writeFileSyncMock).toHaveBeenCalledWith(
-      join("/home/test-user", ".kiln", "config.yaml"),
-      expect.any(String),
-      "utf-8",
+
+    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+      expect.objectContaining<Partial<GlobalConfigMutationError>>({ code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE" }),
     );
-    expect(String(writeFileSyncMock.mock.calls[0]?.[1])).toContain("defaultWorker: codex");
+
+    const releasePath = renameSyncMock.mock.calls.find(([from]) => from === lockPath)?.[1] as string;
+    expect(releasePath).toMatch(/\.lock\.release-[0-9a-f-]+$/i);
+    expect(renameSyncMock).toHaveBeenCalledWith(lockPath, releasePath);
+    expect(closeSyncMock).toHaveBeenCalledWith(7);
+    expect(rmSyncMock).toHaveBeenCalledWith(releasePath, { force: true });
+    expect(rmSyncMock).not.toHaveBeenCalledWith(lockPath, { force: true });
+  });
+
+  it("mutateGlobalConfig() reports lock contention and does not read or write config", () => {
+    openSyncMock.mockImplementation(() => {
+      const error = new Error("exists") as NodeJS.ErrnoException;
+      error.code = "EEXIST";
+      throw error;
+    });
+
+    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+      expect.objectContaining<Partial<GlobalConfigMutationError>>({ code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE" }),
+    );
+    expect(readFileSyncMock).toHaveBeenCalledWith(`${join("/home/test-user", ".kiln", "config.yaml")}.lock`, "utf-8");
+    expect(readFileSyncMock.mock.calls.some(([path]) => path === join("/home/test-user", ".kiln", "config.yaml"))).toBe(false);
+    expect(writeFileSyncMock).not.toHaveBeenCalled();
+    expect(rmSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("mutateGlobalConfig() cleans its temporary and lock files when atomic replacement fails", () => {
+    existsSyncMock.mockReturnValue(false);
+    renameSyncMock.mockImplementation((from: string) => {
+      if (from.endsWith(".tmp")) throw new Error("replace failed");
+    });
+
+    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+      expect.objectContaining<Partial<GlobalConfigMutationError>>({ code: "GLOBAL_CONFIG_WRITE_FAILED" }),
+    );
+    const configPath = join("/home/test-user", ".kiln", "config.yaml");
+    const temporaryPath = renameSyncMock.mock.calls[0]?.[0] as string;
+    expect(rmSyncMock).toHaveBeenCalledWith(temporaryPath, { force: true });
+    expect(rmSyncMock).not.toHaveBeenCalledWith(`${configPath}.lock`, { force: true });
+  });
+
+  it("mutateGlobalConfig() recovers a dead owner's lock and its exact temporary file", () => {
+    const staleAcquisitionId = "11111111-1111-4111-8111-111111111111";
+    openSyncMock
+      .mockImplementationOnce(() => {
+        const error = new Error("exists") as NodeJS.ErrnoException;
+        error.code = "EEXIST";
+        throw error;
+      })
+      .mockReturnValueOnce(8);
+    readFileSyncMock.mockImplementation((path: string | number) => {
+      if (String(path).includes(".lock")) {
+        return JSON.stringify({ pid: 424242, acquiredAt: "2026-08-11T12:00:00.000Z", acquisitionId: staleAcquisitionId });
+      }
+      return 'version: "2"\n';
+    });
+    existsSyncMock.mockReturnValue(false);
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+      const error = new Error("not found") as NodeJS.ErrnoException;
+      error.code = "ESRCH";
+      throw error;
+    });
+
+    mutateGlobalConfig(() => defaultGlobalConfig());
+
+    const configPath = join("/home/test-user", ".kiln", "config.yaml");
+    expect(kill).toHaveBeenCalledWith(424242, 0);
+    expect(rmSyncMock).toHaveBeenCalledWith(`${configPath}.${staleAcquisitionId}.tmp`, { force: true });
+    expect(renameSyncMock).toHaveBeenCalledWith(
+      `${configPath}.lock`,
+      expect.stringMatching(/\.lock\.recovery-[0-9a-f-]+$/i),
+    );
+    expect(rmSyncMock).not.toHaveBeenCalledWith(`${configPath}.lock`, { force: true });
+    expect(openSyncMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("mutateGlobalConfig() does not clean a stale lock claimed first by a competing recoverer", () => {
+    const staleAcquisitionId = "11111111-1111-4111-8111-111111111111";
+    openSyncMock.mockImplementation(() => {
+      const error = new Error("exists") as NodeJS.ErrnoException;
+      error.code = "EEXIST";
+      throw error;
+    });
+    readFileSyncMock.mockReturnValue(JSON.stringify({
+      pid: 424242,
+      acquiredAt: "2026-08-11T12:00:00.000Z",
+      acquisitionId: staleAcquisitionId,
+    }));
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      const error = new Error("not found") as NodeJS.ErrnoException;
+      error.code = "ESRCH";
+      throw error;
+    });
+    renameSyncMock.mockImplementation(() => {
+      const error = new Error("already claimed") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    });
+
+    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+      expect.objectContaining<Partial<GlobalConfigMutationError>>({ code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE" }),
+    );
+    const configPath = join("/home/test-user", ".kiln", "config.yaml");
+    expect(rmSyncMock).not.toHaveBeenCalledWith(`${configPath}.${staleAcquisitionId}.tmp`, { force: true });
+    expect(rmSyncMock).not.toHaveBeenCalledWith(`${configPath}.lock`, { force: true });
+  });
+
+  it("mutateGlobalConfig() backs up invalid bytes while holding the lock before replacement", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue("invalid: [\n");
+    statSyncMock.mockReturnValue({ mode: 0o100600 });
+
+    const result = mutateGlobalConfig(
+      () => defaultGlobalConfig(),
+      { invalidCurrent: "backup-and-replace" },
+    );
+
+    expect(result.invalidBackupPath).toMatch(/config\.yaml\.invalid-[0-9a-f-]+\.bak$/i);
+    expect(writeFileSyncMock).toHaveBeenCalledWith(
+      result.invalidBackupPath,
+      "invalid: [\n",
+      { encoding: "utf-8", flag: "wx", mode: 0o600 },
+    );
+    const backupOrder = writeFileSyncMock.mock.invocationCallOrder[1]!;
+    expect(openSyncMock.mock.invocationCallOrder[0]).toBeLessThan(backupOrder);
+    expect(backupOrder).toBeLessThan(renameSyncMock.mock.invocationCallOrder[0]!);
+  });
+
+  it("mutateGlobalConfig() fails closed when lock owner liveness is unknown", () => {
+    openSyncMock.mockImplementation(() => {
+      const error = new Error("exists") as NodeJS.ErrnoException;
+      error.code = "EEXIST";
+      throw error;
+    });
+    readFileSyncMock.mockReturnValue(JSON.stringify({
+      pid: 424242,
+      acquiredAt: "2026-08-11T12:00:00.000Z",
+      acquisitionId: "11111111-1111-4111-8111-111111111111",
+    }));
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      const error = new Error("denied") as NodeJS.ErrnoException;
+      error.code = "EPERM";
+      throw error;
+    });
+
+    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+      expect.objectContaining<Partial<GlobalConfigMutationError>>({
+        code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
+        evidence: expect.objectContaining({ lockOwnerPid: 424242 }),
+      }),
+    );
+    expect(renameSyncMock).not.toHaveBeenCalled();
   });
 
   it("defaultGlobalConfig() returns expected shape", () => {
     expect(defaultGlobalConfig()).toEqual({
-      version: "1",
+      version: "2",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: false, billing: "plus-quota" },
         opencode: { enabled: false, billing: "free" },
-      },
-      routing: {
-        defaultWorker: "claude",
-        budgetAware: false,
       },
       permissions: {
         approval: "on-request",
@@ -1066,15 +1325,18 @@ describe("global-config", () => {
 
   it("resolves provider, model, and UI theme through projection helpers", () => {
     const config = {
-      version: "1" as const,
-      engines: { codex: { enabled: true as const } },
-      routing: { defaultWorker: "codex" },
-      models: { default: "fallback-model", codex: "gpt-5.4" },
+      version: "2" as const,
+      executionCatalog: {
+        accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "account", subscriptionClass: "subscription", quotaClassId: "quota", creditPosture: "disabled", overagePosture: "disabled" } }],
+        accountPolicies: [{ id: "policy", accountIds: ["account"], strategy: "economic-least-pressure" as const }],
+        routes: [{ id: "terra", label: "Terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", accountSelection: { mode: "automatic" as const, accountPolicyId: "policy" }, economics: { adapterCapabilityId: "adapter", adapterCapabilityVersion: "v1", authBillingChannel: "subscription", executionMode: "direct", serviceTier: "default", rateCardBasis: "subscription", envelopeSemantics: "request", fallbackPosture: "disabled" as const, overagePosture: "disabled" as const, contextClass: "standard", cacheClass: "none", priceEvidence: { kind: "subscription" as const, rateCardId: "card", rateCardRevision: "v1", evidence: { sourceIdentity: "provider", sourceRevision: "v1", sourceDigest: "digest", observedAt: "2026-01-01", validUntil: "2027-01-01", confidence: "high" as const, authority: "configured" as const } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
+      },
+      executionRouting: { defaultRouteId: "terra" },
       ui: { theme: "vesper" },
     };
 
-    expect(resolveGlobalDefaultProvider(config)).toBe("codex");
-    expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.4");
+    expect(resolveGlobalDefaultProvider(config)).toBe("codex-oauth");
+    expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.6-terra");
     expect(resolveGlobalUiTheme(config)).toBe("vesper");
   });
 });

@@ -12,11 +12,10 @@ export class GuiSessionClient {
   private stopped = true;
   private wsUrls: readonly string[] = [];
   private wsUrlIndex = 0;
-  private providerSwitchRequestOrdinal = 0;
+  private routeSwitchRequestOrdinal = 0;
   private pendingClear: { timerId: number; resolve: () => void; reject: (err: Error) => void } | null = null;
-  private pendingProviderChange: {
-    provider: string;
-    model: string | null;
+  private pendingRouteChange: {
+    routeId: string;
     requestId: string;
     timerId: number;
     resolve: (v: string) => void;
@@ -71,29 +70,28 @@ export class GuiSessionClient {
     });
   }
 
-  switchProvider(provider: string, model?: string): Promise<string> {
-    if (this.pendingProviderChange) throw new Error("Provider switch already in flight");
-    const requestedModel = normalizeModel(model);
-    const requestId = this.nextProviderSwitchRequestId();
+  switchExecutionRoute(routeId: string, accountOverrideId?: string): Promise<string> {
+    if (this.pendingRouteChange) throw new Error("Execution route switch already in flight");
+    const requestId = `execution-route-${++this.routeSwitchRequestOrdinal}`;
     return new Promise<string>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
-        this.pendingProviderChange = null;
-        reject(new Error("Provider switch timed out"));
+        this.pendingRouteChange = null;
+        reject(new Error("Execution route switch timed out"));
       }, this.ACK_TIMEOUT_MS);
-      const pending = { provider, model: requestedModel, requestId, timerId, resolve, reject };
-      this.pendingProviderChange = pending;
+      const pending = { routeId, requestId, timerId, resolve, reject };
+      this.pendingRouteChange = pending;
       try {
         this.send({
-          type: "provider",
-          provider,
-          ...(requestedModel ? { model: requestedModel } : {}),
+          type: "execution_route",
+          routeId,
+          ...(accountOverrideId ? { accountOverrideId } : {}),
           requestId,
         });
       } catch (error) {
-        if (this.pendingProviderChange === pending) {
+        if (this.pendingRouteChange === pending) {
           window.clearTimeout(timerId);
-          this.pendingProviderChange = null;
-          reject(toError(error, "Provider switch failed"));
+          this.pendingRouteChange = null;
+          reject(toError(error, "Execution route switch failed"));
         }
       }
     });
@@ -182,20 +180,15 @@ export class GuiSessionClient {
       this.pendingClear.resolve();
       this.pendingClear = null;
     }
-    if (frame.type === "provider_changed" && this.pendingProviderChange) {
-      const frameModel = normalizeModel(frame.model);
-      if (
-        frame.provider === this.pendingProviderChange.provider
-        && frame.requestId === this.pendingProviderChange.requestId
-        && frameModel === this.pendingProviderChange.model
-      ) {
-        window.clearTimeout(this.pendingProviderChange.timerId);
-        this.pendingProviderChange.resolve(frame.provider);
-        this.pendingProviderChange = null;
+    if (frame.type === "execution_route_changed" && this.pendingRouteChange) {
+      if (frame.routeId === this.pendingRouteChange.routeId && frame.requestId === this.pendingRouteChange.requestId) {
+        window.clearTimeout(this.pendingRouteChange.timerId);
+        this.pendingRouteChange.resolve(frame.routeId);
+        this.pendingRouteChange = null;
       } else {
-        window.clearTimeout(this.pendingProviderChange.timerId);
-        this.pendingProviderChange.reject(new Error("Provider switch acknowledgement did not match the pending request"));
-        this.pendingProviderChange = null;
+        window.clearTimeout(this.pendingRouteChange.timerId);
+        this.pendingRouteChange.reject(new Error("Execution route acknowledgement did not match the pending request"));
+        this.pendingRouteChange = null;
       }
     }
     if (frame.type === "continuation_selected" && this.pendingContinuationSelection) {
@@ -209,10 +202,10 @@ export class GuiSessionClient {
         this.pendingClear.reject(new Error(frame.message));
         this.pendingClear = null;
       }
-      if (this.pendingProviderChange) {
-        window.clearTimeout(this.pendingProviderChange.timerId);
-        this.pendingProviderChange.reject(new Error(frame.message));
-        this.pendingProviderChange = null;
+      if (this.pendingRouteChange) {
+        window.clearTimeout(this.pendingRouteChange.timerId);
+        this.pendingRouteChange.reject(new Error(frame.message));
+        this.pendingRouteChange = null;
       }
       if (this.pendingContinuationSelection) {
         window.clearTimeout(this.pendingContinuationSelection.timerId);
@@ -310,10 +303,10 @@ export class GuiSessionClient {
       this.pendingClear.reject(error);
       this.pendingClear = null;
     }
-    if (this.pendingProviderChange) {
-      window.clearTimeout(this.pendingProviderChange.timerId);
-      this.pendingProviderChange.reject(error);
-      this.pendingProviderChange = null;
+    if (this.pendingRouteChange) {
+      window.clearTimeout(this.pendingRouteChange.timerId);
+      this.pendingRouteChange.reject(error);
+      this.pendingRouteChange = null;
     }
     if (this.pendingContinuationSelection) {
       window.clearTimeout(this.pendingContinuationSelection.timerId);
@@ -322,10 +315,6 @@ export class GuiSessionClient {
     }
   }
 
-  private nextProviderSwitchRequestId(): string {
-    this.providerSwitchRequestOrdinal += 1;
-    return `provider-switch:${Date.now()}:${this.providerSwitchRequestOrdinal}`;
-  }
 }
 
 function toWebSocketUrl(baseUrl: string): string {
@@ -339,12 +328,6 @@ function toError(error: unknown, fallbackMessage: string): Error {
   if (error instanceof Error) return error;
   if (typeof error === "string" && error.length > 0) return new Error(error);
   return new Error(fallbackMessage);
-}
-
-function normalizeModel(model: unknown): string | null {
-  if (typeof model !== "string") return null;
-  const trimmed = model.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 export interface GuiSessionClientOptions {

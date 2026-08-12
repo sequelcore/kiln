@@ -1,45 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAppShellFrameHandler } from "../src/components/app-shell-frame-handler.js";
-import type { GuiProviderModelDiscoveryProjection } from "@kilnai/gateway-contracts";
-
-const EMPTY_PROVIDER_MODEL_DISCOVERY: GuiProviderModelDiscoveryProjection = {
-  catalogEvidence: {
-    status: "failed",
-    source: {
-      kind: "test",
-      id: "app-shell-frame-handler",
-    },
-    observedAt: "2026-07-01T00:00:00.000Z",
-    counts: {
-      total: 0,
-      returned: 0,
-      omitted: 0,
-    },
-    failure: {
-      classification: "catalog-unavailable",
-      summary: "No provider model discovery fixture.",
-    },
-  },
-  entries: [],
-};
+import { OPERATOR_THEME_NAMES } from "@kilnai/gateway-contracts";
 
 function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHandler>[0]> = {}) {
   return {
     onWelcome: vi.fn(),
     onSessionEvent: vi.fn(),
     onDone: vi.fn(),
+    onTurnCancelResult: vi.fn(),
     onGoalControlResult: vi.fn(),
     onApprovalResponseResult: vi.fn(),
     onVoiceSynthesisCompleted: vi.fn(),
     onVoiceSynthesisFailed: vi.fn(),
     onError: vi.fn(),
     onCleared: vi.fn(),
-    onProviderChanged: vi.fn(),
-    onProviderChangeFailed: vi.fn(),
+    onExecutionRouteChanged: vi.fn(),
+    onExecutionRouteChangeFailed: vi.fn(),
     onProviderAuthStarted: vi.fn(),
     onProviderAuthCompleted: vi.fn(),
     onProviderAuthFailed: vi.fn(),
-    onProvidersRefreshed: vi.fn(),
+    onExecutionRoutesRefreshed: vi.fn(),
     onExecConfirmed: vi.fn(),
     onActivityPhase: vi.fn(),
     onInteractiveUseUpdated: vi.fn(),
@@ -52,8 +32,6 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellFrameHan
     setTheme: vi.fn(),
     persistThemePreference: vi.fn(),
     sendThemeResult: vi.fn(),
-    getProviders: vi.fn(() => [{ id: "codex", models: ["gpt"], available: true }]),
-    refetchDashboard: vi.fn(),
     onManagedAgentControlResult: vi.fn(),
     invalidateMemoryLattice: vi.fn(),
     ...overrides,
@@ -68,17 +46,17 @@ describe("createAppShellFrameHandler", () => {
     handleFrame({
       type: "operator_theme_set",
       requestId: "theme-1",
-      theme: "automata",
+      theme: OPERATOR_THEME_NAMES[0],
       scope: "persisted",
     } as never);
 
-    expect(input.setTheme).toHaveBeenCalledWith("automata");
-    expect(input.persistThemePreference).toHaveBeenCalledWith("automata");
+    expect(input.setTheme).toHaveBeenCalledWith(OPERATOR_THEME_NAMES[0]);
+    expect(input.persistThemePreference).toHaveBeenCalledWith(OPERATOR_THEME_NAMES[0]);
     expect(input.sendThemeResult).toHaveBeenCalledWith({
       type: "operator_theme_set_result",
       requestId: "theme-1",
       ok: true,
-      appliedTheme: "automata",
+      appliedTheme: OPERATOR_THEME_NAMES[0],
     });
   });
 
@@ -102,25 +80,17 @@ describe("createAppShellFrameHandler", () => {
     });
   });
 
-  it("refreshes provider discovery after provider auth completion", () => {
+  it("keeps provider authentication separate from execution-route refresh", () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
     handleFrame({
       type: "provider_auth_completed",
-      provider: "codex",
-      providers: undefined,
-      providerDiscovery: [{ provider: "codex" }],
-      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
+      provider: "codex-oauth",
     } as never);
 
     expect(input.onProviderAuthCompleted).toHaveBeenCalledTimes(1);
-    expect(input.onProvidersRefreshed).toHaveBeenCalledWith(
-      [{ id: "codex", models: ["gpt"], available: true }],
-      [{ provider: "codex" }],
-      EMPTY_PROVIDER_MODEL_DISCOVERY,
-    );
-    expect(input.refetchDashboard).toHaveBeenCalledTimes(1);
+    expect(input.onExecutionRoutesRefreshed).not.toHaveBeenCalled();
   });
 
   it("routes managed-agent control results to the cockpit owner", () => {
@@ -168,15 +138,14 @@ describe("createAppShellFrameHandler", () => {
     expect(input.onSessionEvent).not.toHaveBeenCalled();
   });
 
-  it("routes provider and approval failures to their operation owners", () => {
+  it("routes execution-route and approval failures to their operation owners", () => {
     const input = createInput();
     const handleFrame = createAppShellFrameHandler(input);
 
     handleFrame({
-      type: "provider_change_failed",
-      requestId: "provider-change-1",
-      provider: "openai",
-      model: "gpt-5",
+      type: "execution_route_change_failed",
+      requestId: "execution-route-change-1",
+      routeId: "openai-gpt",
       reason: "The selected route is unavailable.",
     });
     handleFrame({
@@ -188,8 +157,8 @@ describe("createAppShellFrameHandler", () => {
       reason: "Approval is no longer pending.",
     });
 
-    expect(input.onProviderChangeFailed).toHaveBeenCalledWith(expect.objectContaining({
-      requestId: "provider-change-1",
+    expect(input.onExecutionRouteChangeFailed).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: "execution-route-change-1",
     }));
     expect(input.onApprovalResponseResult).toHaveBeenCalledWith(expect.objectContaining({
       approvalId: "approval-1",
@@ -214,7 +183,6 @@ describe("createAppShellFrameHandler", () => {
     const handleFrame = createAppShellFrameHandler(input);
     handleFrame({
       type: "welcome",
-      providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
       operatorTerminalAvailable: true,
     } as never);
     const output = { type: "operator_terminal_output", terminalId: "term-1", data: "ready\r\n" } as const;

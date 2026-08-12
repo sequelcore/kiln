@@ -218,13 +218,8 @@ export type {
   GatewayChannelBinding,
   GatewayValidationError,
   ModelGatewayCapabilityId,
-  ModelGatewayAccountConfig,
-  ModelGatewayAccountEconomicsConfig,
   ModelGatewayConfig,
-  ModelGatewayPriceEvidenceConfig,
   ModelGatewayPrincipalConfig,
-  ModelGatewayRouteEconomicsConfig,
-  ModelGatewayUnitPriceConfig,
   ModelGatewayVirtualModelConfig,
 } from "./engine/gateway/gateway-config.js";
 export { validateGatewayConfig } from "./engine/gateway/gateway-config.js";

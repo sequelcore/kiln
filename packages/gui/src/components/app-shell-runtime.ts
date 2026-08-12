@@ -5,7 +5,7 @@ export const DEFAULT_OPERATOR_TERMINAL_HEIGHT = 280;
 export const MIN_OPERATOR_TERMINAL_HEIGHT = 160;
 export const MAX_OPERATOR_TERMINAL_HEIGHT = 720;
 export const OPERATOR_TERMINAL_PANEL_ID = "operator-terminal-panel";
-const PROVIDER_SWITCH_WAIT_TIMEOUT_MS = 5_500;
+const EXECUTION_ROUTE_SELECTION_WAIT_TIMEOUT_MS = 5_500;
 const PROVIDER_AUTH_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 
 function clampOperatorTerminalHeight(height: number): number {
@@ -58,9 +58,9 @@ export function resolveGatewayHttpBaseUrl(): string {
   return window.location.origin;
 }
 
-export function waitForProviderSwitchResolution(provider: string, model: string | null): Promise<void> {
+export function waitForExecutionRouteSelectionResolution(routeId: string, accountOverrideId?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const deadline = Date.now() + PROVIDER_SWITCH_WAIT_TIMEOUT_MS;
+    const deadline = Date.now() + EXECUTION_ROUTE_SELECTION_WAIT_TIMEOUT_MS;
     let pollTimeoutId: ReturnType<typeof setTimeout> | null = null;
     let settled = false;
 
@@ -77,23 +77,23 @@ export function waitForProviderSwitchResolution(provider: string, model: string 
 
     const poll = () => {
       const state = useSessionStore.getState();
-      if (!state.providerSwitching) {
-        if (state.activeProvider === provider && state.activeModel === model) {
+      if (!state.executionRouteSelecting) {
+        if (state.activeRouteId === routeId && state.activeAccountOverrideId === (accountOverrideId ?? null)) {
           settle(resolve);
           return;
         }
         settle(() => {
           reject(new Error(
-            state.providerOperationFailure?.operation === "switch"
+            state.providerOperationFailure?.operation === "select-route"
               ? state.providerOperationFailure.message
-              : "Provider switch failed.",
+              : "Execution-route selection failed.",
           ));
         });
         return;
       }
       if (Date.now() >= deadline) {
         settle(() => {
-          reject(new Error("Provider switch timed out. Please retry."));
+          reject(new Error("Execution-route selection timed out. Please retry."));
         });
         return;
       }

@@ -185,8 +185,9 @@ describe("runSession output routing", () => {
   it("retains sanitized direct-provider binding evidence from pre-dispatch events", async () => {
     const binding = {
       status: "bound" as const,
-      virtualModelId: "direct-codex-terra-primary",
-      accountId: "codex-plus-primary",
+      routeId: "codex-terra-primary",
+      accountId: "codex-account-primary",
+      credentialId: "codex-credential-primary",
       credentialRevision: "sha256:portable-revision",
     };
     const session = createSessionFromEvents([
@@ -220,7 +221,7 @@ describe("runSession output routing", () => {
     });
 
     expect(result.executionBindings).toEqual([binding]);
-    expect(JSON.stringify(result.executionBindings)).not.toContain("credentialId");
+    expect(JSON.stringify(result.executionBindings)).not.toContain("accessToken");
   });
 
   it("routes provider fallback notices through the supplied output sink", async () => {

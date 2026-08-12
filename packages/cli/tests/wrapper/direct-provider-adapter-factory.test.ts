@@ -15,22 +15,27 @@ const adapterMocks = vi.hoisted(
   (): Record<MockAdapterName, ReturnType<typeof vi.fn>> & {
     readonly codexPoolCreateAdapter: ReturnType<typeof vi.fn>;
     readonly codexPoolCreateExactAdapter: ReturnType<typeof vi.fn>;
+    readonly codexPoolCreateAdapterFromCredential: ReturnType<typeof vi.fn>;
     readonly codexPoolListExecutionAccounts: ReturnType<typeof vi.fn>;
     readonly directPoolCreateAdapter: ReturnType<typeof vi.fn>;
+    readonly directPoolCreateAdapterFromCredential: ReturnType<typeof vi.fn>;
     readonly directPoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodeAuthLoad: ReturnType<typeof vi.fn>;
     readonly opencodePoolListStatus: ReturnType<typeof vi.fn>;
     readonly opencodePoolCreateAdapter: ReturnType<typeof vi.fn>;
     readonly opencodePoolCreateExactAdapter: ReturnType<typeof vi.fn>;
+    readonly opencodePoolCreateAdapterFromCredential: ReturnType<typeof vi.fn>;
     readonly opencodePoolListExecutionAccounts: ReturnType<typeof vi.fn>;
   } => ({
     anthropic: vi.fn(),
     codexPoolCreateAdapter: vi.fn(),
     codexPoolCreateExactAdapter: vi.fn(),
+    codexPoolCreateAdapterFromCredential: vi.fn(),
     codexPoolListExecutionAccounts: vi.fn(),
     codexOauth: vi.fn(),
     deepseek: vi.fn(),
     directPoolCreateAdapter: vi.fn(),
+    directPoolCreateAdapterFromCredential: vi.fn(),
     directPoolListStatus: vi.fn(),
     lmstudio: vi.fn(),
     ollama: vi.fn(),
@@ -40,6 +45,7 @@ const adapterMocks = vi.hoisted(
     opencodePoolListStatus: vi.fn(),
     opencodePoolCreateAdapter: vi.fn(),
     opencodePoolCreateExactAdapter: vi.fn(),
+    opencodePoolCreateAdapterFromCredential: vi.fn(),
     opencodePoolListExecutionAccounts: vi.fn(),
     openrouter: vi.fn(),
   }),
@@ -82,6 +88,11 @@ vi.mock("@kilnai/runtime", () => ({
       adapterMocks.codexPoolCreateExactAdapter(config);
       return { name: "exact-codex-oauth" };
     }
+
+    createAdapterFromCredential(config: unknown) {
+      adapterMocks.codexPoolCreateAdapterFromCredential(config);
+      return { name: "exact-codex-oauth-committed" };
+    }
   },
   DirectProviderCredentialPoolService: class MockDirectProviderCredentialPoolService {
     constructor(config: unknown) {
@@ -95,6 +106,11 @@ vi.mock("@kilnai/runtime", () => ({
     createPooledAdapter(config: unknown) {
       adapterMocks.directPoolCreateAdapter(config);
       return { name: "pooled-direct" };
+    }
+
+    createAdapterFromCredential(config: unknown) {
+      adapterMocks.directPoolCreateAdapterFromCredential(config);
+      return { name: "exact-direct-committed" };
     }
   },
   isPooledDirectProviderId: (provider: string) =>
@@ -116,6 +132,11 @@ vi.mock("@kilnai/runtime", () => ({
     createExactAdapter(config: unknown) {
       adapterMocks.opencodePoolCreateExactAdapter(config);
       return { name: "exact-opencode" };
+    }
+
+    createAdapterFromCredential(config: unknown) {
+      adapterMocks.opencodePoolCreateAdapterFromCredential(config);
+      return { name: "exact-opencode-committed" };
     }
   },
 }));
@@ -222,8 +243,8 @@ describe("createDirectProviderAdapter", () => {
     const adapter = await createDirectProviderAdapter({
       provider: "codex-oauth",
       model: "gpt-terra",
-      accountBinding: {
-        virtualModelId: "managed-terra",
+      credentialBinding: {
+        routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
       },
@@ -233,8 +254,9 @@ describe("createDirectProviderAdapter", () => {
       name: "exact-codex-oauth",
       executionBinding: {
         status: "bound",
-        virtualModelId: "managed-terra",
+        routeId: "terra",
         accountId: "secondary",
+        credentialId: "subscription-secondary",
         credentialRevision: "b".repeat(64),
       },
     });
@@ -251,8 +273,8 @@ describe("createDirectProviderAdapter", () => {
     await expect(createDirectProviderAdapter({
       provider: "codex-oauth",
       model: "gpt-terra",
-      accountBinding: {
-        virtualModelId: "managed-terra",
+      credentialBinding: {
+        routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
       },
@@ -260,8 +282,9 @@ describe("createDirectProviderAdapter", () => {
       name: "DirectProviderBindingError",
       evidence: {
         status: "rejected-pre-dispatch",
-        virtualModelId: "managed-terra",
+        routeId: "terra",
         accountId: "secondary",
+        credentialId: "subscription-secondary",
       },
     });
   });
@@ -276,8 +299,8 @@ describe("createDirectProviderAdapter", () => {
     await expect(createDirectProviderAdapter({
       provider: "codex-oauth",
       model: "gpt-terra",
-      accountBinding: {
-        virtualModelId: "managed-terra",
+      credentialBinding: {
+        routeId: "terra",
         accountId: "secondary",
         credentialId: "subscription-secondary",
         credentialRevision: "b".repeat(64),
@@ -286,17 +309,54 @@ describe("createDirectProviderAdapter", () => {
     expect(adapterMocks.codexPoolCreateExactAdapter).not.toHaveBeenCalled();
   });
 
-  it("does not silently pool an exact account binding for an unsupported provider", async () => {
+  it("does not silently pool an exact credential binding for an unsupported provider", async () => {
     await expect(createDirectProviderAdapter({
       provider: "openai",
       model: "gpt",
-      accountBinding: {
-        virtualModelId: "managed-gpt",
+      credentialBinding: {
+        routeId: "gpt",
         accountId: "primary",
         credentialId: "subscription-primary",
       },
       runtimeEnv: { OPENAI_API_KEY: "key" },
-    })).rejects.toThrow("does not support exact account binding");
+    })).rejects.toThrow("does not support exact credential binding");
+    expect(adapterMocks.directPoolCreateAdapter).not.toHaveBeenCalled();
+  });
+
+  it("constructs a pooled direct adapter from the committed credential material", async () => {
+    const credential = {
+      providerId: "openai" as const,
+      credentialId: "subscription-primary",
+      auth: { apiKey: "committed-key" },
+    };
+    const adapter = await createDirectProviderAdapter({
+      provider: "openai",
+      model: "gpt-5.4",
+      credentialBinding: {
+        routeId: "gpt",
+        accountId: "primary",
+        credentialId: credential.credentialId,
+        credentialRevision: "a".repeat(64),
+      },
+      executionCredential: credential,
+    });
+
+    expect(adapter).toEqual({
+      name: "exact-direct-committed",
+      executionBinding: {
+        status: "bound",
+        routeId: "gpt",
+        accountId: "primary",
+        credentialId: credential.credentialId,
+        credentialRevision: "a".repeat(64),
+      },
+    });
+    expect(adapterMocks.directPoolCreateAdapterFromCredential).toHaveBeenCalledWith({
+      credential,
+      defaultModel: "gpt-5.4",
+      openRouterAppUrl: undefined,
+      openRouterAppName: undefined,
+    });
     expect(adapterMocks.directPoolCreateAdapter).not.toHaveBeenCalled();
   });
 
@@ -384,8 +444,8 @@ describe("createDirectProviderAdapter", () => {
     const adapter = await createDirectProviderAdapter({
       provider,
       model: "chosen-model",
-      accountBinding: {
-        virtualModelId: `managed-${tier}`,
+      credentialBinding: {
+        routeId: `route-${tier}`,
         accountId: "secondary",
         credentialId: "subscription-secondary",
         credentialRevision: "b".repeat(64),
@@ -397,8 +457,9 @@ describe("createDirectProviderAdapter", () => {
       name: "exact-opencode",
       executionBinding: {
         status: "bound",
-        virtualModelId: `managed-${tier}`,
+        routeId: `route-${tier}`,
         accountId: "secondary",
+        credentialId: "subscription-secondary",
         credentialRevision: "b".repeat(64),
       },
     });
@@ -423,8 +484,8 @@ describe("createDirectProviderAdapter", () => {
     await expect(createDirectProviderAdapter({
       provider: "opencode-go",
       model: "chosen-model",
-      accountBinding: {
-        virtualModelId: "managed-go",
+      credentialBinding: {
+        routeId: "route-go",
         accountId: "primary",
         credentialId: "subscription-primary",
         credentialRevision: "b".repeat(64),
@@ -433,8 +494,9 @@ describe("createDirectProviderAdapter", () => {
       name: "DirectProviderBindingError",
       evidence: {
         status: "rejected-pre-dispatch",
-        virtualModelId: "managed-go",
+        routeId: "route-go",
         accountId: "primary",
+        credentialId: "subscription-primary",
       },
     });
     expect(adapterMocks.opencodePoolCreateExactAdapter).not.toHaveBeenCalled();
@@ -446,8 +508,8 @@ describe("createDirectProviderAdapter", () => {
     await expect(createDirectProviderAdapter({
       provider: "opencode-go",
       model: "chosen-model",
-      accountBinding: {
-        virtualModelId: "managed-go",
+      credentialBinding: {
+        routeId: "route-go",
         accountId: "zen-account",
         credentialId: "zen-credential",
       },
@@ -469,15 +531,20 @@ describe("createDirectProviderAdapter", () => {
     const adapter = await createDirectProviderAdapter({
       provider: "opencode-go",
       model: "chosen-model",
-      accountBinding: {
-        virtualModelId: "direct-go",
+      credentialBinding: {
+        routeId: "direct-go",
         accountId: "primary",
         credentialId: "subscription-primary",
       },
     });
 
     expect(adapter).toMatchObject({
-      executionBinding: { credentialRevision: "d".repeat(64) },
+      executionBinding: {
+        routeId: "direct-go",
+        accountId: "primary",
+        credentialId: "subscription-primary",
+        credentialRevision: "d".repeat(64),
+      },
     });
     expect(adapterMocks.opencodePoolCreateExactAdapter).toHaveBeenCalledWith({
       selected: exactAccount,
