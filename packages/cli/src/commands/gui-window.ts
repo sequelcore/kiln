@@ -1,7 +1,8 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnSyncReturns } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type SupportedGuiBrowserId = "edge" | "chrome" | "chromium";
 
@@ -27,7 +28,7 @@ export interface GuiWindowSession {
   readonly browserLabel: string;
   readonly child: ChildProcess;
   readonly whenClosed: Promise<void>;
-  close(): void;
+  close(): Promise<void>;
 }
 
 interface ResolveGuiBrowserHostOptions {
@@ -39,7 +40,9 @@ interface ResolveGuiBrowserHostOptions {
 interface LaunchGuiWindowOptions extends ResolveGuiBrowserHostOptions {
   readonly spawnImpl?: typeof spawn;
   readonly createProfileDir?: () => string;
-  readonly cleanupProfileDir?: (path: string) => void;
+  readonly closeBrowser?: (profileDir: string) => boolean | void | Promise<boolean | void>;
+  readonly cleanupProfileDir?: (path: string) => void | Promise<void>;
+  readonly createWebSocket?: (url: string) => WebSocket;
   readonly fetchImpl?: typeof fetch;
   readonly setIntervalImpl?: typeof setInterval;
   readonly clearIntervalImpl?: typeof clearInterval;
@@ -54,6 +57,14 @@ interface DevToolsTargetSummary {
   readonly type?: string;
   readonly url?: string;
 }
+
+interface DevToolsBrowserVersionSummary {
+  readonly webSocketDebuggerUrl?: string;
+}
+
+const GUI_PROFILE_CLEANUP_MAX_RETRIES = 10;
+const GUI_PROFILE_CLEANUP_RETRY_DELAY_MS = 100;
+const GUI_BROWSER_CLOSE_TIMEOUT_MS = 2_000;
 
 const WINDOWS_BROWSER_CANDIDATES: readonly GuiBrowserCandidate[] = [
   {
@@ -167,8 +178,85 @@ function defaultCreateProfileDir(): string {
   return mkdtempSync(join(tmpdir(), "kiln-gui-window-"));
 }
 
-function defaultCleanupProfileDir(path: string): void {
-  rmSync(path, { recursive: true, force: true });
+async function defaultCleanupProfileDir(path: string): Promise<void> {
+  await rm(path, {
+    recursive: true,
+    force: true,
+    maxRetries: GUI_PROFILE_CLEANUP_MAX_RETRIES,
+    retryDelay: GUI_PROFILE_CLEANUP_RETRY_DELAY_MS,
+  });
+}
+
+async function closeGuiBrowserThroughDevTools(
+  profileDir: string,
+  options: {
+    readonly fetchImpl?: typeof fetch;
+    readonly readDevToolsPort?: (profileDir: string) => number | null;
+    readonly createWebSocket?: (url: string) => WebSocket;
+    readonly setTimeoutImpl?: typeof setTimeout;
+    readonly clearTimeoutImpl?: typeof clearTimeout;
+    readonly timeoutMs?: number;
+  } = {},
+): Promise<boolean> {
+  const port = (options.readDevToolsPort ?? tryReadDevToolsPort)(profileDir);
+  if (!port) return false;
+
+  let response: Response;
+  try {
+    response = await (options.fetchImpl ?? fetch)(`http://127.0.0.1:${port}/json/version`);
+  } catch {
+    return false;
+  }
+  if (!response.ok) return false;
+
+  const version = await response.json() as DevToolsBrowserVersionSummary;
+  if (typeof version.webSocketDebuggerUrl !== "string" || version.webSocketDebuggerUrl.length === 0) return false;
+
+  const createWebSocket = options.createWebSocket ?? ((url: string) => new WebSocket(url));
+  const setTimeoutImpl = options.setTimeoutImpl ?? setTimeout;
+  const clearTimeoutImpl = options.clearTimeoutImpl ?? clearTimeout;
+  const timeoutMs = options.timeoutMs ?? GUI_BROWSER_CLOSE_TIMEOUT_MS;
+  await new Promise<void>((resolve, reject) => {
+    const socket = createWebSocket(version.webSocketDebuggerUrl!);
+    let commandSent = false;
+    let settled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutHandle) clearTimeoutImpl(timeoutHandle);
+      if (error) reject(error);
+      else resolve();
+    };
+    timeoutHandle = setTimeoutImpl(() => {
+      finish(new Error(`Browser.close did not complete within ${timeoutMs} ms.`));
+    }, timeoutMs);
+
+    socket.addEventListener("open", () => {
+      commandSent = true;
+      socket.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+    });
+    socket.addEventListener("message", (event) => {
+      try {
+        const message = JSON.parse(String(event.data)) as { id?: number; error?: { message?: string } };
+        if (message.id !== 1) return;
+        if (message.error) {
+          finish(new Error(message.error.message ?? "Browser.close was rejected."));
+          return;
+        }
+        finish();
+      } catch {
+        // Ignore unrelated non-JSON protocol traffic.
+      }
+    });
+    socket.addEventListener("close", () => {
+      finish(commandSent ? undefined : new Error("Browser DevTools connection closed before Browser.close was sent."));
+    });
+    socket.addEventListener("error", () => {
+      if (!commandSent) finish(new Error("Could not connect to the browser DevTools endpoint."));
+    });
+  });
+  return true;
 }
 
 function normalizeManagedGuiUrl(url: string): string {
@@ -383,6 +471,7 @@ export function launchGuiWindow(
 
   const spawnImpl = options.spawnImpl ?? spawn;
   const createProfileDir = options.createProfileDir ?? defaultCreateProfileDir;
+  const closeBrowser = options.closeBrowser ?? ((profileDir: string) => closeGuiBrowserThroughDevTools(profileDir, options));
   const cleanupProfileDir = options.cleanupProfileDir ?? defaultCleanupProfileDir;
   const profileDir = createProfileDir();
   const launchSpec = buildGuiWindowLaunchSpec(host, url, profileDir);
@@ -392,30 +481,35 @@ export function launchGuiWindow(
     windowsHide: false,
   });
 
-  let cleaned = false;
-  const cleanup = () => {
-    if (cleaned) {
-      return;
-    }
-    cleaned = true;
-    try {
-      cleanupProfileDir(profileDir);
-    } catch (error) {
-      console.warn(`Could not clean up GUI browser profile at ${profileDir}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = (): Promise<void> => {
+    cleanupPromise ??= (async () => {
+      try {
+        const closedThroughDevTools = await closeBrowser(profileDir);
+        if (closedThroughDevTools === false && child.exitCode === null) child.kill();
+      } catch {
+        if (child.exitCode === null) child.kill();
+      }
+      await cleanupProfileDir(profileDir);
+    })();
+    return cleanupPromise;
   };
 
-  const whenClosed = waitForManagedGuiAppWindowClose(url, profileDir, child, options);
-  void whenClosed.then(cleanup, cleanup);
+  const managedWindowClosed = waitForManagedGuiAppWindowClose(url, profileDir, child, options);
+  const whenClosed = managedWindowClosed.then(
+    cleanup,
+    async (error) => {
+      await cleanup();
+      throw error;
+    },
+  );
 
   return {
     browserLabel: host.label,
     child,
     whenClosed,
     close() {
-      if (child.exitCode === null) {
-        child.kill();
-      }
+      return cleanup();
     },
   };
 }
