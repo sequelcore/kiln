@@ -23,6 +23,7 @@ import {
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
 import { readGlobalConfig, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatewayProjectionResult } from "../config/global-opencode-model-gateway-projection.js";
 
 interface SupervisorSurface {
@@ -115,7 +116,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   const config = resolveGlobalModelGatewayConfig(globalConfig);
   if (subcommand === "serve") {
     if (!flags.globalRuntime || !flags.instanceId) throw new Error("serve requires --config for development or the internal global runtime identity.");
-    await serveGlobalRuntime(config, runtimeDir, flags.instanceId, globalConfig, dependencies);
+    await serveGlobalRuntime(config, resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()), flags.instanceId, globalConfig, dependencies);
     return;
   }
   const token = subcommand === "doctor" ? resolveOptionalHealthToken(config, dependencies.env) : resolveHealthToken(config, dependencies.env);
@@ -187,11 +188,11 @@ async function serveDevelopmentConfig(configPath: string, dependencies: ModelGat
   await dependencies.registerShutdown(runtime.close, runtime.shutdownRequested);
 }
 
-async function serveGlobalRuntime(config: ModelGatewayConfig, runtimeDir: string, instanceId: string, globalConfig: KilnGlobalConfig | null, dependencies: ModelGatewayCommandDependencies): Promise<void> {
+async function serveGlobalRuntime(config: ModelGatewayConfig, databasePath: string, instanceId: string, globalConfig: KilnGlobalConfig | null, dependencies: ModelGatewayCommandDependencies): Promise<void> {
   requireRuntimeSecrets(config, dependencies.env);
   const runtime = await startConfiguredModelGatewayListener(globalConfig, config, {
     config,
-    databasePath: join(runtimeDir, "model-gateway.sqlite"),
+    databasePath,
     identity: { instanceId, version: dependencies.version, configDigest: createModelGatewayConfigDigest(config), pid: dependencies.pid },
   }, dependencies);
   dependencies.log(`Model gateway ready at http://127.0.0.1:${config.port}`);

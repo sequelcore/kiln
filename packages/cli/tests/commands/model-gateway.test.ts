@@ -214,7 +214,7 @@ describe("modelGatewayCommand", () => {
     const options = start.mock.calls[0]![0];
     expect(options.executionCatalog).toBe(executionCatalog);
     expect(options.executionRouting.admit({ routeId: "codex-route" }).routeId).toBe("codex-route");
-    expect(options.databasePath).toBe(join(root, "runtime", "model-gateway", "model-gateway.sqlite"));
+    expect(options.databasePath).toBe(join(root, "runtime", "economic-authority", "managed-account-leases.sqlite"));
     await registerShutdown.mock.calls[0]![0]!();
   });
 

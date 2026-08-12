@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { ManagedEconomicSettlement } from "@kilnai/core";
 import {
   OPERATOR_RUNTIME_AUDIENCE,
@@ -29,6 +29,7 @@ import {
   closeManagedAccountRuntimeComposition,
 } from "../config/managed-agent-routes.js";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
+import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import {
   resolveTrustedWorkspace,
   type TrustedProcessContext,
@@ -130,14 +131,15 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
   }
 
   const resolveWorkspace = options.resolveWorkspace ?? resolveTrustedWorkspace;
-  const globalEconomicRuntimeDirectory = join(dirname(resolveGlobalConfigPath()), "runtime", "model-gateway");
+  const globalEconomicAuthorityDatabasePath = resolveGlobalEconomicAuthorityDatabasePath(resolveGlobalConfigPath());
+  const globalEconomicRuntimeDirectory = dirname(globalEconomicAuthorityDatabasePath);
   let globalManagedAccountComposition: ReturnType<typeof createOperatorGlobalManagedAccountComposition>;
   const createComposition = options.createComposition ?? (async ({ projectPath }: { readonly projectPath: string }) => {
     if (globalManagedAccountComposition === undefined) {
       globalManagedAccountComposition = createOperatorGlobalManagedAccountComposition({
         projectPath,
         compositionKey: globalEconomicRuntimeDirectory,
-        databasePath: join(globalEconomicRuntimeDirectory, "model-gateway.sqlite"),
+        databasePath: globalEconomicAuthorityDatabasePath,
       });
     }
     return createOperatorProjectManagedJobApplicationComposition({
