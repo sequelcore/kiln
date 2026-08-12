@@ -965,6 +965,12 @@ economic managed job is persisted in V10 with policy/revision and constraints, a
 namespaced `economicAttemptId`, and pinned `adoptedDecisionAt`, but without a
 selected `routeId` or `providerId`. A native-harness job instead persists its
 exact route identity and versioned acknowledgement, with no economic fields.
+Its route revision is a canonical SHA-256 digest of the configured route,
+resolved profile authority, adapter/settlement contract, proven profiles, and
+capacity or external-runtime binding. Runtime rebuilds that revision before
+native adapter materialization, so changing tools, timeout, working-directory
+authority, or another admitted route field invalidates queued work instead of
+dispatching it under the old acknowledgement.
 Core then adopts an immutable economic snapshot whose policy, candidate set,
 price/rate evidence, and full contents are bound by canonical sorted SHA-256
 digests. Runtime accepts only V10 after its one-time V9 migration and never infers a new

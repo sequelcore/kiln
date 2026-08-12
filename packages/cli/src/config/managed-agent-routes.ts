@@ -152,8 +152,19 @@ function managedRouteCapability(input: {
   const profileValues = Object.values(input.profiles);
   const write = profileValues.some((profile) => profile?.writeAllowed === true)
     && (input.provenProfiles ?? profileNames).some((profile) => WRITE_PROFILES.has(profile as KilnManagedAgentProfile));
+  const revision = digestManagedEconomicValue({
+    route: input.route,
+    provider: input.provider,
+    model: input.model,
+    profiles: input.profiles,
+    adapterKind: input.adapterKind,
+    settlement: input.settlement,
+    provenProfiles: input.provenProfiles ?? profileNames,
+    externalRuntimeAttachment: input.externalRuntimeAttachment,
+    accountPolicyId: input.accountPolicyId,
+  });
   return {
-    identity: { routeId: input.route.id, revision: "configured-v1" },
+    identity: { routeId: input.route.id, revision },
     target: { providerId: input.provider, modelId: input.model },
     adapter: { kind: input.adapterKind, capabilityId: `managed:${input.route.id}`, capabilityVersion: "v1" },
     authorityCeiling: write ? "destructive" : "read_only",

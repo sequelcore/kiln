@@ -627,6 +627,38 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it("binds the native route revision to its configured authority", async () => {
+    const route = {
+      id: "codex-readonly",
+      kind: "harness" as const,
+      provider: "codex" as const,
+      model: "gpt-5.3-codex-spark",
+      profiles: ["foundation-readonly-plan" as const],
+      timeoutMs: 120000,
+      workingDirectory: "project" as const,
+      tools: { allowed: ["read", "tree"], network: false, writes: false },
+      memory: { access: "read-only" as const },
+      credentials: { mode: "credentialless" as const },
+    };
+    const resolve = async (timeoutMs: number) => await resolveManagedInvocationToolOptions(
+      baseConfig({ routes: [{ ...route, timeoutMs }] }),
+      {
+        cwd: "C:/repo",
+        registry: createRegistry("codex"),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      },
+    );
+
+    const firstRevision = (await resolve(120000)).managedInvocation?.routes[0]?.capability.identity.revision;
+    const repeatedRevision = (await resolve(120000)).managedInvocation?.routes[0]?.capability.identity.revision;
+    const changedRevision = (await resolve(180000)).managedInvocation?.routes[0]?.capability.identity.revision;
+
+    expect(firstRevision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(repeatedRevision).toBe(firstRevision);
+    expect(changedRevision).not.toBe(firstRevision);
+  });
+
   it("creates a managed invocation service for catalog-selected account routes without worktree leases", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
