@@ -3,9 +3,9 @@
 Date: 2026-06-25
 
 Status: accepted research basis. The product/architecture direction has been
-promoted into `docs/architecture/execution-surfaces.md`,
-`docs/architecture/operator-workspace.md`,
-`docs/architecture/app-gateway-runtime.md`, and the operator workspace and
+promoted into `docs/architecture/surfaces/execution-surfaces.md`,
+`docs/architecture/surfaces/operator-workspace.md`,
+`docs/architecture/surfaces/app-gateway-runtime.md`, and the operator workspace and
 gateway runtime guides. The implementation track closed on 2026-06-27; durable
 doctrine now lives in canonical architecture and guide documentation.
 
@@ -35,11 +35,11 @@ Kiln project evidence:
 - `CLAUDE.md`
 - `AGENTS.md`
 - `docs/architecture/README.md`
-- `docs/architecture/runtime-surfaces.md`
-- `docs/architecture/operator-surfaces.md`
-- `docs/architecture/inspectable-agent-work.md`
-- `docs/architecture/managed-agents.md`
-- `docs/architecture/native-operator-surface.md`
+- `docs/architecture/surfaces/runtime-surfaces.md`
+- `docs/architecture/surfaces/operator-surfaces.md`
+- `docs/architecture/surfaces/inspectable-agent-work.md`
+- `docs/architecture/coordination/managed-agents.md`
+- `docs/architecture/surfaces/native-operator-surface.md`
 - Relevant code in `packages/core`, `packages/runtime`, `packages/gateway-contracts`,
   `packages/cli`, `packages/tui`, `packages/gui`, and `packages/native`.
 
@@ -96,11 +96,11 @@ Community signals used as non-authoritative pain evidence:
 
 Kiln already defines the desired surface doctrine clearly. The architecture says
 Kiln is "runtime/headless first" and human interfaces are replaceable projections
-of one control plane (`docs/architecture/operator-surfaces.md:14`).
+of one control plane (`docs/architecture/surfaces/operator-surfaces.md:14`).
 The runtime taxonomy names App Gateway as the deployable runtime owner and
 Operator Gateway as the local human-operator bridge
-(`docs/architecture/runtime-surfaces.md:17`,
-`docs/architecture/runtime-surfaces.md:29`).
+(`docs/architecture/surfaces/runtime-surfaces.md:17`,
+`docs/architecture/surfaces/runtime-surfaces.md:29`).
 
 In code, that doctrine is partially real:
 
@@ -645,19 +645,19 @@ Workspace pollution:
 
 ## Docs Promotion Status
 
-- `docs/architecture/execution-surfaces.md`
+- `docs/architecture/surfaces/execution-surfaces.md`
   Created. Canonical product/architecture contract for Kiln Operator Workspace
   and Kiln Gateway ownership.
-- `docs/architecture/operator-workspace.md`
+- `docs/architecture/surfaces/operator-workspace.md`
   Created. GUI/TUI/native/CLI/IDE view-state ownership, attention model,
   gateway target switcher, and resource inspector boundary.
-- `docs/architecture/app-gateway-runtime.md`
+- `docs/architecture/surfaces/app-gateway-runtime.md`
   Created. App Gateway as app AI runtime, with tenant/app/session/tool/MCP
   ownership.
-- `docs/guides/operator-workspace.md`
+- `docs/guides/ops/operator-workspace.md`
   Created. User-facing workflow guide: open Kiln, attach target, start work,
   supervise, approve, inspect, close out.
-- `docs/guides/gateway-app-runtime.md`
+- `docs/guides/channels/gateway-app-runtime.md`
   Created before this closeout and remains the developer guide for powering
   apps with governed agents through Kiln Gateway.
 - Update `docs/research/README.md` to include this document after Ricardo

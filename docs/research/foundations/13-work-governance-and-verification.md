@@ -6,7 +6,7 @@ This note records the research basis for Kiln's work-governance posture:
 operator intent should become structured, delegated, verified work rather than
 remaining a prompt-engineering exercise.
 
-The active doctrine lives in `docs/architecture/work-governance.md`.
+The active doctrine lives in `docs/architecture/core/work-governance.md`.
 
 ## External Patterns
 

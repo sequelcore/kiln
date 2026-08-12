@@ -227,7 +227,7 @@ Mark complete only when all conditions below are true:
 
 ## Related docs
 
-- `docs/guides/gui.md`
-- `docs/architecture/session-model.md`
+- `docs/guides/gui/gui.md`
+- `docs/architecture/core/session-model.md`
 - `docs/guides/gui-parity.md`
 - `docs/guides/operator-surfaces.md`

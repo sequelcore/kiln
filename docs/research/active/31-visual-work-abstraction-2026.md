@@ -1,5 +1,16 @@
 # Visual Work Abstraction Research
 
+Status: active issue-backed research
+
+Owner: issue #9
+
+Evidence cutoff: 2026-08-04
+
+Promotion target: an admitted visual-work architecture or roadmap contract.
+
+Exit condition: record an explicit adoption or rejection decision, preserve
+reusable evaluation evidence, and delete this research note.
+
 ## Purpose
 
 This note records primary-source research on governed GUI/visual agents to inform

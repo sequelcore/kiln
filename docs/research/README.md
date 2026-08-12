@@ -1,265 +1,79 @@
 # Research
 
-This directory contains the canonical research basis for Kiln.
+Research records the evidence and rationale behind Kiln's architecture. It is
+not the source of truth for current behavior.
 
-Research explains why the architecture takes its current shape. It does not
-define the active architecture contract. For doctrine, use
-[`../architecture/README.md`](../architecture/README.md).
+Use:
 
-## Canonical Set
+- [Architecture](../architecture/README.md) for stable system contracts;
+- [Guides](../README.md#guides) for user and operator procedures;
+- [ADRs](../adr/README.md) for accepted structural decisions;
+- [Roadmap](../roadmap/README.md) for admitted but unfinished work;
+- [Evaluations](../evaluations/README.md) for dated experiments, route
+  assessments, and smoke evidence;
+- [Changelog](../changelog.md) and [release notes](../releases/README.md) for
+  completed delivery.
 
-- `01-kiln-research-synthesis.md`
-  Final research conclusion and the mechanism families that survived
-  consolidation.
+## Lifecycle
 
-- `02-cybernetic-foundations.md`
-  Control-theory rationale for treating Kiln as a control plane rather than an
-  orchestration-first product.
+A research note must be either a durable foundation or an active investigation.
 
-- `03-biological-mechanisms.md`
-  Biological and neural mechanism taxonomy, with explicit limits and
-  mechanism-to-software value.
+- A **foundation** explains durable evidence or mechanism lineage that remains
+  useful after implementation.
+- An **active investigation** has an explicit owner, open question, evidence
+  cutoff, promotion target, and exit condition.
+- Stable conclusions are promoted to architecture, guides, configuration, or
+  an ADR.
+- Dated empirical results move to `docs/evaluations/` when they retain value.
+- Implementation status and delivery history move to the roadmap, changelog,
+  or release notes.
+- Once its unique evidence has been promoted or preserved, the obsolete
+  research note is deleted. Git history is the archive.
 
-- `04-current-state-mapping.md`
-  Mapping from the research model to Kiln's current implementation and the
-  gaps that still matter. This document is a snapshot, so it must be updated
-  when implementation slices promote research ideas into canonical
-  architecture.
+When research conflicts with canonical architecture, architecture wins.
 
-## Topical Research
+## Foundations
 
-- `05-memory-systems.md`
-  Layered memory, recall, consolidation, reconsolidation, and forgetting
-  policy as research inputs to the memory architecture.
+Durable research lives under [`foundations/`](foundations/README.md):
 
-- `06-safety-defense.md`
-  Immune-system research applied to layered defense, danger signals, and
-  threat memory.
+- Kiln research synthesis
+- cybernetic foundations
+- biological mechanisms
+- memory systems
+- safety defense
+- regulation and adaptation
+- context governance
+- tool execution and trust
+- coordination intelligence
+- work governance and verification
 
-- `07-regulation-and-adaptation.md`
-  Homeostasis, allostasis, load, and predictive regulation as the basis for
-  operating modes and adaptation.
+## Active Investigations
 
-- `08-context-governance.md`
-  Selective attention, inhibition, active shared medium, and context membranes
-  as research inputs to context selection and budget control.
+Open, owner-backed research lives under [`active/`](active/README.md):
 
-- `09-tool-execution-and-trust.md`
-  Gating, approvals, trust boundaries, interrupts, and observability for real
-  tool execution.
+- prompt component governance — Roadmap 06
+- skill catalog governance — Roadmap 05
+- visual work abstraction — issue-backed research awaiting an explicit
+  documentation promotion target
+- general work contracts — issue-backed research awaiting an explicit
+  documentation promotion target
 
-- `11-agent-tooling-surface.md`
-  External agent-tooling patterns and user pain points that inform Kiln's next
-  shared developer tools: patch, tree/stat, image/OCR, output modes, and web.
+## Promotion Backlog
 
-- `12-agent-tooling-next-surface.md`
-  Second-pass research on structured outputs, deferred tool discovery, semantic
-  code intelligence, bulk context ingestion, monitors, task state, elicitation,
-  and MCP resources.
+The files remaining at this directory root predate the lifecycle above. They
+mix research evidence with implementation status, accepted decisions, or
+delivery history. They are retained temporarily to avoid losing evidence while
+each dossier is reconciled against architecture, ADRs, guides, configuration,
+and the changelog.
 
-- `13-work-governance-and-verification.md`
-  External and research basis for moving from prompt engineering to governed
-  work lifecycles: orchestration preference, structured delegation, verifier
-  feedback, and evidence closeout.
+They are not active architecture and must not receive new implementation-status
+updates. Process each dossier by bounded concern:
 
-- `14-live-browser-operator-surface.md`
-  External browser-agent and remote-browser surface research for the late
-  browser operator sequence,
-  including browser operation, human takeover, replay, stream authority, the
-  2026-05-13 reassessment that separates snapshot monitor from real embedded
-  browser, local CDP screencast as frame-stream fallback, lock/brokered input,
-  sanitized operator evidence, and the native/browser sequence completed
-  through `02` native surface foundation, `03` embedded browser host
-  capability, and `04` embedded browser operator surface, with `05` native
-  cockpit projection performance still deferred.
+1. preserve unique evidence in a foundation or evaluation when useful;
+2. promote stable contracts and accepted decisions to their owning documents;
+3. record completed delivery in the changelog or release notes;
+4. delete the residual dossier and repair its consumers.
 
-- `15-background-parallel-agent-surface.md`
-  External and local-repository research on foreground subagents, background
-  children, parallel worktree/session isolation, timeout recovery, and the
-  future Kiln nonblocking managed-agent lifecycle.
-
-- `16-external-engagement.md`
-  Official X platform, MCP/community demand, mixed-initiative UX, and
-  social-listening limitation research for governed external engagement.
-
-- `17-inspectable-agent-work.md`
-  External tracing, hooks, observability, review, and human-AI interaction
-  research supporting Kiln's cross-surface inspectable agent work contract.
-
-- `18-execution-surfaces-strategy.md`
-  Accepted research basis from external docs, cloned-repo comparison, community
-  signal, and local architecture diagnosis supporting Kiln Operator Workspace,
-  Kiln Gateway as app AI runtime, and contract-first execution-surface
-  convergence.
-
-- `19-clear-writing-skill.md`
-  Plain-language, content-design, and developer-documentation research basis
-  for promoting a neutral `clear-writing` skill into Kiln core while keeping
-  brand, regional, legal, and organization voice outside native product
-  doctrine.
-
-- `20-cross-domain-task-taxonomy.md`
-  Harness, lab, spec, paper, and local architecture research supporting a
-  separate cross-domain work classification model instead of expanding
-  model-route suitability into a giant task enum.
-
-- `21-managed-invocation-routing-2026.md`
-  Runtime ownership, cloned-harness comparison, current provider/model evidence,
-  benchmark limits, and community failure signals for managed child routing.
-  Claude Code catalog evidence is obtained through the Agent SDK control-plane
-  `Query.supportedModels()` call without iterating the model response stream.
-
-- `22-canonical-mcp-integration-2026.md`
-  Stable MCP protocol, official SDK, cloned Codex/Claude Code/OpenCode,
-  Roblox Studio, security research, repository gaps, and accepted design
-  decisions for Kiln-owned MCP resolution, execution, and native projection.
-
-- `23-prompt-component-governance.md`
-  Official guidance and cloned-harness evidence for minimal prompt components,
-  progressive disclosure, model-specific prompt evaluation, neutral response
-  skills, and optional validated controlled-technical-English packs.
-
-- `24-backend-skill-scout-2026.md`
-  Official platform evidence and external skill comparison supporting the
-  consolidated Sequel backend router, Spring, PostgreSQL, API, security, and
-  testing capability catalog.
-
-- `25-hybrid-model-team-2026.md`
-  Current Claude Code, Codex OAuth, and OpenCode Go catalog research, model and
-  mode evidence, benchmark limitations, candidate team topology, and explicit
-  route-promotion gates.
-
-- `26-opencode-go-roster-2026.md`
-  Live 17-model OpenCode Go catalog audit, commercial and data-policy boundary,
-  current config diagnosis, lean specialist roster, and profile-v3 evaluation
-  queue.
-
-- `27-write-and-render-route-admission-2026.md`
-  Disposable write leases, strict tool/sandbox authority, hidden backend tests,
-  pinned browser/accessibility verification, live repeated results, and the
-  final write-route admission decision.
-
-- `28-claude-model-route-validation-2026.md`
-  Exact live validation and bounded team roles for Claude Opus, Sonnet, and
-  Haiku, plus the explicit reason Fable remains outside the admitted set.
-
-- `29-instruction-file-evidence-2026.md`
-  Measured evidence on instruction-file structure, adherence, and configuration
-  smells behind the `executionDiscipline` doctrine section, including the
-  within-session compliance decay finding and the explicit refusal to justify a
-  file-size cap on adherence grounds.
-
-- `30-deliberation-policy-2026.md`
-  Cross-provider inference-effort evidence, transport boundaries, and the
-  adopted global policy for provider defaults, task-level effort, and explicit
-  maximum-compute requests.
-
-- `31-visual-work-abstraction-2026.md`
-  Primary-source research on governed GUI/visual agents across major labs,
-  benchmarks, community signal, and cloned harnesses, to inform issue #9's
-  redesign of `visual-reference-research` into conditional visual-work
-  contracts. Evidence only; no vendor-specific architecture proposed.
-
-- `32-general-work-contracts-2026.md`
-  Cross-domain evidence on whether the separation of intent,
-  context/evidence, process/phase, capability/identity, and review as
-  conditional dimensions generalizes beyond programming, responding to issue
-  #9's monolithic-conflation hypothesis. Evidence gathering only; no Kiln
-  implementation decisions proposed.
-
-- `33-context-semantics-cross-surface-smoke-2026.md`
-  Exploratory read-only comparison of native Codex and Claude CLI surfaces,
-  their Kiln-governed harness paths, and direct Codex OAuth readiness after the
-  model-facing context semantics change. Records objective scoring, marker
-  visibility, tool-policy blockers, and benchmark limitations without making
-  comparative quality claims.
-
-- `34-skill-catalog-governance-2026.md`
-  Cross-harness evidence for bounded skill catalogs, explicit-only discovery,
-  native capability differences, and the provider-neutral Kiln visibility
-  contract prompted by real catalog-description truncation.
-
-- `35-codebase-scouting-skill-2026.md`
-  Repository navigation, dependency-graph, regression-test-selection, and
-  coding-agent evidence supporting bounded, uncertainty-aware change scouting.
-
-- `36-implementation-planning-skill-2026.md`
-  Coding-agent, change-decomposition, small-batch, and safe-delivery evidence
-  supporting conditional, repository-grounded implementation planning.
-
-- `37-security-and-managed-agent-review-skills-2026.md`
-  Agent-security, zero-trust, identity, delegation, lifecycle, and evidence
-  research supporting enforceable security and managed-agent risk reviews.
-
-- `38-architecture-boundary-review-skills-2026.md`
-  Coupling, architecture conformance, bounded-context, aggregate, and domain
-  evidence supporting distinct Clean Architecture and DDD review contracts.
-
-- `39-governance-review-skills-2026.md`
-  Projection ownership, benchmark validity, repository-context, and accessible
-  information-ordering evidence for the remaining governance review skills.
-
-- `41-bounded-work-authority-2026.md`
-  Issue #19 research and Slice 0 contract ratification for immutable bounded-work
-  revisions, semantic scope, hard ceilings, tripwires, diagnostics,
-  project-scoped Runtime reservation/settlement, candidate/evidence binding,
-  typed stop/continuation, capability tiers, comparative clone evidence, and a
-  paired benchmark methodology. No implementation or efficiency claim.
-
-- `web-retrieval-provider-routing.md`
-  Accepted provider-neutral search routing decision based on current provider
-  docs, decision-surface research, strict postconditions, and reproducible
-  retrieval metrics.
-
-## Supporting Reference
-
-- `10-coordination-intelligence.md`
-  Adopted research synthesis for deterministic topology selection, bounded
-  managed execution, independent review, and the explicit non-adoption of
-  disconnected threshold, chain-energy, and parallel-registry prototypes.
-
-## Reading Order
-
-1. `01-kiln-research-synthesis.md`
-2. `02-cybernetic-foundations.md`
-3. `03-biological-mechanisms.md`
-4. `04-current-state-mapping.md`
-5. `05-memory-systems.md`
-6. `06-safety-defense.md`
-7. `07-regulation-and-adaptation.md`
-8. `08-context-governance.md`
-9. `09-tool-execution-and-trust.md`
-10. `10-coordination-intelligence.md`
-11. `11-agent-tooling-surface.md`
-12. `12-agent-tooling-next-surface.md`
-13. `13-work-governance-and-verification.md`
-14. `14-live-browser-operator-surface.md`
-15. `15-background-parallel-agent-surface.md`
-16. `16-external-engagement.md`
-17. `17-inspectable-agent-work.md`
-18. `18-execution-surfaces-strategy.md`
-19. `19-clear-writing-skill.md`
-20. `20-cross-domain-task-taxonomy.md`
-21. `21-managed-invocation-routing-2026.md`
-22. `22-canonical-mcp-integration-2026.md`
-23. `23-prompt-component-governance.md`
-24. `24-backend-skill-scout-2026.md`
-25. `25-hybrid-model-team-2026.md`
-26. `26-opencode-go-roster-2026.md`
-27. `27-write-and-render-route-admission-2026.md`
-28. `28-claude-model-route-validation-2026.md`
-29. `29-instruction-file-evidence-2026.md`
-30. `30-deliberation-policy-2026.md`
-31. `31-visual-work-abstraction-2026.md`
-32. `32-general-work-contracts-2026.md`
-33. `33-context-semantics-cross-surface-smoke-2026.md`
-34. `34-skill-catalog-governance-2026.md`
-35. `35-codebase-scouting-skill-2026.md`
-36. `36-implementation-planning-skill-2026.md`
-37. `37-security-and-managed-agent-review-skills-2026.md`
-38. `38-architecture-boundary-review-skills-2026.md`
-39. `39-governance-review-skills-2026.md`
-40. `40-research-workflow-skill-2026.md`
-41. `41-bounded-work-authority-2026.md`
-42. `42-kiln-control-plane-workflow-2026.md`
-43. `web-retrieval-provider-routing.md`
+[`04-current-state-mapping.md`](04-current-state-mapping.md) is the highest
+priority because current-state ownership belongs in architecture and roadmap,
+not research.

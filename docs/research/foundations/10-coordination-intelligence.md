@@ -70,4 +70,4 @@ Trajectory-aware escalation and learned routing remain candidates, not current
 capabilities. Promotion requires task-class cohorts, a static baseline,
 verified-success non-regression, known coordination cost, bounded authority,
 and rollback evidence. See
-[Managed Invocation Routing 2026](21-managed-invocation-routing-2026.md).
+[Managed Invocation Routing 2026](../21-managed-invocation-routing-2026.md).

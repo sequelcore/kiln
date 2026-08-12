@@ -89,7 +89,7 @@ capability-aware harness adapters, and exposes translation evidence in shared
 status. Shared `.agents` and plugin inventory, measured per-harness catalog
 budgets, duplicate/source evidence, and task-admission evaluation remain in
 this slice until their promotion gates are met. Research basis:
-[`../research/34-skill-catalog-governance-2026.md`](../research/34-skill-catalog-governance-2026.md).
+[`../research/active/34-skill-catalog-governance-2026.md`](../research/active/34-skill-catalog-governance-2026.md).
 
 The second increment inventories canonical, shared-agent, native, system, and
 enabled-plugin sources without changing admission. It assigns portable source

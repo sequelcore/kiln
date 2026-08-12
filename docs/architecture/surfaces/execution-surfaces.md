@@ -132,7 +132,7 @@ Execution-surface behavior is contract-first:
 7. **Gateway app runtime path.** Developer docs and SDK/widget flows should
    present Kiln Gateway as the governed app AI runtime, not as a GUI helper.
    The first guide-level projection is
-   `docs/guides/gateway-app-runtime.md`, which maps `gateway.yaml`,
+   `docs/guides/channels/gateway-app-runtime.md`, which maps `gateway.yaml`,
    `app.yaml`, operator attachment, tenant boundaries, MCP, and production
    hardening back to the shared runtime-surface doctrine.
 8. **Permission integrity projection.** Trusted/full-access execution state is

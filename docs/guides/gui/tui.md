@@ -360,7 +360,7 @@ is enabled by the profiler.
 ## Session Model Reference
 
 The canonical session rules are documented in
-`docs/architecture/session-model.md`. In short: execution-route selection is
+`docs/architecture/core/session-model.md`. In short: execution-route selection is
 next-turn routing state; provider/model are derived turn evidence, while the
 Kiln session owns transcript, tools, approvals, cost, changed files, and replay.
 

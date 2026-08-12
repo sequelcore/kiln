@@ -100,14 +100,14 @@ complete operator surface for long-running or delegated work.
 
 The repository already contains the core primitives:
 
-- `docs/architecture/session-model.md` defines canonical session events,
+- `docs/architecture/core/session-model.md` defines canonical session events,
   activity frames, shared presentation, and resource links.
-- `docs/architecture/operator-surfaces.md` requires surfaces to consume shared
+- `docs/architecture/surfaces/operator-surfaces.md` requires surfaces to consume shared
   gateway/operator contracts instead of inventing local state.
-- `docs/architecture/work-governance.md` defines governed work items,
+- `docs/architecture/core/work-governance.md` defines governed work items,
   execution attempts, evidence gates, verification results, and residual-risk
   closeout.
-- `docs/architecture/managed-agents.md` defines managed invocation capability
+- `docs/architecture/coordination/managed-agents.md` defines managed invocation capability
   snapshots, lifecycle events, handoffs, diagnostics, resources, and replay.
 - `packages/gateway-contracts/src/operator-cockpit-projection.ts` projects
   timelines, managed invocations, tool summaries, resources, costs, and
@@ -122,7 +122,7 @@ into one cross-surface/cross-harness inspectability contract.
 ## Decision
 
 Promote inspectable agent work to canonical architecture in
-`docs/architecture/inspectable-agent-work.md`.
+`docs/architecture/surfaces/inspectable-agent-work.md`.
 
 The first implementation slice is documentation-only because the current code
 already exposes the necessary primitives for work items, managed invocations,

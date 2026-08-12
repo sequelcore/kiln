@@ -17,7 +17,7 @@ No slice may scope a compatibility path, deprecation window, or retained legacy
 reader for external callers. Kiln has none. A slice that replaces a contract
 removes the old one in the same change, and discarding local state with no
 future-useful evidence is an admitted outcome. See
-`docs/architecture/engineering-standards.md`, section "Consumer Surface".
+`docs/architecture/core/engineering-standards.md`, section "Consumer Surface".
 
 Completed tracks are removed after their stable doctrine and delivery evidence
 are promoted. File numbers do not need to be renumbered solely to fill a removed

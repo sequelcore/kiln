@@ -112,8 +112,8 @@ Do not use it this way:
 
 See:
 
-- [Biological Mechanisms](research/03-biological-mechanisms.md)
-- [Cybernetic Foundations](research/02-cybernetic-foundations.md)
+- [Biological Mechanisms](research/foundations/03-biological-mechanisms.md)
+- [Cybernetic Foundations](research/foundations/02-cybernetic-foundations.md)
 
 ## Guide Relationship
 

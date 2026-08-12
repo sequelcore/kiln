@@ -23,8 +23,14 @@ function resetFixture(): string {
   }, null, 2), "utf-8");
   writeFileSync(join(FIXTURE_ROOT, "bun.lock"), "", "utf-8");
   mkdirSync(join(FIXTURE_ROOT, "docs", "research"), { recursive: true });
+  mkdirSync(join(FIXTURE_ROOT, "docs", "architecture", "core"), { recursive: true });
   writeFileSync(join(FIXTURE_ROOT, "README.md"), "# Context Project", "utf-8");
   writeFileSync(join(FIXTURE_ROOT, "docs", "research", "README.md"), "# Research", "utf-8");
+  writeFileSync(
+    join(FIXTURE_ROOT, "docs", "architecture", "core", "engineering-standards.md"),
+    "# Engineering Standards",
+    "utf-8",
+  );
   return FIXTURE_ROOT;
 }
 
@@ -41,7 +47,11 @@ describe("project-context", () => {
       ["typecheck", "bun run typecheck"],
     ]);
     expect(evidence.workspacePackages).toEqual(["packages/*"]);
-    expect(evidence.docs).toEqual(["README.md", "docs/research/README.md"]);
+    expect(evidence.docs).toEqual([
+      "README.md",
+      "docs/architecture/core/engineering-standards.md",
+      "docs/research/README.md",
+    ]);
   });
 
   it("renders canonical markdown with schema frontmatter", () => {

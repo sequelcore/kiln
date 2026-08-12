@@ -9,8 +9,8 @@ surface. The sequence is now implemented through the product embedded browser
 surface in `@kilnai/native`; future native cockpit work remains separate. This
 note informs future architecture and implementation slices; it does not
 override the operator-surface doctrine in
-`docs/architecture/operator-surfaces.md` or runtime taxonomy in
-`docs/architecture/runtime-surfaces.md`.
+`docs/architecture/surfaces/operator-surfaces.md` or runtime taxonomy in
+`docs/architecture/surfaces/runtime-surfaces.md`.
 
 ## Scope
 
@@ -95,19 +95,20 @@ browser:
 Therefore the browser/native operator work is now split into four concerns:
 
 1. Completed browser operator foundations in
-   `docs/architecture/developer-tools.md` and `docs/guides/tool-use.md`:
+`docs/architecture/tooling/developer-tools.md` and
+`docs/guides/channels/tool-use.md`:
    snapshot monitor, frame-stream fallback, brokered input, and evidence.
 2. Completed native operator surface foundation in
-   `docs/architecture/operator-surfaces.md`,
-   `docs/architecture/runtime-surfaces.md`, and `@kilnai/native`.
+`docs/architecture/surfaces/operator-surfaces.md`,
+`docs/architecture/surfaces/runtime-surfaces.md`, and `@kilnai/native`.
    This is not a wrapper plan; it establishes the native stack, gateway-only
    boundary, package shape, performance foundation, and capability extension
    point.
 3. Completed native browser-host proof in `@kilnai/native` and
-   `docs/architecture/operator-surfaces.md`. Electron `WebContentsView` is the
+`docs/architecture/surfaces/operator-surfaces.md`. Electron `WebContentsView` is the
    accepted first host, using the `electron-webcontents` transport label.
 4. Completed product embedded browser operator surface in `@kilnai/native` and
-   `docs/architecture/operator-surfaces.md`: reserved Electron child-view
+`docs/architecture/surfaces/operator-surfaces.md`: reserved Electron child-view
    region, open/takeover/input/release/resume controls, ownership-gated runtime
    dispatch, sanitized evidence, and deterministic smoke proof.
 

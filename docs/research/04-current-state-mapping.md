@@ -12,7 +12,7 @@ remaining doctrine or implementation gaps still exist.
 
 Current Kiln now has a canonical governed-memory owner:
 
-- `docs/architecture/memory.md` defines Memory Lattice doctrine
+- `docs/architecture/context/memory.md` defines Memory Lattice doctrine
 - `@kilnai/core` owns the memory bounded context
 - `MemoryRepository` is the persistence contract
 - `SqliteMemoryRepository` is the current local adapter, not the architecture

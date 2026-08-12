@@ -651,7 +651,7 @@ invocation may request a profile, skills, and context mode:
 Use managed_agent.invoke with profile foundation-readonly-plan,
 providerRoute.providerId codex-oauth, agentProfile architecture-reviewer,
 skills ["ddd-boundary-review"], and contextMode isolated.
-Task: inspect docs/architecture/managed-agents.md and report architectural
+Task: inspect docs/architecture/coordination/managed-agents.md and report architectural
 risks. Do not modify files.
 ```
 
@@ -717,7 +717,7 @@ route topology. Before editing, preserve the original YAML outside the active
 config path. Run `kiln config read health` to inspect an invalid global config
 without accepting its `managedAgents` block as authority, then re-author it
 against the complete subscription example in
-[`managed-agents-schema-v2-subscription.yaml`](../examples/configs/managed-agents-schema-v2-subscription.yaml).
+[`managed-agents-schema-v2-subscription.yaml`](../../examples/configs/managed-agents-schema-v2-subscription.yaml).
 Reuse route IDs, profiles, tool scopes, write authority, and approvals only
 after reviewing them; author all economic evidence from current provider and
 account facts.

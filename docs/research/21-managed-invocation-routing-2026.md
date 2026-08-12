@@ -121,10 +121,10 @@ selection:
 
 The 2026-08-01 Claude and cross-provider reassessment is canonical for the
 current candidate roster and promotion queue:
-[`25-hybrid-model-team-2026.md`](25-hybrid-model-team-2026.md). This section
+[`25-hybrid-model-team-2026.md`](../evaluations/routes/25-hybrid-model-team-2026.md). This section
 retains the July operational baseline. The complete current OpenCode Go audit,
 including the Flash privacy quarantine, is
-[`26-opencode-go-roster-2026.md`](26-opencode-go-roster-2026.md).
+[`26-opencode-go-roster-2026.md`](../evaluations/routes/26-opencode-go-roster-2026.md).
 
 The operational baseline is evidence-driven, not a universal leaderboard:
 

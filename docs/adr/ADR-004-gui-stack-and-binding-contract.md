@@ -68,5 +68,5 @@ Professional acceptance for this ADR requires tests that cover:
 
 Canonical architecture references:
 
-- `docs/architecture/operator-surfaces.md`
-- `docs/architecture/runtime-surfaces.md`
+- `docs/architecture/surfaces/operator-surfaces.md`
+- `docs/architecture/surfaces/runtime-surfaces.md`

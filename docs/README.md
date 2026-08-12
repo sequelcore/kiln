@@ -14,8 +14,12 @@
   handoffs, and independent review.
 
 - [Research](research/README.md)
-  Canonical research foundations, mechanism mapping, and implementation gap
-  analysis.
+  Durable foundations and active investigations that explain architecture
+  rationale without defining current behavior.
+
+- [Evaluations](evaluations/README.md)
+  Dated experiments, route assessments, and smoke evidence that do not define
+  current policy.
 
 - [Configuration](configuration/app-yaml.md)
   Runtime configuration reference.

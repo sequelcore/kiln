@@ -266,7 +266,7 @@ The `phoneNumber` in `gateway.yaml` must be unique across all Apps.
 one WhatsApp number, use `multiTenant: true` with `verifyTokenEnv`. This
 enables tenant resolution by `phone_number_id`, governed tenant-scoped memory,
 and the builtin `notify_owner` tool for real-time escalation to the business
-owner. See [`docs/examples/whatsapp-bot/`](../examples/whatsapp-bot/) for a
+owner. See [`docs/examples/whatsapp-bot/`](../../examples/whatsapp-bot/) for a
 complete working example.
 
 **Coexistence mode.** When a tenant uses the same phone number on both the WhatsApp Business App and the Cloud API (Meta's coexistence feature), Kiln can detect when the business owner responds from the app and automatically pause the AI agent.

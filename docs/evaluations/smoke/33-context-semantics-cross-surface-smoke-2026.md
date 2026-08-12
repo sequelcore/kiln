@@ -28,7 +28,7 @@ answer can be checked deterministically:
 <https://platform.claude.com/docs/en/test-and-evaluate/develop-tests>.
 
 Kiln's canonical benchmark contract remains
-[`../architecture/quality/benchmark-validation.md`](../architecture/quality/benchmark-validation.md).
+[`../../architecture/quality/benchmark-validation.md`](../../architecture/quality/benchmark-validation.md).
 This smoke does not satisfy that contract because it has one item, one valid
 run per executable native arm, no repetitions, no frozen result artifacts, and
 no confidence analysis.
@@ -214,7 +214,7 @@ Confirmed not owned by issue #34: `packages/runtime/src/agents/credential-pool/c
 (`createPooledAdapter`) refuses ambiguous auto-selection among multiple
 executable OAuth credentials by design, a different subsystem from #34's
 `managed_agent_invoke` economic-dispatch path, now documented by the canonical
-[managed economic commitment authority](../architecture/coordination/managed-account-leases.md).
+[managed economic commitment authority](../../architecture/coordination/managed-account-leases.md).
 Comparative research found no surveyed harness performs implicit
 rotation/round-robin across multiple credentials for the same provider
 (`cloned/pi` represents one account per provider key structurally; Claude

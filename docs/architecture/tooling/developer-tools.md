@@ -6,7 +6,7 @@ This is the canonical architecture record for Kiln's shared builtin developer
 tools as of 2026-04-30.
 
 Stable developer-tool doctrine lives here, in `tool-execution.md`, and in
-`docs/guides/tool-use.md`.
+`docs/guides/channels/tool-use.md`.
 
 ## Purpose
 
@@ -561,7 +561,7 @@ All current consumers must use the shared surface:
 - MCP and SDK consumers receive projections of core-owned tools and metadata.
 
 The guide-level operator workflow and tool examples live in
-`docs/guides/tool-use.md`. Authority and execution boundaries live in
+`docs/guides/channels/tool-use.md`. Authority and execution boundaries live in
 `tool-execution.md`.
 
 ## Verification Baseline

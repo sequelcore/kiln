@@ -13,7 +13,7 @@ This local Operator Gateway is not the deployable App Gateway that loads
 `gateway.yaml` and bound `app.yaml` files. The canonical path for operating YAML
 apps is GUI attach mode against an existing App Gateway, not a second app
 runtime. See
-[`docs/architecture/runtime-surfaces.md`](../../architecture/surfaces/runtime-surfaces.md).
+[`docs/architecture/surfaces/runtime-surfaces.md`](../../architecture/surfaces/runtime-surfaces.md).
 
 ## Usage
 
@@ -628,7 +628,7 @@ implementation to a managed child, the child must use
 write-capable harness route; read-only direct routes should continue to fail
 closed for edits.
 
-See `docs/architecture/session-model.md` for the canonical rules.
+See `docs/architecture/core/session-model.md` for the canonical rules.
 
 ## Notes
 

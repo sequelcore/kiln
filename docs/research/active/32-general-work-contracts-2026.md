@@ -1,5 +1,16 @@
 # General Work Contracts: Cross-Domain Evidence on Dimension Separation
 
+Status: active issue-backed research
+
+Owner: issue #9
+
+Evidence cutoff: 2026-08-04
+
+Promotion target: an admitted cross-domain work-contract architecture or ADR.
+
+Exit condition: record an explicit adoption or rejection decision, preserve
+reusable evidence, and delete this research note.
+
 ## Purpose
 
 This note records primary-source research on whether the separation of intent,

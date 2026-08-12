@@ -47,7 +47,7 @@ export function collectProjectContextEvidence(projectPath: string): ProjectConte
     docs: [
       "README.md",
       "docs/architecture/README.md",
-      "docs/architecture/engineering-standards.md",
+      "docs/architecture/core/engineering-standards.md",
       "docs/research/README.md",
       "docs/roadmap/README.md",
     ].filter((relativePath) => existsSync(join(projectPath, relativePath))),

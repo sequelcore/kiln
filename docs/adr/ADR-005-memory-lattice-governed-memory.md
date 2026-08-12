@@ -64,4 +64,4 @@ Professional acceptance for this ADR requires tests that cover:
 - context admission evidence linked to governed turns
 - GUI projection using gateway/resource data only
 
-Canonical architecture reference: `docs/architecture/memory.md`.
+Canonical architecture reference: `docs/architecture/context/memory.md`.

@@ -7,6 +7,16 @@ visibility work. It supports Roadmap 05 and does not make a public benchmark
 claim. Harness behavior is version-sensitive; native capability must be
 reported from resolved evidence rather than assumed from this document.
 
+Owner: [Roadmap 05 — Skill Capability Plane](../../roadmap/05-skill-capability-plane.md)
+
+Evidence cutoff: 2026-08-12
+
+Promotion target: canonical skill-capability architecture and cross-harness
+configuration contracts.
+
+Exit condition: promote the accepted visibility and admission contracts,
+preserve reusable evaluation evidence, and delete this research note.
+
 ## Incident
 
 A real Codex session warned that skill descriptions had been shortened to fit
@@ -173,7 +183,7 @@ Every visibility change requires:
 
 No catalog-size or efficiency claim is promoted from a single operator
 inventory. Public claims require the benchmark contract in
-[`../architecture/quality/benchmark-validation.md`](../architecture/quality/benchmark-validation.md).
+[`../../architecture/quality/benchmark-validation.md`](../../architecture/quality/benchmark-validation.md).
 
 ## Local Acceptance Evidence (2026-08-12)
 

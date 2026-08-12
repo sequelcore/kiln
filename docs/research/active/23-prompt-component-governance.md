@@ -3,6 +3,14 @@
 Status: accepted research basis for minimal prompt assembly, response-profile
 placement, and controlled-technical-English integration.
 
+Owner: [Roadmap 06 — Prompt Governance Plane](../../roadmap/06-prompt-governance-plane.md)
+
+Promotion target: canonical prompt-governance architecture and operator-facing
+inspection guidance.
+
+Exit condition: promote the remaining session-event and inspection contracts,
+preserve any reusable evaluation evidence, and delete this research note.
+
 Implementation status: the first production slice covers Core manifest
 contracts, exact Runtime assembly, fail-closed request matching, and redacted
 provider-request evidence. Canonical session-event persistence and a dedicated

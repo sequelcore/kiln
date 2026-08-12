@@ -95,7 +95,7 @@ Read the doctrine in this order:
 2. [Identity](architecture/core/identity.md)
 3. [Control Model](architecture/core/control-model.md)
 4. [Invariants](architecture/core/invariants.md)
-5. [Research Synthesis](research/01-kiln-research-synthesis.md)
+5. [Research Synthesis](research/foundations/01-kiln-research-synthesis.md)
 
 Then continue with the subsystem and flow docs:
 
@@ -120,8 +120,9 @@ Before touching code, keep these points fixed:
 
 ## Current Documentation State
 
-The architecture and research docs under [`docs/architecture/`](architecture/README.md)
-and [`docs/research/`](research/README.md) are the active source of truth.
+The architecture docs under [`docs/architecture/`](architecture/README.md) are
+the source of truth for current system behavior. Research records rationale and
+evidence; it does not define active contracts.
 
 Operational guides under `docs/guides/` complement those docs with
 configuration, workflow, and runtime details. If a guide and an architecture

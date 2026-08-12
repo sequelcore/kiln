@@ -63,9 +63,9 @@ contracts, or shared guides.
 
 ## Related Docs
 
-- `docs/guides/gui.md`
+- `docs/guides/gui/gui.md`
 - `docs/guides/gui-parity-walkthrough.md`
 - `docs/guides/tui.md`
 - `docs/guides/operator-surfaces.md`
-- `docs/architecture/runtime-surfaces.md`
-- `docs/architecture/session-model.md`
+- `docs/architecture/surfaces/runtime-surfaces.md`
+- `docs/architecture/core/session-model.md`

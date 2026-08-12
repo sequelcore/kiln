@@ -19,7 +19,7 @@ workspacePackages:
 canonicalDocs:
   - README.md
   - docs/architecture/README.md
-  - docs/architecture/engineering-standards.md
+  - docs/architecture/core/engineering-standards.md
   - docs/research/README.md
   - docs/roadmap/README.md
 ---
@@ -48,7 +48,7 @@ through `kiln project adopt`; do not put durable repo guidance directly in
 
 - README.md
 - docs/architecture/README.md
-- docs/architecture/engineering-standards.md
+- docs/architecture/core/engineering-standards.md
 - docs/research/README.md
 - docs/roadmap/README.md
 
@@ -69,5 +69,5 @@ exception, and it is a data-migration question decided per change, not a reason
 to keep an API compatibility layer. Discarding local state with no
 future-useful evidence is an admitted outcome.
 
-Canonical statement and full rules: `docs/architecture/engineering-standards.md`,
+Canonical statement and full rules: `docs/architecture/core/engineering-standards.md`,
 section "Consumer Surface".
