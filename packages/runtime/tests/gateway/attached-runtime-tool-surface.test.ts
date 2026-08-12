@@ -13,6 +13,7 @@ import type {
 } from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
+  adoptBoundedWorkContractRevision,
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
   defineManagedAgentAdapterDescriptor,
@@ -26,9 +27,10 @@ import {
 } from "@kilnai/core";
 import {
   buildAttachedRuntimePerCallToolConfig,
-  createAttachedRuntimeBuiltinToolSurface,
+  createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { SqliteBoundedWorkAuthority } from "../../src/work-governance/index.js";
 import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-invocation/phase-recovery.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
@@ -50,6 +52,75 @@ const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
   consequences: ["local-state"],
   idempotency: "non-idempotent",
 };
+
+function testBoundedWorkRevision(goalRunId: string, objective: string, workItemIds: readonly string[]) {
+  return adoptBoundedWorkContractRevision({
+    accountingLineageId: goalRunId,
+    adoptedAt: "2026-08-12T00:00:00.000Z",
+    adoptedBy: { kind: "operator", actorId: "operator:test", decisionId: `decision:${goalRunId}` },
+    contract: {
+      schema: "kiln.bounded-work-contract/v1",
+      intent: { objective, acceptanceCriteria: ["Return governed evidence."], nonGoals: ["Do unrelated work."] },
+      scope: {
+        allowedWorkItemIds: workItemIds,
+        permittedEffects: ["inspect", "invoke_managed_agent", "run_verification"],
+        permittedSurfaces: ["runtime-test"],
+        allowedRoots: ["."],
+        deniedRoots: [".git"],
+        refactorAuthority: "none",
+        migrationAuthority: "none",
+        dependencyAuthority: "none",
+      },
+      limits: {
+        maxExecutionAttempts: 8,
+        maxManagedInvocations: 16,
+        maxConcurrentManagedInvocations: 4,
+        maxChildDepth: 1,
+        maxReviewRounds: 4,
+        maxRemediationRounds: 4,
+      },
+      tripwires: {},
+      policy: {
+        scopeExpansion: "approval_required",
+        budgetExhaustion: "pause",
+        minimumHarnessCapability: "authoritative",
+      },
+    },
+  });
+}
+
+function createAttachedRuntimeBuiltinToolSurface(
+  options: NonNullable<Parameters<typeof createRuntimeBuiltinToolSurface>[0]> = {},
+) {
+  const managed = options.managedInvocation;
+  if (!managed) return createRuntimeBuiltinToolSurface(options);
+  const attachment = "options" in managed && "callerIdentity" in managed
+    ? managed
+    : {
+        options: managed,
+        callerIdentity: {
+          kind: "kiln-runtime" as const,
+          surface: "runtime-test",
+          attachmentId: "attachment:runtime-test",
+        },
+      };
+  return createRuntimeBuiltinToolSurface({
+    ...options,
+    managedInvocation: {
+      ...attachment,
+      boundedWorkAdmission: attachment.boundedWorkAdmission ?? (options.boundedWork ? undefined : () => ({
+        admitted: true as const,
+        workspaceAuthority: { allowedPaths: ["C:/workspace/kiln"], deniedPaths: [] },
+        lifecycle: {
+          markDispatched: () => undefined,
+          releaseBeforeDispatch: () => undefined,
+          settleTerminal: () => undefined,
+          settleUnknown: () => undefined,
+        },
+      })),
+    },
+  });
+}
 
 function projectToolDefinitions(
   tools: readonly {
@@ -424,6 +495,8 @@ describe("attached runtime builtin tool surface", () => {
   });
 
   it("rejects managed invocation scopes that do not exist in the session governance stores", async () => {
+    const authorityDirectory = await mkdtemp(join(tmpdir(), "kiln-bounded-work-attached-"));
+    const boundedWorkAuthority = new SqliteBoundedWorkAuthority({ path: join(authorityDirectory, "authority.sqlite") });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     workItemStore.upsert({
@@ -438,6 +511,7 @@ describe("attached runtime builtin tool surface", () => {
     goalRunStore.create({
       id: "goal-real",
       objective: "Inspect the repository without writes.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-real", "Inspect the repository without writes.", ["work-real"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
       workItemIds: ["work-real"],
@@ -452,6 +526,7 @@ describe("attached runtime builtin tool surface", () => {
     const adapter = makeManagedAdapter();
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: { workItemStore, goalRunStore },
+      boundedWork: { projectRuntimeId: "project:test", authority: boundedWorkAuthority },
       managedInvocation: {
         routes: [{
           routeId: "opencode-readonly",
@@ -509,6 +584,10 @@ describe("attached runtime builtin tool surface", () => {
 
     expect(admitted.isError).toBe(false);
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    expect(boundedWorkAuthority.inspect({
+      projectRuntimeId: "project:test",
+      accountingLineageId: "goal-real",
+    })).toMatchObject({ managedInvocations: 1, activeManagedInvocations: 0 });
 
     const excessiveAuthority = await invoke?.({
       profile: "foundation-apply-approved-writes",
@@ -528,6 +607,166 @@ describe("attached runtime builtin tool surface", () => {
       },
     });
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    await runtimeSurface.dispose();
+    boundedWorkAuthority.close();
+    await rm(authorityDirectory, { recursive: true, force: true });
+  });
+
+  it("denies governed child writes unless their declared effects are inside the bounded contract", async () => {
+    const authorityDirectory = await mkdtemp(join(tmpdir(), "kiln-bounded-effects-"));
+    const authority = new SqliteBoundedWorkAuthority({ path: join(authorityDirectory, "authority.sqlite") });
+    const workItemStore = new WorkItemStore();
+    const goalRunStore = new GoalRunStore();
+    workItemStore.upsert({
+      id: "work-effects",
+      summary: "Delegate inspection only.",
+      workflowProfile: "verification-heavy",
+      triggers: ["managed-agents"],
+      expectedEvidence: [],
+      verificationGates: [],
+      goalRunId: "goal-effects",
+    });
+    goalRunStore.create({
+      id: "goal-effects",
+      objective: "Delegate inspection only.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-effects", "Delegate inspection only.", ["work-effects"]),
+      ownerSessionId: "session-parent",
+      source: { kind: "operator_direct", turnId: "turn-effects" },
+      workItemIds: ["work-effects"],
+      authorityEnvelope: { maximumAuthority: "audited", escalationPolicy: "approval_required", reason: "Test." },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const baseAdapter = makeManagedAdapter();
+    const adapter: ManagedAgentRuntimeAdapter = {
+      ...baseAdapter,
+      descriptor: makeManagedDescriptor({
+        supportedProfiles: ["foundation-apply-approved-writes"],
+        writeAuthority: {
+          proposalSupported: true,
+          approvedApplySupported: true,
+          memoryProposalSupported: false,
+          rollbackEvidence: true,
+          cleanupEvidence: true,
+          scopeReduction: true,
+        },
+      }),
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: { workItemStore, goalRunStore },
+      boundedWork: { projectRuntimeId: "project:effects", authority },
+      managedInvocation: {
+        routes: [{
+          routeId: "write-route",
+          routeSource: "explicit-managed-route",
+          providerId: "opencode",
+          model: "test-model",
+          capability: managedRouteCapability({ routeId: "write-route", providerId: "opencode", modelId: "test-model", toolNames: ["read", "apply-patch"], profile: "foundation-apply-approved-writes", write: true }),
+          createAdapter: async () => adapter,
+          profiles: {
+            "foundation-apply-approved-writes": {
+              authorityProfileId: "authority:test:write",
+              permissionProfile: "apply-approved-writes",
+              allowedToolNames: ["read", "apply-patch"],
+              writeAllowed: true,
+              workingDirectory: { path: "C:/workspace/kiln", mode: "workspace-write" },
+              timeoutMs: 120000,
+              credentialRoute: { mode: "credentialless" },
+              memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
+              writeAuthority: defineManagedAgentWriteAuthority({
+                profile: "foundation-apply-approved-writes",
+                scope: {
+                  workspace: { mode: "apply-approved", allowedPaths: ["C:/workspace/kiln"], deniedPaths: [] },
+                  memory: { mode: "none", operations: [] },
+                  artifacts: { mode: "none", resourceUris: [], retention: "none" },
+                  tools: { allowedToolNames: ["apply-patch"], deniedToolNames: [] },
+                },
+                approval: { mode: "required-before-apply", evidenceRequired: true },
+              }),
+            },
+          },
+        }],
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-effects", name: "managed_agent.invoke", input: {} },
+      requestApproval: vi.fn(async () => ({ approved: true })),
+    };
+    const denied = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-apply-approved-writes",
+      routeId: "write-route",
+      providerRoute: { providerId: "opencode", model: "test-model" },
+      requestedAuthority: "audited",
+      task: "Modify source despite an inspection-only contract.",
+      goalRunId: "goal-effects",
+      workItemId: "work-effects",
+      boundedWorkEffects: ["modify_source"],
+    }, context) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(denied).toMatchObject({ isError: true, metadata: { errorCode: "bounded_work_effect_authority_denied" } });
+    expect(adapter.invoke).not.toHaveBeenCalled();
+    expect(authority.inspect({ projectRuntimeId: "project:effects", accountingLineageId: "goal-effects" })).toBeUndefined();
+    const currentRevision = goalRunStore.get("goal-effects")!.boundedWorkContractRevision;
+    goalRunStore.supersedeBoundedWorkContract({
+      id: "goal-effects",
+      expectedRevisionDigest: currentRevision.revisionDigest,
+      contract: {
+        ...currentRevision.contract,
+        scope: {
+          ...currentRevision.contract.scope,
+          permittedEffects: [...currentRevision.contract.scope.permittedEffects, "modify_source"],
+          allowedRoots: ["packages/runtime/src"],
+        },
+      },
+      adoptedAt: "2026-08-12T00:01:00.000Z",
+      adoptedBy: { kind: "operator", actorId: "operator:test", decisionId: "decision:effects-write" },
+    });
+    const admitted = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-apply-approved-writes",
+      routeId: "write-route",
+      providerRoute: { providerId: "opencode", model: "test-model" },
+      requestedAuthority: "audited",
+      task: "Modify the admitted runtime source root.",
+      goalRunId: "goal-effects",
+      workItemId: "work-effects",
+      boundedWorkEffects: ["modify_source"],
+    }, { ...context, toolCall: { id: "tool-call-effects-admitted", name: "managed_agent.invoke", input: {} } }) as { readonly isError: boolean };
+    expect(admitted.isError).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({
+        authority: expect.objectContaining({
+          writeAuthority: expect.objectContaining({
+            scope: expect.objectContaining({
+              workspace: expect.objectContaining({
+                allowedPaths: [expect.stringMatching(/packages[\\/]runtime[\\/]src$/u)],
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    const nested = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-apply-approved-writes",
+      routeId: "write-route",
+      providerRoute: { providerId: "opencode", model: "test-model" },
+      requestedAuthority: "audited",
+      task: "Try to omit inherited bounded attribution.",
+    }, {
+      ...context,
+      toolCall: { id: "tool-call-nested", name: "managed_agent.invoke", input: {} },
+      executionScope: {
+        kind: "work_item",
+        goalRunId: "goal-effects",
+        workItemId: "work-effects",
+        managedInvocationId: "parent-managed-invocation",
+      },
+    }) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+    expect(nested).toMatchObject({ isError: true, metadata: { errorCode: "bounded_work_nested_delegation_unavailable" } });
+    expect(adapter.invoke).toHaveBeenCalledTimes(1);
+    await runtimeSurface.dispose();
+    authority.close();
+    await rm(authorityDirectory, { recursive: true, force: true });
   });
 
   it("rejects recovery scoped to the wrong work item, stale attempt, or different external-runtime attachment before mutation", async () => {
@@ -553,6 +792,7 @@ describe("attached runtime builtin tool surface", () => {
     goalRunStore.create({
       id: "goal-scoped",
       objective: "Inspect the repository without writes.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-scoped", "Inspect the repository without writes.", ["work-scoped"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
       workItemIds: ["work-scoped"],
@@ -569,6 +809,7 @@ describe("attached runtime builtin tool surface", () => {
       goalRunId: "goal-scoped",
       executionMode: "managed_delegation",
       summary: "Recover the failed managed invocation.",
+      boundedWorkContractRevisionDigest: goalRunStore.get("goal-scoped")!.boundedWorkContractRevision.revisionDigest,
     });
     expect(activeAttempt).toBeDefined();
     const workItemBeforeRejection = workItemStore.get("work-scoped");
@@ -2699,6 +2940,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     goalRunStore.create({
       id: "goal-managed",
       objective: "Execute governed managed work.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
       workItemIds: ["work-managed"],
@@ -2808,6 +3050,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct" as const, turnId: "session-parent:turn:1" },
       workItemIds: ["work-managed"],
@@ -2921,6 +3164,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     goalRunStore.create({
       id: "goal-managed",
       objective: "Execute governed managed work.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
       workItemIds: ["work-managed"],
@@ -2997,6 +3241,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct" as const, turnId: "session-parent:turn:1" },
       workItemIds: ["work-managed"],
@@ -3094,6 +3339,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct" as const, turnId: "session-parent:turn:1" },
       workItemIds: ["work-managed"],
@@ -3170,6 +3416,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const goalRun = {
       id: "goal-managed",
       objective: "Execute governed managed work.",
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
       ownerSessionId: "session-parent",
       source: { kind: "operator_direct" as const, turnId: "session-parent:turn:1" },
       workItemIds: ["work-managed"],
@@ -3387,6 +3634,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       goalRunStore.create({
         id: "goal-managed",
         objective: "Execute governed managed work.",
+        boundedWorkContractRevision: testBoundedWorkRevision("goal-managed", "Execute governed managed work.", ["work-managed"]),
         ownerSessionId: "session-parent",
         source: { kind: "operator_direct", turnId: "session-parent:turn:1" },
         workItemIds: ["work-managed"],

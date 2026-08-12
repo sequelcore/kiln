@@ -986,3 +986,24 @@ export type {
   NormalizeContextUsageProjectionInput,
 } from "./session/context-usage-projection.js";
 
+// Bounded-work runtime authority
+export {
+  BoundedWorkAuthorityError,
+  SQLITE_BOUNDED_WORK_AUTHORITY_SCHEMA_VERSION,
+  SqliteBoundedWorkAuthority,
+  bindCapturedCandidateEvidence,
+  captureArtifactCandidate,
+  captureExternalStateCandidate,
+  captureGitWorktreeCandidate,
+} from "./work-governance/index.js";
+export type {
+  BoundedWorkAuthorityErrorCode,
+  BoundedWorkAuthorityProjectionState,
+  BoundedWorkReservationReceipt,
+  BoundedWorkReservationResult,
+  BoundedWorkReservationState,
+  BoundedWorkRouteIdentity,
+  BoundedWorkTerminalOutcome,
+  SqliteBoundedWorkAuthorityOptions,
+} from "./work-governance/index.js";
+

@@ -18,6 +18,41 @@ export interface OperatorGovernedWorkExecutionAttempt {
   readonly startedAt?: string;
   readonly completedAt?: string;
   readonly managedInvocationId?: string;
+  readonly boundedWorkContractRevisionDigest?: string;
+  readonly candidateDigest?: string;
+}
+
+export interface OperatorBoundedWorkCountUtilization {
+  readonly used: number;
+  readonly limit: number;
+  readonly active?: number;
+}
+
+export type OperatorBoundedWorkMeasuredUtilization =
+  | { readonly kind: "observed" | "estimated"; readonly value: number; readonly limit: number }
+  | { readonly kind: "unknown" | "unavailable"; readonly limit: number };
+
+export interface OperatorBoundedWorkProjection {
+  readonly contractRevisionDigest: string;
+  readonly candidateDigest?: string;
+  readonly accounting: {
+    readonly revision: number;
+    readonly executionAttempts?: OperatorBoundedWorkCountUtilization;
+    readonly managedInvocations?: OperatorBoundedWorkCountUtilization;
+    readonly reviewRounds?: OperatorBoundedWorkCountUtilization;
+    readonly remediationRounds?: OperatorBoundedWorkCountUtilization;
+    readonly toolCalls?: OperatorBoundedWorkMeasuredUtilization;
+    readonly activeDurationMs?: OperatorBoundedWorkMeasuredUtilization;
+  };
+  readonly decision: {
+    readonly kind: string;
+    readonly exhaustedLimits?: readonly string[];
+    readonly unavailableMetrics?: readonly string[];
+    readonly continuation?: {
+      readonly action: string;
+      readonly accountingRevision: number;
+    };
+  };
 }
 
 export interface OperatorGovernedWorkItemProjection {
@@ -38,6 +73,7 @@ export interface OperatorGovernedWorkItemProjection {
   readonly verificationGates: readonly string[];
   readonly pauseRequirements: readonly OperatorGovernedWorkPauseRequirement[];
   readonly executionAttempts: readonly OperatorGovernedWorkExecutionAttempt[];
+  readonly boundedWork?: OperatorBoundedWorkProjection;
   readonly latestAttemptStatus?: string;
   readonly latestAttemptMode?: string;
   readonly latestManagedInvocationId?: string;
@@ -113,6 +149,9 @@ export function projectOperatorGovernedWorkItemSnapshot(
   const assignedAgentProfile = readString(workItem.assignedAgentProfile) ?? input.previous?.assignedAgentProfile;
   const risk = readString(workItem.risk) ?? input.previous?.risk;
   const surface = readString(workItem.surface) ?? input.previous?.surface;
+  const boundedWork = hasOwn(workItem, "boundedWork")
+    ? readBoundedWorkProjection(workItem.boundedWork)
+    : input.previous?.boundedWork;
 
   return {
     ...(input.sessionId ? { sessionId: input.sessionId } : {}),
@@ -132,6 +171,7 @@ export function projectOperatorGovernedWorkItemSnapshot(
     verificationGates: readStringArrayField(workItem, "verificationGates", input.previous?.verificationGates),
     pauseRequirements,
     executionAttempts,
+    ...(boundedWork ? { boundedWork } : {}),
     ...(readString(workItem.latestAttemptStatus) ?? latestAttempt?.status
       ? { latestAttemptStatus: (readString(workItem.latestAttemptStatus) ?? latestAttempt!.status) }
       : {}),
@@ -254,8 +294,100 @@ function readExecutionAttempts(value: unknown): readonly OperatorGovernedWorkExe
       ...(readString(record.managedInvocationId)
         ? { managedInvocationId: readString(record.managedInvocationId)! }
         : {}),
+      ...(readDigest(record.boundedWorkContractRevisionDigest)
+        ? { boundedWorkContractRevisionDigest: readDigest(record.boundedWorkContractRevisionDigest)! }
+        : {}),
+      ...(readDigest(asRecord(record.candidate).candidateDigest)
+        ? { candidateDigest: readDigest(asRecord(record.candidate).candidateDigest)! }
+        : {}),
     }];
   });
+}
+
+function readBoundedWorkProjection(value: unknown): OperatorBoundedWorkProjection | undefined {
+  const record = asRecord(value);
+  const contractRevisionDigest = readDigest(record.contractRevisionDigest);
+  const accounting = asRecord(record.accounting);
+  const decision = asRecord(record.decision);
+  const revision = readNonNegativeInteger(accounting.revision);
+  const decisionKind = readString(decision.kind);
+  if (!contractRevisionDigest || revision === undefined || !decisionKind) return undefined;
+  const executionAttempts = readCountUtilization(accounting.executionAttempts);
+  const managedInvocations = readCountUtilization(accounting.managedInvocations, true);
+  const reviewRounds = readCountUtilization(accounting.reviewRounds);
+  const remediationRounds = readCountUtilization(accounting.remediationRounds);
+  const toolCalls = readMeasuredUtilization(accounting.toolCalls);
+  const activeDurationMs = readMeasuredUtilization(accounting.activeDurationMs);
+  if (
+    (accounting.executionAttempts !== undefined && !executionAttempts)
+    || (accounting.managedInvocations !== undefined && !managedInvocations)
+    || (accounting.reviewRounds !== undefined && !reviewRounds)
+    || (accounting.remediationRounds !== undefined && !remediationRounds)
+    || (accounting.toolCalls !== undefined && !toolCalls)
+    || (accounting.activeDurationMs !== undefined && !activeDurationMs)
+  ) return undefined;
+  const continuation = asRecord(decision.continuation);
+  const action = readString(continuation.action);
+  const accountingRevision = readNonNegativeInteger(continuation.accountingRevision);
+  return {
+    contractRevisionDigest,
+    ...(readDigest(record.candidateDigest) ? { candidateDigest: readDigest(record.candidateDigest)! } : {}),
+    accounting: {
+      revision,
+      ...(executionAttempts ? { executionAttempts } : {}),
+      ...(managedInvocations ? { managedInvocations } : {}),
+      ...(reviewRounds ? { reviewRounds } : {}),
+      ...(remediationRounds ? { remediationRounds } : {}),
+      ...(toolCalls ? { toolCalls } : {}),
+      ...(activeDurationMs ? { activeDurationMs } : {}),
+    },
+    decision: {
+      kind: decisionKind,
+      ...(readStringArray(decision.exhaustedLimits).length > 0
+        ? { exhaustedLimits: readStringArray(decision.exhaustedLimits) }
+        : {}),
+      ...(readStringArray(decision.unavailableMetrics).length > 0
+        ? { unavailableMetrics: readStringArray(decision.unavailableMetrics) }
+        : {}),
+      ...(action && accountingRevision !== undefined
+        ? { continuation: { action, accountingRevision } }
+        : {}),
+    },
+  };
+}
+
+function readCountUtilization(value: unknown, allowActive = false): OperatorBoundedWorkCountUtilization | undefined {
+  const record = asRecord(value);
+  const used = readNonNegativeInteger(record.used);
+  const limit = readNonNegativeInteger(record.limit);
+  const active = readNonNegativeInteger(record.active);
+  if (used === undefined || limit === undefined || used > limit) return undefined;
+  if (record.active !== undefined && (!allowActive || active === undefined || active > used)) return undefined;
+  return { used, limit, ...(active === undefined ? {} : { active }) };
+}
+
+function readMeasuredUtilization(value: unknown): OperatorBoundedWorkMeasuredUtilization | undefined {
+  const record = asRecord(value);
+  const kind = readString(record.kind);
+  const limit = readNonNegativeInteger(record.limit);
+  if (limit === undefined) return undefined;
+  if (kind === "unknown" || kind === "unavailable") {
+    if (record.value !== undefined) return undefined;
+    return { kind, limit };
+  }
+  const measured = readNonNegativeInteger(record.value);
+  return (kind === "observed" || kind === "estimated") && measured !== undefined
+    ? { kind, value: measured, limit }
+    : undefined;
+}
+
+function readDigest(value: unknown): string | undefined {
+  const text = readString(value);
+  return text && /^sha256:[a-f0-9]{64}$/u.test(text) ? text : undefined;
+}
+
+function readNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function isWorkItemEvent(event: OperatorSessionEvent): boolean {

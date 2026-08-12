@@ -20,6 +20,7 @@ import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/conf
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
+import { createProjectBoundedWorkAuthority } from "../application/bounded-work-authority-composition.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
 import {
   readProviderDiscoveryCache,
@@ -167,6 +168,7 @@ export async function guiCommand(
   );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const boundedWork = createProjectBoundedWorkAuthority(cwd);
   const goalControlService = new GoalControlService(goalRunStore, transcriptStore);
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
@@ -195,6 +197,9 @@ export async function guiCommand(
         workItemStore,
         goalRunStore,
         managedInvocationProofResolver: managedInvocationProofs.resolve,
+        boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
+        boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
+        boundedWorkGoalCloseout: boundedWork.closeoutGoal,
       }),
     ],
   }, "execute"));
@@ -293,6 +298,7 @@ export async function guiCommand(
       () => operatorTurnComposition.close(),
       () => stagedManagedInvocation?.dispose(),
       () => operatorEconomicAuthority?.close(),
+      () => boundedWork.close(),
     ]);
     return cleanupPromise;
   };
@@ -331,6 +337,7 @@ export async function guiCommand(
     onOperatorDiscoveryResolved: (discovery) => writeProviderDiscoveryCache(cwd, discovery),
     builtinToolOptions,
     managedInvocation: managedInvocationForGateway,
+    boundedWork: boundedWork.surface,
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,

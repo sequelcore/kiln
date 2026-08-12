@@ -49,6 +49,7 @@ import {
 } from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createWorkGovernanceTools } from "./work-governance-tool.js";
+import { createProjectBoundedWorkAuthority } from "./bounded-work-authority-composition.js";
 import {
   createKilnRuntimeManagedInvocationAttachment,
   createManagedInvocationExecutionProofResolverRef,
@@ -179,6 +180,13 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     }
     const { registry, worktreeManager } = createDefaultRegistry();
     const benchmarkCleanupRegistry = new CleanupRegistry();
+    const boundedWork = benchmarkWorkspace.kind === "repository"
+      ? createProjectBoundedWorkAuthority(cwd, {
+          authorityStateRoot: repositoryRoot,
+          projectIdentityRoot: repositoryRoot,
+        })
+      : undefined;
+    benchmarkCleanupRegistry.register(async () => boundedWork?.close());
     const operatorEconomicAuthority = benchmarkWorkspace.kind === "repository" && !options.appConfig.managedInvocation
       ? createOperatorSurfaceEconomicAuthority("benchmark", cwd)
       : undefined;
@@ -236,6 +244,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               workItemStore,
               goalRunStore,
               managedInvocationProofResolver: managedInvocationProofs.resolve,
+              boundedWorkExecutionAttemptAdmission: boundedWork?.admitExecutionAttempt,
+              boundedWorkCandidateCloseout: boundedWork?.closeoutCandidate,
+              boundedWorkGoalCloseout: boundedWork?.closeoutGoal,
             })
           : []),
       ],
@@ -302,6 +313,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       requestedAuthority: writeMode ? "destructive" as const : "read_only" as const,
       model: effectiveModel,
       deliberationResolution: executionDeliberation,
+      boundedWork: boundedWork?.surface,
     };
     const sessionHooks = new SessionHooks(
       benchmarkWorkspace.kind === "repository" ? options.appConfig.kilnYaml?.hooks : undefined,

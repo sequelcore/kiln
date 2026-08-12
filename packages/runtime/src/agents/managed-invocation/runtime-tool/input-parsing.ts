@@ -15,6 +15,7 @@ import type {
   ManagedAgentResultField,
   WorkClassification,
   WorkClassificationInput,
+  BoundedWorkEffect,
 } from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
 import { MANAGED_AGENT_INVOKE_TOOL_NAME } from "../tool-names.js";
@@ -140,6 +141,10 @@ export function parseInput(
   const goalRunId = readText(input.goalRunId);
   const workItemId = readText(input.workItemId);
   const attemptId = readText(input.attemptId);
+  const boundedWorkEffects = parseBoundedWorkEffects(input.boundedWorkEffects);
+  if (!boundedWorkEffects.ok) {
+    return { ok: false, error: `${toolName} boundedWorkEffects contains an unsupported effect.` };
+  }
   if ((workItemId || attemptId) && !goalRunId) {
     return { ok: false, error: `${toolName} goalRunId is required when workItemId or attemptId is supplied.` };
   }
@@ -176,6 +181,7 @@ export function parseInput(
       ...(goalRunId ? { goalRunId } : {}),
       ...(workItemId ? { workItemId } : {}),
       ...(attemptId ? { attemptId } : {}),
+      ...(boundedWorkEffects.value.length > 0 ? { boundedWorkEffects: boundedWorkEffects.value } : {}),
       ...(readText(input.roleIntent) ? { roleIntent: readText(input.roleIntent) } : {}),
       ...(expectedEvidence && expectedEvidence.length > 0 ? { expectedEvidence } : {}),
       ...(requiredToolNames && requiredToolNames.length > 0 ? { requiredToolNames } : {}),
@@ -189,6 +195,23 @@ export function parseInput(
       ...(readRecord(input.executionPhase) ? { executionPhase: readRecord(input.executionPhase)! } : {}),
     },
   };
+}
+
+const BOUNDED_WORK_EFFECTS = new Set<BoundedWorkEffect>([
+  "inspect", "modify_source", "modify_tests", "modify_documentation", "modify_configuration",
+  "run_verification", "invoke_managed_agent", "external_write",
+]);
+
+function parseBoundedWorkEffects(value: unknown):
+  | { readonly ok: true; readonly value: readonly BoundedWorkEffect[] }
+  | { readonly ok: false } {
+  if (value === undefined) return { ok: true, value: [] };
+  if (!Array.isArray(value)) return { ok: false };
+  const effects = [...new Set(value)];
+  if (effects.some((effect) => typeof effect !== "string" || !BOUNDED_WORK_EFFECTS.has(effect as BoundedWorkEffect))) {
+    return { ok: false };
+  }
+  return { ok: true, value: effects as BoundedWorkEffect[] };
 }
 
 export async function resolveInvocationContext(

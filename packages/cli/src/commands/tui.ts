@@ -47,6 +47,7 @@ import { createStartupProfiler, type StartupProfiler } from "../application/star
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
+import { createProjectBoundedWorkAuthority } from "../application/bounded-work-authority-composition.js";
 import { recoverStaleOpenTranscriptSessions } from "../application/transcript-session-recovery.js";
 import { createStagedManagedInvocationRouteCatalog } from "../config/managed-agent-route-catalog.js";
 import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
@@ -162,6 +163,7 @@ interface TuiBootstrapOptions {
   readonly operatorTimeZone?: string;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly boundedWork?: import("@kilnai/runtime").AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
@@ -1064,6 +1066,7 @@ async function bootstrapGatewaySession(
     executionMode: flags.plan ? "plan" : "execute",
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,
+    boundedWork: options.boundedWork,
     budgetAdmission: options.budgetAdmission,
     resumeSessionHydrator: options.resumeSessionHydrator,
     initialProviderDiscovery: options.initialProviderDiscovery,
@@ -1433,6 +1436,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupModel = startupRoute.providerModelId;
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const boundedWork = createProjectBoundedWorkAuthority(cwd);
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
@@ -1467,6 +1471,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
         workItemStore,
         goalRunStore,
         managedInvocationProofResolver: managedInvocationProofs.resolve,
+        boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
+        boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
+        boundedWorkGoalCloseout: boundedWork.closeoutGoal,
       }),
     ],
   }, "execute"));
@@ -1583,6 +1590,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     operatorTimeZone: runtimeAppConfig.operatorTimeZone,
     builtinToolOptions,
     managedInvocation: managedInvocationForGateway,
+    boundedWork: boundedWork.surface,
     budgetAdmission: runtimeBudgetAdmission,
     resumeSessionHydrator,
     operatorVoice,
@@ -1598,6 +1606,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   const shutdown = (code = 0, error?: unknown) => {
     bootstrap.shutdown();
+    boundedWork.close();
     operatorEconomicAuthority?.close();
     if (error) {
       process.stderr.write(String(error instanceof Error ? (error.stack ?? error.message) : error) + "\n");

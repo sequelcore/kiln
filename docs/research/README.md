@@ -199,6 +199,13 @@ define the active architecture contract. For doctrine, use
   Projection ownership, benchmark validity, repository-context, and accessible
   information-ordering evidence for the remaining governance review skills.
 
+- `41-bounded-work-authority-2026.md`
+  Issue #19 research and Slice 0 contract ratification for immutable bounded-work
+  revisions, semantic scope, hard ceilings, tripwires, diagnostics,
+  project-scoped Runtime reservation/settlement, candidate/evidence binding,
+  typed stop/continuation, capability tiers, comparative clone evidence, and a
+  paired benchmark methodology. No implementation or efficiency claim.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -252,4 +259,5 @@ define the active architecture contract. For doctrine, use
 37. `37-security-and-managed-agent-review-skills-2026.md`
 38. `38-architecture-boundary-review-skills-2026.md`
 39. `39-governance-review-skills-2026.md`
-40. `web-retrieval-provider-routing.md`
+40. `41-bounded-work-authority-2026.md`
+41. `web-retrieval-provider-routing.md`

@@ -10,6 +10,8 @@ import {
   type WorkClassificationProvenanceInput,
 } from "../agents/work-classification.js";
 import type { DeliberationIntent } from "../agents/deliberation-policy.js";
+import { requireBoundedWorkDigest } from "./bounded-work-content.js";
+import type { BoundedWorkCandidateEvidence, BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
@@ -242,6 +244,7 @@ export interface WorkItemExecutionAttempt {
   readonly id: string;
   readonly workItemId: string;
   readonly goalRunId: string;
+  readonly boundedWorkContractRevisionDigest: string;
   readonly status: WorkItemExecutionAttemptStatus;
   readonly executionMode: WorkItemExecutionMode;
   readonly startedAt: string;
@@ -250,6 +253,7 @@ export interface WorkItemExecutionAttempt {
   readonly failureReason?: WorkItemExecutionFailureReason;
   readonly managedInvocationId?: string;
   readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
+  readonly candidateCaptureRoot?: string;
   readonly providedEvidence: readonly string[];
   readonly missingEvidence: readonly string[];
   readonly missingResidualRisk: boolean;
@@ -257,6 +261,8 @@ export interface WorkItemExecutionAttempt {
   readonly verificationGateResults: readonly VerificationGateResult[];
   readonly residualRisk?: string;
   readonly verificationUsage?: VerificationUsageReport;
+  readonly candidate?: BoundedWorkCandidateIdentity;
+  readonly candidateEvidence?: readonly BoundedWorkCandidateEvidence[];
 }
 
 export interface WorkItemUpsertInput {
@@ -330,10 +336,12 @@ export interface WorkItemCompletionResult {
 export interface WorkItemStartExecutionAttemptInput {
   readonly id: string;
   readonly goalRunId: string;
+  readonly boundedWorkContractRevisionDigest: string;
   readonly executionMode: WorkItemExecutionMode;
   readonly summary?: string;
   readonly managedInvocationId?: string;
   readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
+  readonly candidateCaptureRoot?: string;
 }
 
 export interface WorkItemStartExecutionAttemptResult {
@@ -351,6 +359,8 @@ export interface WorkItemFinishExecutionAttemptInput {
   readonly summary?: string;
   readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
+  readonly candidate?: BoundedWorkCandidateIdentity;
+  readonly candidateEvidence?: readonly BoundedWorkCandidateEvidence[];
 }
 
 export interface WorkItemFinishExecutionAttemptResult extends WorkItemCompletionResult {
@@ -587,6 +597,10 @@ export class WorkItemStore {
       id: `${input.goalRunId}:${existing.id}:attempt:${existing.executionAttempts.length + 1}`,
       workItemId: existing.id,
       goalRunId: input.goalRunId,
+      boundedWorkContractRevisionDigest: requireBoundedWorkDigest(
+        input.boundedWorkContractRevisionDigest,
+        "boundedWorkContractRevisionDigest",
+      ),
       status: "started",
       executionMode: input.executionMode,
       startedAt,
@@ -595,6 +609,7 @@ export class WorkItemStore {
       ...(input.managedInvocationResultHandoff
         ? { managedInvocationResultHandoff: input.managedInvocationResultHandoff }
         : {}),
+      ...(input.candidateCaptureRoot ? { candidateCaptureRoot: input.candidateCaptureRoot } : {}),
       providedEvidence: [],
       missingEvidence: [],
       missingResidualRisk: false,
@@ -618,6 +633,7 @@ export class WorkItemStore {
     if (!attempt) {
       return undefined;
     }
+    assertAttemptCandidateBinding(attempt, input.candidate, input.candidateEvidence);
     const providedEvidence = unique([
       ...existing.providedEvidence,
       ...attempt.providedEvidence,
@@ -690,6 +706,8 @@ export class WorkItemStore {
         : attempt.verificationUsage
           ? { verificationUsage: attempt.verificationUsage }
           : {}),
+      ...(input.candidate ? { candidate: input.candidate } : {}),
+      ...(input.candidateEvidence ? { candidateEvidence: [...input.candidateEvidence] } : {}),
     };
     const item = this.upsert({
       ...existing,
@@ -1662,4 +1680,32 @@ function normalizeManagedOrchestrationAdoption(
     adoptedAt,
     resourceUris,
   };
+}
+
+function assertAttemptCandidateBinding(
+  attempt: WorkItemExecutionAttempt,
+  candidate: BoundedWorkCandidateIdentity | undefined,
+  evidence: readonly BoundedWorkCandidateEvidence[] | undefined,
+): void {
+  if (!candidate) {
+    if (evidence && evidence.length > 0) throw new Error("Candidate evidence requires an exact candidate identity.");
+    return;
+  }
+  if (
+    candidate.goalRunId !== attempt.goalRunId
+    || candidate.workItemId !== attempt.workItemId
+    || candidate.accountingLineageId !== attempt.goalRunId
+    || candidate.contractRevisionDigest !== attempt.boundedWorkContractRevisionDigest
+  ) {
+    throw new Error("Execution candidate does not match the governed attempt lineage.");
+  }
+  for (const record of evidence ?? []) {
+    if (
+      record.candidateDigest !== candidate.candidateDigest
+      || record.candidateContentDigest !== candidate.candidateContentDigest
+      || record.contractRevisionDigest !== candidate.contractRevisionDigest
+    ) {
+      throw new Error("Execution evidence is not bound to the exact candidate.");
+    }
+  }
 }

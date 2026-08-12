@@ -8,6 +8,7 @@ import type {
   SessionTokenUsage,
 } from "../../src/events/index.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../../src/work-governance/index.js";
+import { testBoundedWorkRevision } from "../work-governance/bounded-work-fixtures.js";
 
 describe("session event envelope", () => {
   it("fills eventId and timestamp with deterministic injection", () => {
@@ -59,11 +60,14 @@ describe("session event envelope", () => {
       deltaUsd: 0.0045,
       totalUsd: 0.0045,
     };
+    const boundedWorkContractRevision = testBoundedWorkRevision("goal-1", ["wi-1"], "Execute approved plan.");
     const goal: GoalRun = {
       id: "goal-1",
       objective: "Execute approved plan.",
       ownerSessionId: "kiln-session-1",
-      planId: "plan_1",
+      source: { kind: "approved_plan", planId: "plan_1" },
+      boundedWorkContractRevision,
+      boundedWorkContractRevisionHistory: [boundedWorkContractRevision],
       status: "active",
       workItemIds: ["wi-1"],
       authorityEnvelope: {

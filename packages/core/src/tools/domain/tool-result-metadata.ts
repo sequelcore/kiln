@@ -52,7 +52,12 @@ export type WorkItemToolName =
   | "work_item.execution.start"
   | "work_item.execution.finish"
   | "work_item.execution.fail";
-export type GoalToolName = "goal.create" | "goal.evidence.record" | "goal.complete";
+export type GoalToolName =
+  | "goal.create"
+  | "goal.evidence.record"
+  | "goal.complete"
+  | "goal.bounded_work_contract.supersede"
+  | "goal.work_items.attach";
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_search" | "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
@@ -130,7 +135,7 @@ export type MonitorStatus = "running" | "exited" | "stopped" | "failed";
 export type TaskStateToolOperation = "list" | "update";
 export type SessionTaskStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 export type WorkItemToolOperation = "update" | "list" | "complete" | "execution_started" | "execution_finished";
-export type GoalToolOperation = "create" | "record_evidence" | "complete";
+export type GoalToolOperation = "create" | "record_evidence" | "complete" | "update";
 export type ElicitationToolOperation = "elicit";
 export type MemoryToolOperation = "search" | "save";
 export type ResourceToolOperation = "list" | "list_templates" | "read";

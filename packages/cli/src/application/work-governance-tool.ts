@@ -17,9 +17,17 @@ import type {
   WorkClassificationInput,
   WorkClassificationProvenanceInput,
   VerificationGateResult,
+  BoundedWorkAdoptionAuthority,
+  BoundedWorkContract,
+  BoundedWorkHarnessCapability,
+  BoundedWorkCandidateEvidence,
+  BoundedWorkCandidateIdentity,
+  BoundedWorkCloseoutDecision,
+  BoundedWorkSatisfiedCriterion,
 } from "@kilnai/core";
 import {
   accountedWorkItemEvidence,
+  adoptBoundedWorkContractRevision,
   containsFrontendReferenceEvidence,
   completeGoalExecution,
   failGoalExecutionAttempt,
@@ -128,6 +136,33 @@ type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
 export type ManagedInvocationExecutionProofResolver = (
   invocationId: string,
 ) => ManagedInvocationExecutionProof | undefined;
+export type BoundedWorkExecutionAttemptAdmission = (input: {
+  readonly goal: GoalRun;
+  readonly workItem: WorkItem;
+  readonly attemptId: string;
+}) =>
+  | { readonly admitted: true; readonly commit: () => void; readonly release: () => void }
+  | { readonly admitted: false; readonly code: string; readonly message: string };
+export type BoundedWorkCandidateCloseout = (input: {
+  readonly goal: GoalRun;
+  readonly workItem: WorkItem;
+  readonly attempt: WorkItemExecutionAttempt;
+  readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
+  readonly verificationGateResults: readonly VerificationGateResult[];
+}) => Promise<
+  | {
+      readonly captured: true;
+      readonly candidate: BoundedWorkCandidateIdentity;
+      readonly evidence: readonly BoundedWorkCandidateEvidence[];
+    }
+  | { readonly captured: false; readonly code: string; readonly message: string }
+>;
+export type BoundedWorkGoalCloseout = (input: {
+  readonly goal: GoalRun;
+  readonly candidate: BoundedWorkCandidateIdentity;
+  readonly candidateCaptureRoot?: string;
+  readonly satisfiedCriteria: readonly BoundedWorkSatisfiedCriterion[];
+}) => BoundedWorkCloseoutDecision | Promise<BoundedWorkCloseoutDecision>;
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
 type ManagedInvocationPhaseId =
   | "visual-reference-research"
@@ -155,6 +190,9 @@ export function createWorkGovernanceTools(
     readonly goalRunStore?: GoalRunStore;
     readonly ownerSessionId?: string;
     readonly managedInvocationProofResolver?: ManagedInvocationExecutionProofResolver;
+    readonly boundedWorkExecutionAttemptAdmission?: BoundedWorkExecutionAttemptAdmission;
+    readonly boundedWorkCandidateCloseout?: BoundedWorkCandidateCloseout;
+    readonly boundedWorkGoalCloseout?: BoundedWorkGoalCloseout;
   } = {},
 ): readonly DevTool[] {
   const store = options.workItemStore ?? new WorkItemStore();
@@ -165,11 +203,18 @@ export function createWorkGovernanceTools(
     new WorkItemUpdateTool(config, store, goalRunStore),
     new WorkItemListTool(store),
     new WorkItemCompleteTool(store),
-    new GoalCreateTool(goalRunStore, store, options.ownerSessionId),
+    new GoalCreateTool(config, goalRunStore, store, options.ownerSessionId),
+    new GoalBoundedWorkContractSupersedeTool(config, goalRunStore),
+    new GoalWorkItemsAttachTool(goalRunStore, store),
     new GoalEvidenceRecordTool(goalRunStore),
-    new GoalCompleteTool(goalRunStore, store),
-    new WorkItemExecutionStartTool(goalRunStore, store, options.managedInvocationProofResolver),
-    new WorkItemExecutionFinishTool(goalRunStore, store),
+    new GoalCompleteTool(goalRunStore, store, options.boundedWorkGoalCloseout),
+    new WorkItemExecutionStartTool(
+      goalRunStore,
+      store,
+      options.managedInvocationProofResolver,
+      options.boundedWorkExecutionAttemptAdmission,
+    ),
+    new WorkItemExecutionFinishTool(goalRunStore, store, options.boundedWorkCandidateCloseout),
     new WorkItemExecutionFailTool(goalRunStore, store),
   ];
 }
@@ -943,7 +988,7 @@ export class GoalCreateTool implements DevTool {
   readonly inputSchema = {
     type: "object",
     properties: {
-      id: { type: "string", description: "Optional stable goal id. Omit to create a generated id." },
+      id: { type: "string", minLength: 1, description: "Stable goal id and bounded-work accounting lineage id." },
       objective: { type: "string", minLength: 1, description: "Operator-facing goal objective." },
       ownerSessionId: {
         type: "string",
@@ -993,25 +1038,32 @@ export class GoalCreateTool implements DevTool {
         description: "Goal-level evidence requirements beyond work-item evidence.",
       },
       currentPhase: { type: "string", description: "Optional current execution phase." },
+      boundedWorkContract: boundedWorkContractSchema(),
+      contractAuthority: boundedWorkContractAuthoritySchema(),
     },
     required: [
+      "id",
       "objective",
       "workItemIds",
       "maximumAuthority",
       "escalationPolicy",
       "authorityReason",
       "workflowProfile",
+      "boundedWorkContract",
+      "contractAuthority",
     ],
     additionalProperties: false,
   };
 
   constructor(
+    private readonly config: KilnWorkGovernanceConfig | undefined,
     private readonly goalRunStore: GoalRunStore,
     private readonly workItemStore: WorkItemStore,
     private readonly ownerSessionId?: string,
   ) {}
 
   async execute(input: ToolInput): Promise<ToolResult> {
+    const id = readText(input.input.id);
     const objective = readText(input.input.objective);
     const operatorTurnId = readText(input.input.operatorTurnId);
     const workItemIds = readTextArray(input.input.workItemIds);
@@ -1020,8 +1072,11 @@ export class GoalCreateTool implements DevTool {
     const authorityReason = readText(input.input.authorityReason);
     const workflowProfile = readText(input.input.workflowProfile);
     const ownerSessionId = readText(input.input.ownerSessionId) ?? this.ownerSessionId;
+    const boundedWorkContract = readBoundedWorkContract(input.input.boundedWorkContract);
+    const contractAuthority = readBoundedWorkContractAuthority(input.input.contractAuthority);
 
     const missingFields = [
+      ...(!id ? ["id"] : []),
       ...(!objective ? ["objective"] : []),
       ...(!ownerSessionId ? ["ownerSessionId"] : []),
       ...(!operatorTurnId ? ["operatorTurnId"] : []),
@@ -1030,11 +1085,13 @@ export class GoalCreateTool implements DevTool {
       ...(!escalationPolicy ? ["escalationPolicy"] : []),
       ...(!authorityReason ? ["authorityReason"] : []),
       ...(!workflowProfile ? ["workflowProfile"] : []),
+      ...(!boundedWorkContract ? ["boundedWorkContract"] : []),
+      ...(!contractAuthority ? ["contractAuthority"] : []),
     ];
     if (missingFields.length > 0) {
       return goalCreateContractError({
         code: "invalid_input",
-        message: "goal.create requires objective, canonical operator-turn provenance, ownerSessionId, at least one workItemId, authority envelope, and workflowProfile.",
+        message: "goal.create requires a stable id, explicit bounded-work contract and adoption authority, objective, canonical operator-turn provenance, ownerSessionId, at least one workItemId, authority envelope, and workflowProfile.",
         missingFields,
       });
     }
@@ -1044,6 +1101,8 @@ export class GoalCreateTool implements DevTool {
     const goalEscalationPolicy = escalationPolicy!;
     const goalAuthorityReason = authorityReason!;
     const goalWorkflowProfile = workflowProfile!;
+    const goalBoundedWorkContract = boundedWorkContract!;
+    const goalContractAuthority = contractAuthority!;
     const profile = findWorkflowProfile(goalWorkflowProfile);
     if (!profile) {
       return goalCreateContractError({
@@ -1104,6 +1163,7 @@ export class GoalCreateTool implements DevTool {
     }
 
     try {
+      assertBoundedWorkPolicyCeiling(this.config, goalBoundedWorkContract);
       const preferredRouteId = readText(input.input.preferredRouteId);
       const managedAgentProfile = readText(input.input.managedAgentProfile);
       const routePolicy = normalizeGoalRoutePolicy({
@@ -1120,13 +1180,19 @@ export class GoalCreateTool implements DevTool {
       }
       const currentPhase = readText(input.input.currentPhase);
       const goal = this.goalRunStore.create({
-        id: readText(input.input.id),
+        id: id!,
         objective: goalObjective,
         ownerSessionId: ownerSessionId!,
         source: {
           kind: "operator_direct",
           turnId: operatorTurnId!,
         },
+        boundedWorkContractRevision: adoptBoundedWorkContractRevision({
+          contract: goalBoundedWorkContract,
+          adoptedAt: new Date().toISOString(),
+          adoptedBy: goalContractAuthority,
+          accountingLineageId: id!,
+        }),
         workItemIds,
         authorityEnvelope: {
           maximumAuthority: goalMaximumAuthority,
@@ -1165,6 +1231,100 @@ export class GoalCreateTool implements DevTool {
         message: error instanceof Error ? error.message : String(error),
         missingFields: [],
       });
+    }
+  }
+}
+
+export class GoalBoundedWorkContractSupersedeTool implements DevTool {
+  readonly name = "goal.bounded_work_contract.supersede";
+  readonly description = "Adopt an explicitly authorized successor bounded-work contract without resetting accounting lineage.";
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1 },
+      expectedRevisionDigest: { type: "string", minLength: 1 },
+      boundedWorkContract: boundedWorkContractSchema(),
+      contractAuthority: boundedWorkContractAuthoritySchema(),
+    },
+    required: ["goalRunId", "expectedRevisionDigest", "boundedWorkContract", "contractAuthority"],
+    additionalProperties: false,
+  };
+
+  constructor(private readonly config: KilnWorkGovernanceConfig | undefined, private readonly goals: GoalRunStore) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    const expectedRevisionDigest = readText(input.input.expectedRevisionDigest);
+    const contract = readBoundedWorkContract(input.input.boundedWorkContract);
+    const adoptedBy = readBoundedWorkContractAuthority(input.input.contractAuthority);
+    if (!goalRunId || !expectedRevisionDigest || !contract || !adoptedBy) {
+      return { output: "Invalid bounded-work contract supersession input.", isError: true };
+    }
+    try {
+      assertBoundedWorkPolicyCeiling(this.config, contract);
+      const goal = this.goals.supersedeBoundedWorkContract({
+        id: goalRunId,
+        contract,
+        expectedRevisionDigest,
+        adoptedAt: new Date().toISOString(),
+        adoptedBy,
+      });
+      return {
+        output: JSON.stringify({ status: "superseded", goal: goalToolOutputProjection(goal) }, null, 2),
+        metadata: goalToolMetadata("goal.bounded_work_contract.supersede", {
+          operation: "update",
+          id: goal.id,
+          goal,
+          changedFields: ["boundedWorkContractRevision"],
+          sequence: goal.sequence,
+        }),
+        isError: false,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
+    }
+  }
+}
+
+export class GoalWorkItemsAttachTool implements DevTool {
+  readonly name = "goal.work_items.attach";
+  readonly description = "Attach existing work items already admitted by the current bounded-work contract.";
+  readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
+  readonly inputSchema = {
+    type: "object",
+    properties: {
+      goalRunId: { type: "string", minLength: 1 },
+      workItemIds: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+    },
+    required: ["goalRunId", "workItemIds"],
+    additionalProperties: false,
+  };
+
+  constructor(private readonly goals: GoalRunStore, private readonly items: WorkItemStore) {}
+
+  async execute(input: ToolInput): Promise<ToolResult> {
+    const goalRunId = readText(input.input.goalRunId);
+    const workItemIds = readTextArray(input.input.workItemIds) ?? [];
+    if (!goalRunId || workItemIds.length === 0) return { output: "Invalid goal work-item attachment input.", isError: true };
+    try {
+      const missing = workItemIds.filter((id) => !this.items.get(id));
+      if (missing.length > 0) throw new Error(`Work items not found: ${missing.join(", ")}.`);
+      const goal = this.goals.attachWorkItems({ id: goalRunId, workItemIds });
+      for (const id of workItemIds) this.items.upsert(linkWorkItemToGoal(this.items.get(id)!, goal));
+      return {
+        output: JSON.stringify({ status: "attached", goal: goalToolOutputProjection(goal), workItemIds }, null, 2),
+        metadata: goalToolMetadata("goal.work_items.attach", {
+          operation: "update",
+          id: goal.id,
+          goal,
+          changedFields: ["workItemIds"],
+          sequence: goal.sequence,
+        }),
+        isError: false,
+      };
+    } catch (error) {
+      return { output: error instanceof Error ? error.message : String(error), isError: true };
     }
   }
 }
@@ -1254,6 +1414,7 @@ export class WorkItemExecutionStartTool implements DevTool {
     private readonly goalRunStore: GoalRunStore,
     private readonly workItemStore: WorkItemStore,
     private readonly managedInvocationProofResolver?: ManagedInvocationExecutionProofResolver,
+    private readonly boundedWorkExecutionAttemptAdmission?: BoundedWorkExecutionAttemptAdmission,
   ) {}
 
   async execute(input: ToolInput): Promise<ToolResult> {
@@ -1382,6 +1543,30 @@ export class WorkItemExecutionStartTool implements DevTool {
       };
     }
 
+    const workItem = this.workItemStore.get(step.workItemId)!;
+    const attemptId = `${goal.id}:${workItem.id}:attempt:${workItem.executionAttempts.length + 1}`;
+    if (!this.boundedWorkExecutionAttemptAdmission) {
+      return {
+        output: JSON.stringify({
+          status: "paused",
+          reason: "Bounded-work execution authority is unavailable on this surface.",
+          errorCode: "bounded_work_authority_unavailable",
+        }, null, 2),
+        isError: true,
+      };
+    }
+    const boundedAdmission = this.boundedWorkExecutionAttemptAdmission({ goal, workItem, attemptId });
+    if (!boundedAdmission.admitted) {
+      return {
+        output: JSON.stringify({
+          status: "paused",
+          reason: boundedAdmission.message,
+          errorCode: boundedAdmission.code,
+        }, null, 2),
+        isError: true,
+      };
+    }
+    let startedAttemptId: string | undefined;
     try {
       const started = startGoalExecutionAttempt({
         goalRunStore: this.goalRunStore,
@@ -1393,6 +1578,21 @@ export class WorkItemExecutionStartTool implements DevTool {
         managedInvocationId,
         managedInvocationProof,
       });
+      startedAttemptId = started.attempt.id;
+      try {
+        boundedAdmission.commit();
+      } catch (commitError) {
+        failGoalExecutionAttempt({
+          goalRunStore: this.goalRunStore,
+          workItemStore: this.workItemStore,
+          goalRunId: goal.id,
+          workItemId: workItem.id,
+          attemptId: started.attempt.id,
+          failureReason: "unavailable",
+          summary: `Bounded-work accounting reconciliation required: ${commitError instanceof Error ? commitError.message : String(commitError)}`,
+        });
+        throw commitError;
+      }
       return {
         output: JSON.stringify({
           status: "started",
@@ -1424,6 +1624,7 @@ export class WorkItemExecutionStartTool implements DevTool {
         isError: false,
       };
     } catch (error) {
+      if (!startedAttemptId) boundedAdmission.release();
       return { output: error instanceof Error ? error.message : String(error), isError: true };
     }
   }
@@ -1483,6 +1684,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
   constructor(
     private readonly goalRunStore: GoalRunStore,
     private readonly workItemStore: WorkItemStore,
+    private readonly boundedWorkCandidateCloseout?: BoundedWorkCandidateCloseout,
   ) {}
 
   async execute(input: ToolInput): Promise<ToolResult> {
@@ -1509,6 +1711,28 @@ export class WorkItemExecutionFinishTool implements DevTool {
           isError: true,
         };
       }
+      const goal = this.goalRunStore.get(goalRunId);
+      const workItem = this.workItemStore.get(workItemId);
+      const attempt = workItem?.executionAttempts.find((entry) => entry.id === attemptId);
+      if (!goal || !workItem || !attempt) {
+        return { output: "Bounded candidate closeout requires the current goal, work item, and attempt.", isError: true };
+      }
+      if (!this.boundedWorkCandidateCloseout) {
+        return { output: "Bounded-work candidate capture authority is unavailable on this surface.", isError: true };
+      }
+      const candidateCloseout = await this.boundedWorkCandidateCloseout({
+        goal,
+        workItem,
+        attempt,
+        providedEvidence,
+        verificationGateResults,
+      });
+      if (!candidateCloseout.captured) {
+        return {
+          output: JSON.stringify({ status: "paused", errorCode: candidateCloseout.code, reason: candidateCloseout.message }, null, 2),
+          isError: true,
+        };
+      }
       const finished = finishGoalExecutionAttempt({
         goalRunStore: this.goalRunStore,
         workItemStore: this.workItemStore,
@@ -1522,6 +1746,8 @@ export class WorkItemExecutionFinishTool implements DevTool {
         summary: readText(input.input.summary),
         managedOrchestrationAdoption: readManagedOrchestrationAdoption(input.input.managedOrchestrationAdoption),
         closeoutSummary: readText(input.input.closeoutSummary),
+        candidate: candidateCloseout.candidate,
+        candidateEvidence: candidateCloseout.evidence,
       });
       const workItemBlockers = [
         ...finished.missingEvidence,
@@ -1535,7 +1761,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
       ];
       const status = workItemBlockers.length > 0
         ? "blocked"
-        : finished.missingGoalEvidence.length > 0
+        : finished.goal.status !== "completed"
           ? "work_completed_goal_closeout_pending"
           : "completed";
       return {
@@ -1703,6 +1929,7 @@ function goalCreateContractError(input: {
         recoverable: true,
         suggestedNextTool: input.missingFields.includes("workItemIds") ? "work_item.update" : "goal.create",
         requiredInputShape: {
+          id: "stable goal id",
           objective: "string",
           ownerSessionId: "current runtime session id",
           operatorTurnId: "current operator turn id",
@@ -1711,6 +1938,8 @@ function goalCreateContractError(input: {
           escalationPolicy: GOAL_ESCALATION_POLICIES,
           authorityReason: "string",
           workflowProfile: "canonical workflow profile id",
+          boundedWorkContract: "explicit kiln.bounded-work-contract/v1 contract",
+          contractAuthority: "operator decision or approved plan authority",
           routePolicy: "choose preferredRouteId OR managedAgentProfile; if every linked work item already owns the same exact route and agent profile, omit both at goal level",
         },
         missingFields: input.missingFields,
@@ -1722,6 +1951,112 @@ function goalCreateContractError(input: {
     }),
     isError: true,
   };
+}
+
+function boundedWorkContractSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      schema: { type: "string", const: "kiln.bounded-work-contract/v1" },
+      intent: { type: "object" },
+      scope: { type: "object" },
+      limits: { type: "object" },
+      tripwires: { type: "object" },
+      policy: { type: "object" },
+    },
+    required: ["schema", "intent", "scope", "limits", "tripwires", "policy"],
+    additionalProperties: false,
+  };
+}
+
+function boundedWorkContractAuthoritySchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    oneOf: [
+      { properties: { kind: { const: "operator" }, actorId: { type: "string", minLength: 1 }, decisionId: { type: "string", minLength: 1 } }, required: ["kind", "actorId", "decisionId"], additionalProperties: false },
+      { properties: { kind: { const: "approved_plan" }, planId: { type: "string", minLength: 1 }, planDigest: { type: "string", minLength: 1 } }, required: ["kind", "planId", "planDigest"], additionalProperties: false },
+    ],
+  };
+}
+
+function readBoundedWorkContract(value: unknown): BoundedWorkContract | undefined {
+  if (!isRecord(value)) return undefined;
+  const contract = value as unknown as BoundedWorkContract;
+  try {
+    // Core normalizes and rejects every malformed or incomplete field before it can become authority.
+    const revision = adoptBoundedWorkContractRevision({
+      contract,
+      adoptedAt: new Date().toISOString(),
+      adoptedBy: { kind: "operator", actorId: "validation", decisionId: "validation" },
+      accountingLineageId: "validation",
+    });
+    return revision.contract;
+  } catch {
+    return undefined;
+  }
+}
+
+function readBoundedWorkContractAuthority(value: unknown): BoundedWorkAdoptionAuthority | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.kind === "operator" && readText(value.actorId) && readText(value.decisionId)) {
+    return { kind: "operator", actorId: readText(value.actorId)!, decisionId: readText(value.decisionId)! };
+  }
+  if (value.kind === "approved_plan" && readText(value.planId) && readText(value.planDigest)) {
+    return { kind: "approved_plan", planId: readText(value.planId)!, planDigest: readText(value.planDigest)! };
+  }
+  return undefined;
+}
+
+function readAcceptanceEvidence(
+  value: unknown,
+  candidateDigest: string,
+): readonly BoundedWorkSatisfiedCriterion[] {
+  if (!Array.isArray(value)) throw new Error("acceptanceEvidence must be an array");
+  return value.map((entry) => {
+    if (!isRecord(entry) || !readText(entry.criterion) || !readText(entry.evidenceDigest)) {
+      throw new Error("Every acceptance evidence record requires criterion and evidenceDigest.");
+    }
+    return {
+      criterion: readText(entry.criterion)!,
+      candidateDigest,
+      evidenceDigest: readText(entry.evidenceDigest)!,
+    };
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertBoundedWorkPolicyCeiling(
+  config: KilnWorkGovernanceConfig | undefined,
+  contract: BoundedWorkContract,
+): void {
+  const ceiling = config?.boundedWorkCeiling;
+  if (!ceiling) return;
+  if (ceiling.allowedEffects && contract.scope.permittedEffects.some((effect) => !ceiling.allowedEffects!.includes(effect))) {
+    throw new Error("bounded-work contract requests an effect outside the configured global ceiling");
+  }
+  if (ceiling.allowedRoots && contract.scope.allowedRoots.some((root) => !ceiling.allowedRoots!.some((ceilingRoot) => root === ceilingRoot || root.startsWith(`${ceilingRoot}/`)))) {
+    throw new Error("bounded-work contract requests a root outside the configured global ceiling");
+  }
+  if (ceiling.deniedRoots && ceiling.deniedRoots.some((root) => !contract.scope.deniedRoots.includes(root))) {
+    throw new Error("bounded-work contract must retain every globally denied root");
+  }
+  const limits = ceiling.maximumLimits;
+  if (limits) {
+    for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
+      const maximum = limits[key];
+      const requested = contract.limits[key];
+      if (maximum !== undefined && (requested === undefined || requested > maximum)) {
+        throw new Error(`bounded-work contract ${key} exceeds or omits the configured global ceiling`);
+      }
+    }
+  }
+  const rank: Record<BoundedWorkHarnessCapability, number> = { advisory_only: 0, partially_enforced: 1, authoritative: 2 };
+  if (ceiling.minimumHarnessCapability && rank[contract.policy.minimumHarnessCapability] < rank[ceiling.minimumHarnessCapability]) {
+    throw new Error("bounded-work contract harness capability is below the configured global minimum");
+  }
 }
 
 function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput {
@@ -1863,6 +2198,8 @@ function buildManagedInvocationRequest(
     ...(resourceUris.length > 0 ? { resourceUris } : {}),
     goalRunId: goal.id,
     workItemId: step.workItemId,
+    boundedWorkEffects: goal.boundedWorkContractRevision.contract.scope.permittedEffects.filter((effect) =>
+      effect !== "invoke_managed_agent"),
     ...(step.workItem.workClassification ? { workClassification: step.workItem.workClassification } : {}),
     ...(agentProfile ? { agentProfile } : {}),
     roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
@@ -2436,14 +2773,27 @@ export class GoalCompleteTool implements DevTool {
     properties: {
       goalRunId: { type: "string", minLength: 1 },
       closeoutSummary: { type: "string", minLength: 1 },
+      acceptanceEvidence: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            criterion: { type: "string", minLength: 1 },
+            evidenceDigest: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+          },
+          required: ["criterion", "evidenceDigest"],
+          additionalProperties: false,
+        },
+      },
     },
-    required: ["goalRunId"],
+    required: ["goalRunId", "acceptanceEvidence"],
     additionalProperties: false,
   };
 
   constructor(
     private readonly goalRunStore: GoalRunStore,
     private readonly workItemStore: WorkItemStore,
+    private readonly boundedWorkGoalCloseout?: BoundedWorkGoalCloseout,
   ) {}
 
   async execute(input: ToolInput): Promise<ToolResult> {
@@ -2452,19 +2802,47 @@ export class GoalCompleteTool implements DevTool {
       return { output: 'Invalid input: "goalRunId" must be a non-empty string', isError: true };
     }
     try {
+      const currentGoal = this.goalRunStore.get(goalRunId);
+      if (!currentGoal || !this.boundedWorkGoalCloseout) {
+        return { output: "Bounded-work goal closeout authority is unavailable.", isError: true };
+      }
+      const latestCandidateAttempt = currentGoal.workItemIds
+        .flatMap((id) => this.workItemStore.get(id)?.executionAttempts ?? [])
+        .filter((attempt) => attempt.status === "completed" && attempt.candidate !== undefined)
+        .sort((left, right) => (left.completedAt ?? left.startedAt).localeCompare(right.completedAt ?? right.startedAt))
+        .at(-1);
+      const candidate = latestCandidateAttempt?.candidate;
+      if (!candidate) return { output: "Goal closeout requires an exact captured candidate.", isError: true };
+      const acceptanceEvidence = readAcceptanceEvidence(input.input.acceptanceEvidence, candidate.candidateDigest);
+      const closeout = await this.boundedWorkGoalCloseout({
+        goal: currentGoal,
+        candidate,
+        ...(latestCandidateAttempt.candidateCaptureRoot
+          ? { candidateCaptureRoot: latestCandidateAttempt.candidateCaptureRoot }
+          : {}),
+        satisfiedCriteria: acceptanceEvidence,
+      });
+      if (closeout.kind !== "stop_acceptance_complete") {
+        return { output: JSON.stringify({ status: "paused", decision: closeout }, null, 2), isError: true };
+      }
       const goal = completeGoalExecution({
         goalRunStore: this.goalRunStore,
         workItemStore: this.workItemStore,
         goalRunId,
         closeoutSummary: readText(input.input.closeoutSummary),
+        boundedWorkCloseoutDecision: closeout,
       });
       return {
-        output: JSON.stringify({ status: "completed", goal: goalToolOutputProjection(goal) }, null, 2),
+        output: JSON.stringify({
+          status: "completed",
+          goal: goalToolOutputProjection(goal),
+          boundedWorkCloseout: closeout,
+        }, null, 2),
         metadata: goalToolMetadata("goal.complete", {
           operation: "complete",
           id: goal.id,
           goal,
-          changedFields: ["status", "closeoutSummary"],
+          changedFields: ["status", "closeoutSummary", "boundedWorkCloseoutDecision"],
           sequence: goal.sequence,
         }),
         isError: false,
@@ -2527,6 +2905,13 @@ function executionAttemptToolOutputProjection(attempt: WorkItemExecutionAttempt)
     ...(attempt.residualRisk ? { residualRisk: boundedToolProjectionText(attempt.residualRisk) } : {}),
     startedAt: attempt.startedAt,
     ...(attempt.completedAt ? { completedAt: attempt.completedAt } : {}),
+    ...(attempt.candidate
+      ? {
+          candidateDigest: attempt.candidate.candidateDigest,
+          candidateContentDigest: attempt.candidate.candidateContentDigest,
+          candidateEvidence: attempt.candidateEvidence ?? [],
+        }
+      : {}),
   };
 }
 
@@ -2539,6 +2924,16 @@ function goalToolOutputProjection(goal: GoalRun): Record<string, unknown> {
     workItemIds: goal.workItemIds,
     ...(goal.currentPhase ? { currentPhase: goal.currentPhase } : {}),
     ...(goal.closeoutSummary ? { closeoutSummary: boundedToolProjectionText(goal.closeoutSummary) } : {}),
+    ...(goal.boundedWorkCloseoutDecision
+      ? {
+          boundedWorkCloseout: {
+            kind: goal.boundedWorkCloseoutDecision.kind,
+            candidateDigest: goal.boundedWorkCloseoutDecision.candidateDigest,
+            contractRevisionDigest: goal.boundedWorkCloseoutDecision.contractRevisionDigest,
+            accountingRevision: goal.boundedWorkCloseoutDecision.accounting.revision,
+          },
+        }
+      : {}),
     ...(goal.terminalReason ? { terminalReason: boundedToolProjectionText(goal.terminalReason) } : {}),
     createdAt: goal.createdAt,
     evidenceRequirements: goal.evidenceRequirements.map((requirement) => ({

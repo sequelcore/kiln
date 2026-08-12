@@ -495,6 +495,26 @@ describe("global-config", () => {
     );
   });
 
+  it("rejects unknown or widening bounded-work ceiling fields", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue([
+      'version: "2"',
+      "workGovernance:",
+      "  boundedWorkCeiling:",
+      "    unexpected: true",
+    ].join("\n"));
+    expect(() => readGlobalConfig()).toThrow("Unknown workGovernance.boundedWorkCeiling field: unexpected");
+
+    readFileSyncMock.mockReturnValue([
+      'version: "2"',
+      "workGovernance:",
+      "  boundedWorkCeiling:",
+      "    maximumLimits:",
+      "      maxExecutionAttempts: 0",
+    ].join("\n"));
+    expect(() => readGlobalConfig()).toThrow("maximumLimits.maxExecutionAttempts must be a positive safe integer");
+  });
+
   it("readGlobalConfig() accepts web provider defaults", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(

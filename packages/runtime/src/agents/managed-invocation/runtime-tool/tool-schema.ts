@@ -179,6 +179,14 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
         type: "string",
         description: "Optional governed work item execution attempt id for final-phase failure closeout.",
       },
+      boundedWorkEffects: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: ["inspect", "modify_source", "modify_tests", "modify_documentation", "modify_configuration", "run_verification", "invoke_managed_agent", "external_write"],
+        },
+        description: "Exact bounded-work effects requested by this governed child. Required for governed write-capable invocations and never grants authority by itself.",
+      },
       roleIntent: {
         type: "string",
         description: "Optional short statement of why this child role/route was selected for the work item.",

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+const TEST_BOUNDED_WORK_REVISION_DIGEST = `sha256:${"a".repeat(64)}`;
 import { createSessionEvent } from "../../src/events/index.js";
 import {
   buildManagedAgentDecompositionOrchestrationRequest,
@@ -14,6 +16,7 @@ import {
   WorkItemStore,
 } from "../../src/work-governance/index.js";
 import { PlanStateStore, type PlanSubmissionInput } from "../../src/tools/infrastructure/plan-state-store.js";
+import { testBoundedWorkRevision } from "./bounded-work-fixtures.js";
 
 describe("materializeApprovedPlanWorkItems", () => {
   it("materializes an approved plan into deterministic governed work items with provenance and recommendations", () => {
@@ -31,6 +34,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       objective: "Execute approved Slice 7 plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-slice-7", ["test-work-item"], "Execute approved Slice 7 plan."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -91,8 +95,10 @@ describe("materializeApprovedPlanWorkItems", () => {
         verificationGates: ["bun run --filter @kilnai/core test", "bun run typecheck"],
       }),
     ]);
-    expect(goalRunStore.update({ id: goal.id, workItemIds: result.materialization.workItemIds }).workItemIds)
-      .toEqual(result.materialization.workItemIds);
+    expect(() => goalRunStore.update({
+      id: goal.id,
+      workItemIds: result.materialization.workItemIds,
+    } as never)).toThrow("field workItemIds is immutable");
     expect(workItemStore.snapshot().items.map((item) => item.planHash)).toEqual([
       approvedPlan.contentHash,
       approvedPlan.contentHash,
@@ -113,6 +119,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-idempotent", ["test-work-item"], "Execute approved plan."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -151,6 +158,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       objective: "Execute classified approved work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: approvedPlan.id, planHash: approvedPlan.contentHash },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-classification", ["test-work-item"], "Execute classified approved work."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -224,6 +232,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: plan.id, planHash: plan.contentHash },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-unapproved", ["test-work-item"], "Execute approved plan."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -273,6 +282,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       objective: "Execute dependency-sensitive plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: missingDependencyPlan.id, planHash: missingDependencyPlan.contentHash },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-dependencies", ["test-work-item"], "Execute dependency-sensitive plan."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -306,6 +316,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       objective: "Replay materialization.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: plan.id, planHash: plan.contentHash },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-replay", ["test-work-item"], "Replay materialization."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -543,6 +554,7 @@ describe("materializeApprovedPlanWorkItems", () => {
     const childOneStarted = workItemStore.startExecutionAttempt({
       id: result.workItems[0]!.id,
       goalRunId: "goal-orchestration",
+      boundedWorkContractRevisionDigest: TEST_BOUNDED_WORK_REVISION_DIGEST,
       executionMode: "managed_delegation",
       managedInvocationId: "orch-decompose:child:1",
     });
@@ -687,6 +699,7 @@ describe("materializeApprovedPlanWorkItems", () => {
     const childTwoStarted = workItemStore.startExecutionAttempt({
       id: result.workItems[1]!.id,
       goalRunId: "goal-orchestration",
+      boundedWorkContractRevisionDigest: TEST_BOUNDED_WORK_REVISION_DIGEST,
       executionMode: "managed_delegation",
       managedInvocationId: "orch-decompose:child:2",
     });

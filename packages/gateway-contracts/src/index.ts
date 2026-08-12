@@ -464,6 +464,9 @@ export {
 
 export type {
   OperatorGovernedWorkExecutionAttempt,
+  OperatorBoundedWorkCountUtilization,
+  OperatorBoundedWorkMeasuredUtilization,
+  OperatorBoundedWorkProjection,
   OperatorGovernedWorkItemProjection,
   OperatorGovernedWorkItemSnapshotInput,
   OperatorGovernedWorkPauseRequirement,

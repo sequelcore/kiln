@@ -85,10 +85,10 @@ export class GoalControlService {
       case "resume":
         return this.goalRunStore.resume({ id: existing.id });
       case "update_objective":
-        return this.goalRunStore.update({
-          id: existing.id,
-          objective: requireObjective(request.objective),
-        });
+        requireObjective(request.objective);
+        throw new Error(
+          "Goal objective is immutable. Create an explicit bounded-work contract supersession with an approved operator or plan decision instead.",
+        );
       case "cancel":
         return this.goalRunStore.cancel({
           id: existing.id,
@@ -105,7 +105,7 @@ function changedFieldsForAction(action: GuiGoalControlAction): readonly string[]
     case "resume":
       return ["status", "currentPhase", "activeDurationMs", "activeSince"];
     case "update_objective":
-      return ["objective"];
+      return [];
     case "cancel":
       return ["status", "currentPhase", "activeDurationMs", "activeSince", "terminalReason"];
   }
