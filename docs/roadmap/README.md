@@ -26,27 +26,19 @@ roadmap reorganization.
 
 ## Execution Queue
 
-Track 02 implementation status: Slices 1-5 are complete in portable code and
-test evidence. This includes the shared user-scoped SQLite ledger for Gateway
-and managed capacity/affinity; commitments remain project-namespaced. No live
-provider proof is implied.
-
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [02 - Managed Invocation Routing](02-managed-invocation-routing.md) | Ready | Issues #34 and #39 are implemented with portable evidence: Runtime owns economic selection and the user-scoped SQLite ledger now shares account capacity and affinity across managed jobs and Gateway ingress. Native and live-provider proof remain separate. |
-| 2 | [03 - Model Gateway Lifecycle](03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
-| 3 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
-| 4 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
-| 5 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
-| 6 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
-| 7 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
-| 8 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
+| 1 | [03 - Model Gateway Lifecycle](03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
+| 2 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
+| 3 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
+| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
+| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
+| 6 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
+| 7 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 8 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
 
 ## Dependency Rules
 
-- `02` owns managed-job routing, leases, account selection, lifecycle, result,
-  replay, and provider-neutral structured/headless write-approval evidence.
 - `03` owns the user-scoped Model Gateway process, configuration, authentication, and supervision.
 - `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, and deferred federation research.
 - `05` decides whether a skill is healthy, compatible, trusted, and admitted.

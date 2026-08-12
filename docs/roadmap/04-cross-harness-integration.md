@@ -17,10 +17,13 @@ workarounds for a governed route.
 
 This track owns harness identity, adapters, native projection, protocol parity,
 control-plane MCP discovery, migration/restore, and live conformance. Runtime
-job state belongs to Roadmap 02; gateway service lifecycle, provider identity,
-and entitlement evidence belong to Roadmap 03. This track maps harness-native
-observations onto that shared contract; it does not create a second identity,
-account-selection, or lifecycle owner.
+job state, economic commitment, account capacity, and write approval follow the
+canonical [managed-agent](../architecture/coordination/managed-agents.md) and
+[managed economic commitment](../architecture/coordination/managed-account-leases.md)
+contracts; gateway service lifecycle, provider identity, and entitlement
+evidence belong to Roadmap 03. This track maps harness-native observations onto
+those shared contracts; it does not create a second identity, account-selection,
+or lifecycle owner.
 
 Core owns pure `RouteCapability` values. Runtime is the only composition and
 authority boundary: it admits capabilities, commits economic work, materializes
@@ -171,15 +174,16 @@ global-instruction and repo-shim dry runs remain unchanged.
 
 ### Slice 2 - Cross-Harness Dogfood
 
-Status: Queued behind Roadmaps 02 and 03 plus Slices 0-1.
+Status: Queued behind Roadmap 03 plus Slices 0-1.
 
 Re-sync and live-prove the harness-neutral bridge from all three harnesses,
 then run a real bounded implementation slice through the completed per-job
-managed-lease path (Roadmap 02 Slice 1) rather than the legacy static adapter
-path. Preserve status, cancellation, timeout, result, usage, account
-selection, and replay from every participating surface, and verify that no
-step falls back to `opencode run`, `codex exec`, or a manual HTTP gateway
-process as a hidden workaround.
+managed-lease path defined by the canonical
+[managed economic commitment authority](../architecture/coordination/managed-account-leases.md)
+rather than the legacy static adapter path. Preserve status, cancellation,
+timeout, result, usage, account selection, and replay from every participating
+surface, and verify that no step falls back to `opencode run`, `codex exec`, or
+a manual HTTP gateway process as a hidden workaround.
 
 Exit gate: the operator can work primarily from Codex App without burning
 Codex quota for every delegated task, and no workflow step uses a native-CLI
@@ -307,9 +311,10 @@ assumptions, and unsupported-proof gaps.
 
 ## Dependencies
 
-- Roadmap 02 owns per-job account leases, selection reason, and replay
-  evidence; Slice 2 consumes that completed path and must not reimplement
-  leasing or reintroduce ambient round-robin.
+- Runtime's canonical managed economic commitment authority owns per-job
+  account leases, selection reason, and replay evidence; Slice 2 consumes that
+  completed path and must not reimplement leasing or reintroduce ambient
+  round-robin.
 - Roadmap 03 owns the Model Gateway process, configuration, and token
   bootstrap; Slices 1, 3, and 5 depend on a live, operator-configured gateway
   and must not duplicate its lifecycle or provider-identity contract.

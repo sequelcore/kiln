@@ -16,6 +16,12 @@ have all been verified.
 - Extended managed-agent execution with background and parallel lifecycle
   evidence, bounded result resources, recovery, dependency-aware orchestration,
   and governed heterogeneous teams.
+- Added one Runtime-owned, user-scoped SQLite authority for managed economic
+  commitment and shared Gateway/managed-job account capacity, affinity,
+  dispatch fencing, settlement, recovery, and replay evidence.
+- Added exact, expiring, single-use approval receipts for structured managed
+  writes, consumed before provider effect and projected consistently through
+  status, result, replay, CLI, GUI, TUI, SDK, and MCP surfaces.
 - Added provider-neutral route eligibility, trusted-execution evidence, and
   action-effect governance across direct-provider and native-harness paths.
 - Added an operator workspace projection, target-aware resource inspection, and

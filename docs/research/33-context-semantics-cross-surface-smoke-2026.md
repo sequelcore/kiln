@@ -213,7 +213,8 @@ opened speculatively ahead of that evidence.
 Confirmed not owned by issue #34: `packages/runtime/src/agents/credential-pool/codex-oauth-credential-pool.ts`
 (`createPooledAdapter`) refuses ambiguous auto-selection among multiple
 executable OAuth credentials by design, a different subsystem from #34's
-`managed_agent_invoke` economic-dispatch path (`docs/roadmap/02-managed-invocation-routing.md`).
+`managed_agent_invoke` economic-dispatch path, now documented by the canonical
+[managed economic commitment authority](../architecture/coordination/managed-account-leases.md).
 Comparative research found no surveyed harness performs implicit
 rotation/round-robin across multiple credentials for the same provider
 (`cloned/pi` represents one account per provider key structurally; Claude
