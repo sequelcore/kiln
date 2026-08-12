@@ -25,12 +25,16 @@ export interface GlobalOpenCodeModelGatewayProjectionResult {
 
 export async function syncGlobalOpenCodeModelGatewayProjection(input: {
   readonly config: ModelGatewayConfig;
-  readonly listener: ModelGatewayListenerIdentity;
+  readonly listener?: ModelGatewayListenerIdentity;
   readonly targetPath: string;
   readonly installStateDir: string;
   readonly operation: "install" | "uninstall";
+  readonly adoptExisting?: boolean;
 }): Promise<GlobalOpenCodeModelGatewayProjectionResult> {
-  requireExactListener(input.config, input.listener);
+  if (input.operation === "install") {
+    if (!input.listener) throw new Error("Installing the OpenCode model gateway projection requires an owned ready listener.");
+    requireExactListener(input.config, input.listener);
+  }
   const originalContent = existsSync(input.targetPath) ? readFileSync(input.targetPath, "utf8") : undefined;
   const currentDocument = parseOpenCodeDocument(originalContent, input.targetPath);
   const installState = readNativeProjectionInstallState(input.installStateDir);
@@ -53,7 +57,7 @@ export async function syncGlobalOpenCodeModelGatewayProjection(input: {
     return { operation: "uninstall", changed: true, targetPath: input.targetPath };
   }
 
-  if (!installedTarget && hasPath(currentDocument, ["provider", "kiln"])) {
+  if (!installedTarget && hasPath(currentDocument, ["provider", "kiln"]) && !input.adoptExisting) {
     throw new Error("OpenCode native configuration already contains unmanaged provider.kiln; refusing to overwrite it.");
   }
   const projection = buildOpenCodeResponsesProjection({ config: input.config });

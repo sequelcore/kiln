@@ -75,6 +75,35 @@ describe("global OpenCode model gateway projection", () => {
     await expect(syncGlobalOpenCodeModelGatewayProjection({ config: gateway, listener: ready(gateway), targetPath, installStateDir, operation: "install" })).rejects.toThrow("drift");
   });
 
+  it("replaces an explicitly adopted stale provider without treating it as implicit ownership", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-global-opencode-adopt-"));
+    const targetPath = join(root, "opencode.json");
+    const installStateDir = join(root, "runtime");
+    const gateway = config();
+    writeFileSync(targetPath, JSON.stringify({
+      model: "native/default",
+      provider: {
+        native: { name: "Keep" },
+        kiln: { npm: "@ai-sdk/openai", name: "Kiln", options: { baseURL: "http://127.0.0.1:4800/v1", apiKey: "{env:OLD_TOKEN}" }, models: {} },
+      },
+    }));
+
+    await syncGlobalOpenCodeModelGatewayProjection({
+      config: gateway,
+      listener: ready(gateway),
+      targetPath,
+      installStateDir,
+      operation: "install",
+      adoptExisting: true,
+    });
+
+    const installed = JSON.parse(readFileSync(targetPath, "utf8"));
+    expect(installed.model).toBe("native/default");
+    expect(installed.provider.native).toEqual({ name: "Keep" });
+    expect(installed.provider.kiln.options).toEqual({ baseURL: "http://127.0.0.1:4910/v1", apiKey: "{env:OPENCODE_TOKEN}" });
+    expect(JSON.parse(readFileSync(join(installStateDir, "install-state.json"), "utf8")).targets["global-opencode-model-gateway"]).toBeDefined();
+  });
+
   it("uninstalls exactly the managed provider and is shared by all project working directories", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-global-opencode-uninstall-"));
     const targetPath = join(root, "opencode.json");
@@ -83,7 +112,7 @@ describe("global OpenCode model gateway projection", () => {
     writeFileSync(targetPath, JSON.stringify({ model: "native/default", provider: { native: { name: "Keep" } } }));
     await syncGlobalOpenCodeModelGatewayProjection({ config: gateway, listener: ready(gateway), targetPath, installStateDir, operation: "install" });
     await syncGlobalOpenCodeModelGatewayProjection({ config: gateway, listener: ready(gateway), targetPath, installStateDir, operation: "install" });
-    await syncGlobalOpenCodeModelGatewayProjection({ config: gateway, listener: ready(gateway), targetPath, installStateDir, operation: "uninstall" });
+    await syncGlobalOpenCodeModelGatewayProjection({ config: gateway, targetPath, installStateDir, operation: "uninstall" });
     expect(JSON.parse(readFileSync(targetPath, "utf8"))).toEqual({ model: "native/default", provider: { native: { name: "Keep" } } });
     expect(JSON.parse(readFileSync(join(installStateDir, "install-state.json"), "utf8")).targets).toEqual({});
     expect(existsSync(join(installStateDir, "install-state.json"))).toBe(true);

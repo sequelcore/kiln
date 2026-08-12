@@ -81,6 +81,9 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   if (!supported.has(subcommand)) throw new Error(`Unknown model-gateway command '${subcommand}'.`);
   const flags = parseFlags(args.slice(1));
   if (flags.help) { printHelp(dependencies.log); return; }
+  if (flags.adoptExisting && subcommand !== "sync-native") {
+    throw new Error("--adopt-existing is valid only with sync-native.");
+  }
 
   if (subcommand === "serve" && flags.configPath) {
     await serveDevelopmentConfig(resolve(flags.configPath), dependencies);
@@ -133,6 +136,13 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
       printAutostartResult(autostartStatus, flags.json, dependencies.log);
       return;
     }
+    const globalDir = dirname(dependencies.resolveGlobalConfigPath());
+    await dependencies.syncOpenCodeNativeProjection({
+      config,
+      targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
+      installStateDir: join(globalDir, "runtime", "native-projections"),
+      operation: "uninstall",
+    });
     const stopped = await supervisor.stop();
     if (stopped.state === "foreign") {
       printResult(stopped, flags.json, dependencies.log);
@@ -145,15 +155,16 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   }
   if (subcommand === "sync-native") {
     if (flags.client !== "opencode") throw new Error("sync-native currently requires --client opencode.");
-    const ensured = await supervisor.ensure();
-    if (ensured.state !== "ready") throw new Error("Model gateway is not owned and ready; native configuration was not modified.");
     const globalDir = dirname(dependencies.resolveGlobalConfigPath());
+    const ensured = flags.uninstall ? undefined : await supervisor.ensure();
+    if (ensured && ensured.state !== "ready") throw new Error("Model gateway is not owned and ready; native configuration was not modified.");
     const result = await dependencies.syncOpenCodeNativeProjection({
       config,
-      listener: ensured.identity,
+      ...(ensured ? { listener: ensured.identity } : {}),
       targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
       installStateDir: join(globalDir, "runtime", "native-projections"),
       operation: flags.uninstall ? "uninstall" : "install",
+      ...(flags.adoptExisting ? { adoptExisting: true } : {}),
     });
     printNativeSyncResult(result, flags.json, dependencies.log);
     return;
@@ -296,8 +307,8 @@ function resolveOptionalHealthToken(config: ModelGatewayConfig, env: Readonly<Re
   return config.principals.map((principal) => env[principal.tokenEnv]).find((value): value is string => !!value) ?? "";
 }
 
-function parseFlags(args: readonly string[]): { readonly configPath?: string; readonly json: boolean; readonly help: boolean; readonly globalRuntime: boolean; readonly instanceId?: string; readonly client?: string; readonly uninstall: boolean } {
-  let configPath: string | undefined; let json = false; let help = false; let globalRuntime = false; let instanceId: string | undefined; let client: string | undefined; let uninstall = false;
+function parseFlags(args: readonly string[]): { readonly configPath?: string; readonly json: boolean; readonly help: boolean; readonly globalRuntime: boolean; readonly instanceId?: string; readonly client?: string; readonly uninstall: boolean; readonly adoptExisting: boolean } {
+  let configPath: string | undefined; let json = false; let help = false; let globalRuntime = false; let instanceId: string | undefined; let client: string | undefined; let uninstall = false; let adoptExisting = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--config") { const value = args[index + 1]; if (!value) throw new Error("--config requires a path."); configPath = value; index += 1; continue; }
@@ -305,11 +316,13 @@ function parseFlags(args: readonly string[]): { readonly configPath?: string; re
     if (arg === "--global-runtime") { globalRuntime = true; continue; }
     if (arg === "--client") { const value = args[index + 1]; if (!value) throw new Error("--client requires a value."); client = value; index += 1; continue; }
     if (arg === "--uninstall") { uninstall = true; continue; }
+    if (arg === "--adopt-existing") { adoptExisting = true; continue; }
     if (arg === "--json") { json = true; continue; }
     if (arg === "--help" || arg === "-h") { help = true; continue; }
     throw new Error(`Unknown model-gateway option '${arg}'.`);
   }
-  return { ...(configPath === undefined ? {} : { configPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall };
+  if (adoptExisting && uninstall) throw new Error("--adopt-existing cannot be combined with --uninstall.");
+  return { ...(configPath === undefined ? {} : { configPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall, adoptExisting };
 }
 
 function printNativeSyncResult(result: GlobalOpenCodeModelGatewayProjectionResult, json: boolean, log: (message: string) => void): void {
@@ -355,7 +368,7 @@ function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: 
 
 function printHelp(log: (message: string) => void): void {
   log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native> [--json]\n");
-  log("Native provider: kiln model-gateway sync-native --client opencode [--uninstall]");
+  log("Native provider: kiln model-gateway sync-native --client opencode [--uninstall|--adopt-existing]");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");
 }

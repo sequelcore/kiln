@@ -293,6 +293,7 @@ describe("modelGatewayCommand", () => {
     const stop = vi.fn(async () => ({ state: "stopped" as const }));
     const uninstall = vi.fn(async () => ({ state: "absent" as const }));
     const removeRuntimeDir = vi.fn(async () => undefined);
+    const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPath: "opencode.json" }));
     const log = vi.fn();
 
     await modelGatewayCommand(["uninstall", "--json"], {
@@ -301,10 +302,12 @@ describe("modelGatewayCommand", () => {
       createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
       createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "installed" as const, digest: "a".repeat(64) })), install: vi.fn(), uninstall }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      syncOpenCodeNativeProjection,
       removeRuntimeDir,
       log,
     });
 
+    expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, operation: "uninstall" }));
     expect(stop).toHaveBeenCalledOnce();
     expect(uninstall).toHaveBeenCalledOnce();
     expect(removeRuntimeDir).toHaveBeenCalledWith(join(root, "runtime", "model-gateway"));
@@ -352,6 +355,43 @@ describe("modelGatewayCommand", () => {
 
     expect(ensure).toHaveBeenCalledOnce();
     expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, listener: gatewayReady.identity, operation: "install" }));
+  });
+
+  it("requires an explicit flag to adopt a pre-existing provider and forwards that authority", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-adopt-native-"));
+    const gatewayReady = { state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } };
+    const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "install" as const, changed: true, targetPath: "opencode.json" }));
+
+    await modelGatewayCommand(["sync-native", "--client", "opencode", "--adopt-existing"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => gatewayReady), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      syncOpenCodeNativeProjection,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      entrypoint: "cli.js",
+      log: vi.fn(),
+    });
+
+    expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ operation: "install", adoptExisting: true }));
+  });
+
+  it("removes an owned native provider without starting the gateway", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-uninstall-native-"));
+    const ensure = vi.fn();
+    const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPath: "opencode.json" }));
+
+    await modelGatewayCommand(["sync-native", "--client", "opencode", "--uninstall"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure, stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      syncOpenCodeNativeProjection,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      entrypoint: "cli.js",
+      log: vi.fn(),
+    });
+
+    expect(ensure).not.toHaveBeenCalled();
+    expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ operation: "uninstall" }));
   });
 
   it("does not write a native projection when ensure is not ready", async () => {
