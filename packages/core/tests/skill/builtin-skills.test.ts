@@ -56,6 +56,20 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/State the reviewed surface and any material surface not reviewed/);
   });
 
+  it("requires bounded evidence-driven codebase scouting", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "codebase-scouting");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toContain("Read the task and repository contract");
+    expect(skill?.instructions).toContain("direct, transitive, or uncertain");
+    expect(skill?.instructions).toMatch(/Treat text search and\s+naming proximity as leads, not dependency proof/);
+    expect(skill?.instructions).toMatch(/registration, configuration,\s+reflection, code generation/);
+    expect(skill?.instructions).toContain("Facts, inferences, and unknowns");
+    expect(skill?.instructions).toMatch(/Focused affected tests are a\s+fast-feedback gate, not proof of complete impact coverage/);
+    expect(skill?.instructions).toMatch(/Stop when ownership, contracts, consumer paths, verification ownership, and\s+material unknowns are mapped/);
+    expect(skill?.instructions).toContain("Do not turn the map into an implementation plan");
+  });
+
   it("requires explicit equivalence evidence for behavior-preserving refactors", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "refactoring-safety");
 

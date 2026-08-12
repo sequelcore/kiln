@@ -430,7 +430,7 @@ The built-in skill ids are:
 | Skill | Purpose | Typical agents |
 | --- | --- | --- |
 | `repo-context-review` | Validate generated project context and repo shims against repository evidence. | `scout`, `architect` |
-| `codebase-scouting` | Map affected files, dependencies, boundaries, and risks before broad changes. | `scout` |
+| `codebase-scouting` | Map ownership, causal dependency paths, affected verification, and uncertainty before broad changes. | `scout` |
 | `implementation-planning` | Convert a scoped objective into file-level sequence and verification gates. | `planner`, `architecture-planner` |
 | `tdd-workflow` | Design failing tests, implement only the target behavior, and verify. | `tdd`, `coder` |
 | `code-review-findings` | Perform findings-first review with severity, evidence, and test-gap risk. | `reviewer`, `adversarial-reviewer` |
