@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
   KILN_CORE_BUILTIN_SKILLS,
   renderSkillMarkdown,
   resolveKilnCoreBuiltinSkills,
@@ -21,6 +22,7 @@ describe("Kiln core builtin skills", () => {
       "security-scope-review",
       "managed-agent-risk-review",
       "research-workflow",
+      "kiln-control-plane-workflow",
       "benchmark-readiness-review",
       "config-projection-review",
       "action-first-communication",
@@ -178,6 +180,22 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/does not grant route, provider, model,\s+network, permission, budget, or approval\s+authority/);
     expect(skill?.instructions).toMatch(/searched and unsearched surfaces/);
     expect(skill?.instructions).toMatch(/does\s+not map repository ownership, dependency paths, or affected tests/);
+  });
+
+  it("requires discovery-first and lifecycle-honest Kiln control-plane use", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "kiln-control-plane-workflow");
+
+    expect(skill).toBeDefined();
+    expect(KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS.length).toBeLessThanOrEqual(512);
+    expect(skill?.instructions).toContain(KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS);
+    expect(skill?.instructions).toMatch(/Discover the available Kiln control-plane tools/);
+    expect(skill?.instructions).toMatch(/status, work governance,\s+and capability evidence/);
+    expect(skill?.instructions).toMatch(/stable idempotency key for the\s+logical request/);
+    expect(skill?.instructions).toMatch(/Accepted means admitted for asynchronous work, not completed/);
+    expect(skill?.instructions).toMatch(/status, result, cancellation, and replay/);
+    expect(skill?.instructions).toMatch(/Do not choose routes, providers, models, credentials, budgets, permissions, or\s+approvals/);
+    expect(skill?.instructions).toMatch(/Do not replace a missing control-plane operation with a shell command/);
+    expect(skill?.instructions).toMatch(/does not grant tool availability or authority/);
   });
 
   it("requires tiered and claim-bound benchmark readiness", () => {

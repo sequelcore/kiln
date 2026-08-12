@@ -7,6 +7,8 @@ export interface BuiltinSkillPolicy {
   readonly exclude?: readonly string[];
 }
 
+export const KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS = "Discover Kiln control-plane tools and read current schemas. Inspect status, work governance, and capability evidence before authority-dependent work. Managed-job acceptance is asynchronous, not completion: preserve the job id and reconcile status, result, cancellation, and replay. Reuse a stable idempotency key for the same logical request. Never choose routes, credentials, budgets, permissions, or approvals, and never replace a missing operation with CLI, shell, native subprocess, or direct HTTP.";
+
 function defineBuiltinSkill(input: {
   readonly name: string;
   readonly description: string;
@@ -591,6 +593,63 @@ network, permission, budget, or approval
 authority. Follow executable Kiln governance when present, and route high-stakes
 legal, medical, financial, regulatory, security, or benchmark-validity judgments
 to the appropriate specialist review.
+`,
+  }),
+  defineBuiltinSkill({
+    name: "kiln-control-plane-workflow",
+    description: "Use discovered Kiln control-plane tools safely across supported harnesses for governance inspection and managed-job lifecycle operations.",
+    tags: ["kiln", "control-plane", "mcp", "managed-agents"],
+    instructions: `
+# Kiln Control-Plane Workflow
+
+${KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS}
+
+Use this skill when operating Kiln through a discovered control-plane tool
+surface from Codex, Claude Code, OpenCode, or a Kiln-managed session. It teaches
+the portable call sequence; it does not grant tool availability or authority.
+
+Workflow:
+1. Discover the available Kiln control-plane tools and read their current
+   schemas. A harness may prefix or normalize MCP names. Match the declared
+   operation and schema; do not guess an absent tool from a remembered name.
+2. Before authority-dependent work, inspect canonical status, work governance,
+   and capability evidence. Inspect sanitized account usage only when route
+   eligibility or capacity is relevant. Treat degraded, unresolved, stale,
+   unsupported, and unavailable evidence as stated; none grants authority.
+3. Submit managed work only with a bounded objective, a configured agent profile
+   exposed by current capability evidence, and a stable idempotency key for the
+   logical request. Reuse that key when retrying the same request; use a new key
+   only for genuinely new work.
+4. Accepted means admitted for asynchronous work, not completed. Preserve the
+   returned job id and reconcile status, result, cancellation, and replay through
+   the discovered canonical operations. Poll proportionately, avoid hidden
+   retries, request a result only according to the reported lifecycle, and cancel
+   only the exact authorized job.
+5. Preserve lifecycle state, result availability, failure evidence, diagnostic
+   code, evidence source, observation time, and operator action. Do not infer
+   omitted paths, configuration, credentials, provider responses, or completion.
+   Treat replay as lifecycle evidence, not deterministic re-execution.
+6. If a required operation or authority is unavailable, report the blocked or
+   unresolved state and the nearest returned operator action. Continue directly
+   only when resolved governance permits it and required evidence can still be
+   produced.
+
+Boundaries:
+- Do not choose routes, providers, models, credentials, budgets, permissions, or
+  approvals; Kiln application and Runtime owners decide them.
+- Do not replace a missing control-plane operation with a shell command, direct
+  HTTP call, native harness subprocess, or invocation of the Kiln CLI. CLI setup,
+  sync, repair, and uninstall are explicit operator workflows.
+- Do not treat MCP tool annotations, a general MCP capability, or experimental
+  MCP task support as proof that a Kiln operation is admitted. Kiln managed jobs
+  retain their own identity and lifecycle contract.
+- Do not mutate configuration through an inspection surface or convert a
+  diagnostic recommendation into approval.
+
+Output the requested operation, discovered capability, current lifecycle state,
+canonical evidence or error, next admitted action, and residual work. Separate
+requested, accepted, running, terminal, result-available, cancelled, failed, and
+unknown states rather than compressing them into success.
 `,
   }),
   defineBuiltinSkill({

@@ -115,6 +115,13 @@ for the same project share one lazy project Runtime; different projects remain
 isolated. This provides Kiln inspection, sanitized account-usage inspection,
 and managed-agent tools without starting the HTTP Model Gateway.
 
+The bridge also publishes a compact server-level instruction component shared
+with the `kiln-control-plane-workflow` built-in. The server instruction covers
+the critical discovery, governance, idempotency, asynchronous-lifecycle, and
+no-fallback invariants; the progressively loaded skill carries the full
+procedure. Both are projections of one Core-owned contract rather than separate
+prompt doctrine.
+
 ### Control-plane projection boundary
 
 `kiln-control-plane` is a governed projection for native-harness context, not a

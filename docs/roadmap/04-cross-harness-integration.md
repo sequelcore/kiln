@@ -112,6 +112,14 @@ managed-agent dispatch share the global physical capacity ledger while keeping
 distinct participant/recovery domains. Project-local legacy ledger files are
 historical evidence only and are never reopened by operator surfaces.
 
+Issue [#76](https://github.com/sequelcore/kiln/issues/76) adds the portable
+control-plane procedure without widening this bridge. Core owns one compact
+cross-tool instruction component that is projected both through MCP server
+initialization and the `kiln-control-plane-workflow` skill. The skill teaches
+discovery, inspection, idempotency, and managed-job reconciliation; MCP remains
+the native-harness transport, CLI remains operator administration, and Runtime
+remains the authority and lifecycle owner.
+
 Exit gate: a harness adapter can be removed without changing canonical route
 policy, and background job lifecycle is represented in Kiln events, never in
 adapter-local prose.

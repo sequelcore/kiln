@@ -159,6 +159,11 @@ explain how to repair the boundary. Managed-job operations validate bounded
 inputs, caller ownership, governance, configured agent profile, route
 eligibility, and persisted lifecycle evidence before acting.
 
+The stdio bridge publishes a compact Core-owned MCP `instructions` component
+shared with the `kiln-control-plane-workflow` skill. This is procedural context,
+not authority: current tool discovery and Runtime admission remain required,
+and the full skill must not become a second tool, lifecycle, or policy owner.
+
 The native-harness status-projection boundary validates the canonical evidence
 version, full status shape, and observation time before projecting it. Missing,
 malformed, future, stale, or unsupported evidence is unresolved; a resolved

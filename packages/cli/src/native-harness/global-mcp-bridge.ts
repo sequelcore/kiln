@@ -1,4 +1,5 @@
 import type { OperatorRuntimeHarness } from "@kilnai/gateway-contracts";
+import { KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS } from "@kilnai/core";
 import {
   OPERATOR_RUNTIME_MCP_PATH,
   type OperatorRuntimeBridgeCredentials,
@@ -33,7 +34,7 @@ interface ClosableTransport {
 export interface GlobalMcpBridgeSdk {
   readonly Server: new (
     info: { readonly name: string; readonly version: string },
-    options: { readonly capabilities: Record<string, unknown> },
+    options: { readonly capabilities: Record<string, unknown>; readonly instructions?: string },
   ) => LocalServer;
   readonly Client: new (
     info: { readonly name: string; readonly version: string },
@@ -89,7 +90,10 @@ export async function startGlobalMcpBridge(options: StartGlobalMcpBridgeOptions)
   const sdk = await (options.sdkLoader ?? loadSdk)();
   const localServer = new sdk.Server(
     { name: `kiln-${options.harness}-control-plane`, version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    {
+      capabilities: { tools: {} },
+      instructions: KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
+    },
   );
   const localTransport = new sdk.StdioServerTransport();
   const runtimeSession = createOperatorRuntimeClientSession({

@@ -118,6 +118,7 @@ Current core built-ins:
 - `security-scope-review`
 - `managed-agent-risk-review`
 - `research-workflow`
+- `kiln-control-plane-workflow`
 - `benchmark-readiness-review`
 - `config-projection-review`
 - `action-first-communication`
@@ -152,6 +153,14 @@ Built-ins are projected to supported native harness skill directories during
 `kiln sync --skills`, unless disabled by config. Generated native skill files
 remain projections; canonical user and project skills live under
 `~/.kiln/skills` and `.kiln/skills`.
+
+`kiln-control-plane-workflow` is useful only when a session exposes the
+governed Kiln control-plane operations. It teaches discovery, inspection,
+idempotent managed-job submission, and lifecycle reconciliation. It does not
+install or authorize MCP, mirror the CLI, choose routes or credentials, or use
+shell as a fallback for an unavailable operation. The same compact critical
+instructions are projected through MCP server initialization; Core remains the
+single semantic owner.
 
 ## Skill Status And Admission
 

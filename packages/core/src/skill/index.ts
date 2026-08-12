@@ -9,6 +9,7 @@ export type {
 export { SkillGenerator } from "./skill-generator.js";
 export type { SkillGeneratorConfig } from "./skill-generator.js";
 export {
+  KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
   KILN_CORE_BUILTIN_SKILLS,
   renderSkillMarkdown,
   resolveKilnCoreBuiltinSkills,

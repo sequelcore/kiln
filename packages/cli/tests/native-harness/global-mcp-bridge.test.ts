@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { OperatorRuntimeHarness } from "@kilnai/gateway-contracts";
+import { KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS } from "@kilnai/core";
 import {
   OPERATOR_RUNTIME_BINDING_HEADERS,
   OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,
@@ -51,6 +52,10 @@ describe("global MCP bridge", () => {
     });
 
     expect(fixture.localConnected).toBe(true);
+    expect(fixture.serverOptions).toEqual({
+      capabilities: { tools: {} },
+      instructions: KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS,
+    });
     const response = await fixture.listHandler!({ params: {} }) as { tools: readonly { name: string }[] };
     expect(response.tools).toHaveLength(9);
     expect(response.tools.map((tool) => tool.name)).toEqual([
@@ -311,6 +316,7 @@ function sdkFixture(options: { connectFetch?: boolean; rejectLocalClose?: boolea
     callHandler?: (request: { params: Record<string, unknown> }) => unknown;
     localConnected: boolean;
     localCloseCount: number;
+    serverOptions?: Record<string, unknown>;
     remoteCalls: unknown[];
     remoteResult: unknown;
   } = {
@@ -326,6 +332,9 @@ function sdkFixture(options: { connectFetch?: boolean; rejectLocalClose?: boolea
   }
   fixture.sdk = {
     Server: class {
+      constructor(_info: unknown, serverOptions: Record<string, unknown>) {
+        fixture.serverOptions = serverOptions;
+      }
       setRequestHandler(schema: unknown, handler: (request: { params: Record<string, unknown> }) => unknown): void {
         if (schema === listSchema) fixture.listHandler = handler;
         if (schema === callSchema) fixture.callHandler = handler;
