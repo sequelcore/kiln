@@ -22,6 +22,20 @@ export interface McpConfigFlags {
   readonly fromEnv?: string;
 }
 
+export function printMcpConfigHelp(appName: string): void {
+  console.log(`Usage: ${appName} mcp-config [client] [options]\n`);
+  console.log("Synchronize canonical MCP configuration into governed native harness projections.\n");
+  console.log("Clients:");
+  console.log("  codex | claude | claude-code | opencode | all");
+  console.log("\nOptions:");
+  console.log("  --client <client>                 Select one harness or all (default: all)");
+  console.log("  --test [--server <id>]            Discover admitted canonical servers without invoking tools");
+  console.log("  --repair                          Replace drifted Kiln-owned projection state");
+  console.log("  --uninstall                       Remove only Kiln-owned MCP projections");
+  console.log("  --credential <id> --from-env <name>  Import one MCP credential from an environment variable");
+  console.log("  --help, -h                        Show this help");
+}
+
 export async function mcpConfigCommand(
   _appConfig: KilnAppConfig,
   flags: McpConfigFlags,

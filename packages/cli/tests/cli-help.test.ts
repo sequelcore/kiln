@@ -53,4 +53,19 @@ describe("CLI help", () => {
     expect(helpOutput).toContain("kiln sync (--all | --target <targets> | <target flags>)");
     expect(helpOutput).toContain("--dry-run");
   });
+
+  it.each(["--help", "-h"])("shows mcp-config help for %s without dispatching projection", async (flag) => {
+    process.argv = ["bun", "kiln", "mcp-config", flag];
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+      throw new Error(`process.exit:${code ?? 0}`);
+    }) as never);
+
+    await expect(createCli(APP_CONFIG)).rejects.toThrow("process.exit:0");
+
+    const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(helpOutput).toContain("kiln mcp-config [client] [options]");
+    expect(helpOutput).toContain("--uninstall");
+    expect(helpOutput).toContain("--credential <id> --from-env <name>");
+  });
 });

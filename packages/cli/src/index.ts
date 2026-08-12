@@ -244,7 +244,11 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   }
 
   if (command === "mcp-config") {
-    const { mcpConfigCommand } = await import("./commands/mcp-config.js");
+    const { mcpConfigCommand, printMcpConfigHelp } = await import("./commands/mcp-config.js");
+    if (args.includes("--help") || args.includes("-h")) {
+      printMcpConfigHelp(APP_NAME);
+      process.exit(0);
+    }
     await mcpConfigCommand(config, parseMcpConfigFlags(args.slice(1)));
     return;
   }
