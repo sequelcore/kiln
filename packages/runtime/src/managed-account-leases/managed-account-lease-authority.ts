@@ -1673,11 +1673,21 @@ export class SqliteManagedAccountLeaseAuthority {
           "SELECT owner_id, heartbeat, config_revision FROM participants WHERE participant_kind=? AND recovery_domain=?",
         )
         .get(this.#participantKind, this.#recoveryDomain);
-      if (owner && owner.config_revision !== this.#configurationRevision) {
-        throw new Error("Managed account lease authority configuration revision conflicts with recovery domain.");
-      }
       if (owner && owner.heartbeat > now - this.#ownerStaleMs) {
         throw new Error("Managed account lease authority already has a live owner.");
+      }
+      if (owner && owner.config_revision !== this.#configurationRevision) {
+        const placeholders = CAPACITY_CONSUMING_STATES.map(() => "?").join(",");
+        const retained = this.#db
+          .query<{ count: number }, [string, string, ...string[]]>(
+            `SELECT COUNT(*) AS count FROM account_leases
+             WHERE participant_kind=? AND recovery_domain=?
+               AND lifecycle_state IN (${placeholders})`,
+          )
+          .get(this.#participantKind, this.#recoveryDomain, ...CAPACITY_CONSUMING_STATES);
+        if ((retained?.count ?? 0) > 0) {
+          throw new Error("Managed account lease authority configuration revision conflicts with retained capacity.");
+        }
       }
       this.#db
         .query(

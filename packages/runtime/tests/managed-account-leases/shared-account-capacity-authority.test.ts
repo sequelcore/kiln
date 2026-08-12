@@ -138,6 +138,28 @@ describe("shared account capacity in managed authority", () => {
       .toThrow(/configuration revision/i);
   });
 
+  it("admits a new configuration revision after the old owner is stale and no capacity remains", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
+    const path = join(root, "authority.sqlite"); let now = 1_000;
+    const old = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
+    old.acquireAccountCapacity(capacityInput("gateway"));
+    old.releaseAccountCapacityPreFence("gateway");
+    now = 2_000;
+
+    const replacement = new SqliteManagedAccountLeaseAuthority({
+      path,
+      participantKind: "model-gateway-ingress",
+      recoveryDomain: "gateway",
+      ownerId: "replacement",
+      configurationRevision: "rev-2",
+      now: () => now,
+      ownerStaleMs: 10,
+    });
+    authorities.push(replacement);
+
+    expect(replacement.recoverAccountCapacity()).toEqual([]);
+  });
+
   it("fails closed when account-only recovery encounters an anomalous consuming state", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
     const path = join(root, "authority.sqlite");
