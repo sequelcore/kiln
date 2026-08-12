@@ -236,8 +236,14 @@ function validateTools(value: unknown): void {
       }
     } else if (type === "web_search") {
       expandedTools++;
-      noUnknown(tool, ["type", "external_web_access"], "web_search tool");
+      noUnknown(tool, ["type", "external_web_access", "search_content_types"], "web_search tool");
       if (typeof tool.external_web_access !== "boolean") fail("web_search tool.external_web_access must be boolean");
+      if (tool.search_content_types !== undefined) {
+        const contentTypes = array(tool.search_content_types, "web_search tool.search_content_types");
+        if (contentTypes.length === 0 || contentTypes.length > 2) fail("web_search tool.search_content_types must contain one or two content types");
+        const unique = new Set(contentTypes.map((contentType) => oneOf(contentType, ["text", "image"], "web_search tool.search_content_types entry")));
+        if (unique.size !== contentTypes.length) fail("web_search tool.search_content_types must not contain duplicates");
+      }
     }
     else fail("unsupported tool type");
     if (expandedTools > OPENAI_RESPONSES_PROTOCOL_LIMITS.maxExpandedTools) fail("tools exceeds the expanded tool bound");

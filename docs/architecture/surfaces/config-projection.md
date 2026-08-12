@@ -214,14 +214,30 @@ shared status contract.
 Canonical `modelGateway` surfaces use harness-specific composed writers and a
 shared install-state contract:
 
+The canonical gateway value comes only from resolved global config. Command and
+application boundaries read global and project config once, derive effective
+project policy, and pass the same global `modelGateway` value into native
+projection. Projection code does not read `.kiln/gateway.yaml` or another
+project-local gateway authority.
+
 - Codex composite lifecycle owns only `openai_base_url`,
   `model_catalog_json`, and its generated catalog. It neither sets
   `model_provider`, `model`, nor `web_search`, and it does not install a
   `model_providers.kiln` entry.
 - OpenCode receives only `provider.kiln`. Kiln does not create or modify
   `enabled_providers` and does not select a default `model`.
+- Claude Code receives only the admitted project-local Messages settings and
+  model selection derived from that global gateway value.
 - Existing native providers, picker catalogs, defaults, search behavior, and
   sessions remain owned by the native harness and operator.
+
+Every native picker principal references at least one unique virtual-model id.
+A referenced id must resolve to exactly one canonical virtual-model definition
+with validated display name, context limit, and output limit. Empty principals,
+repeated references, ambiguous duplicate definitions, missing models, or
+incomplete picker metadata fail before any generated native file is written.
+Responses and Messages projections share this resolution boundary; harness-
+specific model-id rules are additional validation, not a second resolver.
 
 The Codex composite keeps the built-in `openai` provider and uses Codex's
 documented `openai_base_url` override to place one supervised loopback in front

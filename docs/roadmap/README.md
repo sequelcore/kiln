@@ -28,7 +28,7 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Ready | OpenCode and Codex picker projections are live-proven; activate and prove Claude native picker parity ([#78](https://github.com/sequelcore/kiln/issues/78)), close the independent quota-gated Claude entitlement proof ([#66](https://github.com/sequelcore/kiln/issues/66)), then run final all-harness conformance. Direct Go/Zen deliberation is intentionally unsupported. |
+| 1 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Ready | Codex, OpenCode, and Claude picker projections are live-proven. Reconcile the dispatch-fenced OpenCode outcome and managed-agent terminal evidence in [#65](https://github.com/sequelcore/kiln/issues/65)/[#66](https://github.com/sequelcore/kiln/issues/66), complete the quota-gated native Claude entitlement proof, then run final all-harness conformance. Direct Go/Zen deliberation is intentionally unsupported. |
 | 2 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
 | 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
 | 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |

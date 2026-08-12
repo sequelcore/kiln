@@ -59,7 +59,8 @@ function mapToolResultContent(value: unknown): ModelPart[] {
 }
 
 function mapMessage(value: WireRecord): ModelTurnMessage {
-  if (typeof value.content === "string") return { role: value.role as "user" | "assistant", parts: [{ type: "text", text: value.content }] };
+  const role = value.role === "system" ? "developer" : value.role as "user" | "assistant";
+  if (typeof value.content === "string") return { role, parts: [{ type: "text", text: value.content }] };
   const parts = (value.content as unknown[]).map((raw): ModelPart => {
     const block = asRecord(raw);
     if (block.type === "text") return { type: "text", text: block.text as string };
@@ -67,7 +68,7 @@ function mapMessage(value: WireRecord): ModelTurnMessage {
     if (block.type === "tool_use") return { type: "tool-call", call: { kind: "function", id: block.id as string, name: block.name as string, input: { kind: "json-object", value: structuredClone(block.input) as ModelJsonObject } } };
     return { type: "tool-result", callId: block.tool_use_id as string, content: mapToolResultContent(block.content) as import("@kilnai/core").ModelToolResultContent[], ...(block.is_error === undefined ? {} : { isError: block.is_error as boolean }) };
   });
-  return { role: value.role as "user" | "assistant", parts };
+  return { role, parts };
 }
 
 export function mapAnthropicMessagesRequestToModelTurn(

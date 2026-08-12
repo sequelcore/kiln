@@ -122,20 +122,26 @@ describe("OpenAI Responses to ModelTurn anti-corruption mapping", () => {
     });
   });
 
-  it("classifies provider-hosted web search separately from Kiln caller-owned tools", () => {
+  it("omits provider-hosted web search as an evidenced optional capability", () => {
     const request = parseOpenAIResponsesRequest({
       model: "synthetic-model",
       input: [{ role: "user", content: "hello" }],
-      tools: [{ type: "web_search", external_web_access: true }],
+      tools: [
+        { type: "function", name: "lookup", parameters: { type: "object" } },
+        { type: "web_search", external_web_access: true, search_content_types: ["text", "image"] },
+      ],
       stream: true,
       store: false,
     });
 
-    expect(inspectOpenAIResponsesModelTurnCapabilities(request).unsupported).toContainEqual({
-      code: "unsupported-provider-hosted-web-search",
-      path: "tools[0]",
-    });
-    expect(() => mapOpenAIResponsesRequestToModelTurn(request)).toThrow(expect.objectContaining({ code: "unsupported-provider-hosted-web-search" }));
+    const summary = inspectOpenAIResponsesModelTurnCapabilities(request);
+    expect(summary.unsupported).toEqual([]);
+    expect(summary.optionalRequested).toContain("provider-hosted-web-search");
+    expect(preflightOpenAIResponsesModelTurn(request, new Set(["text", "function-tools"])).unavailableOptional)
+      .toContain("provider-hosted-web-search");
+    expect(mapOpenAIResponsesRequestToModelTurn(request).tools).toEqual([
+      expect.objectContaining({ kind: "function", name: "lookup" }),
+    ]);
   });
 
   it.each([

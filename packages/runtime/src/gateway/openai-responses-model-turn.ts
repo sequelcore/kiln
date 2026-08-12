@@ -22,7 +22,6 @@ export type OpenAIResponsesModelTurnErrorCode =
   | "unsupported-reasoning-context"
   | "unsupported-local-shell"
   | "unsupported-tool-search"
-  | "unsupported-provider-hosted-web-search"
   | "unsupported-image-file-id"
   | "unsupported-custom-tool-format"
   | "unsupported-route-capability"
@@ -50,7 +49,8 @@ export type OpenAIResponsesModelTurnCapability =
   | "json-schema-response"
   | "reasoning-controls"
   | "text-verbosity"
-  | "reasoning-encrypted-content";
+  | "reasoning-encrypted-content"
+  | "provider-hosted-web-search";
 
 export interface OpenAIResponsesCapabilityIssue {
   readonly code: Exclude<OpenAIResponsesModelTurnErrorCode, "unsupported-route-capability" | "invalid-function-arguments" | "invalid-image-data-url" | "unsupported-result-part">;
@@ -88,7 +88,6 @@ function capabilityError(issue: OpenAIResponsesCapabilityIssue): OpenAIResponses
     "unsupported-reasoning-context": "Reasoning context selection is not supported by the model-turn boundary.",
     "unsupported-local-shell": "Local shell replay requires a capability that the model-turn boundary does not expose.",
     "unsupported-tool-search": "Tool-search replay requires a capability that the model-turn boundary does not expose.",
-    "unsupported-provider-hosted-web-search": "Provider-hosted web search is unavailable on this model-turn route.",
     "unsupported-image-file-id": "File-backed image references must be resolved before model-turn mapping.",
     "unsupported-custom-tool-format": "Custom tools require an explicit Lark grammar.",
   };
@@ -138,7 +137,7 @@ export function inspectOpenAIResponsesModelTurnCapabilities(request: OpenAIRespo
     const tool = asRecord(raw);
     if (tool.type === "function" || tool.type === "namespace") required.add("function-tools");
     else if (tool.type === "tool_search") unsupported.push({ code: "unsupported-tool-search", path: `tools[${index}]` });
-    else if (tool.type === "web_search") unsupported.push({ code: "unsupported-provider-hosted-web-search", path: `tools[${index}]` });
+    else if (tool.type === "web_search") optionalRequested.add("provider-hosted-web-search");
     else if (tool.type === "custom") {
       required.add("custom-tools-lark");
       const format = tool.format === undefined ? undefined : asRecord(tool.format);
@@ -209,6 +208,7 @@ function mapTools(request: OpenAIResponsesRequest): ModelTool[] | undefined {
         ...(nested.strict === undefined ? {} : { strict: nested.strict as boolean }),
       };
     });
+    if (tool.type === "web_search") return [];
     const format = tool.format === undefined ? undefined : asRecord(tool.format);
     if (!format || format.type !== "grammar" || format.syntax !== "lark" || typeof format.definition !== "string" || format.definition.length === 0) throw capabilityError({ code: "unsupported-custom-tool-format", path: `tools[${index}].format` });
     return [{

@@ -59,6 +59,27 @@ describe("Anthropic Messages model-turn boundary", () => {
     });
   });
 
+  it("accepts bounded Anthropic request metadata without forwarding provider-specific identity", () => {
+    const parsed = parseAnthropicMessagesRequest(request({ metadata: { user_id: "opaque-user-hash" } }));
+
+    expect(parsed.metadata).toEqual({ user_id: "opaque-user-hash" });
+    expect(mapAnthropicMessagesRequestToModelTurn(parsed)).not.toHaveProperty("metadata");
+  });
+
+  it("maps Claude Code text-only system turns to protocol-neutral developer history", () => {
+    const parsed = parseAnthropicMessagesRequest(request({
+      messages: [
+        { role: "user", content: "inspect" },
+        { role: "system", content: [{ type: "text", text: "runtime reminder" }] },
+      ],
+    }));
+
+    expect(mapAnthropicMessagesRequestToModelTurn(parsed).history).toEqual([
+      { role: "user", parts: [{ type: "text", text: "inspect" }] },
+      { role: "developer", parts: [{ type: "text", text: "runtime reminder" }] },
+    ]);
+  });
+
   it("treats Anthropic's default tool mode as parallel-capable unless explicitly disabled", () => {
     const parsed = parseAnthropicMessagesRequest(request({ tool_choice: undefined }));
     expect(inspectAnthropicMessagesCapabilities(parsed)).toContain("parallel-tool-calls");
@@ -99,6 +120,9 @@ describe("Anthropic Messages model-turn boundary", () => {
     ["unsafe image URL", { messages: [{ role: "user", content: [{ type: "image", source: { type: "url", url: "file:///secret" } }] }] }],
     ["non-canonical base64", { messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "a" } }] }] }],
     ["cache controls", { system: [{ type: "text", text: "x", cache_control: { type: "ephemeral" } }] }],
+    ["unknown metadata", { metadata: { user_id: "opaque", tenant: "untrusted" } }],
+    ["oversized metadata", { metadata: { user_id: "x".repeat(257) } }],
+    ["non-text system turn", { messages: [{ role: "system", content: [{ type: "tool_use", id: "call-1", name: "inspect", input: {} }] }] }],
   ])("rejects unsupported %s before mapping", (_label, override) => {
     expect(() => parseAnthropicMessagesRequest(request(override))).toThrow(AnthropicMessagesProtocolError);
   });

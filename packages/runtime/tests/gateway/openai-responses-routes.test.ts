@@ -422,6 +422,16 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(optional.status).toBe(200);
     expect(degraded.record).toHaveBeenCalledWith(expect.objectContaining({ status: "degraded", unavailableOptional: ["reasoning-encrypted-content"] }));
 
+    degraded.record.mockClear();
+    const hostedSearch = await createOpenAIResponsesRoutes(degraded.value).request(request(body({
+      tools: [{ type: "web_search", external_web_access: false, search_content_types: ["text", "image"] }],
+    })));
+    expect(hostedSearch.status).toBe(200);
+    expect(degraded.record).toHaveBeenCalledWith(expect.objectContaining({
+      status: "degraded",
+      unavailableOptional: ["provider-hosted-web-search"],
+    }));
+
     const unsupported = config({ resolveVirtualModel: degraded.value.resolveVirtualModel });
     const response = await createOpenAIResponsesRoutes(unsupported.value).request(request(body({
       tools: [{ type: "custom", name: "patch", format: { type: "grammar", syntax: "lark", definition: "start: PATCH" } }],

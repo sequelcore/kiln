@@ -27,7 +27,7 @@ import type { KilnYaml } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
 import { readGlobalConfig } from "./global-config.js";
-import { globalToKilnYaml, loadKilnConfig } from "./config-merger.js";
+import { globalToKilnYaml, loadKilnConfig, loadKilnConfigWithGlobalAuthority } from "./config-merger.js";
 
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 const readKilnYamlMock = readKilnYaml as unknown as ReturnType<typeof vi.fn>;
@@ -49,6 +49,22 @@ describe("config-merger", () => {
 
     expect(readKilnYamlMock).toHaveBeenCalledWith(join("/repo", ".kiln"));
     expect(result).toBeNull();
+  });
+
+  it("returns the exact global authority alongside effective project config", async () => {
+    const globalConfig = { version: "1", modelGateway: { marker: true } } as unknown as KilnGlobalConfig;
+    const projectConfig = { version: "1" } as KilnYaml;
+    const merged = { version: "1", permissions: { approval: "never", sandbox: "read-only" } } as KilnYaml;
+    readGlobalConfigMock.mockReturnValue(globalConfig);
+    readKilnYamlMock.mockReturnValue(projectConfig);
+    mergeKilnYamlMock.mockReturnValue(merged);
+
+    await expect(loadKilnConfigWithGlobalAuthority("/repo")).resolves.toEqual({
+      kilnYaml: merged,
+      globalConfig,
+    });
+    expect(readGlobalConfigMock).toHaveBeenCalledTimes(1);
+    expect(readKilnYamlMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns global-converted-to-KilnYaml when only global config exists", async () => {

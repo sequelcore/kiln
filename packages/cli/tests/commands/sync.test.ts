@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const syncMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
+  loadKilnConfigWithGlobalAuthority: vi.fn(),
   readGlobalConfig: vi.fn(),
   syncNativePermissionProjections: vi.fn(),
   syncOpenCodeSkillVisibilityProjection: vi.fn(),
@@ -17,6 +18,7 @@ const syncMocks = vi.hoisted(() => ({
 
 vi.mock("../../src/config/config-merger.js", () => ({
   loadKilnConfig: syncMocks.loadKilnConfig,
+  loadKilnConfigWithGlobalAuthority: syncMocks.loadKilnConfigWithGlobalAuthority,
 }));
 
 vi.mock("../../src/config/global-config.js", () => ({
@@ -81,6 +83,10 @@ describe("syncCommand", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     syncMocks.loadKilnConfig.mockResolvedValue({ version: "1", domain: "typescript" });
+    syncMocks.loadKilnConfigWithGlobalAuthority.mockResolvedValue({
+      kilnYaml: { version: "1", domain: "typescript" },
+      globalConfig: null,
+    });
     syncMocks.readGlobalConfig.mockReturnValue(null);
     syncMocks.syncNativePermissionProjections.mockResolvedValue({
       claude: true,
@@ -295,6 +301,26 @@ describe("syncCommand", () => {
     );
   });
 
+  it("passes canonical global model-gateway authority into native projection", async () => {
+    const modelGateway = { port: 4910 };
+    syncMocks.loadKilnConfigWithGlobalAuthority.mockResolvedValue({
+      kilnYaml: { version: "1", domain: "typescript" },
+      globalConfig: { modelGateway },
+    });
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await syncCommand(MOCK_APP_CONFIG, undefined, ["--permissions"]);
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledWith(
+      { version: "1", domain: "typescript" },
+      process.cwd(),
+      expect.objectContaining({ modelGateway }),
+    );
+  });
+
   it("exits non-zero when a selected sync target partially fails", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit:${code}`);
@@ -407,7 +433,7 @@ describe("syncCommand", () => {
     }
 
     expect(syncMocks.resolveProjectRoot).toHaveBeenCalledWith({ explicitPath: "C:/resolved/project/packages/api" });
-    expect(syncMocks.loadKilnConfig).toHaveBeenCalledWith("C:/resolved/project");
+    expect(syncMocks.loadKilnConfigWithGlobalAuthority).toHaveBeenCalledWith("C:/resolved/project");
     expect(syncMocks.writeRepoShimProjections).toHaveBeenCalledWith("C:/resolved/project", { force: false, dryRun: false });
   });
 

@@ -62,6 +62,24 @@ admitted harness capability. Provider/harness protocol compatibility does not
 prove entitlement, tool authority, resume compatibility, billing semantics, or
 permission parity; unsupported combinations fail closed.
 
+OpenAI Responses validation follows the current caller wire contract without
+turning caller-hosted features into route requirements. In particular,
+`web_search.search_content_types` accepts only the unique admitted values
+`text` and `image`. Provider-hosted web search is optional at the model-turn
+boundary: when the selected virtual route does not advertise it, Runtime omits
+that hosted tool, records degraded compatibility evidence, and preserves the
+remaining caller-owned tools. Unknown fields, values, and required route
+capabilities still fail closed.
+
+Anthropic Messages ingress admits the current Claude Code caller shape without
+turning harness metadata into downstream provider identity. The official
+`metadata.user_id` field is bounded and validated, then omitted because Kiln
+authenticates and namespaces the caller independently. Claude Code text-only
+`messages[].role: system` turns map to protocol-neutral `developer` history;
+non-text system turns remain unrepresentable and fail closed. Unknown metadata,
+thinking/signature replay, cache controls, sampling, and other unsupported
+Messages fields remain rejected rather than silently degraded.
+
 ## Ingress Lifecycle
 
 One user-scoped supervisor owns the loopback listener, lifecycle state, lock,

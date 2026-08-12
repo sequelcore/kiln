@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type ModelGatewayConfig, loadSkillMdIndex, parseGatewayYaml, readTrustedExecutionAuthorization } from "@kilnai/core";
+import { type ModelGatewayConfig, loadSkillMdIndex, readTrustedExecutionAuthorization } from "@kilnai/core";
 import { parse as parseYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type { KilnYaml } from "../kiln-yaml-types.js";
@@ -47,7 +47,9 @@ export interface NativePermissionProjectionResult {
   outcomes: readonly ProjectionOutcome[];
 }
 
-export interface NativePermissionProjectionOptions extends NativeProjectionSyncOptions {}
+export interface NativePermissionProjectionOptions extends NativeProjectionSyncOptions {
+  readonly modelGateway?: ModelGatewayConfig;
+}
 
 interface PermissionTargetResult {
   readonly ok: boolean;
@@ -190,7 +192,7 @@ export async function syncNativePermissionProjections(
   const outcomes: ProjectionOutcome[] = [];
   const policy = kilnYaml.permissions ?? DEFAULT_POLICY;
   const kilnDir = join(projectPath, ".kiln");
-  const modelGateway = readCanonicalModelGateway(kilnDir);
+  const modelGateway = options.modelGateway;
   let installState = readNativeProjectionInstallState(kilnDir);
   let claudeResult: PermissionTargetResult = skippedPermissionTarget();
   let codexResult: PermissionTargetResult = skippedPermissionTarget();
@@ -522,12 +524,6 @@ async function syncOpenCodePermissions(
     rollback,
     outcomes: [{ targetId, path: target, status: "written" }],
   };
-}
-
-function readCanonicalModelGateway(kilnDir: string): ModelGatewayConfig | undefined {
-  const path = join(kilnDir, "gateway.yaml");
-  if (!existsSync(path)) return undefined;
-  return parseGatewayYaml(readFileSync(path, "utf8")).modelGateway;
 }
 
 function unreadablePermissionTarget(targetId: string, path: string, error: unknown): PermissionTargetResult {

@@ -132,6 +132,30 @@ describe("model gateway native projections", () => {
       .toThrow("multiple codex");
   });
 
+  it.each([
+    ["codex", () => resolveResponsesNativeProjectionSource(config([principal("codex", [])]), "codex")],
+    ["opencode", () => resolveResponsesNativeProjectionSource(config([principal("opencode", [])]), "opencode")],
+    ["claude", () => resolveClaudeMessagesNativeProjectionSource(claudeConfig("ANTHROPIC_AUTH_TOKEN", []))],
+  ])("fails closed for an empty %s native harness model allowlist without loader validation", (harness, resolve) => {
+    expect(resolve).toThrow(`${harness} native harness principal must reference at least one virtual model.`);
+  });
+
+  it.each([
+    ["codex", () => resolveResponsesNativeProjectionSource(config([principal("codex", ["model-a", "model-a"])]), "codex")],
+    ["opencode", () => resolveResponsesNativeProjectionSource(config([principal("opencode", ["model-a", "model-a"])]), "opencode")],
+    ["claude", () => resolveClaudeMessagesNativeProjectionSource(claudeConfig("ANTHROPIC_AUTH_TOKEN", ["claude-model-a", "claude-model-a"]))],
+  ])("fails closed when a %s native harness principal repeats a virtual model id", (harness, resolve) => {
+    expect(resolve).toThrow(`${harness} native harness principal repeats virtual model id`);
+  });
+
+  it.each([
+    ["codex", () => resolveResponsesNativeProjectionSource(withDuplicateModel(config([principal("codex")])), "codex")],
+    ["opencode", () => resolveResponsesNativeProjectionSource(withDuplicateModel(config([principal("opencode")])), "opencode")],
+    ["claude", () => resolveClaudeMessagesNativeProjectionSource(withDuplicateModel(claudeConfig()))],
+  ])("fails closed when a %s native harness references duplicate virtual model definitions", (harness, resolve) => {
+    expect(resolve).toThrow(`${harness} native harness references duplicate virtual model definitions`);
+  });
+
   it("does not project a principal assigned to an unsupported ingress", () => {
     const invalidIngress = { ...principal("codex"), ingress: "anthropic-messages" as never };
     expect(resolveResponsesNativeProjectionSource(config([invalidIngress]), "codex")).toBeUndefined();
@@ -144,3 +168,7 @@ describe("model gateway native projections", () => {
     expect(buildOpenCodeResponsesProjection({ config: openCodeOnly })).toBeDefined();
   });
 });
+
+function withDuplicateModel(configured: ModelGatewayConfig): ModelGatewayConfig {
+  return { ...configured, virtualModels: [...configured.virtualModels, { ...configured.virtualModels[0]! }] };
+}

@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { KilnYaml } from "../../src/kiln-yaml-types.js";
+import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
 
 const syncMocks = vi.hoisted(() => ({
   mockedHomedir: "",
@@ -29,7 +30,7 @@ vi.mock("node:os", async () => {
 });
 
 import { tmpdir } from "node:os";
-import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection, uninstallOpenCodeSkillVisibilityProjection } from "../../src/config/native-permission-projection.js";
+import { syncNativePermissionProjections as syncNativePermissionProjectionsRaw, syncOpenCodeSkillVisibilityProjection, uninstallOpenCodeSkillVisibilityProjection } from "../../src/config/native-permission-projection.js";
 import { uninstallNativeTargets } from "../../src/commands/uninstall.js";
 import * as nativeProjectionState from "../../src/config/native-projection-state.js";
 import { readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";
@@ -68,9 +69,8 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function writeModelGateway(projectPath: string): void {
-  mkdirSync(join(projectPath, ".kiln"), { recursive: true });
-  writeFileSync(join(projectPath, ".kiln", "gateway.yaml"), `
+function modelGatewayConfig(transform: (yaml: string) => string = (yaml) => yaml): ModelGatewayConfig {
+  const yaml = transform(`
 port: 4800
 apps: []
 modelGateway:
@@ -99,7 +99,23 @@ modelGateway:
         executionRouteId: claude-model-a-route
         capabilities: [text, parallel-tool-calls]
         affinity: { continuity: none }
-`, "utf8");
+`);
+  return parseGatewayYaml(yaml).modelGateway!;
+}
+
+let selectedModelGateway: ModelGatewayConfig | undefined;
+
+function selectModelGateway(): void {
+  selectedModelGateway = modelGatewayConfig();
+}
+
+function syncNativePermissionProjections(
+  ...[kilnYaml, projectPath, options = {}]: Parameters<typeof syncNativePermissionProjectionsRaw>
+): ReturnType<typeof syncNativePermissionProjectionsRaw> {
+  return syncNativePermissionProjectionsRaw(kilnYaml, projectPath, {
+    ...options,
+    modelGateway: options.modelGateway ?? selectedModelGateway,
+  });
 }
 
 describe("syncNativePermissionProjections", () => {
@@ -113,6 +129,7 @@ describe("syncNativePermissionProjections", () => {
     mkdirSync(homePath, { recursive: true });
     paths = { rootPath, projectPath, homePath };
     syncMocks.mockedHomedir = homePath;
+    selectedModelGateway = undefined;
   });
 
   afterEach(() => {
@@ -423,7 +440,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("keeps Codex routing separate while projecting the OpenCode and Claude gateways", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
@@ -493,7 +510,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("uninstalls gateway providers without removing or rewriting native Codex and OpenCode choices", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
@@ -530,7 +547,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("preserves unmanaged Claude settings and env fields while owning only gateway paths", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const claudePath = join(paths.projectPath, ".claude", "settings.json");
     mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
     writeFileSync(claudePath, JSON.stringify({ theme: "dark", env: { OPERATOR_VALUE: "preserved" } }), "utf8");
@@ -544,7 +561,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("reports Claude gateway drift and uninstall removes only Kiln-owned fields", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const claudePath = join(paths.projectPath, ".claude", "settings.json");
     mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
     writeFileSync(claudePath, JSON.stringify({ env: { OPERATOR_VALUE: "preserved" } }), "utf8");
@@ -567,9 +584,9 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("fails closed before native writes when Claude tokenEnv cannot be projected safely", async () => {
-    writeModelGateway(paths.projectPath);
-    const gatewayPath = join(paths.projectPath, ".kiln", "gateway.yaml");
-    writeFileSync(gatewayPath, readFileSync(gatewayPath, "utf8").replace("tokenEnv: ANTHROPIC_AUTH_TOKEN", "tokenEnv: CLAUDE_GATEWAY_TOKEN"), "utf8");
+    selectModelGateway();
+    selectedModelGateway = modelGatewayConfig((yaml) =>
+      yaml.replace("tokenEnv: ANTHROPIC_AUTH_TOKEN", "tokenEnv: CLAUDE_GATEWAY_TOKEN"));
 
     await expect(syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).rejects.toThrow("ANTHROPIC_AUTH_TOKEN");
     expect(existsSync(join(paths.projectPath, ".claude", "settings.json"))).toBe(false);
@@ -578,7 +595,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("reports gateway provider drift without overwriting unmanaged native config", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     const opencode = readJson(opencodePath);
@@ -593,7 +610,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("never changes the OpenCode provider allowlist, including during a subsequent sync", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     mkdirSync(join(paths.homePath, ".config", "opencode"), { recursive: true });
     writeFileSync(opencodePath, JSON.stringify({ enabled_providers: ["anthropic"] }), "utf8");
@@ -607,7 +624,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("removes the obsolete Codex provider while migrating legacy picker and catalog ownership", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     const catalogPath = join(paths.projectPath, ".kiln", "projections", "codex-model-catalog.json");
@@ -671,7 +688,7 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("detaches a drifted legacy Codex catalog without deleting operator-modified content", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     const catalogPath = join(paths.projectPath, ".kiln", "projections", "codex-model-catalog.json");
     mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
@@ -718,17 +735,16 @@ describe("syncNativePermissionProjections", () => {
   });
 
   it("rolls back every native projection when install-state persistence fails", async () => {
-    writeModelGateway(paths.projectPath);
+    selectModelGateway();
     expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
     const claudePath = join(paths.projectPath, ".claude", "settings.json");
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     const installStatePath = join(paths.projectPath, ".kiln", "install-state.json");
     const before = new Map([claudePath, codexPath, opencodePath, installStatePath].map((path) => [path, readFileSync(path, "utf8")]));
-    const gatewayPath = join(paths.projectPath, ".kiln", "gateway.yaml");
-    writeFileSync(gatewayPath, readFileSync(gatewayPath, "utf8")
+    selectedModelGateway = modelGatewayConfig((yaml) => yaml
       .replace("port: 4910", "port: 4911")
-      .replace("displayName: Kiln Model A", "displayName: Kiln Model Updated"), "utf8");
+      .replace("displayName: Kiln Model A", "displayName: Kiln Model Updated"));
     vi.spyOn(nativeProjectionState, "writeNativeProjectionInstallState").mockImplementationOnce(() => {
       throw new Error("synthetic install-state failure");
     });

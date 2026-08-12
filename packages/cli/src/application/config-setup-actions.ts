@@ -3,7 +3,7 @@ import type {
   KilnConfigSetupAction,
   KilnConfigSetupActionResult,
 } from "@kilnai/gateway-contracts";
-import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { loadKilnConfig, loadKilnConfigWithGlobalAuthority, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
@@ -120,13 +120,17 @@ async function syncNativeProjections(
   action: KilnConfigSetupAction,
   userHome?: string,
 ): Promise<KilnConfigSetupActionResult> {
-  const kilnYaml = await loadKilnConfig(projectPath);
+  const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(projectPath);
   if (!kilnYaml) {
     return result(action, "failed", "No kiln.yaml found in the project .kiln directory.", ["No kiln.yaml found."], projectPath, userHome);
   }
 
   const disabledHarnesses = [] as const;
-  const permissionResult = await syncNativePermissionProjections(kilnYaml, projectPath, { disabledHarnesses, userHome });
+  const permissionResult = await syncNativePermissionProjections(kilnYaml, projectPath, {
+    disabledHarnesses,
+    userHome,
+    modelGateway: globalConfig?.modelGateway,
+  });
   const hookResult = await syncNativeHookProjections(projectPath, join(projectPath, ".kiln"), { disabledHarnesses });
   const agentResult = await syncNativeAgentProjections(projectPath, { disabledHarnesses, userHome });
   const skillResult = await syncNativeSkillProjections(projectPath, {

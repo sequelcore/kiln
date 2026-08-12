@@ -110,7 +110,19 @@ export function deriveEffectiveKilnYaml(
 }
 
 export async function loadKilnConfig(projectPath: string): Promise<KilnYaml | null> {
+  return (await loadKilnConfigWithGlobalAuthority(projectPath)).kilnYaml;
+}
+
+export interface KilnConfigWithGlobalAuthority {
+  readonly kilnYaml: KilnYaml | null;
+  readonly globalConfig: KilnGlobalConfig | null;
+}
+
+export async function loadKilnConfigWithGlobalAuthority(projectPath: string): Promise<KilnConfigWithGlobalAuthority> {
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(projectPath, ".kiln"));
-  return deriveEffectiveKilnYaml(globalConfig, projectConfig);
+  return {
+    kilnYaml: deriveEffectiveKilnYaml(globalConfig, projectConfig),
+    globalConfig,
+  };
 }

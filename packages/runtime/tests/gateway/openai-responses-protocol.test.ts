@@ -91,13 +91,13 @@ describe("parseOpenAIResponsesRequest", () => {
             strict: true,
           }],
         },
-        { type: "web_search", external_web_access: true },
+        { type: "web_search", external_web_access: true, search_content_types: ["text", "image"] },
       ],
     });
 
     expect(parsed.tools).toEqual([
       expect.objectContaining({ type: "namespace", name: "workspace" }),
-      { type: "web_search", external_web_access: true },
+      { type: "web_search", external_web_access: true, search_content_types: ["text", "image"] },
     ]);
     expect(parsed.reasoning).toBeUndefined();
   });
@@ -109,6 +109,18 @@ describe("parseOpenAIResponsesRequest", () => {
     });
 
     expect(parsed.tool_choice).toEqual({ type: "function", namespace: "workspace", name: "read_file" });
+  });
+
+  it.each([
+    [[], "one or two"],
+    [["text", "image", "text"], "one or two"],
+    [["text", "text"], "must not contain duplicates"],
+    [["audio"], "entry is unsupported"],
+  ])("rejects invalid Codex web-search content types: %j", (searchContentTypes, diagnostic) => {
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      tools: [{ type: "web_search", external_web_access: false, search_content_types: searchContentTypes }],
+    })).toThrow(diagnostic);
   });
 
   it("bounds expanded namespace tools independently from top-level tools", () => {

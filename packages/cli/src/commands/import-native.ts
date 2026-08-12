@@ -190,7 +190,10 @@ export async function importNativeCommand(
     console.log(`Backed up invalid global config to ${mutation.invalidBackupPath}`);
   }
   const committed = mutation.config;
-  const syncResult = await syncNativePermissionProjections(globalToKilnYaml(committed), process.cwd(), { force: true });
+  const syncResult = await syncNativePermissionProjections(globalToKilnYaml(committed), process.cwd(), {
+    force: true,
+    modelGateway: committed.modelGateway,
+  });
   if (syncResult.errors.length > 0) {
     console.error("Error: imported config was written, but native re-projection failed:");
     for (const error of syncResult.errors) {

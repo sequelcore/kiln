@@ -1,9 +1,11 @@
 # 04 - Cross-Harness Integration
 
 Status: Ready
-Execution: Ready - OpenCode and Codex picker parity are live-proven; Claude
-native-picker activation, the independent quota-gated entitlement proof, and
-final all-harness conformance remain.
+Execution: Ready - OpenCode, Codex, and Claude picker parity are live-proven.
+The independent quota-gated Claude entitlement proof and final all-harness
+conformance remain. The 2026-08-12 crossover diagnostic also left one OpenCode
+provider outcome settlement-pending and exposed the existing sanitized
+managed-agent failure gap tracked by #66.
 Created: 2026-07-23
 
 ## Objective
@@ -204,7 +206,8 @@ without reproducible Sequel benchmark evidence.
 
 ### Slice 2 - Cross-Harness Dogfood
 
-Status: Queued behind Slices 0-1.
+Status: In progress; picker crossover is proven, full managed-child conformance
+remains blocked by terminal evidence and settlement reconciliation.
 
 Re-sync and live-prove the harness-neutral bridge from all three harnesses,
 then run a real bounded implementation slice through the completed per-job
@@ -218,6 +221,33 @@ a manual HTTP gateway process as a hidden workaround.
 Exit gate: the operator can work primarily from Codex App without burning
 Codex quota for every delegated task, and no workflow step uses a native-CLI
 shell workaround for a Kiln-managed route.
+
+#### Native child invocation parity question
+
+Every supported native surface may expose two distinct child-execution planes:
+its harness-native subagent mechanism and Kiln's managed-agent control plane.
+The native mechanism may advertise only that harness's models, while the Kiln
+control plane admits configured agent profiles across provider families and
+owns their asynchronous lifecycle, authority, and replay. A surface must not
+infer Kiln-managed availability from its native model picker or native spawn
+schema.
+
+Resolve and live-prove the same operator experience for Codex App/CLI,
+OpenCode, and Claude Code: can an active native session discover admitted Kiln
+agent profiles, invoke one through the managed-job boundary, distinguish
+accepted from completed work, and reconcile status and result without a shell
+or direct-provider workaround? The proof must include one profile from the
+surface's native provider family and one admitted cross-provider profile.
+Unavailable profiles, including economically excluded routes, must retain the
+canonical diagnostic and operator action rather than appearing unsupported by
+the surface.
+
+Decision required: whether native subagents remain a separate convenience
+plane with explicit UI/tool labeling, or whether each surface presents a
+composite child selector backed by both native and Kiln-managed capabilities.
+Either outcome must preserve Kiln Runtime as the sole authority for managed
+profiles and must not let the native harness choose provider routes,
+credentials, budgets, permissions, or approvals.
 
 ### Slice 3 - Claude Entitlement Adapter
 
@@ -269,6 +299,15 @@ rather than inheriting this capability. A bounded Claude `low` live probe on
 so the new effort path is not yet live-promoted even though its deterministic
 discovery, lowering, and cross-surface tests pass.
 
+The sanctioned exact-model proof was repeated on 2026-08-12 with gateway and
+API environment removed. Native Claude again stopped before completion at the
+account's weekly limit and reported an 11pm America/Hermosillo reset. No retry
+or alternate credential is admitted before that reset. The independent
+governed reviewer job was accepted but terminated as `unknown_failure`, so it
+supplies no independent review findings. That Codex-route outcome is separate
+from the exact native Claude proof tracked by
+[issue #66](https://github.com/sequelcore/kiln/issues/66).
+
 Exit gate: Claude Code subscription and Anthropic API usage cannot be confused
 in route selection or status, and native-harness routes expose an explicit
 unsupported-proof diagnostic wherever Kiln cannot verify behavior. The exact
@@ -277,7 +316,8 @@ live-proof identity.
 
 ### Slice 4 - Codex Composite Picker
 
-Status: Complete and live-proven on Codex 0.147.0.
+Status: Complete and live-proven on Codex 0.147.0; the 2026-08-12 caller-shape
+regression is repaired and deterministically covered.
 
 Close Responses protocol parity, admitted reasoning levels, hosted web search,
 and native catalog-template inspection; fail closed if no valid native catalog
@@ -311,6 +351,24 @@ selected model's canonical capabilities. The obsolete `model_providers.kiln`
 path and schema-invalid native `[kiln.permission_sync]` metadata are removed;
 permission evidence remains in Kiln install state.
 
+Later on 2026-08-12, a frozen crossover task found that Codex 0.147.0 now sends
+`web_search.search_content_types: ["text", "image"]`. Kiln initially rejected
+that current shape. Runtime now validates the bounded field and treats
+provider-hosted web search as an optional capability: routes without it omit
+only that tool and record degraded compatibility evidence. The corrected live
+diagnostic passed request validation and reached canonical OpenCode dispatch.
+DeepSeek V4 Flash then ended without a provable terminal result, so the
+dispatch-fenced lease remains settlement-pending and capacity-consuming by
+design. This is not counted as a successful Codex-to-OpenCode task run.
+
+The reverse picker path is live-proven independently: OpenCode 1.18.16 lists
+`kiln/codex-terra`, selected it through the owned `provider.kiln` projection,
+and completed an exact bounded `READY` turn through Codex OAuth. A same-task
+implementation run did not reach repository work before its fixed timeout
+because the native session spent the attempt reconciling governance and
+projection evidence. It remains failed experiment evidence, not a model or
+harness performance result.
+
 #### Provider-neutral deliberation policy
 
 Implemented by [ADR-011](../adr/ADR-011-provider-neutral-deliberation-policy.md)
@@ -334,9 +392,9 @@ session-transfer behavior into Kiln's governed surface.
 
 ### Slice 4.1 - Claude Native Picker Parity
 
-Status: Ready; projection contract and deterministic tests exist, but operator
-activation and live proof remain in
-[issue #78](https://github.com/sequelcore/kiln/issues/78).
+Status: Complete and live-proven with Claude Code 2.1.226 on 2026-08-12;
+[issue #78](https://github.com/sequelcore/kiln/issues/78) carries the closure
+evidence.
 
 Project every canonical virtual route with proven Anthropic Messages
 compatibility into Claude Code's authenticated native model discovery. Derive
@@ -353,14 +411,24 @@ non-Anthropic upstream. Claude subscription entitlement, explicitly billed
 Anthropic API access, and gateway-backed virtual routes remain separate route,
 credential, and billing classes in status and replay.
 
-The existing projection builder and config writer are code-complete. The
-operator configuration does not currently activate them because its Anthropic
-Messages principal is not declared as the Claude native-harness projection
-principal. Activation must therefore configure one eligible principal, prove
-authenticated `/v1/models` discovery and native selector visibility, complete
-one explicit virtual-model turn, exercise restart and drift handling, and prove
-exact uninstall followed by reinstall. This work is separate from the
-quota-gated native Claude entitlement proof in issue #66.
+The operator configuration now declares one Claude native-harness Messages
+principal and one capability-complete Terra virtual model. Native projection
+resolves that value only from canonical global config; the obsolete
+project-local `.kiln/gateway.yaml` lookup was deleted. Authenticated
+`/v1/models?limit=1000` discovery returned exactly
+`claude-kiln-codex-terra`, and Claude Code selected it and completed an exact
+`CLAUDE_KILN_READY` turn through Codex Terra in 2.598 seconds (2.083 seconds API,
+5,336 input and 23 output tokens).
+
+The live caller shape required two narrowly admitted protocol updates:
+official `metadata.user_id` is validated but not forwarded as provider
+identity, and Claude Code text-only `system` message turns map to
+protocol-neutral `developer` history. The real request then passed syntax,
+capability, mapping, economic admission, dispatch, and terminal projection.
+Gateway restart preserved discovery. Exact `claude-settings` uninstall removed
+only recorded Kiln fields while preserving `hooks`; reinstall restored the same
+model and owned environment fields without writing the credential. This proof
+is separate from the quota-gated native Claude entitlement proof in issue #66.
 
 Exit gate: Claude Code can select every currently eligible Messages-compatible
 Kiln virtual route from its native model selector; excluded routes have an

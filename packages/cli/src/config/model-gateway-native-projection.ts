@@ -28,13 +28,7 @@ export function resolveResponsesNativeProjectionSource(
   if (principals.length > 1) throw new Error(`modelGateway declares multiple ${harness} native harness principals.`);
   const principal = principals[0];
   if (!principal) return undefined;
-  const byId = new Map(config.virtualModels.map((model) => [model.id, model]));
-  const models = principal.virtualModelIds.map((id) => {
-    const model = byId.get(id);
-    if (!model) throw new Error(`${harness} native harness principal references unknown virtual model '${id}'.`);
-    if (!hasPickerMetadata(model)) throw new Error(`${harness} native harness model '${id}' is missing validated picker metadata.`);
-    return model;
-  });
+  const models = resolveNativeProjectionModels(config, principal, harness);
   return { principal, models, port: config.port };
 }
 
@@ -45,17 +39,45 @@ export function resolveClaudeMessagesNativeProjectionSource(
   if (principals.length > 1) throw new Error("modelGateway declares multiple claude native harness principals.");
   const principal = principals[0];
   if (!principal) return undefined;
-  const byId = new Map(config.virtualModels.map((model) => [model.id, model]));
-  const models = principal.virtualModelIds.map((id) => {
-    const model = byId.get(id);
-    if (!model) throw new Error(`claude native harness principal references unknown virtual model '${id}'.`);
+  const models = resolveNativeProjectionModels(config, principal, "claude", (model, id) => {
     if (!/^(?:claude|anthropic)[A-Za-z0-9._:-]*$/.test(model.id)) {
       throw new Error(`claude native harness model '${id}' must start with claude or anthropic for gateway discovery.`);
     }
-    if (!hasPickerMetadata(model)) throw new Error(`claude native harness model '${id}' is missing validated picker metadata.`);
-    return model;
   });
   return { principal, models, port: config.port };
+}
+
+function resolveNativeProjectionModels(
+  config: ModelGatewayConfig,
+  principal: ModelGatewayPrincipalConfig,
+  harness: ResponsesNativeHarness | "claude",
+  validateModel?: (model: ModelGatewayVirtualModelConfig, id: string) => void,
+): readonly NativeProjectedVirtualModel[] {
+  if (principal.virtualModelIds.length === 0) {
+    throw new Error(`${harness} native harness principal must reference at least one virtual model.`);
+  }
+
+  const referencedIds = new Set<string>();
+  for (const id of principal.virtualModelIds) {
+    if (referencedIds.has(id)) throw new Error(`${harness} native harness principal repeats virtual model id '${id}'.`);
+    referencedIds.add(id);
+  }
+
+  const byId = new Map<string, ModelGatewayVirtualModelConfig>();
+  const duplicateIds = new Set<string>();
+  for (const model of config.virtualModels) {
+    if (byId.has(model.id)) duplicateIds.add(model.id);
+    else byId.set(model.id, model);
+  }
+
+  return principal.virtualModelIds.map((id) => {
+    if (duplicateIds.has(id)) throw new Error(`${harness} native harness references duplicate virtual model definitions for '${id}'.`);
+    const model = byId.get(id);
+    if (!model) throw new Error(`${harness} native harness principal references unknown virtual model '${id}'.`);
+    validateModel?.(model, id);
+    if (!hasPickerMetadata(model)) throw new Error(`${harness} native harness model '${id}' is missing validated picker metadata.`);
+    return model;
+  });
 }
 
 const CLAUDE_GATEWAY_ENV: Readonly<Record<string, string>> = {

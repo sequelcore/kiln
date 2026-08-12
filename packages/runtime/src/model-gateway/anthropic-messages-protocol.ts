@@ -15,13 +15,14 @@ export interface AnthropicMessagesRequest {
   readonly tools?: readonly Record<string, unknown>[];
   readonly tool_choice?: Record<string, unknown>;
   readonly output_config?: { readonly effort: "low" | "medium" | "high" | "xhigh" };
+  readonly metadata?: { readonly user_id?: string | null };
 }
 
 type WireRecord = Record<string, unknown>;
 
 export function parseAnthropicMessagesRequest(value: unknown): AnthropicMessagesRequest {
   const request = record(value, "$request");
-  rejectUnknown(request, ["model", "max_tokens", "stream", "system", "messages", "tools", "tool_choice", "output_config"] as const, "$request");
+  rejectUnknown(request, ["model", "max_tokens", "stream", "system", "messages", "tools", "tool_choice", "output_config", "metadata"] as const, "$request");
   identifier(request.model, "model");
   positiveInteger(request.max_tokens, "max_tokens");
   if (request.stream !== true) fail("stream", "Anthropic Messages ingress requires streaming.");
@@ -34,7 +35,14 @@ export function parseAnthropicMessagesRequest(value: unknown): AnthropicMessages
   }
   if (request.tool_choice !== undefined) validateToolChoice(request.tool_choice);
   if (request.output_config !== undefined) validateOutputConfig(request.output_config);
+  if (request.metadata !== undefined) validateMetadata(request.metadata);
   return structuredClone(request) as unknown as AnthropicMessagesRequest;
+}
+
+function validateMetadata(value: unknown): void {
+  const metadata = record(value, "metadata");
+  rejectUnknown(metadata, ["user_id"] as const, "metadata");
+  if (metadata.user_id !== undefined && metadata.user_id !== null) identifier(metadata.user_id, "metadata.user_id");
 }
 
 function validateOutputConfig(value: unknown): void {
@@ -58,13 +66,13 @@ function validateSystem(value: unknown): void {
 function validateMessage(value: unknown, path: string): void {
   const message = record(value, path);
   rejectUnknown(message, ["role", "content"] as const, path);
-  if (message.role !== "user" && message.role !== "assistant") fail(`${path}.role`, "role must be user or assistant.");
+  if (message.role !== "user" && message.role !== "assistant" && message.role !== "system") fail(`${path}.role`, "role must be user, assistant, or system.");
   if (typeof message.content === "string") return;
   if (!Array.isArray(message.content) || message.content.length === 0 || message.content.length > ANTHROPIC_MESSAGES_PROTOCOL_LIMITS.maxBlocksPerMessage) fail(`${path}.content`, "content must be text or bounded non-empty blocks.");
-  message.content.forEach((block, index) => validateContentBlock(block, `${path}.content[${index}]`, message.role as "user" | "assistant"));
+  message.content.forEach((block, index) => validateContentBlock(block, `${path}.content[${index}]`, message.role as "user" | "assistant" | "system"));
 }
 
-function validateContentBlock(value: unknown, path: string, role: "user" | "assistant"): void {
+function validateContentBlock(value: unknown, path: string, role: "user" | "assistant" | "system"): void {
   const block = record(value, path);
   if (block.type === "text") {
     rejectUnknown(block, ["type", "text"] as const, path);

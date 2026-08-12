@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import readline from "node:readline";
-import { loadKilnConfig } from "../config/config-merger.js";
+import { loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
 import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
@@ -200,7 +200,7 @@ export async function syncCommand(
   const kilnDir = join(root, ".kiln");
   const disabledHarnesses = [] as const;
 
-  const kilnYaml = await loadKilnConfig(root);
+  const { kilnYaml, globalConfig } = await loadKilnConfigWithGlobalAuthority(root);
   if (!kilnYaml) {
     console.error("Error: No kiln.yaml found in .kiln directory");
     process.exit(1);
@@ -230,6 +230,7 @@ export async function syncCommand(
         force: forcePermissionSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
+        modelGateway: globalConfig?.modelGateway,
       }));
   }
 
