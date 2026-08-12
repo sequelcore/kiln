@@ -244,22 +244,25 @@ Prefer concrete boundary evidence over abstract DDD terminology.
   }),
   defineBuiltinSkill({
     name: "refactoring-safety",
-    description: "Guide behavior-preserving cleanup with narrow diffs, executable checks, and no legacy residue.",
+    description:
+      "Guide behavior-preserving refactors with explicit invariants, dependency evidence, incremental transformations, and proportional verification.",
     tools: ["read", "grep", "glob", "bash", "write"],
     tags: ["engineering", "refactoring"],
     instructions: `
 # Refactoring Safety
 
-Use this skill for cleanup that should preserve behavior.
+Use this skill when changing internal structure while preserving observable behavior.
 
 Workflow:
-1. Identify the invariant behavior before editing.
-2. Remove redundancy, dead code, and avoidable indirection only inside the scoped area.
-3. Avoid compatibility branches unless an active documented contract requires them.
-4. Keep commits atomic and diff-readable.
-5. Run focused checks that prove behavior did not change.
-
-If behavior must change, stop treating the work as a pure refactor.
+1. Define the observable behavior contract and capture baseline evidence before editing. Include public APIs, outputs, persisted or serialized data, errors, ordering, side effects, authority decisions, and concurrency or performance properties when they are part of the contract.
+2. Map the affected dependency surface and every known consumer. Check configuration, reflection, registration, generated code, scripts, operational entrypoints, and runtime evidence where applicable. Absence of static references is not proof that code is dead.
+3. State the intended structural improvement and the residual concern by name. Do not introduce an abstraction unless it removes demonstrated coupling, duplication, or responsibility confusion.
+4. Apply one named transformation at a time. Prefer compiler-, type-system-, or AST-assisted changes for moves and renames, and keep each intermediate state buildable and behaviorally valid.
+5. After each transformation, run the narrowest checks that can expose semantic drift. Then verify affected dependents in proportion to reach and risk; do not substitute habitual full-suite execution for dependency reasoning.
+6. Compare before-and-after behavior directly when existing tests are weak or the contract crosses a boundary. Use deterministic characterization, differential, integration, or trace evidence appropriate to the risk.
+7. Review the diff for accidental changes to defaults, constants, errors, ordering, transactions, async behavior, authorization, data shape, and resource use. Tests should assert observable behavior rather than the prior implementation shape.
+8. Delete the obsolete path in the same change. Do not retain wrappers, aliases, flags, or compatibility branches without an identified active consumer or explicit data-migration requirement; confirm no residual references remain.
+9. Record the verified surface, checks run, and residual uncertainty. If behavior changes or equivalence cannot be established, reclassify the work as a behavior change or migration and use its testing and rollout discipline.
 `,
   }),
   defineBuiltinSkill({

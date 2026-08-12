@@ -56,6 +56,18 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/State the reviewed surface and any material surface not reviewed/);
   });
 
+  it("requires explicit equivalence evidence for behavior-preserving refactors", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "refactoring-safety");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toContain("Define the observable behavior contract and capture baseline evidence");
+    expect(skill?.instructions).toContain("Absence of static references is not proof that code is dead");
+    expect(skill?.instructions).toContain("Apply one named transformation at a time");
+    expect(skill?.instructions).toContain("Compare before-and-after behavior");
+    expect(skill?.instructions).toContain("Delete the obsolete path in the same change");
+    expect(skill?.instructions).toContain("reclassify the work as a behavior change or migration");
+  });
+
   it("defines clear-writing as neutral reusable writing procedure", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "clear-writing");
 
