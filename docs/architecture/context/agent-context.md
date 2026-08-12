@@ -439,6 +439,7 @@ The built-in skill ids are:
 | `refactoring-safety` | Preserve behavior while removing dead code, redundancy, and avoidable complexity. | `refactoring-specialist` |
 | `security-scope-review` | Trace authority, untrusted data, credentials, and consequential effects to enforcement evidence. | `adversarial-reviewer`, `reviewer` |
 | `managed-agent-risk-review` | Audit delegated identity, attenuated authority, lifecycle settlement, evidence, and honest replay limits. | `architect`, `reviewer` |
+| `research-workflow` | Research decision-relevant questions with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty. | `researcher`, any research task |
 | `benchmark-readiness-review` | Judge benchmark validity, reproducibility, comparability, and tiered claim readiness. | `researcher`, `reviewer` |
 | `config-projection-review` | Review canonical intent, projection ownership, provenance, drift, and safe convergence. | `scout`, `architect` |
 | `action-first-communication` | Order outcomes, findings, state, and corrective actions without unsafe or invented brevity. | Any explicitly configured agent |

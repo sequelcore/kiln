@@ -92,4 +92,22 @@ describe("work classification", () => {
 
     expect(recommendedSkillsForWorkClassification(classification)).toEqual(["clear-writing"]);
   });
+
+  it("recommends research procedure independently of writing guidance", () => {
+    const researchOnly = defineWorkClassification({
+      intents: ["research"],
+      effects: ["answer-only"],
+    });
+    const researchReport = defineWorkClassification({
+      intents: ["research"],
+      artifacts: ["document"],
+      effects: ["write-artifact"],
+    });
+
+    expect(recommendedSkillsForWorkClassification(researchOnly)).toEqual(["research-workflow"]);
+    expect(recommendedSkillsForWorkClassification(researchReport)).toEqual([
+      "research-workflow",
+      "clear-writing",
+    ]);
+  });
 });

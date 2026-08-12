@@ -116,6 +116,10 @@ describe("ModelCapabilityRegistry", () => {
           level: "capable",
           source: "static-profile",
         }),
+        expect.objectContaining({
+          task: "research",
+          recommendedSkills: ["repo-context-review", "research-workflow"],
+        }),
       ]),
     );
     expect(registry.taskSuitability("opencode-zen", "kimi-k2.6")).toEqual(

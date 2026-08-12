@@ -151,7 +151,14 @@ export function recommendedSkillsForWorkClassification(
   if (!classification || Object.keys(classification).length === 0) {
     return [];
   }
-  return isClearWritingWork(classification) ? ["clear-writing"] : [];
+  const recommended: string[] = [];
+  if (classification.intents?.includes("research")) {
+    recommended.push("research-workflow");
+  }
+  if (isClearWritingWork(classification)) {
+    recommended.push("clear-writing");
+  }
+  return recommended;
 }
 
 function isClearWritingWork(classification: WorkClassification): boolean {

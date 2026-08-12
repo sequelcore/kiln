@@ -259,5 +259,6 @@ define the active architecture contract. For doctrine, use
 37. `37-security-and-managed-agent-review-skills-2026.md`
 38. `38-architecture-boundary-review-skills-2026.md`
 39. `39-governance-review-skills-2026.md`
-40. `41-bounded-work-authority-2026.md`
-41. `web-retrieval-provider-routing.md`
+40. `40-research-workflow-skill-2026.md`
+41. `41-bounded-work-authority-2026.md`
+42. `web-retrieval-provider-routing.md`

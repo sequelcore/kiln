@@ -117,6 +117,7 @@ Current core built-ins:
 - `refactoring-safety`
 - `security-scope-review`
 - `managed-agent-risk-review`
+- `research-workflow`
 - `benchmark-readiness-review`
 - `config-projection-review`
 - `action-first-communication`
@@ -287,6 +288,12 @@ Managed invocations may supply an explicit classification:
   }
 }
 ```
+
+The `research` task suitability class recommends `repo-context-review` and
+`research-workflow`. A work classification whose intents include `research`
+recommends `research-workflow`; prose-like research output may additionally
+recommend `clear-writing`. The research workflow governs method and evidence,
+not network admission, route choice, provider identity, or citation tooling.
 
 Unknown explicit facet values fail closed. In advisory mode, the classification
 is recorded and recommendations remain diagnostics. In auto mode, Kiln may

@@ -99,6 +99,35 @@ describe("task skill selection work classification", () => {
     expect(selection.contextCandidates[0]?.content).toContain("# clear-writing");
   });
 
+  it("auto-admits the canonical research workflow for research classification", () => {
+    const root = tempRoot();
+
+    const selection = resolveTaskSkillSelection({
+      projectPath: root,
+      userHome: root,
+      skillConfig: {
+        selection: { mode: "auto" },
+        builtin: { enabled: true, include: ["research-workflow"] },
+      },
+      selection: { mode: "auto" },
+      workClassification: {
+        intents: ["research"],
+        effects: ["answer-only"],
+      },
+      requesterLabel: "Task skill selection",
+    });
+
+    expect(selection.skillNames).toEqual(["research-workflow"]);
+    expect(selection.autoSkillNames).toEqual(["research-workflow"]);
+    expect(selection.workRecommendedSkillDiagnostics).toEqual([{
+      skillName: "research-workflow",
+      state: "admitted",
+      reason: "Recommended by work classification and admitted by auto selection.",
+    }]);
+    expect(selection.contextCandidates[0]?.content).toContain("# Research Workflow");
+    expect(selection.projectionEvidence.selections[0]?.selectionReason).toBe("auto");
+  });
+
   it("diagnoses unavailable auto work recommendations without admitting them", () => {
     const root = tempRoot();
 

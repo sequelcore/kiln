@@ -530,7 +530,7 @@ function recommendedSkillsForTask(task: ModelTaskSuitabilityTask): readonly stri
     case "mechanical-edit":
       return ["repo-context-review"];
     case "research":
-      return ["repo-context-review"];
+      return ["repo-context-review", "research-workflow"];
     case "test-writing":
       return ["tdd-workflow"];
   }
