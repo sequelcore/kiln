@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyToml } from "smol-toml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readConfigStatusSnapshot, readConfigStatusView } from "../../src/application/config-status.js";
+import {
+  readConfigStatusSnapshot as readConfigStatusSnapshotImplementation,
+  readConfigStatusView as readConfigStatusViewImplementation,
+  type ReadConfigStatusOptions,
+  type ReadConfigStatusViewOptions,
+} from "../../src/application/config-status.js";
+import type { KilnConfigReadView, KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
 import { writeRepoShimProjections } from "../../src/application/repo-shim-projection.js";
 import { createMcpCredentialAccess, KILN_MCP_SECRET_KEY_ENV } from "../../src/config/mcp-credentials.js";
 import { recordMcpDiscovery } from "../../src/config/mcp-runtime-state.js";
@@ -15,8 +21,23 @@ import {
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
+import { defaultKilnYaml, writeKilnYaml } from "../../src/kiln-yaml.js";
 
 let tempDir: string;
+
+const emptyPluginProvider = () => ({ roots: [], diagnostics: [] });
+const readConfigStatusSnapshot = (options: ReadConfigStatusOptions = {}) =>
+  readConfigStatusSnapshotImplementation({ ...options, pluginProvider: emptyPluginProvider });
+const readConfigStatusView = (
+  snapshot: KilnConfigStatusSnapshot,
+  view: KilnConfigReadView,
+  options: ReadConfigStatusViewOptions = {},
+) => readConfigStatusViewImplementation(snapshot, view, { ...options, pluginProvider: emptyPluginProvider });
+
+async function detailedSkillEntries(snapshot: Awaited<ReturnType<typeof readConfigStatusSnapshot>>, userHome?: string) {
+  const view = await readConfigStatusView(snapshot, "skills", { userHome });
+  return (view.value as { entries: readonly Record<string, unknown>[] }).entries;
+}
 
 function writeProjectConfig(projectPath: string): void {
   mkdirSync(join(projectPath, ".kiln"), { recursive: true });
@@ -53,6 +74,33 @@ function writeSkillFile(root: string, name: string, fileName: string, descriptio
 }
 
 describe("config-status", () => {
+  it("skips plugin discovery for an unrelated targeted config view", async () => {
+    writeProjectConfig(tempDir);
+    const pluginProvider = vi.fn(() => ({ roots: [], diagnostics: [] }));
+
+    await readConfigStatusSnapshotImplementation({
+      projectPath: tempDir,
+      userHome: join(tempDir, "home"),
+      view: "effective",
+      pluginProvider,
+    });
+
+    expect(pluginProvider).not.toHaveBeenCalled();
+  });
+
+  it("reuses one request-scoped catalog discovery for the skills view", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    const pluginProvider = vi.fn(() => ({ roots: [], diagnostics: [] }));
+    const snapshot = await readConfigStatusSnapshotImplementation({
+      projectPath: tempDir, userHome, view: "skills", pluginProvider,
+    });
+
+    await readConfigStatusViewImplementation(snapshot, "skills", { userHome, pluginProvider });
+
+    expect(pluginProvider).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-config-status-"));
     vi.stubEnv("XDG_CONFIG_HOME", join(tempDir, "xdg"));
@@ -748,7 +796,7 @@ describe("config-status", () => {
     writeSkill(join(tempDir, ".kiln", "skills"), "tdd-workflow", "Project override.");
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
-    const skills = await readConfigStatusView(snapshot, "skills");
+    const skills = await readConfigStatusView(snapshot, "skills", { userHome });
 
     expect(skills.value).toMatchObject({
       entries: expect.arrayContaining([
@@ -772,6 +820,39 @@ describe("config-status", () => {
       ]),
     });
     expect(snapshot.setup.recommendedActions).toContain("sync-native-projections");
+    expect(snapshot.skills).toBeUndefined();
+    expect(snapshot.setup.skills).toMatchObject({ complete: expect.any(Boolean), harnesses: expect.any(Array) });
+    expect(snapshot.setup.skills?.issues.length).toBeLessThanOrEqual(12);
+    expect(snapshot.setup.skills?.issueCount).toBeGreaterThan(12);
+    expect(snapshot.setup.skills?.omittedIssueCount).toBe((snapshot.setup.skills?.issueCount ?? 0) - 12);
+    expect(snapshot.setup.skills?.issues).toContainEqual(expect.objectContaining({
+      skillName: "custom-user", kind: "missing", harness: "codex", projectionState: "missing",
+    }));
+  });
+
+  it("does not recommend repeating sync for fail-closed OpenCode explicit-only visibility", async () => {
+    writeProjectConfig(tempDir);
+    const userHome = join(tempDir, "home");
+    writeSkill(join(userHome, ".kiln", "skills"), "planner", "Plan work.");
+    const skillConfig = {
+      builtin: { enabled: false },
+      visibility: { overrides: { planner: "explicit-only" as const } },
+    };
+
+    await syncNativeSkillProjections(tempDir, { userHome, skillConfig });
+    writeKilnYaml(join(tempDir, ".kiln"), defaultKilnYaml("default"));
+    const globalDir = join(tempDir, "xdg", "kiln");
+    mkdirSync(globalDir, { recursive: true });
+    writeFileSync(join(globalDir, "config.yaml"), [
+      'version: "2"', "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
+    ].join("\n"), "utf8");
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+
+    expect(snapshot.setup.recommendedActions).not.toContain("sync-native-projections");
+    expect(snapshot.setup.skills, JSON.stringify(snapshot.errors)).toBeDefined();
+    expect(snapshot.setup.skills?.issues).toContainEqual(expect.objectContaining({
+      skillName: "planner", harness: "opencode", kind: "capability", projectionState: "missing",
+    }));
   });
 
   it("reports unmanaged harness-local skills without admitting them", async () => {
@@ -781,7 +862,7 @@ describe("config-status", () => {
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "shadcn",
         origin: "native-harness",
@@ -809,7 +890,7 @@ describe("config-status", () => {
     await syncNativeSkillProjections(tempDir, { userHome });
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "shadcn",
         origin: "user",
@@ -834,7 +915,7 @@ describe("config-status", () => {
     writeFileSync(join(userHome, ".codex", "skills", "multi-file", "notes.md"), "drifted\n", "utf-8");
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "multi-file",
         projections: expect.arrayContaining([
@@ -864,7 +945,7 @@ describe("config-status", () => {
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "historical",
         projections: expect.arrayContaining([
@@ -937,7 +1018,7 @@ describe("config-status", () => {
     );
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "nested-resource",
         projections: expect.arrayContaining([
@@ -955,7 +1036,7 @@ describe("config-status", () => {
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "manual-copy",
         projections: expect.arrayContaining([
@@ -981,8 +1062,9 @@ describe("config-status", () => {
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries.some((entry) => entry.name === "different-name")).toBe(false);
-    expect(snapshot.skills?.entries.some((entry) => entry.name === "directory-name")).toBe(false);
+    const entries = await detailedSkillEntries(snapshot, userHome);
+    expect(entries.some((entry) => entry.name === "different-name")).toBe(false);
+    expect(entries.some((entry) => entry.name === "directory-name")).toBe(false);
   });
 
   it("projects flat registry skill files and reports convergence", async () => {
@@ -1001,7 +1083,7 @@ describe("config-status", () => {
     await syncNativeSkillProjections(tempDir, { userHome });
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 
-    expect(snapshot.skills?.entries).toEqual(expect.arrayContaining([
+    expect(await detailedSkillEntries(snapshot, userHome)).toEqual(expect.arrayContaining([
       expect.objectContaining({
         name: "flat-skill",
         projections: expect.arrayContaining([

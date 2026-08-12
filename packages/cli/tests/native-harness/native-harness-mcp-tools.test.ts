@@ -22,7 +22,7 @@ const TEMPORARY_CWD = join(tmpdir(), "kiln-codex-app-mcp-unrelated-cwd");
 
 function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfigStatusSnapshot {
   return {
-    evidenceVersion: 1,
+    evidenceVersion: 2,
     generatedAt: "2026-07-13T18:00:00.000Z",
     project: {
       rootPath: "C:\\workspace\\kiln",
@@ -807,7 +807,7 @@ describe("NativeHarnessMcpTools", () => {
     const cases: readonly [string, KilnConfigStatusSnapshot, string][] = [
       ["missing version", snapshot({ evidenceVersion: undefined }), "KILN_EVIDENCE_MALFORMED"],
       ["missing observation", snapshot({ generatedAt: undefined } as unknown as Partial<KilnConfigStatusSnapshot>), "KILN_EVIDENCE_MALFORMED"],
-      ["unsupported version", snapshot({ evidenceVersion: 2 }), "KILN_EVIDENCE_VERSION_UNSUPPORTED"],
+      ["unsupported version", snapshot({ evidenceVersion: 1 }), "KILN_EVIDENCE_VERSION_UNSUPPORTED"],
       ["future observation", snapshot({ generatedAt: "2026-07-13T18:03:00.000Z" }), "KILN_EVIDENCE_FUTURE"],
       ["stale observation", snapshot({ generatedAt: "2026-07-13T17:50:00.000Z" }), "KILN_EVIDENCE_STALE"],
       ["invalid observation", snapshot({ generatedAt: "not-a-timestamp" }), "KILN_EVIDENCE_MALFORMED"],

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { KilnConfigSetupSnapshot, KilnSkillCatalogSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
+import type { KilnConfigSetupSnapshot, KilnSkillCatalogSummarySnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { SetupPanel } from "../src/components/setup-panel.js";
 
 function permissionIntegrity(): TrustedExecutionIntegrity {
@@ -77,56 +77,20 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
   };
 }
 
-function skillCatalog(): KilnSkillCatalogSnapshot {
+function skillCatalog(): KilnSkillCatalogSummarySnapshot {
   return {
-    entries: [
-      {
-        name: "repo-context-review",
-        description: "Review repository context before implementation.",
-        origin: "builtin",
-        configured: true,
-        builtIn: true,
-        sourcePath: "builtin://kiln/skills/repo-context-review",
-        projections: [
-          { target: "claude", displayName: "Claude Code", path: "C:/Users/test/.claude/skills/repo-context-review/SKILL.md", status: "missing" },
-          { target: "codex", displayName: "Codex", path: "C:/Users/test/.codex/skills/repo-context-review/SKILL.md", status: "projected" },
-          { target: "opencode", displayName: "OpenCode", path: "C:/Users/test/.config/opencode/skills/repo-context-review/SKILL.md", status: "drifted" },
-        ],
-        admission: { state: "available", reason: "Kiln governance may admit this skill when a route selects it." },
-      },
-      {
-        name: "clear-writing",
-        description: "Write clear operator-facing copy.",
-        origin: "user",
-        configured: true,
-        builtIn: false,
-        sourcePath: "C:/Users/test/.kiln/skills/clear-writing/SKILL.md",
-        projections: [{ target: "codex", displayName: "Codex", path: "C:/Users/test/.codex/skills/clear-writing/SKILL.md", status: "projected" }],
-        admission: { state: "admitted", reason: "Explicitly requested by the active managed invocation." },
-      },
-      {
-        name: "frontend-review",
-        description: "Review operator interfaces.",
-        origin: "project",
-        configured: true,
-        builtIn: false,
-        sourcePath: "C:/workspace/kiln/.kiln/skills/frontend-review/SKILL.md",
-        projections: [{ target: "opencode", displayName: "OpenCode", path: "C:/Users/test/.config/opencode/skills/frontend-review/SKILL.md", status: "missing" }],
-        admission: { state: "blocked", reason: "The active route does not permit this skill." },
-        omissionReason: "route-policy-blocked",
-      },
-      {
-        name: "native-only",
-        description: "Native harness-local skill outside the Kiln registry.",
-        origin: "native-harness",
-        configured: false,
-        builtIn: false,
-        sourcePath: "C:/Users/test/.codex/skills/native-only/SKILL.md",
-        projections: [{ target: "codex", displayName: "Codex", path: "C:/Users/test/.codex/skills/native-only/SKILL.md", status: "unmanaged-native" }],
-        admission: { state: "unavailable", reason: "Harness-local skill is not configured in Kiln." },
-        omissionReason: "native-harness-local-only",
-      },
+    complete: false,
+    equivalentDuplicates: 2,
+    divergentCollisions: 1,
+    caseCollisions: 3,
+    issueCount: 4,
+    omittedIssueCount: 3,
+    harnesses: [
+      { harness: "claude", candidateCount: 7, descriptionBytes: 512, budget: { status: "unknown", reason: "Claude does not publish an authoritative catalog budget." } },
+      { harness: "codex", candidateCount: 11, descriptionBytes: 1_024, budget: { status: "unknown", reason: "Codex does not publish an authoritative catalog budget." } },
+      { harness: "opencode", candidateCount: 5, descriptionBytes: 256, budget: { status: "unknown", reason: "OpenCode does not publish an authoritative catalog budget." } },
     ],
+    issues: [{ skillName: "planner", kind: "drifted", harness: "codex", projectionState: "drifted", path: "C:/Users/test/.codex/skills/planner/SKILL.md" }],
   };
 }
 
@@ -376,7 +340,7 @@ describe("SetupPanel", () => {
     expect(within(actions).getByRole("button", { name: "Review Global Instruction Drift" })).toBeDisabled();
   });
 
-  it("renders the shared skill catalog as an accessible, diagnostic-only inventory", () => {
+  it("renders bounded skill catalog evidence without detailed admission or projection rows", () => {
     render(
       <SetupPanel
         snapshot={setupSnapshot({ skills: skillCatalog() })}
@@ -388,39 +352,33 @@ describe("SetupPanel", () => {
       />,
     );
 
-    const inventory = screen.getByRole("table", { name: "Skill catalog" });
-    expect(inventory).toHaveTextContent("repo-context-review");
-    expect(inventory).toHaveTextContent("Review repository context before implementation.");
-    expect(inventory).toHaveTextContent("builtin");
-    expect(inventory).toHaveTextContent("built-in");
-    expect(inventory).toHaveTextContent("available");
-    expect(inventory).toHaveTextContent("Kiln governance may admit this skill");
-    expect(inventory).toHaveTextContent("clear-writing");
-    expect(inventory).toHaveTextContent("admitted");
-    expect(inventory).toHaveTextContent("frontend-review");
-    expect(inventory).toHaveTextContent("blocked");
-    expect(inventory).toHaveTextContent("route-policy-blocked");
-    expect(inventory).toHaveTextContent("native-only");
-    expect(inventory).toHaveTextContent("unmanaged-native");
+    expect(screen.getByText("Incomplete inventory")).toBeInTheDocument();
+    const identitySummary = screen.getByRole("group", { name: "Skill identity summary" });
+    expect(identitySummary).toHaveTextContent("Equivalent duplicates2");
+    expect(identitySummary).toHaveTextContent("Divergent collision1");
+    expect(identitySummary).toHaveTextContent("Case collisions3");
+    const inventory = screen.getByRole("table", { name: "Per-harness implicit skill catalog" });
     expect(inventory).toHaveTextContent("Claude Code");
+    expect(inventory).toHaveTextContent("7");
+    expect(inventory).toHaveTextContent("512 B");
     expect(inventory).toHaveTextContent("Codex");
+    expect(inventory).toHaveTextContent("11");
+    expect(inventory).toHaveTextContent("1,024 B");
     expect(inventory).toHaveTextContent("OpenCode");
-    expect(screen.getByText("Available means Kiln governance may admit a skill; it does not mean the skill is loaded into this active session.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy path for repo-context-review in Codex" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /admit/i })).not.toBeInTheDocument();
+    expect(inventory).toHaveTextContent("Unknown");
+    const issues = screen.getByRole("table", { name: "Actionable skill catalog issues" });
+    expect(issues).toHaveTextContent("planner");
+    expect(issues).toHaveTextContent("drifted");
+    expect(screen.getByRole("button", { name: "Copy path for planner Codex skill issue" })).toBeInTheDocument();
+    expect(screen.getByText("3 more issues omitted from this bounded summary (4 total). Open the detailed skills view for the complete catalog.")).toBeInTheDocument();
+    expect(screen.queryByText("repo-context-review")).not.toBeInTheDocument();
   });
 
-  it("renders accessible empty states when the shared skill catalog is absent or empty", () => {
-    const { rerender } = render(
+  it("renders an accessible unavailable state when the shared skill catalog summary is absent", () => {
+    render(
       <SetupPanel snapshot={setupSnapshot()} loading={false} error={null} onRefresh={vi.fn()} onExecuteAction={vi.fn()} onPreviewSource={vi.fn()} />,
     );
 
     expect(screen.getByRole("status", { name: "Skill catalog status" })).toHaveTextContent("Skill diagnostics are unavailable from this setup snapshot.");
-
-    rerender(
-      <SetupPanel snapshot={setupSnapshot({ skills: { entries: [] } })} loading={false} error={null} onRefresh={vi.fn()} onExecuteAction={vi.fn()} onPreviewSource={vi.fn()} />,
-    );
-
-    expect(screen.getByRole("status", { name: "Skill catalog status" })).toHaveTextContent("No skills are reported in this setup snapshot.");
   });
 });

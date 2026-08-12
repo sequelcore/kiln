@@ -50,6 +50,12 @@ export class SkillRegistry {
     return [...this.indexes.values()];
   }
 
+  /** Remove a configured skill from discovery and materialization. */
+  remove(name: string): boolean {
+    this.fullCache.delete(name);
+    return this.indexes.delete(name);
+  }
+
   /** Load full SkillConfig on demand. Reads file from disk if not already cached. */
   load(name: string): SkillConfig | undefined {
     return this.loadWithEvidence(name)?.skill;

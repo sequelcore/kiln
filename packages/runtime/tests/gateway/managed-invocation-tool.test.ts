@@ -3763,6 +3763,17 @@ describe("managed invocation runtime tool", () => {
             description: "Review repository evidence.",
             tags: ["review"],
           },
+          {
+            name: "manual-release",
+            description: "Release only when explicitly named.",
+            desiredVisibility: "explicit-only",
+          },
+          {
+            name: "retired-skill",
+            description: "Must remain unavailable.",
+            desiredVisibility: "disabled",
+            admission: { state: "blocked", reason: "Disabled by policy." },
+          },
         ],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
@@ -3819,6 +3830,8 @@ describe("managed invocation runtime tool", () => {
     expect(tool?.description).toContain("Configured admitted skills: test-generator");
     expect(tool?.description).toContain("Configured skill catalog");
     expect(tool?.description).toContain("repo-review: Review repository evidence");
+    expect(tool?.description).not.toContain("manual-release: Release only when explicitly named");
+    expect(tool?.description).not.toContain("retired-skill: Must remain unavailable");
     expect(tool?.description).toContain("Task-affinity hints");
     expect(tool?.description).toContain("Routes: opencode-readonly-a -> architecture-review:capable");
     expect(tool?.description).toContain("Agent profiles: scout -> research,architecture-review");
@@ -3861,7 +3874,7 @@ describe("managed invocation runtime tool", () => {
     expect(schema.properties?.executionPhase?.properties?.verificationRequirementIds?.items?.type).toBe("string");
     expect(schema.properties?.executionPhase?.properties?.taskAffinity?.items?.type).toBe("string");
     expect(schema.properties?.executionPhase?.properties?.instruction?.type).toBe("string");
-    expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator", "repo-review"]);
+    expect(schema.properties?.skills?.items?.enum).toEqual(["test-generator", "repo-review", "manual-release"]);
   });
 
   it("prevents invented managed child skills when the admitted catalog has none", () => {

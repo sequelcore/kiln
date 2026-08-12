@@ -2,9 +2,7 @@ import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceStatus,
   KilnProjectionTargetStatus,
-  KilnSkillAdmissionState,
-  KilnSkillCatalogProjectionStatus,
-  KilnSkillCatalogSnapshot,
+  KilnSkillCatalogSummarySnapshot,
 } from "@kilnai/gateway-contracts";
 import { Clipboard, Eye, FileCode2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -42,27 +40,6 @@ const STATUS_TONE: Record<KilnConfigSourceStatus | KilnProjectionTargetStatus, "
   drifted: "destructive",
 };
 
-const SKILL_ADMISSION_TONE: Record<KilnSkillAdmissionState, "secondary" | "destructive" | "outline"> = {
-  available: "secondary",
-  admitted: "outline",
-  omitted: "secondary",
-  blocked: "destructive",
-  unavailable: "secondary",
-};
-
-const SKILL_PROJECTION_TONE: Record<KilnSkillCatalogProjectionStatus, "secondary" | "destructive" | "outline"> = {
-  missing: "secondary",
-  projected: "outline",
-  drifted: "destructive",
-  "unmanaged-native": "secondary",
-};
-
-const SKILL_PROJECTION_TARGETS = [
-  { target: "claude", displayName: "Claude Code" },
-  { target: "codex", displayName: "Codex" },
-  { target: "opencode", displayName: "OpenCode" },
-] as const;
-
 const PROJECTION_UPDATED_AT_FORMATTER = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -79,77 +56,112 @@ export function SetupSourceInventory(props: SetupSourceInventoryProps) {
   );
 }
 
-function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSnapshot | undefined }) {
-  const entries = props.skills?.entries;
+function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnapshot | undefined }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle><h3>Skill Catalog</h3></CardTitle>
         <CardDescription>
-          Available means Kiln governance may admit a skill; it does not mean the skill is loaded into this active session.
+          Bounded inventory evidence for implicit skill metadata visible to each supported harness.
         </CardDescription>
-        {entries ? <CardAction><Badge variant="outline">{entries.length} skills</Badge></CardAction> : null}
+        {props.skills ? (
+          <CardAction>
+            <Badge variant={props.skills.complete ? "outline" : "secondary"}>
+              {props.skills.complete ? "Complete inventory" : "Incomplete inventory"}
+            </Badge>
+          </CardAction>
+        ) : null}
       </CardHeader>
       <CardContent className="p-0">
-        {entries === undefined ? (
+        {props.skills === undefined ? (
           <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">Skill diagnostics are unavailable from this setup snapshot.</p>
-        ) : entries.length === 0 ? (
-          <p role="status" aria-label="Skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">No skills are reported in this setup snapshot.</p>
         ) : (
-          <Table aria-label="Skill catalog">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Skill</TableHead>
-                <TableHead>Origin</TableHead>
-                <TableHead>Identity</TableHead>
-                <TableHead>Admission</TableHead>
-                <TableHead>Native projections</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {entries.map((skill) => (
-                <TableRow key={`${skill.origin}:${skill.name}`}>
-                  <TableCell className="min-w-52 whitespace-normal align-top">
-                    <p className="font-medium text-foreground">{skill.name}</p>
-                    <p className="mt-0.5 max-w-sm text-xs leading-5 text-muted-foreground">{skill.description}</p>
-                  </TableCell>
-                  <TableCell className="align-top text-muted-foreground">{skill.origin}</TableCell>
-                  <TableCell className="align-top">
-                    <Badge variant="outline">{skill.builtIn ? "built-in" : skill.configured ? "configured" : "unconfigured"}</Badge>
-                  </TableCell>
-                  <TableCell className="min-w-56 whitespace-normal align-top">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={SKILL_ADMISSION_TONE[skill.admission.state]}>{skill.admission.state}</Badge>
-                      {skill.omissionReason ? <span className="font-mono text-xs text-muted-foreground">{skill.omissionReason}</span> : null}
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{skill.admission.reason}</p>
-                  </TableCell>
-                  <TableCell className="min-w-56 whitespace-normal align-top">
-                    <ul className="space-y-1.5">
-                      {SKILL_PROJECTION_TARGETS.map(({ target, displayName }) => {
-                        const projection = skill.projections.find((entry) => entry.target === target);
-                        return (
-                          <li key={target} className="flex items-center gap-2">
-                            <span className="min-w-20 text-xs text-muted-foreground">{projection?.displayName ?? displayName}</span>
-                            {projection ? <Badge variant={SKILL_PROJECTION_TONE[projection.status]}>{projection.status}</Badge> : <span className="text-xs text-muted-foreground">No projection reported</span>}
-                            {projection ? (
-                              <Button type="button" variant="ghost" size="icon-xs" aria-label={`Copy path for ${skill.name} in ${projection.displayName}`} onClick={() => void copyText(projection.path)}>
-                                <Clipboard aria-hidden="true" />
-                              </Button>
-                            ) : null}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <>
+            <dl aria-label="Skill identity summary" role="group" className="grid grid-cols-1 gap-px border-y border-border/70 bg-border/70 sm:grid-cols-3">
+              <SkillIdentityMetric value={props.skills.equivalentDuplicates} label="Equivalent duplicate" />
+              <SkillIdentityMetric value={props.skills.divergentCollisions} label="Divergent collision" />
+              <SkillIdentityMetric value={props.skills.caseCollisions} label="Case collision" />
+            </dl>
+            {props.skills.harnesses.length === 0 ? (
+              <p role="status" aria-label="Per-harness skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">No per-harness skill catalog evidence is available.</p>
+            ) : (
+              <Table aria-label="Per-harness implicit skill catalog">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Harness</TableHead>
+                    <TableHead className="text-right">Implicit skills</TableHead>
+                    <TableHead className="text-right">Description bytes</TableHead>
+                    <TableHead>Budget</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {props.skills.harnesses.map((harness) => (
+                    <TableRow key={harness.harness}>
+                      <TableCell className="font-medium text-foreground">{skillHarnessLabel(harness.harness)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{NUMBER_FORMATTER.format(harness.candidateCount)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{NUMBER_FORMATTER.format(harness.descriptionBytes)} B</TableCell>
+                      <TableCell className="min-w-52 whitespace-normal">
+                        <Badge variant="secondary">Unknown</Badge>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{harness.budget.reason}</p>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            {props.skills.issues.length > 0 ? (
+              <Table aria-label="Actionable skill catalog issues">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Skill</TableHead>
+                    <TableHead>Harness</TableHead>
+                    <TableHead>Issue</TableHead>
+                    <TableHead>Projection</TableHead>
+                    <TableHead className="text-right">Path</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {props.skills.issues.map((issue) => (
+                    <TableRow key={`${issue.skillName}:${issue.harness}:${issue.kind}:${issue.path}`}>
+                      <TableCell className="font-medium text-foreground">{issue.skillName}</TableCell>
+                      <TableCell>{skillHarnessLabel(issue.harness)}</TableCell>
+                      <TableCell><Badge variant={issue.kind === "drifted" ? "destructive" : "secondary"}>{issue.kind}</Badge></TableCell>
+                      <TableCell className="text-muted-foreground">{issue.projectionState}</TableCell>
+                      <TableCell className="text-right">
+                        <Button type="button" variant="ghost" size="icon-xs" aria-label={`Copy path for ${issue.skillName} ${skillHarnessLabel(issue.harness)} skill issue`} onClick={() => void copyText(issue.path)}>
+                          <Clipboard aria-hidden="true" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : null}
+            {props.skills.omittedIssueCount > 0 ? (
+              <p className="border-t border-border/70 px-4 py-3 text-xs text-muted-foreground">
+                {NUMBER_FORMATTER.format(props.skills.omittedIssueCount)} more issues omitted from this bounded summary ({NUMBER_FORMATTER.format(props.skills.issueCount)} total). Open the detailed skills view for the complete catalog.
+              </p>
+            ) : null}
+          </>
         )}
       </CardContent>
     </Card>
   );
+}
+
+const NUMBER_FORMATTER = new Intl.NumberFormat();
+
+function SkillIdentityMetric(props: { readonly value: number; readonly label: string }) {
+  return (
+    <div className="bg-card px-4 py-3">
+      <dt className="text-xs text-muted-foreground">{props.label}{props.value === 1 ? "" : "s"}</dt>
+      <dd className="mt-1 text-lg font-semibold tabular-nums text-foreground">{NUMBER_FORMATTER.format(props.value)}</dd>
+    </div>
+  );
+}
+
+function skillHarnessLabel(harness: "claude" | "codex" | "opencode"): string {
+  return harness === "claude" ? "Claude Code" : harness === "codex" ? "Codex" : "OpenCode";
 }
 
 function GlobalInstructionShimsCard(props: { readonly projections: KilnConfigSetupSnapshot["globalInstructionShims"] }) {

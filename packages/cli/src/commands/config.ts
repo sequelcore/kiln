@@ -124,7 +124,7 @@ export async function configCommand(
 
   switch (subcommand) {
     case "show": {
-      const snapshot = await readConfigStatusSnapshot({ projectPath: root });
+      const snapshot = await readConfigStatusSnapshot({ projectPath: root, view: "effective" });
       if (!snapshot.effectiveConfig) {
         console.log(`Not initialized. Run 'kiln init' first.`);
         return;
@@ -140,7 +140,7 @@ export async function configCommand(
         console.log("Valid views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
         return;
       }
-      const snapshot = await readConfigStatusSnapshot({ projectPath: root });
+      const snapshot = await readConfigStatusSnapshot({ projectPath: root, view: viewArg });
       const result = await readConfigStatusView(snapshot, viewArg);
       console.log(JSON.stringify(result.value, null, 2));
       break;

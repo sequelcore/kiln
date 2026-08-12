@@ -4,6 +4,7 @@ import { createSessionBuiltinToolOptions } from "@kilnai/core";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
+import type { SkillPluginProvider } from "../config/skill-source-inventory.js";
 import { describeWebToolConfiguration } from "../config/web-tools-config.js";
 import { describeInteractiveUseConfiguration } from "../config/interactive-use-config.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
@@ -12,7 +13,7 @@ import {
   resolveManagedInvocationToolOptions,
 } from "../config/managed-agent-routes.js";
 import { readGlobalConfig } from "../config/global-config.js";
-import type { KilnSkillCatalogSnapshot } from "@kilnai/gateway-contracts";
+import type { KilnSkillCatalogSummarySnapshot } from "@kilnai/gateway-contracts";
 import {
   EngineRegistry,
   resolveEngineRoute,
@@ -24,6 +25,7 @@ import { createDefaultRegistry } from "../wrapper/session-registry.js";
 
 export interface StatusCommandOptions extends EngineRouteContext {
   readonly engineRegistry?: Pick<EngineRegistry, "probeAll">;
+  readonly pluginProvider?: SkillPluginProvider;
 }
 
 export async function statusCommand(
@@ -31,7 +33,10 @@ export async function statusCommand(
   projectPath?: string,
   options: StatusCommandOptions = {},
 ): Promise<void> {
-  const snapshot = await readConfigStatusSnapshot({ projectPath: projectPath ?? process.cwd() });
+  const snapshot = await readConfigStatusSnapshot({
+    projectPath: projectPath ?? process.cwd(),
+    ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+  });
   const root = snapshot.project.rootPath;
   const kilnDir = join(root, ".kiln");
 
@@ -114,7 +119,7 @@ export async function statusCommand(
     }
   }
 
-  printSkillCatalogStatus(snapshot.skills, config.skills?.selection?.mode ?? "advisory");
+  printSkillCatalogStatus(snapshot.setup.skills, config.skills?.selection?.mode ?? "advisory");
 
   const setupActions = snapshot.setup.recommendedActions.filter((action) => action !== "none");
   if (setupActions.length > 0) {
@@ -242,67 +247,27 @@ function printEngineStatus(
 }
 
 function printSkillCatalogStatus(
-  skills: KilnSkillCatalogSnapshot | undefined,
+  skills: KilnSkillCatalogSummarySnapshot | undefined,
   selectionMode: string,
 ): void {
-  if (!skills || skills.entries.length === 0) {
+  if (!skills) {
     return;
   }
-
-  const configured = skills.entries.filter((entry) => entry.configured);
-  const nativeOnly = skills.entries.filter((entry) => entry.origin === "native-harness");
-  const projectionIssues = skills.entries.filter((entry) =>
-    entry.projections.some((projection) => projection.status !== "projected")
-  ).sort(compareSkillCatalogIssuePriority);
-  const byOrigin = countSkillsByOrigin(configured);
   console.log(`\n  Skill catalog:`);
   console.log(`    Selection mode: ${selectionMode}`);
-  console.log(`    Configured: ${configured.length} (builtin=${byOrigin.builtin}, user=${byOrigin.user}, project=${byOrigin.project})`);
-  console.log(`    Native-only: ${nativeOnly.length}`);
-  console.log(`    Projection issues: ${projectionIssues.length}`);
-  for (const entry of projectionIssues.slice(0, 8)) {
-    const issueSummary = entry.projections
-      .filter((projection) => projection.status !== "projected")
-      .map((projection) => `${projection.target}:${projection.status}`)
-      .join(", ");
-    console.log(`    - ${entry.name}: ${issueSummary}`);
+  console.log(`    Inventory: ${skills.complete ? "complete" : "incomplete"}`);
+  console.log(`    Duplicates: ${skills.equivalentDuplicates}`);
+  console.log(`    Collisions: divergent=${skills.divergentCollisions}, case=${skills.caseCollisions}`);
+  for (const harness of skills.harnesses) {
+    console.log(`    ${harness.harness}: ${harness.candidateCount} implicit skills, ${harness.descriptionBytes} description bytes, budget=${harness.budget.status}`);
   }
-  if (projectionIssues.length > 8) {
-    console.log(`    ... ${projectionIssues.length - 8} more skill projection issues`);
+  for (const issue of [...skills.issues].sort(compareSkillIssue)) {
+    console.log(`    issue: skill=${issue.skillName}, harness=${issue.harness}, kind=${issue.kind}, status=${issue.projectionState}, path=${issue.path}`);
   }
+  if (skills.omittedIssueCount > 0) console.log(`    ... ${skills.omittedIssueCount} more skill issues omitted (${skills.issueCount} total)`);
 }
 
-function compareSkillCatalogIssuePriority(
-  left: KilnSkillCatalogSnapshot["entries"][number],
-  right: KilnSkillCatalogSnapshot["entries"][number],
-): number {
-  const originDelta = skillOriginPriority(left.origin) - skillOriginPriority(right.origin);
-  if (originDelta !== 0) {
-    return originDelta;
-  }
-  return left.name.localeCompare(right.name);
-}
-
-function skillOriginPriority(origin: KilnSkillCatalogSnapshot["entries"][number]["origin"]): number {
-  switch (origin) {
-    case "project":
-      return 0;
-    case "user":
-      return 1;
-    case "builtin":
-      return 2;
-    case "native-harness":
-      return 3;
-  }
-  return 4;
-}
-
-function countSkillsByOrigin(
-  entries: readonly KilnSkillCatalogSnapshot["entries"][number][],
-): { readonly builtin: number; readonly user: number; readonly project: number } {
-  return {
-    builtin: entries.filter((entry) => entry.origin === "builtin").length,
-    user: entries.filter((entry) => entry.origin === "user").length,
-    project: entries.filter((entry) => entry.origin === "project").length,
-  };
+function compareSkillIssue(left: KilnSkillCatalogSummarySnapshot["issues"][number], right: KilnSkillCatalogSummarySnapshot["issues"][number]): number {
+  return left.skillName.localeCompare(right.skillName) || left.harness.localeCompare(right.harness)
+    || left.kind.localeCompare(right.kind) || left.path.localeCompare(right.path);
 }

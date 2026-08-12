@@ -74,7 +74,7 @@ repairs are defects, not an open architecture slice.
 
 ### Slice 1 - Skill Evidence Contract
 
-Status: Research; next admissible work.
+Status: In progress.
 
 Define identity, source, version, compatibility, freshness, resource health,
 context cost, trust, and stable diagnostics. Model task-to-skill
@@ -82,6 +82,21 @@ recommendation as evidence produced by Kiln, not as a user-maintained
 prompt-routing skill. Surfaces must render shared evidence and fail closed for
 missing, stale, oversized, or broken capabilities; no harness-specific skill
 classifier may own policy independently.
+
+The first implementation increment defines provider-neutral native catalog
+visibility (`implicit`, `explicit-only`, and `disabled`), translates it through
+capability-aware harness adapters, and exposes translation evidence in shared
+status. Shared `.agents` and plugin inventory, measured per-harness catalog
+budgets, duplicate/source evidence, and task-admission evaluation remain in
+this slice until their promotion gates are met. Research basis:
+[`../research/34-skill-catalog-governance-2026.md`](../research/34-skill-catalog-governance-2026.md).
+
+The second increment inventories canonical, shared-agent, native, system, and
+enabled-plugin sources without changing admission. It assigns portable source
+identity, hashes complete packages, distinguishes expected managed projections
+from independent duplicates and collisions, and reports exact per-harness
+description bytes. Native token budgets remain unknown unless a versioned
+harness or tokenizer authority supplies comparable evidence.
 
 ### Slice 2 - Task Admission
 

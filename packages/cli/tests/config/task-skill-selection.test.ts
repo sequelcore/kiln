@@ -129,6 +129,50 @@ describe("task skill selection work classification", () => {
     }]);
   });
 
+  it("rejects explicitly requested skills disabled by catalog visibility", () => {
+    const root = tempRoot();
+    writeSkill(root, "selected-skill");
+
+    expect(() => resolveTaskSkillSelection({
+      explicitSkills: ["selected-skill"],
+      projectPath: root,
+      userHome: root,
+      skillConfig: {
+        builtin: { enabled: false },
+        visibility: { overrides: { "selected-skill": "disabled" } },
+      },
+      requesterLabel: "Task skill selection",
+    })).toThrow("Task skill selection references unavailable skill(s): selected-skill");
+  });
+
+  it("does not auto-admit a disabled work-recommended skill", () => {
+    const root = tempRoot();
+    writeSkill(root, "clear-writing");
+
+    const selection = resolveTaskSkillSelection({
+      projectPath: root,
+      userHome: root,
+      skillConfig: {
+        selection: { mode: "auto" },
+        builtin: { enabled: false },
+        visibility: { overrides: { "clear-writing": "disabled" } },
+      },
+      selection: { mode: "auto" },
+      workClassification: {
+        intents: ["write"],
+        artifacts: ["document"],
+        domains: ["education"],
+        effects: ["write-artifact"],
+        modes: ["coauthor"],
+      },
+      requesterLabel: "Task skill selection",
+    });
+
+    expect(selection.skillNames).toEqual([]);
+    expect(selection.unavailableAutoSkillNames).toEqual(["clear-writing"]);
+    expect(selection.workRecommendedSkillDiagnostics[0]?.state).toBe("unavailable");
+  });
+
   it("materializes only exact selected skill bodies and records path-free progressive projection evidence", () => {
     const root = tempRoot();
     writeSkill(root, "selected-skill", "Use the exact selected procedure.");

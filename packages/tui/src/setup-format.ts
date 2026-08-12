@@ -1,7 +1,7 @@
 import type {
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
-  KilnSkillCatalogSnapshot,
+  KilnSkillCatalogSummarySnapshot,
 } from "@kilnai/gateway-contracts";
 
 const SETUP_ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
@@ -74,22 +74,17 @@ export function formatSetupSnapshot(snapshot: KilnConfigSetupSnapshot): string {
   ].join("\n");
 }
 
-function formatSkillCatalog(skills: KilnSkillCatalogSnapshot | undefined): string {
+function formatSkillCatalog(skills: KilnSkillCatalogSummarySnapshot | undefined): string {
   if (skills === undefined) {
     return "  - unavailable";
   }
-  if (skills.entries.length === 0) {
-    return "  - none configured or reported";
-  }
-  return [...skills.entries]
-    .sort((left, right) => left.name.localeCompare(right.name) || left.origin.localeCompare(right.origin))
-    .map((skill) => [
-      `  - ${skill.name}: origin=${skill.origin} identity=${skill.builtIn ? "built-in" : skill.configured ? "configured" : "unconfigured"} admission=${skill.admission.state}`,
-      `    admission reason=${skill.admission.reason}`,
-      ...(skill.omissionReason ? [`    omission reason=${skill.omissionReason}`] : []),
-      ...[...skill.projections]
-        .sort((left, right) => left.target.localeCompare(right.target))
-        .map((projection) => `    target=${projection.target} status=${projection.status} path=${projection.path}`),
-    ].join("\n"))
-    .join("\n");
+  return [
+    `  - inventory=${skills.complete ? "complete" : "incomplete"}`,
+    `    duplicates=${skills.equivalentDuplicates} collisions=divergent:${skills.divergentCollisions},case:${skills.caseCollisions}`,
+    ...[...skills.harnesses]
+      .sort((left, right) => left.harness.localeCompare(right.harness))
+      .map((harness) => `    harness=${harness.harness} implicit=${harness.candidateCount} description-bytes=${harness.descriptionBytes} budget=${harness.budget.status}`),
+    ...skills.issues.map((issue) => `    issue skill=${issue.skillName} harness=${issue.harness} kind=${issue.kind} status=${issue.projectionState} path=${issue.path}`),
+    ...(skills.omittedIssueCount > 0 ? [`    issues omitted=${skills.omittedIssueCount} total=${skills.issueCount}`] : []),
+  ].join("\n");
 }

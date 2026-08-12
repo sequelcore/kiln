@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Version of status evidence that native-harness readers may treat as compatible. */
-export const KILN_STATUS_EVIDENCE_VERSION = 1 as const;
+export const KILN_STATUS_EVIDENCE_VERSION = 2 as const;
 
 export const KILN_WORK_GOVERNANCE_TRIGGERS = [
   "architecture",
@@ -326,11 +326,17 @@ export type KilnSkillAdmissionState =
   | "blocked"
   | "unavailable";
 
+export type KilnSkillVisibility = "implicit" | "explicit-only" | "disabled";
+export type KilnSkillVisibilityCapability = "exact" | "unsupported";
+
 export interface KilnSkillProjectionTargetSnapshot {
   readonly target: "claude" | "codex" | "opencode";
   readonly displayName: string;
   readonly path: string;
   readonly status: KilnSkillCatalogProjectionStatus;
+  readonly effectiveVisibility: KilnSkillVisibility;
+  readonly visibilityCapability: KilnSkillVisibilityCapability;
+  readonly visibilityReason: string;
 }
 
 export interface KilnSkillCatalogSnapshotEntry {
@@ -340,6 +346,7 @@ export interface KilnSkillCatalogSnapshotEntry {
   readonly configured: boolean;
   readonly builtIn: boolean;
   readonly sourcePath: string;
+  readonly desiredVisibility: KilnSkillVisibility;
   readonly tools?: readonly string[];
   readonly tags?: readonly string[];
   readonly projections: readonly KilnSkillProjectionTargetSnapshot[];
@@ -352,6 +359,84 @@ export interface KilnSkillCatalogSnapshotEntry {
 
 export interface KilnSkillCatalogSnapshot {
   readonly entries: readonly KilnSkillCatalogSnapshotEntry[];
+  readonly inventory?: KilnSkillSourceInventorySnapshot;
+}
+
+export type KilnSkillSourceKind = "kiln-user" | "kiln-project" | "builtin" | "shared-agents" | "native-harness" | "system" | "plugin";
+export type KilnSkillSourceRelationship = "canonical" | "external" | "managed-projection" | "linked-alias";
+export type KilnSkillIdentityClassification = "unique" | "equivalent-duplicate" | "divergent-collision" | "case-collision";
+
+export interface KilnSkillSourceCandidateSnapshot {
+  readonly name: string;
+  readonly canonicalName: string;
+  readonly sourceKind: KilnSkillSourceKind;
+  readonly sourceId: string;
+  readonly sourcePath: string;
+  readonly relationship: KilnSkillSourceRelationship;
+  readonly relatedCanonicalName?: string;
+  readonly relatedSourceId?: string;
+  readonly packageDigest: string;
+  readonly descriptionBytes: number;
+  readonly applicableHarnesses: readonly ("claude" | "codex" | "opencode")[];
+  readonly effectiveVisibility: "implicit" | "explicit-only" | "disabled";
+}
+
+export interface KilnSkillIdentitySnapshot {
+  readonly canonicalName: string;
+  readonly names: readonly string[];
+  readonly candidateSourceIds: readonly string[];
+  readonly classification: KilnSkillIdentityClassification;
+}
+
+export interface KilnSkillInventoryDiagnosticSnapshot {
+  readonly code: string;
+  readonly message: string;
+  readonly sourceId?: string;
+}
+
+export interface KilnSkillSourceInventorySnapshot {
+  readonly complete: boolean;
+  readonly candidates: readonly KilnSkillSourceCandidateSnapshot[];
+  readonly sources: readonly {
+    readonly sourceKind: KilnSkillSourceKind;
+    readonly candidateCount: number;
+    readonly descriptionBytes: number;
+  }[];
+  readonly identities: readonly KilnSkillIdentitySnapshot[];
+  readonly resolutions: readonly {
+    readonly canonicalName: string;
+    readonly status: "selected" | "unresolved";
+    readonly selectedSourceId?: string;
+    readonly candidates: readonly {
+      readonly sourceId: string;
+      readonly disposition: "selected" | "shadowed" | "diagnostic-only" | "related-copy" | "unresolved";
+      readonly reason: string;
+    }[];
+  }[];
+  readonly harnesses: readonly {
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly candidateCount: number;
+    readonly descriptionBytes: number;
+    readonly budget: { readonly status: "unknown"; readonly reason: string };
+  }[];
+  readonly diagnostics: readonly KilnSkillInventoryDiagnosticSnapshot[];
+}
+
+export interface KilnSkillCatalogSummarySnapshot {
+  readonly complete: boolean;
+  readonly equivalentDuplicates: number;
+  readonly divergentCollisions: number;
+  readonly caseCollisions: number;
+  readonly harnesses: KilnSkillSourceInventorySnapshot["harnesses"];
+  readonly issueCount: number;
+  readonly omittedIssueCount: number;
+  readonly issues: readonly {
+    readonly skillName: string;
+    readonly kind: "missing" | "drifted" | "unmanaged" | "capability";
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly projectionState: KilnSkillCatalogProjectionStatus;
+    readonly path: string;
+  }[];
 }
 
 export interface KilnProjectionTargetSnapshot {
@@ -461,7 +546,7 @@ export interface KilnConfigSetupSnapshot {
   readonly globalInstructionShims: readonly KilnGlobalInstructionShimSetupSnapshot[];
   readonly nativeProjections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
-  readonly skills?: KilnSkillCatalogSnapshot;
+  readonly skills?: KilnSkillCatalogSummarySnapshot;
   readonly mcp?: KilnMcpStatusSnapshot;
   readonly recommendedActions: readonly KilnConfigSetupAction[];
 }
@@ -550,7 +635,7 @@ export interface KilnConfigStatusSnapshot {
   readonly mcp: KilnMcpStatusSnapshot;
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
-  readonly skills?: KilnSkillCatalogSnapshot;
+  readonly skills?: KilnSkillCatalogSummarySnapshot;
   readonly setup: KilnConfigSetupSnapshot;
   readonly harnessCapabilities: readonly KilnHarnessCapabilitySnapshot[];
 }
@@ -669,6 +754,9 @@ export const KilnSkillProjectionTargetSnapshotSchema = z.object({
   displayName: z.string(),
   path: z.string(),
   status: z.enum(["missing", "projected", "drifted", "unmanaged-native"]),
+  effectiveVisibility: z.enum(["implicit", "explicit-only", "disabled"]).default("implicit"),
+  visibilityCapability: z.enum(["exact", "unsupported"]).default("unsupported"),
+  visibilityReason: z.string().default("Legacy snapshot does not carry governed visibility evidence."),
 });
 
 export const KilnSkillCatalogSnapshotEntrySchema = z.object({
@@ -678,6 +766,7 @@ export const KilnSkillCatalogSnapshotEntrySchema = z.object({
   configured: z.boolean(),
   builtIn: z.boolean(),
   sourcePath: z.string(),
+  desiredVisibility: z.enum(["implicit", "explicit-only", "disabled"]).default("implicit"),
   tools: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   projections: z.array(KilnSkillProjectionTargetSnapshotSchema),
@@ -690,6 +779,52 @@ export const KilnSkillCatalogSnapshotEntrySchema = z.object({
 
 export const KilnSkillCatalogSnapshotSchema = z.object({
   entries: z.array(KilnSkillCatalogSnapshotEntrySchema),
+  inventory: z.object({
+    complete: z.boolean(),
+    candidates: z.array(z.object({
+      name: z.string(), canonicalName: z.string(),
+      sourceKind: z.enum(["kiln-user", "kiln-project", "builtin", "shared-agents", "native-harness", "system", "plugin"]),
+      sourceId: z.string(), sourcePath: z.string(),
+      relationship: z.enum(["canonical", "external", "managed-projection", "linked-alias"]),
+      relatedCanonicalName: z.string().optional(), relatedSourceId: z.string().optional(), packageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      descriptionBytes: z.number().int().nonnegative(),
+      applicableHarnesses: z.array(z.enum(["claude", "codex", "opencode"])).default([]),
+      effectiveVisibility: z.enum(["implicit", "explicit-only", "disabled"]).default("implicit"),
+    })),
+    sources: z.array(z.object({
+      sourceKind: z.enum(["kiln-user", "kiln-project", "builtin", "shared-agents", "native-harness", "system", "plugin"]),
+      candidateCount: z.number().int().nonnegative(), descriptionBytes: z.number().int().nonnegative(),
+    })).default([]),
+    identities: z.array(z.object({
+      canonicalName: z.string(), names: z.array(z.string()), candidateSourceIds: z.array(z.string()),
+      classification: z.enum(["unique", "equivalent-duplicate", "divergent-collision", "case-collision"]),
+    })),
+    resolutions: z.array(z.object({
+      canonicalName: z.string(), status: z.enum(["selected", "unresolved"]), selectedSourceId: z.string().optional(),
+      candidates: z.array(z.object({ sourceId: z.string(), disposition: z.enum(["selected", "shadowed", "diagnostic-only", "related-copy", "unresolved"]), reason: z.string() })),
+    })).default([]),
+    harnesses: z.array(z.object({
+      harness: z.enum(["claude", "codex", "opencode"]), candidateCount: z.number().int().nonnegative(),
+      descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.literal("unknown"), reason: z.string() }),
+    })).default([]),
+    diagnostics: z.array(z.object({ code: z.string(), message: z.string(), sourceId: z.string().optional() })),
+  }).optional(),
+});
+
+export const KilnSkillCatalogSummarySnapshotSchema = z.object({
+  complete: z.boolean(), equivalentDuplicates: z.number().int().nonnegative(),
+  divergentCollisions: z.number().int().nonnegative(), caseCollisions: z.number().int().nonnegative(),
+  harnesses: z.array(z.object({
+    harness: z.enum(["claude", "codex", "opencode"]), candidateCount: z.number().int().nonnegative(),
+    descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.literal("unknown"), reason: z.string() }),
+  })),
+  issueCount: z.number().int().nonnegative(),
+  omittedIssueCount: z.number().int().nonnegative(),
+  issues: z.array(z.object({
+    skillName: z.string(), kind: z.enum(["missing", "drifted", "unmanaged", "capability"]),
+    harness: z.enum(["claude", "codex", "opencode"]),
+    projectionState: z.enum(["missing", "projected", "drifted", "unmanaged-native"]), path: z.string(),
+  })).max(12).default([]),
 });
 
 export const KilnMcpStatusSnapshotSchema = z.object({
@@ -723,7 +858,7 @@ export const KilnConfigSetupSnapshotSchema = z.object({
   globalInstructionShims: z.array(KilnGlobalInstructionShimSetupSnapshotSchema),
   nativeProjections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
-  skills: KilnSkillCatalogSnapshotSchema.optional(),
+  skills: KilnSkillCatalogSummarySnapshotSchema.optional(),
   mcp: KilnMcpStatusSnapshotSchema.optional(),
   recommendedActions: z.array(z.enum(KILN_CONFIG_SETUP_ACTIONS)),
 });
@@ -765,7 +900,7 @@ export const KilnConfigStatusSnapshotSchema = z.object({
   mcp: KilnMcpStatusSnapshotSchema,
   projections: z.array(KilnProjectionTargetSnapshotSchema),
   permissionIntegrity: z.array(TrustedExecutionIntegritySchema),
-  skills: KilnSkillCatalogSnapshotSchema.optional(),
+  skills: KilnSkillCatalogSummarySnapshotSchema.optional(),
   setup: KilnConfigSetupSnapshotSchema,
   harnessCapabilities: z.array(z.object({
     harness: z.enum(["claude", "codex", "opencode"]),

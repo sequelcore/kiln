@@ -69,4 +69,25 @@ describe("createConfiguredSkillRegistry", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("excludes project skills disabled by canonical visibility", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-skill-registry-visibility-"));
+    try {
+      writeProjectSkill(root, "project-release", "project release");
+
+      const registry = createConfiguredSkillRegistry({
+        projectPath: root,
+        userHome: root,
+        skillConfig: {
+          builtin: { enabled: false },
+          visibility: { overrides: { "project-release": "disabled" } },
+        },
+      });
+
+      expect(registry.get("project-release")).toBeUndefined();
+      expect(registry.load("project-release")).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

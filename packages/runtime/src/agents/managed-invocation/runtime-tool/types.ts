@@ -221,6 +221,7 @@ export interface ManagedInvocationSkillCatalogEntry {
   readonly configured?: boolean;
   readonly builtIn?: boolean;
   readonly sourcePath?: string;
+  readonly desiredVisibility?: "implicit" | "explicit-only" | "disabled";
   readonly admission?: {
     readonly state: string;
     readonly reason: string;

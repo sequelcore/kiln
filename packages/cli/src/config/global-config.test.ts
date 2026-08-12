@@ -389,6 +389,56 @@ describe("global-config", () => {
       ].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow("skills.selection.mode must be advisory or auto");
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"2\"",
+        "skills:",
+        "  visibility:",
+        "    default: implicit",
+        "    overrides:",
+        "      planner: explicit-only",
+        "      release: disabled",
+      ].join("\n"),
+    );
+    expect(readGlobalConfig()?.skills?.visibility).toEqual({
+      default: "implicit",
+      overrides: { planner: "explicit-only", release: "disabled" },
+    });
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"2\"",
+        "skills:",
+        "  visibility:",
+        "    overrides:",
+        "      planner: sometimes",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow(
+      "skills.visibility.overrides.planner must be implicit, explicit-only, or disabled",
+    );
+
+    readFileSyncMock.mockReturnValue(
+      [
+        "version: \"2\"",
+        "skills:",
+        "  visibility:",
+        "    overrides:",
+        "      Planner: disabled",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow(
+      "skills.visibility.overrides key must be a lowercase kebab-case skill name: Planner",
+    );
+  });
+
+  it("does not resolve inherited override properties ahead of a fail-closed default", async () => {
+    const { resolveSkillVisibility } = await import("./skill-visibility.js");
+
+    expect(resolveSkillVisibility("constructor", {
+      visibility: { default: "disabled", overrides: {} },
+    })).toBe("disabled");
   });
 
   it("readGlobalConfig() validates work governance policy", () => {

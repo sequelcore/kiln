@@ -65,6 +65,8 @@ kiln config set --global skills.selection.mode auto
 | `ui.theme` | `string` | Default operator theme name from the shared GUI/TUI theme catalog. |
 | `skills.builtin` | `{ enabled?: boolean, include?: string[], exclude?: string[] }` | First-party built-in skill activation policy. Built-in skill content lives in Kiln core; config only admits or narrows it. |
 | `skills.selection.mode` | `advisory \| auto` | Controls whether route/task and explicit work-classification recommendations are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
+| `skills.visibility.default` | `implicit \| explicit-only \| disabled` | Default native catalog visibility for configured skills. Defaults to `implicit` for compatibility. |
+| `skills.visibility.overrides` | `Record<string, implicit \| explicit-only \| disabled>` | Exact canonical skill-id visibility exceptions. Visibility is global-only while native skill targets are user-global. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 `executionCatalog` is the only operator-session routing authority. Runtime
@@ -227,6 +229,11 @@ default.
 skills:
   selection:
     mode: auto
+  visibility:
+    default: implicit
+    overrides:
+      maven-release: explicit-only
+      social-content: explicit-only
   builtin:
     enabled: true
     include:
@@ -244,7 +251,9 @@ skills:
       - config-projection-review
 ```
 
-Project `.kiln/kiln.yaml` may disable or narrow the same catalog:
+Project `.kiln/kiln.yaml` may disable or narrow built-ins and change task
+selection, but it cannot declare native catalog visibility while projection
+targets are user-global:
 
 ```yaml
 skills:
@@ -254,6 +263,16 @@ skills:
     exclude:
       - benchmark-readiness-review
 ```
+
+Visibility and selection answer different questions. Visibility controls what
+a native harness advertises in its default skill catalog. Selection controls
+whether Kiln may admit a recommended skill into a managed task. An
+`explicit-only` skill remains installed and directly invocable when the native
+harness can represent that state; `disabled` removes Kiln-owned projections.
+`kiln status` reports unsupported native translations rather than silently
+broadening them.
+Visibility belongs in `~/.kiln/config.yaml`. Kiln rejects project-level
+visibility so syncing one repository cannot hide or remove skills for another.
 
 ## Repository Hygiene
 

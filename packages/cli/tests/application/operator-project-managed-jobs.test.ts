@@ -108,7 +108,7 @@ vi.mock("../../src/application/config-status.js", () => ({
       executionCatalog: TEST_EXECUTION_CATALOG,
     };
     return {
-      evidenceVersion: 1,
+      evidenceVersion: 2,
       generatedAt: new Date().toISOString(),
       project: {
         rootPath: projectRoot,

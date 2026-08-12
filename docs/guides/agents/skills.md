@@ -154,6 +154,27 @@ remain projections; canonical user and project skills live under
 
 ## Skill Status And Admission
 
+### Native catalog visibility
+
+Kiln owns native catalog visibility as provider-neutral policy:
+
+- `implicit` skills may be advertised for model selection.
+- `explicit-only` skills stay directly invocable without occupying the default
+  model-facing description catalog.
+- `disabled` skills are unavailable and their Kiln-owned projections are
+  pruned.
+
+Configure the default and exact skill-id exceptions under
+global `skills.visibility`. Project-level visibility is rejected while native
+skill targets are user-global. This policy is projected through harness-specific
+adapters; native files remain generated output. When an installed harness
+cannot prove an exact translation, shared status reports the capability gap.
+Do not edit generated provider metadata to conceal that gap.
+
+Catalog visibility is not runtime admission. The existing
+`skills.selection.mode` contract independently decides whether recommendations
+remain advisory or enter governed managed-task context.
+
 Kiln reports skill status through `kiln config read skills`, `kiln config read
 setup`, GUI setup, TUI setup, and the model-callable `kiln_config.read` view.
 The status contract separates:
@@ -164,6 +185,19 @@ The status contract separates:
 - unmanaged native harness-local skills that exist outside Kiln
 - route/session admission into current procedural context
 - omission or unavailable reasons
+
+It also inventories shared `.agents` roots, enabled Codex plugins, Codex system
+skills, and native harness directories as diagnostic sources. Same-name sources
+with identical complete-package digests are equivalent duplicates; different
+digests are collisions. Kiln-managed native copies are related projections and
+are not counted as independent collisions. These inventory rows never become
+managed-task skills without explicit adoption into a canonical Kiln source.
+
+Catalog pressure is reported as exact UTF-8 description bytes and visibility
+counts per harness. Token totals and utilization remain unknown unless the
+installed harness or an identified tokenizer supplies comparable evidence.
+This prevents an approximate byte conversion or a limit inspected from another
+harness version from being presented as current authority.
 
 GUI Setup presents this as a diagnostic Skill Catalog with explicit copy-path
 controls; TUI Setup prints the same shared evidence deterministically. In both

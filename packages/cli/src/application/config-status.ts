@@ -63,6 +63,10 @@ import {
 } from "./repo-shim-projection.js";
 import { readGlobalInstructionShimProjectionSnapshots } from "./global-instruction-shim-projection.js";
 import { readSkillCatalogStatus } from "../config/skill-catalog-status.js";
+import type {
+  SkillInventoryCommandRunner,
+  SkillPluginProvider,
+} from "../config/skill-source-inventory.js";
 import { resolveCliMemoryStorage } from "./cli-memory-storage.js";
 import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-projection.js";
 import { readMcpRuntimeState } from "../config/mcp-runtime-state.js";
@@ -73,10 +77,17 @@ export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
   readonly now?: Date;
   readonly userHome?: string;
+  readonly cwd?: string;
+  readonly pluginProvider?: SkillPluginProvider;
+  readonly commandRunner?: SkillInventoryCommandRunner;
+  readonly view?: KilnConfigReadView;
 }
 
 export interface ReadConfigStatusViewOptions {
   readonly userHome?: string;
+  readonly cwd?: string;
+  readonly pluginProvider?: SkillPluginProvider;
+  readonly commandRunner?: SkillInventoryCommandRunner;
   readonly createManagedAgentRouteAdmissionResolver?:
     (projectPath: string) => Promise<ManagedAgentRouteAdmissionResolver>;
 }
@@ -100,6 +111,11 @@ interface AgentInvocationCapabilitySummary {
   readonly reasons?: unknown;
   readonly decision?: RouteAdmissionDecision;
 }
+
+const skillCatalogDetails = new WeakMap<
+  KilnConfigStatusSnapshot,
+  ReturnType<typeof readSkillCatalogStatus>
+>();
 
 export async function readConfigStatusSnapshot(
   options: ReadConfigStatusOptions = {},
@@ -126,11 +142,15 @@ export async function readConfigStatusSnapshot(
     options.userHome ?? homedir(),
   );
   const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
-  const skillCatalog = effectiveConfig
+  const shouldReadSkillCatalog = options.view === undefined || options.view === "skills" || options.view === "setup";
+  const skillCatalog = effectiveConfig && shouldReadSkillCatalog
     ? readSkillCatalogStatus({
       projectPath: rootPath,
       userHome: options.userHome ?? homedir(),
+      cwd: options.cwd ?? rootPath,
       skillConfig: effectiveConfig.skills,
+      ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+      ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
     })
     : undefined;
   const setup = buildSetupSnapshot({
@@ -144,7 +164,7 @@ export async function readConfigStatusSnapshot(
     mcp,
   });
 
-  return {
+  const snapshot: KilnConfigStatusSnapshot = {
     evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
     generatedAt: (options.now ?? new Date()).toISOString(),
     project: {
@@ -162,10 +182,11 @@ export async function readConfigStatusSnapshot(
     mcp,
     projections: projectionState.projections,
     permissionIntegrity,
-    ...(skillCatalog ? { skills: skillCatalog } : {}),
     setup,
     harnessCapabilities: listHarnessIntegrationCapabilities().map(projectHarnessCapability),
   };
+  if (skillCatalog) skillCatalogDetails.set(snapshot, skillCatalog);
+  return snapshot;
 }
 
 function buildMcpStatus(
@@ -660,7 +681,14 @@ async function projectConfigView(
     case "agents":
       return readAgentIndexes(snapshot.project.rootPath, options);
     case "skills":
-      return snapshot.skills ?? { entries: [] };
+      return skillCatalogDetails.get(snapshot) ?? readSkillCatalogStatus({
+        projectPath: snapshot.project.rootPath,
+        userHome: options.userHome,
+        cwd: options.cwd ?? snapshot.project.rootPath,
+        skillConfig: config?.skills,
+        ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+        ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+      });
     case "permissions":
       return {
         policy: config?.permissions ?? null,
@@ -722,9 +750,38 @@ function buildSetupSnapshot(input: {
     globalInstructionShims,
     nativeProjections,
     permissionIntegrity: input.permissionIntegrity,
-    ...(input.skillCatalog ? { skills: input.skillCatalog } : {}),
+    ...(input.skillCatalog ? { skills: summarizeSkillCatalog(input.skillCatalog) } : {}),
     mcp: input.mcp,
     recommendedActions: actions,
+  };
+}
+
+function summarizeSkillCatalog(catalog: ReturnType<typeof readSkillCatalogStatus>) {
+  const identities = catalog.inventory?.identities ?? [];
+  const allIssues = [...catalog.entries].sort((left, right) => {
+    const rank = (origin: typeof left.origin) => origin === "project" ? 0 : origin === "user" ? 1 : origin === "native-harness" ? 2 : 3;
+    return rank(left.origin) - rank(right.origin) || left.name.localeCompare(right.name);
+  }).flatMap((skill) => skill.projections.flatMap((projection) => {
+    const kind = skill.desiredVisibility === "explicit-only" && projection.target === "opencode"
+      && projection.visibilityCapability === "unsupported" ? "capability" as const
+      : projection.status === "missing" ? "missing" as const
+        : projection.status === "drifted" ? "drifted" as const
+          : projection.status === "unmanaged-native" ? "unmanaged" as const
+            : projection.visibilityCapability === "unsupported" ? "capability" as const : undefined;
+    return kind ? [{
+      skillName: skill.name, kind, harness: projection.target,
+      projectionState: projection.status, path: projection.path,
+    }] : [];
+  }));
+  return {
+    complete: catalog.inventory?.complete ?? false,
+    equivalentDuplicates: identities.filter((identity) => identity.classification === "equivalent-duplicate").length,
+    divergentCollisions: identities.filter((identity) => identity.classification === "divergent-collision").length,
+    caseCollisions: identities.filter((identity) => identity.classification === "case-collision").length,
+    harnesses: catalog.inventory?.harnesses ?? [],
+    issueCount: allIssues.length,
+    omittedIssueCount: Math.max(0, allIssues.length - 12),
+    issues: allIssues.slice(0, 12),
   };
 }
 
@@ -881,7 +938,10 @@ function skillProjectionRecommendations(
       actions.push("adopt-or-back-up-native-guidance");
       continue;
     }
-    if (skill.projections.some((projection) => projection.status === "missing")) {
+    if (skill.projections.some((projection) => projection.status === "missing"
+      && !(skill.desiredVisibility === "explicit-only"
+        && projection.target === "opencode"
+        && projection.visibilityCapability === "unsupported"))) {
       actions.push("sync-native-projections");
     }
     if (skill.projections.some((projection) => projection.status === "drifted")) {

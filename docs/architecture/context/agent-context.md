@@ -365,6 +365,36 @@ tracks these states separately:
 - unavailable: an explicit skill reference cannot be resolved through the
   governed Kiln registry.
 
+Native catalog visibility is another independent contract. Kiln resolves one
+of three canonical states for each configured skill before native projection:
+
+- `implicit`: the harness may advertise the skill description to the model and
+  let the model select it.
+- `explicit-only`: the installed skill remains directly invocable, but its
+  description is excluded from default model-facing discovery.
+- `disabled`: the skill is unavailable and Kiln removes only native projections
+  whose ownership is proven by install-state.
+
+`skills.visibility.default` supplies the fallback and
+`skills.visibility.overrides` maps exact canonical skill ids to exceptions.
+Visibility is currently global-only because supported native skill targets are
+user-global. Project-level visibility is rejected until every admitted harness
+has a scoped projection target; this prevents one repository's sync from
+rewriting another repository's catalog. The default is `implicit` for
+compatibility; a specialist catalog should declare explicit-only entries
+instead of relying on native description truncation.
+
+Visibility projection is capability-aware. Each harness adapter reports whether
+it realized the requested state exactly or could not preserve the semantic
+contract. An unsupported `explicit-only` projection must not be silently
+reported as implicit discovery. Harness versions and native policy mechanisms
+are evidence, not durable assumptions in the provider-neutral contract.
+
+Visibility does not replace task admission. `skills.selection.mode` still
+controls advisory versus automatic admission into governed Kiln context after
+registry checks. Native visibility controls a harness catalog; it does not load
+a skill body, grant a tool, or authorize an effect.
+
 Unknown explicitly requested skills fail closed. Native harness-local skills
 outside Kiln start as diagnostics only: Kiln may report that Codex, OpenCode,
 or Claude Code can see a local `SKILL.md`, but it must not silently admit that
@@ -373,6 +403,20 @@ explicit adoption: setup may copy non-conflicting native skills into canonical
 Kiln user config, then project the same canonical copy back to every supported
 harness. If the same skill name has different native contents across harnesses,
 adoption blocks for manual reconciliation instead of choosing a winner.
+
+Catalog inventory preserves candidates separately from resolution. A portable
+logical source id identifies a built-in, Kiln user/project source, shared
+`.agents` source, native harness source, system source, or plugin contribution;
+absolute paths are transient display evidence, not durable identity. Complete
+package digests distinguish equivalent copies from divergent same-name
+collisions. Managed native projections remain related to their canonical Kiln
+source and do not count as independent ownership conflicts.
+
+Per-harness catalog pressure initially reports exact UTF-8 description bytes
+and visibility counts. It reports token usage or utilization only when an
+identified harness or tokenizer supplies compatible versioned evidence. A
+byte-to-token heuristic must remain labelled as an estimate and cannot become
+native budget authority.
 
 ## First-Party Skill Defaults
 

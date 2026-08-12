@@ -104,11 +104,31 @@ global doctrine or global agent rosters.
 Kiln core built-in skills are lowest-precedence product defaults controlled by
 `skills.builtin` activation policy. They are projected like other skills during
 native sync, but user and project skills with the same id override them.
+Canonical `skills.visibility` policy determines whether each resolved skill is
+implicitly discoverable, explicit-only, or disabled. Native skill projection
+uses a harness-specific renderer because Codex, Claude Code, and OpenCode do not
+encode these semantics in the same file or support them at the same versions.
+Projection status records the desired state, effective native state, and whether
+the translation is exact or unsupported; adapters never claim parity by merely
+copying provider-specific metadata to every harness.
 Native harness-local skills discovered under Codex, OpenCode, or Claude Code
 directories are not imported implicitly. Status surfaces classify them as
 `native-harness` origin with `unmanaged-native` projection state so operators
 can decide whether to install them into Kiln project/user config, ignore them,
 or remove native drift.
+Shared `.agents` roots, Codex system skills, and enabled plugin contributions
+are also inventory inputs. They remain diagnostic-only and cannot enter Kiln
+managed admission merely because a standalone harness discovers them. Plugin
+inventory comes from the harness's structured installed/enabled view; raw cache
+directories are not activation authority because they may retain disabled or
+historical versions.
+
+The shared skill status contract keeps the resolved/admissible registry
+separate from source inventory. Inventory records portable logical identity,
+complete-package digest, duplicate/collision resolution, exact description
+bytes, and completeness diagnostics. Status and doctor surfaces render bounded
+summaries from that contract; they do not rescan provider directories or claim
+exact token utilization without versioned native evidence.
 
 ## Sync Contract
 

@@ -135,12 +135,19 @@ export function buildManagedSkillCatalogDescription(options: ManagedInvocationTo
     return "Configured skill catalog: none";
   }
   const configured = skillCatalog.filter((skill) =>
-    skill.configured !== false && skill.admission?.state !== "unavailable"
+    skill.configured !== false
+      && skill.desiredVisibility !== "disabled"
+      && skill.admission?.state !== "unavailable"
+      && skill.admission?.state !== "blocked"
   );
   const diagnostics = skillCatalog.filter((skill) =>
-    skill.configured === false || skill.admission?.state === "unavailable"
+    skill.configured === false
+      || skill.desiredVisibility === "disabled"
+      || skill.admission?.state === "unavailable"
+      || skill.admission?.state === "blocked"
   );
-  const rows = configured.slice(0, 24).map((skill) => {
+  const modelVisible = configured.filter((skill) => skill.desiredVisibility !== "explicit-only");
+  const rows = modelVisible.slice(0, 24).map((skill) => {
     const tags = skill.tags && skill.tags.length > 0 ? `, tags=${skill.tags.join(",")}` : "";
     const origin = skill.origin ? `, origin=${skill.origin}` : "";
     const admission = skill.admission ? `, admission=${skill.admission.state}` : "";
@@ -150,7 +157,7 @@ export function buildManagedSkillCatalogDescription(options: ManagedInvocationTo
     const omitted = skill.omissionReason ? `, omission=${skill.omissionReason}` : "";
     return `- ${skill.name}: ${skill.description}${origin}${admission}${projection}${omitted}${tags}`;
   });
-  const omittedConfigured = configured.length - rows.length;
+  const omittedConfigured = modelVisible.length - rows.length;
   if (omittedConfigured > 0) {
     rows.push(`- ${omittedConfigured} additional configured skill(s) omitted from this bounded catalog summary.`);
   }
@@ -187,11 +194,20 @@ export function managedInvocationAgentProfileNames(options: ManagedInvocationToo
 }
 
 export function managedInvocationSkillNames(options: ManagedInvocationToolOptions): readonly string[] {
+  const disabledSkillNames = new Set(
+    (options.skillCatalog ?? [])
+      .filter((skill) => skill.desiredVisibility === "disabled" || skill.admission?.state === "blocked")
+      .map((skill) => skill.name),
+  );
   return unique([
     ...(options.skillCatalog ?? [])
-      .filter((skill) => skill.configured !== false && skill.admission?.state !== "unavailable")
+      .filter((skill) => skill.configured !== false
+        && skill.desiredVisibility !== "disabled"
+        && skill.admission?.state !== "unavailable"
+        && skill.admission?.state !== "blocked")
       .map((skill) => skill.name),
-    ...(options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? []),
+    ...(options.agentCatalog ?? []).flatMap((agent) => agent.skills ?? [])
+      .filter((skillName) => !disabledSkillNames.has(skillName)),
   ]);
 }
 

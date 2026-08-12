@@ -17,6 +17,14 @@ import { approveConfigChangeProposal } from "../../src/application/config-approv
 import { applyConfigChange } from "../../src/application/config-apply.js";
 import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
 import { createConfigChangeProposalRecord } from "../../src/application/config-proposal.js";
+import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
+
+vi.mock("../../src/config/config-merger.js", () => ({
+  loadKilnConfig: vi.fn(async () => ({
+    version: "1",
+    skills: { visibility: { overrides: { "repo-review": "explicit-only" } } },
+  })),
+}));
 
 vi.mock("../../src/config/native-agent-projection.js", () => ({
   syncNativeAgentProjections: vi.fn(async () => ({ claude: true, codex: true, opencode: true, synced: 1, errors: [] })),
@@ -81,6 +89,10 @@ describe("config apply", () => {
     expect(result.status).toBe("applied");
     expect(readFileSync(join(tempDir, ".kiln", "skills", "repo-review", "SKILL.md"), "utf-8")).toContain("name: repo-review");
     expect(result.projectionEffects.map((effect) => effect.target)).toEqual(["native-skills", "repo-shims"]);
+    expect(vi.mocked(syncNativeSkillProjections)).toHaveBeenCalledWith(tempDir, {
+      disabledHarnesses: [],
+      skillConfig: { visibility: { overrides: { "repo-review": "explicit-only" } } },
+    });
   });
 
   it("fails closed when the proposal base file changed after proposal creation", async () => {

@@ -114,9 +114,17 @@ export interface KilnYamlSkillSelectionConfig {
   readonly mode?: KilnYamlSkillSelectionMode;
 }
 
+export type KilnYamlSkillVisibility = "implicit" | "explicit-only" | "disabled";
+
+export interface KilnYamlSkillVisibilityConfig {
+  readonly default?: KilnYamlSkillVisibility;
+  readonly overrides?: Readonly<Record<string, KilnYamlSkillVisibility>>;
+}
+
 export interface KilnYamlSkillsConfig {
   readonly builtin?: KilnYamlBuiltinSkillsConfig;
   readonly selection?: KilnYamlSkillSelectionConfig;
+  readonly visibility?: KilnYamlSkillVisibilityConfig;
 }
 
 export type KilnWorkGovernancePosture = "orchestrate" | "direct";

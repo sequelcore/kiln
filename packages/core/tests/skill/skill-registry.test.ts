@@ -77,6 +77,15 @@ describe("SkillRegistry", () => {
       registry.register(updated);
       expect(registry.get("x")!.description).toBe("original");
     });
+
+    it("removes both discovery and cached materialization", () => {
+      registry.registerFull(makeSkill("retired"));
+
+      expect(registry.remove("retired")).toBe(true);
+      expect(registry.get("retired")).toBeUndefined();
+      expect(registry.load("retired")).toBeUndefined();
+      expect(registry.remove("retired")).toBe(false);
+    });
   });
 
   describe("registerFull + load", () => {

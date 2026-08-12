@@ -48,7 +48,7 @@ export class KilnConfigReadTool implements DevTool {
       };
     }
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: this.projectPath });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: this.projectPath, view });
     const result = await readConfigStatusView(snapshot, view);
     return {
       output: JSON.stringify(result.value, null, 2),

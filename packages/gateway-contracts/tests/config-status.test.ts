@@ -1,14 +1,69 @@
 import { describe, expect, it } from "vitest";
 import {
+  KILN_STATUS_EVIDENCE_VERSION,
   TRUSTED_EXECUTION_CLASSIFICATIONS,
   TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
   TRUSTED_EXECUTION_PROOF_STATUSES,
   KilnConfigSetupSnapshotSchema,
   KilnConfigStatusSnapshotSchema,
   KilnProjectionTargetSnapshotSchema,
+  KilnSkillCatalogSnapshotSchema,
   TrustedExecutionIntegritySchema,
   type TrustedExecutionIntegrity,
 } from "../src/config-status.js";
+
+describe("KilnSkillCatalogSnapshotSchema", () => {
+  it("publishes the summary-based status contract as evidence version 2", () => {
+    expect(KILN_STATUS_EVIDENCE_VERSION).toBe(2);
+  });
+  it("publishes exact source inventory and unknown budget evidence", () => {
+    const parsed = KilnSkillCatalogSnapshotSchema.parse({
+      entries: [],
+      inventory: {
+        complete: true,
+        candidates: [{
+          name: "Planner", canonicalName: "planner", sourceKind: "shared-agents",
+          sourceId: "shared-agents:planner", sourcePath: "skills/planner/SKILL.md",
+          relationship: "external", packageDigest: `sha256:${"a".repeat(64)}`,
+          descriptionBytes: 9,
+        }],
+        sources: [{ sourceKind: "shared-agents", candidateCount: 1, descriptionBytes: 9 }],
+        identities: [{ canonicalName: "planner", names: ["Planner"], candidateSourceIds: ["shared-agents:planner"], classification: "unique" }],
+        diagnostics: [],
+      },
+    });
+    expect(parsed.inventory?.sources).toEqual([{ sourceKind: "shared-agents", candidateCount: 1, descriptionBytes: 9 }]);
+  });
+
+  it("round-trips desired and effective per-harness visibility evidence", () => {
+    const parsed = KilnSkillCatalogSnapshotSchema.parse({
+      entries: [{
+        name: "planner",
+        description: "Plan work.",
+        origin: "user",
+        configured: true,
+        builtIn: false,
+        sourcePath: "C:/test/.kiln/skills/planner/SKILL.md",
+        desiredVisibility: "explicit-only",
+        projections: [{
+          target: "opencode",
+          displayName: "OpenCode",
+          path: "C:/test/.config/opencode/skills/planner/SKILL.md",
+          status: "missing",
+          effectiveVisibility: "disabled",
+          visibilityCapability: "unsupported",
+          visibilityReason: "Projection fails closed.",
+        }],
+        admission: { state: "available", reason: "Configured." },
+      }],
+    });
+
+    expect(parsed.entries[0]).toMatchObject({
+      desiredVisibility: "explicit-only",
+      projections: [{ effectiveVisibility: "disabled", visibilityCapability: "unsupported" }],
+    });
+  });
+});
 
 function trustedIntegrity(overrides: Partial<TrustedExecutionIntegrity> = {}): TrustedExecutionIntegrity {
   return {

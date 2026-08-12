@@ -174,6 +174,11 @@ define the active architecture contract. For doctrine, use
   visibility, tool-policy blockers, and benchmark limitations without making
   comparative quality claims.
 
+- `34-skill-catalog-governance-2026.md`
+  Cross-harness evidence for bounded skill catalogs, explicit-only discovery,
+  native capability differences, and the provider-neutral Kiln visibility
+  contract prompted by real catalog-description truncation.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -221,4 +226,5 @@ define the active architecture contract. For doctrine, use
 31. `31-visual-work-abstraction-2026.md`
 32. `32-general-work-contracts-2026.md`
 33. `33-context-semantics-cross-surface-smoke-2026.md`
-34. `web-retrieval-provider-routing.md`
+34. `34-skill-catalog-governance-2026.md`
+35. `web-retrieval-provider-routing.md`

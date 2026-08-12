@@ -1,12 +1,15 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
+import { parse } from "yaml";
 import {
   KILN_CORE_BUILTIN_SKILLS,
   loadSkillMdIndex,
   renderSkillMarkdown,
   resolveKilnCoreBuiltinSkills,
   type SkillIndex,
+  canonicalSkillIdentity,
+  digestSkillPackage,
 } from "@kilnai/core";
 import type {
   KilnSkillCatalogProjectionStatus,
@@ -32,17 +35,28 @@ import {
   isSafeProjectionRelativePath,
   resolveProjectionPathWithin,
 } from "./native-projection-paths.js";
+import { renderSkillVisibility, resolveSkillVisibility } from "./skill-visibility.js";
+import {
+  collectSkillSourceInventory,
+  normalizeSkillInventoryPath,
+  type SkillInventoryCommandRunner,
+  type SkillPluginProvider,
+} from "./skill-source-inventory.js";
 
 export interface ReadSkillCatalogStatusOptions {
   readonly projectPath: string;
   readonly userHome?: string;
   readonly skillConfig?: KilnYamlSkillsConfig | null;
+  readonly pluginProvider?: SkillPluginProvider;
+  readonly commandRunner?: SkillInventoryCommandRunner;
+  readonly cwd?: string;
 }
 
 interface SkillSourceEntry {
   readonly index: SkillIndex;
   readonly origin: KilnSkillOriginKind;
   readonly sourcePath: string;
+  readonly desiredVisibility: "implicit" | "explicit-only" | "disabled";
 }
 
 export function readSkillCatalogStatus(
@@ -60,12 +74,106 @@ export function readSkillCatalogStatus(
     ...configured.map((entry) => projectConfiguredSkill(entry, userHome, installState)),
     ...discoverUnmanagedNativeSkills(userHome, configuredNames),
   ];
+  const builtinCandidates = configured.filter((entry) => entry.origin === "builtin").map((entry) => {
+    const builtin = KILN_CORE_BUILTIN_SKILLS.find((skill) => skill.name === entry.index.name);
+    const content = Buffer.from(builtin ? renderSkillMarkdown(builtin) : entry.index.description, "utf8");
+    const canonicalName = canonicalSkillIdentity(entry.index.name);
+    return {
+      name: entry.index.name,
+      canonicalName,
+      sourceKind: "builtin" as const,
+      sourceId: `builtin:${canonicalName}`,
+      sourcePath: `builtin/${canonicalName}/SKILL.md`,
+      relationship: "canonical" as const,
+      packageDigest: digestSkillPackage([{ path: "SKILL.md", content }]),
+      descriptionBytes: Buffer.byteLength(entry.index.description, "utf8"),
+      applicableHarnesses: ["claude", "codex", "opencode"] as const,
+      effectiveVisibility: entry.desiredVisibility,
+    };
+  });
+  const managedPaths = (harness: "claude" | "codex" | "opencode", targetRoot: string) =>
+    managedSkillProjectionPaths(installState, harness, targetRoot);
+  const codexRoot = join(userHome, ".codex", "skills");
+  const claudeRoot = join(userHome, ".claude", "skills");
+  const openCodeRoot = join(userHome, ".config", "opencode", "skills");
+  const codexProjectAgentRoots = discoverAgentsAncestry(options.cwd ?? options.projectPath, options.projectPath);
+  const collectedInventory = collectSkillSourceInventory({
+    roots: [
+      { id: "kiln-user", sourceKind: "kiln-user", root: join(userHome, ".kiln", "skills"), relationship: "canonical" },
+      { id: "kiln-project", sourceKind: "kiln-project", root: join(options.projectPath, ".kiln", "skills"), relationship: "canonical" },
+      { id: "shared-agents:user", sourceKind: "shared-agents", root: join(userHome, ".agents", "skills"), relationship: "external" },
+      ...codexProjectAgentRoots.map((root, index) => ({ id: `shared-agents:project:${index}`, sourceKind: "shared-agents" as const, root, relationship: "external" as const })),
+      { id: "system:codex", sourceKind: "system", root: join(userHome, ".codex", "skills", ".system"), relationship: "external" },
+      { id: "native:codex", sourceKind: "native-harness", root: codexRoot, relationship: "external", managedSkillPaths: managedPaths("codex", codexRoot), applicableHarnesses: ["codex"], excludedTopLevelNames: new Set([".system"]), harness: "codex" },
+      { id: "native:claude", sourceKind: "native-harness", root: claudeRoot, relationship: "external", managedSkillPaths: managedPaths("claude", claudeRoot), applicableHarnesses: ["claude"], harness: "claude" },
+      { id: "native:opencode", sourceKind: "native-harness", root: openCodeRoot, relationship: "external", managedSkillPaths: managedPaths("opencode", openCodeRoot), applicableHarnesses: ["opencode"], harness: "opencode" },
+    ],
+    ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+    ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+    virtualCandidates: builtinCandidates,
+    trustedRealRoots: [
+      join(userHome, ".kiln", "skills"),
+      join(options.projectPath, ".kiln", "skills"),
+      join(userHome, ".agents", "skills"),
+      ...codexProjectAgentRoots,
+    ],
+  });
+  const candidates = collectedInventory.candidates.map((candidate) => candidate.relationship === "canonical"
+    ? { ...candidate, effectiveVisibility: resolveSkillVisibility(candidate.canonicalName, options.skillConfig) }
+    : candidate);
+  const implicitCandidates = candidates.filter((candidate) =>
+    candidate.relationship !== "managed-projection"
+    && (candidate.relationship === "canonical"
+      ? resolveSkillVisibility(candidate.canonicalName, options.skillConfig) === "implicit"
+      : candidate.effectiveVisibility === "implicit")
+  );
+  const inventory = { ...collectedInventory, candidates, harnesses: collectedInventory.harnesses.map((summary) => {
+    const candidates = implicitCandidates.filter((candidate) => candidate.applicableHarnesses.includes(summary.harness));
+    return { ...summary, candidateCount: candidates.length, descriptionBytes: candidates.reduce((total, candidate) => total + candidate.descriptionBytes, 0) };
+  }) };
 
   return {
     entries: entries.sort((left, right) =>
       left.name.localeCompare(right.name) || left.origin.localeCompare(right.origin)
     ),
+    inventory,
   };
+}
+
+function managedSkillProjectionPaths(
+  installState: NativeProjectionInstallState,
+  harness: "claude" | "codex" | "opencode",
+  targetRoot: string,
+): ReadonlySet<string> {
+  return new Set(Object.entries(installState.targets).flatMap(([key, state]) => {
+    const match = new RegExp(`^${harness}-skill:([^/]+)/SKILL\\.md$`, "i").exec(key);
+    if (!match || key !== state.targetId) return [];
+    const skillName = match[1];
+    if (!skillName || !isSafeProjectionPathComponent(skillName)) return [];
+    const expectedPath = resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, "SKILL.md"));
+    if (!expectedPath) return [];
+    const sourceIdentity = state.sourceIdentity ?? "";
+    if (!new RegExp(`^(builtin|user|project):${canonicalSkillKey(skillName)}/SKILL\\.md$`, "i").test(sourceIdentity)) return [];
+    const expected = { targetId: key, filePath: expectedPath, harness, sourceIdentity };
+    return isFullyOwnedNativeProjectionFile(state, expected)
+      ? [normalizeSkillInventoryPath(expectedPath)]
+      : [];
+  }));
+}
+
+function discoverAgentsAncestry(cwd: string, projectRoot: string): readonly string[] {
+  const roots: string[] = [];
+  let current = cwd;
+  const normalizedProject = normalizeSkillInventoryPath(projectRoot);
+  while (true) {
+    roots.push(join(current, ".agents", "skills"));
+    const normalizedCurrent = normalizeSkillInventoryPath(current);
+    if (normalizedCurrent === normalizedProject) break;
+    const parent = dirname(current);
+    if (parent === current || !normalizedCurrent.startsWith(`${normalizedProject}/`)) break;
+    current = parent;
+  }
+  return roots.reverse();
 }
 
 function discoverConfiguredSkills(input: {
@@ -74,8 +182,8 @@ function discoverConfiguredSkills(input: {
   readonly skillConfig?: KilnYamlSkillsConfig | null;
 }): readonly SkillSourceEntry[] {
   const discovered = new Map<string, SkillSourceEntry>();
-  addSkillDirectory(discovered, join(input.userHome, ".kiln", "skills"), "user");
-  addSkillDirectory(discovered, join(input.projectPath, ".kiln", "skills"), "project");
+  addSkillDirectory(discovered, join(input.userHome, ".kiln", "skills"), "user", input.skillConfig);
+  addSkillDirectory(discovered, join(input.projectPath, ".kiln", "skills"), "project", input.skillConfig);
 
   for (const skill of resolveKilnCoreBuiltinSkills(input.skillConfig?.builtin)) {
     if (!isSafeProjectionPathComponent(skill.name)) continue;
@@ -85,6 +193,7 @@ function discoverConfiguredSkills(input: {
         index: skill,
         origin: "builtin",
         sourcePath: skill.filePath,
+        desiredVisibility: resolveSkillVisibility(skill.name, input.skillConfig),
       });
     }
   }
@@ -96,6 +205,7 @@ function addSkillDirectory(
   discovered: Map<string, SkillSourceEntry>,
   dirPath: string,
   origin: "user" | "project",
+  skillConfig?: KilnYamlSkillsConfig | null,
 ): void {
   for (const skillPath of readSkillMarkdownPaths(dirPath)) {
     try {
@@ -111,6 +221,7 @@ function addSkillDirectory(
         index,
         origin,
         sourcePath: skillPath,
+        desiredVisibility: resolveSkillVisibility(index.name, skillConfig),
       });
     } catch {
       // Invalid skill files are outside the admitted catalog.
@@ -161,6 +272,7 @@ function projectConfiguredSkill(
     configured: true,
     builtIn: isBuiltin,
     sourcePath: source.sourcePath,
+    desiredVisibility: source.desiredVisibility,
     tools: source.index.tools,
     tags: source.index.tags,
     projections: NATIVE_SKILL_TARGETS.map((target) =>
@@ -172,10 +284,18 @@ function projectConfiguredSkill(
         installState,
       )
     ),
-    admission: {
-      state: "available",
-      reason: "Configured Kiln skill. Admission still depends on explicit request, agent profile defaults, or auto skill selection.",
-    },
+    admission: source.desiredVisibility === "disabled"
+      ? {
+          state: "blocked",
+          reason: "Configured Kiln skill is disabled by canonical catalog visibility policy.",
+        }
+      : {
+          state: "available",
+          reason: "Configured Kiln skill. Admission still depends on explicit request, agent profile defaults, or auto skill selection.",
+        },
+    ...(source.desiredVisibility === "disabled"
+      ? { omissionReason: "Disabled by skills.visibility policy." }
+      : {}),
   };
 }
 
@@ -187,8 +307,38 @@ function readConfiguredProjectionStatus(
   installState: NativeProjectionInstallState,
 ): KilnSkillProjectionTargetSnapshot {
   const skillName = source.index.name;
-  const fileNames = projectionFileNames(source);
+  const fileNames = projectionFileNames(source, target);
   const primaryFileName = fileNames.find((fileName) => fileName.toLowerCase() === "skill.md") ?? fileNames[0] ?? "SKILL.md";
+  if (source.desiredVisibility === "disabled") {
+    const observedVisibility = readEffectiveNativeSkillVisibility(target, targetRoot, skillName);
+    const managedPrefix = `${target}-skill:${canonicalSkillKey(skillName)}/`;
+    const managedProjectionRemains = Object.entries(installState.targets).some(([targetId, state]) =>
+      targetId.startsWith(managedPrefix) && existsSync(state.filePath)
+    );
+    const nativeStates = fileNames.map((fileName) => {
+      const path = resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, fileName));
+      if (!path || !existsSync(path)) return "absent" as const;
+      const targetId = `${target}-skill:${canonicalSkillKey(skillName)}/${fileName}`;
+      return findSkillProjectionState(installState, targetId) ? "managed" as const : "unmanaged" as const;
+    });
+    const status: KilnSkillCatalogProjectionStatus = nativeStates.includes("unmanaged")
+      ? "unmanaged-native"
+      : managedProjectionRemains || nativeStates.includes("managed")
+        ? "drifted"
+        : "projected";
+    return {
+      target,
+      displayName,
+      path: resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, primaryFileName))
+        ?? join(targetRoot, skillName, primaryFileName),
+      status,
+      effectiveVisibility: observedVisibility,
+      visibilityCapability: observedVisibility === "disabled" ? "exact" : "unsupported",
+      visibilityReason: observedVisibility === "disabled"
+        ? "No native projection is present, matching disabled visibility."
+        : `Native harness still exposes the skill as ${observedVisibility} despite disabled visibility.`,
+    };
+  }
   const statuses = fileNames.map((fileName) => {
     if (!isSafeProjectionPathComponent(skillName) || !isSafeProjectionRelativePath(fileName)) {
       return "missing" as const;
@@ -202,7 +352,7 @@ function readConfiguredProjectionStatus(
       path,
       targetState ? { version: 1, targets: { [targetId]: targetState } } : installState,
       targetState !== undefined,
-      canonicalSkillProjectionContent(source, fileName),
+      canonicalSkillProjectionContent(source, fileName, target),
       {
         targetId,
         filePath: path,
@@ -212,22 +362,77 @@ function readConfiguredProjectionStatus(
       targetRoot,
     );
   });
+  const observedVisibility = readEffectiveNativeSkillVisibility(target, targetRoot, skillName);
+  const openCodeExplicitOnlyUnsupported = source.desiredVisibility === "explicit-only" && target === "opencode";
+  const visibilityCapability = openCodeExplicitOnlyUnsupported || observedVisibility !== source.desiredVisibility
+    ? "unsupported" as const
+    : "exact" as const;
   return {
     target,
     displayName,
     path: resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, primaryFileName))
       ?? join(targetRoot, skillName, primaryFileName),
     status: aggregateProjectionStatus(statuses),
+    effectiveVisibility: observedVisibility,
+    visibilityCapability,
+    visibilityReason: visibilityCapability === "exact"
+      ? `Harness projection represents ${source.desiredVisibility} visibility exactly.`
+      : openCodeExplicitOnlyUnsupported && observedVisibility === "disabled"
+        ? "Current OpenCode projection cannot enforce explicit-only visibility, so projection fails closed."
+        : `Native harness exposes ${observedVisibility}; desired visibility is ${source.desiredVisibility}.`,
   };
+}
+
+function readEffectiveNativeSkillVisibility(
+  target: "claude" | "codex" | "opencode",
+  targetRoot: string,
+  skillName: string,
+): "implicit" | "explicit-only" | "disabled" {
+  const skillPath = resolveProjectionPathWithin(targetRoot, join(targetRoot, skillName, "SKILL.md"));
+  if (!skillPath || !existsSync(skillPath)) return "disabled";
+  try {
+    if (target === "codex") {
+      const metadataPath = resolveProjectionPathWithin(
+        targetRoot,
+        join(targetRoot, skillName, "agents", "openai.yaml"),
+      );
+      if (!metadataPath || !existsSync(metadataPath)) return "implicit";
+      const metadata = parse(readFileSync(metadataPath, "utf8")) as {
+        readonly policy?: { readonly allow_implicit_invocation?: unknown };
+      } | null;
+      return metadata?.policy?.allow_implicit_invocation === false ? "explicit-only" : "implicit";
+    }
+    const content = readFileSync(skillPath, "utf8");
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
+    const frontmatter = match
+      ? parse(match[1] ?? "") as Record<string, unknown> | null
+      : null;
+    if (target === "claude") {
+      return frontmatter?.["disable-model-invocation"] === true ? "explicit-only" : "implicit";
+    }
+    const metadata = frontmatter?.metadata;
+    const autoInvoke = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Record<string, unknown>)["opencode/autoinvoke"]
+      : undefined;
+    return autoInvoke === false || autoInvoke === "false" ? "explicit-only" : "implicit";
+  } catch {
+    return "implicit";
+  }
 }
 
 function canonicalSkillProjectionContent(
   source: SkillSourceEntry,
   fileName: string,
+  target: "claude" | "codex" | "opencode",
 ): string | Uint8Array | undefined {
   if (source.origin === "builtin") {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === source.index.name);
-    return skill ? renderSkillMarkdown(skill) : undefined;
+    if (!skill) return undefined;
+    return renderSkillVisibility(
+      target,
+      source.desiredVisibility,
+      [{ fileName: "SKILL.md", content: renderSkillMarkdown(skill) }],
+    ).find((file) => file.fileName === fileName)?.content;
   }
 
   const sourcePath = canonicalSkillKey(basename(dirname(source.index.filePath))) === canonicalSkillKey(source.index.name)
@@ -235,27 +440,44 @@ function canonicalSkillProjectionContent(
     : fileName === basename(source.index.filePath)
       ? source.index.filePath
       : undefined;
-  if (!sourcePath) return undefined;
+  if (!sourcePath) {
+    return renderSkillVisibility(target, source.desiredVisibility, [])
+      .find((file) => file.fileName === fileName)?.content;
+  }
   try {
-    return readFileSync(sourcePath);
+    const content = readFileSync(sourcePath);
+    return renderSkillVisibility(target, source.desiredVisibility, [{ fileName, content }])[0]?.content;
   } catch {
     return undefined;
   }
 }
 
-function projectionFileNames(source: SkillSourceEntry): readonly string[] {
+function projectionFileNames(
+  source: SkillSourceEntry,
+  target: "claude" | "codex" | "opencode",
+): readonly string[] {
   if (source.origin === "builtin") {
-    return ["SKILL.md"];
+    return source.desiredVisibility === "explicit-only" && target === "codex"
+      ? ["SKILL.md", "agents/openai.yaml"]
+      : ["SKILL.md"];
   }
   if (!source.index.filePath) {
     return ["SKILL.md"];
   }
   if (canonicalSkillKey(basename(dirname(source.index.filePath))) !== canonicalSkillKey(source.index.name)) {
-    return [basename(source.index.filePath)];
+    const flatNames = [basename(source.index.filePath)];
+    return source.desiredVisibility === "explicit-only" && target === "codex"
+      ? [...flatNames, "agents/openai.yaml"]
+      : flatNames;
   }
   try {
     const sourceDir = dirname(source.index.filePath);
-    return readSkillProjectionFileNames(sourceDir, sourceDir);
+    const names = readSkillProjectionFileNames(sourceDir, sourceDir)
+      .filter((name) => target === "codex" || name.toLowerCase() !== "agents/openai.yaml");
+    return source.desiredVisibility === "explicit-only" && target === "codex"
+      && !names.some((name) => name.toLowerCase() === "agents/openai.yaml")
+      ? [...names, "agents/openai.yaml"]
+      : names;
   } catch {
     return [basename(source.index.filePath)];
   }
@@ -391,11 +613,15 @@ function discoverUnmanagedNativeSkills(
         configured: false,
         builtIn: false,
         sourcePath: join(targetRoot, name, "SKILL.md"),
+        desiredVisibility: "implicit",
         projections: [{
           target: target.target,
           displayName: target.displayName,
           path: join(targetRoot, name, "SKILL.md"),
           status: "unmanaged-native",
+          effectiveVisibility: "implicit",
+          visibilityCapability: "unsupported",
+          visibilityReason: "Native harness-local visibility is outside Kiln governance.",
         }],
         admission: {
           state: "unavailable",

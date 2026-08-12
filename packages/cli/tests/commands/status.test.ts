@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { statusCommand } from "../../src/commands/status.js";
+import {
+  statusCommand as statusCommandImplementation,
+  type StatusCommandOptions,
+} from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
 import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 
@@ -23,6 +26,13 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   buildSystemPrompt: () => "",
   mcpServerName: "kiln",
 };
+
+const emptyPluginProvider = () => ({ roots: [], diagnostics: [] });
+const statusCommand = (
+  appConfig: KilnAppConfig,
+  projectPath?: string,
+  options: StatusCommandOptions = {},
+) => statusCommandImplementation(appConfig, projectPath, { ...options, pluginProvider: emptyPluginProvider });
 
 vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
   const core = await import("@kilnai/core");
@@ -362,9 +372,14 @@ describe("statusCommand", () => {
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Skill catalog:");
     expect(output).toContain("Selection mode: advisory");
-    expect(output).toContain("Configured:");
-    expect(output).toContain("project=1");
-    expect(output).toContain("project-ui");
+    expect(output).toContain("Inventory:");
+    expect(output).toContain("Duplicates:");
+    expect(output).toContain("Collisions:");
+    expect(output).toContain("codex:");
+    expect(output).toContain("description bytes, budget=unknown");
+    expect(output).toContain("issue: skill=");
+    expect(output).toContain("path=");
+    expect(output).toContain("more skill issues omitted");
     expect(output).toContain("sync-native-projections");
   });
 

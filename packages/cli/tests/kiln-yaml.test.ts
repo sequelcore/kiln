@@ -57,6 +57,16 @@ describe("readKilnYaml", () => {
     writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), "invalid: yaml: [");
     expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(KilnYamlError);
   });
+
+  it("rejects project skill visibility while native projections are user-global", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      "version: '1'\nskills:\n  visibility:\n    overrides:\n      planner: disabled\n",
+    );
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      "skills.visibility is global-only because native skill targets are user-global",
+    );
+  });
 });
 
 describe("writeKilnYaml", () => {
@@ -219,6 +229,34 @@ describe("mergeKilnYaml", () => {
         enabled: true,
         include: ["tdd-workflow", "code-review-findings"],
         exclude: ["frontend-ux-review", "benchmark-readiness-review"],
+      },
+    });
+  });
+
+  it("retains global skill visibility when project config changes selection", () => {
+    const result = mergeKilnYaml(
+      {
+        version: "1",
+        skills: {
+          selection: { mode: "advisory" },
+          visibility: {
+            default: "implicit",
+            overrides: { planner: "explicit-only", release: "disabled" },
+          },
+        },
+      },
+      {
+        skills: {
+          selection: { mode: "auto" },
+        },
+      },
+    );
+
+    expect(result.skills).toEqual({
+      selection: { mode: "auto" },
+      visibility: {
+        default: "implicit",
+        overrides: { planner: "explicit-only", release: "disabled" },
       },
     });
   });

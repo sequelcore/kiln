@@ -30,6 +30,7 @@ import {
   isSafeProjectionRelativePath,
   resolveProjectionPathWithin,
 } from "./native-projection-paths.js";
+import { renderSkillVisibility, resolveSkillVisibility } from "./skill-visibility.js";
 
 export interface NativeSkillProjectionResult {
   claude: boolean;
@@ -93,6 +94,7 @@ function isCanonicalSkillDirectory(skillDir: string, directoryName: string): boo
 interface SkillProjectionSource {
   readonly skillName: string;
   readonly sourceIdentity: string;
+  readonly visibility: "implicit" | "explicit-only";
   readonly sourceDir?: string;
   readonly files?: readonly {
     readonly fileName: string;
@@ -113,19 +115,25 @@ export function discoverSkillProjectionSources(
       join(projectPath, ".kiln", "skills"),
       sourceDir,
     ) ? "project" : "user";
+    const visibility = resolveSkillVisibility(skillName, skillConfig);
+    if (visibility === "disabled") continue;
     discovered.set(canonicalSkillKey(skillName), {
       skillName,
+      visibility,
       sourceIdentity: `${origin}:${canonicalSkillKey(skillName)}`,
       sourceDir,
     });
   }
-  addFlatSkillProjectionSources(discovered, join(userHome, ".kiln", "skills"), "user", false);
-  addFlatSkillProjectionSources(discovered, join(projectPath, ".kiln", "skills"), "project", true);
+  addFlatSkillProjectionSources(discovered, join(userHome, ".kiln", "skills"), "user", false, skillConfig);
+  addFlatSkillProjectionSources(discovered, join(projectPath, ".kiln", "skills"), "project", true, skillConfig);
   for (const skill of resolveKilnCoreBuiltinSkills(skillConfig?.builtin)) {
     if (!isSafeProjectionPathComponent(skill.name)) continue;
+    const visibility = resolveSkillVisibility(skill.name, skillConfig);
+    if (visibility === "disabled") continue;
     if (!discovered.has(canonicalSkillKey(skill.name))) {
       discovered.set(canonicalSkillKey(skill.name), {
         skillName: skill.name,
+        visibility,
         sourceIdentity: `builtin:${canonicalSkillKey(skill.name)}`,
         files: [{ fileName: "SKILL.md", content: renderSkillMarkdown(skill) }],
       });
@@ -139,6 +147,7 @@ function addFlatSkillProjectionSources(
   root: string,
   origin: "user" | "project",
   override: boolean,
+  skillConfig?: KilnYamlSkillsConfig | null,
 ): void {
   try {
     for (const entry of readdirSync(root, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -151,9 +160,12 @@ function addFlatSkillProjectionSources(
           continue;
         }
         const key = canonicalSkillKey(index.name);
+        const visibility = resolveSkillVisibility(index.name, skillConfig);
+        if (visibility === "disabled") continue;
         if (override || !discovered.has(key)) {
           discovered.set(key, {
             skillName: index.name,
+            visibility,
             sourceIdentity: `${origin}:${key}`,
             files: [{ fileName: entry.name, content: readFileSync(filePath, "utf-8") }],
           });
@@ -245,9 +257,12 @@ export async function syncNativeSkillProjections(
       continue;
     }
 
+    const targetSkillSources = new Map([...skillSources].filter(([, source]) =>
+      !(target.key === "opencode" && source.visibility === "explicit-only")
+    ));
     const pruneResult = pruneStaleSkillProjections({
       target,
-      skillSources,
+      skillSources: targetSkillSources,
       kilnDir,
       installState,
       options,
@@ -261,6 +276,15 @@ export async function syncNativeSkillProjections(
 
     for (const source of skillSources.values()) {
       const skillName = source.skillName;
+      if (target.key === "opencode" && source.visibility === "explicit-only") {
+        outcomes.push({
+          targetId: `opencode-skill:${canonicalSkillKey(skillName)}`,
+          path: join(target.dir, skillName),
+          status: "skipped",
+          reason: "explicit-only visibility is unsupported by the current OpenCode projection; projection fails closed",
+        });
+        continue;
+      }
       if (!isSafeProjectionPathComponent(skillName)) {
         setTargetFailed(target.key);
         const reason = `unsafe skill path component: ${skillName}`;
@@ -289,7 +313,11 @@ export async function syncNativeSkillProjections(
 
       try {
         if (!options.dryRun) mkdirSync(targetSkillDir, { recursive: true });
-        const sourceFiles = source.files ?? readSkillSourceFiles(source.sourceDir);
+        const sourceFiles = renderSkillVisibility(
+          target.key,
+          source.visibility,
+          source.files ?? readSkillSourceFiles(source.sourceDir),
+        );
         let skillFailed = false;
         for (const sourceFile of sourceFiles) {
           if (!isSafeProjectionRelativePath(sourceFile.fileName)) {
@@ -387,7 +415,11 @@ function pruneStaleSkillProjections(input: {
       let currentFiles = currentFilesBySkill.get(canonicalSkillKey(skillName));
       if (!currentFiles) {
         try {
-          currentFiles = (source.files ?? readSkillSourceFiles(source.sourceDir))
+          currentFiles = renderSkillVisibility(
+            input.target.key,
+            source.visibility,
+            source.files ?? readSkillSourceFiles(source.sourceDir),
+          )
             .map((file) => file.fileName);
           currentFilesBySkill.set(canonicalSkillKey(skillName), currentFiles);
         } catch (error) {

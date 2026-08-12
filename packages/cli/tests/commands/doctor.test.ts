@@ -15,6 +15,35 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
 };
 
 describe("doctorCommand", () => {
+  it("prints bounded skill issues and omitted counts in deterministic human diagnostics", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const missingDiscovery = { models: [], status: "cli_missing" as const, reason: "CLI missing.", authState: "not_required" as const };
+    await doctorCommand(MOCK_APP_CONFIG, {
+      json: false, projectRoot: "C:\\repo", env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "" },
+      fileExists: () => false, runVersion: vi.fn(async () => undefined),
+      readConfigStatus: vi.fn(async () => ({ projections: [], skills: {
+        complete: false, equivalentDuplicates: 0, divergentCollisions: 0, caseCollisions: 0,
+        issueCount: 4, omittedIssueCount: 2,
+        issues: [
+          { skillName: "planner", kind: "capability", harness: "opencode", projectionState: "missing", path: "C:\\skills\\planner\\SKILL.md" },
+          { skillName: "alpha", kind: "drifted", harness: "codex", projectionState: "drifted", path: "C:\\skills\\alpha\\SKILL.md" },
+        ],
+        harnesses: [],
+      } })),
+      discoverModels: vi.fn(async () => ({
+        claudeModels: [], claudeDiscovery: missingDiscovery, codexModels: [], codexDiscovery: missingDiscovery,
+        opencodeModels: [], opencodeDiscovery: missingDiscovery,
+      })),
+      now: () => new Date("2026-06-24T00:00:00.000Z"),
+    });
+    const output = consoleSpy.mock.calls.map((call) => call[0]).join("\n");
+    expect(output.indexOf("skill=alpha")).toBeLessThan(output.indexOf("skill=planner"));
+    expect(output).toContain("issue: skill=alpha, harness=codex, kind=drifted, status=drifted, path=C:\\skills\\alpha\\SKILL.md");
+    expect(output).toContain("issue: skill=planner, harness=opencode, kind=capability, status=missing, path=C:\\skills\\planner\\SKILL.md");
+    expect(output).toContain("... 2 more skill issues omitted (4 total)");
+    consoleSpy.mockRestore();
+  });
+
   it("prints json diagnostics when requested", async () => {
     const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -81,24 +110,14 @@ describe("doctorCommand", () => {
       readConfigStatus: vi.fn(async () => ({
         projections: [],
         skills: {
-          entries: [{
-            name: "project-ui",
-            description: "Project UI workflow.",
-            origin: "project",
-            configured: true,
-            builtIn: false,
-            sourcePath: "C:\\repo\\.kiln\\skills\\project-ui\\SKILL.md",
-            projections: [{
-              target: "codex",
-              displayName: "Codex",
-              path: "C:\\Users\\ExampleUser\\.codex\\skills\\project-ui\\SKILL.md",
-              status: "missing",
-            }],
-            admission: {
-              state: "available",
-              reason: "Configured Kiln skill.",
-            },
-          }],
+          complete: false,
+          equivalentDuplicates: 2,
+          issues: [],
+          divergentCollisions: 1,
+          caseCollisions: 0,
+          issueCount: 0,
+          omittedIssueCount: 0,
+          harnesses: [{ harness: "codex", candidateCount: 3, descriptionBytes: 42, budget: { status: "unknown", reason: "No authority." } }],
         },
       })),
       discoverModels: vi.fn(async () => ({
@@ -129,20 +148,19 @@ describe("doctorCommand", () => {
 
     const parsed = JSON.parse(consoleSpy.mock.calls[0]?.[0] as string) as {
       readonly skills?: {
-        readonly entries: readonly {
-          readonly name: string;
-          readonly origin: string;
-          readonly projections: readonly { readonly status: string }[];
-        }[];
+        readonly complete: boolean;
+        readonly equivalentDuplicates: number;
+        readonly harnesses: readonly { readonly harness: string; readonly candidateCount: number }[];
       };
     };
-    expect(parsed.skills?.entries).toEqual([
-      expect.objectContaining({
-        name: "project-ui",
-        origin: "project",
-        projections: [expect.objectContaining({ status: "missing" })],
-      }),
-    ]);
+    expect(parsed.skills).toMatchObject({
+      complete: false,
+      equivalentDuplicates: 2,
+      issues: [],
+      issueCount: 0,
+      omittedIssueCount: 0,
+      harnesses: [{ harness: "codex", candidateCount: 3 }],
+    });
 
     consoleSpy.mockRestore();
   });

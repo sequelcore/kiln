@@ -8,6 +8,7 @@ import type {
 } from "@kilnai/gateway-contracts";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
+import { loadKilnConfig } from "../config/config-merger.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
 import { ConfigMutationStore } from "./config-mutation-store.js";
 import { hashText } from "./config-proposal.js";
@@ -115,7 +116,11 @@ async function syncConfigMutationProjections(
     });
   }
   if (operation === "skill.upsert") {
-    const result = await syncNativeSkillProjections(projectPath, { disabledHarnesses });
+    const kilnConfig = await loadKilnConfig(projectPath);
+    const result = await syncNativeSkillProjections(projectPath, {
+      disabledHarnesses,
+      skillConfig: kilnConfig?.skills,
+    });
     effects.push({
       target: "native-skills",
       status: result.errors.length === 0 ? "ok" : "failed",

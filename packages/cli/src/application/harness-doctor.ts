@@ -6,7 +6,7 @@ import {
   discoverClaudeCliModelDiscovery,
   discoverGuiCliOperatorModels,
 } from "@kilnai/runtime";
-import type { KilnConfigStatusSnapshot, KilnProjectionTargetSnapshot, KilnSkillCatalogSnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
+import type { KilnConfigStatusSnapshot, KilnProjectionTargetSnapshot, KilnSkillCatalogSummarySnapshot, TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { readConfigStatusSnapshot } from "./config-status.js";
 
 export interface HarnessDoctorProviderDiscovery {
@@ -71,7 +71,7 @@ export interface HarnessDoctorReport {
   readonly kilnCli: HarnessDoctorKilnReport;
   readonly configProjections: readonly HarnessDoctorProjectionReport[];
   readonly permissionIntegrity: readonly TrustedExecutionIntegrity[];
-  readonly skills?: KilnSkillCatalogSnapshot;
+  readonly skills?: KilnSkillCatalogSummarySnapshot;
   readonly harnesses: {
     readonly claude: HarnessDoctorHarnessReport;
     readonly codex: HarnessDoctorHarnessReport;
@@ -96,7 +96,7 @@ export interface HarnessDoctorOptions {
   readonly runVersion?: (path: string) => Promise<string | undefined>;
   readonly discoverModels?: () => Promise<HarnessDoctorModelDiscovery>;
   readonly readConfigProjections?: (projectRoot: string | undefined) => Promise<readonly HarnessDoctorProjectionReport[]>;
-  readonly readConfigStatus?: (projectRoot: string | undefined) => Promise<Pick<KilnConfigStatusSnapshot, "projections" | "skills">>;
+  readonly readConfigStatus?: (projectRoot: string | undefined) => Promise<Pick<KilnConfigStatusSnapshot, "projections" | "skills"> & { readonly setup?: Pick<KilnConfigStatusSnapshot["setup"], "skills"> }>;
   readonly runningModulePath?: string;
   readonly readPackageName?: (manifestPath: string) => string | undefined;
 }
@@ -257,56 +257,24 @@ async function discoverHarnessDoctorModels(): Promise<HarnessDoctorModelDiscover
 
 function appendSkillCatalog(
   lines: string[],
-  skills: KilnSkillCatalogSnapshot | undefined,
+  skills: KilnSkillCatalogSummarySnapshot | undefined,
 ): void {
-  if (!skills || skills.entries.length === 0) {
+  if (!skills) {
     return;
   }
-  const configured = skills.entries.filter((entry) => entry.configured);
-  const nativeOnly = skills.entries.filter((entry) => entry.origin === "native-harness");
-  const projectionIssues = skills.entries.filter((entry) =>
-    entry.projections.some((projection) => projection.status !== "projected")
-  ).sort(compareSkillCatalogIssuePriority);
   lines.push("  Skill catalog:");
-  lines.push(`    Configured: ${configured.length}`);
-  lines.push(`    Native-only: ${nativeOnly.length}`);
-  lines.push(`    Projection issues: ${projectionIssues.length}`);
-  for (const entry of projectionIssues.slice(0, 12)) {
-    const issues = entry.projections
-      .filter((projection) => projection.status !== "projected")
-      .map((projection) => `${projection.target}:${projection.status}`)
-      .join(", ");
-    lines.push(`    - ${entry.name}: ${issues}`);
+  lines.push(`    Inventory: ${skills.complete ? "complete" : "incomplete"}`);
+  lines.push(`    Duplicates: ${skills.equivalentDuplicates}`);
+  lines.push(`    Collisions: divergent=${skills.divergentCollisions}, case=${skills.caseCollisions}`);
+  for (const harness of skills.harnesses) {
+    lines.push(`    ${harness.harness}: ${harness.candidateCount} implicit skills, ${harness.descriptionBytes} description bytes, budget=${harness.budget.status}`);
   }
-  if (projectionIssues.length > 12) {
-    lines.push(`    ... ${projectionIssues.length - 12} more skill projection issues`);
+  for (const issue of [...skills.issues].sort((left, right) => left.skillName.localeCompare(right.skillName)
+    || left.harness.localeCompare(right.harness) || left.kind.localeCompare(right.kind) || left.path.localeCompare(right.path))) {
+    lines.push(`    issue: skill=${issue.skillName}, harness=${issue.harness}, kind=${issue.kind}, status=${issue.projectionState}, path=${issue.path}`);
   }
+  if (skills.omittedIssueCount > 0) lines.push(`    ... ${skills.omittedIssueCount} more skill issues omitted (${skills.issueCount} total)`);
   lines.push("");
-}
-
-function compareSkillCatalogIssuePriority(
-  left: KilnSkillCatalogSnapshot["entries"][number],
-  right: KilnSkillCatalogSnapshot["entries"][number],
-): number {
-  const originDelta = skillOriginPriority(left.origin) - skillOriginPriority(right.origin);
-  if (originDelta !== 0) {
-    return originDelta;
-  }
-  return left.name.localeCompare(right.name);
-}
-
-function skillOriginPriority(origin: KilnSkillCatalogSnapshot["entries"][number]["origin"]): number {
-  switch (origin) {
-    case "project":
-      return 0;
-    case "user":
-      return 1;
-    case "builtin":
-      return 2;
-    case "native-harness":
-      return 3;
-  }
-  return 4;
 }
 
 function appendPermissionIntegrity(
@@ -596,13 +564,13 @@ async function defaultRunVersion(path: string): Promise<string | undefined> {
 
 async function readHarnessConfigDiagnostics(options: HarnessDoctorOptions): Promise<{
   readonly projections: readonly HarnessDoctorProjectionReport[];
-  readonly skills?: KilnSkillCatalogSnapshot;
+  readonly skills?: KilnSkillCatalogSummarySnapshot;
 }> {
   if (options.readConfigStatus) {
     const snapshot = await options.readConfigStatus(options.projectRoot);
     return {
       projections: snapshot.projections.map(projectProjection),
-      ...(snapshot.skills ? { skills: snapshot.skills } : {}),
+      ...(snapshot.setup?.skills ?? snapshot.skills ? { skills: snapshot.setup?.skills ?? snapshot.skills } : {}),
     };
   }
   if (options.readConfigProjections) {
@@ -613,7 +581,7 @@ async function readHarnessConfigDiagnostics(options: HarnessDoctorOptions): Prom
   const snapshot = await readConfigStatusSnapshot({ projectPath: options.projectRoot });
   return {
     projections: snapshot.projections.map(projectProjection),
-    ...(snapshot.skills ? { skills: snapshot.skills } : {}),
+    ...(snapshot.setup.skills ?? snapshot.skills ? { skills: snapshot.setup.skills ?? snapshot.skills } : {}),
   };
 }
 

@@ -13,6 +13,7 @@ import type {
   KilnYamlSkillsConfig,
   KilnYamlBuiltinSkillsConfig,
   KilnYamlSkillSelectionConfig,
+  KilnYamlSkillVisibilityConfig,
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
@@ -42,6 +43,8 @@ export type {
   KilnYamlBuiltinSkillsConfig,
   KilnYamlSkillSelectionConfig,
   KilnYamlSkillSelectionMode,
+  KilnYamlSkillVisibility,
+  KilnYamlSkillVisibilityConfig,
   KilnWorkGovernanceConfig,
   KilnWorkGovernancePosture,
   KilnWorkGovernanceRisk,
@@ -79,6 +82,15 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
       scope: "project",
       sourcePath: path,
     });
+    const skills = (parsed as Record<string, unknown>).skills;
+    if (skills !== undefined && (typeof skills !== "object" || skills === null || Array.isArray(skills))) {
+      throw new KilnYamlError("skills must be an object");
+    }
+    if ((skills as Record<string, unknown> | undefined)?.visibility !== undefined) {
+      throw new KilnYamlError(
+        "skills.visibility is global-only because native skill targets are user-global; project-scoped visibility requires scoped harness projections",
+      );
+    }
     return parsed as KilnYaml;
   } catch (err) {
     if (err instanceof KilnYamlError) {
@@ -232,9 +244,27 @@ function mergeSkills(
   override: KilnYamlSkillsConfig | undefined,
 ): KilnYamlSkillsConfig | undefined {
   if (!base && !override) return undefined;
+  const builtin = mergeBuiltinSkills(base?.builtin, override?.builtin);
+  const selection = mergeSkillSelection(base?.selection, override?.selection);
+  const visibility = mergeSkillVisibility(base?.visibility, override?.visibility);
   return {
-    builtin: mergeBuiltinSkills(base?.builtin, override?.builtin),
-    selection: mergeSkillSelection(base?.selection, override?.selection),
+    ...(builtin ? { builtin } : {}),
+    ...(selection ? { selection } : {}),
+    ...(visibility ? { visibility } : {}),
+  };
+}
+
+function mergeSkillVisibility(
+  base: KilnYamlSkillVisibilityConfig | undefined,
+  override: KilnYamlSkillVisibilityConfig | undefined,
+): KilnYamlSkillVisibilityConfig | undefined {
+  if (!base && !override) return undefined;
+  const defaultVisibility = override?.default ?? base?.default;
+  return {
+    ...(defaultVisibility ? { default: defaultVisibility } : {}),
+    ...((base?.overrides || override?.overrides) ? {
+      overrides: { ...base?.overrides, ...override?.overrides },
+    } : {}),
   };
 }
 

@@ -106,6 +106,136 @@ describe("native-skill-projection", () => {
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
+  it("renders explicit-only visibility per harness and fails closed for unsupported OpenCode", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false), dirent("agents", true)];
+      if (targetPath === join(skillSourceDir, "agents")) return [dirent("openai.yaml", false)];
+      if (targetPath === projectDir) throw new Error("ENOENT");
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "---\nname: planner\ndescription: Plan work.\nlicense: MIT\n---\nBody\n");
+    fsMocks.files.set(join(skillSourceDir, "agents", "openai.yaml"), "interface:\n  display_name: Planner\n");
+
+    const result = await syncNativeSkillProjections(projectPath, {
+      skillConfig: {
+        builtin: { enabled: false },
+        visibility: { overrides: { planner: "explicit-only" } },
+      },
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml")))
+      .toContain("allow_implicit_invocation: false");
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml")))
+      .toContain("display_name: Planner");
+    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md")))
+      .toContain("disable-model-invocation: true");
+    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md")))
+      .toContain("license: MIT");
+    expect(fsMocks.files.has(join("/home/tester", ".claude", "skills", "planner", "agents", "openai.yaml")))
+      .toBe(false);
+    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".config", "opencode", "skills", "planner"))))
+      .toBe(false);
+    expect(result.outcomes).toContainEqual(expect.objectContaining({
+      targetId: "opencode-skill:planner",
+      status: "skipped",
+      reason: expect.stringContaining("explicit-only visibility is unsupported"),
+    }));
+  });
+
+  it("overrides stale native opt-out metadata when visibility returns to implicit", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false), dirent("agents", true)];
+      if (targetPath === join(skillSourceDir, "agents")) return [dirent("openai.yaml", false)];
+      throw new Error("ENOENT");
+    });
+    fsMocks.files.set(
+      join(skillSourceDir, "SKILL.md"),
+      "---\nname: planner\ndescription: Plan work.\ndisable-model-invocation: true\n---\nBody\n",
+    );
+    fsMocks.files.set(
+      join(skillSourceDir, "agents", "openai.yaml"),
+      "policy:\n  allow_implicit_invocation: false\n",
+    );
+
+    await syncNativeSkillProjections(projectPath, {
+      skillConfig: { builtin: { enabled: false }, visibility: { overrides: { planner: "implicit" } } },
+    });
+
+    expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "agents", "openai.yaml")))
+      .toContain("allow_implicit_invocation: true");
+    expect(fsMocks.files.get(join("/home/tester", ".claude", "skills", "planner", "SKILL.md")))
+      .toContain("disable-model-invocation: false");
+    expect(fsMocks.files.has(join("/home/tester", ".claude", "skills", "planner", "agents", "openai.yaml")))
+      .toBe(false);
+  });
+
+  it("does not project disabled skills", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
+      throw new Error("ENOENT");
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
+
+    const result = await syncNativeSkillProjections(projectPath, {
+      skillConfig: {
+        builtin: { enabled: false },
+        visibility: { overrides: { planner: "disabled" } },
+      },
+    });
+
+    expect(result.synced).toBe(0);
+    expect([...fsMocks.files.keys()].some((path) => path.includes(`${join("skills", "planner")}`)))
+      .toBe(true); // canonical source remains
+    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner"))))
+      .toBe(false);
+  });
+
+  it("prunes previously managed projections when a skill becomes disabled", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
+      throw new Error("ENOENT");
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
+    await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+
+    const result = await syncNativeSkillProjections(projectPath, {
+      skillConfig: {
+        builtin: { enabled: false },
+        visibility: { overrides: { planner: "disabled" } },
+      },
+    });
+
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: "codex-skill:planner/SKILL.md", status: "removed" }),
+      expect.objectContaining({ targetId: "claude-skill:planner/SKILL.md", status: "removed" }),
+      expect.objectContaining({ targetId: "opencode-skill:planner/SKILL.md", status: "removed" }),
+    ]));
+    expect([...fsMocks.files.keys()].some((path) => path.includes(join(".codex", "skills", "planner"))))
+      .toBe(false);
+    const state = JSON.parse(fsMocks.files.get(join(projectPath, ".kiln", "install-state.json")) ?? "{}") as {
+      targets?: Record<string, unknown>;
+    };
+    expect(Object.keys(state.targets ?? {}).some((targetId) => targetId.includes("skill:planner/"))).toBe(false);
+  });
+
   it("reports a failed outcome when a harness skill directory cannot be created", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");

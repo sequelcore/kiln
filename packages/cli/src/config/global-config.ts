@@ -36,6 +36,7 @@ import { describeRunningCliBuild } from "../build-identity.js";
 import { KilnYamlError } from "../kiln-yaml.js";
 import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./mcp-config.js";
+import { validateSkillVisibilityConfig } from "./skill-visibility.js";
 import type {
   KilnManagedAgentsConfig,
   KilnHooksConfig,
@@ -1032,7 +1033,7 @@ function validateSkills(value: unknown): void {
     throw new KilnYamlError("skills must be an object");
   }
   for (const key of Object.keys(value)) {
-    if (key !== "builtin" && key !== "selection") {
+    if (key !== "builtin" && key !== "selection" && key !== "visibility") {
       throw new KilnYamlError(`Unknown skills field: ${key}`);
     }
   }
@@ -1067,6 +1068,9 @@ function validateSkills(value: unknown): void {
     ) {
       throw new KilnYamlError("skills.selection.mode must be advisory or auto");
     }
+  }
+  if (value.visibility !== undefined) {
+    validateSkillVisibilityConfig(value.visibility);
   }
 }
 

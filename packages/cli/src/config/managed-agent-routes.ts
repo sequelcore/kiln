@@ -1209,6 +1209,7 @@ function loadManagedInvocationSkillCatalog(
       configured: skill.configured,
       builtIn: skill.builtIn,
       sourcePath: skill.sourcePath,
+      desiredVisibility: skill.desiredVisibility,
       admission: skill.admission,
       projections: skill.projections.map((projection) => ({
         target: projection.target,
