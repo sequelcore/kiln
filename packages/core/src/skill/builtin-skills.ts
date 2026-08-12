@@ -124,23 +124,62 @@ Output:
   }),
   defineBuiltinSkill({
     name: "implementation-planning",
-    description: "Turn a scoped objective into an implementation sequence with files, verification, and rollback awareness.",
+    description: "Produce repository-evidenced implementation sequences for scoped, nontrivial changes with decisions, dependencies, verification, and recovery.",
     tools: ["read", "grep", "glob"],
     tags: ["engineering", "planning"],
     instructions: `
 # Implementation Planning
 
-Use this skill after scouting and before implementation.
+Use this skill after scouting and before implementation when work crosses files,
+contracts, boundaries, or surfaces, or carries meaningful uncertainty or risk.
+Skip a full plan for one obvious low-risk edit; state the change and focused
+verification instead.
 
 Workflow:
-1. Restate the objective and non-goals.
-2. Split work into atomic slices with clear file ownership.
-3. Identify tests or verification gates for each slice.
-4. Call out contract, data, config, and surface-parity implications.
-5. Prefer the smallest plan that fully satisfies the requested behavior.
+1. State the intended outcome, acceptance evidence, and non-goals. Preserve the
+   user's actual contract rather than expanding it into adjacent cleanup.
+2. List material assumptions, unknowns, and decisions. Do not hide unresolved
+   product, architecture, authority, security, or data-safety decisions inside an
+   implementation step. Stop for operator or specialist direction when a choice
+   materially changes behavior, risk, or scope.
+3. Ground the affected surface in the scout map and current repository state.
+   Treat files and symbols as exact only when confirmed by repository evidence;
+   label other surfaces as candidates to verify during execution.
+4. Split work by coherent behavior or invariant. Each slice must leave a safe,
+   reviewable intermediate state and name:
+   - its outcome and why it is necessary;
+   - confirmed files, symbols, contracts, and owning surface;
+   - prerequisites and dependents;
+   - focused verification and its expected completion signal;
+   - rollback, roll-forward, or recovery when state or deployment can escape the
+     repository.
+5. Order prerequisites before consumers. Do not parallelize slices that share a
+   prerequisite or write surface. Mark slices independent only when their state,
+   ownership, and verification do not conflict.
+6. Include contract, data, config, generated-artifact, documentation, cleanup,
+   and surface-parity work only when evidenced consumers require it. Schedule
+   failing behavior proof before production edits when TDD is practical, without
+   designing or writing the test in the plan.
+7. End with proportionate completion gates and residual risk. Name focused,
+   downstream, integration, or broader gates justified by the dependency surface;
+   do not use a ritual full-suite step as generic boilerplate.
+8. Re-scout and revise the plan when execution, tests, or repository changes
+   invalidate a premise, reveal a new dependency, or broaden the surface. Remove
+   or supersede stale steps instead of executing them ceremonially.
 
-Do not include generic boilerplate. Every step must change or verify something
-real.
+Output:
+- objective, acceptance evidence, and non-goals;
+- confirmed evidence, assumptions, open decisions, and candidate surfaces;
+- numbered slices with outcome, owned surface, dependencies, verification signal,
+  and recovery;
+- final gates and residual risks.
+
+Prefer the smallest plan that fully satisfies the requested behavior. Every step
+must change or verify something real. Do not invent paths, line numbers, time
+estimates, approvals, or rollback guarantees. Do not implement, adjudicate a
+specialist decision, or mark work complete while planning. A prose plan does not
+grant write authority, approval, or completion evidence; use the repository's
+structured plan, work-item, or approval system when one exists.
 `,
   }),
   defineBuiltinSkill({

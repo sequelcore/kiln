@@ -70,6 +70,22 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("Do not turn the map into an implementation plan");
   });
 
+  it("requires evidence-bound adaptive implementation planning", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "implementation-planning");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toContain("after scouting and before implementation");
+    expect(skill?.instructions).toMatch(/Skip a full plan for one\s+obvious low-risk edit/);
+    expect(skill?.instructions).toContain("acceptance evidence");
+    expect(skill?.instructions).toMatch(/Do not hide unresolved\s+product, architecture, authority, security, or data-safety decisions/);
+    expect(skill?.instructions).toMatch(/confirmed by repository evidence/);
+    expect(skill?.instructions).toMatch(/safe,\s+reviewable intermediate state/);
+    expect(skill?.instructions).toContain("expected completion signal");
+    expect(skill?.instructions).toMatch(/Do not parallelize slices that share a\s+prerequisite or write surface/);
+    expect(skill?.instructions).toContain("Re-scout and revise the plan");
+    expect(skill?.instructions).toMatch(/A prose plan does not\s+grant write authority, approval, or completion evidence/);
+  });
+
   it("requires explicit equivalence evidence for behavior-preserving refactors", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "refactoring-safety");
 

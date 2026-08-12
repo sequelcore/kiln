@@ -183,6 +183,10 @@ define the active architecture contract. For doctrine, use
   Repository navigation, dependency-graph, regression-test-selection, and
   coding-agent evidence supporting bounded, uncertainty-aware change scouting.
 
+- `36-implementation-planning-skill-2026.md`
+  Coding-agent, change-decomposition, small-batch, and safe-delivery evidence
+  supporting conditional, repository-grounded implementation planning.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -232,4 +236,5 @@ define the active architecture contract. For doctrine, use
 33. `33-context-semantics-cross-surface-smoke-2026.md`
 34. `34-skill-catalog-governance-2026.md`
 35. `35-codebase-scouting-skill-2026.md`
-36. `web-retrieval-provider-routing.md`
+36. `36-implementation-planning-skill-2026.md`
+37. `web-retrieval-provider-routing.md`
