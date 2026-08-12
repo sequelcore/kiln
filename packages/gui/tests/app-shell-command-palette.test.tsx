@@ -182,18 +182,22 @@ vi.mock("../src/components/theme-switcher.js", () => ({
   ThemeSwitcher: () => <button type="button">Theme</button>,
 }));
 
-vi.mock("../src/components/ai-elements/model-selector.js", () => ({
-  ModelSelector: (props: {
-    open: boolean;
-    anchor?: { readonly current: HTMLElement | null };
-    finalFocus?: { readonly current: HTMLElement | null };
-    onOpenChange: (open: boolean) => void;
-    children: ReactNode;
-  }) => {
-    executionRoutePickerPropsLog.push(props);
-    return <>{props.children}</>;
-  },
-}));
+vi.mock("../src/components/ai-elements/model-selector.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/components/ai-elements/model-selector.js")>();
+  return {
+    ...actual,
+    ModelSelector: (props: {
+      open: boolean;
+      anchor?: { readonly current: HTMLElement | null };
+      finalFocus?: { readonly current: HTMLElement | null };
+      onOpenChange: (open: boolean) => void;
+      children: ReactNode;
+    }) => {
+      executionRoutePickerPropsLog.push(props);
+      return <>{props.children}</>;
+    },
+  };
+});
 
 vi.mock("../src/components/transcript.js", () => ({
   Transcript: () => <div>Transcript</div>,

@@ -320,6 +320,7 @@ function useAppShellRuntimeView() {
   const providerCatalogError = useSessionStore((state) => state.providerCatalogError);
   const executionRouteCatalog = useSessionStore((state) => state.executionRouteCatalog ?? EMPTY_EXECUTION_ROUTE_CATALOG);
   const activeRouteId = useSessionStore((state) => state.activeRouteId);
+  const activeAccountOverrideId = useSessionStore((state) => state.activeAccountOverrideId);
   const sessionList = useSessionStore((state) => state.sessionList);
   const selectedSessionId = useSessionStore((state) => state.selectedSessionId);
   const liveSessionId = useSessionStore((state) => state.liveSessionId);
@@ -1374,6 +1375,7 @@ function useAppShellRuntimeView() {
             <ExecutionRoutePicker
               catalog={executionRouteCatalog}
               activeRouteId={activeRouteId}
+              activeAccountOverrideId={activeAccountOverrideId}
               onSelect={(selection) => {
                 void executionRoutePickerActions.onSelectRoute(
                   selection.routeId,
