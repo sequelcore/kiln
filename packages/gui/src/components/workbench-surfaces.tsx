@@ -20,10 +20,6 @@ const Transcript = lazy(async () => {
   const module = await import("./transcript.js");
   return { default: module.Transcript };
 });
-const SetupPanel = lazy(async () => {
-  const module = await import("./setup-panel.js");
-  return { default: module.SetupPanel };
-});
 const WorkItemsPanel = lazy(async () => {
   const module = await import("./work-items-panel.js");
   return { default: module.WorkItemsPanel };
@@ -50,7 +46,6 @@ type WorkItemsPanelProps = ComponentProps<typeof WorkItemsPanel>;
 type ManagedAgentCockpitPanelProps = ComponentProps<typeof ManagedAgentCockpitPanel>;
 type ActivityLogPanelProps = ComponentProps<typeof ActivityLogPanel>;
 type MemoryLatticePanelProps = ComponentProps<typeof MemoryLatticePanel>;
-type SetupPanelProps = ComponentProps<typeof SetupPanel>;
 
 interface WorkbenchSurfacesProps {
   readonly activeSurface: WorkbenchSurface;
@@ -63,7 +58,6 @@ interface WorkbenchSurfacesProps {
   readonly managedAgents: ManagedAgentCockpitPanelProps;
   readonly activityLog: ActivityLogPanelProps;
   readonly memory: MemoryLatticePanelProps;
-  readonly setup: SetupPanelProps;
 }
 
 function MemoryLatticeFallback() {
@@ -168,11 +162,6 @@ export function WorkbenchSurfaces(props: WorkbenchSurfacesProps) {
     );
   }
 
-  return (
-    <Suspense fallback={<OperatorSurfaceFallback label="Loading setup" />}>
-      <div className="min-h-0 flex-1 overflow-hidden bg-workspace-viewer">
-        <SetupPanel {...props.setup} />
-      </div>
-    </Suspense>
-  );
+  const exhaustiveSurface: never = props.activeSurface;
+  return exhaustiveSurface;
 }

@@ -148,7 +148,7 @@ describe("SetupPanel", () => {
     expect(screen.getByRole("heading", { name: "Configuration Health" })).toBeInTheDocument();
     expect(screen.getByText("2 Actions Need Attention")).toBeInTheDocument();
 
-    const actions = screen.getByRole("region", { name: "Required Setup Actions" });
+    const actions = screen.getByRole("region", { name: "Required Configuration Actions" });
     expect(within(actions).getByRole("button", { name: "Adopt Project Context" })).toBeInTheDocument();
     expect(within(actions).getByRole("button", { name: "Sync Repo Shims" })).toBeInTheDocument();
     expect(within(actions).queryByText("C:/workspace/kiln/AGENTS.md")).not.toBeInTheDocument();
@@ -187,7 +187,7 @@ describe("SetupPanel", () => {
     );
 
     expect(screen.getByText("Configuration Is Current")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent("No setup actions are required.");
+    expect(screen.getByRole("region", { name: "Required Configuration Actions" })).toHaveTextContent("No configuration actions are required.");
     expect(screen.queryByRole("button", { name: "Current" })).not.toBeInTheDocument();
   });
 
@@ -248,7 +248,7 @@ describe("SetupPanel", () => {
 
     expect(screen.queryByRole("heading", { name: "Setup Sources" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Configuration Overview" })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Canonical setup sources" })).toHaveTextContent(
+    expect(screen.getByRole("table", { name: "Canonical configuration sources" })).toHaveTextContent(
       "Durable repository guidance inherited by every harness",
     );
     expect(screen.getByRole("table", { name: "Native harness projections" })).toBeInTheDocument();
@@ -365,7 +365,7 @@ describe("SetupPanel", () => {
       />,
     );
 
-    const actions = screen.getByRole("region", { name: "Required Setup Actions" });
+    const actions = screen.getByRole("region", { name: "Required Configuration Actions" });
     fireEvent.click(within(actions).getByRole("button", { name: "Sync Global Instruction Shims" }));
     fireEvent.click(within(actions).getByRole("button", { name: "Review Global Instructions" }));
     fireEvent.click(within(actions).getByRole("button", { name: "Review Global Instruction Drift" }));

@@ -16,6 +16,7 @@ interface AppShellCommandExecutorInput {
   readonly setPaletteQuery: (query: string) => void;
   readonly setPaletteOpen: (open: boolean) => void;
   readonly openExecutionRoutePicker: () => void;
+  readonly openConfigurationSettings: () => void;
   readonly deliberationLevelOptions: readonly GuiDeliberationLevelId[];
   readonly selectedDeliberationLevel: GuiDeliberationLevelId | null;
   readonly setDeliberationLevel: (level: GuiDeliberationLevelId) => void;
@@ -93,7 +94,7 @@ export function createAppShellCommandExecutor(input: AppShellCommandExecutorInpu
         input.closePalette();
         return;
       case "setup":
-        input.setWorkbenchSurface("setup");
+        input.openConfigurationSettings();
         input.closePalette();
         return;
       case "goal":

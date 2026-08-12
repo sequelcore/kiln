@@ -20,6 +20,7 @@ function pointerEvent(type: string, values: { pointerId: number; clientX: number
 describe("Workbench navigation", () => {
   it("renders primary surfaces with badges and collapsed session access", () => {
     const onSelectSurface = vi.fn();
+    const onOpenSettings = vi.fn();
 
     render(
       <PrimarySidebar
@@ -34,6 +35,7 @@ describe("Workbench navigation", () => {
         onSidebarWidthChange={vi.fn()}
         onSessionsOpenChange={vi.fn()}
         onStartNewSession={vi.fn()}
+        onOpenSettings={onOpenSettings}
         sessions={<div>Session list</div>}
       />,
     );
@@ -47,8 +49,10 @@ describe("Workbench navigation", () => {
     expect(screen.getByRole("button", { name: "Open sessions" })).toHaveClass("w-full");
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(onSelectSurface).toHaveBeenCalledWith("activity");
+    expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
   it("keeps expanded sidebar hierarchy scannable", () => {
@@ -66,6 +70,7 @@ describe("Workbench navigation", () => {
         onSidebarWidthChange={vi.fn()}
         onSessionsOpenChange={vi.fn()}
         onStartNewSession={onStartNewSession}
+        onOpenSettings={vi.fn()}
         sessions={<div>Session list</div>}
       />,
     );
@@ -83,7 +88,7 @@ describe("Workbench navigation", () => {
     expect(within(utilityNavigation).getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Activity",
       "Memory",
-      "Setup",
+      "Settings",
     ]);
     const sessionList = screen.getByText("Session list");
     expect(primaryNavigation.compareDocumentPosition(sessionList) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -115,6 +120,7 @@ describe("Workbench navigation", () => {
           }}
           onSessionsOpenChange={vi.fn()}
           onStartNewSession={vi.fn()}
+          onOpenSettings={vi.fn()}
           sessions={<div>Session list</div>}
         />
       );
@@ -153,6 +159,7 @@ describe("Workbench navigation", () => {
         onToggleDrawer={onToggleDrawer}
         onSelectSurface={onSelectSurface}
         onStartNewSession={onStartNewSession}
+        onOpenSettings={vi.fn()}
         onToggleOperatorTerminal={vi.fn()}
         gatewayTargetSelector={<span>Gateway target</span>}
       />,
@@ -180,6 +187,7 @@ describe("Workbench navigation", () => {
         onToggleDrawer={vi.fn()}
         onSelectSurface={vi.fn()}
         onStartNewSession={vi.fn()}
+        onOpenSettings={vi.fn()}
         onToggleOperatorTerminal={vi.fn()}
         gatewayTargetSelector={<button type="button" data-slot="select-trigger">Runtime target</button>}
       />,
@@ -213,6 +221,7 @@ describe("Workbench navigation", () => {
         onToggleDrawer={vi.fn()}
         onSelectSurface={vi.fn()}
         onStartNewSession={vi.fn()}
+        onOpenSettings={vi.fn()}
         onToggleOperatorTerminal={vi.fn()}
       />,
     );
@@ -235,6 +244,7 @@ describe("Workbench navigation", () => {
         onToggleDrawer={vi.fn()}
         onSelectSurface={vi.fn()}
         onStartNewSession={vi.fn()}
+        onOpenSettings={vi.fn()}
         onToggleOperatorTerminal={vi.fn()}
       />,
     );
@@ -291,6 +301,7 @@ describe("Workbench navigation", () => {
         onToggleDrawer={vi.fn()}
         onSelectSurface={vi.fn()}
         onStartNewSession={vi.fn()}
+        onOpenSettings={vi.fn()}
         onToggleOperatorTerminal={onToggleOperatorTerminal}
       />,
     );

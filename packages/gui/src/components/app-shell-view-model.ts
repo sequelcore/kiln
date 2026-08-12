@@ -46,8 +46,7 @@ export function resolveWorkbenchTitle(surface: WorkbenchSurface, activeChatSurfa
   if (surface === "work") return "Work";
   if (surface === "agents") return "Agents";
   if (surface === "activity") return "Activity";
-  if (surface === "memory") return "Memory";
-  return "Setup";
+  return "Memory";
 }
 
 export function resolveDrawerLabels(mode: MobileDrawerMode): {

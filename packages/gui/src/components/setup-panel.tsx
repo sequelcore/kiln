@@ -3,7 +3,6 @@ import type {
   KilnConfigSetupSnapshot,
   KilnConfigSourceStatus,
   KilnProjectionTargetStatus,
-  OperatorThemeName,
   TrustedExecutionIntegrity,
 } from "@kilnai/gateway-contracts";
 import { isGuiExecutableConfigSetupAction } from "@kilnai/gateway-contracts";
@@ -14,7 +13,6 @@ import {
   ShieldCheck,
   Wrench,
 } from "lucide-react";
-import { ThemeSwitcher } from "./theme-switcher.js";
 import { SetupSourceInventory } from "./setup-source-inventory.js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +37,6 @@ interface SetupPanelProps {
   readonly onRefresh: () => void;
   readonly onExecuteAction: (action: KilnConfigSetupAction) => void;
   readonly onPreviewSource: (path: string) => void;
-  readonly onThemeSelected?: (theme: OperatorThemeName) => void;
 }
 
 const ACTION_LABELS: Record<KilnConfigSetupAction, string> = {
@@ -79,7 +76,7 @@ export function SetupPanel(props: SetupPanelProps) {
   const permissionIntegrity = props.snapshot?.permissionIntegrity ?? [];
 
   return (
-    <section aria-label="Setup" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
+    <section aria-label="Configuration Health" className="flex h-full min-h-0 min-w-0 flex-col bg-workspace-viewer">
       <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-workspace-viewer-panel px-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <SetupStatusIcon issueCount={summary.actionCount} loading={props.loading} />
@@ -91,12 +88,11 @@ export function SetupPanel(props: SetupPanelProps) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <ThemeSwitcher onThemeSelected={props.onThemeSelected} />
           <Button
             type="button"
             variant="outline"
             size="sm"
-            aria-label="Refresh Setup"
+            aria-label="Refresh configuration"
             disabled={props.refreshing || props.loading}
             onClick={props.onRefresh}
           >
@@ -136,17 +132,17 @@ export function SetupPanel(props: SetupPanelProps) {
               </Card>
             </section>
 
-            <section aria-label="Required Setup Actions">
+            <section aria-label="Required Configuration Actions">
               <Card>
                 <CardHeader>
-                  <CardTitle><h3>Required Setup Actions</h3></CardTitle>
+                  <CardTitle><h3>Required Configuration Actions</h3></CardTitle>
                   <CardDescription>Repair generated state here; inspect drift before any destructive replacement.</CardDescription>
                 </CardHeader>
                 <CardContent className="divide-y divide-border/70 p-0">
                   {actionItems.length === 0 ? (
                     <div className="flex items-center gap-3 px-4 py-5 text-sm text-muted-foreground">
                       <CheckCircle2 className="size-4 shrink-0 text-[var(--color-accent)]" aria-hidden="true" />
-                      No setup actions are required.
+                      No configuration actions are required.
                     </div>
                   ) : actionItems.map((action) => (
                     <SetupActionRow
@@ -229,8 +225,8 @@ function summarizeSetup(snapshot: KilnConfigSetupSnapshot | null | undefined) {
   if (!snapshot) {
     return {
       actionCount: 0,
-      title: "Setup Status Unavailable",
-      description: "Kiln setup status will appear when the gateway responds.",
+      title: "Configuration Status Unavailable",
+      description: "Kiln configuration status will appear when the gateway responds.",
       badge: "Waiting",
     };
   }
@@ -317,7 +313,7 @@ function SetupStatusIcon(props: { readonly issueCount: number; readonly loading:
 
 function SetupLoading() {
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-5 py-7 sm:px-8 sm:py-9" aria-label="Loading setup status" role="status">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-5 py-7 sm:px-8 sm:py-9" aria-label="Loading configuration status" role="status">
       <Skeleton className="h-28 rounded-md" />
       <Skeleton className="h-40 rounded-md" />
       <Skeleton className="h-52 rounded-md" />
@@ -328,7 +324,7 @@ function SetupLoading() {
 function SetupError(props: { readonly message: string }) {
   return (
     <div role="alert" className="m-4 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-3 text-sm text-foreground">
-      <p className="font-medium">Setup Status Failed</p>
+      <p className="font-medium">Configuration Status Failed</p>
       <p className="mt-1 text-muted-foreground">{props.message}</p>
     </div>
   );

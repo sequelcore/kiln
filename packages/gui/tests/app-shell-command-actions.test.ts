@@ -10,6 +10,7 @@ function createInput(overrides: Partial<Parameters<typeof createAppShellCommandE
     setPaletteQuery: vi.fn(),
     setPaletteOpen: vi.fn(),
     openExecutionRoutePicker: vi.fn(),
+    openConfigurationSettings: vi.fn(),
     deliberationLevelOptions: ["low", "medium", "high"] as const,
     selectedDeliberationLevel: "medium" as const,
     setDeliberationLevel: vi.fn(),
@@ -71,7 +72,7 @@ describe("createAppShellCommandExecutor", () => {
     expect(input.closePalette).toHaveBeenCalledOnce();
   });
 
-  it("routes plan and setup commands to the correct workbench surfaces", () => {
+  it("routes plan to chat and setup to configuration settings", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
@@ -80,7 +81,7 @@ describe("createAppShellCommandExecutor", () => {
 
     expect(input.setTargetedPlanMode).toHaveBeenCalledWith(true);
     expect(input.setWorkbenchSurface).toHaveBeenNthCalledWith(1, "chat");
-    expect(input.setWorkbenchSurface).toHaveBeenNthCalledWith(2, "setup");
+    expect(input.openConfigurationSettings).toHaveBeenCalledOnce();
   });
 
   it("toggles the local operator terminal from the shared GUI command", () => {

@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
-import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { createRootRoute } from "@tanstack/react-router";
+import { RoutedAppShell } from "../components/routed-app-shell.js";
 
 const TanStackRouterDevtools = lazy(async () => {
   const module = await import("@tanstack/react-router-devtools");
@@ -13,7 +14,7 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <>
-      <Outlet />
+      <RoutedAppShell />
       {import.meta.env.DEV ? (
         <Suspense fallback={null}>
           <TanStackRouterDevtools />

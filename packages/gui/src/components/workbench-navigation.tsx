@@ -43,7 +43,7 @@ import {
 
 const KILN_LOGO_URL = new URL("../../../../docs/assets/logo.svg", import.meta.url).href;
 
-export type WorkbenchSurface = "chat" | "work" | "agents" | "activity" | "memory" | "setup";
+export type WorkbenchSurface = "chat" | "work" | "agents" | "activity" | "memory";
 export type InspectorMode = "workspace" | "changed" | "approvals";
 export type MobileDrawerMode = "sessions" | "inspector";
 export type ChatWorkspaceSurface = "chat" | "browser";
@@ -57,7 +57,6 @@ const PRIMARY_WORK_SURFACES: readonly WorkbenchSurface[] = [
 const UTILITY_SURFACES: readonly WorkbenchSurface[] = [
   "activity",
   "memory",
-  "setup",
 ];
 
 const WORKBENCH_SURFACES: readonly WorkbenchSurface[] = [
@@ -77,7 +76,6 @@ const WORKBENCH_SURFACE_LABELS: Record<WorkbenchSurface, string> = {
   agents: "Agents",
   activity: "Activity",
   memory: "Memory",
-  setup: "Setup",
 };
 
 const WORKBENCH_SURFACE_DESCRIPTIONS: Record<WorkbenchSurface, string> = {
@@ -86,7 +84,6 @@ const WORKBENCH_SURFACE_DESCRIPTIONS: Record<WorkbenchSurface, string> = {
   agents: "managed children",
   activity: "runtime timeline",
   memory: "memory lattice",
-  setup: "configuration",
 };
 
 const INSPECTOR_LABELS: Record<InspectorMode, string> = {
@@ -107,7 +104,6 @@ const workbenchSurfaceIcons: Record<WorkbenchSurface, LucideIcon> = {
   agents: Bot,
   activity: Activity,
   memory: Network,
-  setup: Settings2,
 };
 
 const inspectorModeIcons: Record<InspectorMode, LucideIcon> = {
@@ -223,6 +219,7 @@ export function PrimarySidebar(props: {
   readonly onSidebarWidthChange: (width: number, persist: boolean) => void;
   readonly onSessionsOpenChange: (open: boolean) => void;
   readonly onStartNewSession: () => void;
+  readonly onOpenSettings: () => void;
   readonly sessions: ReactNode;
 }) {
   const resizeStateRef = useRef<{
@@ -413,6 +410,13 @@ export function PrimarySidebar(props: {
             managedAgentAttentionCount: props.managedAgentAttentionCount,
             onSelectSurface: props.onSelectSurface,
           })}
+          <NavButton
+            label="Settings"
+            icon={Settings2}
+            active={false}
+            collapsed={props.collapsed}
+            onClick={props.onOpenSettings}
+          />
         </div>
       </nav>
     </aside>
@@ -430,6 +434,7 @@ export function MobileWorkbenchHeader(props: {
   readonly onToggleDrawer: (mode: MobileDrawerMode) => void;
   readonly onSelectSurface: (surface: WorkbenchSurface) => void;
   readonly onStartNewSession: () => void;
+  readonly onOpenSettings: () => void;
   readonly onToggleOperatorTerminal: () => void;
 }) {
   return (
@@ -514,6 +519,17 @@ export function MobileWorkbenchHeader(props: {
           </SelectContent>
         </Select>
         <div className="hidden sm:ml-auto sm:block" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-lg"
+          aria-label="Settings"
+          title="Settings"
+          onClick={props.onOpenSettings}
+          className="[@media(pointer:coarse)]:size-11"
+        >
+          <Settings2 aria-hidden="true" />
+        </Button>
         {props.operatorTerminalAvailable ? (
           <Button
             id="operator-terminal-trigger"

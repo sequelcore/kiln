@@ -70,7 +70,7 @@ const PROJECTION_UPDATED_AT_FORMATTER = new Intl.DateTimeFormat(undefined, {
 
 export function SetupSourceInventory(props: SetupSourceInventoryProps) {
   return (
-    <section aria-label="Setup Details" className="flex flex-col gap-6">
+    <section aria-label="Configuration Details" className="flex flex-col gap-6">
       <CanonicalSourcesCard snapshot={props.snapshot} onPreviewSource={props.onPreviewSource} />
       <GlobalInstructionShimsCard projections={props.snapshot.globalInstructionShims} />
       <NativeProjectionsCard projections={props.snapshot.nativeProjections} />
@@ -206,7 +206,7 @@ function CanonicalSourcesCard(props: SetupSourceInventoryProps) {
         <CardAction><Badge variant="outline">{rows.length} files</Badge></CardAction>
       </CardHeader>
       <CardContent className="p-0">
-        <Table aria-label="Canonical setup sources">
+        <Table aria-label="Canonical configuration sources">
           <TableHeader>
             <TableRow>
               <TableHead>Source</TableHead>

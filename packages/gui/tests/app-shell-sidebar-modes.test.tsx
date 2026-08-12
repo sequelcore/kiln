@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "../src/components/app-shell.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
@@ -811,20 +812,24 @@ describe("AppShell sidebar modes", () => {
     expect(screen.getByTestId("session-list")).toBeInTheDocument();
   });
 
-  it("opens setup as a main workbench surface", async () => {
-    render(<AppShell />);
+  it("opens configuration health inside the routed settings context", async () => {
+    function Harness() {
+      const [settingsSection, setSettingsSection] = useState<"configuration" | null>("configuration");
+      return (
+        <AppShell
+          settingsSection={settingsSection}
+          onCloseSettings={() => setSettingsSection(null)}
+          onOpenSettings={() => setSettingsSection("configuration")}
+        />
+      );
+    }
+    render(<Harness />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId("session-list")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Setup" }));
-
-    expect(await screen.findByRole("region", { name: "Setup" })).toHaveTextContent("Setup");
-    expect(screen.getByRole("region", { name: "Required Setup Actions" })).toHaveTextContent(
-      "No setup actions are required.",
+    expect(await screen.findByRole("region", { name: "Configuration Health" })).toHaveTextContent("Configuration Health");
+    expect(screen.getByRole("region", { name: "Required Configuration Actions" })).toHaveTextContent(
+      "No configuration actions are required.",
     );
-    expect(screen.getByRole("region", { name: "Setup Details" })).toHaveTextContent("valid");
+    expect(screen.getByRole("region", { name: "Configuration Details" })).toHaveTextContent("valid");
     const setupQueryOptions = useQueryMock.mock.calls.findLast(([options]) => {
       const queryKey = (options as { queryKey?: readonly unknown[] }).queryKey ?? [];
       return queryKey.includes("setup");

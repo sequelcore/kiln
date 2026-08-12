@@ -12,7 +12,11 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
     await expect(composerSurface).toHaveCSS("opacity", "1");
 
-    await page.getByRole("button", { name: "Setup" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page).toHaveURL(/\/settings\/configuration$/u);
+    const settingsSidebar = page.getByRole("complementary", { name: "Settings sidebar" });
+    await settingsSidebar.getByRole("button", { name: "Appearance" }).click();
+    await expect(page).toHaveURL(/\/settings\/appearance$/u);
     const switcher = page.getByRole("combobox", { name: "Theme" });
     await expect(switcher).toBeVisible();
 
@@ -36,10 +40,12 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "automata");
 
+    await settingsSidebar.getByRole("button", { name: "Back to workbench" }).press("Enter");
+    await expect(page).toHaveURL(/\/gui\/$/u);
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(page.getByRole("button", { name: /Provider selector/ })).toBeVisible({ timeout: 2_000 });
+    await expect(page.getByRole("button", { name: /Execution route selector/ })).toBeVisible({ timeout: 2_000 });
     const visualRoles = await page.locator("html").evaluate((root) => {
       const style = getComputedStyle(root);
       return {

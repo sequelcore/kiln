@@ -94,6 +94,10 @@ import {
 import { useUiStore } from "../lib/ui-store.js";
 import { isActivityTimelineEntry, projectConversationTimelineEntries } from "../lib/timeline-visibility.js";
 import { Button } from "@/components/ui/button";
+import { AppearanceSettingsPanel } from "./appearance-settings-panel.js";
+import { SettingsWorkspace } from "./settings-workspace.js";
+import type { SettingsSection } from "./settings-navigation.js";
+import { SetupPanel } from "./setup-panel.js";
 
 const CommandPalette = lazy(async () => {
   const module = await import("./command-palette.js");
@@ -199,11 +203,17 @@ function reduceCommandSurfaces(
   }
 }
 
-export function AppShell() {
-  return useAppShellRuntimeView();
+interface AppShellProps {
+  readonly settingsSection?: SettingsSection | null;
+  readonly onOpenSettings?: (section: SettingsSection) => void;
+  readonly onCloseSettings?: () => void;
 }
 
-function useAppShellRuntimeView() {
+export function AppShell(props: AppShellProps = {}) {
+  return useAppShellRuntimeView(props);
+}
+
+function useAppShellRuntimeView(props: AppShellProps) {
   const [gatewayReady, setGatewayReady] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
   const [gatewayAttempt, setGatewayAttempt] = useState(0);
@@ -251,6 +261,14 @@ function useAppShellRuntimeView() {
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidthPreference);
   const [sessionPopoverOpen, setSessionPopoverOpen] = useState(false);
   const [workbenchSurface, setWorkbenchSurface] = useState<WorkbenchSurface>("chat");
+  const settingsSection = props.settingsSection ?? null;
+  const openSettings = useCallback((section: SettingsSection) => {
+    props.onOpenSettings?.(section);
+  }, [props.onOpenSettings]);
+  const selectWorkbenchSurface = useCallback((surface: WorkbenchSurface) => {
+    setWorkbenchSurface(surface);
+    props.onCloseSettings?.();
+  }, [props.onCloseSettings]);
   const [inspectorMode, setInspectorMode] = useState<InspectorMode>("workspace");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [deliberationLevel, setDeliberationLevel] = useState<GuiDeliberationLevelId | null>(null);
@@ -473,6 +491,7 @@ function useAppShellRuntimeView() {
   const previewSetupSource = async (path: string) => {
     const name = path.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? path;
     setWorkbenchSurface("chat");
+    props.onCloseSettings?.();
     await openWorkspaceFile({ path, name, kind: "file" });
   };
 
@@ -565,7 +584,7 @@ function useAppShellRuntimeView() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "1") {
         event.preventDefault();
-        setWorkbenchSurface("chat");
+        selectWorkbenchSurface("chat");
         setActiveSurface("chat");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "2") {
@@ -585,19 +604,19 @@ function useAppShellRuntimeView() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "5") {
         event.preventDefault();
-        setWorkbenchSurface("work");
+        selectWorkbenchSurface("work");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "6") {
         event.preventDefault();
-        setWorkbenchSurface("activity");
+        selectWorkbenchSurface("activity");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "7") {
         event.preventDefault();
-        setWorkbenchSurface("memory");
+        selectWorkbenchSurface("memory");
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "8") {
         event.preventDefault();
-        setWorkbenchSurface("setup");
+        openSettings("configuration");
       }
       if (event.ctrlKey && event.code === "Backquote" && operatorTerminalAvailableRef.current) {
         event.preventDefault();
@@ -605,7 +624,7 @@ function useAppShellRuntimeView() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key === "9") {
         event.preventDefault();
-        setWorkbenchSurface("agents");
+        selectWorkbenchSurface("agents");
       }
       if (event.key === "Escape") {
         dispatchCommandSurface({ type: "close-all" });
@@ -616,7 +635,7 @@ function useAppShellRuntimeView() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
     // Effect Events intentionally stay outside effect dependency arrays.
-  }, [isNarrow, isPaletteOpen, openExecutionRoutePicker]);
+  }, [isNarrow, isPaletteOpen, openExecutionRoutePicker, openSettings, selectWorkbenchSurface]);
 
   const wsUrl = useMemo(() => toWsUrl("/gui/ws"), []);
 
@@ -746,7 +765,7 @@ function useAppShellRuntimeView() {
   const setupQuery = useQuery({
     queryKey: ["gui", "setup", gatewayReady ? "ready" : "waiting"],
     queryFn: async () => gatewayClient.loadConfigSetup(),
-    enabled: gatewayReady && workbenchSurface === "setup",
+    enabled: gatewayReady && settingsSection === "configuration",
   });
 
   const executeSetupAction = async (action: KilnConfigSetupAction): Promise<void> => {
@@ -929,6 +948,7 @@ function useAppShellRuntimeView() {
     setWorkbenchSurface("chat");
     setDrawerOpen(false);
     setSessionPopoverOpen(false);
+    props.onCloseSettings?.();
   };
 
   const executePaletteCommand = createAppShellCommandExecutor({
@@ -939,6 +959,7 @@ function useAppShellRuntimeView() {
     setPaletteQuery,
     setPaletteOpen,
     openExecutionRoutePicker,
+    openConfigurationSettings: () => openSettings("configuration"),
     deliberationLevelOptions,
     selectedDeliberationLevel,
     setDeliberationLevel,
@@ -946,7 +967,7 @@ function useAppShellRuntimeView() {
     setRequestedAuthority,
     setSessionPopoverOpen,
     setTargetedPlanMode,
-    setWorkbenchSurface,
+    setWorkbenchSurface: selectWorkbenchSurface,
     setTheme,
     persistThemePreference,
     toggleOperatorTerminal,
@@ -1062,6 +1083,29 @@ function useAppShellRuntimeView() {
       </Suspense>
 
       <WorkbenchBody>
+        {settingsSection ? (
+          <SettingsWorkspace
+            section={settingsSection}
+            sidebarWidth={sidebarWidth}
+            onSelectSection={openSettings}
+            onBack={() => props.onCloseSettings?.()}
+            appearance={<AppearanceSettingsPanel onThemeSelected={persistThemePreference} />}
+            configuration={(
+              <SetupPanel
+                snapshot={setupQuery.data ?? null}
+                loading={Boolean(setupQuery.isLoading)}
+                refreshing={Boolean(setupQuery.isFetching && !setupQuery.isLoading)}
+                error={setupQuery.error instanceof Error ? setupQuery.error : null}
+                onRefresh={() => void setupQuery.refetch()}
+                onExecuteAction={(action) => void executeSetupAction(action)}
+                onPreviewSource={(path) => void previewSetupSource(path)}
+                actionInFlight={setupActionInFlight}
+                actionFeedback={setupActionFeedback}
+              />
+            )}
+          />
+        ) : (
+          <>
         {!isNarrow ? (
           <PrimarySidebar
             activeSurface={workbenchSurface}
@@ -1083,6 +1127,7 @@ function useAppShellRuntimeView() {
             }}
             onSessionsOpenChange={setSessionPopoverOpen}
             onStartNewSession={startNewSession}
+            onOpenSettings={() => openSettings("configuration")}
             sessions={sessionsPanel}
           />
         ) : null}
@@ -1103,6 +1148,7 @@ function useAppShellRuntimeView() {
                 }
               }}
               onStartNewSession={startNewSession}
+              onOpenSettings={() => openSettings("configuration")}
               gatewayTargetSelector={(
                 <AppGatewayTargetSelector
                   apps={runtimeAppDescriptors}
@@ -1316,18 +1362,6 @@ function useAppShellRuntimeView() {
               onFiltersChange: setMemoryFilters,
               onSelectRecord: setSelectedMemoryRecordId,
             }}
-            setup={{
-              snapshot: setupQuery.data ?? null,
-              loading: Boolean(setupQuery.isLoading),
-              refreshing: Boolean(setupQuery.isFetching && !setupQuery.isLoading),
-              error: setupQuery.error instanceof Error ? setupQuery.error : null,
-              onRefresh: () => void setupQuery.refetch(),
-              onExecuteAction: (action) => void executeSetupAction(action),
-              onPreviewSource: (path) => void previewSetupSource(path),
-              actionInFlight: setupActionInFlight,
-              actionFeedback: setupActionFeedback,
-              onThemeSelected: persistThemePreference,
-            }}
           />
           </div>
           {operatorTerminalAvailable ? (
@@ -1349,9 +1383,11 @@ function useAppShellRuntimeView() {
             {inspector}
           </InspectorRail>
         ) : null}
+          </>
+        )}
       </WorkbenchBody>
 
-      <MobileWorkbenchDrawer
+      {settingsSection ? null : <MobileWorkbenchDrawer
         open={isNarrow && drawerOpen}
         title={drawerLabels.title}
         description={drawerLabels.description}
@@ -1364,7 +1400,7 @@ function useAppShellRuntimeView() {
         }}
       >
         {mobileDrawerMode === "sessions" ? sessionsPanel : inspector}
-      </MobileWorkbenchDrawer>
+      </MobileWorkbenchDrawer>}
 
       {hasMountedExecutionRoutePicker ? (
         <Suspense fallback={null}>

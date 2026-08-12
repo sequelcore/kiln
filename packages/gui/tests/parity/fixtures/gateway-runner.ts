@@ -3,8 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildGuiOperatorDiscoveryResults,
+  OperatorSessionExecutionBridge,
   startGuiGateway,
   type CliSessionFactory,
+  type OperatorExecutionRouteSelectionPort,
+  type OperatorTurnDispatchPort,
+  type OperatorTurnDispatchResult,
+  type OperatorTurnGuiDispatchPayload,
 } from "../../../../runtime/src/index.js";
 import {
   InMemoryContextArtifactCache,
@@ -624,6 +629,113 @@ const fakeSessionFactory: CliSessionFactory = () => ({
 
 let activeProvider = "claude";
 let activeModel = "";
+
+function createDeterministicOperatorRouting(): {
+  readonly executionRouteSelection: OperatorExecutionRouteSelectionPort;
+  readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
+  readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<unknown, OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>;
+} {
+  const operatorTurnExecutionBridge = new OperatorSessionExecutionBridge<
+    unknown,
+    OperatorTurnGuiDispatchPayload,
+    OperatorTurnDispatchResult
+  >();
+  const routeCatalog = {
+    routes: [
+      executionRoute("claude-default", "Claude", "claude", "claude-sonnet-4-6"),
+      executionRoute("codex-default", "Codex", "codex", "gpt-5.5"),
+      executionRoute("opencode-default", "OpenCode", "opencode", "opencode-default"),
+    ],
+  };
+  const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
+    getCatalog: async () => routeCatalog,
+    admit: async (intent) => {
+      const route = routeCatalog.routes.find(({ routeId }) => routeId === intent.routeId);
+      if (!route) {
+        return {
+          ok: false,
+          reasonCode: "route-not-configured",
+          reason: `Execution route '${intent.routeId}' is not configured in the parity fixture.`,
+          repairActions: ["refresh-route-catalog"],
+        };
+      }
+      return {
+        ok: true,
+        admission: {
+          routeId: route.routeId,
+          providerId: route.providerId,
+          providerModelId: route.providerModelId,
+        },
+      };
+    },
+  };
+  const operatorTurnDispatcher: OperatorTurnDispatchPort<
+    OperatorTurnGuiDispatchPayload,
+    OperatorTurnDispatchResult
+  > = {
+    async dispatchTurn(request) {
+      const admission = await executionRouteSelection.admit(request.intent);
+      if (!admission.ok) {
+        throw new Error(admission.reason);
+      }
+      const accountId = request.intent.accountOverrideId ?? "parity-account";
+      const result = await operatorTurnExecutionBridge.dispatchCommittedTurn({
+        admission: admission.admission,
+        accountId,
+        lease: {},
+        credential: { kind: "parity" },
+        binding: {
+          status: "bound",
+          routeId: admission.admission.routeId,
+          accountId,
+          credentialId: "parity-credential",
+          credentialRevision: "sha256:parity-revision",
+        },
+        payload: request.payload,
+      } as never);
+      return {
+        admission: admission.admission,
+        accountId,
+        leaseId: "parity-lease",
+        evidence: {
+          routeId: admission.admission.routeId,
+          accountId,
+          credentialId: "parity-credential",
+          credentialRevision: "sha256:parity-revision",
+          capacityIdentity: "parity-capacity",
+          leaseId: "parity-lease",
+          dispatchFenceId: "parity-dispatch",
+          status: "completed",
+        },
+        result,
+      };
+    },
+  };
+
+  return { executionRouteSelection, operatorTurnDispatcher, operatorTurnExecutionBridge };
+}
+
+function executionRoute(
+  routeId: string,
+  label: string,
+  providerId: string,
+  providerModelId: string,
+) {
+  return {
+    routeId,
+    label,
+    providerId,
+    providerModelId,
+    accountSelection: {
+      mode: "automatic" as const,
+      eligibleAccountCount: 1,
+      allowOperatorOverride: true,
+    },
+    availability: "available" as const,
+    reasonCodes: [],
+    repairActions: [],
+  };
+}
 let continuationSessionId: string | null = null;
 
 const contextArtifactCache = new InMemoryContextArtifactCache();
@@ -662,6 +774,7 @@ seedMemoryRepository(memoryRepository);
 
 async function main(): Promise<void> {
   const port = parseGatewayPort();
+  const operatorRouting = createDeterministicOperatorRouting();
 
   const gateway = await startGuiGateway({
     port,
@@ -679,6 +792,7 @@ async function main(): Promise<void> {
     getProviderAvailability: () => ({ claude: true, codex: true, opencode: true }),
     initialOperatorDiscovery: operatorDiscovery,
     initialOperatorDiscoveryFreshness: "fresh",
+    executionRouteSelection: operatorRouting.executionRouteSelection,
     discoverOperatorProviders: async () => operatorDiscovery,
     getSetupSnapshot: async () => setupSnapshot,
     loadOperatorSessionHistory: async () => sessionSummaries,
@@ -709,6 +823,8 @@ async function main(): Promise<void> {
       },
       contextArtifactCache,
       executionMode: "execute",
+      operatorTurnDispatcher: operatorRouting.operatorTurnDispatcher,
+      operatorTurnExecutionBridge: operatorRouting.operatorTurnExecutionBridge,
     },
   });
 
