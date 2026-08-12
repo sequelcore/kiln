@@ -18,6 +18,14 @@ class FakeChildProcess extends EventEmitter {
   }
 }
 
+class FakeBrowserWebSocket extends EventTarget {
+  readonly send = vi.fn((message: string) => {
+    queueMicrotask(() => {
+      this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id: 1, result: {} }) }));
+    });
+  });
+}
+
 describe("gui window launcher", () => {
   it("prefers a resolved command on PATH for the managed app window host", () => {
     const resolved = resolveGuiBrowserHost({
@@ -124,15 +132,14 @@ describe("gui window launcher", () => {
     }
   });
 
-  it("defers locked profile cleanup until the managed-window lifecycle settles", async () => {
+  it("rejects shutdown when the browser profile cannot be removed", async () => {
     vi.useFakeTimers();
     const child = new FakeChildProcess();
     const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    const cleanupError = Object.assign(new Error("profile busy"), { code: "EBUSY" });
     const cleanupProfileDir = vi.fn(() => {
-      throw new Error("EBUSY");
+      throw cleanupError;
     });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
     try {
       const session = launchGuiWindow("http://localhost:4810/gui/", {
         platform: "win32",
@@ -145,14 +152,94 @@ describe("gui window launcher", () => {
         startupTimeoutMs: 100,
       });
 
-      expect(() => session.close()).not.toThrow();
-      expect(warn).not.toHaveBeenCalled();
-      const closed = session.whenClosed.catch(() => undefined);
-      await vi.advanceTimersByTimeAsync(100);
-      await closed;
-      expect(warn).toHaveBeenCalledWith("Could not clean up GUI browser profile at C:\\Temp\\kiln-profile: EBUSY");
+      await expect(session.close()).rejects.toBe(cleanupError);
+      expect(child.exitCode).toBe(0);
+      expect(cleanupProfileDir).toHaveBeenCalledOnce();
     } finally {
-      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes the dedicated browser before removing its profile", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChildProcess();
+    const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    const socket = new FakeBrowserWebSocket();
+    const cleanupProfileDir = vi.fn();
+    const fetchImpl = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ type: "page", url: "http://localhost:4810/gui/" }],
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ webSocketDebuggerUrl: "ws://127.0.0.1:9222/devtools/browser/test" }),
+      } as Response);
+
+    try {
+      const session = launchGuiWindow("http://localhost:4810/gui/", {
+        platform: "win32",
+        resolveCommand: (command) => (command === "msedge" ? "C:\\Tools\\msedge.exe" : null),
+        pathExists: () => false,
+        createProfileDir: () => "C:\\Temp\\kiln-profile",
+        cleanupProfileDir,
+        createWebSocket: () => {
+          queueMicrotask(() => socket.dispatchEvent(new Event("open")));
+          return socket as unknown as WebSocket;
+        },
+        spawnImpl,
+        fetchImpl,
+        readDevToolsPort: () => 9222,
+        pollMs: 100,
+      });
+
+      await vi.advanceTimersByTimeAsync(200);
+      await session.whenClosed;
+
+      expect(fetchImpl).toHaveBeenLastCalledWith("http://127.0.0.1:9222/json/version");
+      expect(socket.send).toHaveBeenCalledWith(JSON.stringify({ id: 1, method: "Browser.close" }));
+      expect(socket.send.mock.invocationCallOrder[0]).toBeLessThan(cleanupProfileDir.mock.invocationCallOrder[0]!);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not settle the window session until asynchronous profile cleanup finishes", async () => {
+    vi.useFakeTimers();
+    const child = new FakeChildProcess();
+    const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    let finishCleanup: (() => void) | undefined;
+    const cleanupProfileDir = vi.fn(() => new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    }));
+
+    try {
+      const session = launchGuiWindow("http://localhost:4810/gui/", {
+        platform: "win32",
+        resolveCommand: (command) => (command === "msedge" ? "C:\\Tools\\msedge.exe" : null),
+        pathExists: () => false,
+        createProfileDir: () => "C:\\Temp\\kiln-profile",
+        cleanupProfileDir,
+        spawnImpl,
+        readDevToolsPort: () => null,
+        startupTimeoutMs: 100,
+      });
+      const settled = vi.fn();
+      void session.whenClosed.then(settled, settled);
+
+      session.close();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(cleanupProfileDir).toHaveBeenCalledOnce();
+      expect(settled).not.toHaveBeenCalled();
+
+      finishCleanup?.();
+      await session.whenClosed.catch(() => undefined);
+      expect(settled).toHaveBeenCalledOnce();
+    } finally {
       vi.useRealTimers();
     }
   });

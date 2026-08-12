@@ -438,9 +438,7 @@ async function guiAttachCommand(
   if (flags.open ?? true) {
     guiWindow = launchGuiWindow(guiUrl);
     output.info(`GUI window host: ${guiWindow.browserLabel}`);
-    await waitForShutdown(() => {
-      guiWindow?.close();
-    }, output, guiWindow);
+    await waitForShutdown(() => guiWindow?.close(), output, guiWindow);
   }
 }
 
