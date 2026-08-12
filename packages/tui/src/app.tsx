@@ -7,6 +7,7 @@ import { execSync } from "node:child_process";
 import { createCliRenderer, TextRenderable } from "@opentui/core";
 import { getFieldStore } from "@kilnai/core";
 import {
+  DEFAULT_OPERATOR_THEME_NAME,
   OPERATOR_THEME_LABELS,
   getGuiProviderMetadata,
   isGuiProviderModeless,
@@ -24,7 +25,7 @@ import type { SessionLike } from "./types.js";
 import type { Message, DeliberationLevelId, ContinuationSidebarInfo, SlashCommand } from "./state.js";
 import { createReactiveState, update } from "./state.js";
 import type { KilnTheme } from "./theme.js";
-import { defaultTheme, themes } from "./theme.js";
+import { defaultTheme, themeNames as listThemeNames, themes } from "./theme.js";
 import { formatSetupSnapshot } from "./setup-format.js";
 import {
   initUI,
@@ -224,7 +225,7 @@ export async function startTui(
     pollModels();
   }
 
-  const themeNames = Object.keys(themes);
+  const themeNames = listThemeNames();
   const themeValues = Object.values(themes);
 
   const { t, fg } = await import("@opentui/core");
@@ -1105,8 +1106,8 @@ export async function startTui(
 
     themePickerOpen = true;
     const currentName =
-      Object.keys(themes).find((k) => themes[k] === currentTheme) ??
-      "kiln-dark";
+      themeNames.find((name) => themes[name] === currentTheme) ??
+      DEFAULT_OPERATOR_THEME_NAME;
     localThemeIndex = Math.max(0, themeNames.indexOf(currentName));
 
     themePicker = createThemePicker(

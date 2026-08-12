@@ -136,7 +136,7 @@ Pass condition:
 Show:
 
 - Theme switcher from both settings and the command palette.
-- `kiln-dark`, `kiln-light`, and `system-follow`.
+- `phosphor`, `vesper`, `automata`, and `system-follow`.
 - Distinct user, assistant, tool, and error message treatment.
 - Markdown output with headings, inline code, and fenced code blocks.
 - Saved history opening at the latest user-turn anchor with prior context still

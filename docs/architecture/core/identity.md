@@ -105,27 +105,28 @@ For the full surface taxonomy, see [`runtime-surfaces.md`](../surfaces/runtime-s
 
 ## Visual Identity
 
-Kiln's visual identity is restrained biocybernetic cyberpunk: dark control
-surfaces, layered graphite structure, precise signal color, and controlled
-ember accents. The interface should feel like an operational control plane, not
-a decorative sci-fi skin.
+Kiln's visual identity is restrained biocybernetic instrumentation: dark glass,
+phosphor signal light, explicit control materials, and dense operator-console
+rhythm. The interface should feel like a governed laboratory terminal, not a
+decorative CRT simulation or generic editor skin.
 
-The canonical dark expression is Kiln Obsidian:
+The canonical expression is Phosphor:
 
-- near-black backgrounds for the governed operating envelope
-- graphite layers for panels, elevated surfaces, and bounded work zones
-- ember accents for Kiln brand heat, liveness, and controlled energy
-- cyan primary color for technical action, routing, links, and system affordance
-- compact typography, hairline dividers, and dense operator-console rhythm
+- green-black glass for the governed operating envelope
+- separately authored chrome, surface, overlay, sidebar, toolbar, message,
+  code, and terminal materials
+- phosphor green for focus, execution, and primary operator action
+- muted plum controls and magenta update signals that keep the palette from
+  collapsing into undifferentiated green
+- compact typography, hairline dividers, and persistent semantic status cues
 
-Kiln Graphite preserves the same hierarchy at a lifted dark luminance with a
-warm neutral base that remains visibly distinct from Obsidian's cool near-black
-envelope. Kiln Paper is the light polarity rather than a separately styled
-product.
-All three are semantic projections of one operator-theme contract. Normal
-text, muted text, controls, actions, and status surfaces must satisfy the
-contract's executable contrast and sRGB-gamut gates; visual identity does not
-override legibility or renderer consistency.
+Vesper is the high-clarity alternate dark expression. Automata is the
+parchment-and-ink light expression. They are deliberately different working
+environments, not luminance tweaks of one neutral palette. All three are
+complete semantic projections of one operator-theme contract. Normal text,
+muted text, placeholders, controls, actions, surface-specific text, and status
+indicators must satisfy executable contrast and sRGB-gamut gates; visual
+identity does not override legibility or renderer consistency.
 
 Operational motion is a state signal, not decoration. A compact living orb may
 identify active cognitive or execution phase when it is paired with visible

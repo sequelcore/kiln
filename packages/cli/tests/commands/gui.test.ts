@@ -42,7 +42,7 @@ describe("gui CLI command wiring", () => {
       originalArgv[1] ?? "index.ts",
       "gui",
       "--provider", "codex",
-      "--theme", "kiln-light",
+      "--theme", "automata",
       "--plan",
       "--cwd", "C:/repo",
       "--connect", "http://localhost:3800",
@@ -62,7 +62,7 @@ describe("gui CLI command wiring", () => {
       connect: "http://localhost:3800",
       open: false,
       provider: "codex",
-      theme: "kiln-light",
+      theme: "automata",
       plan: true,
     });
   }, 10_000);

@@ -68,17 +68,17 @@ describe("createAppShellFrameHandler", () => {
     handleFrame({
       type: "operator_theme_set",
       requestId: "theme-1",
-      theme: "kiln-light",
+      theme: "automata",
       scope: "persisted",
     } as never);
 
-    expect(input.setTheme).toHaveBeenCalledWith("kiln-light");
-    expect(input.persistThemePreference).toHaveBeenCalledWith("kiln-light");
+    expect(input.setTheme).toHaveBeenCalledWith("automata");
+    expect(input.persistThemePreference).toHaveBeenCalledWith("automata");
     expect(input.sendThemeResult).toHaveBeenCalledWith({
       type: "operator_theme_set_result",
       requestId: "theme-1",
       ok: true,
-      appliedTheme: "kiln-light",
+      appliedTheme: "automata",
     });
   });
 

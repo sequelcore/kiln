@@ -151,7 +151,7 @@ vi.mock("@kilnai/tui", () => ({
   },
   waitForGateway: mockWaitForGateway,
   startTui: mockStartTui,
-  themes: { "kiln-dark": {} },
+  themes: { "phosphor": {} },
   kilnDark: {},
 }));
 vi.mock("@kilnai/runtime", () => ({

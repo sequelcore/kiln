@@ -324,7 +324,7 @@ vi.mock("../../src/commands/gui-options.js", () => ({
   buildGuiAttachUrl: vi.fn((url: string) => `${url.replace(/\/$/, "")}/gui/`),
   buildGuiUrl: vi.fn((url: string) => url),
   persistGuiThemePreference: vi.fn(),
-  resolveGuiThemePreference: vi.fn(() => "kiln-dark"),
+  resolveGuiThemePreference: vi.fn(() => "phosphor"),
 }));
 
 vi.mock("../../src/commands/gui-shutdown-monitor.js", () => ({

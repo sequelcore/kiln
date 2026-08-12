@@ -17,24 +17,24 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await expect(switcher).toBeVisible();
 
     await switcher.click();
-    await page.getByRole("option", { name: "Kiln Obsidian" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "kiln-dark");
-    const obsidianCanvas = await page.locator("html").evaluate((root) => (
+    await page.getByRole("option", { name: "Phosphor" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "phosphor");
+    const phosphorCanvas = await page.locator("html").evaluate((root) => (
       getComputedStyle(root).getPropertyValue("--color-background").trim()
     ));
 
     await switcher.click();
-    await page.getByRole("option", { name: "Kiln Graphite" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "kiln-graphite");
-    const graphiteCanvas = await page.locator("html").evaluate((root) => (
+    await page.getByRole("option", { name: "Vesper" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "vesper");
+    const vesperCanvas = await page.locator("html").evaluate((root) => (
       getComputedStyle(root).getPropertyValue("--color-background").trim()
     ));
-    expect(graphiteCanvas).not.toBe(obsidianCanvas);
+    expect(vesperCanvas).not.toBe(phosphorCanvas);
 
     await switcher.click();
-    await page.getByRole("option", { name: "Kiln Paper" }).click();
+    await page.getByRole("option", { name: "Automata" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "kiln-light");
+    await expect(page.locator("html")).toHaveAttribute("data-kiln-theme", "automata");
 
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });

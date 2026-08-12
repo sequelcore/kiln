@@ -275,9 +275,9 @@ versionable only when they define durable project behavior. Runtime state under
 `.kiln/`, local databases, sessions, logs, backups, and repo-root `memory/**`
 should be ignored. See [Repository Hygiene](../ops/repo-hygiene.md).
 
-Supported operator themes are `kiln-dark`, `kiln-graphite`, `kiln-light`, and
-`system-follow`. `kiln-dark` is the Obsidian default, `kiln-graphite` is a
-slightly lifted dark surface, and `kiln-light` is the Paper light variant. GUI
+Supported operator themes are `phosphor`, `vesper`, `automata`, and
+`system-follow`. `phosphor` is the default dark glass-and-signal surface, `vesper` is the high-clarity alternate dark expression, and `automata` is the
+parchment-and-ink light expression. GUI
 and TUI validate theme names against the same contract.
 When the CLI `operator_set_theme` tool is called with `scope: "persisted"`, it
 writes `ui.theme` because there is no live CLI visual surface to update.
@@ -382,7 +382,7 @@ workGovernance:
     - typecheck
     - residual-risk
 ui:
-  theme: kiln-dark
+  theme: phosphor
 components:
   include:
     - baseline:core
@@ -508,7 +508,7 @@ workGovernance:
     - typecheck
     - residual-risk
 ui:
-  theme: kiln-dark
+  theme: phosphor
 components:
   include:
     - baseline:core

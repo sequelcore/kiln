@@ -3,6 +3,7 @@ import type {
   OperatorSurfaceCapabilitySnapshot,
 } from "@kilnai/gateway-contracts";
 import {
+  DEFAULT_OPERATOR_THEME_NAME,
   presentOperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 
@@ -151,7 +152,7 @@ export function createNativeSurfaceProjection(
     sessionId: input.sessionId ?? null,
     authority: input.authority ?? "unknown",
     providerRoute: input.providerRoute ?? "unrouted",
-    theme: input.theme ?? "kiln-dark",
+    theme: input.theme ?? DEFAULT_OPERATOR_THEME_NAME,
     ...(latestEvent && input.latestEvent
       ? {
           latestEvent: {

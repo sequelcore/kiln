@@ -12,7 +12,7 @@ function snapshot(): string {
   return [
     root.dataset.kilnTheme,
     root.dataset.theme,
-    root.style.getPropertyValue("--color-background"),
+    root.style.getPropertyValue("--kiln-canvas"),
   ].join(":");
 }
 

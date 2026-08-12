@@ -71,7 +71,7 @@ function openAttachmentMenu(): void {
 
 describe("Composer", () => {
   beforeEach(() => {
-    useUiStore.getState().setTheme("kiln-dark");
+    useUiStore.getState().setTheme("phosphor");
   });
 
   it("renders one visible semantic thinking signal beside the active beam", () => {
@@ -158,7 +158,7 @@ describe("Composer", () => {
   });
 
   it("uses the active Kiln light theme instead of the operating-system preference", () => {
-    useUiStore.getState().setTheme("kiln-light");
+    useUiStore.getState().setTheme("automata");
 
     renderComposer({ status: "running", activityPhase: "thinking" });
 

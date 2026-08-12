@@ -645,6 +645,7 @@ export type {
 } from "./presentation-intent.js";
 
 export {
+  DEFAULT_OPERATOR_THEME_NAME,
   OPERATOR_THEME_LABELS,
   OPERATOR_THEME_NAMES,
   OPERATOR_THEME_PALETTES,

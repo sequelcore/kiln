@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
+  DEFAULT_OPERATOR_THEME_NAME,
   isOperatorThemeName,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
@@ -39,7 +40,7 @@ function setupSystemFollow(active: boolean): void {
 export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
-      theme: "kiln-dark" as KilnTheme,
+      theme: DEFAULT_OPERATOR_THEME_NAME,
       setTheme: (theme: KilnTheme) => {
         if (!isOperatorThemeName(theme)) return;
         set({ theme });
@@ -52,7 +53,7 @@ export const useUiStore = create<UiState>()(
       version: KILN_GUI_UI_STORAGE_VERSION,
       onRehydrateStorage: () => (state) => {
         if (!state) return;
-        const theme = isOperatorThemeName(state.theme) ? state.theme : "kiln-dark";
+        const theme = isOperatorThemeName(state.theme) ? state.theme : DEFAULT_OPERATOR_THEME_NAME;
         setupSystemFollow(theme === "system-follow");
         applyTheme(theme);
       },

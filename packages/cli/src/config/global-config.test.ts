@@ -122,7 +122,7 @@ describe("global-config", () => {
       [
         "version: \"1\"",
         "ui:",
-        "  theme: kiln-dark",
+        "  theme: phosphor",
         "  providerSelection:",
         "    provider: codex-oauth",
         "    model: gpt-5.5",
@@ -130,7 +130,7 @@ describe("global-config", () => {
     );
 
     expect(readGlobalConfig()?.ui).toEqual({
-      theme: "kiln-dark",
+      theme: "phosphor",
       providerSelection: {
         provider: "codex-oauth",
         model: "gpt-5.5",
@@ -1070,11 +1070,11 @@ describe("global-config", () => {
       engines: { codex: { enabled: true as const } },
       routing: { defaultWorker: "codex" },
       models: { default: "fallback-model", codex: "gpt-5.4" },
-      ui: { theme: "kiln-graphite" },
+      ui: { theme: "vesper" },
     };
 
     expect(resolveGlobalDefaultProvider(config)).toBe("codex");
     expect(resolveGlobalDefaultModel(config)).toBe("gpt-5.4");
-    expect(resolveGlobalUiTheme(config)).toBe("kiln-graphite");
+    expect(resolveGlobalUiTheme(config)).toBe("vesper");
   });
 });

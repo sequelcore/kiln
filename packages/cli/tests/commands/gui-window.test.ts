@@ -54,11 +54,11 @@ describe("gui window launcher", () => {
       executable: "C:\\Tools\\msedge.exe",
     };
 
-    const launchSpec = buildGuiWindowLaunchSpec(host, "http://localhost:4810/gui/?theme=kiln-dark", "C:\\Temp\\kiln-profile");
+    const launchSpec = buildGuiWindowLaunchSpec(host, "http://localhost:4810/gui/?theme=phosphor", "C:\\Temp\\kiln-profile");
 
     expect(launchSpec.command).toBe("C:\\Tools\\msedge.exe");
     expect(launchSpec.args).toContain("--new-window");
-    expect(launchSpec.args).toContain("--app=http://localhost:4810/gui/?theme=kiln-dark");
+    expect(launchSpec.args).toContain("--app=http://localhost:4810/gui/?theme=phosphor");
     expect(launchSpec.args).toContain("--user-data-dir=C:\\Temp\\kiln-profile");
     expect(launchSpec.args).toContain("--disable-background-mode");
     expect(launchSpec.args).toContain("--disable-background-networking");
@@ -164,7 +164,7 @@ describe("gui window launcher", () => {
       const fetchImpl = vi.fn<typeof fetch>()
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => [{ type: "page", url: "http://localhost:4810/gui/?theme=kiln-dark" }],
+          json: async () => [{ type: "page", url: "http://localhost:4810/gui/?theme=phosphor" }],
         } as Response)
         .mockResolvedValueOnce({
           ok: true,
@@ -172,7 +172,7 @@ describe("gui window launcher", () => {
         } as Response);
 
       const whenClosed = waitForManagedGuiAppWindowClose(
-        "http://localhost:4810/gui/?theme=kiln-dark",
+        "http://localhost:4810/gui/?theme=phosphor",
         "C:\\Temp\\kiln-profile",
         child as unknown as ReturnType<typeof launchGuiWindow>["child"],
         {

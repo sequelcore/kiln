@@ -271,7 +271,7 @@ const transcriptStoreMocks = vi.hoisted(() => ({
 vi.mock("@kilnai/tui", () => ({
   startTui: tuiMocks.startTui,
   waitForGateway: tuiMocks.waitForGateway,
-  themes: { "kiln-dark": {} },
+  themes: { "phosphor": {} },
   kilnDark: {},
   GatewaySession: class {},
 }));

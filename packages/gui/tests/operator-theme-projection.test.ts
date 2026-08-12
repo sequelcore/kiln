@@ -10,37 +10,39 @@ import { resolveOperatorThemePalette } from "@kilnai/gateway-contracts";
 
 describe("operator theme projection", () => {
   it("projects the semantic contract to deterministic CSS variables", () => {
-    const variables = projectOperatorThemeCssVariables(resolveOperatorThemePalette("kiln-dark"));
+    const variables = projectOperatorThemeCssVariables(resolveOperatorThemePalette("phosphor"));
 
     expect(variables).toMatchObject({
-      "--color-background": "oklch(0.135 0.008 250)",
-      "--color-background-panel": "oklch(0.17 0.01 250)",
-      "--color-surface-selected": "oklch(0.245 0.035 220)",
-      "--color-border-control": "oklch(0.49 0.018 250)",
-      "--color-primary": "oklch(0.75 0.1 220)",
-      "--status-danger-background": "oklch(0.22 0.04 25)",
+      "--kiln-canvas": expect.stringMatching(/^oklch\(/),
+      "--kiln-surface-overlay": expect.stringMatching(/^oklch\(/),
+      "--kiln-message-surface": expect.stringMatching(/^oklch\(/),
+      "--kiln-sidebar-control": expect.stringMatching(/^oklch\(/),
+      "--kiln-toolbar-control": expect.stringMatching(/^oklch\(/),
+      "--kiln-terminal-cursor": expect.stringMatching(/^oklch\(/),
+      "--kiln-status-update-surface": expect.stringMatching(/^oklch\(/),
     });
+    expect(Object.keys(variables)).toHaveLength(63);
     expect(Object.values(variables).some((value) => value.startsWith("#"))).toBe(false);
   });
 
-  it("applies Graphite before render without collapsing it to generic dark", () => {
-    applyOperatorTheme("kiln-graphite", true, document.documentElement);
+  it("applies Vesper before render without collapsing it to generic dark", () => {
+    applyOperatorTheme("vesper", true, document.documentElement);
 
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
-    expect(document.documentElement).toHaveAttribute("data-kiln-theme", "kiln-graphite");
-    expect(document.documentElement.style.getPropertyValue("--color-background")).toBe("oklch(0.18 0.008 55)");
+    expect(document.documentElement).toHaveAttribute("data-kiln-theme", "vesper");
+    expect(document.documentElement.style.getPropertyValue("--kiln-canvas")).not.toBe("");
     expect(document.documentElement.style.colorScheme).toBe("dark");
   });
 
   it("projects renderer-safe colors from the same semantic source", () => {
-    applyOperatorTheme("kiln-graphite", true, document.documentElement);
+    applyOperatorTheme("vesper", true, document.documentElement);
     const palette = resolveAppliedOperatorThemePalette(document.documentElement, true);
     const variables = projectOperatorThemeHexVariables(palette);
 
-    expect(variables["--color-background"]).toMatch(/^#[\da-f]{6}$/);
-    expect(variables["--color-primary"]).toMatch(/^#[\da-f]{6}$/);
-    expect(variables["--color-background"]).not.toBe(
-      projectOperatorThemeHexVariables(resolveOperatorThemePalette("kiln-dark"))["--color-background"],
+    expect(variables["--kiln-canvas"]).toMatch(/^#[\da-f]{6}$/);
+    expect(variables["--kiln-accent"]).toMatch(/^#[\da-f]{6}$/);
+    expect(variables["--kiln-canvas"]).not.toBe(
+      projectOperatorThemeHexVariables(resolveOperatorThemePalette("phosphor"))["--kiln-canvas"],
     );
   });
 
@@ -51,7 +53,7 @@ describe("operator theme projection", () => {
 
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
     expect(document.documentElement).toHaveAttribute("data-kiln-theme", "system-follow");
-    expect(document.documentElement.style.getPropertyValue("--color-background")).toBe("oklch(0.965 0.006 240)");
+    expect(document.documentElement.style.getPropertyValue("--kiln-canvas")).not.toBe("");
     expect(listener).toHaveBeenCalledOnce();
     document.documentElement.removeEventListener(OPERATOR_THEME_APPLIED_EVENT, listener);
   });

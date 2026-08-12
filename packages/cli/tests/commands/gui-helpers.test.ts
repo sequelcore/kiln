@@ -23,22 +23,22 @@ describe("gui command helpers", () => {
 
     expect(resolveGuiThemePreference(undefined, {
       ...defaultGlobalConfig(),
-      ui: { theme: "kiln-light" },
-    })).toBe("kiln-light");
+      ui: { theme: "automata" },
+    })).toBe("automata");
 
     expect(resolveGuiThemePreference(undefined, {
       ...defaultGlobalConfig(),
       ui: { theme: "system-follow" },
     })).toBe("system-follow");
 
-    expect(resolveGuiThemePreference(undefined, null)).toBe("kiln-dark");
-    expect(resolveGuiThemePreference("invalid-theme", null)).toBe("kiln-dark");
+    expect(resolveGuiThemePreference(undefined, null)).toBe("phosphor");
+    expect(resolveGuiThemePreference("invalid-theme", null)).toBe("phosphor");
   });
 
   it("persists GUI theme into global config and builds launch URL with theme query", async () => {
     const { buildGuiAttachUrl, buildGuiUrl, persistGuiThemePreference } = await import("../../src/commands/gui-options.js");
 
-    persistGuiThemePreference("kiln-light");
+    persistGuiThemePreference("automata");
 
     const written = readFileSync(
       join(tmpConfigHome, "kiln", "config.yaml"),
@@ -47,18 +47,18 @@ describe("gui command helpers", () => {
 
     expect(written).toContain("version: \"1\"");
     expect(written).toContain("ui:");
-    expect(written).toContain("theme: kiln-light");
-    expect(buildGuiUrl("http://localhost:5183/gui/", "kiln-light")).toBe("http://localhost:5183/gui/?theme=kiln-light");
-    expect(buildGuiUrl("http://localhost:5183/gui/", "kiln-light", "terminal-secret")).toBe(
-      "http://localhost:5183/gui/?theme=kiln-light#operatorToken=terminal-secret",
+    expect(written).toContain("theme: automata");
+    expect(buildGuiUrl("http://localhost:5183/gui/", "automata")).toBe("http://localhost:5183/gui/?theme=automata");
+    expect(buildGuiUrl("http://localhost:5183/gui/", "automata", "terminal-secret")).toBe(
+      "http://localhost:5183/gui/?theme=automata#operatorToken=terminal-secret",
     );
-    expect(buildGuiAttachUrl("http://localhost:3800", "kiln-light")).toBe("http://localhost:3800/gui/?theme=kiln-light");
-    expect(buildGuiAttachUrl("https://gateway.example.com/apps", "kiln-light")).toBe("https://gateway.example.com/gui/?theme=kiln-light");
+    expect(buildGuiAttachUrl("http://localhost:3800", "automata")).toBe("http://localhost:3800/gui/?theme=automata");
+    expect(buildGuiAttachUrl("https://gateway.example.com/apps", "automata")).toBe("https://gateway.example.com/gui/?theme=automata");
   });
 
   it("rejects non-http GUI attach URLs", async () => {
     const { buildGuiAttachUrl } = await import("../../src/commands/gui-options.js");
 
-    expect(() => buildGuiAttachUrl("file:///tmp/gui", "kiln-dark")).toThrow("GUI attach URL must use http:// or https://");
+    expect(() => buildGuiAttachUrl("file:///tmp/gui", "phosphor")).toThrow("GUI attach URL must use http:// or https://");
   });
 });

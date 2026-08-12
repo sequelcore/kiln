@@ -1,4 +1,9 @@
-import { isOperatorThemeName, type OperatorThemeName, type OperatorThemeScope } from "@kilnai/gateway-contracts";
+import {
+  DEFAULT_OPERATOR_THEME_NAME,
+  isOperatorThemeName,
+  type OperatorThemeName,
+  type OperatorThemeScope,
+} from "@kilnai/gateway-contracts";
 import {
   defaultGlobalConfig,
   readGlobalConfig,
@@ -21,7 +26,7 @@ export function resolveGuiThemePreference(
   return (
     parseOperatorThemePreference(requestedTheme)
     ?? parseOperatorThemePreference(resolveGlobalUiTheme(globalConfig))
-    ?? "kiln-dark"
+    ?? DEFAULT_OPERATOR_THEME_NAME
   );
 }
 

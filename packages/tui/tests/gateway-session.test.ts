@@ -1247,7 +1247,7 @@ describe("GatewaySession operator theme frames", () => {
   });
 
   it("applies operator theme requests through the registered TUI handler", async () => {
-    const applyTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "kiln-graphite" });
+    const applyTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "vesper" });
     const clearHandler = setTuiOperatorThemeHandler(applyTheme);
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
     const ws = wsInstances[0];
@@ -1256,7 +1256,7 @@ describe("GatewaySession operator theme frames", () => {
     ws.simulateMessage(JSON.stringify({
       type: "operator_theme_set",
       requestId: "theme-1",
-      theme: "kiln-graphite",
+      theme: "vesper",
       scope: "session",
       reason: "test",
     }));
@@ -1264,7 +1264,7 @@ describe("GatewaySession operator theme frames", () => {
     await Promise.resolve();
 
     expect(applyTheme).toHaveBeenCalledWith({
-      theme: "kiln-graphite",
+      theme: "vesper",
       scope: "session",
       reason: "test",
     });
@@ -1278,7 +1278,7 @@ describe("GatewaySession operator theme frames", () => {
     expect(sentOperatorThemeResultFrame(ws)).toMatchObject({
       requestId: "theme-1",
       ok: true,
-      appliedTheme: "kiln-graphite",
+      appliedTheme: "vesper",
     });
 
     clearHandler();

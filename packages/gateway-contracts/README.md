@@ -193,22 +193,22 @@ remove operator themes here first, then update each renderer to consume the
 same contract instead of maintaining a private list.
 
 Palette values are authored once as in-gamut OKLCH coordinates and organized
-by semantic responsibility: surfaces, borders, text, brand, actions, and
-status foreground/background/border sets. The contract owns perceptual color;
-renderers own only representation. Browser surfaces project the values to CSS
-`oklch()`, while terminal, canvas, and WebGL adapters project the same values to
-sRGB hex. Contract tests enforce gamut and WCAG contrast invariants so a theme
-cannot be added as an unchecked collection of literals.
+by stable surface responsibility: foundations, text, controls, conversation,
+code, sidebar, toolbar, terminal, and semantic status sets. The contract owns
+perceptual color; renderers own only representation. Browser surfaces project
+the values to CSS `oklch()`, while terminal, canvas, and WebGL adapters project
+the same values to sRGB hex. Contract tests enforce completeness, gamut, and
+WCAG contrast invariants so a theme cannot be added as an unchecked collection
+of literals or silently inherit another theme's missing roles.
 
 The catalog is intentionally curated as Kiln identity, not a generic collection
 of popular editor themes:
 
-- `kiln-dark` / Kiln Obsidian: the default near-black control surface.
-- `kiln-graphite`: a slightly lifted dark surface for brighter environments.
-- `kiln-light` / Kiln Paper: the light counterpart for OS or operator
-  preference.
+- `phosphor`: the default green-phosphor-on-black-glass control surface.
+- `vesper`: a crisp black alternate with peppermint and apricot signals.
+- `automata`: the parchment-and-ink light operating surface.
 - `system-follow`: a polarity resolver for surfaces that can observe OS theme.
 
 `system-follow` is part of the contract for config parity. GUI resolves it
-against the browser/OS color preference; TUI accepts it but maps it to a
-terminal-safe dark palette.
+against the browser/OS color preference; TUI accepts it but maps it to
+Phosphor because terminal processes do not expose a dependable OS color signal.

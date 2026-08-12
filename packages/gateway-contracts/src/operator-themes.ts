@@ -5,65 +5,98 @@ export interface OperatorColor {
 }
 
 export interface OperatorStatusColors {
+  readonly color: OperatorColor;
   readonly foreground: OperatorColor;
-  readonly background: OperatorColor;
-  readonly border: OperatorColor;
+  readonly surface: OperatorColor;
 }
 
 export interface OperatorThemePalette {
   readonly appearance: "dark" | "light";
   readonly surface: {
     readonly canvas: OperatorColor;
-    readonly panel: OperatorColor;
-    readonly raised: OperatorColor;
-    readonly sunken: OperatorColor;
-    readonly interactive: OperatorColor;
-    readonly hover: OperatorColor;
-    readonly selected: OperatorColor;
-  };
-  readonly border: {
-    readonly subtle: OperatorColor;
+    readonly chrome: OperatorColor;
     readonly default: OperatorColor;
-    readonly control: OperatorColor;
-    readonly focus: OperatorColor;
+    readonly raised: OperatorColor;
+    readonly overlay: OperatorColor;
+    readonly border: OperatorColor;
+    readonly input: OperatorColor;
   };
   readonly text: {
     readonly default: OperatorColor;
     readonly muted: OperatorColor;
-    readonly subtle: OperatorColor;
-    readonly inverse: OperatorColor;
+    readonly placeholder: OperatorColor;
+    readonly secondaryLabel: OperatorColor;
+    readonly iconMuted: OperatorColor;
   };
-  readonly brand: {
+  readonly control: {
+    readonly focus: OperatorColor;
     readonly accent: OperatorColor;
+    readonly accentForeground: OperatorColor;
+    readonly secondary: OperatorColor;
+    readonly secondaryForeground: OperatorColor;
     readonly muted: OperatorColor;
+    readonly mutedForeground: OperatorColor;
+    readonly accentSurface: OperatorColor;
+    readonly accentSurfaceForeground: OperatorColor;
   };
-  readonly action: {
-    readonly primary: OperatorColor;
-    readonly hover: OperatorColor;
+  readonly conversation: {
+    readonly message: {
+      readonly surface: OperatorColor;
+      readonly foreground: OperatorColor;
+      readonly action: OperatorColor;
+      readonly actionForeground: OperatorColor;
+      readonly actionHover: OperatorColor;
+    };
+    readonly code: {
+      readonly background: OperatorColor;
+      readonly foreground: OperatorColor;
+    };
+  };
+  readonly sidebar: {
+    readonly background: OperatorColor;
     readonly foreground: OperatorColor;
+    readonly mutedForeground: OperatorColor;
+    readonly control: OperatorColor;
+    readonly hover: OperatorColor;
+    readonly active: OperatorColor;
+    readonly selected: OperatorColor;
+    readonly border: OperatorColor;
+  };
+  readonly toolbar: {
+    readonly background: OperatorColor;
+    readonly foreground: OperatorColor;
+    readonly border: OperatorColor;
+    readonly control: OperatorColor;
+    readonly controlForeground: OperatorColor;
+    readonly hover: OperatorColor;
+  };
+  readonly terminal: {
+    readonly background: OperatorColor;
+    readonly foreground: OperatorColor;
+    readonly cursor: OperatorColor;
+    readonly selection: OperatorColor;
+    readonly scrollbar: OperatorColor;
+    readonly scrollbarHover: OperatorColor;
   };
   readonly status: {
-    readonly success: OperatorStatusColors;
+    readonly error: OperatorStatusColors;
     readonly warning: OperatorStatusColors;
-    readonly danger: OperatorStatusColors;
+    readonly update: OperatorStatusColors;
+    readonly success: OperatorStatusColors;
     readonly info: OperatorStatusColors;
   };
 }
 
-export const OPERATOR_THEME_NAMES = [
-  "kiln-dark",
-  "kiln-graphite",
-  "kiln-light",
-  "system-follow",
-] as const;
+export const OPERATOR_THEME_NAMES = ["phosphor", "vesper", "automata", "system-follow"] as const;
+export const DEFAULT_OPERATOR_THEME_NAME = "phosphor" as const;
 
 export type OperatorThemeName = (typeof OPERATOR_THEME_NAMES)[number];
 export type ConcreteOperatorThemeName = Exclude<OperatorThemeName, "system-follow">;
 
 export const OPERATOR_THEME_LABELS: Record<OperatorThemeName, string> = {
-  "kiln-dark": "Kiln Obsidian",
-  "kiln-graphite": "Kiln Graphite",
-  "kiln-light": "Kiln Paper",
+  phosphor: "Phosphor",
+  vesper: "Vesper",
+  automata: "Automata",
   "system-follow": "System",
 };
 
@@ -71,122 +104,292 @@ function color(lightness: number, chroma: number, hue: number): OperatorColor {
   return { lightness, chroma, hue };
 }
 
+// The three curated palettes are adapted from the operator-selected themes at
+// https://github.com/SunkenInTime/t3-themes and are stored canonically in OKLCH.
 export const OPERATOR_THEME_PALETTES: Record<ConcreteOperatorThemeName, OperatorThemePalette> = {
-  "kiln-dark": {
+  phosphor: {
     appearance: "dark",
     surface: {
-      canvas: color(0.135, 0.008, 250),
-      panel: color(0.17, 0.01, 250),
-      raised: color(0.205, 0.012, 250),
-      sunken: color(0.11, 0.007, 250),
-      interactive: color(0.23, 0.014, 250),
-      hover: color(0.275, 0.016, 250),
-      selected: color(0.245, 0.035, 220),
-    },
-    border: {
-      subtle: color(0.25, 0.012, 250),
-      default: color(0.34, 0.016, 250),
-      control: color(0.49, 0.018, 250),
-      focus: color(0.75, 0.1, 220),
+      canvas: color(0.141194, 0.015071, 144.725),
+      chrome: color(0.141194, 0.015071, 144.725),
+      default: color(0.17919, 0.021153, 147.474),
+      raised: color(0.211418, 0.026024, 148.968),
+      overlay: color(0.154761, 0.01316, 338.901),
+      border: color(0.296291, 0.042512, 151.423),
+      input: color(0.323523, 0.049446, 151.981),
     },
     text: {
-      default: color(0.89, 0.012, 250),
-      muted: color(0.7, 0.018, 250),
-      subtle: color(0.6, 0.02, 250),
-      inverse: color(0.13, 0.01, 250),
+      default: color(0.888896, 0.106477, 151.389),
+      muted: color(0.626267, 0.104923, 151.144),
+      placeholder: color(0.715062, 0.105605, 151.092),
+      secondaryLabel: color(0.880303, 0.03077, 342.696),
+      iconMuted: color(0.626267, 0.104923, 151.144),
     },
-    brand: {
-      accent: color(0.72, 0.13, 65),
-      muted: color(0.25, 0.045, 65),
+    control: {
+      focus: color(0.879785, 0.23, 149.033),
+      accent: color(0.879785, 0.23, 149.033),
+      accentForeground: color(0.172621, 0.031557, 155.977),
+      secondary: color(0.236849, 0.032549, 152.66),
+      secondaryForeground: color(0.852897, 0.124038, 151.125),
+      muted: color(0.296291, 0.042512, 151.423),
+      mutedForeground: color(0.626267, 0.104923, 151.144),
+      accentSurface: color(0.253648, 0.038904, 154.611),
+      accentSurfaceForeground: color(0.852897, 0.124038, 151.125),
     },
-    action: {
-      primary: color(0.75, 0.1, 220),
-      hover: color(0.81, 0.09, 220),
-      foreground: color(0.13, 0.02, 220),
+    conversation: {
+      message: {
+        surface: color(0.212857, 0.031386, 149.49),
+        foreground: color(0.888896, 0.106477, 151.389),
+        action: color(0.879785, 0.23, 149.033),
+        actionForeground: color(0.172621, 0.031557, 155.977),
+        actionHover: color(0.892441, 0.195468, 151.065),
+      },
+      code: {
+        background: color(0.180622, 0.026794, 148.585),
+        foreground: color(0.852897, 0.124038, 151.125),
+      },
+    },
+    sidebar: {
+      background: color(0.165406, 0.02165, 147.551),
+      foreground: color(0.863391, 0.115652, 150.902),
+      mutedForeground: color(0.5849, 0.096352, 151.17),
+      control: color(0.23366, 0.026081, 338.196),
+      hover: color(0.23366, 0.026081, 338.196),
+      active: color(0.23366, 0.026081, 338.196),
+      selected: color(0.23366, 0.026081, 338.196),
+      border: color(0.259666, 0.036309, 151.583),
+    },
+    toolbar: {
+      background: color(0.141194, 0.015071, 144.725),
+      foreground: color(0.852897, 0.124038, 151.125),
+      border: color(0.296291, 0.042512, 151.423),
+      control: color(0.313674, 0.030572, 310.061),
+      controlForeground: color(0.848252, 0.038248, 307.961),
+      hover: color(0.364912, 0.050794, 308.491),
+    },
+    terminal: {
+      background: color(0.135832, 0.0163, 144.613),
+      foreground: color(0.888896, 0.106477, 151.389),
+      cursor: color(0.879785, 0.23, 149.033),
+      selection: color(0.335301, 0.060639, 157.222),
+      scrollbar: color(0.266817, 0.02897, 344.461),
+      scrollbarHover: color(0.360924, 0.021469, 316.83),
     },
     status: {
-      success: { foreground: color(0.77, 0.11, 150), background: color(0.22, 0.035, 150), border: color(0.51, 0.07, 150) },
-      warning: { foreground: color(0.8, 0.12, 85), background: color(0.23, 0.04, 85), border: color(0.52, 0.08, 85) },
-      danger: { foreground: color(0.75, 0.14, 25), background: color(0.22, 0.04, 25), border: color(0.52, 0.09, 25) },
-      info: { foreground: color(0.78, 0.1, 250), background: color(0.22, 0.035, 250), border: color(0.51, 0.07, 250) },
+      error: {
+        color: color(0.616315, 0.18169, 359.272),
+        foreground: color(0.901233, 0.057189, 343.694),
+        surface: color(0.259022, 0.04799, 340.062),
+      },
+      warning: {
+        color: color(0.76859, 0.164659, 70.08),
+        foreground: color(0.836861, 0.164422, 84.429),
+        surface: color(0.321706, 0.036256, 60.806),
+      },
+      update: {
+        color: color(0.636126, 0.194115, 354.928),
+        foreground: color(0.901233, 0.057189, 343.694),
+        surface: color(0.256077, 0.063004, 342.914),
+      },
+      success: {
+        color: color(0.879785, 0.23, 149.033),
+        foreground: color(0.888896, 0.106477, 151.389),
+        surface: color(0.253648, 0.038904, 154.611),
+      },
+      info: {
+        color: color(0.670042, 0.086287, 297.481),
+        foreground: color(0.880303, 0.03077, 342.696),
+        surface: color(0.23366, 0.026081, 338.196),
+      },
     },
   },
-  "kiln-graphite": {
+  vesper: {
     appearance: "dark",
     surface: {
-      canvas: color(0.18, 0.008, 55),
-      panel: color(0.215, 0.009, 55),
-      raised: color(0.25, 0.011, 55),
-      sunken: color(0.155, 0.007, 55),
-      interactive: color(0.275, 0.013, 55),
-      hover: color(0.32, 0.015, 55),
-      selected: color(0.29, 0.035, 220),
-    },
-    border: {
-      subtle: color(0.3, 0.012, 55),
-      default: color(0.39, 0.016, 55),
-      control: color(0.55, 0.018, 55),
-      focus: color(0.77, 0.1, 220),
+      canvas: color(0.173042, 0, 0),
+      chrome: color(0.173042, 0, 0),
+      default: color(0.173042, 0, 0),
+      raised: color(0.200193, 0, 0),
+      overlay: color(0.22645, 0, 0),
+      border: color(0.22645, 0, 0),
+      input: color(0.22645, 0, 0),
     },
     text: {
-      default: color(0.91, 0.01, 250),
-      muted: color(0.73, 0.016, 250),
-      subtle: color(0.63, 0.018, 250),
-      inverse: color(0.15, 0.01, 250),
+      default: color(1, 0, 0),
+      muted: color(0.705757, 0, 0),
+      placeholder: color(0.616707, 0, 0),
+      secondaryLabel: color(0.705757, 0, 0),
+      iconMuted: color(0.431281, 0, 0),
     },
-    brand: {
-      accent: color(0.71, 0.12, 65),
-      muted: color(0.29, 0.045, 65),
+    control: {
+      focus: color(0.86889, 0.087746, 60.679),
+      accent: color(0.86889, 0.087746, 60.679),
+      accentForeground: color(0, 0, 0),
+      secondary: color(0.200193, 0, 0),
+      secondaryForeground: color(1, 0, 0),
+      muted: color(0.200193, 0, 0),
+      mutedForeground: color(0.705757, 0, 0),
+      accentSurface: color(0.200193, 0, 0),
+      accentSurfaceForeground: color(1, 0, 0),
     },
-    action: {
-      primary: color(0.77, 0.1, 220),
-      hover: color(0.83, 0.09, 220),
-      foreground: color(0.14, 0.02, 220),
+    conversation: {
+      message: {
+        surface: color(0.200193, 0, 0),
+        foreground: color(1, 0, 0),
+        action: color(0.86889, 0.087746, 60.679),
+        actionForeground: color(0, 0, 0),
+        actionHover: color(0.886822, 0.0747, 60.715),
+      },
+      code: { background: color(0.173042, 0, 0), foreground: color(1, 0, 0) },
+    },
+    sidebar: {
+      background: color(0.173042, 0, 0),
+      foreground: color(1, 0, 0),
+      mutedForeground: color(0.705757, 0, 0),
+      control: color(0.173042, 0, 0),
+      hover: color(0.276848, 0, 0),
+      active: color(0.256153, 0, 0),
+      selected: color(0.256153, 0, 0),
+      border: color(0.173042, 0, 0),
+    },
+    toolbar: {
+      background: color(0.173042, 0, 0),
+      foreground: color(1, 0, 0),
+      border: color(0.22645, 0, 0),
+      control: color(0.22645, 0, 0),
+      controlForeground: color(1, 0, 0),
+      hover: color(0.276848, 0, 0),
+    },
+    terminal: {
+      background: color(0.173042, 0, 0),
+      foreground: color(1, 0, 0),
+      cursor: color(0.86889, 0.087746, 60.679),
+      selection: color(0.309186, 0, 0),
+      scrollbar: color(0.22645, 0, 0),
+      scrollbarHover: color(0.276848, 0, 0),
     },
     status: {
-      success: { foreground: color(0.78, 0.1, 150), background: color(0.27, 0.035, 150), border: color(0.54, 0.065, 150) },
-      warning: { foreground: color(0.81, 0.11, 85), background: color(0.28, 0.04, 85), border: color(0.55, 0.075, 85) },
-      danger: { foreground: color(0.77, 0.13, 25), background: color(0.27, 0.04, 25), border: color(0.55, 0.085, 25) },
-      info: { foreground: color(0.8, 0.09, 250), background: color(0.27, 0.035, 250), border: color(0.55, 0.065, 250) },
+      error: {
+        color: color(0.744451, 0.1549, 21.504),
+        foreground: color(0.744451, 0.1549, 21.504),
+        surface: color(0.225332, 0.034514, 20.132),
+      },
+      warning: {
+        color: color(0.86889, 0.087746, 60.679),
+        foreground: color(0.86889, 0.087746, 60.679),
+        surface: color(0.251981, 0.024788, 68.994),
+      },
+      update: {
+        color: color(0.86889, 0.087746, 60.679),
+        foreground: color(0.86889, 0.087746, 60.679),
+        surface: color(0.251981, 0.024788, 68.994),
+      },
+      success: {
+        color: color(0.796194, 0.142352, 150.216),
+        foreground: color(0.911619, 0.080694, 152.259),
+        surface: color(0.249324, 0.032274, 152.862),
+      },
+      info: {
+        color: color(0.754253, 0.1185, 244.288),
+        foreground: color(0.904974, 0.048052, 249.319),
+        surface: color(0.251668, 0.036179, 252.507),
+      },
     },
   },
-  "kiln-light": {
+  automata: {
     appearance: "light",
     surface: {
-      canvas: color(0.965, 0.006, 240),
-      panel: color(0.99, 0.003, 240),
-      raised: color(0.94, 0.008, 240),
-      sunken: color(0.92, 0.009, 240),
-      interactive: color(0.935, 0.01, 240),
-      hover: color(0.9, 0.014, 240),
-      selected: color(0.91, 0.035, 220),
-    },
-    border: {
-      subtle: color(0.88, 0.01, 240),
-      default: color(0.8, 0.014, 240),
-      control: color(0.6, 0.018, 240),
-      focus: color(0.48, 0.085, 220),
+      canvas: color(0.829796, 0.031549, 98.937),
+      chrome: color(0.829796, 0.031549, 98.937),
+      default: color(0.811064, 0.031713, 98.95),
+      raised: color(0.845577, 0.0301, 98.542),
+      overlay: color(0.864625, 0.027326, 97.658),
+      border: color(0.696768, 0.030071, 98.228),
+      input: color(0.644502, 0.029204, 97.809),
     },
     text: {
-      default: color(0.25, 0.012, 250),
-      muted: color(0.43, 0.018, 250),
-      subtle: color(0.52, 0.02, 250),
-      inverse: color(0.98, 0.005, 240),
+      default: color(0.240027, 0.008037, 84.591),
+      muted: color(0.410968, 0.019508, 99.387),
+      placeholder: color(0.268322, 0.012879, 93.891),
+      secondaryLabel: color(0.410968, 0.019508, 99.387),
+      iconMuted: color(0.410968, 0.019508, 99.387),
     },
-    brand: {
-      accent: color(0.47, 0.108, 60),
-      muted: color(0.93, 0.035, 60),
+    control: {
+      focus: color(0.240027, 0.008037, 84.591),
+      accent: color(0.240027, 0.008037, 84.591),
+      accentForeground: color(0.879498, 0.02983, 98.522),
+      secondary: color(0.795123, 0.033185, 99.319),
+      secondaryForeground: color(0.240027, 0.008037, 84.591),
+      muted: color(0.795123, 0.033185, 99.319),
+      mutedForeground: color(0.410968, 0.019508, 99.387),
+      accentSurface: color(0.795123, 0.033185, 99.319),
+      accentSurfaceForeground: color(0.240027, 0.008037, 84.591),
     },
-    action: {
-      primary: color(0.47, 0.085, 220),
-      hover: color(0.4, 0.07, 220),
-      foreground: color(0.98, 0.005, 240),
+    conversation: {
+      message: {
+        surface: color(0.804796, 0.031768, 98.954),
+        foreground: color(0.240027, 0.008037, 84.591),
+        action: color(0.240027, 0.008037, 84.591),
+        actionForeground: color(0.879498, 0.02983, 98.522),
+        actionHover: color(0.45239, 0.024062, 94.797),
+      },
+      code: {
+        background: color(0.811064, 0.031713, 98.95),
+        foreground: color(0.240027, 0.008037, 84.591),
+      },
+    },
+    sidebar: {
+      background: color(0.789073, 0.03191, 98.966),
+      foreground: color(0.240027, 0.008037, 84.591),
+      mutedForeground: color(0.410968, 0.019508, 99.387),
+      control: color(0.760574, 0.032173, 98.988),
+      hover: color(0.76693, 0.032113, 98.983),
+      active: color(0.744626, 0.032325, 99.001),
+      selected: color(0.735017, 0.032418, 99.009),
+      border: color(0.654428, 0.029106, 97.8),
+    },
+    toolbar: {
+      background: color(0.829796, 0.031549, 98.937),
+      foreground: color(0.240027, 0.008037, 84.591),
+      border: color(0.696768, 0.030071, 98.228),
+      control: color(0.795123, 0.033185, 99.319),
+      controlForeground: color(0.240027, 0.008037, 84.591),
+      hover: color(0.76668, 0.033455, 99.341),
+    },
+    terminal: {
+      background: color(0.829796, 0.031549, 98.937),
+      foreground: color(0.240027, 0.008037, 84.591),
+      cursor: color(0.240027, 0.008037, 84.591),
+      selection: color(0.735017, 0.032418, 99.009),
+      scrollbar: color(0.722662, 0.029828, 98.207),
+      scrollbarHover: color(0.654137, 0.049535, 102.206),
     },
     status: {
-      success: { foreground: color(0.4, 0.1, 150), background: color(0.94, 0.035, 150), border: color(0.61, 0.07, 150) },
-      warning: { foreground: color(0.4, 0.078, 85), background: color(0.94, 0.04, 85), border: color(0.62, 0.08, 85) },
-      danger: { foreground: color(0.45, 0.14, 25), background: color(0.94, 0.028, 25), border: color(0.63, 0.09, 25) },
-      info: { foreground: color(0.43, 0.1, 250), background: color(0.94, 0.027, 250), border: color(0.62, 0.07, 250) },
+      error: {
+        color: color(0.497547, 0.127408, 31.25),
+        foreground: color(0.367965, 0.094192, 30.26),
+        surface: color(0.794341, 0.039978, 63.404),
+      },
+      warning: {
+        color: color(0.490874, 0.073277, 94.478),
+        foreground: color(0.432712, 0.066255, 94.854),
+        surface: color(0.817106, 0.051792, 97.489),
+      },
+      update: {
+        color: color(0.240027, 0.008037, 84.591),
+        foreground: color(0.376351, 0.015839, 86.892),
+        surface: color(0.779353, 0.033333, 99.331),
+      },
+      success: {
+        color: color(0.444173, 0.053322, 148.192),
+        foreground: color(0.352197, 0.046469, 149.794),
+        surface: color(0.798875, 0.035219, 127.334),
+      },
+      info: {
+        color: color(0.454461, 0.028526, 227.122),
+        foreground: color(0.380317, 0.030406, 226.323),
+        surface: color(0.805982, 0.011127, 189.761),
+      },
     },
   },
 };
@@ -258,7 +461,7 @@ export function resolveOperatorThemePalette(
   systemPrefersDark = true,
 ): OperatorThemePalette {
   if (theme === "system-follow") {
-    return systemPrefersDark ? OPERATOR_THEME_PALETTES["kiln-dark"] : OPERATOR_THEME_PALETTES["kiln-light"];
+    return systemPrefersDark ? OPERATOR_THEME_PALETTES.phosphor : OPERATOR_THEME_PALETTES.automata;
   }
   return OPERATOR_THEME_PALETTES[theme];
 }

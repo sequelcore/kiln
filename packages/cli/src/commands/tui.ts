@@ -67,9 +67,10 @@ import {
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { PersistedProviderTokenUsage, PersistedTranscriptEvent, PersistedTranscriptEventDraft } from "../wrapper/session-store.js";
 import type { ResumeFeedback, ResumeStrategy } from "../wrapper/index.js";
-import { GatewaySession, waitForGateway, themes, kilnDark } from "@kilnai/tui";
+import { GatewaySession, defaultTheme, waitForGateway, themes } from "@kilnai/tui";
 import type { SessionLike } from "@kilnai/tui";
 import {
+  DEFAULT_OPERATOR_THEME_NAME,
   GUI_PROVIDER_DISPLAY_ORDER,
   buildOperatorToolResultPayload,
   formatPresentationIntentAsText,
@@ -1537,7 +1538,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
 
   for (const [ev, handler] of handlers) process.on(ev, handler);
 
-  const resolvedTheme = themes[flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? "kiln-dark"] ?? kilnDark;
+  const resolvedTheme = themes[flags.theme ?? resolveGlobalUiTheme(globalConfig) ?? DEFAULT_OPERATOR_THEME_NAME]
+    ?? defaultTheme;
 
   // Session list loader for sidebar browser
   async function loadOperatorSessionHistory() {

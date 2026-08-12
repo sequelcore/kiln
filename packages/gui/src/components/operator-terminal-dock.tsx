@@ -43,10 +43,10 @@ function readTerminalTheme() {
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   const tokens = projectOperatorThemeHexVariables(resolveAppliedOperatorThemePalette(root, prefersDark));
   return {
-    background: tokens["--color-background-panel"],
-    foreground: tokens["--color-text"],
-    cursor: tokens["--color-primary"],
-    selectionBackground: tokens["--color-surface-selected"],
+    background: tokens["--kiln-terminal-background"],
+    foreground: tokens["--kiln-terminal-foreground"],
+    cursor: tokens["--kiln-terminal-cursor"],
+    selectionBackground: tokens["--kiln-terminal-selection"],
   };
 }
 

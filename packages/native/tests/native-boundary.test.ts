@@ -104,7 +104,7 @@ describe("native operator surface foundation", () => {
       sessionId: "session-1",
       authority: "audited",
       providerRoute: "codex-oauth/gpt-5.4",
-      theme: "kiln-dark",
+      theme: "phosphor",
       latestEvent: {
         eventId: "session-1:1",
         kilnSessionId: "session-1",

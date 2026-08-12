@@ -4,7 +4,9 @@
  */
 
 import {
+  DEFAULT_OPERATOR_THEME_NAME,
   OPERATOR_THEME_NAMES,
+  isOperatorThemeName,
   operatorColorToHex,
   resolveOperatorThemePalette,
   type OperatorThemeName,
@@ -37,45 +39,45 @@ export interface KilnTheme {
 function createTheme(palette: OperatorThemePalette): KilnTheme {
   return {
     background: operatorColorToHex(palette.surface.canvas),
-    backgroundPanel: operatorColorToHex(palette.surface.panel),
-    backgroundElement: operatorColorToHex(palette.surface.interactive),
-    border: operatorColorToHex(palette.border.default),
-    borderActive: operatorColorToHex(palette.border.focus),
+    backgroundPanel: operatorColorToHex(palette.surface.default),
+    backgroundElement: operatorColorToHex(palette.control.secondary),
+    border: operatorColorToHex(palette.surface.border),
+    borderActive: operatorColorToHex(palette.control.focus),
     text: operatorColorToHex(palette.text.default),
     textMuted: operatorColorToHex(palette.text.muted),
-    accent: operatorColorToHex(palette.brand.accent),
-    primary: operatorColorToHex(palette.action.primary),
+    accent: operatorColorToHex(palette.control.accent),
+    primary: operatorColorToHex(palette.conversation.message.action),
     success: operatorColorToHex(palette.status.success.foreground),
-    error: operatorColorToHex(palette.status.danger.foreground),
+    error: operatorColorToHex(palette.status.error.foreground),
     warning: operatorColorToHex(palette.status.warning.foreground),
     info: operatorColorToHex(palette.status.info.foreground),
-    userFg: operatorColorToHex(palette.text.default),
-    userBg: operatorColorToHex(palette.surface.selected),
-    userBorder: operatorColorToHex(palette.border.default),
-    assistantBg: operatorColorToHex(palette.surface.panel),
+    userFg: operatorColorToHex(palette.conversation.message.foreground),
+    userBg: operatorColorToHex(palette.conversation.message.surface),
+    userBorder: operatorColorToHex(palette.surface.border),
+    assistantBg: operatorColorToHex(palette.surface.default),
     toolFg: operatorColorToHex(palette.status.success.foreground),
     thinkingFg: operatorColorToHex(palette.text.muted),
-    cursorFg: operatorColorToHex(palette.action.primary),
+    cursorFg: operatorColorToHex(palette.terminal.cursor),
   };
 }
 
-export const kilnDark: KilnTheme = createTheme(resolveOperatorThemePalette("kiln-dark"));
-export const kilnGraphite: KilnTheme = createTheme(resolveOperatorThemePalette("kiln-graphite"));
-export const kilnLight: KilnTheme = createTheme(resolveOperatorThemePalette("kiln-light"));
-export const defaultTheme = kilnDark;
+export const phosphorTheme: KilnTheme = createTheme(resolveOperatorThemePalette("phosphor"));
+export const vesperTheme: KilnTheme = createTheme(resolveOperatorThemePalette("vesper"));
+export const automataTheme: KilnTheme = createTheme(resolveOperatorThemePalette("automata"));
+export const defaultTheme = phosphorTheme;
 
-export const themes: Record<string, KilnTheme> = {
-  "kiln-dark": kilnDark,
-  "kiln-graphite": kilnGraphite,
-  "kiln-light": kilnLight,
-  "system-follow": kilnDark,
+export const themes: Record<OperatorThemeName, KilnTheme> = {
+  phosphor: phosphorTheme,
+  vesper: vesperTheme,
+  automata: automataTheme,
+  "system-follow": phosphorTheme,
 };
 
 export function getTheme(name?: string): KilnTheme {
-  if (!name) return defaultTheme;
-  return themes[name as OperatorThemeName] ?? defaultTheme;
+  if (!name || !isOperatorThemeName(name)) return themes[DEFAULT_OPERATOR_THEME_NAME];
+  return themes[name];
 }
 
-export function themeNames(): string[] {
+export function themeNames(): OperatorThemeName[] {
   return [...OPERATOR_THEME_NAMES];
 }

@@ -48,11 +48,11 @@ kiln tui
 ```
 
 ```bash
-kiln tui --provider codex --theme kiln-graphite
+kiln tui --provider codex --theme vesper
 ```
 
 ```bash
-kiln tui --provider openai --theme kiln-light
+kiln tui --provider openai --theme automata
 ```
 
 ```bash
@@ -63,13 +63,13 @@ Transport note: `tui.ts` now resolves startup transport to `gateway` by default.
 
 ## Themes
 
-The TUI exports `KilnTheme`, `defaultTheme`, and the named `themes` map from `packages/tui/src/theme.ts`. The default theme is `kiln-dark`.
+The TUI exports `KilnTheme`, `defaultTheme`, and the named `themes` map from `packages/tui/src/theme.ts`. The default theme is `phosphor`.
 
 The current build ships these built-in theme names:
 
-- `kiln-dark`
-- `kiln-graphite`
-- `kiln-light`
+- `phosphor`
+- `vesper`
+- `automata`
 - `system-follow`
 
 Use any of them with `--theme <name>`.
@@ -77,7 +77,7 @@ Use any of them with `--theme <name>`.
 This list is not TUI-owned. GUI and TUI consume the shared operator theme
 catalog from `@kilnai/gateway-contracts`, so any theme added to the contract
 must be rendered by both surfaces. `system-follow` is accepted for config parity
-with the GUI; the terminal renderer maps it to `kiln-dark` because terminal
+with the GUI; the terminal renderer maps it to `phosphor` because terminal
 processes do not expose a dependable OS color-scheme signal.
 
 The shared contract is authored as semantic OKLCH roles. `theme.ts` is a TUI

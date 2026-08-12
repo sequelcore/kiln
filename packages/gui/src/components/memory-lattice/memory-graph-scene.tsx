@@ -524,14 +524,14 @@ function readGraphSceneTheme(root: HTMLElement): GraphSceneTheme {
     return new Color(value);
   };
   return {
-    background: color("--color-background"),
-    border: color("--color-border"),
-    foreground: color("--color-text"),
-    muted: color("--color-background-element"),
-    primary: color("--color-primary"),
-    accent: color("--color-accent"),
-    success: color("--color-success"),
-    selected: color("--color-warning"),
+    background: color("--kiln-canvas"),
+    border: color("--kiln-border"),
+    foreground: color("--kiln-text"),
+    muted: color("--kiln-secondary"),
+    primary: color("--kiln-message-action"),
+    accent: color("--kiln-accent"),
+    success: color("--kiln-status-success-foreground"),
+    selected: color("--kiln-status-warning-foreground"),
   };
 }
 

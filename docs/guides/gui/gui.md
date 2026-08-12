@@ -128,12 +128,13 @@ If no supported browser host is available, `kiln gui` fails closed and tells you
 ## Theme Persistence
 
 GUI theme preference is stored in `~/.kiln/config.yaml` under the shared
-`ui.theme` key. If `ui.theme` is absent, Kiln falls back to `kiln-dark`.
+`ui.theme` key. If `ui.theme` is absent, Kiln falls back to `phosphor`.
 
 GUI and TUI use the same operator theme catalog from
-`@kilnai/gateway-contracts`: `kiln-dark`, `kiln-graphite`, `kiln-light`, and
-`system-follow`. `kiln-dark` is the cool Obsidian default, `kiln-graphite` is a
-lifted warm-neutral dark surface, and `kiln-light` is the Paper light variant.
+`@kilnai/gateway-contracts`: `phosphor`, `vesper`, `automata`, and
+`system-follow`. `phosphor` is the green-on-black default, `vesper` is the
+high-clarity alternate dark surface, and `automata` is the parchment-and-ink
+light surface.
 `system-follow` follows the OS color preference in the GUI; in the TUI it
 resolves to the terminal-safe dark palette because there is no reliable
 cross-terminal OS theme bridge.
@@ -189,7 +190,7 @@ surface roles for elevation and selection, border roles for separation and
 focus, action roles for controls, and the complete status triplet for success,
 warning, danger, or information surfaces. Terminal, canvas, and WebGL widgets
 must use the renderer-safe hex projection instead of parsing CSS `oklch()` or
-carrying fallback colors. This keeps Graphite, Obsidian, Paper, and
+carrying fallback colors. This keeps Phosphor, Vesper, Automata, and
 `system-follow` coherent across native DOM and non-DOM renderers.
 
 AI Elements are source-owned composition primitives in this repository, not a

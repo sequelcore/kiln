@@ -39,7 +39,7 @@ describe("operator provider preferences", () => {
     readGlobalConfig.mockReturnValue({
       version: "1",
       ui: {
-        theme: "kiln-dark",
+        theme: "phosphor",
       },
     } satisfies KilnGlobalConfig);
 
@@ -48,7 +48,7 @@ describe("operator provider preferences", () => {
     expect(writeGlobalConfig).toHaveBeenCalledWith({
       version: "1",
       ui: {
-        theme: "kiln-dark",
+        theme: "phosphor",
         providerSelection: {
           provider: "codex-oauth",
           model: "gpt-5.5",

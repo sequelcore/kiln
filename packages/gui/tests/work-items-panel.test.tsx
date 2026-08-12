@@ -6,7 +6,7 @@ import { useUiStore } from "../src/lib/ui-store.js";
 
 describe("WorkItemsPanel", () => {
   beforeEach(() => {
-    useUiStore.getState().setTheme("kiln-dark");
+    useUiStore.getState().setTheme("phosphor");
   });
 
   it("keeps repeated work-item ids distinct across canonical sessions", () => {

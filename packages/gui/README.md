@@ -40,7 +40,7 @@ dashboard: compact rows, hairline dividers, provider glyphs, clear active
 continuation state, and visible telemetry where it helps supervision.
 
 The visual direction follows Kiln's restrained biocybernetic cyberpunk identity:
-Obsidian dark surfaces, graphite layering, precise signal color, and controlled
+Phosphor dark glass, explicit control materials, precise signal color, and controlled
 ember accents. It should read as a serious control plane, not a decorative
 sci-fi skin or a borrowed code-editor theme.
 

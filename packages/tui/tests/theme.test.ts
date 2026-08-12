@@ -11,30 +11,30 @@ describe("TUI themes", () => {
   });
 
   it("adapts the shared operator theme palette without duplicating color values", () => {
-    const shared = resolveOperatorThemePalette("kiln-dark");
-    const tui = getTheme("kiln-dark");
+    const shared = resolveOperatorThemePalette("phosphor");
+    const tui = getTheme("phosphor");
 
     expect(tui).toMatchObject({
       background: operatorColorToHex(shared.surface.canvas),
-      backgroundPanel: operatorColorToHex(shared.surface.panel),
-      backgroundElement: operatorColorToHex(shared.surface.interactive),
-      border: operatorColorToHex(shared.border.default),
-      borderActive: operatorColorToHex(shared.border.focus),
+      backgroundPanel: operatorColorToHex(shared.surface.default),
+      backgroundElement: operatorColorToHex(shared.control.secondary),
+      border: operatorColorToHex(shared.surface.border),
+      borderActive: operatorColorToHex(shared.control.focus),
       text: operatorColorToHex(shared.text.default),
       textMuted: operatorColorToHex(shared.text.muted),
-      accent: operatorColorToHex(shared.brand.accent),
-      primary: operatorColorToHex(shared.action.primary),
+      accent: operatorColorToHex(shared.control.accent),
+      primary: operatorColorToHex(shared.conversation.message.action),
       success: operatorColorToHex(shared.status.success.foreground),
-      error: operatorColorToHex(shared.status.danger.foreground),
+      error: operatorColorToHex(shared.status.error.foreground),
       warning: operatorColorToHex(shared.status.warning.foreground),
       info: operatorColorToHex(shared.status.info.foreground),
-      userFg: operatorColorToHex(shared.text.default),
-      userBg: operatorColorToHex(shared.surface.selected),
-      userBorder: operatorColorToHex(shared.border.default),
-      assistantBg: operatorColorToHex(shared.surface.panel),
+      userFg: operatorColorToHex(shared.conversation.message.foreground),
+      userBg: operatorColorToHex(shared.conversation.message.surface),
+      userBorder: operatorColorToHex(shared.surface.border),
+      assistantBg: operatorColorToHex(shared.surface.default),
       toolFg: operatorColorToHex(shared.status.success.foreground),
       thinkingFg: operatorColorToHex(shared.text.muted),
-      cursorFg: operatorColorToHex(shared.action.primary),
+      cursorFg: operatorColorToHex(shared.terminal.cursor),
     });
   });
 });

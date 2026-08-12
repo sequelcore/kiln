@@ -2,7 +2,11 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { isOperatorThemeName, type OperatorThemeName } from "@kilnai/gateway-contracts";
+import {
+  DEFAULT_OPERATOR_THEME_NAME,
+  isOperatorThemeName,
+  type OperatorThemeName,
+} from "@kilnai/gateway-contracts";
 import { routeTree } from "./routeTree.gen.js";
 import { GuiErrorBoundary } from "./components/gui-error-boundary.js";
 import { applyOperatorTheme } from "./lib/operator-theme-projection.js";
@@ -17,7 +21,7 @@ const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).
 (function applyPersistedTheme() {
   const urlTheme = new URLSearchParams(window.location.search).get("theme");
   try {
-    let theme: OperatorThemeName = "kiln-dark";
+    let theme: OperatorThemeName = DEFAULT_OPERATOR_THEME_NAME;
     if (isOperatorThemeName(urlTheme)) {
       theme = urlTheme;
       localStorage.setItem(KILN_GUI_UI_STORAGE_KEY, JSON.stringify({
@@ -35,7 +39,7 @@ const KILN_LOGO_URL = new URL("../../../docs/assets/logo.svg", import.meta.url).
     }
     applyOperatorTheme(theme, window.matchMedia("(prefers-color-scheme: dark)").matches);
   } catch {
-    applyOperatorTheme("kiln-dark", true);
+    applyOperatorTheme(DEFAULT_OPERATOR_THEME_NAME, true);
   }
 })();
 
