@@ -28,18 +28,16 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [03 - Model Gateway Ingress Lifecycle](03-model-gateway-ingress-lifecycle.md) | Blocked | Close deterministic ingress teardown, then reconcile operator configuration and prove autostart, recovery, and exact uninstall under issue [#74](https://github.com/sequelcore/kiln/issues/74). |
-| 2 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
-| 3 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
-| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
-| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
-| 6 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
-| 7 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 8 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
+| 1 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Ready | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
+| 2 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
+| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
+| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
+| 5 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
+| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 7 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
 
 ## Dependency Rules
 
-- `03` owns Model Gateway ingress protocols, virtual-model aliases, authentication, process state, supervision, recovery, and exact uninstall. Core and Runtime retain execution authority.
 - `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, and deferred federation research.
 - `05` decides whether a skill is healthy, compatible, trusted, and admitted.
 - `06` decides how admitted instructions and skill content enter provider prompts and become replayable evidence.

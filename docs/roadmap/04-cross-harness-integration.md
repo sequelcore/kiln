@@ -1,7 +1,7 @@
 # 04 - Cross-Harness Integration
 
-Status: Active integration track
-Execution: Blocked - OpenCode live parity and cross-harness proof remain; Model Gateway-dependent projection proof waits on Roadmap 03.
+Status: Ready
+Execution: Ready - Model Gateway lifecycle is stable; OpenCode live parity and cross-harness proof remain.
 Created: 2026-07-23
 
 ## Objective
@@ -20,7 +20,7 @@ control-plane MCP discovery, migration/restore, and live conformance. Runtime
 job state, economic commitment, account capacity, and write approval follow the
 canonical [managed-agent](../architecture/coordination/managed-agents.md) and
 [managed economic commitment](../architecture/coordination/managed-account-leases.md)
-contracts. Roadmap 03 owns only Model Gateway ingress lifecycle. Provider and
+contracts. The canonical Model Gateway architecture owns only ingress lifecycle. Provider and
 model evidence belongs to Core discovery and Runtime observations. This track
 maps harness-native observations onto those shared contracts; it does not create
 a second identity, account-selection, execution, or lifecycle owner.
@@ -315,9 +315,10 @@ assumptions, and unsupported-proof gaps.
   account leases, selection reason, and replay evidence; Slice 2 consumes that
   completed path and must not reimplement leasing or reintroduce ambient
   round-robin.
-- Roadmap 03 owns Model Gateway ingress configuration, authentication,
-  supervision, recovery, and exact uninstall. Only the Model Gateway projection
-  and recovery portions of Slices 1 and 4 depend on its live proof.
+- [Model Gateway architecture](../architecture/providers/model-gateway.md) owns
+  ingress configuration, authentication, supervision, recovery, and exact
+  uninstall. Its lifecycle proof is complete; this track owns only harness
+  projection and protocol-parity work layered on that service.
 - Provider identity and entitlement evidence comes from provider-model discovery
   and Runtime observations. This track maps harness-native evidence without
   redefining those contracts.

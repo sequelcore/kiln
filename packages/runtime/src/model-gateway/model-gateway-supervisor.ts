@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ModelGatewayConfig } from "@kilnai/core";
-import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity, type ModelGatewayListenerInspection } from "./model-gateway-listener.js";
+import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity, type ModelGatewayListenerInspection, type ModelGatewayShutdownResult } from "./model-gateway-listener.js";
 
 export interface ModelGatewayLaunchDescriptor {
   readonly schemaVersion: 1;
@@ -58,6 +58,7 @@ export class ModelGatewaySupervisor {
   readonly #env: Readonly<Record<string, string | undefined>>;
   readonly #launch: ModelGatewayLaunchDescriptor;
   readonly #inspect: () => Promise<ModelGatewayListenerInspection>;
+  readonly #requestShutdown: (identity: ModelGatewayListenerIdentity) => Promise<ModelGatewayShutdownResult>;
   readonly #process: ModelGatewayProcessAdapter;
   readonly #createInstanceId: () => string;
   readonly #wait: (ms: number) => Promise<void>;
@@ -70,6 +71,7 @@ export class ModelGatewaySupervisor {
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly launch: ModelGatewayLaunchDescriptor;
     readonly inspect: () => Promise<ModelGatewayListenerInspection>;
+    readonly requestShutdown: (identity: ModelGatewayListenerIdentity) => Promise<ModelGatewayShutdownResult>;
     readonly processAdapter?: ModelGatewayProcessAdapter;
     readonly createInstanceId?: () => string;
     readonly wait?: (ms: number) => Promise<void>;
@@ -81,6 +83,7 @@ export class ModelGatewaySupervisor {
     this.#env = input.env;
     this.#launch = validateLaunch(input.launch);
     this.#inspect = input.inspect;
+    this.#requestShutdown = input.requestShutdown;
     this.#process = input.processAdapter ?? nodeModelGatewayProcessAdapter;
     this.#createInstanceId = input.createInstanceId ?? randomUUID;
     this.#wait = input.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -180,14 +183,23 @@ export class ModelGatewaySupervisor {
       return current;
     }
     if (!state || !owns(current.identity, state)) return { state: "foreign", reason: "ownership-mismatch" };
-    await this.#process.terminate(current.identity.pid);
+    const shutdown = await this.#requestShutdown(current.identity);
+    if (shutdown.state === "foreign") return { state: "foreign", reason: `shutdown-${shutdown.reason}` };
+    let forced = false;
     for (let attempt = 0; attempt < 50; attempt += 1) {
       const inspection = await this.#inspect();
-      if (inspection.state === "stopped") { await this.#removeState(); return inspection; }
       if (inspection.state === "foreign") return inspection;
+      if (inspection.state === "stopped" && !this.#process.isAlive(current.identity.pid)) {
+        await this.#removeState();
+        return inspection;
+      }
+      if (attempt === 39 && this.#process.isAlive(current.identity.pid)) {
+        await this.#process.terminate(current.identity.pid);
+        forced = true;
+      }
       await this.#wait(100);
     }
-    return { state: "foreign", reason: "shutdown-timeout" };
+    return { state: "foreign", reason: forced ? "forced-shutdown-timeout" : "shutdown-timeout" };
   }
 
   async #withLock<T>(action: () => Promise<T>): Promise<T> {

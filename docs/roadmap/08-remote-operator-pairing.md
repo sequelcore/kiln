@@ -19,8 +19,9 @@ economic commitment, credential, tool, and dispatch authority.
 
 It does not own harness-native provider authentication or evidence; Roadmap 04
 owns harness adapters while Core and Runtime own provider-model evidence. It
-does not own Model Gateway network exposure or ingress security (Roadmap 03),
-and Model Gateway principals never become operator-session identity.
+does not own Model Gateway network exposure or ingress security (see
+[Model Gateway architecture](../architecture/providers/model-gateway.md)), and
+Model Gateway principals never become operator-session identity.
 
 ## Scope
 
@@ -62,7 +63,8 @@ produce a fixture-backed design before implementation.
 - Roadmap 07 is an explicit sequencing gate, not a technical dependency.
 - Operator Runtime must expose the authenticated-session boundary consumed by
   operator surfaces without delegating route or execution authority to pairing.
-- Roadmap 03 matters only if a paired surface exposes Model Gateway ingress.
+- Model Gateway ingress architecture matters only if a paired surface exposes
+  that ingress.
 
 ## Promotion Gates
 

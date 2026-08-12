@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { userInfo } from "node:os";
 import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
@@ -11,6 +12,7 @@ import {
   createModelGatewayExecutionRoutingPort,
   createModelGatewayConfigDigest,
   inspectModelGatewayListener,
+  requestModelGatewayShutdown,
   startModelGatewayListener,
   type ModelGatewayLaunchDescriptor,
   type ModelGatewayAutostartStatus,
@@ -34,7 +36,7 @@ interface SupervisorSurface {
 interface AutostartSurface { install(launch: ModelGatewayLaunchDescriptor): Promise<ModelGatewayAutostartStatus>; uninstall(): Promise<ModelGatewayAutostartStatus>; status(): Promise<ModelGatewayAutostartStatus>; }
 
 interface ModelGatewayCommandDependencies {
-  readonly startModelGatewayListener: (options: StartModelGatewayListenerOptions) => Promise<{ close(): void }>;
+  readonly startModelGatewayListener: (options: StartModelGatewayListenerOptions) => Promise<{ close(): Promise<void>; readonly shutdownRequested: Promise<void> }>;
   readonly inspectModelGatewayListener: typeof inspectModelGatewayListener;
   readonly readGlobalConfig: () => KilnGlobalConfig | null;
   readonly resolveGlobalConfigPath: () => string;
@@ -46,8 +48,9 @@ interface ModelGatewayCommandDependencies {
   readonly pid: number;
   readonly execPath: string;
   readonly entrypoint: string;
-  readonly registerShutdown: (close: () => void) => void;
+  readonly registerShutdown: (close: () => Promise<void>, shutdownRequested: Promise<void>) => Promise<void>;
   readonly syncOpenCodeNativeProjection: typeof syncGlobalOpenCodeModelGatewayProjection;
+  readonly removeRuntimeDir: (path: string) => Promise<void>;
   readonly log: (message: string) => void;
 }
 
@@ -66,6 +69,7 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
   entrypoint: process.argv[1] ?? "",
   registerShutdown: registerProcessShutdown,
   syncOpenCodeNativeProjection: syncGlobalOpenCodeModelGatewayProjection,
+  removeRuntimeDir: (path) => rm(path, { recursive: true, force: true }),
   log: console.log,
 };
 
@@ -73,7 +77,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   const dependencies = { ...defaultDependencies, ...overrides };
   const subcommand = args[0];
   if (subcommand === "--help" || subcommand === "-h" || subcommand === undefined) { printHelp(dependencies.log); return; }
-  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall-autostart", "autostart-status", "sync-native"]);
+  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native"]);
   if (!supported.has(subcommand)) throw new Error(`Unknown model-gateway command '${subcommand}'.`);
   const flags = parseFlags(args.slice(1));
   if (flags.help) { printHelp(dependencies.log); return; }
@@ -121,7 +125,24 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     env: dependencies.env,
     launch,
     inspect: () => dependencies.inspectModelGatewayListener({ config, token }),
+    requestShutdown: (identity) => requestModelGatewayShutdown({ config, token, identity }),
   });
+  if (subcommand === "uninstall") {
+    const autostartStatus = await autostart.status();
+    if (autostartStatus.state === "foreign") {
+      printAutostartResult(autostartStatus, flags.json, dependencies.log);
+      return;
+    }
+    const stopped = await supervisor.stop();
+    if (stopped.state === "foreign") {
+      printResult(stopped, flags.json, dependencies.log);
+      return;
+    }
+    if (autostartStatus.state === "installed") await autostart.uninstall();
+    await dependencies.removeRuntimeDir(runtimeDir);
+    dependencies.log(flags.json ? JSON.stringify({ state: "uninstalled" }) : "Model gateway: uninstalled");
+    return;
+  }
   if (subcommand === "sync-native") {
     if (flags.client !== "opencode") throw new Error("sync-native currently requires --client opencode.");
     const ensured = await supervisor.ensure();
@@ -151,8 +172,8 @@ async function serveDevelopmentConfig(configPath: string, dependencies: ModelGat
     databasePath: join(dirname(configPath), ".kiln", "model-gateway", "model-gateway.sqlite"),
     identity: { instanceId: `dev-${dependencies.pid}`, version: dependencies.version, configDigest: createModelGatewayConfigDigest(config), pid: dependencies.pid },
   }, dependencies);
-  dependencies.registerShutdown(runtime.close);
   dependencies.log(`Development model gateway ready at http://127.0.0.1:${config.port}`);
+  await dependencies.registerShutdown(runtime.close, runtime.shutdownRequested);
 }
 
 async function serveGlobalRuntime(config: ModelGatewayConfig, runtimeDir: string, instanceId: string, globalConfig: KilnGlobalConfig | null, dependencies: ModelGatewayCommandDependencies): Promise<void> {
@@ -162,8 +183,8 @@ async function serveGlobalRuntime(config: ModelGatewayConfig, runtimeDir: string
     databasePath: join(runtimeDir, "model-gateway.sqlite"),
     identity: { instanceId, version: dependencies.version, configDigest: createModelGatewayConfigDigest(config), pid: dependencies.pid },
   }, dependencies);
-  dependencies.registerShutdown(runtime.close);
   dependencies.log(`Model gateway ready at http://127.0.0.1:${config.port}`);
+  await dependencies.registerShutdown(runtime.close, runtime.shutdownRequested);
 }
 
 async function startConfiguredModelGatewayListener(
@@ -171,9 +192,9 @@ async function startConfiguredModelGatewayListener(
   config: ModelGatewayConfig,
   listener: Pick<StartModelGatewayListenerOptions, "config" | "databasePath" | "identity">,
   dependencies: ModelGatewayCommandDependencies,
-): Promise<{ close(): void }> {
+): Promise<{ close(): Promise<void>; readonly shutdownRequested: Promise<void> }> {
   const composition = createModelGatewayExecutionComposition(globalConfig, config, listener.databasePath, dependencies.env);
-  let runtime: { close(): void };
+  let runtime: { close(): Promise<void>; readonly shutdownRequested: Promise<void> };
   try {
     runtime = await dependencies.startModelGatewayListener({
       ...listener,
@@ -184,17 +205,16 @@ async function startConfiguredModelGatewayListener(
     composition.close();
     throw error;
   }
-  let closed = false;
+  let closePromise: Promise<void> | undefined;
   return {
-    close: () => {
-      if (closed) return;
-      closed = true;
+    shutdownRequested: runtime.shutdownRequested,
+    close: () => closePromise ??= (async () => {
       try {
-        runtime.close();
+        await runtime.close();
       } finally {
         composition.close();
       }
-    },
+    })(),
   };
 }
 
@@ -223,6 +243,7 @@ function createModelGatewayExecutionComposition(
       executionCatalog: globalConfig.executionCatalog,
       executionRouting: createModelGatewayExecutionRoutingPort(globalConfig.executionCatalog),
       executionCandidates: accountRuntime.modelGatewayCandidates,
+      executionDispatcher: accountRuntime.modelGatewayDispatchers,
       accountCapacityAuthority,
     },
     close: () => accountCapacityAuthority.close(),
@@ -311,14 +332,29 @@ function printAutostartResult(result: ModelGatewayAutostartStatus, json: boolean
   log(`Model gateway autostart: ${result.state}`);
 }
 
-function registerProcessShutdown(close: () => void): void {
-  let closed = false;
-  const shutdown = (): void => { if (closed) return; closed = true; process.off("SIGINT", shutdown); process.off("SIGTERM", shutdown); close(); };
-  process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown);
+function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: Promise<void>): Promise<void> {
+  let closing = false;
+  return new Promise((resolve) => {
+    const shutdown = (): void => {
+      if (closing) return;
+      closing = true;
+      process.off("SIGINT", shutdown);
+      process.off("SIGTERM", shutdown);
+      void close()
+        .catch((error: unknown) => {
+          console.error(`Model gateway shutdown failed: ${error instanceof Error ? error.message : String(error)}`);
+          process.exitCode = 1;
+        })
+        .finally(resolve);
+    };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+    void shutdownRequested.then(shutdown);
+  });
 }
 
 function printHelp(log: (message: string) => void): void {
-  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall-autostart|autostart-status|sync-native> [--json]\n");
+  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native> [--json]\n");
   log("Native provider: kiln model-gateway sync-native --client opencode [--uninstall]");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");

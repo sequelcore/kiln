@@ -2,48 +2,25 @@ import { createHmac, randomUUID, timingSafeEqual, createHash } from "node:crypto
 import { chmod, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
-  AnthropicAdapter,
-  DeepSeekAdapter,
-  LmStudioAdapter,
-  OllamaAdapter,
-  OpenAIAdapter,
-  OpenCodeAdapter,
-  OpenRouterAdapter,
-  createAccountRef,
   defineDeliberationLevelId,
   isDirectProviderId,
-  type DirectProviderId,
   type ModelGatewayConfig,
   type ExecutionCatalog,
   type AdmittedExecutionRoute,
   type ModelGatewayRoute,
   type OperatorExecutionIntent,
-  type ProviderAdapter,
 } from "@kilnai/core";
-import { CodexOAuthCredentialPoolService } from "../agents/credential-pool/codex-oauth-credential-pool.js";
-import {
-  DirectProviderCredentialPoolService,
-  isPooledDirectProviderId,
-  type DirectProviderExecutionAccount,
-  type DirectProviderExecutionCredential,
-} from "../agents/credential-pool/direct-provider-credential-pool.js";
-import {
-  OpenCodeCredentialPoolService,
-  type OpenCodeExecutionAccount,
-  type OpenCodeExecutionCredential,
-} from "../agents/credential-pool/opencode-credential-pool.js";
 import type {
   OpenAIResponsesIngressConfig,
   OpenAIResponsesTrustedPrincipal,
 } from "../gateway/openai-responses-routes.js";
 import type { AnthropicMessagesIngressConfig, AnthropicMessagesTrustedPrincipal } from "./anthropic-messages-routes.js";
-import { CodexOAuthModelTurnDispatcher, CodexOAuthModelTurnError } from "./codex-oauth-model-turn-dispatcher.js";
-import { ProviderAdapterOneRoundDispatcher } from "./provider-adapter-one-round-dispatcher.js";
 import { LocalModelGatewayStore } from "./local-model-gateway-store.js";
 import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
 import { admitOperatorExecutionIntent } from "@kilnai/core";
 import type {
   GovernedOneRoundCandidate,
+  GovernedOneRoundDispatcherResolver,
   GovernedOneRoundInvocationPorts,
 } from "./governed-one-round-invocation.js";
 
@@ -72,12 +49,12 @@ export interface ModelGatewayIngressOptions {
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   /** Canonical candidate evidence and lease bindings owned by composition. */
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
+  /** Post-fence provider dispatch owned by Runtime composition. */
+  readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   /** Shared account-capacity authority; ingress does not create or close it. */
   readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
   readonly databasePath: string;
-  readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly fetch?: typeof fetch;
 }
 export interface ModelGatewayIngressHandle {
   readonly openAIResponses?: OpenAIResponsesIngressConfig;
@@ -109,16 +86,6 @@ export async function createModelGatewayIngress(
   const tokenDigests = new Set(principals.map(({ token }) => digest(token).toString("hex")));
   if (tokenDigests.size !== principals.length)
     throw new Error("Model gateway authentication token values must be globally unique.");
-  const codexPool = new CodexOAuthCredentialPoolService({
-    rootDir: options.credentialRootDir,
-  });
-  const openCodePool = new OpenCodeCredentialPoolService({
-    rootDir: options.credentialRootDir,
-  });
-  const directPool = new DirectProviderCredentialPoolService({
-    rootDir: options.credentialRootDir,
-    env,
-  });
   if (options.databasePath !== ":memory:") {
     const stateDirectory = dirname(options.databasePath);
     const created = await mkdir(stateDirectory, {
@@ -193,7 +160,8 @@ export async function createModelGatewayIngress(
     return admitted.admission;
   }
   const dispatcherResolver: GovernedOneRoundInvocationPorts["dispatcherResolver"] = {
-    resolve: async ({ route, accountId, account }) => {
+    resolve: async (input) => {
+      const { route, accountId } = input;
       const admittedModel = [...routes.values()].find(
         (entry) =>
           entry.route.providerId === route.providerId &&
@@ -203,20 +171,11 @@ export async function createModelGatewayIngress(
       if (!admittedModel) throw new Error("Selected provider route is unavailable.");
       const canonicalAccount = options.executionCatalog.accounts.find(({ id }) => id === accountId);
       if (!canonicalAccount || canonicalAccount.providerId !== route.providerId) throw new Error("Selected execution account is unavailable.");
-      const execution = await listExecutionAccounts(route.providerId as DirectProviderId);
-      const current = execution.find((entry) => entry.credentialId === canonicalAccount.credentialId);
-      if (!current) throw new Error("Selected credential identity changed.");
-      const dispatcher = await resolveDispatcher(
-        route.providerId as DirectProviderId,
-        route.providerModelId,
-        account,
-        current,
-      );
+      const dispatcher = await options.executionDispatcher.resolve(input);
       return {
         dispatchOneRound: async (input) => {
           try {
             const result = await dispatcher.dispatchOneRound(input);
-            void recordOutcome(current).catch(() => {});
             return result;
           } catch (error) {
             const status = providerStatus(error);
@@ -231,7 +190,6 @@ export async function createModelGatewayIngress(
                 "Provider failure could not be fenced by the route circuit.",
               );
             }
-            await recordOutcome(current, error).catch(() => {});
             throw error;
           }
         },
@@ -405,55 +363,6 @@ export async function createModelGatewayIngress(
     };
   }
 
-  async function listExecutionAccounts(providerId: DirectProviderId): Promise<readonly ExecutionAccount[]> {
-    if (providerId === "codex-oauth")
-      return (await codexPool.listExecutionAccounts()).map((entry) => ({
-        providerId,
-        ...entry,
-      }));
-    if (providerId === "opencode-go" || providerId === "opencode-zen")
-      return openCodePool.listExecutionAccounts(providerId === "opencode-go" ? "go" : "zen");
-    if (isPooledDirectProviderId(providerId)) return directPool.listExecutionAccounts(providerId);
-    return [];
-  }
-
-  async function resolveDispatcher(
-    providerId: DirectProviderId,
-    model: string,
-    account: ReturnType<typeof createAccountRef>,
-    execution: ExecutionAccount,
-  ) {
-    if (providerId === "codex-oauth") {
-      const credential = await codexPool.resolveExecutionCredential(execution);
-      return new CodexOAuthModelTurnDispatcher({
-        account,
-        credential,
-        fetch: options.fetch ?? fetch,
-      });
-    }
-    if (providerId === "opencode-go" || providerId === "opencode-zen") {
-      const credential = await openCodePool.resolveExecutionCredential(execution as OpenCodeExecutionAccount);
-      return new ProviderAdapterOneRoundDispatcher({
-        account,
-        providerId,
-        adapter: rawOpenCodeAdapter(credential, model),
-      });
-    }
-    if (!isPooledDirectProviderId(providerId)) throw new Error("Selected provider is unavailable.");
-    const credential = await directPool.resolveExecutionCredential(execution as DirectProviderExecutionAccount);
-    return new ProviderAdapterOneRoundDispatcher({
-      account,
-      providerId,
-      adapter: rawDirectAdapter(credential, model),
-    });
-  }
-
-  async function recordOutcome(execution: ExecutionAccount, error?: unknown): Promise<void> {
-    if (execution.providerId === "codex-oauth") return codexPool.recordProviderOutcome(execution.credentialId, error);
-    if (execution.providerId === "opencode-go" || execution.providerId === "opencode-zen")
-      return openCodePool.recordProviderOutcome(execution.providerId, execution.credentialId, error);
-    return directPool.recordProviderOutcome(execution.providerId, execution.credentialId, error);
-  }
 }
 
 function singleAccountRoute(admission: AdmittedExecutionRoute): boolean {
@@ -461,67 +370,7 @@ function singleAccountRoute(admission: AdmittedExecutionRoute): boolean {
     || admission.accountSelection.eligibleAccountIds.length === 1;
 }
 
-type ExecutionAccount =
-  | ({ readonly providerId: "codex-oauth" } & Awaited<
-      ReturnType<CodexOAuthCredentialPoolService["listExecutionAccounts"]>
-    >[number])
-  | OpenCodeExecutionAccount
-  | DirectProviderExecutionAccount;
-
-function rawOpenCodeAdapter(credential: OpenCodeExecutionCredential, model: string): ProviderAdapter {
-  return new OpenCodeAdapter({
-    apiKey: credential.auth.api_key,
-    tier: credential.tier,
-    defaultModel: model,
-    internalRetry: false,
-  });
-}
-
-function rawDirectAdapter(credential: DirectProviderExecutionCredential, model: string): ProviderAdapter {
-  const auth = credential.auth;
-  switch (credential.providerId) {
-    case "anthropic":
-      return new AnthropicAdapter({
-        apiKey: requiredApiKey(auth.apiKey),
-        defaultModel: model,
-        internalRetry: false,
-      });
-    case "openai":
-      return new OpenAIAdapter({
-        apiKey: requiredApiKey(auth.apiKey),
-        defaultModel: model,
-        internalRetry: false,
-      });
-    case "deepseek":
-      return new DeepSeekAdapter({
-        apiKey: requiredApiKey(auth.apiKey),
-        defaultModel: model,
-        internalRetry: false,
-      });
-    case "openrouter":
-      return new OpenRouterAdapter({
-        apiKey: requiredApiKey(auth.apiKey),
-        defaultModel: model,
-        internalRetry: false,
-      });
-    case "ollama":
-      return new OllamaAdapter({ baseUrl: auth.baseUrl, defaultModel: model });
-    case "lmstudio":
-      return new LmStudioAdapter({
-        apiKey: auth.apiKey,
-        baseUrl: auth.baseUrl,
-        defaultModel: model,
-        internalRetry: false,
-      });
-  }
-}
-
-function requiredApiKey(value: string | undefined): string {
-  if (!value) throw new Error("Selected provider credential requires an API key.");
-  return value;
-}
 function providerStatus(error: unknown): number | undefined {
-  if (error instanceof CodexOAuthModelTurnError) return error.status;
   if (typeof error !== "object" || error === null) return undefined;
   const value = (error as { readonly status?: unknown }).status;
   return typeof value === "number" ? value : undefined;

@@ -43,6 +43,7 @@ import type {
   ModelGatewayExecutionRoutingPort,
 } from "../model-gateway/model-gateway-ingress.js";
 import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
+import type { GovernedOneRoundDispatcherResolver } from "../model-gateway/governed-one-round-invocation.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
@@ -157,13 +158,14 @@ export interface StartGatewayOptions {
    */
   readonly modelGatewayExecution?: ModelGatewayExecutionBundle;
   /** Test seam for the dedicated loopback model-gateway listener. */
-  readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void };
+  readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void | Promise<void> };
 }
 
 export interface ModelGatewayExecutionBundle {
   readonly executionCatalog: ExecutionCatalog;
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
+  readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
 }
 
@@ -1521,7 +1523,7 @@ REASONING: <one sentence explanation>`;
     }
   }
 
-  let modelGatewayRuntime: { close(): void } | undefined;
+  let modelGatewayRuntime: { close(): Promise<void> } | undefined;
   let resourcesClosed = false;
   const closeStartedResources = async (): Promise<void> => {
     if (resourcesClosed) return;

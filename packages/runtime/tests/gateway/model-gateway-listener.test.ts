@@ -9,10 +9,13 @@ import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-le
 import { createModelGatewayExecutionRoutingPort } from "../../src/model-gateway/model-gateway-ingress.js";
 import {
   MODEL_GATEWAY_HEALTH_PATH,
+  MODEL_GATEWAY_SHUTDOWN_PATH,
   createModelGatewayConfigDigest,
   inspectModelGatewayListener,
+  requestModelGatewayShutdown,
   startModelGatewayListener,
 } from "../../src/model-gateway/model-gateway-listener.js";
+import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
 
 const config: ModelGatewayConfig = {
   port: 4819,
@@ -77,6 +80,7 @@ const executionCatalog = defineExecutionCatalog({
 });
 
 const noCandidates = { resolve: async () => [] };
+const noDispatcher = { resolve: async () => { throw new Error("No dispatcher is available in this fixture."); } };
 let authority: SqliteManagedAccountLeaseAuthority | undefined;
 
 function executionOptions() {
@@ -90,6 +94,7 @@ function executionOptions() {
     executionCatalog,
     executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog),
     executionCandidates: noCandidates,
+    executionDispatcher: noDispatcher,
     accountCapacityAuthority: authority,
   };
 }
@@ -113,7 +118,6 @@ describe("startModelGatewayListener", () => {
       ...executionOptions(),
       config,
       databasePath: join(root, "state", "gateway.sqlite"),
-      credentialRootDir: join(root, "auth"),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       listen: (input) => { bound = input; return { stop }; },
     });
@@ -122,26 +126,51 @@ describe("startModelGatewayListener", () => {
     const health = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`, { headers: { authorization: `Bearer ${"b".repeat(32)}` } }));
     expect(health.status).toBe(200);
     expect(await health.json()).toMatchObject({ service: "kiln-model-gateway", status: "ready", instanceId: expect.any(String), port: 4819 });
+    const unmanagedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, { method: "POST", headers: { authorization: `Bearer ${"b".repeat(32)}` } }));
+    expect(unmanagedShutdown.status).toBe(404);
     const response = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }));
     expect(response.status).toBe(401);
-    runtime.close();
-    runtime.close();
+    await Promise.all([runtime.close(), runtime.close()]);
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(true);
+  });
+
+  it("awaits listener shutdown before closing durable state and shares idempotent completion", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-listener-settle-"));
+    let releaseStop!: () => void;
+    const stop = vi.fn(() => new Promise<void>((resolve) => { releaseStop = resolve; }));
+    const closeStore = vi.spyOn(LocalModelGatewayStore.prototype, "close");
+    const runtime = await startModelGatewayListener({
+      ...executionOptions(),
+      config,
+      databasePath: join(root, "state.sqlite"),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      listen: () => ({ stop }),
+    });
+
+    const firstClose = runtime.close();
+    const secondClose = runtime.close();
+    expect(firstClose).toBe(secondClose);
+    expect(stop).toHaveBeenCalledOnce();
+    expect(closeStore).not.toHaveBeenCalled();
+
+    releaseStop();
+    await firstClose;
+    expect(closeStore).toHaveBeenCalledOnce();
   });
 
   it("serves authenticated readiness identity without exposing secrets", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-listener-health-"));
     let bound: Parameters<NonNullable<Parameters<typeof startModelGatewayListener>[0]["listen"]>>[0] | undefined;
     const env = { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) };
+    const stop = vi.fn();
     const runtime = await startModelGatewayListener({
       ...executionOptions(),
       config,
       databasePath: join(root, "state.sqlite"),
-      credentialRootDir: join(root, "auth"),
       env,
       identity: { instanceId: "instance-test", version: "3.0.0-test", configDigest: createModelGatewayConfigDigest(config), pid: 4321 },
-      listen: (input) => { bound = input; return { stop: () => undefined }; },
+      listen: (input) => { bound = input; return { stop }; },
     });
     try {
       const unauthenticated = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`));
@@ -164,7 +193,22 @@ describe("startModelGatewayListener", () => {
         port: 4819,
       });
       expect(JSON.stringify(body).includes(env.BEARER_TOKEN)).toBe(false);
-    } finally { runtime.close(); }
+
+      const unauthenticatedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, { method: "POST" }));
+      expect(unauthenticatedShutdown.status).toBe(401);
+      const mismatchedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${env.BEARER_TOKEN}`, "x-kiln-instance-id": "other-instance" },
+      }));
+      expect(mismatchedShutdown.status).toBe(409);
+      const acceptedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${env.BEARER_TOKEN}`, "x-kiln-instance-id": "instance-test" },
+      }));
+      expect(acceptedShutdown.status).toBe(202);
+      await runtime.shutdownRequested;
+      expect(stop).not.toHaveBeenCalled();
+    } finally { await runtime.close(); }
   });
 
   it("classifies matching, foreign, and stopped listeners", async () => {
@@ -185,6 +229,21 @@ describe("startModelGatewayListener", () => {
     await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => new Response("not kiln") })).resolves.toMatchObject({ state: "foreign" });
   });
 
+  it("requests shutdown only from the exact authenticated listener", async () => {
+    const identity = { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "instance-a", pid: 7, version: "3.0.0-test", configDigest: createModelGatewayConfigDigest(config), port: 4819 };
+    await expect(requestModelGatewayShutdown({
+      config,
+      token: "t".repeat(32),
+      identity,
+      fetch: async (_url, init) => {
+        expect(init?.method).toBe("POST");
+        expect(new Headers(init?.headers).get("x-kiln-instance-id")).toBe("instance-a");
+        return new Response(null, { status: 202, headers: { "x-kiln-service": "model-gateway" } });
+      },
+    })).resolves.toEqual({ state: "accepted" });
+    await expect(requestModelGatewayShutdown({ config, token: "t".repeat(32), identity, fetch: async () => new Response(null, { status: 409, headers: { "x-kiln-service": "model-gateway" } }) })).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
+  });
+
   it("mounts configured Responses and Anthropic surfaces on the same listener", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-multi-surface-listener-"));
     let bound: Parameters<NonNullable<Parameters<typeof startModelGatewayListener>[0]["listen"]>>[0] | undefined;
@@ -194,24 +253,24 @@ describe("startModelGatewayListener", () => {
       principals: [...config.principals, { ...config.principals[0]!, tokenEnv: "ANTHROPIC_TOKEN", ingress: "anthropic-messages", virtualModelIds: ["claude-kiln"] }],
       virtualModels: [...config.virtualModels, { ...config.virtualModels[0]!, id: "claude-kiln", displayName: "Claude Kiln" }],
     };
-    const runtime = await startModelGatewayListener({ ...executionOptions(), config: multi, databasePath: join(root, "state.sqlite"), credentialRootDir: join(root, "auth"), env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) }, listen: (input) => { bound = input; return { stop: () => undefined }; } });
+    const runtime = await startModelGatewayListener({ ...executionOptions(), config: multi, databasePath: join(root, "state.sqlite"), env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) }, listen: (input) => { bound = input; return { stop: () => undefined }; } });
     try {
       expect((await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }))).status).toBe(401);
       const models = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/models?limit=1000", { headers: { "x-api-key": "a".repeat(32) } }));
       expect(models.status).toBe(200);
       expect(await models.json()).toEqual({ data: [{ id: "claude-kiln", display_name: "Claude Kiln" }] });
-    } finally { runtime.close(); }
+    } finally { await runtime.close(); }
   });
 
   it("closes durable state even when listener shutdown throws", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-listener-close-"));
     const databasePath = join(root, "state", "gateway.sqlite");
-    const options = { ...executionOptions(), config, databasePath, credentialRootDir: join(root, "auth"), env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) } };
+    const options = { ...executionOptions(), config, databasePath, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) } };
     const first = await startModelGatewayListener({ ...options, listen: () => ({ stop: () => { throw new Error("listener stop failed"); } }) });
-    expect(() => first.close()).toThrow("listener stop failed");
+    await expect(first.close()).rejects.toThrow("listener stop failed");
     const replacementStop = vi.fn();
     const replacement = await startModelGatewayListener({ ...options, listen: () => ({ stop: replacementStop }) });
-    replacement.close();
+    await replacement.close();
   });
 
   it("rejects an effective main-port override that collides with the model listener", async () => {

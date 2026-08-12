@@ -4,6 +4,7 @@ import {
   defineExecutionCatalog,
 } from "@kilnai/core";
 import { ConfiguredExecutionAccountRuntime } from "../../src/managed-account-leases/configured-execution-account-runtime.js";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
 const codexExecution = {
   credentialId: "credential-a",
@@ -86,6 +87,52 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       admission,
       route: { providerId: "openai", providerModelId: "gpt-test", scope: "virtual:overlay" },
     })).rejects.toThrow(/does not match/u);
+  });
+
+  it("materializes a Gateway dispatcher only from a dispatch-fenced canonical credential", async () => {
+    const codexPool = pool([codexExecution], [usageSnapshot("credential-a", "available")]);
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog,
+      codexPool,
+      now: () => new Date("2026-08-11T12:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+    const route = { providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:codex" };
+    const candidates = await runtime.modelGatewayCandidates.resolve({ admission, route });
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: ":memory:",
+      participantKind: "model-gateway-ingress",
+      recoveryDomain: `configured-dispatcher-${crypto.randomUUID()}`,
+      configurationRevision: "test",
+    });
+    try {
+      const acquired = authority.acquireAccountCapacity({
+        runtimeInvocationId: "attempt",
+        intentFingerprint: `sha256:${"a".repeat(64)}`,
+        accountPolicyId: "codex-policy",
+        route,
+        candidates: candidates.map(({ lease }) => lease),
+      });
+      expect(acquired.status).toBe("acquired");
+      if (acquired.status !== "acquired") throw new Error("fixture capacity was not acquired");
+      await expect(runtime.modelGatewayDispatchers.resolve({
+        identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
+        accountId: "account-a",
+        route,
+        lease: acquired.record,
+      })).rejects.toThrow("dispatch-fenced");
+
+      const fenced = authority.fenceAccountCapacityDispatch("attempt", "attempt:dispatch");
+      await expect(runtime.modelGatewayDispatchers.resolve({
+        identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
+        accountId: "account-a",
+        route,
+        lease: fenced,
+      })).resolves.toMatchObject({ dispatchOneRound: expect.any(Function) });
+      expect(codexPool.resolveExecutionCredential).toHaveBeenCalledOnce();
+    } finally {
+      authority.close();
+    }
   });
 
   it("projects shared operator-session capacity into candidate admission evidence", async () => {
@@ -243,6 +290,7 @@ function pool(
       accessToken: "synthetic-access-token",
       chatgptAccountId: "synthetic-account",
     })),
+    recordProviderOutcome: vi.fn(async () => undefined),
   };
 }
 

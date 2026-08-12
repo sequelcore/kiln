@@ -42,7 +42,7 @@ export class WindowsModelGatewayAutostartAdapter {
     this.#run = input.run ?? runTaskScheduler;
     this.#writeXml = input.writeXml ?? (async (path, xml) => {
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      await writeFile(path, xml, { encoding: "utf8", mode: 0o600 });
+      await writeFile(path, Buffer.from(xml, "utf16le"), { mode: 0o600 });
     });
     this.#remove = input.remove ?? ((path) => rm(path, { force: true }));
   }
@@ -101,7 +101,7 @@ function createTaskXml(input: { readonly launch: ModelGatewayLaunchDescriptor; r
   validateLaunch(input.launch);
   const argumentsValue = input.launch.args.map(quoteWindowsArgument).join(" ");
   return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
+    '\ufeff<?xml version="1.0" encoding="UTF-16"?>',
     '<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
     "  <RegistrationInfo>",
     `    <Description>${OWNERSHIP_PREFIX}${input.digest}</Description>`,
@@ -121,8 +121,7 @@ function createTaskXml(input: { readonly launch: ModelGatewayLaunchDescriptor; r
     "  </Principals>",
     "  <Settings>",
     "    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>",
-    "    <StartWhenAvailable>true</StartWhenAvailable>",
-    "    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>",
+    "    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>",
     "  </Settings>",
     '  <Actions Context="Author">',
     "    <Exec>",
@@ -161,7 +160,9 @@ function requireSafeField(value: string, label: string): string {
   return value;
 }
 function escapeXml(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;"); }
-function isMissingTask(result: ModelGatewayTaskSchedulerResult): boolean { return /cannot find|no existe|not found/i.test(`${result.stdout}\n${result.stderr}`); }
+function isMissingTask(result: ModelGatewayTaskSchedulerResult): boolean {
+  return /cannot find|not found|no existe|no puede encontrar el archivo especificado/i.test(`${result.stdout}\n${result.stderr}`);
+}
 function sanitizeDiagnostic(value: string): string { return value.replace(/[\r\n]+/g, " ").trim().slice(0, 512) || "unknown error"; }
 
 async function runTaskScheduler(args: readonly string[]): Promise<ModelGatewayTaskSchedulerResult> {

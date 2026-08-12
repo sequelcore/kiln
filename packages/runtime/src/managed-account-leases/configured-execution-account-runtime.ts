@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   createAccountRef,
   createManagedEconomicAmountFromDecimal,
+  isDirectProviderId,
   type AccountRef,
   type AdmittedExecutionRoute,
   type DirectProviderId,
@@ -10,6 +11,7 @@ import {
   type ExecutionCatalog,
   type ManagedEconomicEvidenceIdentity,
   type ManagedEconomicQuotaEvidence,
+  type ModelGatewayOneRoundDispatcher,
   type ProviderUsageConfidence,
   type ProviderUsageQuotaObservation,
   type ProviderUsageSnapshot,
@@ -32,6 +34,7 @@ import {
   type OpenCodeExecutionCredential,
 } from "../agents/credential-pool/opencode-credential-pool.js";
 import type {
+  AccountCapacityRecord,
   ManagedAccountCandidateBinding,
   ManagedAccountCapacityObservation,
 } from "./managed-account-lease-authority.js";
@@ -40,6 +43,9 @@ import type {
   OperatorSessionExecutionCandidatePort,
   OperatorSessionResolvedCredential,
 } from "../execution-routing/operator-session-execution-routing-service.js";
+import { CodexOAuthModelTurnDispatcher } from "../model-gateway/codex-oauth-model-turn-dispatcher.js";
+import { ProviderAdapterOneRoundDispatcher } from "../model-gateway/provider-adapter-one-round-dispatcher.js";
+import type { GovernedOneRoundDispatcherResolver } from "../model-gateway/governed-one-round-invocation.js";
 
 /**
  * The configured execution catalog is the only durable input to this runtime.
@@ -63,6 +69,7 @@ export interface ConfiguredCodexExecutionAccountPool {
   listUsage(now?: Date): Promise<readonly ProviderUsageSnapshot[]>;
   refreshUsageForCredentials(credentialIds: readonly string[]): Promise<readonly ProviderUsageSnapshot[]>;
   resolveExecutionCredential(selected: CodexOAuthExecutionAccount): Promise<CodexOAuthExecutionCredential>;
+  recordProviderOutcome(credentialId: string, error?: unknown): Promise<void>;
 }
 
 export type ConfiguredExecutionCredential =
@@ -132,6 +139,7 @@ export class ConfiguredExecutionAccountRuntime {
   readonly operatorSessionCandidates: OperatorSessionExecutionCandidatePort;
   readonly modelGatewayCandidates: ConfiguredExecutionCandidatePort;
   readonly operatorSessionCredentials: OperatorSessionCredentialPort<ConfiguredExecutionCredential>;
+  readonly modelGatewayDispatchers: GovernedOneRoundDispatcherResolver;
 
   constructor(options: ConfiguredExecutionAccountRuntimeOptions) {
     this.#catalog = options.catalog;
@@ -157,6 +165,9 @@ export class ConfiguredExecutionAccountRuntime {
     };
     this.operatorSessionCredentials = {
       resolve: async (input) => this.#resolveCredential(input),
+    };
+    this.modelGatewayDispatchers = {
+      resolve: async ({ accountId, route, lease }) => this.#resolveModelGatewayDispatcher(accountId, route, lease),
     };
   }
 
@@ -309,6 +320,70 @@ export class ConfiguredExecutionAccountRuntime {
       throw new Error("Configured execution credential resolver returned a different credential identity.");
     }
     return { credential, credentialId: credential.credentialId, credentialRevisionId };
+  }
+
+  async #resolveModelGatewayDispatcher(
+    accountId: string,
+    route: { readonly providerId: string; readonly providerModelId: string },
+    lease: AccountCapacityRecord,
+  ): Promise<ModelGatewayOneRoundDispatcher> {
+    const account = this.#requireAccount(accountId);
+    if (account.providerId !== route.providerId) {
+      throw new Error("Configured execution account does not match the dispatched provider route.");
+    }
+    if (!isDirectProviderId(route.providerId)) {
+      throw new Error("Configured execution route is not directly dispatchable.");
+    }
+    const { credential } = await this.#resolveCredential({
+      accountId,
+      credentialId: account.credentialId,
+      lease,
+    });
+    if (route.providerId === "codex-oauth") {
+      const codexCredential = credential as CodexOAuthExecutionCredential;
+      const dispatcher = new CodexOAuthModelTurnDispatcher({
+        account: lease.accountRef,
+        credential: {
+          accessToken: codexCredential.accessToken,
+          ...(codexCredential.chatgptAccountId === undefined ? {} : { chatgptAccountId: codexCredential.chatgptAccountId }),
+        },
+        fetch,
+      });
+      return this.#recordCodexOutcome(dispatcher, codexCredential.credentialId);
+    }
+    if (route.providerId === "opencode-go" || route.providerId === "opencode-zen") {
+      const adapter = await this.#openCodePool.createAdapterFromCredential({
+        credential: credential as OpenCodeExecutionCredential,
+        defaultModel: route.providerModelId,
+      });
+      return new ProviderAdapterOneRoundDispatcher({ account: lease.accountRef, providerId: route.providerId, adapter });
+    }
+    if (isPooledDirectProviderId(route.providerId)) {
+      const adapter = await this.#directPool.createAdapterFromCredential({
+        credential: credential as DirectProviderExecutionCredential,
+        defaultModel: route.providerModelId,
+      });
+      return new ProviderAdapterOneRoundDispatcher({ account: lease.accountRef, providerId: route.providerId, adapter });
+    }
+    throw new Error(`Configured provider '${route.providerId}' has no model gateway dispatcher.`);
+  }
+
+  #recordCodexOutcome(
+    dispatcher: ModelGatewayOneRoundDispatcher,
+    credentialId: string,
+  ): ModelGatewayOneRoundDispatcher {
+    return {
+      dispatchOneRound: async (input) => {
+        try {
+          const result = await dispatcher.dispatchOneRound(input);
+          await this.#codexPool.recordProviderOutcome(credentialId).catch(() => undefined);
+          return result;
+        } catch (error) {
+          await this.#codexPool.recordProviderOutcome(credentialId, error).catch(() => undefined);
+          throw error;
+        }
+      },
+    };
   }
 
   async #findExecutionAccount(account: ExecutionAccount): Promise<ConfiguredExecutionAccount> {

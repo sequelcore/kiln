@@ -64,7 +64,28 @@ describe("ModelGatewaySupervisor", () => {
     const supervisor = createSupervisor(root, inspect, processAdapter, () => "instance-a");
     await supervisor.start();
     await expect(supervisor.stop()).resolves.toEqual({ state: "stopped" });
-    expect(processAdapter.terminate).toHaveBeenCalledWith(222);
+    expect(processAdapter.terminate).not.toHaveBeenCalled();
+    expect(await supervisor.readState()).toBeNull();
+  });
+
+  it("waits for the owned process to exit after its listener stops", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-process-exit-"));
+    let alive = true;
+    const processAdapter = adapter({ spawnPid: 222 });
+    vi.mocked(processAdapter.isAlive).mockImplementation(() => alive);
+    const inspect = vi.fn<() => Promise<ModelGatewayListenerInspection>>()
+      .mockResolvedValueOnce({ state: "stopped" })
+      .mockResolvedValueOnce({ state: "ready", identity: identity("instance-a", 222) })
+      .mockResolvedValueOnce({ state: "ready", identity: identity("instance-a", 222) })
+      .mockResolvedValue({ state: "stopped" });
+    const wait = vi.fn(async () => { alive = false; });
+    const supervisor = createSupervisor(root, inspect, processAdapter, () => "instance-a", wait);
+
+    await supervisor.start();
+    await expect(supervisor.stop()).resolves.toEqual({ state: "stopped" });
+
+    expect(wait).toHaveBeenCalledOnce();
+    expect(processAdapter.isAlive).toHaveBeenCalledTimes(2);
     expect(await supervisor.readState()).toBeNull();
   });
 
@@ -89,7 +110,13 @@ describe("ModelGatewaySupervisor", () => {
   }
 });
 
-function createSupervisor(root: string, inspect: () => Promise<ModelGatewayListenerInspection>, processAdapter: ModelGatewayProcessAdapter, createInstanceId = () => "instance-test") {
+function createSupervisor(
+  root: string,
+  inspect: () => Promise<ModelGatewayListenerInspection>,
+  processAdapter: ModelGatewayProcessAdapter,
+  createInstanceId = () => "instance-test",
+  wait: (ms: number) => Promise<void> = async () => undefined,
+) {
   return new ModelGatewaySupervisor({
     config,
     runtimeDir: root,
@@ -97,9 +124,10 @@ function createSupervisor(root: string, inspect: () => Promise<ModelGatewayListe
     env: { REPLAY_SECRET: "secret-value".repeat(3), BEARER_TOKEN: "secret-value".repeat(3) },
     launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
     inspect,
+    requestShutdown: async () => ({ state: "accepted" }),
     processAdapter,
     createInstanceId,
-    wait: async () => undefined,
+    wait,
   });
 }
 

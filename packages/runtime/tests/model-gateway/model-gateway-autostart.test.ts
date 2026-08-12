@@ -24,6 +24,18 @@ describe("WindowsModelGatewayAutostartAdapter", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("reports an absent task from the Windows Spanish missing-task diagnostic", async () => {
+    const adapter = createAdapter({
+      run: vi.fn(async () => ({
+        exitCode: 1,
+        stdout: "",
+        stderr: "ERROR: El sistema no puede encontrar el archivo especificado.",
+      })),
+    });
+
+    await expect(adapter.status()).resolves.toEqual({ state: "absent" });
+  });
+
   it("installs an exact least-privilege user task without shell interpolation", async () => {
     const run = vi.fn()
       .mockResolvedValueOnce({ exitCode: 1, stdout: "", stderr: "ERROR: The system cannot find the file specified." })
@@ -35,7 +47,11 @@ describe("WindowsModelGatewayAutostartAdapter", () => {
     await expect(adapter.install(launch)).resolves.toMatchObject({ state: "installed", digest: createModelGatewayAutostartDigest(launch) });
     expect(run.mock.calls[1]![0]).toEqual(["/Create", "/TN", expect.stringMatching(/^Kiln Model Gateway /), "/XML", "C:\\runtime\\autostart-task.xml", "/F"]);
     const xml = String(writeXml.mock.calls[0]![1]);
+    expect(xml.charCodeAt(0)).toBe(0xfeff);
+    expect(xml).toContain('encoding="UTF-16"');
     expect(xml).toContain("<RunLevel>LeastPrivilege</RunLevel>");
+    expect(xml).toContain("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>");
+    expect(xml).not.toContain("<StartWhenAvailable>");
     expect(xml).toContain("<UserId>operator</UserId>");
     expect(xml).toContain("<Command>C:\\Program Files\\Bun\\bun.exe</Command>");
     expect(xml).toContain("&quot;C:\\Kiln Dev\\packages\\cli\\dist\\index.js&quot;");

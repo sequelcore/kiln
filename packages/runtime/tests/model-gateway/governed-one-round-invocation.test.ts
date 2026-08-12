@@ -133,7 +133,7 @@ function input(id = "attempt") {
 }
 
 describe("governed one-round capacity", () => {
-  it("reserves before resolver, fences immediately before its sole dispatch, and settles success", async () => {
+  it("runs the lifecycle hook before fencing and resolves credentials only after the dispatch fence", async () => {
     const value = fixture();
     const order: string[] = [];
     const ports = {
@@ -151,7 +151,7 @@ describe("governed one-round capacity", () => {
       },
     };
     await invokeGovernedOneRound({ ...input(), lifecycle: { afterCommittedBeforeDispatch: () => { order.push(`hook:${value.authority.recoverAccountCapacity()[0]!.state}`); } } }, ports);
-    expect(order).toEqual(["held", "hook:held", "dispatch-fenced"]);
+    expect(order).toEqual(["hook:held", "dispatch-fenced", "dispatch-fenced"]);
     expect(value.events).toEqual([
       "planned",
       "leased",
@@ -163,7 +163,7 @@ describe("governed one-round capacity", () => {
     value.authority.close();
   });
 
-  it("releases a pre-fence resolver failure and leaves no capacity", async () => {
+  it("retains conservative capacity when post-fence dispatcher resolution fails", async () => {
     const value = fixture();
     await expect(
       invokeGovernedOneRound(input(), {
@@ -174,8 +174,10 @@ describe("governed one-round capacity", () => {
           },
         },
       }),
-    ).rejects.toThrow("credential unavailable");
-    expect(value.authority.recoverAccountCapacity()).toEqual([]);
+    ).rejects.toBeInstanceOf(GovernedOneRoundCommittedError);
+    expect(value.authority.recoverAccountCapacity()).toMatchObject([
+      { state: "settlement-pending" },
+    ]);
     value.authority.close();
   });
 

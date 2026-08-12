@@ -10,9 +10,11 @@ import type {
 } from "./model-gateway-ingress.js";
 import type { ExecutionCatalog } from "@kilnai/core";
 import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
+import type { GovernedOneRoundDispatcherResolver } from "./governed-one-round-invocation.js";
 import pkg from "../../package.json" with { type: "json" };
 
 export const MODEL_GATEWAY_HEALTH_PATH = "/.well-known/kiln/model-gateway/ready";
+export const MODEL_GATEWAY_SHUTDOWN_PATH = "/.well-known/kiln/model-gateway/shutdown";
 export const MODEL_GATEWAY_HEALTH_PROTOCOL_VERSION = 1;
 
 export interface ModelGatewayListenerIdentityInput {
@@ -38,17 +40,21 @@ export interface StartModelGatewayListenerOptions {
   readonly executionCatalog: ExecutionCatalog;
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
+  readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
   readonly databasePath: string;
-  readonly credentialRootDir?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly providerFetch?: typeof fetch;
   readonly identity?: ModelGatewayListenerIdentityInput;
   readonly listen?: (input: {
     readonly hostname: "127.0.0.1";
     readonly port: number;
     readonly fetch: (request: Request) => Response | Promise<Response>;
-  }) => { stop(force?: boolean): void };
+  }) => { stop(force?: boolean): void | Promise<void> };
+}
+
+export interface ModelGatewayListenerHandle {
+  close(): Promise<void>;
+  readonly shutdownRequested: Promise<void>;
 }
 
 export type ModelGatewayListenerInspection =
@@ -56,28 +62,42 @@ export type ModelGatewayListenerInspection =
   | { readonly state: "foreign"; readonly reason: "unauthorized" | "identity-mismatch" | "unexpected-response" }
   | { readonly state: "stopped" };
 
+export type ModelGatewayShutdownResult =
+  | { readonly state: "accepted" }
+  | { readonly state: "foreign"; readonly reason: "unauthorized" | "identity-mismatch" | "unexpected-response" }
+  | { readonly state: "stopped" };
+
 /** Starts only the private model ingress and owns its listener/store lifecycle. */
-export async function startModelGatewayListener(options: StartModelGatewayListenerOptions): Promise<{ close(): void }> {
+export async function startModelGatewayListener(options: StartModelGatewayListenerOptions): Promise<ModelGatewayListenerHandle> {
   const env = options.env ?? process.env;
   const handle = await createModelGatewayIngress({
     config: options.config,
     executionCatalog: options.executionCatalog,
     executionRouting: options.executionRouting,
     executionCandidates: options.executionCandidates,
+    executionDispatcher: options.executionDispatcher,
     accountCapacityAuthority: options.accountCapacityAuthority,
     databasePath: options.databasePath,
-    ...(options.credentialRootDir === undefined ? {} : { credentialRootDir: options.credentialRootDir }),
     ...(options.env === undefined ? {} : { env: options.env }),
-    ...(options.providerFetch === undefined ? {} : { fetch: options.providerFetch }),
   });
-  let listener: { stop(force?: boolean): void } | undefined;
+  let listener: { stop(force?: boolean): void | Promise<void> } | undefined;
+  let closePromise: Promise<void> | undefined;
+  let resolveShutdownRequested!: () => void;
+  const shutdownRequested = new Promise<void>((resolve) => { resolveShutdownRequested = resolve; });
+  const close = () => closePromise ??= (async () => {
+    try {
+      await listener?.stop(true);
+    } finally {
+      handle.close();
+    }
+  })();
   try {
     const modelApp = new Hono();
-    mountHealthRoute(modelApp, options.config, options.identity ?? {
+    mountControlRoutes(modelApp, options.config, options.identity ?? {
       instanceId: randomUUID(),
       version: pkg.version,
       configDigest: createModelGatewayConfigDigest(options.config),
-    }, env);
+    }, env, options.identity ? () => { setTimeout(resolveShutdownRequested, 50); } : undefined);
     if (handle.openAIResponses) modelApp.route("/", createOpenAIResponsesRoutes(handle.openAIResponses));
     if (handle.anthropicMessages) modelApp.route("/", createAnthropicMessagesRoutes(handle.anthropicMessages));
     listener = options.listen
@@ -87,8 +107,7 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
     handle.close();
     throw error;
   }
-  let closed = false;
-  return { close: () => { if (closed) return; closed = true; try { listener.stop(true); } finally { handle.close(); } } };
+  return { close, shutdownRequested };
 }
 
 export function createModelGatewayConfigDigest(config: ModelGatewayConfig): string {
@@ -130,11 +149,46 @@ export async function inspectModelGatewayListener(input: {
   return { state: "ready", identity };
 }
 
-function mountHealthRoute(
+export async function requestModelGatewayShutdown(input: {
+  readonly config: ModelGatewayConfig;
+  readonly token: string;
+  readonly identity: ModelGatewayListenerIdentity;
+  readonly fetch?: typeof fetch;
+  readonly timeoutMs?: number;
+}): Promise<ModelGatewayShutdownResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 1_000);
+  let response: Response;
+  try {
+    response = await (input.fetch ?? fetch)(`http://127.0.0.1:${input.config.port}${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${input.token}`,
+        "x-kiln-instance-id": input.identity.instanceId,
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    return isConnectionRefused(error)
+      ? { state: "stopped" }
+      : { state: "foreign", reason: "unexpected-response" };
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (response.headers.get("x-kiln-service") !== "model-gateway") return { state: "foreign", reason: "unexpected-response" };
+  if (response.status === 401) return { state: "foreign", reason: "unauthorized" };
+  if (response.status === 409) return { state: "foreign", reason: "identity-mismatch" };
+  return response.status === 202
+    ? { state: "accepted" }
+    : { state: "foreign", reason: "unexpected-response" };
+}
+
+function mountControlRoutes(
   app: Hono,
   config: ModelGatewayConfig,
   input: ModelGatewayListenerIdentityInput,
   env: Readonly<Record<string, string | undefined>>,
+  requestShutdown: (() => void) | undefined,
 ): void {
   if (!input.version.trim()) throw new Error("Model gateway listener version must not be empty.");
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(input.instanceId)) throw new Error("Model gateway listener instance id must be canonical.");
@@ -162,6 +216,19 @@ function mountHealthRoute(
       return context.json({ error: "unauthorized" }, 401);
     }
     return context.json(identity);
+  });
+  if (!requestShutdown) return;
+  app.post(MODEL_GATEWAY_SHUTDOWN_PATH, (context) => {
+    context.header("x-kiln-service", "model-gateway");
+    const token = readHealthToken(context.req.header("authorization"), context.req.header("x-api-key"));
+    if (!token || !tokenDigests.some((digest) => timingSafeEqual(digest, createHash("sha256").update(token, "utf8").digest()))) {
+      return context.json({ error: "unauthorized" }, 401);
+    }
+    if (context.req.header("x-kiln-instance-id") !== identity.instanceId) {
+      return context.json({ error: "identity-mismatch" }, 409);
+    }
+    requestShutdown();
+    return context.json({ status: "accepted" }, 202);
   });
 }
 

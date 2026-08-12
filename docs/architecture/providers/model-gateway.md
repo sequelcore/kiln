@@ -62,6 +62,31 @@ admitted harness capability. Provider/harness protocol compatibility does not
 prove entitlement, tool authority, resume compatibility, billing semantics, or
 permission parity; unsupported combinations fail closed.
 
+## Ingress Lifecycle
+
+One user-scoped supervisor owns the loopback listener, runtime state, lock,
+SQLite evidence, and optional Windows logon task. Readiness returns an
+authenticated identity containing the instance ID, PID, version, configuration
+digest, and port. Lifecycle commands act only when that identity exactly matches
+the owned state; an unauthorized, mismatched, or unrecognized listener is
+foreign and fails closed.
+
+Shutdown is an authenticated request to the exact listener instance. The
+process stops accepting work, awaits the Bun server stop promise, closes ingress
+state, releases Runtime account-capacity ownership, and only then exits. The
+supervisor waits for both listener disappearance and process exit before it
+removes state or starts a replacement. Forced process termination is a bounded
+last resort after graceful shutdown times out; it is never the normal Windows
+path.
+
+Windows autostart is a least-privilege, current-user logon task with one owned
+description digest, `IgnoreNew` instance policy, and no execution time limit.
+Install replaces only a task carrying that ownership marker. Exact uninstall
+refuses a foreign task or listener, stops the owned process, removes the owned
+task and Model Gateway runtime directory, and leaves canonical config and
+unmanaged native state unchanged. Operator commands and recovery procedure are
+documented in [Model Gateway Operations](../../operations/model-gateway.md).
+
 ## Native Projection
 
 Kiln config is canonical. Native configuration is a derived projection with
@@ -79,4 +104,6 @@ physical-harness routes and retain only the facts needed for that boundary.
 
 Required focused evidence covers virtual-model-to-route validation, deterministic
 selection and rejection reasons, shared capacity/fencing, credential revision
-drift after fencing, no secret projection, and exact native projection restore.
+drift after fencing, post-fence dispatcher materialization, deterministic
+resource close, authenticated exact-instance shutdown, no secret projection,
+and exact native projection restore.

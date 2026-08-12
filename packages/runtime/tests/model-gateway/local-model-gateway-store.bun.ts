@@ -52,7 +52,7 @@ async function spawnCrash(mode: "claimed" | "committed", path: string): Promise<
 async function main(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "kiln-real-sqlite-"));
   const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `bun-store-${crypto.randomUUID()}`, configurationRevision: "fixture" });
-  const modelGatewayExecution = { executionCatalog, executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog), executionCandidates: noCandidates, accountCapacityAuthority };
+  const modelGatewayExecution = { executionCatalog, executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog), executionCandidates: noCandidates, executionDispatcher: { resolve: async () => { throw new Error("No dispatcher is available in this fixture."); } }, accountCapacityAuthority };
   try {
     const durablePath = join(root, "durable.sqlite");
     const first = store(durablePath);
@@ -81,7 +81,6 @@ async function main(): Promise<void> {
       config: gatewayConfig,
       ...modelGatewayExecution,
       databasePath: securePath,
-      credentialRootDir: join(root, "auth"),
       env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" },
     });
     handle.close();
@@ -91,7 +90,7 @@ async function main(): Promise<void> {
 
       const existingDirectory = join(root, "existing-parent");
       await mkdir(existingDirectory); await chmod(existingDirectory, 0o755);
-      const existingHandle = await createModelGatewayIngress({ config: gatewayConfig, ...modelGatewayExecution, databasePath: join(existingDirectory, "gateway.sqlite"), credentialRootDir: join(root, "auth-existing"), env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" } });
+      const existingHandle = await createModelGatewayIngress({ config: gatewayConfig, ...modelGatewayExecution, databasePath: join(existingDirectory, "gateway.sqlite"), env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" } });
       existingHandle.close();
       if (((await stat(existingDirectory)).mode & 0o777) !== 0o755) throw new Error("Factory changed permissions on a pre-existing parent directory.");
     }

@@ -17,6 +17,7 @@ import {
   type ModelTurnResult,
 } from "@kilnai/core";
 import type {
+  AccountCapacityRecord,
   AccountCapacitySettlement,
   ManagedAccountAffinityRequest,
   ManagedAccountCandidateBinding,
@@ -95,10 +96,7 @@ export interface GovernedOneRoundDispatcherResolver {
     readonly identity: GovernedOneRoundIdentity;
     readonly accountId: string;
     readonly route: ModelGatewayRoute;
-    readonly account: ModelGatewayAffinity["account"];
-    readonly leaseId: string;
-    readonly capacityIdentity: string;
-    readonly credentialRevisionId: string;
+    readonly lease: AccountCapacityRecord;
   }): Promise<ModelGatewayOneRoundDispatcher>;
 }
 export interface GovernedOneRoundInvocationPorts {
@@ -240,22 +238,6 @@ export async function invokeGovernedOneRound(
     ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
     throw new GovernedOneRoundInvocationError("aborted", "The one-round invocation was aborted before dispatch.");
   }
-  let dispatcher: ModelGatewayOneRoundDispatcher;
-  try {
-    dispatcher = await ports.dispatcherResolver.resolve({
-      identity: input.identity,
-      accountId: candidateSelection.accountId,
-      route: input.route,
-      account: capacity.accountRef,
-      leaseId: capacity.leaseId,
-      capacityIdentity: capacity.capacityIdentity,
-      credentialRevisionId: capacity.credentialRevisionId,
-    });
-  } catch (error) {
-    ports.accountCapacityAuthority.releaseAccountCapacityPreFence(runtimeInvocationId);
-    throw error;
-  }
-
   let attempt = createAttemptCommit({
     attemptId: input.attemptId,
     account: capacity.accountRef,
@@ -323,10 +305,16 @@ export async function invokeGovernedOneRound(
       phases: Object.freeze(phases),
     });
   }
-  ports.accountCapacityAuthority.fenceAccountCapacityDispatch(runtimeInvocationId, dispatchFenceId);
+  const dispatchLease = ports.accountCapacityAuthority.fenceAccountCapacityDispatch(runtimeInvocationId, dispatchFenceId);
   let result: ModelTurnResult | undefined;
   let failure: unknown;
   try {
+    const dispatcher = await ports.dispatcherResolver.resolve({
+      identity: input.identity,
+      accountId: candidateSelection.accountId,
+      route: input.route,
+      lease: dispatchLease,
+    });
     result = await dispatchModelGatewayOneRound(dispatcher, {
       account: capacity.accountRef,
       route: input.route,

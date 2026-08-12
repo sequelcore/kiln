@@ -97,6 +97,7 @@ function authority(): SqliteManagedAccountLeaseAuthority {
 
 const env = { REPLAY_SECRET: "r".repeat(32), TOKEN: "t".repeat(32) };
 const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: vi.fn(async () => []) };
+const noDispatcher = { resolve: vi.fn(async () => { throw new Error("No dispatcher is available in this fixture."); }) };
 
 describe("createModelGatewayIngress", () => {
   const authorities: SqliteManagedAccountLeaseAuthority[] = [];
@@ -114,6 +115,7 @@ describe("createModelGatewayIngress", () => {
       executionCatalog: catalog,
       executionRouting: createModelGatewayExecutionRoutingPort(catalog),
       executionCandidates: noCandidates,
+      executionDispatcher: noDispatcher,
       accountCapacityAuthority: sharedAuthority,
       databasePath: ":memory:",
       env,
@@ -129,6 +131,7 @@ describe("createModelGatewayIngress", () => {
       executionCatalog: catalog,
       executionRouting: createModelGatewayExecutionRoutingPort(catalog),
       executionCandidates: candidates,
+      executionDispatcher: noDispatcher,
       accountCapacityAuthority: sharedAuthority,
       databasePath: ":memory:",
       env,

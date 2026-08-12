@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defineExecutionCatalog, parseGatewayYaml } from "@kilnai/core";
-import type { StartModelGatewayListenerOptions } from "@kilnai/runtime";
+import { SqliteManagedAccountLeaseAuthority, type StartModelGatewayListenerOptions } from "@kilnai/runtime";
 import { modelGatewayCommand } from "../../src/commands/model-gateway.js";
 
 const yaml = `port: 4800
@@ -77,6 +77,7 @@ const globalConfig = {
   executionRouting: { defaultRouteId: "codex-route" },
   modelGateway,
 };
+const neverShutdown = new Promise<void>(() => undefined);
 
 describe("modelGatewayCommand", () => {
   let root: string | undefined;
@@ -86,7 +87,7 @@ describe("modelGatewayCommand", () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-"));
     const configPath = join(root, "gateway.yaml");
     await writeFile(configPath, yaml, "utf8");
-    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn(async () => undefined), shutdownRequested: neverShutdown }));
     const registerShutdown = vi.fn();
     const log = vi.fn();
 
@@ -109,14 +110,14 @@ describe("modelGatewayCommand", () => {
     });
     expect(registerShutdown).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("127.0.0.1:4819"));
-    registerShutdown.mock.calls[0]![0]!();
+    await registerShutdown.mock.calls[0]![0]!();
   });
 
   it("passes the canonical execution bundle to the foreground listener", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-bundle-"));
     const configPath = join(root, "gateway.yaml");
     await writeFile(configPath, yaml, "utf8");
-    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn(async () => undefined), shutdownRequested: neverShutdown }));
     const registerShutdown = vi.fn();
 
     await modelGatewayCommand(["serve", "--config", configPath], {
@@ -137,12 +138,67 @@ describe("modelGatewayCommand", () => {
     });
     expect(options.executionCandidates).toBeDefined();
     expect(options.accountCapacityAuthority).toBeDefined();
-    registerShutdown.mock.calls[0]![0]!();
+    await registerShutdown.mock.calls[0]![0]!();
+  });
+
+  it("closes execution authority only after listener shutdown settles", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-close-"));
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(configPath, yaml, "utf8");
+    let releaseListener!: () => void;
+    const listenerClose = vi.fn(() => new Promise<void>((resolve) => { releaseListener = resolve; }));
+    const authorityClose = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "close");
+    const registerShutdown = vi.fn();
+
+    await modelGatewayCommand(["serve", "--config", configPath], {
+      startModelGatewayListener: vi.fn(async () => ({ close: listenerClose, shutdownRequested: neverShutdown })),
+      readGlobalConfig: () => globalConfig,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      registerShutdown,
+      log: vi.fn(),
+    });
+
+    const shutdown = registerShutdown.mock.calls[0]![0]!();
+    expect(listenerClose).toHaveBeenCalledOnce();
+    expect(authorityClose).not.toHaveBeenCalled();
+    releaseListener();
+    await shutdown;
+    expect(authorityClose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps serve pending until shutdown and resource close complete", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-lifetime-"));
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(configPath, yaml, "utf8");
+    const listenerClose = vi.fn(async () => undefined);
+    let shutdown!: () => Promise<void>;
+    const registerShutdown = vi.fn((close: () => Promise<void>) => new Promise<void>((resolve) => {
+      shutdown = async () => {
+        await close();
+        resolve();
+      };
+    }));
+    let settled = false;
+
+    const serving = modelGatewayCommand(["serve", "--config", configPath], {
+      startModelGatewayListener: vi.fn(async () => ({ close: listenerClose, shutdownRequested: neverShutdown })),
+      readGlobalConfig: () => globalConfig,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      registerShutdown,
+      log: vi.fn(),
+    }).finally(() => { settled = true; });
+    await vi.waitFor(() => expect(registerShutdown).toHaveBeenCalledOnce());
+
+    expect(settled).toBe(false);
+    await shutdown();
+    await serving;
+    expect(listenerClose).toHaveBeenCalledOnce();
+    expect(settled).toBe(true);
   });
 
   it("passes the same explicit execution bundle to the global runtime listener", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-global-bundle-"));
-    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn(async () => undefined), shutdownRequested: neverShutdown }));
     const registerShutdown = vi.fn();
 
     await modelGatewayCommand(["serve", "--global-runtime", "--instance-id", "global-1"], {
@@ -159,14 +215,14 @@ describe("modelGatewayCommand", () => {
     expect(options.executionCatalog).toBe(executionCatalog);
     expect(options.executionRouting.admit({ routeId: "codex-route" }).routeId).toBe("codex-route");
     expect(options.databasePath).toBe(join(root, "runtime", "model-gateway", "model-gateway.sqlite"));
-    registerShutdown.mock.calls[0]![0]!();
+    await registerShutdown.mock.calls[0]![0]!();
   });
 
   it("fails closed before starting a listener when global execution authority is incomplete", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-missing-execution-"));
     const configPath = join(root, "gateway.yaml");
     await writeFile(configPath, yaml, "utf8");
-    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn() }));
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn(async () => undefined), shutdownRequested: neverShutdown }));
 
     await expect(modelGatewayCommand(["serve", "--config", configPath], {
       startModelGatewayListener: start,
@@ -230,6 +286,48 @@ describe("modelGatewayCommand", () => {
     await modelGatewayCommand(["uninstall-autostart", "--json"], base);
     expect(status).toHaveBeenCalledTimes(2);
     expect(uninstall).toHaveBeenCalledOnce();
+  });
+
+  it("uninstalls only an owned service and its exact runtime directory", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-uninstall-"));
+    const stop = vi.fn(async () => ({ state: "stopped" as const }));
+    const uninstall = vi.fn(async () => ({ state: "absent" as const }));
+    const removeRuntimeDir = vi.fn(async () => undefined);
+    const log = vi.fn();
+
+    await modelGatewayCommand(["uninstall", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "installed" as const, digest: "a".repeat(64) })), install: vi.fn(), uninstall }),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      removeRuntimeDir,
+      log,
+    });
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(uninstall).toHaveBeenCalledOnce();
+    expect(removeRuntimeDir).toHaveBeenCalledWith(join(root, "runtime", "model-gateway"));
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ state: "uninstalled" });
+  });
+
+  it("refuses exact uninstall when the scheduled task is foreign", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-uninstall-foreign-"));
+    const stop = vi.fn();
+    const removeRuntimeDir = vi.fn();
+
+    await modelGatewayCommand(["uninstall", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "foreign" as const })), install: vi.fn(), uninstall: vi.fn() }),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      removeRuntimeDir,
+      log: vi.fn(),
+    });
+
+    expect(stop).not.toHaveBeenCalled();
+    expect(removeRuntimeDir).not.toHaveBeenCalled();
   });
 
   it("fails closed when the canonical config has no modelGateway block", async () => {

@@ -169,8 +169,10 @@ export type {
 export {
   MODEL_GATEWAY_HEALTH_PATH,
   MODEL_GATEWAY_HEALTH_PROTOCOL_VERSION,
+  MODEL_GATEWAY_SHUTDOWN_PATH,
   createModelGatewayConfigDigest,
   inspectModelGatewayListener,
+  requestModelGatewayShutdown,
   startModelGatewayListener,
 } from "./model-gateway/model-gateway-listener.js";
 export { ModelGatewaySupervisor, nodeModelGatewayProcessAdapter } from "./model-gateway/model-gateway-supervisor.js";
@@ -180,7 +182,9 @@ export type { ModelGatewayAutostartStatus, ModelGatewayTaskSchedulerResult } fro
 export type {
   ModelGatewayListenerIdentity,
   ModelGatewayListenerIdentityInput,
+  ModelGatewayListenerHandle,
   ModelGatewayListenerInspection,
+  ModelGatewayShutdownResult,
   StartModelGatewayListenerOptions,
 } from "./model-gateway/model-gateway-listener.js";
 export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
