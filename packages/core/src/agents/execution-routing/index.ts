@@ -76,7 +76,7 @@ export interface ExecutionAccountCandidate {
   readonly accountId: string;
   readonly safety: "eligible" | "ineligible";
   readonly health: "healthy" | "unhealthy";
-  readonly quota: "available" | "exhausted";
+  readonly quota: "available" | "exhausted" | "unknown";
   readonly capacity: "available" | "exhausted";
   readonly economicCost: ManagedEconomicAmount;
   readonly pressure: number;
@@ -86,6 +86,7 @@ export type ExecutionAccountRejectionReason =
   | "safety-ineligible"
   | "health-unhealthy"
   | "quota-exhausted"
+  | "quota-unknown"
   | "capacity-exhausted";
 
 export interface ExecutionAccountRejection {
@@ -285,6 +286,7 @@ function rejectionReason(candidate: ExecutionAccountCandidate): ExecutionAccount
   if (candidate.safety === "ineligible") return "safety-ineligible";
   if (candidate.health === "unhealthy") return "health-unhealthy";
   if (candidate.quota === "exhausted") return "quota-exhausted";
+  if (candidate.quota === "unknown") return "quota-unknown";
   if (candidate.capacity === "exhausted") return "capacity-exhausted";
   return undefined;
 }
@@ -304,7 +306,7 @@ function validateCandidate(candidate: ExecutionAccountCandidate): void {
   if (candidate.health !== "healthy" && candidate.health !== "unhealthy") {
     throw invalid("candidate.health is invalid");
   }
-  if (candidate.quota !== "available" && candidate.quota !== "exhausted") {
+  if (candidate.quota !== "available" && candidate.quota !== "exhausted" && candidate.quota !== "unknown") {
     throw invalid("candidate.quota is invalid");
   }
   if (candidate.capacity !== "available" && candidate.capacity !== "exhausted") {

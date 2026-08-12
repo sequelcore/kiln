@@ -61,6 +61,7 @@ export interface ConfiguredExecutionAccountRuntimeOptions {
 export interface ConfiguredCodexExecutionAccountPool {
   listExecutionAccounts(): Promise<readonly CodexOAuthExecutionAccount[]>;
   listUsage(now?: Date): Promise<readonly ProviderUsageSnapshot[]>;
+  refreshUsageForCredentials(credentialIds: readonly string[]): Promise<readonly ProviderUsageSnapshot[]>;
   resolveExecutionCredential(selected: CodexOAuthExecutionAccount): Promise<CodexOAuthExecutionCredential>;
 }
 
@@ -217,7 +218,11 @@ export class ConfiguredExecutionAccountRuntime {
     const accountIds = admittedAccountIds(admission);
     const accounts = accountIds.map((accountId) => this.#requireAccount(accountId));
     const executionAccounts = await this.#listExecutionAccounts(admission.providerId as DirectProviderId);
-    const usage = await this.#listUsage(admission.providerId as DirectProviderId, now);
+    const usage = await this.#listUsage(
+      admission.providerId as DirectProviderId,
+      now,
+      accounts.map(({ credentialId }) => credentialId),
+    );
     const cost = configuredRouteEconomics(this.#catalog, admission.routeId);
     const candidates: ConfiguredExecutionCandidate[] = [];
 
@@ -232,12 +237,13 @@ export class ConfiguredExecutionAccountRuntime {
         now,
       );
       const accountRef = configuredAccountRef(account, execution);
-      const quotaExhausted = usageEvidence.freshness === "fresh" && usageEvidence.availability === "exhausted";
+      const quota = projectAccountQuota(account.providerId, usageEvidence);
+      const health = quota === "available" ? usageEvidence.health : "unhealthy";
       const lease = {
         candidate: Object.freeze({
           account: accountRef,
           route: Object.freeze(configuredRoute),
-          health: usageEvidence.health,
+          health,
           leaseCapacity: "available" as const,
           pressure: usagePressure(usageEvidence),
           reservedForNewWork: false,
@@ -261,8 +267,8 @@ export class ConfiguredExecutionAccountRuntime {
         candidate: Object.freeze({
           accountId: account.id,
           safety: "eligible",
-          health: usageEvidence.health,
-          quota: quotaExhausted ? "exhausted" : "available",
+          health,
+          quota,
           capacity: "available",
           economicCost: cost,
           pressure: usagePressure(usageEvidence),
@@ -339,8 +345,19 @@ export class ConfiguredExecutionAccountRuntime {
     return [];
   }
 
-  async #listUsage(providerId: DirectProviderId, now: Date): Promise<readonly ProviderUsageSnapshot[]> {
-    return providerId === "codex-oauth" ? this.#codexPool.listUsage(now) : [];
+  async #listUsage(
+    providerId: DirectProviderId,
+    now: Date,
+    admittedCredentialIds: readonly string[],
+  ): Promise<readonly ProviderUsageSnapshot[]> {
+    if (providerId !== "codex-oauth") return [];
+    const cached = await this.#codexPool.listUsage(now);
+    const cachedIds = new Set(cached.map(({ credentialId }) => credentialId));
+    const missingIds = admittedCredentialIds.filter((credentialId) => !cachedIds.has(credentialId));
+    if (missingIds.length === 0) return cached;
+    const refreshed = await this.#codexPool.refreshUsageForCredentials(missingIds);
+    const refreshedIds = new Set(refreshed.map(({ credentialId }) => credentialId));
+    return [...cached.filter(({ credentialId }) => !refreshedIds.has(credentialId)), ...refreshed];
   }
 
   #routeForAdmission(admission: AdmittedExecutionRoute, scope: string): ConfiguredExecutionRoute {
@@ -538,6 +555,20 @@ function usagePressure(usage: ConfiguredExecutionUsageEvidence): number {
   if (usage.freshness !== "fresh" || usage.availability === "unknown") return 1;
   if (usage.availability === "exhausted") return Number.MAX_SAFE_INTEGER;
   return 0;
+}
+
+function projectAccountQuota(
+  providerId: string,
+  usage: ConfiguredExecutionUsageEvidence,
+): ExecutionAccountCandidate["quota"] {
+  if (providerId !== "codex-oauth") {
+    return usage.freshness === "fresh" && usage.availability === "exhausted" ? "exhausted" : "available";
+  }
+  const authoritative = usage.freshness === "fresh"
+    && usage.confidence === "authoritative"
+    && usage.source !== "unknown";
+  if (!authoritative || usage.availability === undefined || usage.availability === "unknown") return "unknown";
+  return usage.availability;
 }
 
 function subtractPercentFromHundred(usedPercent: number): string {

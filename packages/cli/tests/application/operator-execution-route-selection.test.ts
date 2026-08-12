@@ -58,7 +58,7 @@ describe("operator execution route selection", () => {
   });
 
   it.each(["quota-stale", "quota-unknown"] as const)(
-    "keeps routes executable when quota evidence is %s and Runtime has not proven exhaustion",
+    "fails closed when quota evidence is %s",
     async (reasonCode) => {
       const port = createOperatorExecutionRouteSelectionPort({
         readConfig: economicConfig,
@@ -71,12 +71,14 @@ describe("operator execution route selection", () => {
 
       const catalog = await port.getCatalog();
       expect(catalog.routes[0]).toMatchObject({
-        availability: "available",
-        reasonCodes: [],
-        accountSelection: { eligibleAccountCount: 1 },
-        accountOverrideIds: ["codex-account"],
+        availability: "unavailable",
+        reasonCodes: [reasonCode],
+        accountSelection: { eligibleAccountCount: 0 },
       });
-      await expect(port.admit({ routeId: "codex-standard" })).resolves.toMatchObject({ ok: true });
+      await expect(port.admit({ routeId: "codex-standard" })).resolves.toMatchObject({
+        ok: false,
+        reasonCode,
+      });
     },
   );
 });

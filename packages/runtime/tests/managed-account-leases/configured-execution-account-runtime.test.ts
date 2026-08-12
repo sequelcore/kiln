@@ -186,21 +186,77 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       },
     });
   });
+
+  it("refreshes missing Codex quota before projecting automatic account candidates", async () => {
+    const refreshedUsage = [usageSnapshot("credential-a", "exhausted"), usageSnapshot("credential-b", "available")];
+    const codexPool = pool([
+      codexExecution,
+      { credentialId: "credential-b", fileIdentity: "c".repeat(64), revision: "d".repeat(64) },
+    ], [], refreshedUsage);
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog,
+      codexPool,
+      now: () => new Date("2026-08-11T12:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+
+    const candidates = await runtime.operatorSessionCandidates.resolve({ admission });
+
+    expect(codexPool.refreshUsageForCredentials).toHaveBeenCalledWith(["credential-a", "credential-b"]);
+    expect(candidates.map(({ candidate }) => ({ accountId: candidate.accountId, quota: candidate.quota }))).toEqual([
+      { accountId: "account-a", quota: "exhausted" },
+      { accountId: "account-b", quota: "available" },
+    ]);
+  });
+
+  it("fails closed when Codex quota remains unknown after refresh", async () => {
+    const unknownUsage = [{
+      ...usageSnapshot("credential-a", "available"),
+      availability: "unknown" as const,
+      source: "provider-request-failed" as const,
+      confidence: "unknown" as const,
+    }];
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog,
+      codexPool: pool([codexExecution], [], unknownUsage),
+      now: () => new Date("2026-08-11T12:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
+
+    await expect(runtime.operatorSessionCandidates.resolve({ admission })).resolves.toMatchObject([
+      { candidate: { accountId: "account-a", health: "unhealthy", quota: "unknown" } },
+    ]);
+  });
 });
 
 function pool(
   accounts: readonly typeof codexExecution[],
   usage: readonly Record<string, unknown>[] = [],
+  refreshedUsage: readonly Record<string, unknown>[] = usage,
 ) {
   return {
     listExecutionAccounts: vi.fn(async () => accounts),
     listUsage: vi.fn(async () => usage),
+    refreshUsageForCredentials: vi.fn(async () => refreshedUsage),
     resolveExecutionCredential: vi.fn(async (selected: typeof codexExecution) => ({
       credentialId: selected.credentialId,
       accessToken: "synthetic-access-token",
       chatgptAccountId: "synthetic-account",
     })),
   };
+}
+
+function usageSnapshot(credentialId: string, availability: "available" | "exhausted") {
+  return {
+    provider: "codex-oauth",
+    credentialId,
+    availability,
+    observedAt: "2026-08-11T11:59:00.000Z",
+    validUntil: "2026-08-11T12:05:00.000Z",
+    source: "provider-endpoint",
+    confidence: "authoritative",
+    exhaustionReason: availability === "exhausted" ? "primary-window" : null,
+  } as const;
 }
 
 function accountEconomics(capacityIdentity: string) {

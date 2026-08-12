@@ -416,6 +416,17 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expires_at: "2099-01-01T00:00:00.000Z",
       client_id: "fixture-client",
     }), "utf8");
+    mkdirSync(join(authRoot, "provider-usage"), { recursive: true });
+    writeFileSync(join(authRoot, "provider-usage", "codex-oauth.json"), JSON.stringify([{
+      provider: "codex-oauth",
+      credentialId: "codex-credential",
+      availability: "available",
+      observedAt: "2026-08-01T00:00:00.000Z",
+      validUntil: "2099-01-01T00:00:00.000Z",
+      source: "provider-endpoint",
+      confidence: "authoritative",
+      exhaustionReason: null,
+    }]), "utf8");
     mkdirSync(join(authRoot, "opencode-api"), { recursive: true });
     writeFileSync(join(authRoot, "opencode-api", "opencode-go-credential.json"), JSON.stringify({
       id: "opencode-go-credential",

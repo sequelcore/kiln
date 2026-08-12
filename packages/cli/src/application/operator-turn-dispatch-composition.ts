@@ -72,12 +72,13 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
 }
 
 function candidateReasonCodes(
-  candidate: { readonly safety: "eligible" | "ineligible"; readonly health: "healthy" | "unhealthy"; readonly quota: "available" | "exhausted"; readonly capacity: "available" | "exhausted" },
+  candidate: { readonly safety: "eligible" | "ineligible"; readonly health: "healthy" | "unhealthy"; readonly quota: "available" | "exhausted" | "unknown"; readonly capacity: "available" | "exhausted" },
   usage: { readonly freshness: "fresh" | "stale" | "missing"; readonly availability?: "available" | "exhausted" | "unknown" },
 ): readonly ExecutionRouteReasonCode[] {
   if (candidate.safety === "ineligible") return ["policy-denied"];
   if (usage.freshness === "stale") return ["quota-stale"];
   if (usage.freshness === "missing" || usage.availability === "unknown") return ["quota-unknown"];
+  if (candidate.quota === "unknown") return ["quota-unknown"];
   if (candidate.quota === "exhausted" || usage.availability === "exhausted") return ["quota-exhausted"];
   if (candidate.health === "unhealthy") return ["provider-unavailable"];
   if (candidate.capacity === "exhausted") return ["account-capacity-exhausted"];

@@ -174,12 +174,13 @@ describe("execution routing", () => {
     expect(() => admitOperatorExecutionIntent(defined, { routeId: "terra", accountOverrideId: "other" })).toThrow(/not eligible/u);
   });
 
-  it("rejects safety, health, quota, and capacity before ranking economic candidates", () => {
+  it("rejects safety, health, exhausted or unknown quota, and capacity before ranking economic candidates", () => {
     const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
     const selected = selectExecutionAccountCandidate(admission, [
       candidate("work", { safety: "ineligible", economicCost: cost("0") }),
       candidate("personal", { health: "unhealthy", economicCost: cost("0") }),
       candidate("work", { quota: "exhausted", economicCost: cost("0") }),
+      candidate("personal", { quota: "unknown", economicCost: cost("0") }),
       candidate("personal", { capacity: "exhausted", economicCost: cost("0") }),
       candidate("work", { economicCost: cost("3"), pressure: 10 }),
       candidate("personal", { economicCost: cost("2"), pressure: 100 }),
@@ -190,6 +191,7 @@ describe("execution routing", () => {
       "safety-ineligible",
       "health-unhealthy",
       "quota-exhausted",
+      "quota-unknown",
       "capacity-exhausted",
     ]);
   });

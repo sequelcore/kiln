@@ -125,10 +125,7 @@ async function projectCatalog(
 }
 
 function isExecutableAccountAvailability(account: OperatorExecutionRouteAccountAvailability): boolean {
-  if (account.available) return true;
-  return account.reasonCodes.length > 0 && account.reasonCodes.every((reasonCode) => (
-    reasonCode === "quota-stale" || reasonCode === "quota-unknown"
-  ));
+  return account.available;
 }
 
 export interface OperatorExecutionRouteAccountAvailability {
