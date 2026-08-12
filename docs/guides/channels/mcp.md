@@ -115,6 +115,29 @@ for the same project share one lazy project Runtime; different projects remain
 isolated. This provides Kiln inspection, sanitized account-usage inspection,
 and managed-agent tools without starting the HTTP Model Gateway.
 
+### Control-plane projection boundary
+
+`kiln-control-plane` is a governed projection for native-harness context, not a
+command-for-command mirror of the Kiln CLI. The CLI serves direct operator
+workflows and may expose details such as local paths or account email addresses
+that must not enter model context. The control-plane bridge exposes only
+bounded operations with trusted caller identity, explicit authority,
+constrained inputs, and sanitized structured output. It never exposes secrets,
+credential material, raw provider responses, storage paths, configuration,
+environment values, or account PII.
+
+CLI and MCP operations may use the same canonical application owner without
+having identical commands or fields. A missing CLI operation on the MCP bridge
+is therefore not, by itself, a parity defect. Admit a new control-plane tool
+only when a native-harness task requires it and the existing owner can project
+the operation without creating a second authority or widening the information
+available to model context. Otherwise, keep the workflow on an operator
+surface. Native harnesses discover safe configured-agent identities and
+eligibility through `kiln_capability_inspect`; that projection does not expose
+route configuration. See
+[Managed Agents](../../architecture/coordination/managed-agents.md) for the
+current managed-job projection and its field-level boundaries.
+
 The distinct identity does not overwrite an operator's existing `kiln tools
 --mcp` server. Projection rejects reserved-id collisions, malformed native
 files, and drift; uninstall removes only recorded owned fields. Legacy
