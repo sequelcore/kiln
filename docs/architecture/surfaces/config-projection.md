@@ -270,6 +270,16 @@ Claude subscription into gateway credit, and it must not be represented as
 Anthropic support for non-Claude upstream models. The configured gateway
 credential and upstream provider terms remain authoritative.
 
+Claude picker parity is capability-bounded rather than name-bounded. The
+authenticated discovery catalog contains every canonical virtual route that
+proves the admitted Anthropic Messages subset and Claude Code model-id
+constraints, and excludes other routes with an explicit protocol or capability
+reason on canonical status surfaces. The projection must not duplicate route
+eligibility in a Claude-local allowlist. Native Claude subscription selection,
+explicitly billed Anthropic API routing, and gateway-backed virtual selection
+remain distinct credential and billing classes even when Claude Code presents
+them through model-selection workflows.
+
 ## Route Integrity Evidence
 
 `KilnConfigStatusSnapshot` carries native route integrity evidence for managed

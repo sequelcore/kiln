@@ -1,7 +1,9 @@
 # 04 - Cross-Harness Integration
 
 Status: Ready
-Execution: Ready - OpenCode and Codex composite parity are live-proven; Claude quota-gated proof and final all-harness conformance remain.
+Execution: Ready - OpenCode and Codex picker parity are live-proven; Claude
+native-picker activation, the independent quota-gated entitlement proof, and
+final all-harness conformance remain.
 Created: 2026-07-23
 
 ## Objective
@@ -42,6 +44,9 @@ portable tests; it is not a live harness or provider proof.
 - Claude Code entitlement adapter and strict live proof (Ready; reprioritized
   2026-07-24 ahead of the Codex picker now that a real configured Claude
   subscription exists).
+- Claude Code native model discovery for every canonical route with proven
+  Anthropic Messages compatibility, without presenting gateway traffic as
+  Claude subscription or Anthropic API consumption.
 - Codex native-plus-Kiln composite picker, gated behind Responses protocol
   parity, native catalog-template inspection, and Claude entitlement proof.
 - Unified setup/status projection over shared lifecycle, auth, and route
@@ -327,6 +332,42 @@ not these three. Do not treat the plugin as redundant with this track, or
 retire it, until a slice explicitly targets absorbing rescue, review-gate, or
 session-transfer behavior into Kiln's governed surface.
 
+### Slice 4.1 - Claude Native Picker Parity
+
+Status: Ready; projection contract and deterministic tests exist, but operator
+activation and live proof remain in
+[issue #78](https://github.com/sequelcore/kiln/issues/78).
+
+Project every canonical virtual route with proven Anthropic Messages
+compatibility into Claude Code's authenticated native model discovery. Derive
+the picker catalog from canonical route and protocol-capability evidence; do
+not create a Claude-local allowlist or disguise Responses-only routes with
+Claude-shaped ids. The installed projection owns only its project-local
+gateway fields, never writes its credential, preserves unrelated Claude
+settings, and restores the exact prior state on uninstall.
+
+Picker parity means that eligible Kiln routes are selectable from Claude Code.
+It does not mean that every route is portable across protocols, that a gateway
+turn consumes Claude subscription quota, or that Anthropic supports a
+non-Anthropic upstream. Claude subscription entitlement, explicitly billed
+Anthropic API access, and gateway-backed virtual routes remain separate route,
+credential, and billing classes in status and replay.
+
+The existing projection builder and config writer are code-complete. The
+operator configuration does not currently activate them because its Anthropic
+Messages principal is not declared as the Claude native-harness projection
+principal. Activation must therefore configure one eligible principal, prove
+authenticated `/v1/models` discovery and native selector visibility, complete
+one explicit virtual-model turn, exercise restart and drift handling, and prove
+exact uninstall followed by reinstall. This work is separate from the
+quota-gated native Claude entitlement proof in issue #66.
+
+Exit gate: Claude Code can select every currently eligible Messages-compatible
+Kiln virtual route from its native model selector; excluded routes have an
+explicit protocol or capability reason; one selected route completes a bounded
+live turn; and install, recovery, drift repair, uninstall, and reinstall retain
+no credential or unrelated-settings drift.
+
 ### Slice 5 - Unified Status And Repair
 
 Status: Complete by shared-contract reconciliation.
@@ -389,6 +430,9 @@ assumptions, and unsupported-proof gaps.
 - Every projection preserves unmanaged fields and exact restore.
 - All adapters consume shared authority and lifecycle contracts.
 - OpenCode closes before Codex picker takeover.
+- Claude picker parity closes only after authenticated discovery, native
+  selector visibility, one explicit virtual-route turn, and exact restore are
+  live-proven; deterministic projection tests alone are insufficient.
 - Claude entitlement proof (Slice 3) still requires the same strict live-proof
   bar before its model enters the live-proven set. Codex composite proof no
   longer depends on waiting for that independent entitlement check.
