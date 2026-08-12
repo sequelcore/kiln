@@ -499,6 +499,39 @@ describe("GUI dashboard provider availability", () => {
     expect(gatewayHarness.lastOptions?.guiAssetMode).toBe("bundled");
   });
 
+  it("releases the operator turn composition when GUI gateway startup fails", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-startup-rollback-"));
+    const bindError = Object.assign(new Error("Failed to bind GUI gateway"), { code: "EADDRINUSE" });
+    gatewayHarness.startGuiGateway.mockRejectedValueOnce(bindError);
+
+    await expect(guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: false,
+    })).rejects.toBe(bindError);
+
+    const composition = operatorCompositionMocks.create.mock.results.at(-1)?.value;
+    expect(composition?.close).toHaveBeenCalledOnce();
+    expect(gatewayHarness.shutdown).not.toHaveBeenCalled();
+  });
+
+  it("continues shutdown after one resource fails and surfaces the cleanup failure", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-shutdown-failure-"));
+    const shutdownError = new Error("Synthetic gateway shutdown failure");
+    gatewayHarness.shutdown.mockImplementationOnce(() => {
+      throw shutdownError;
+    });
+
+    await expect(guiCommand(APP_CONFIG, {
+      cwd: tmpDir,
+      mode: "prod",
+      open: true,
+    })).rejects.toBe(shutdownError);
+
+    const composition = operatorCompositionMocks.create.mock.results.at(-1)?.value;
+    expect(composition?.close).toHaveBeenCalledOnce();
+  });
+
   it("resolves nested cwd to the canonical project root before opening GUI state", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "kiln-gui-dashboard-availability-"));
     const packageCliPath = join(tmpDir, "packages", "cli");

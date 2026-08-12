@@ -55,6 +55,7 @@ import {
   getProjectContextArtifactCache,
   type OperatorTurnDispatchResult,
   type OperatorTurnGuiDispatchPayload,
+  type GuiGateway,
   withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
@@ -268,6 +269,7 @@ export async function guiCommand(
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
   const operatorExecutionCatalog = defineExecutionCatalog(globalConfig.executionCatalog);
+  const { startGuiGateway } = await import("@kilnai/runtime");
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>({
     catalog: operatorExecutionCatalog,
     cwd,
@@ -276,9 +278,27 @@ export async function guiCommand(
     readConfig: () => readGlobalConfig() ?? globalConfig,
     resolveAccountAvailability: operatorTurnComposition.resolveExecutionRouteAccountAvailability,
   });
-  const { startGuiGateway } = await import("@kilnai/runtime");
+  let gateway: GuiGateway | undefined;
+  let viteDevServer: GuiDevServerSession | undefined;
+  let guiWindow: GuiWindowSession | undefined;
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = (): Promise<void> => {
+    cleanupPromise ??= closeGuiRuntimeResources([
+      () => managedWindowShutdownMonitor.dispose(),
+      () => guiWindow?.close(),
+      async () => {
+        if (viteDevServer) await stopChildProcess(viteDevServer.child, "gui-dev", output);
+      },
+      () => gateway?.shutdown(),
+      () => operatorTurnComposition.close(),
+      () => stagedManagedInvocation?.dispose(),
+      () => operatorEconomicAuthority?.close(),
+    ]);
+    return cleanupPromise;
+  };
+
   startupProfiler.mark("gateway-start-requested");
-  const gateway = await startGuiGateway({
+  gateway = await startGuiGateway({
     port,
     guiAssetMode: mode === "dev" ? "external" : "bundled",
     getProviderAvailability: () => getRuntimeProviderAvailability(registry),
@@ -356,28 +376,27 @@ export async function guiCommand(
     goalController: {
       control: (input) => goalControlService.control({ ...input, sourceSurface: "gui" }),
     },
-  });
+  }).catch((startupError) => rollbackGuiStartup(startupError, cleanup));
   startupProfiler.mark("gateway-started", { port: gateway.port });
-  stagedManagedInvocation?.startBackgroundRefresh();
 
-  let viteDevServer: GuiDevServerSession | undefined;
-  if (mode === "dev") {
-    startupProfiler.mark("gui-vite-start-requested", { port: guiPort });
-    viteDevServer = spawnGuiDevServer(cwd, guiPort, gateway.port, output);
-  }
-
-  const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
-  const devGuiUrl = `http://localhost:${guiPort}/gui/`;
-  const guiUrl = buildGuiUrl(
-    mode === "dev" ? devGuiUrl : gatewayUrl,
-    themePreference,
-    gateway.operatorTerminalCapability,
-  );
-  printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl }, output);
-  startupProfiler.mark("startup-banner-printed", { mode });
-
-  let guiWindow: GuiWindowSession | undefined;
   try {
+    stagedManagedInvocation?.startBackgroundRefresh();
+
+    if (mode === "dev") {
+      startupProfiler.mark("gui-vite-start-requested", { port: guiPort });
+      viteDevServer = spawnGuiDevServer(cwd, guiPort, gateway.port, output);
+    }
+
+    const gatewayUrl = `http://localhost:${gateway.port}/gui/`;
+    const devGuiUrl = `http://localhost:${guiPort}/gui/`;
+    const guiUrl = buildGuiUrl(
+      mode === "dev" ? devGuiUrl : gatewayUrl,
+      themePreference,
+      gateway.operatorTerminalCapability,
+    );
+    printStartupBanner({ mode, gatewayUrl, guiUrl, apiUrl: gateway.apiUrl }, output);
+    startupProfiler.mark("startup-banner-printed", { mode });
+
     if (viteDevServer) {
       await viteDevServer.whenReady;
       startupProfiler.mark("gui-vite-ready", { port: guiPort });
@@ -388,40 +407,16 @@ export async function guiCommand(
       startupProfiler.mark("browser-launched");
       output.info(`GUI window host: ${guiWindow.browserLabel}`);
     }
-  } catch (error) {
-    try {
-      if (viteDevServer) {
-        await stopChildProcess(viteDevServer.child, "gui-dev", output);
-      }
-    } finally {
-      try {
-        await stagedManagedInvocation?.dispose();
-      } finally {
-        operatorEconomicAuthority?.close();
-        gateway.shutdown();
-        operatorTurnComposition.close();
-      }
-    }
-    throw error;
+  } catch (startupError) {
+    return rollbackGuiStartup(startupError, cleanup);
   }
 
-  await waitForShutdown(async () => {
-    try {
-      managedWindowShutdownMonitor.dispose();
-      guiWindow?.close();
-      if (viteDevServer) {
-        await stopChildProcess(viteDevServer.child, "gui-dev", output);
-      }
-    } finally {
-      try {
-        await stagedManagedInvocation?.dispose();
-      } finally {
-        operatorEconomicAuthority?.close();
-        gateway.shutdown();
-        operatorTurnComposition.close();
-      }
-    }
-  }, output, guiWindow, guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined);
+  await waitForShutdown(
+    cleanup,
+    output,
+    guiWindow,
+    guiWindow ? managedWindowShutdownMonitor.waitForDisconnect() : undefined,
+  );
 }
 
 async function guiAttachCommand(
@@ -794,7 +789,7 @@ async function waitForShutdown(
   guiWindow?: GuiWindowSession,
   managedWindowDisconnect?: Promise<void>,
 ): Promise<void> {
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     let shuttingDown = false;
     const shutdown = () => {
       if (shuttingDown) {
@@ -806,7 +801,7 @@ async function waitForShutdown(
       guiWindow?.whenClosed.catch((error) => {
         output.error(`GUI window exited unexpectedly: ${error instanceof Error ? error.message : String(error)}`);
       });
-      Promise.resolve(onShutdown()).finally(resolve);
+      void Promise.resolve(onShutdown()).then(resolve, reject);
     };
 
     process.on("SIGINT", shutdown);
@@ -817,4 +812,33 @@ async function waitForShutdown(
       shutdown();
     });
   });
+}
+
+async function closeGuiRuntimeResources(
+  closeSteps: readonly (() => void | Promise<void> | undefined)[],
+): Promise<void> {
+  const failures: unknown[] = [];
+  for (const close of closeSteps) {
+    try {
+      await close();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Multiple GUI resources failed to close.");
+  }
+}
+
+async function rollbackGuiStartup(startupError: unknown, cleanup: () => Promise<void>): Promise<never> {
+  try {
+    await cleanup();
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [startupError, cleanupError],
+      "GUI startup failed and acquired resources could not be fully released.",
+    );
+  }
+  throw startupError;
 }
