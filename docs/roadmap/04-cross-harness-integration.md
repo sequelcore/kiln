@@ -143,17 +143,26 @@ fallback while the gateway is stopped, restart/autostart, drift repair, update,
 and exact uninstall restore that leaves native providers/defaults/allowlists
 untouched.
 
-#### Pending deliberation and global configuration activation
+#### Deliberation and global configuration disposition
 
-Status: Native CLI code complete under
-[issue #68](https://github.com/sequelcore/kiln/issues/68); direct Go/Zen blocked
-by [issue #47](https://github.com/sequelcore/kiln/issues/47).
+Status: Complete. Native CLI delivery is recorded by
+[issue #68](https://github.com/sequelcore/kiln/issues/68); direct Go/Zen has the
+terminal unsupported disposition recorded by
+[issue #47](https://github.com/sequelcore/kiln/issues/47).
 
 OpenCode Go/Zen deliberation remains at provider default. OpenCode 1.18.16 can
 lower declared OpenAI-compatible effort variants, but undeclared variants can
 still be omitted silently and the Go/Zen gateways do not provide a revisioned,
 deterministic supported-level and protocol contract across eligible upstreams.
 Kiln retains `deliberationTransport: none` for these direct providers.
+
+Official Go and Zen documentation rechecked on 2026-08-12 publishes changing
+model rosters, endpoints, and protocol packages but no revisioned supported-
+level contract across eligible upstreams. OpenCode v2 remains beta and warns
+that custom model limits cannot be inferred reliably. There is consequently no
+direct-provider capability to implement without guessing. Issue #47 closes as
+an explicit unsupported decision; a future official contract requires a new
+delivery issue rather than retaining speculative roadmap work.
 
 Native OpenCode uses the exact 1.18.16 CLI's structured, account-visible model
 catalog as a separate authority. Canonical variants with verified reasoning
@@ -165,12 +174,11 @@ eligible native variants, so the live dispatch gate remains pending without
 weakening admission.
 
 The operator's global provider-neutral task policy is already configured and
-requires no speculative OpenCode `byRoute` rule. Activate only native exact
-routes that discovery admits; reopen direct activation after issue #47's
-revisioned capability and live-conformance gates pass. Then verify every
-configured OpenCode route against the existing task policy, add a route-wide
-override only if reproducible Sequel benchmarks require one, and confirm
-global-instruction and repo-shim dry runs remain unchanged.
+requires no speculative OpenCode `byRoute` rule. Native exact routes activate
+only when discovery admits them. Direct Go/Zen routes resolve unsupported task
+levels through the configured `omit` behavior and therefore use provider
+default without sending a guessed level. No route-wide override is admitted
+without reproducible Sequel benchmark evidence.
 
 ### Slice 2 - Cross-Harness Dogfood
 

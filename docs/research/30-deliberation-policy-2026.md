@@ -90,6 +90,15 @@ identity headers, while account leasing and gateway affinity preserve the
 supported continuity boundary. Admitting a level that works only on part of a
 gateway pool is not support.
 
+This is the terminal disposition of issue #47, not unfinished implementation.
+The official Go and Zen documentation checked on 2026-08-12 publishes changing
+model rosters, endpoints, and AI SDK protocol packages, but no revisioned
+per-model effort contract across eligible upstreams. OpenCode's v2 model
+configuration remains beta and explicitly cannot infer actual custom-server
+limits. Kiln therefore has no honest capability value to implement for direct
+Go/Zen deliberation. A future provider contract can open a new delivery issue;
+it does not keep the current roadmap open.
+
 Native OpenCode CLI is a separate, executable-scoped contract delivered by
 issue #68. Kiln resolves the exact CLI and version, starts that executable's
 loopback model service, and reads the authenticated `/api/model` catalog. Only
@@ -119,6 +128,9 @@ the current `/models` response establishes availability without a revisioned
 effort guarantee. Those documents do not override the failed executable proof:
 https://opencode.ai/docs/models/
 https://opencode.ai/docs/go/
+https://opencode.ai/docs/zen/
+https://opencode.ai/v2/docs
+https://opencode.ai/v2/docs/models
 
 Claude Code is a separate native-harness transport. Its authenticated Agent
 SDK model catalog reports effort support and ordered effort levels per model,
