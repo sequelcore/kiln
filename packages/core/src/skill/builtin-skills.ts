@@ -151,7 +151,7 @@ verification.
   }),
   defineBuiltinSkill({
     name: "code-review-findings",
-    description: "Review code findings-first with severity, evidence, and missing-test risk.",
+    description: "Review completed code changes findings-first with severity, evidence, actionable defect risk, and verification gaps.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["engineering", "review"],
     instructions: `
@@ -159,12 +159,43 @@ verification.
 
 Use this skill for quality gates and completed-change review.
 
-Review posture:
-1. Lead with findings, ordered by severity.
-2. Anchor each finding to concrete file and line evidence.
-3. Prioritize correctness, regressions, boundary violations, security, and missing tests.
-4. Avoid summaries until after findings.
-5. If no issues are found, say that clearly and mention residual risk or test gaps.
+Workflow:
+1. Read the task, contract, and relevant repository context before judging the
+   diff. Inspect targeted surrounding code, dependencies, and tests; avoid
+   indiscriminate context loading.
+2. Map the changed surface and likely blast radius. Review every human-authored
+   line in scope or state the exceptions.
+3. Check correctness, regressions, security and authority, boundary direction,
+   failure handling, concurrency and data integrity, maintainability, and
+   verification gaps. Name specialist review that remains necessary.
+4. Review tests as production code: confirm that they are correct, reliable,
+   behavior-focused, and contribute a distinct behavioral signal. A missing test
+   is a finding only when a material behavior is unprotected and a specific test
+   would close the gap.
+5. Validate each candidate finding against repository evidence. Treat plausible
+   explanations as hypotheses, not evidence; use a focused test, trace, or
+   executable counterexample when practical.
+
+Finding admission:
+- Report only an issue introduced or exposed by the change with a concrete
+  condition and material impact.
+- Anchor the finding to the narrowest file and line evidence, and explain the
+  causal path from input or state to observable failure.
+- Rank severity by impact, reach, and recoverability, not by rhetorical
+  confidence. If verification is incomplete, say so.
+- Do not report speculative findings, stylistic preferences, or mechanically
+  enforced concerns as defects.
+- Do not demand duplicate tests, raw coverage increases, or implementation-detail
+  assertions when existing tests already protect the behavior.
+
+Output:
+1. Lead with findings ordered by severity; omit summaries before findings.
+2. For each finding, give location, triggering condition, impact, evidence, and
+   the narrowest correction direction without rewriting the author's solution.
+3. State the reviewed surface and any material surface not reviewed, verification
+   performed, and residual risk.
+4. If no issues are found, say so clearly. Do not invent a finding to avoid an
+   empty result.
 
 Do not rewrite the author's intent unless the evidence shows a real problem.
 `,

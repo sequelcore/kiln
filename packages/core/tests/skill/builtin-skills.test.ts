@@ -45,6 +45,17 @@ describe("Kiln core builtin skills", () => {
     expect(markdown).toContain("# Repo Context Review");
   });
 
+  it("requires evidence-backed actionable code review findings", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "code-review-findings");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toContain("Read the task, contract, and relevant repository context");
+    expect(skill?.instructions).toMatch(/Treat plausible\s+explanations as hypotheses, not evidence/);
+    expect(skill?.instructions).toContain("distinct behavioral signal");
+    expect(skill?.instructions).toContain("Do not report speculative findings");
+    expect(skill?.instructions).toMatch(/State the reviewed surface and any material surface not reviewed/);
+  });
+
   it("defines clear-writing as neutral reusable writing procedure", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "clear-writing");
 
