@@ -92,11 +92,13 @@ async function projectCatalog(
         ? catalog.accountPolicies.find((policy) => policy.id === selection.accountPolicyId)?.accountIds ?? []
         : [selection.accountId];
       const accountAvailability = accountAvailabilityByRoute.get(route.id) ?? [];
-      const executableAccountIds = configuredAccountIds.filter((accountId) => accountAvailability.some((account) => account.accountId === accountId && account.available));
+      const executableAccountIds = configuredAccountIds.filter((accountId) => accountAvailability.some((account) => (
+        account.accountId === accountId && isExecutableAccountAvailability(account)
+      )));
       const available = executableAccountIds.length > 0;
       const unavailableAccounts = configuredAccountIds.map((accountId) => accountAvailability.find((account) => account.accountId === accountId)
         ?? { accountId, available: false, reasonCodes: ["missing-credentials"] as const })
-        .filter((account) => !account.available);
+        .filter((account) => !isExecutableAccountAvailability(account));
       const reasonCodes = available ? [] : routeReasonCodes(unavailableAccounts);
       const base = {
         routeId: route.id,
@@ -120,6 +122,13 @@ async function projectCatalog(
       };
     }),
   };
+}
+
+function isExecutableAccountAvailability(account: OperatorExecutionRouteAccountAvailability): boolean {
+  if (account.available) return true;
+  return account.reasonCodes.length > 0 && account.reasonCodes.every((reasonCode) => (
+    reasonCode === "quota-stale" || reasonCode === "quota-unknown"
+  ));
 }
 
 export interface OperatorExecutionRouteAccountAvailability {

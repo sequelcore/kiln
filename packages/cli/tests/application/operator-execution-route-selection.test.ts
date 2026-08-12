@@ -44,8 +44,6 @@ describe("operator execution route selection", () => {
 
   it.each([
     ["account-capacity-exhausted", ["account-capacity-exhausted"]],
-    ["quota-stale", ["quota-stale"]],
-    ["quota-unknown", ["quota-unknown"]],
     ["quota-exhausted", ["quota-exhausted"]],
     ["provider-unavailable", ["provider-unavailable"]],
   ] as const)("projects sanitized %s account evidence through admission", async (_name, reasonCodes) => {
@@ -58,4 +56,27 @@ describe("operator execution route selection", () => {
     expect(catalog.routes[0]).toMatchObject({ availability: "unavailable", reasonCodes });
     await expect(port.admit({ routeId: "codex-standard" })).resolves.toMatchObject({ ok: false, reasonCode: reasonCodes[0] });
   });
+
+  it.each(["quota-stale", "quota-unknown"] as const)(
+    "keeps routes executable when quota evidence is %s and Runtime has not proven exhaustion",
+    async (reasonCode) => {
+      const port = createOperatorExecutionRouteSelectionPort({
+        readConfig: economicConfig,
+        resolveAccountAvailability: async () => [{
+          accountId: "codex-account",
+          available: false,
+          reasonCodes: [reasonCode],
+        }],
+      });
+
+      const catalog = await port.getCatalog();
+      expect(catalog.routes[0]).toMatchObject({
+        availability: "available",
+        reasonCodes: [],
+        accountSelection: { eligibleAccountCount: 1 },
+        accountOverrideIds: ["codex-account"],
+      });
+      await expect(port.admit({ routeId: "codex-standard" })).resolves.toMatchObject({ ok: true });
+    },
+  );
 });
