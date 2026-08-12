@@ -76,7 +76,9 @@ describe("ModelGatewaySupervisor", () => {
     }, null, 2)}\n`, "utf8");
 
     await expect(supervisor.ensure()).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-a", pid: 222 } });
-    expect(inspect).toHaveBeenCalledWith({ port: 4819, configDigest: "f".repeat(64) });
+    expect(inspect).toHaveBeenNthCalledWith(1, { port: 4819, configDigest: "f".repeat(64) });
+    expect(inspect).toHaveBeenNthCalledWith(2, { port: 4819, configDigest: "f".repeat(64) });
+    expect(inspect).toHaveBeenNthCalledWith(3, { port: 4819, configDigest: "f".repeat(64) });
     expect(processAdapter.spawn).toHaveBeenCalledOnce();
   });
 

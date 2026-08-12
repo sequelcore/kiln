@@ -194,7 +194,7 @@ export class ModelGatewaySupervisor {
     if (shutdown.state === "foreign") return { state: "foreign", reason: `shutdown-${shutdown.reason}` };
     let forced = false;
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      const inspection = await this.#inspect();
+      const inspection = await this.#inspect({ port: state.port, configDigest: state.configDigest });
       if (inspection.state === "foreign") return inspection;
       if (inspection.state === "stopped" && !this.#process.isAlive(current.identity.pid)) {
         await this.#removeState();
