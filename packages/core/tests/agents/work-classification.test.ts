@@ -11,12 +11,14 @@ describe("work classification", () => {
       intents: [" write ", "review", "write"],
       artifacts: ["document", "message"],
       domains: ["education"],
+      evidenceScopes: ["repository", "external", "repository"],
       effects: ["answer-only"],
       modes: ["coauthor", "critique"],
     })).toEqual({
       intents: ["write", "review"],
       artifacts: ["document", "message"],
       domains: ["education"],
+      evidenceScopes: ["repository", "external"],
       effects: ["answer-only"],
       modes: ["coauthor", "critique"],
     });
@@ -93,21 +95,44 @@ describe("work classification", () => {
     expect(recommendedSkillsForWorkClassification(classification)).toEqual(["clear-writing"]);
   });
 
-  it("recommends research procedure independently of writing guidance", () => {
-    const researchOnly = defineWorkClassification({
+  it("routes research procedures by explicit evidence scope", () => {
+    const unscopedResearch = defineWorkClassification({
       intents: ["research"],
       effects: ["answer-only"],
     });
-    const researchReport = defineWorkClassification({
+    const repositoryResearch = defineWorkClassification({
       intents: ["research"],
+      evidenceScopes: ["repository"],
+      effects: ["read-only"],
+    });
+    const externalReport = defineWorkClassification({
+      intents: ["research"],
+      evidenceScopes: ["external"],
       artifacts: ["document"],
       effects: ["write-artifact"],
     });
+    const mixedResearch = defineWorkClassification({
+      intents: ["research"],
+      evidenceScopes: ["repository", "provided", "external"],
+      effects: ["read-only"],
+    });
 
-    expect(recommendedSkillsForWorkClassification(researchOnly)).toEqual(["research-workflow"]);
-    expect(recommendedSkillsForWorkClassification(researchReport)).toEqual([
+    expect(recommendedSkillsForWorkClassification(unscopedResearch)).toEqual([]);
+    expect(recommendedSkillsForWorkClassification(repositoryResearch)).toEqual(["codebase-scouting"]);
+    expect(recommendedSkillsForWorkClassification(externalReport)).toEqual([
       "research-workflow",
       "clear-writing",
     ]);
+    expect(recommendedSkillsForWorkClassification(mixedResearch)).toEqual([
+      "codebase-scouting",
+      "research-workflow",
+    ]);
+  });
+
+  it("fails closed for unknown evidence scope", () => {
+    expect(() => defineWorkClassification({
+      intents: ["research"],
+      evidenceScopes: ["internet"],
+    })).toThrow("Unsupported work classification evidence scope: internet");
   });
 });

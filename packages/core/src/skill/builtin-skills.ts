@@ -86,7 +86,10 @@ Output:
 Use this skill before changes that touch multiple files, unclear ownership, or
 architecture-sensitive behavior, or when asked to identify affected code or
 tests. Scouting establishes a defensible change boundary; it does not design the
-implementation.
+implementation. It investigates repository evidence, not external source research.
+Route current external claims, official documentation, standards, papers, and
+market evidence to the research workflow; use both only when the decision
+requires an explicit repository-to-external comparison.
 
 Workflow:
 1. Read the task and repository contract. Start from the named behavior, changed
@@ -513,7 +516,10 @@ residual limitation.
 
 Use this skill for technical, product, standards, scientific, market, or
 architecture research that must support a decision with verifiable evidence.
-It defines a portable method, not a provider-specific research command.
+It defines a portable method, not a provider-specific research command. It does
+not map repository ownership, dependency paths, or affected tests; route that
+internal impact analysis to codebase scouting and use both only for an explicit
+repository-to-external comparison.
 
 Before searching:
 1. State the decision, atomic questions, scope, definitions, cutoff date,

@@ -47,8 +47,9 @@ export function inferRouteTask(input: {
   const text = input.text?.toLowerCase() ?? "";
   if (text.trim().length === 0) return undefined;
   if (hasAny(text, ["frontend", "ui", "ux", "react", "component", "css", "tailwind", "layout", "responsive", "design", "browser"])) return "frontend-design";
+  if (hasAny(text, ["codebase", "callers", "dependency graph", "affected files", "ownership map"])) return "architecture-review";
+  if (hasAny(text, ["research", "latest", "official documentation", "official specification", "standard", "paper", "citation", "benchmark"])) return "research";
   if (hasAny(text, ["test", "tests", "tdd", "vitest", "junit", "coverage", "regression"])) return "test-writing";
-  if (hasAny(text, ["research", "latest", "source", "citation", "benchmark", "compare", "analysis"])) return "research";
   if (hasAny(text, ["architecture", "architectural", "ddd", "clean architecture", "boundary", "bounded context", "adr", "review"])) return "architecture-review";
   if (hasAny(text, ["rename", "format", "mechanical", "boilerplate", "projection", "sync", "bulk"])) return "mechanical-edit";
   if (hasAny(text, ["backend", "api", "database", "postgres", "spring", "service", "repository", "endpoint", "runtime", "provider"])) return "backend-coding";

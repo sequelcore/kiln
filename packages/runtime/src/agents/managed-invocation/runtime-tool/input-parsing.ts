@@ -309,7 +309,7 @@ export function parseWorkClassification(
   if (!record) {
     return { ok: false, error: `${toolName} workClassification must be an object.` };
   }
-  const supportedFields = new Set(["intents", "artifacts", "domains", "effects", "modes"]);
+  const supportedFields = new Set(["intents", "artifacts", "domains", "evidenceScopes", "effects", "modes"]);
   const unsupportedField = Object.keys(record).find((field) => !supportedFields.has(field));
   if (unsupportedField) {
     return { ok: false, error: `${toolName} Unsupported work classification field: ${unsupportedField}.` };
@@ -320,6 +320,8 @@ export function parseWorkClassification(
   if (!artifacts.ok) return artifacts;
   const domains = parseWorkClassificationFacet(record, "domains", toolName);
   if (!domains.ok) return domains;
+  const evidenceScopes = parseWorkClassificationFacet(record, "evidenceScopes", toolName);
+  if (!evidenceScopes.ok) return evidenceScopes;
   const effects = parseWorkClassificationFacet(record, "effects", toolName);
   if (!effects.ok) return effects;
   const modes = parseWorkClassificationFacet(record, "modes", toolName);
@@ -328,6 +330,7 @@ export function parseWorkClassification(
     ...(intents.value ? { intents: intents.value } : {}),
     ...(artifacts.value ? { artifacts: artifacts.value } : {}),
     ...(domains.value ? { domains: domains.value } : {}),
+    ...(evidenceScopes.value ? { evidenceScopes: evidenceScopes.value } : {}),
     ...(effects.value ? { effects: effects.value } : {}),
     ...(modes.value ? { modes: modes.value } : {}),
   };
@@ -341,7 +344,7 @@ export function parseWorkClassification(
 
 function parseWorkClassificationFacet(
   record: Record<string, unknown>,
-  field: "intents" | "artifacts" | "domains" | "effects" | "modes",
+  field: "intents" | "artifacts" | "domains" | "evidenceScopes" | "effects" | "modes",
   toolName: string,
 ): { readonly ok: true; readonly value?: readonly string[] } | { readonly ok: false; readonly error: string } {
   if (!(field in record)) {

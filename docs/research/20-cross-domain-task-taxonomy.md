@@ -22,10 +22,11 @@ The current model route taxonomy is `ModelTaskSuitabilityTask` in
 - `research`
 - `test-writing`
 
-The same file maps those tasks to recommended skills through
-`recommendedSkillsForTask`. `clear-writing` is not attached to this model
-because no neutral writing, editing, support, document, or communication task
-exists there.
+The same file can attach advisory procedure to tasks through
+`recommendedSkillsForTask`. That mechanism must not infer evidence location
+from route capability: a route being suitable for `research` does not say
+whether the work concerns repository evidence, external sources, supplied
+material, or a deliberate comparison between them.
 
 `packages/cli/src/config/task-skill-selection.ts` uses the task only for
 admission of model/task recommended skills when `skills.selection.mode: auto`
@@ -158,6 +159,7 @@ facets:
   spreadsheet, image, audio, workflow, configuration.
 - Domain: software, business, education, support, marketing, legal,
   regulatory, finance, medical, operations, personal productivity.
+- Evidence scope: repository, external, provided.
 - Authority/effect: answer-only, read-only, write artifact, mutate workspace,
   execute command, external side effect, publish/send.
 - Interaction mode: answer, coauthor, transform, critique, delegate,
@@ -209,6 +211,13 @@ As of 2026-06-28, Kiln has the first governed slice of this model:
 
 - `WorkClassification` is a core value object separate from model-route
   suitability.
+- Evidence scope is an orthogonal facet. Repository research recommends
+  `codebase-scouting`; external or provided research recommends
+  `research-workflow`; explicit mixed research recommends both; unscoped
+  research recommends neither.
+- First-party `scout` and `researcher` profiles declare their respective skills
+  directly, so standalone harness projection does not depend on Kiln prompt
+  parsing or route suitability.
 - `clear-writing` recommendations are driven by work facets, not by a
   software-only route task.
 - Approved plan work items may carry classification plus
@@ -227,4 +236,6 @@ As of 2026-06-28, Kiln has the first governed slice of this model:
   recorded only as advice, or omitted.
 
 Remaining work should focus on future domain packs and any future rename of
-route suitability types.
+route suitability types. The evidence-scope boundary is intentionally additive:
+persisted classifications without it remain valid but do not gain an inferred
+research procedure.

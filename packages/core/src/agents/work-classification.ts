@@ -45,6 +45,12 @@ export const WORK_CLASSIFICATION_DOMAINS = [
   "personal-productivity",
 ] as const;
 
+export const WORK_CLASSIFICATION_EVIDENCE_SCOPES = [
+  "repository",
+  "external",
+  "provided",
+] as const;
+
 export const WORK_CLASSIFICATION_EFFECTS = [
   "answer-only",
   "read-only",
@@ -68,6 +74,7 @@ export const WORK_CLASSIFICATION_MODES = [
 export type WorkClassificationIntent = typeof WORK_CLASSIFICATION_INTENTS[number];
 export type WorkClassificationArtifact = typeof WORK_CLASSIFICATION_ARTIFACTS[number];
 export type WorkClassificationDomain = typeof WORK_CLASSIFICATION_DOMAINS[number];
+export type WorkClassificationEvidenceScope = typeof WORK_CLASSIFICATION_EVIDENCE_SCOPES[number];
 export type WorkClassificationEffect = typeof WORK_CLASSIFICATION_EFFECTS[number];
 export type WorkClassificationMode = typeof WORK_CLASSIFICATION_MODES[number];
 
@@ -75,6 +82,7 @@ export interface WorkClassification {
   readonly intents?: readonly WorkClassificationIntent[];
   readonly artifacts?: readonly WorkClassificationArtifact[];
   readonly domains?: readonly WorkClassificationDomain[];
+  readonly evidenceScopes?: readonly WorkClassificationEvidenceScope[];
   readonly effects?: readonly WorkClassificationEffect[];
   readonly modes?: readonly WorkClassificationMode[];
 }
@@ -83,6 +91,7 @@ export interface WorkClassificationInput {
   readonly intents?: readonly string[];
   readonly artifacts?: readonly string[];
   readonly domains?: readonly string[];
+  readonly evidenceScopes?: readonly string[];
   readonly effects?: readonly string[];
   readonly modes?: readonly string[];
 }
@@ -121,6 +130,7 @@ export function defineWorkClassification(input: WorkClassificationInput): WorkCl
     ...normalizeFacet("intent", input.intents, WORK_CLASSIFICATION_INTENTS),
     ...normalizeFacet("artifact", input.artifacts, WORK_CLASSIFICATION_ARTIFACTS),
     ...normalizeFacet("domain", input.domains, WORK_CLASSIFICATION_DOMAINS),
+    ...normalizeFacet("evidence scope", input.evidenceScopes, WORK_CLASSIFICATION_EVIDENCE_SCOPES, "evidenceScopes"),
     ...normalizeFacet("effect", input.effects, WORK_CLASSIFICATION_EFFECTS),
     ...normalizeFacet("mode", input.modes, WORK_CLASSIFICATION_MODES),
   };
@@ -152,7 +162,11 @@ export function recommendedSkillsForWorkClassification(
     return [];
   }
   const recommended: string[] = [];
-  if (classification.intents?.includes("research")) {
+  const isResearch = classification.intents?.includes("research") ?? false;
+  if (isResearch && classification.evidenceScopes?.includes("repository")) {
+    recommended.push("codebase-scouting");
+  }
+  if (isResearch && classification.evidenceScopes?.some((scope) => scope === "external" || scope === "provided")) {
     recommended.push("research-workflow");
   }
   if (isClearWritingWork(classification)) {
@@ -174,6 +188,7 @@ function normalizeFacet<const T extends readonly string[]>(
   name: string,
   values: readonly string[] | undefined,
   allowed: T,
+  outputKey = `${name}s`,
 ): Record<string, readonly T[number][]> {
   if (!values || values.length === 0) {
     return {};
@@ -192,5 +207,5 @@ function normalizeFacet<const T extends readonly string[]>(
       normalized.push(trimmed as T[number]);
     }
   }
-  return normalized.length > 0 ? { [`${name}s`]: normalized } : {};
+  return normalized.length > 0 ? { [outputKey]: normalized } : {};
 }

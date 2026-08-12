@@ -5869,6 +5869,7 @@ describe("managed invocation runtime tool", () => {
         intents: ["write"],
         artifacts: ["document"],
         domains: ["education"],
+        evidenceScopes: ["provided"],
         effects: ["write-artifact"],
         modes: ["coauthor"],
       },
@@ -5907,6 +5908,7 @@ describe("managed invocation runtime tool", () => {
         intents: ["write"],
         artifacts: ["document"],
         domains: ["education"],
+        evidenceScopes: ["provided"],
         effects: ["write-artifact"],
         modes: ["coauthor"],
       },
@@ -5924,6 +5926,7 @@ describe("managed invocation runtime tool", () => {
         intents: ["write"],
         artifacts: ["document"],
         domains: ["education"],
+        evidenceScopes: ["provided"],
         effects: ["write-artifact"],
         modes: ["coauthor"],
       },
@@ -5934,6 +5937,7 @@ describe("managed invocation runtime tool", () => {
         intents: ["write"],
         artifacts: ["document"],
         domains: ["education"],
+        evidenceScopes: ["provided"],
         effects: ["write-artifact"],
         modes: ["coauthor"],
       },
@@ -6051,6 +6055,41 @@ describe("managed invocation runtime tool", () => {
     expect(malformed.output).toContain("workClassification.intents must be an array of strings");
     expect(unknown.isError).toBe(true);
     expect(unknown.output).toContain("Unsupported work classification field: intent");
+    expect(contextResolver).not.toHaveBeenCalled();
+    expect(adapter.invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for an unsupported evidence scope", async () => {
+    const adapter = makeAdapter();
+    const contextResolver = vi.fn();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-readonly", "model-a", async () => adapter)],
+        contextResolver,
+      },
+    });
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      routeId: "opencode-readonly",
+      profile: "foundation-readonly-plan",
+      providerRoute: { providerId: "opencode", model: "model-a" },
+      contextMode: "isolated",
+      workClassification: {
+        intents: ["research"],
+        evidenceScopes: ["internet"],
+      },
+      task: "Research the current behavior.",
+    }, {
+      session: makeSession(),
+      toolCall: {
+        id: "tool-call-work-classification-evidence-scope",
+        name: "managed_agent.invoke",
+        input: {},
+      },
+    }) as { readonly output: string; readonly isError: boolean };
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain("Unsupported work classification evidence scope: internet");
     expect(contextResolver).not.toHaveBeenCalled();
     expect(adapter.invoke).not.toHaveBeenCalled();
   });

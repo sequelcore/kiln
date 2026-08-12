@@ -69,6 +69,8 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/Focused affected tests are a\s+fast-feedback gate, not proof of complete impact coverage/);
     expect(skill?.instructions).toMatch(/Stop when ownership, contracts, consumer paths, verification ownership, and\s+material unknowns are mapped/);
     expect(skill?.instructions).toContain("Do not turn the map into an implementation plan");
+    expect(skill?.instructions).toMatch(/repository evidence, not external source research/);
+    expect(skill?.instructions).toMatch(/Route current external claims.*research workflow/s);
   });
 
   it("requires evidence-bound adaptive implementation planning", () => {
@@ -175,6 +177,7 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/source described by the prompt is not\s+inspected evidence/);
     expect(skill?.instructions).toMatch(/does not grant route, provider, model,\s+network, permission, budget, or approval\s+authority/);
     expect(skill?.instructions).toMatch(/searched and unsearched surfaces/);
+    expect(skill?.instructions).toMatch(/does\s+not map repository ownership, dependency paths, or affected tests/);
   });
 
   it("requires tiered and claim-bound benchmark readiness", () => {

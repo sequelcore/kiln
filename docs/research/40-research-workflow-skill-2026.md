@@ -7,9 +7,19 @@ Cutoff: 2026-08-12
 
 Kiln ships `research-workflow` as a compact, provider-neutral built-in. It is
 canonical procedure for Kiln-managed and standalone harness use. Kiln-managed
-research tasks recommend it through task suitability and explicit research work
-classification. Existing skill projection publishes the same canonical body to
-Codex, Claude Code, and OpenCode.
+work recommends it only when `WorkClassification` declares research intent with
+`external` or `provided` evidence scope. The first-party researcher profile
+declares it explicitly. Route task suitability remains capability evidence and
+does not choose between repository scouting and external research. Existing
+skill projection publishes the same canonical body to Codex, Claude Code, and
+OpenCode.
+
+`codebase-scouting` owns repository-local ownership, dependency paths, affected
+verification, and uncertainty. `research-workflow` owns external or supplied
+sources, claim support, contradictions, and freshness. Work that explicitly
+compares repository behavior with external authority declares both evidence
+scopes and may admit both procedures; an unscoped research intent admits
+neither automatically.
 
 The skill governs research method and evidence quality. It does not grant
 search, network, browser, filesystem, route, model, budget, permission, or

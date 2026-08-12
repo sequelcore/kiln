@@ -271,9 +271,10 @@ Auto-selection is still governed admission:
 Route task suitability and work classification are separate contracts.
 Suitability describes whether a provider/model route is appropriate for a
 bounded execution class. `WorkClassification` describes the operator's work
-through independent `intents`, `artifacts`, `domains`, `effects`, and `modes`
-facets. This keeps writing, support, education, business, document, and other
-non-programming work from being forced into software-oriented route labels.
+through independent `intents`, `artifacts`, `domains`, `evidenceScopes`,
+`effects`, and `modes` facets. This keeps writing, support, education,
+business, document, and other non-programming work from being forced into
+software-oriented route labels.
 
 Managed invocations may supply an explicit classification:
 
@@ -283,17 +284,22 @@ Managed invocations may supply an explicit classification:
     "intents": ["write"],
     "artifacts": ["document"],
     "domains": ["education"],
+    "evidenceScopes": ["provided"],
     "effects": ["write-artifact"],
     "modes": ["coauthor"]
   }
 }
 ```
 
-The `research` task suitability class recommends `repo-context-review` and
-`research-workflow`. A work classification whose intents include `research`
-recommends `research-workflow`; prose-like research output may additionally
-recommend `clear-writing`. The research workflow governs method and evidence,
-not network admission, route choice, provider identity, or citation tooling.
+The `research` task suitability class describes model/route capability; it does
+not choose a research procedure. A work classification with intent `research`
+and evidence scope `repository` recommends `codebase-scouting`. Scope
+`external` or `provided` recommends `research-workflow`; an explicit mixed
+scope recommends both. An unscoped research classification recommends neither,
+so Kiln does not silently turn repository analysis into web research or vice
+versa. Prose-like research output may additionally recommend `clear-writing`.
+These procedures govern method, not network admission, route choice, provider
+identity, or citation tooling.
 
 Unknown explicit facet values fail closed. In advisory mode, the classification
 is recorded and recommendations remain diagnostics. In auto mode, Kiln may

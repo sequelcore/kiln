@@ -157,6 +157,7 @@ function asWorkClassification(value: unknown): WorkClassification | undefined {
     ...(asStringArray(record.intents) ? { intents: asStringArray(record.intents) } : {}),
     ...(asStringArray(record.artifacts) ? { artifacts: asStringArray(record.artifacts) } : {}),
     ...(asStringArray(record.domains) ? { domains: asStringArray(record.domains) } : {}),
+    ...(asStringArray(record.evidenceScopes) ? { evidenceScopes: asStringArray(record.evidenceScopes) } : {}),
     ...(asStringArray(record.effects) ? { effects: asStringArray(record.effects) } : {}),
     ...(asStringArray(record.modes) ? { modes: asStringArray(record.modes) } : {}),
   };

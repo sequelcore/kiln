@@ -99,7 +99,7 @@ describe("task skill selection work classification", () => {
     expect(selection.contextCandidates[0]?.content).toContain("# clear-writing");
   });
 
-  it("auto-admits the canonical research workflow for research classification", () => {
+  it("auto-admits the canonical research workflow only for external research classification", () => {
     const root = tempRoot();
 
     const selection = resolveTaskSkillSelection({
@@ -112,6 +112,7 @@ describe("task skill selection work classification", () => {
       selection: { mode: "auto" },
       workClassification: {
         intents: ["research"],
+        evidenceScopes: ["external"],
         effects: ["answer-only"],
       },
       requesterLabel: "Task skill selection",
@@ -126,6 +127,52 @@ describe("task skill selection work classification", () => {
     }]);
     expect(selection.contextCandidates[0]?.content).toContain("# Research Workflow");
     expect(selection.projectionEvidence.selections[0]?.selectionReason).toBe("auto");
+  });
+
+  it("auto-admits codebase scouting only for repository research", () => {
+    const root = tempRoot();
+
+    const selection = resolveTaskSkillSelection({
+      projectPath: root,
+      userHome: root,
+      skillConfig: {
+        selection: { mode: "auto" },
+        builtin: { enabled: true, include: ["codebase-scouting", "research-workflow"] },
+      },
+      selection: { mode: "auto" },
+      workClassification: {
+        intents: ["research"],
+        evidenceScopes: ["repository"],
+        effects: ["read-only"],
+      },
+      requesterLabel: "Task skill selection",
+    });
+
+    expect(selection.skillNames).toEqual(["codebase-scouting"]);
+    expect(selection.contextCandidates[0]?.content).toContain("# Codebase Scouting");
+    expect(selection.contextCandidates[0]?.content).not.toContain("# Research Workflow");
+  });
+
+  it("does not guess a research procedure from unscoped research", () => {
+    const root = tempRoot();
+
+    const selection = resolveTaskSkillSelection({
+      projectPath: root,
+      userHome: root,
+      skillConfig: {
+        selection: { mode: "auto" },
+        builtin: { enabled: true, include: ["codebase-scouting", "research-workflow"] },
+      },
+      selection: { mode: "auto" },
+      workClassification: {
+        intents: ["research"],
+        effects: ["read-only"],
+      },
+      requesterLabel: "Task skill selection",
+    });
+
+    expect(selection.skillNames).toEqual([]);
+    expect(selection.workRecommendedSkillNames).toEqual([]);
   });
 
   it("diagnoses unavailable auto work recommendations without admitting them", () => {

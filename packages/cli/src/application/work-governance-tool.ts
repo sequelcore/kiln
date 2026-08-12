@@ -45,6 +45,7 @@ import {
   startGoalExecutionAttempt,
   WORK_ITEM_PAUSE_REQUIREMENT_KINDS,
   WORK_ITEM_PAUSE_REQUIREMENT_STATUSES,
+  WORK_CLASSIFICATION_EVIDENCE_SCOPES,
   WorkItemStore,
   workItemToolMetadata,
   defineDeliberationLevelId,
@@ -442,6 +443,7 @@ export class WorkItemUpdateTool implements DevTool {
           intents: { type: "array", items: { type: "string" } },
           artifacts: { type: "array", items: { type: "string" } },
           domains: { type: "array", items: { type: "string" } },
+          evidenceScopes: { type: "array", items: { type: "string", enum: WORK_CLASSIFICATION_EVIDENCE_SCOPES } },
           effects: { type: "array", items: { type: "string" } },
           modes: { type: "array", items: { type: "string" } },
         },
@@ -3048,7 +3050,7 @@ function readWorkClassificationInput(value: unknown): WorkClassificationInput | 
     return undefined;
   }
   const record = value as Record<string, unknown>;
-  const supportedFields = new Set(["intents", "artifacts", "domains", "effects", "modes"]);
+  const supportedFields = new Set(["intents", "artifacts", "domains", "evidenceScopes", "effects", "modes"]);
   for (const key of Object.keys(record)) {
     if (!supportedFields.has(key)) {
       throw new Error(`Unsupported work classification field: ${key}`);
@@ -3061,6 +3063,7 @@ function readWorkClassificationInput(value: unknown): WorkClassificationInput | 
     ...(Array.isArray(record.intents) ? { intents: readTextArray(record.intents) } : {}),
     ...(Array.isArray(record.artifacts) ? { artifacts: readTextArray(record.artifacts) } : {}),
     ...(Array.isArray(record.domains) ? { domains: readTextArray(record.domains) } : {}),
+    ...(Array.isArray(record.evidenceScopes) ? { evidenceScopes: readTextArray(record.evidenceScopes) } : {}),
     ...(Array.isArray(record.effects) ? { effects: readTextArray(record.effects) } : {}),
     ...(Array.isArray(record.modes) ? { modes: readTextArray(record.modes) } : {}),
   };

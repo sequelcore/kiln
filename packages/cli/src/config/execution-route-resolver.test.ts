@@ -58,4 +58,10 @@ describe("inferRouteTask", () => {
   it("prefers agent affinity over task keywords", () => {
     expect(inferRouteTask({ agentTaskAffinity: ["mechanical-edit"], text: "Research current frontend benchmarks" })).toBe("mechanical-edit");
   });
+
+  it("infers research from external-source evidence rather than generic analysis", () => {
+    expect(inferRouteTask({ text: "Verify the latest official specification and cite its source" })).toBe("research");
+    expect(inferRouteTask({ text: "Analyze callers and affected tests in this repository" })).toBe("architecture-review");
+    expect(inferRouteTask({ text: "Research this codebase dependency graph" })).toBe("architecture-review");
+  });
 });

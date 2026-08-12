@@ -254,6 +254,7 @@ export type {
 export {
   WORK_CLASSIFICATION_ARTIFACTS,
   WORK_CLASSIFICATION_DOMAINS,
+  WORK_CLASSIFICATION_EVIDENCE_SCOPES,
   WORK_CLASSIFICATION_EFFECTS,
   WORK_CLASSIFICATION_INTENTS,
   WORK_CLASSIFICATION_MODES,
@@ -265,6 +266,7 @@ export type {
   WorkClassification,
   WorkClassificationArtifact,
   WorkClassificationDomain,
+  WorkClassificationEvidenceScope,
   WorkClassificationEffect,
   WorkClassificationInput,
   WorkClassificationIntent,

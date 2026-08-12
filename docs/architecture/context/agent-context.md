@@ -232,7 +232,7 @@ The built-in profile ids are:
 
 | Profile | Purpose | Typical authority |
 | --- | --- | --- |
-| `scout` | Read-only codebase/context mapping. | `foundation-readonly-plan` |
+| `scout` | Read-only repository ownership, dependency, and verification mapping through `codebase-scouting`. | `foundation-readonly-plan` |
 | `planner` | File-level implementation and verification planning. | `foundation-readonly-plan` |
 | `architect` | Architecture, DDD, contract, and boundary review. | `foundation-readonly-plan` |
 | `tdd` | Failing-test design and behavior verification. | Read-only or write-capable when admitted. |
@@ -240,7 +240,7 @@ The built-in profile ids are:
 | `fast-coder` | Mechanical low-risk edits and projections. | Write-capable only through explicit route authority. |
 | `reviewer` | Findings-first code review and quality gate. | `foundation-readonly-plan` |
 | `ddd-validator` | Bounded-context and dependency-direction validation. | `foundation-readonly-plan` |
-| `researcher` | Evidence gathering and source separation. | `foundation-readonly-plan` plus admitted research tools. |
+| `researcher` | External or provided-source research through `research-workflow`. | `foundation-readonly-plan` plus admitted research tools. |
 | `refactoring-specialist` | Behavior-preserving cleanup and simplification. | Read-only or write-capable when admitted. |
 
 Global `~/.kiln/agents/*.md` profiles override built-ins with the same id.
@@ -302,13 +302,18 @@ list. It records explicit facets:
 - domains: `software`, `business`, `education`, `support`, `marketing`,
   `legal`, `regulatory`, `finance`, `medical`, `operations`, or
   `personal-productivity`.
+- evidence scopes: `repository`, `external`, or `provided`.
 - effects: `answer-only`, `read-only`, `write-artifact`, `mutate-workspace`,
   `execute-command`, `external-side-effect`, or `publish-send`.
 - modes: `answer`, `coauthor`, `transform`, `critique`, `delegate`,
   `automate`, or `monitor`.
 
-Unknown explicit work classification facets fail closed. Supported facets may
-recommend skills such as `clear-writing`, but only configured skills can be
+Unknown explicit work classification facets fail closed. The `research` intent
+does not choose a procedure by itself: repository evidence recommends
+`codebase-scouting`, external or provided evidence recommends
+`research-workflow`, and an explicit mixed scope recommends both. An unscoped
+research classification recommends neither. Supported facets may recommend
+skills such as `clear-writing`, but only configured skills can be
 admitted and only when the selected policy allows auto-selection. Work
 classification is recorded in managed invocation context metadata so GUI, TUI,
 CLI, SDK/widget, and replay surfaces can explain why a skill was recommended
@@ -430,7 +435,7 @@ The built-in skill ids are:
 | Skill | Purpose | Typical agents |
 | --- | --- | --- |
 | `repo-context-review` | Resolve durable repository facts and conflicts before canonical context adoption or shim sync. | `scout`, `architect` |
-| `codebase-scouting` | Map ownership, causal dependency paths, affected verification, and uncertainty before broad changes. | `scout` |
+| `codebase-scouting` | Map repository ownership, causal dependency paths, affected verification, and uncertainty before broad changes. | `scout` |
 | `implementation-planning` | Convert a scoped objective into an evidence-bound, dependency-ordered sequence with verification and recovery. | `planner`, `architecture-planner` |
 | `tdd-workflow` | Design failing tests, implement only the target behavior, and verify. | `tdd`, `coder` |
 | `code-review-findings` | Perform findings-first review with severity, evidence, and test-gap risk. | `reviewer`, `adversarial-reviewer` |
@@ -439,7 +444,7 @@ The built-in skill ids are:
 | `refactoring-safety` | Preserve behavior while removing dead code, redundancy, and avoidable complexity. | `refactoring-specialist` |
 | `security-scope-review` | Trace authority, untrusted data, credentials, and consequential effects to enforcement evidence. | `adversarial-reviewer`, `reviewer` |
 | `managed-agent-risk-review` | Audit delegated identity, attenuated authority, lifecycle settlement, evidence, and honest replay limits. | `architect`, `reviewer` |
-| `research-workflow` | Research decision-relevant questions with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty. | `researcher`, any research task |
+| `research-workflow` | Research external or provided evidence with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty. | `researcher`, scoped research work |
 | `benchmark-readiness-review` | Judge benchmark validity, reproducibility, comparability, and tiered claim readiness. | `researcher`, `reviewer` |
 | `config-projection-review` | Review canonical intent, projection ownership, provenance, drift, and safe convergence. | `scout`, `architect` |
 | `action-first-communication` | Order outcomes, findings, state, and corrective actions without unsafe or invented brevity. | Any explicitly configured agent |

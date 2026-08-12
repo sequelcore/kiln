@@ -267,6 +267,13 @@ Canonical task suitability records use:
   that task when those skills are actually configured and admitted
 - `evidence`: optional evidence rows with `source`, `status`, and `summary`
 
+The `research` task describes whether a route can perform research synthesis;
+it does not identify where evidence must come from. Procedural selection is an
+orthogonal work-classification decision: repository evidence maps to
+`codebase-scouting`, external or provided evidence maps to
+`research-workflow`, mixed evidence maps to both, and missing scope maps to
+neither.
+
 Static suitability belongs in `ModelCapabilityRegistry`. It is advisory and
 must identify itself as `static-profile`. Operator and project overrides live
 in `modelTaskSuitability` config entries and identify themselves as

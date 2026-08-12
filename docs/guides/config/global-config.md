@@ -1384,8 +1384,13 @@ Agent profiles may declare a default `workClassification` when the role is
 intentionally cross-domain, such as report writing, support, education, or
 business document review. Managed invocation uses that profile classification
 only when the request and durable work item do not already provide one. The
-classification can recommend skills such as `clear-writing`, but admission
-still follows the governed skill registry and `skills.selection.mode`.
+classification can recommend skills such as `clear-writing`. For research,
+declare `evidenceScopes: [repository]` to recommend `codebase-scouting`,
+`evidenceScopes: [external]` or `[provided]` to recommend
+`research-workflow`, or an explicit mixture to recommend both. The route task
+`research` is capability evidence and does not choose either procedure.
+Admission still follows the governed skill registry and
+`skills.selection.mode`.
 
 ## Drift, Backups, And Disabled Engines
 

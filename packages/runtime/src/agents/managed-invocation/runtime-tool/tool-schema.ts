@@ -5,6 +5,7 @@ import {
   MANAGED_AGENT_ADMISSION_PROFILES,
   WORK_CLASSIFICATION_ARTIFACTS,
   WORK_CLASSIFICATION_DOMAINS,
+  WORK_CLASSIFICATION_EVIDENCE_SCOPES,
   WORK_CLASSIFICATION_EFFECTS,
   WORK_CLASSIFICATION_INTENTS,
   WORK_CLASSIFICATION_MODES,
@@ -146,6 +147,11 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
             type: "array",
             items: { type: "string", enum: [...WORK_CLASSIFICATION_DOMAINS] },
             description: "Optional domain context for the child work.",
+          },
+          evidenceScopes: {
+            type: "array",
+            items: { type: "string", enum: [...WORK_CLASSIFICATION_EVIDENCE_SCOPES] },
+            description: "Optional evidence locations for research work: repository, external, or provided. Required to auto-recommend a research procedure.",
           },
           effects: {
             type: "array",

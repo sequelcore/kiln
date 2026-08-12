@@ -118,7 +118,7 @@ describe("ModelCapabilityRegistry", () => {
         }),
         expect.objectContaining({
           task: "research",
-          recommendedSkills: ["repo-context-review", "research-workflow"],
+          recommendedSkills: [],
         }),
       ]),
     );
