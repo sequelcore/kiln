@@ -232,6 +232,7 @@ function useAppShellRuntimeView() {
   const [governedWorkItemCount, setGovernedWorkItemCount] = useState<number | null>(null);
   const [isExecutionRoutePickerOpen, setIsExecutionRoutePickerOpen] = useState(false);
   const [hasMountedExecutionRoutePicker, setHasMountedExecutionRoutePicker] = useState(false);
+  const executionRoutePickerAnchorRef = useRef<HTMLButtonElement | null>(null);
   const executionRoutePickerInvokerRef = useRef<HTMLElement | null>(null);
   const openExecutionRoutePicker = useCallback(() => {
     if (isExecutionRoutePickerOpen) return;
@@ -1220,6 +1221,7 @@ function useAppShellRuntimeView() {
               sessionControlFailure: sessionControlFailure?.message,
               providerControl: (
                 <Button
+                  ref={executionRoutePickerAnchorRef}
                   type="button"
                   variant="ghost"
                   size="sm"
@@ -1366,6 +1368,7 @@ function useAppShellRuntimeView() {
             onOpenChange={setIsExecutionRoutePickerOpen}
             title="Execution route"
             description="Choose an available execution route or an eligible account override."
+            anchor={executionRoutePickerAnchorRef}
             finalFocus={executionRoutePickerInvokerRef}
           >
             <ExecutionRoutePicker

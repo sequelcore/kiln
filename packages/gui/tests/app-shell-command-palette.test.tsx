@@ -12,6 +12,7 @@ let wsState: "idle" | "connecting" | "open" | "reconnecting" | "closed" = "open"
 const commandPalettePropsLog: Array<{ open: boolean }> = [];
 const executionRoutePickerPropsLog: Array<{
   open: boolean;
+  anchor?: { readonly current: HTMLElement | null };
   finalFocus?: { readonly current: HTMLElement | null };
   onOpenChange: (open: boolean) => void;
 }> = [];
@@ -184,6 +185,7 @@ vi.mock("../src/components/theme-switcher.js", () => ({
 vi.mock("../src/components/ai-elements/model-selector.js", () => ({
   ModelSelector: (props: {
     open: boolean;
+    anchor?: { readonly current: HTMLElement | null };
     finalFocus?: { readonly current: HTMLElement | null };
     onOpenChange: (open: boolean) => void;
     children: ReactNode;
@@ -202,6 +204,7 @@ vi.mock("../src/components/composer.js", () => ({
     commandMenu,
     onSubmit,
     onTogglePlanMode,
+    providerControl,
   }: {
     commandMenu: {
       onOpenChange: (open: boolean) => void;
@@ -209,8 +212,10 @@ vi.mock("../src/components/composer.js", () => ({
     };
     onSubmit: (submission: { readonly text: string }) => boolean;
     onTogglePlanMode: (enabled: boolean) => void;
+    providerControl?: ReactNode;
   }) => (
     <div>
+      {providerControl}
       <textarea id="composer-input" aria-label="Mock composer input" />
       <button type="button" onClick={() => commandMenu.onOpenChange(true)}>
         Open composer commands
@@ -400,6 +405,16 @@ describe("AppShell command palette and telemetry regressions", () => {
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
 
     expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
+  });
+
+  it("anchors the execution route picker to its composer control", async () => {
+    render(<AppShell />);
+
+    const routeControl = await screen.findByRole("button", { name: /Execution route selector/i });
+    fireEvent.click(routeControl);
+
+    await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
+    expect(executionRoutePickerPropsLog.at(-1)?.anchor?.current).toBe(routeControl);
   });
 
   it("mounts the execution route picker on first use from a composer command", async () => {
