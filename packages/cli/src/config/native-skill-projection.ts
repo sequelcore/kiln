@@ -179,6 +179,17 @@ function addFlatSkillProjectionSources(
   }
 }
 
+export function discoverOpenCodeDeniedSkillNames(
+  projectPath: string,
+  skillConfig?: KilnYamlSkillsConfig | null,
+  userHome = os.homedir(),
+): readonly string[] {
+  return [...discoverSkillProjectionSources(projectPath, skillConfig, userHome).values()]
+    .filter((source) => source.visibility === "explicit-only")
+    .map((source) => source.skillName)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 function readSkillDirectoryName(sourceDir: string): string | undefined {
   try {
     const skillFile = readdirSync(sourceDir, { withFileTypes: true })
@@ -526,11 +537,19 @@ function readSkillSourceFilesRecursive(sourceRoot: string, currentDir: string): 
       if (!entry.isFile()) {
         return [];
       }
+      const fileName = relative(sourceRoot, sourcePath).split(sep).join("/");
+      const content = readFileSync(sourcePath);
       return [{
-        fileName: relative(sourceRoot, sourcePath).split(sep).join("/"),
-        content: readFileSync(sourcePath),
+        fileName,
+        content: normalizeProjectedSkillFileContent(fileName, content),
       }];
     });
+}
+
+export function normalizeProjectedSkillFileContent(fileName: string, content: Uint8Array): Uint8Array {
+  return fileName.toLowerCase() === "skill.md" && content[0] === 0xef && content[1] === 0xbb && content[2] === 0xbf
+    ? content.subarray(3)
+    : content;
 }
 
 function syncSkillFile(input: {

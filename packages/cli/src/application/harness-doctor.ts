@@ -266,6 +266,9 @@ function appendSkillCatalog(
   lines.push(`    Inventory: ${skills.complete ? "complete" : "incomplete"}`);
   lines.push(`    Duplicates: ${skills.equivalentDuplicates}`);
   lines.push(`    Collisions: divergent=${skills.divergentCollisions}, case=${skills.caseCollisions}`);
+  for (const exposure of (skills.externalExposure ?? []).filter((entry) => entry.status !== "not-configured")) {
+    lines.push(`    External ${exposure.harness}: ${exposure.status}, implicit=${exposure.realizedImplicit}, suppressed=${exposure.suppressed}, freshness=${exposure.freshness}`);
+  }
   for (const harness of skills.harnesses) {
     lines.push(`    ${harness.harness}: ${harness.candidateCount} implicit skills, ${harness.descriptionBytes} description bytes, budget=${harness.budget.status}`);
   }

@@ -91,6 +91,9 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
         "skills.visibility is global-only because native skill targets are user-global; project-scoped visibility requires scoped harness projections",
       );
     }
+    if ((skills as Record<string, unknown> | undefined)?.externalCatalog !== undefined) {
+      throw new KilnYamlError("skills.externalCatalog is global-only because it governs user-global native harness exposure");
+    }
     return parsed as KilnYaml;
   } catch (err) {
     if (err instanceof KilnYamlError) {
@@ -251,6 +254,7 @@ function mergeSkills(
     ...(builtin ? { builtin } : {}),
     ...(selection ? { selection } : {}),
     ...(visibility ? { visibility } : {}),
+    ...(base?.externalCatalog ? { externalCatalog: base.externalCatalog } : {}),
   };
 }
 

@@ -174,3 +174,25 @@ Every visibility change requires:
 No catalog-size or efficiency claim is promoted from a single operator
 inventory. Public claims require the benchmark contract in
 [`../architecture/quality/benchmark-validation.md`](../architecture/quality/benchmark-validation.md).
+
+## Local Acceptance Evidence (2026-08-12)
+
+This is operator-local acceptance evidence, not a public benchmark.
+
+- Codex CLI `0.147.0` reproduced the catalog-shortening warning before policy
+  projection. A fresh ephemeral session after projection returned normally
+  without that warning or the earlier UTF-8-BOM frontmatter error.
+- The complete reviewed Codex external inventory kept 17 plugin/system skills
+  implicit and suppressed 55 shared external skills. Status reported the
+  inventory, policy, adapter revision, and native rule order as current.
+- Ten lifecycle or broad-audit canonical skills were moved to `explicit-only`:
+  `handoff`, `improve-react`, `maven-release`, `playwright-cli`, `react-doctor`,
+  `sequel-branch-retirement`, `sequel-docs-hygiene`,
+  `sequel-repository-hygiene`, `stripe-projects`, and `typescript-release`.
+- OpenCode `1.18.16` started successfully in a fresh default-agent process. A
+  direct attempt to load `handoff` was rejected by the native skill permission
+  evaluator, which showed the ten exact deny rules. This proves the observed
+  default configuration only; agent/session overrides remain unsupported.
+- Claude Code `2.1.226` could start its non-interactive command but the provider
+  returned its weekly quota limit before inference. Native projection and
+  metadata were verified locally; no successful model-call smoke is claimed.

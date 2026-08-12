@@ -353,7 +353,20 @@ export function stripManagedFields(input: {
     if (ownedItems) {
       const current = getPathValue(stripped, fieldPath);
       if (Array.isArray(current)) {
-        const retained = current.filter((item) => !ownedItems.some((owned) => stableStringify(owned) === stableStringify(item)));
+        const removals = new Map<string, number>();
+        for (const owned of ownedItems) {
+          const key = stableStringify(owned);
+          removals.set(key, (removals.get(key) ?? 0) + 1);
+        }
+        const retainedReversed: unknown[] = [];
+        for (let index = current.length - 1; index >= 0; index -= 1) {
+          const item = current[index];
+          const key = stableStringify(item);
+          const remaining = removals.get(key) ?? 0;
+          if (remaining > 0) removals.set(key, remaining - 1);
+          else retainedReversed.push(item);
+        }
+        const retained = retainedReversed.reverse();
         if (retained.length > 0) setPathValue(stripped, fieldPath, retained);
         else deletePathValue(stripped, fieldPath);
       }

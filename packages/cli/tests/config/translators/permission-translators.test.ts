@@ -206,7 +206,7 @@ describe("permission projection translators", () => {
     // "default", which matches nothing, so the whole projection is inert.
     expect(projection).toMatchObject({
       targetId: "opencode-config",
-      managedFields: ["permission"],
+      managedFields: ["permission.*", "permission.read", "permission.bash", "permission.edit"],
       document: {
         theme: "ocean",
         permission: {
@@ -232,6 +232,15 @@ describe("permission projection translators", () => {
     // OpenCode resolves a rule with findLast, so the broad rule must be
     // written before the specific ones or it overrides all of them.
     expect(Object.keys(asRecord(projection.document.permission))[0]).toBe("*");
+  });
+
+  it("preserves the separately owned OpenCode skill permission map", () => {
+    const projection = translateOpenCodePermissionProjection({
+      policy: granularPolicy,
+      existingDocument: { permission: { skill: { planner: "deny" }, read: "ask" } },
+    });
+    expect(asRecord(projection.document.permission).skill).toEqual({ planner: "deny" });
+    expect(projection.managedFields).not.toContain("permission.skill");
   });
 
   it("reports OpenCode allow as permission-rule resolution without sandbox enforcement", () => {

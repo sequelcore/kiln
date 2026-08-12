@@ -20,6 +20,13 @@ import {
 } from "../../src/config/native-projection-state.js";
 
 describe("native projection install state", () => {
+  it("strips only the owned multiplicity from the end of managed arrays", () => {
+    const item = { path: "C:/same/SKILL.md", enabled: false };
+    expect(stripManagedFields({
+      currentDocument: { skills: { config: [item, { path: "C:/other", enabled: true }, item] } },
+      managedFields: ["skills.config"], managedArrayItems: { "skills.config": [item] },
+    })).toEqual({ skills: { config: [item, { path: "C:/other", enabled: true }] } });
+  });
   it("detects drift only when managed fields change", () => {
     const target = createNativeProjectionSnapshot({
       targetId: "codex",

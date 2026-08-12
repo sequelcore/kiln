@@ -175,6 +175,31 @@ Catalog visibility is not runtime admission. The existing
 `skills.selection.mode` contract independently decides whether recommendations
 remain advisory or enter governed managed-task context.
 
+External catalogs are governed separately by global `skills.externalCatalog`.
+Each keep decision binds an exact portable source id to its complete package
+digest. Codex sync disables only the remaining implicit external candidates by
+absolute skill path, preserves unrelated `[[skills.config]]` entries, and
+removes its owned entries when the policy is removed. Sync fails closed when
+inventory is incomplete or reviewed content has drifted. `config read skills`
+reports realized and suppressed counts plus fingerprint freshness; Claude and
+OpenCode remain explicitly unsupported until an exact adapter is admitted.
+After applying or changing exposure rules, verify behavior in a fresh Codex
+session. Persisted config and status prove the configured rule order, but an
+already-running harness may retain catalog state loaded before the change.
+
+Stable OpenCode cannot represent `explicit-only`: it also discovers skills
+from the user Claude catalog and its permission model cannot keep a denied
+skill directly invocable. Kiln therefore projects an exact
+`permission.skill.<name> = "deny"` rule as a fail-closed approximation. Status
+continues to report the capability as unsupported and effective visibility as
+disabled. The dedicated visibility owner preserves unrelated permission rules
+and refuses an operator wildcard that would override the exact deny.
+This is proof for the observed default merged configuration, not universal
+proof across every OpenCode agent: project or agent-specific permission layers
+may override the user-global rule. Status checks project-level OpenCode config
+when present; agent-specific overrides remain an explicit unsupported-capability
+residual. Validate the default agent in a fresh OpenCode session after sync.
+
 Kiln reports skill status through `kiln config read skills`, `kiln config read
 setup`, GUI setup, TUI setup, and the model-callable `kiln_config.read` view.
 The status contract separates:

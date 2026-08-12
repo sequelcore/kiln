@@ -37,6 +37,7 @@ vi.mock("node:os", () => ({
 import {
   discoverSkillDirs,
   discoverSkillProjectionSources,
+  normalizeProjectedSkillFileContent,
   syncNativeSkillProjections,
 } from "../../src/config/native-skill-projection.js";
 import { canonicalSkillKey } from "../../src/config/native-projection-paths.js";
@@ -60,6 +61,12 @@ function dirent(name: string, isDirectory: boolean): { name: string; isDirectory
 }
 
 describe("native-skill-projection", () => {
+  it("removes a UTF-8 BOM only from projected SKILL.md content", () => {
+    const bom = Uint8Array.from([0xef, 0xbb, 0xbf, 0x2d, 0x2d, 0x2d]);
+    expect([...normalizeProjectedSkillFileContent("SKILL.md", bom)]).toEqual([0x2d, 0x2d, 0x2d]);
+    expect(normalizeProjectedSkillFileContent("assets/data.bin", bom)).toBe(bom);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     existsSyncMock.mockReset();

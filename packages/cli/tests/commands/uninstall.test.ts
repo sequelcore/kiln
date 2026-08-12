@@ -45,7 +45,7 @@ describe("uninstallNativeTargets", () => {
         ),
       );
 
-      const result = uninstallNativeTargets(join(root, "project"), { target: "codex" });
+      const result = uninstallNativeTargets(join(root, "project"), { target: "codex", userHome: join(root, "home") });
 
       expect(result).toEqual({
         removed: ["codex-config"],

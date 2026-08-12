@@ -371,6 +371,7 @@ export interface KilnSkillSourceCandidateSnapshot {
   readonly canonicalName: string;
   readonly sourceKind: KilnSkillSourceKind;
   readonly sourceId: string;
+  readonly exposureScope: "user" | "project" | "harness" | "builtin";
   readonly sourcePath: string;
   readonly relationship: KilnSkillSourceRelationship;
   readonly relatedCanonicalName?: string;
@@ -420,6 +421,15 @@ export interface KilnSkillSourceInventorySnapshot {
     readonly budget: { readonly status: "unknown"; readonly reason: string };
   }[];
   readonly diagnostics: readonly KilnSkillInventoryDiagnosticSnapshot[];
+  readonly externalExposure?: readonly {
+    readonly harness: "claude" | "codex" | "opencode";
+    readonly status: "not-configured" | "current" | "stale" | "blocked" | "unsupported";
+    readonly realizedImplicit: number;
+    readonly suppressed: number;
+    readonly fingerprint?: string;
+    readonly freshness: "current" | "stale" | "unknown";
+    readonly reason: string;
+  }[];
 }
 
 export interface KilnSkillCatalogSummarySnapshot {
@@ -428,6 +438,7 @@ export interface KilnSkillCatalogSummarySnapshot {
   readonly divergentCollisions: number;
   readonly caseCollisions: number;
   readonly harnesses: KilnSkillSourceInventorySnapshot["harnesses"];
+  readonly externalExposure: NonNullable<KilnSkillSourceInventorySnapshot["externalExposure"]>;
   readonly issueCount: number;
   readonly omittedIssueCount: number;
   readonly issues: readonly {
@@ -785,6 +796,7 @@ export const KilnSkillCatalogSnapshotSchema = z.object({
       name: z.string(), canonicalName: z.string(),
       sourceKind: z.enum(["kiln-user", "kiln-project", "builtin", "shared-agents", "native-harness", "system", "plugin"]),
       sourceId: z.string(), sourcePath: z.string(),
+      exposureScope: z.enum(["user", "project", "harness", "builtin"]),
       relationship: z.enum(["canonical", "external", "managed-projection", "linked-alias"]),
       relatedCanonicalName: z.string().optional(), relatedSourceId: z.string().optional(), packageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
       descriptionBytes: z.number().int().nonnegative(),
@@ -808,6 +820,13 @@ export const KilnSkillCatalogSnapshotSchema = z.object({
       descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.literal("unknown"), reason: z.string() }),
     })).default([]),
     diagnostics: z.array(z.object({ code: z.string(), message: z.string(), sourceId: z.string().optional() })),
+    externalExposure: z.array(z.object({
+      harness: z.enum(["claude", "codex", "opencode"]),
+      status: z.enum(["not-configured", "current", "stale", "blocked", "unsupported"]),
+      realizedImplicit: z.number().int().nonnegative(), suppressed: z.number().int().nonnegative(),
+      fingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+      freshness: z.enum(["current", "stale", "unknown"]), reason: z.string(),
+    })).optional(),
   }).optional(),
 });
 
@@ -818,6 +837,13 @@ export const KilnSkillCatalogSummarySnapshotSchema = z.object({
     harness: z.enum(["claude", "codex", "opencode"]), candidateCount: z.number().int().nonnegative(),
     descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.literal("unknown"), reason: z.string() }),
   })),
+  externalExposure: z.array(z.object({
+    harness: z.enum(["claude", "codex", "opencode"]),
+    status: z.enum(["not-configured", "current", "stale", "blocked", "unsupported"]),
+    realizedImplicit: z.number().int().nonnegative(), suppressed: z.number().int().nonnegative(),
+    fingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+    freshness: z.enum(["current", "stale", "unknown"]), reason: z.string(),
+  })).default([]),
   issueCount: z.number().int().nonnegative(),
   omittedIssueCount: z.number().int().nonnegative(),
   issues: z.array(z.object({

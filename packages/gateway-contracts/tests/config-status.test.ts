@@ -24,7 +24,7 @@ describe("KilnSkillCatalogSnapshotSchema", () => {
         candidates: [{
           name: "Planner", canonicalName: "planner", sourceKind: "shared-agents",
           sourceId: "shared-agents:planner", sourcePath: "skills/planner/SKILL.md",
-          relationship: "external", packageDigest: `sha256:${"a".repeat(64)}`,
+          relationship: "external", exposureScope: "user", packageDigest: `sha256:${"a".repeat(64)}`,
           descriptionBytes: 9,
         }],
         sources: [{ sourceKind: "shared-agents", candidateCount: 1, descriptionBytes: 9 }],

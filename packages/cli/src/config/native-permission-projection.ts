@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { type ModelGatewayConfig, parseGatewayYaml, readTrustedExecutionAuthorization } from "@kilnai/core";
+import { type ModelGatewayConfig, loadSkillMdIndex, parseGatewayYaml, readTrustedExecutionAuthorization } from "@kilnai/core";
+import { parse as parseYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import type { KilnYaml } from "../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
@@ -26,6 +27,7 @@ import {
   type NativeProjectionTargetState,
   readNativeProjectionInstallState,
   removeNativeProjectionTargetState,
+  stripManagedFields,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "./native-projection-state.js";
@@ -33,8 +35,10 @@ import { translateClaudePermissionProjection } from "./translators/claude-transl
 import { translateCodexPermissionProjection } from "./translators/codex-translator.js";
 import { translateOpenCodePermissionProjection } from "./translators/opencode-translator.js";
 import { PERMISSION_PROJECTION_TARGET_IDS } from "./translators/permission-projection.js";
+import { discoverOpenCodeDeniedSkillNames } from "./native-skill-projection.js";
 
 const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
+export const OPENCODE_SKILL_VISIBILITY_TARGET_ID = "opencode-skill-visibility";
 
 export interface NativePermissionProjectionResult {
   claude: boolean;
@@ -57,6 +61,125 @@ interface PermissionTargetResult {
 
 function ensureDir(dirPath: string): void {
   mkdirSync(dirPath, { recursive: true });
+}
+
+export async function syncOpenCodeSkillVisibilityProjection(
+  kilnYaml: KilnYaml,
+  projectPath: string,
+  options: NativePermissionProjectionOptions = {},
+): Promise<{ readonly errors: readonly string[]; readonly outcomes: readonly ProjectionOutcome[] }> {
+  const openCodeDir = resolveNativeHarnessDir("opencode", options.userHome);
+  const stateDir = join(openCodeDir, ".kiln");
+  let state = readNativeProjectionInstallState(stateDir);
+  const target = join(openCodeDir, "opencode.json");
+  if (isNativeProjectionHarnessDisabled(options, "opencode")) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "OpenCode harness is disabled" }] };
+  const original = existsSync(target) ? readFileSync(target, "utf8") : undefined;
+  let document: Record<string, unknown> = {};
+  if (original !== undefined) {
+    try { document = requireRecord(JSON.parse(stripJsonComments(original)), "configuration root must be an object"); }
+    catch (error) { return { errors: [String(error)], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "failed", reason: "OpenCode config is unreadable" }] }; }
+  }
+  const drift = detectNativeProjectionDrift({ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, state, currentDocument: document });
+  if (drift && !options.force) return { errors: [`managed field drift detected: ${drift.driftedFields.join(", ")}`], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "blocked", reason: "managed OpenCode skill visibility drift" }] };
+  const previous = state.targets[OPENCODE_SKILL_VISIBILITY_TARGET_ID];
+  const base = previous ? stripManagedFields({ currentDocument: document, managedFields: previous.managedFields }) : document;
+  const deniedNames = [...new Set([
+    ...discoverOpenCodeDeniedSkillNames(projectPath, kilnYaml.skills, options.userHome),
+    ...discoverClaudeExplicitOnlySkillNames(options.userHome),
+  ])].sort((left, right) => left.localeCompare(right));
+  const permission = requireOptionalRecord(base.permission) ?? {};
+  if (deniedNames.length === 0) {
+    if (!previous) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "no fail-closed OpenCode skill denies are required" }] };
+    if (options.dryRun) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "planned", reason: "remove stale OpenCode skill denies" }] };
+    ensureDir(dirname(target)); backupNativeProjectionFile({ kilnDir: stateDir, targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, filePath: target });
+    try {
+      writeFileAtomically(target, JSON.stringify(base, null, 2) + "\n");
+      state = removeNativeProjectionTargetState(state, OPENCODE_SKILL_VISIBILITY_TARGET_ID);
+      writeNativeProjectionInstallState(stateDir, state);
+    } catch (error) { restoreFile(target, original); throw error; }
+    return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "removed", reason: "no fail-closed OpenCode skill denies remain" }] };
+  }
+  const scalarSkill = typeof permission.skill === "string" ? permission.skill : undefined;
+  if (scalarSkill !== undefined) {
+    if (scalarSkill === "deny") return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "operator scalar skill deny already fails closed" }] };
+    return { errors: [`Existing scalar OpenCode skill permission conflicts with fail-closed deny: ${scalarSkill}`], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "failed", reason: "operator scalar skill permission would be overwritten" }] };
+  }
+  const existingSkill = requireOptionalRecord(permission.skill) ?? {};
+  const conflictingExact = deniedNames.filter((name) => name in existingSkill && existingSkill[name] !== "deny");
+  if (conflictingExact.length > 0) return { errors: [`Existing exact OpenCode skill permission conflicts with fail-closed deny: ${conflictingExact.join(", ")}`], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "failed", reason: "operator exact skill rule would be overwritten" }] };
+  const absentNames = deniedNames.filter((name) => !(name in existingSkill));
+  const next = { ...base, permission: { ...permission, skill: { ...existingSkill, ...Object.fromEntries(absentNames.map((name) => [name, "deny"])) } } };
+  if (Object.keys((next.permission as Record<string, unknown>).skill as Record<string, unknown>).length === 0) delete (next.permission as Record<string, unknown>).skill;
+  const managedFields = absentNames
+    .map((name) => `/permission/skill/${name.replaceAll("~", "~0").replaceAll("/", "~1")}`);
+  const ineffective = deniedNames.filter((name) => effectiveOpenCodeSkillPermission(
+    (next.permission as Record<string, unknown>).skill as Record<string, unknown>, name) !== "deny");
+  if (ineffective.length > 0) return { errors: [`OpenCode skill deny is overridden by a later-matching pattern: ${ineffective.join(", ")}`], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "failed", reason: "existing OpenCode skill permission pattern overrides fail-closed deny" }] };
+  if (managedFields.length === 0 && !previous) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "operator OpenCode skill deny already fails closed" }] };
+  if (options.dryRun) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "planned", reason: "write fail-closed OpenCode skill visibility" }] };
+  ensureDir(dirname(target)); backupNativeProjectionFile({ kilnDir: stateDir, targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, filePath: target });
+  try {
+    writeFileAtomically(target, JSON.stringify(next, null, 2) + "\n");
+    if (managedFields.length > 0) {
+      const snapshot = createNativeProjectionSnapshot({ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, filePath: target, document: next, managedFields });
+      state = upsertNativeProjectionTargetState(state, snapshot);
+    } else state = removeNativeProjectionTargetState(state, OPENCODE_SKILL_VISIBILITY_TARGET_ID);
+    writeNativeProjectionInstallState(stateDir, state);
+  } catch (error) { restoreFile(target, original); throw error; }
+  return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "written", reason: "explicit-only skills denied because stable OpenCode cannot preserve direct invocation" }] };
+}
+
+function requireOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function effectiveOpenCodeSkillPermission(rules: Record<string, unknown>, name: string): unknown {
+  return Object.entries(rules)
+    .filter(([pattern]) => openCodeWildcardMatch(name, pattern))
+    .at(-1)?.[1];
+}
+
+function openCodeWildcardMatch(value: string, pattern: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, process.platform === "win32" ? "si" : "s").test(value);
+}
+
+function discoverClaudeExplicitOnlySkillNames(userHome?: string): readonly string[] {
+  const root = join(resolveNativeHarnessDir("claude", userHome), "skills");
+  try {
+    return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(root, entry.name, "SKILL.md");
+      if (!(entry.isDirectory() || entry.isSymbolicLink()) || !existsSync(path)) return [];
+      try {
+        const raw = readFileSync(path, "utf8").replace(/^\uFEFF/u, "");
+        const match = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(raw);
+        if (!match) return [];
+        const metadata = parseYaml(match[1]!) as Record<string, unknown>;
+        return metadata["disable-model-invocation"] === true ? [loadSkillMdIndex(path).name] : [];
+      } catch { return []; }
+    });
+  } catch { return []; }
+}
+
+export function uninstallOpenCodeSkillVisibilityProjection(options: { readonly userHome?: string; readonly force?: boolean } = {}) {
+  const openCodeDir = resolveNativeHarnessDir("opencode", options.userHome);
+  const stateDir = join(openCodeDir, ".kiln");
+  let state = readNativeProjectionInstallState(stateDir);
+  const owned = state.targets[OPENCODE_SKILL_VISIBILITY_TARGET_ID];
+  if (!owned) return { removed: [] as string[], errors: [] as string[] };
+  const original = existsSync(owned.filePath) ? readFileSync(owned.filePath, "utf8") : undefined;
+  if (original === undefined) return { removed: [] as string[], errors: [`${OPENCODE_SKILL_VISIBILITY_TARGET_ID}: native file missing`] };
+  let document: Record<string, unknown>;
+  try { document = requireRecord(JSON.parse(stripJsonComments(original)), "configuration root must be an object"); }
+  catch (error) { return { removed: [] as string[], errors: [String(error)] }; }
+  const drift = detectNativeProjectionDrift({ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, state, currentDocument: document });
+  if (drift && !options.force) return { removed: [] as string[], errors: [`${OPENCODE_SKILL_VISIBILITY_TARGET_ID}: managed field drift`] };
+  try {
+    writeFileAtomically(owned.filePath, JSON.stringify(stripManagedFields({ currentDocument: document, managedFields: owned.managedFields }), null, 2) + "\n");
+    state = removeNativeProjectionTargetState(state, OPENCODE_SKILL_VISIBILITY_TARGET_ID);
+    writeNativeProjectionInstallState(stateDir, state);
+  } catch (error) { restoreFile(owned.filePath, original); return { removed: [] as string[], errors: [String(error)] }; }
+  return { removed: [OPENCODE_SKILL_VISIBILITY_TARGET_ID], errors: [] as string[] };
 }
 
 export async function syncNativePermissionProjections(
@@ -107,7 +230,9 @@ export async function syncNativePermissionProjections(
     if (opencodeResult.snapshot)
       installState = upsertNativeProjectionTargetState(installState, opencodeResult.snapshot);
     if (opencodeResult.error) errors.push(`OpenCode: ${opencodeResult.error}`);
-    if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
+    if (!options.dryRun) {
+      writeNativeProjectionInstallState(kilnDir, installState);
+    }
   } catch (error) {
     rollbackNativeProjectionChanges(rollbacks, error);
   }

@@ -22,6 +22,7 @@ export interface SkillInventoryRoot {
   readonly applicableHarnesses?: readonly ("claude" | "codex" | "opencode")[];
   readonly excludedTopLevelNames?: ReadonlySet<string>;
   readonly harness?: "claude" | "codex" | "opencode";
+  readonly exposureScope?: "user" | "project" | "harness" | "builtin";
 }
 
 export interface SkillPluginInventoryResult {
@@ -44,6 +45,8 @@ export interface CollectSkillSourceInventoryOptions {
   };
   readonly virtualCandidates?: readonly KilnSkillSourceCandidateSnapshot[];
   readonly trustedRealRoots?: readonly string[];
+  /** Internal evidence hook. Absolute paths are never added to the public snapshot. */
+  readonly onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void;
 }
 
 export function collectSkillSourceInventory(
@@ -67,7 +70,7 @@ export function collectSkillSourceInventory(
   const trustedRealRoots = resolveTrustedRealRoots(options.trustedRealRoots ?? []);
   for (const root of [...options.roots, ...plugin.roots]) {
     if (budget.exhausted) break;
-    candidates.push(...collectRoot(root, budget, diagnostics, trustedRealRoots, packageCache));
+    candidates.push(...collectRoot(root, budget, diagnostics, trustedRealRoots, packageCache, options.onCandidateResolved));
   }
   const canonicalNames = new Set(candidates
     .filter((entry) => entry.relationship === "canonical")
@@ -194,6 +197,7 @@ function collectRoot(
   diagnostics: KilnSkillInventoryDiagnosticSnapshot[],
   trustedRealRoots: readonly string[],
   packageCache: Map<string, ReturnType<typeof collectPackage>>,
+  onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void,
 ): KilnSkillSourceCandidateSnapshot[] {
   const candidates: KilnSkillSourceCandidateSnapshot[] = [];
   try { readdirSync(root.root); } catch {
@@ -228,11 +232,13 @@ function collectRoot(
         : root.managedSkillPaths?.has(normalizedSkillPath)
         ? "managed-projection" as const
         : root.relationship;
+      const sourceId = `${root.id ?? root.sourceKind}:${canonicalName}:${relative(root.root, candidate.logicalPath).replaceAll("\\", "/") || "."}`;
       candidates.push({
         name: index.name,
         canonicalName,
         sourceKind: root.sourceKind,
-        sourceId: `${root.id ?? root.sourceKind}:${canonicalName}:${relative(root.root, candidate.logicalPath).replaceAll("\\", "/") || "."}`,
+        sourceId,
+        exposureScope: root.exposureScope ?? defaultExposureScope(root),
         sourcePath: `${relative(root.root, candidate.logicalPath).replaceAll("\\", "/")}/SKILL.md`,
         relationship,
         packageDigest: digestSkillPackage(result.files),
@@ -240,11 +246,19 @@ function collectRoot(
         applicableHarnesses: root.applicableHarnesses ?? applicableHarnesses(root.sourceKind),
         effectiveVisibility: readCandidateVisibility(root, candidate.physicalPath, result.skillFile.path),
       });
+      onCandidateResolved?.(sourceId, result.skillFile.path);
     } catch {
       diagnostics.push({ code: "inventory-invalid-skill", message: "Invalid SKILL.md excluded from inventory.", sourceId: root.sourceKind });
     }
   }
   return candidates;
+}
+
+function defaultExposureScope(root: SkillInventoryRoot): "user" | "project" | "harness" | "builtin" {
+  if (root.sourceKind === "builtin") return "builtin";
+  if (root.sourceKind === "kiln-project" || root.id?.includes(":project")) return "project";
+  if (root.sourceKind === "native-harness" || root.sourceKind === "system") return "harness";
+  return "user";
 }
 
 function discoverPackages(
@@ -327,7 +341,8 @@ function exhaust(
 }
 
 function applicableHarnesses(sourceKind: KilnSkillSourceKind): readonly ("claude" | "codex" | "opencode")[] {
-  return sourceKind === "shared-agents" || sourceKind === "system" || sourceKind === "plugin"
+  if (sourceKind === "shared-agents") return ["codex", "opencode"];
+  return sourceKind === "system" || sourceKind === "plugin"
     ? ["codex"]
     : ["claude", "codex", "opencode"];
 }

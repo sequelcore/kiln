@@ -4,12 +4,14 @@ const syncMocks = vi.hoisted(() => ({
   loadKilnConfig: vi.fn(),
   readGlobalConfig: vi.fn(),
   syncNativePermissionProjections: vi.fn(),
+  syncOpenCodeSkillVisibilityProjection: vi.fn(),
   syncNativeHookProjections: vi.fn(),
   syncNativeAgentProjections: vi.fn(),
   resolveProjectRoot: vi.fn(),
   writeRepoShimProjections: vi.fn(),
   syncGlobalInstructionShimProjections: vi.fn(),
   syncNativeSkillProjections: vi.fn(),
+  syncCodexExternalSkillExposure: vi.fn(),
   uninstallNativeTargets: vi.fn(),
 }));
 
@@ -23,6 +25,7 @@ vi.mock("../../src/config/global-config.js", () => ({
 
 vi.mock("../../src/config/native-permission-projection.js", () => ({
   syncNativePermissionProjections: syncMocks.syncNativePermissionProjections,
+  syncOpenCodeSkillVisibilityProjection: syncMocks.syncOpenCodeSkillVisibilityProjection,
 }));
 
 vi.mock("../../src/config/native-hook-projection.js", () => ({
@@ -47,6 +50,9 @@ vi.mock("../../src/application/global-instruction-shim-projection.js", () => ({
 
 vi.mock("../../src/config/native-skill-projection.js", () => ({
   syncNativeSkillProjections: syncMocks.syncNativeSkillProjections,
+}));
+vi.mock("../../src/config/codex-external-skill-exposure-projection.js", () => ({
+  syncCodexExternalSkillExposure: syncMocks.syncCodexExternalSkillExposure,
 }));
 
 vi.mock("../../src/commands/uninstall.js", () => ({
@@ -87,6 +93,7 @@ describe("syncCommand", () => {
       ],
       errors: [],
     });
+    syncMocks.syncOpenCodeSkillVisibilityProjection.mockResolvedValue({ outcomes: [], errors: [] });
     syncMocks.syncNativeHookProjections.mockResolvedValue({
       claudeHook: true,
       codexHook: true,
@@ -466,6 +473,7 @@ describe("syncCommand", () => {
       outcomes: [{ targetId: "codex-skill:planner/SKILL.md", path: "C:/Users/test/.codex/skills/planner/SKILL.md", status: "written" }],
       errors: [],
     });
+    syncMocks.syncCodexExternalSkillExposure.mockResolvedValue({ outcomes: [], errors: [] });
     let output = "";
 
     try {
@@ -476,6 +484,16 @@ describe("syncCommand", () => {
     }
 
     expect(output).toContain("C:/Users/test/.codex/skills/planner/SKILL.md: WRITTEN");
+    expect(syncMocks.syncNativePermissionProjections).not.toHaveBeenCalled();
+    expect(syncMocks.syncCodexExternalSkillExposure).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncOpenCodeSkillVisibilityProjection).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncNativeSkillProjections).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs the composed native config writer only once when all targets include permissions and skills", async () => {
+    await syncCommand(MOCK_APP_CONFIG, undefined, ["--all", "--dry-run"]);
+    expect(syncMocks.syncNativePermissionProjections).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncCodexExternalSkillExposure).toHaveBeenCalledTimes(1);
   });
 
   it("accepts appConfig, subcommand, and args parameters", async () => {

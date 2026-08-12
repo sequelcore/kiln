@@ -109,6 +109,11 @@ function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnaps
                 </TableBody>
               </Table>
             )}
+            {(props.skills.externalExposure ?? []).filter((entry) => entry.status !== "not-configured").map((entry) => (
+              <p key={entry.harness} className="border-t border-border/70 px-4 py-3 text-xs text-muted-foreground">
+                External {skillHarnessLabel(entry.harness)}: {entry.status}; {NUMBER_FORMATTER.format(entry.realizedImplicit)} implicit, {NUMBER_FORMATTER.format(entry.suppressed)} suppressed; freshness {entry.freshness}.
+              </p>
+            ))}
             {props.skills.issues.length > 0 ? (
               <Table aria-label="Actionable skill catalog issues">
                 <TableHeader>

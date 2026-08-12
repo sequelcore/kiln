@@ -67,6 +67,7 @@ kiln config set --global skills.selection.mode auto
 | `skills.selection.mode` | `advisory \| auto` | Controls whether route/task and explicit work-classification recommendations are only shown to agents or automatically admitted after catalog checks. Defaults to `advisory`. |
 | `skills.visibility.default` | `implicit \| explicit-only \| disabled` | Default native catalog visibility for configured skills. Defaults to `implicit` for compatibility. |
 | `skills.visibility.overrides` | `Record<string, implicit \| explicit-only \| disabled>` | Exact canonical skill-id visibility exceptions. Visibility is global-only while native skill targets are user-global. |
+| `skills.externalCatalog` | `{ version: 1, harnesses: { codex?: { expectedFingerprint: "sha256:<64-hex>", keepImplicit: { sourceId, packageDigest }[] } } }` | Global reviewed exposure policy for external catalogs. Codex compiles the complete current implicit-candidate complement into owned path-specific disabled entries; incomplete or drifted evidence blocks projection. Unsupported harness adapters are rejected. |
 | `components.include` | `string[]` | Bundled component set identifiers enabled for the operator. |
 
 `executionCatalog` is the only operator-session routing authority. Runtime

@@ -258,6 +258,9 @@ function printSkillCatalogStatus(
   console.log(`    Inventory: ${skills.complete ? "complete" : "incomplete"}`);
   console.log(`    Duplicates: ${skills.equivalentDuplicates}`);
   console.log(`    Collisions: divergent=${skills.divergentCollisions}, case=${skills.caseCollisions}`);
+  for (const exposure of (skills.externalExposure ?? []).filter((entry) => entry.status !== "not-configured")) {
+    console.log(`    External ${exposure.harness}: ${exposure.status}, implicit=${exposure.realizedImplicit}, suppressed=${exposure.suppressed}, freshness=${exposure.freshness}`);
+  }
   for (const harness of skills.harnesses) {
     console.log(`    ${harness.harness}: ${harness.candidateCount} implicit skills, ${harness.descriptionBytes} description bytes, budget=${harness.budget.status}`);
   }

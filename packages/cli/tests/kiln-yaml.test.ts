@@ -115,6 +115,17 @@ describe("writeKilnYaml", () => {
 });
 
 describe("mergeKilnYaml", () => {
+  it("preserves global external catalog authority when project skills override other fields", () => {
+    const externalCatalog = {
+      version: 1 as const,
+      harnesses: { codex: { expectedFingerprint: `sha256:${"a".repeat(64)}`, keepImplicit: [] } },
+    };
+    const result = mergeKilnYaml(
+      { version: "1", skills: { externalCatalog, visibility: { default: "explicit-only" } } },
+      { version: "1", skills: { selection: { mode: "auto" } } },
+    );
+    expect(result.skills).toMatchObject({ externalCatalog, selection: { mode: "auto" }, visibility: { default: "explicit-only" } });
+  });
   it("override wins on scalar conflict", () => {
     const base: KilnYaml = { version: "1", domain: "python" };
     const override: Partial<KilnYaml> = { domain: "react-ts" };

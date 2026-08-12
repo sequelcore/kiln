@@ -122,6 +122,37 @@ describe("configCommand", () => {
     expect(config.permissions?.sandbox).toBe("danger-full-access");
   });
 
+  it("sets global skill visibility and reviewed external catalog policy without hand editing", async () => {
+    const globalDir = join(tempDir, "xdg", "kiln");
+    const external = {
+      version: 1,
+      harnesses: { codex: { expectedFingerprint: `sha256:${"b".repeat(64)}`, keepImplicit: [{ sourceId: "plugin:docs:pdf:.", packageDigest: `sha256:${"a".repeat(64)}` }] } },
+    };
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.default", "explicit-only"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.overrides", '{"pdf":"implicit"}'], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.externalCatalog", JSON.stringify(external)], tempDir);
+
+    const global = parseYaml(readFileSync(join(globalDir, "config.yaml"), "utf8")) as KilnYaml;
+    expect(global.skills).toMatchObject({
+      visibility: { default: "explicit-only", overrides: { pdf: "implicit" } },
+      externalCatalog: external,
+    });
+  });
+
+  it("rejects global-only skill policy without --global and leaves project bytes unchanged", async () => {
+    writeKiln(tempDir, DEFAULT_KILN);
+    const path = join(tempDir, ".kiln", "kiln.yaml");
+    const before = readFileSync(path);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
+    try {
+      await expect(configCommand(MOCK_APP_CONFIG, "set", ["skills.visibility.default", "disabled"], tempDir))
+        .rejects.toThrow("exit:1");
+    } finally {
+      exitSpy.mockRestore();
+    }
+    expect(readFileSync(path)).toEqual(before);
+  });
+
   it("set updates interactive-use policy", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 

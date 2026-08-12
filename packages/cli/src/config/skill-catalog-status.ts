@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, sep } from "node:path";
 import { parse } from "yaml";
+import { parse as parseToml } from "smol-toml";
 import {
   KILN_CORE_BUILTIN_SKILLS,
   loadSkillMdIndex,
@@ -19,6 +20,7 @@ import type {
   KilnSkillProjectionTargetSnapshot,
 } from "@kilnai/gateway-contracts";
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
+import { stripJsonComments } from "./json-comments.js";
 import {
   adoptLegacyNativeProjectionFile,
   detectNativeProjectionFileDrift,
@@ -38,10 +40,12 @@ import {
 import { renderSkillVisibility, resolveSkillVisibility } from "./skill-visibility.js";
 import {
   collectSkillSourceInventory,
+  defaultCodexPluginProvider,
   normalizeSkillInventoryPath,
   type SkillInventoryCommandRunner,
   type SkillPluginProvider,
 } from "./skill-source-inventory.js";
+import { compileCodexExternalSkillExposure, computeCodexExternalInventoryFingerprint } from "./external-skill-exposure.js";
 
 export interface ReadSkillCatalogStatusOptions {
   readonly projectPath: string;
@@ -50,6 +54,28 @@ export interface ReadSkillCatalogStatusOptions {
   readonly pluginProvider?: SkillPluginProvider;
   readonly commandRunner?: SkillInventoryCommandRunner;
   readonly cwd?: string;
+  /** Internal evidence hook; absolute paths are deliberately excluded from the status contract. */
+  readonly onCandidateResolved?: (sourceId: string, absoluteSkillFilePath: string) => void;
+}
+
+export function readGlobalExternalSkillInventory(options: Pick<ReadSkillCatalogStatusOptions,
+  "userHome" | "pluginProvider" | "commandRunner" | "onCandidateResolved">) {
+  const userHome = options.userHome ?? homedir();
+  const absolutePathBySourceId = new Map<string, string>();
+  const inventory = collectSkillSourceInventory({
+    roots: [
+      { id: "shared-agents:user", sourceKind: "shared-agents", root: join(userHome, ".agents", "skills"), relationship: "external", exposureScope: "user", applicableHarnesses: ["codex", "opencode"] },
+      { id: "system:codex", sourceKind: "system", root: join(userHome, ".codex", "skills", ".system"), relationship: "external", exposureScope: "harness" },
+    ],
+    ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
+    ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+    trustedRealRoots: [join(userHome, ".agents", "skills")],
+    onCandidateResolved: (sourceId, absolutePath) => {
+      absolutePathBySourceId.set(sourceId, absolutePath);
+      options.onCandidateResolved?.(sourceId, absolutePath);
+    },
+  });
+  return { inventory, absolutePathBySourceId };
 }
 
 interface SkillSourceEntry {
@@ -71,7 +97,7 @@ export function readSkillCatalogStatus(
   const configuredNames = new Set(configured.map((entry) => canonicalSkillKey(entry.index.name)));
   const installState = readNativeProjectionInstallState(join(options.projectPath, ".kiln"));
   const entries: KilnSkillCatalogSnapshotEntry[] = [
-    ...configured.map((entry) => projectConfiguredSkill(entry, userHome, installState)),
+    ...configured.map((entry) => projectConfiguredSkill(entry, userHome, installState, options.projectPath)),
     ...discoverUnmanagedNativeSkills(userHome, configuredNames),
   ];
   const builtinCandidates = configured.filter((entry) => entry.origin === "builtin").map((entry) => {
@@ -83,6 +109,7 @@ export function readSkillCatalogStatus(
       canonicalName,
       sourceKind: "builtin" as const,
       sourceId: `builtin:${canonicalName}`,
+      exposureScope: "builtin" as const,
       sourcePath: `builtin/${canonicalName}/SKILL.md`,
       relationship: "canonical" as const,
       packageDigest: digestSkillPackage([{ path: "SKILL.md", content }]),
@@ -97,19 +124,23 @@ export function readSkillCatalogStatus(
   const claudeRoot = join(userHome, ".claude", "skills");
   const openCodeRoot = join(userHome, ".config", "opencode", "skills");
   const codexProjectAgentRoots = discoverAgentsAncestry(options.cwd ?? options.projectPath, options.projectPath);
+  let pluginInventory: ReturnType<SkillPluginProvider> | undefined;
+  const pluginProvider: SkillPluginProvider = () => pluginInventory ??= options.pluginProvider
+    ? options.pluginProvider()
+    : defaultCodexPluginProvider(options.commandRunner);
+  const absolutePathBySourceId = new Map<string, string>();
   const collectedInventory = collectSkillSourceInventory({
     roots: [
       { id: "kiln-user", sourceKind: "kiln-user", root: join(userHome, ".kiln", "skills"), relationship: "canonical" },
       { id: "kiln-project", sourceKind: "kiln-project", root: join(options.projectPath, ".kiln", "skills"), relationship: "canonical" },
-      { id: "shared-agents:user", sourceKind: "shared-agents", root: join(userHome, ".agents", "skills"), relationship: "external" },
-      ...codexProjectAgentRoots.map((root, index) => ({ id: `shared-agents:project:${index}`, sourceKind: "shared-agents" as const, root, relationship: "external" as const })),
+      { id: "shared-agents:user", sourceKind: "shared-agents", root: join(userHome, ".agents", "skills"), relationship: "external", applicableHarnesses: ["codex", "opencode"] },
+      ...codexProjectAgentRoots.map((root, index) => ({ id: `shared-agents:project:${index}`, sourceKind: "shared-agents" as const, root, relationship: "external" as const, exposureScope: "project" as const, applicableHarnesses: ["codex", "opencode"] as const })),
       { id: "system:codex", sourceKind: "system", root: join(userHome, ".codex", "skills", ".system"), relationship: "external" },
       { id: "native:codex", sourceKind: "native-harness", root: codexRoot, relationship: "external", managedSkillPaths: managedPaths("codex", codexRoot), applicableHarnesses: ["codex"], excludedTopLevelNames: new Set([".system"]), harness: "codex" },
       { id: "native:claude", sourceKind: "native-harness", root: claudeRoot, relationship: "external", managedSkillPaths: managedPaths("claude", claudeRoot), applicableHarnesses: ["claude"], harness: "claude" },
       { id: "native:opencode", sourceKind: "native-harness", root: openCodeRoot, relationship: "external", managedSkillPaths: managedPaths("opencode", openCodeRoot), applicableHarnesses: ["opencode"], harness: "opencode" },
     ],
-    ...(options.pluginProvider ? { pluginProvider: options.pluginProvider } : {}),
-    ...(options.commandRunner ? { commandRunner: options.commandRunner } : {}),
+    pluginProvider,
     virtualCandidates: builtinCandidates,
     trustedRealRoots: [
       join(userHome, ".kiln", "skills"),
@@ -117,6 +148,10 @@ export function readSkillCatalogStatus(
       join(userHome, ".agents", "skills"),
       ...codexProjectAgentRoots,
     ],
+    onCandidateResolved: (sourceId, absolutePath) => {
+      absolutePathBySourceId.set(sourceId, absolutePath);
+      options.onCandidateResolved?.(sourceId, absolutePath);
+    },
   });
   const candidates = collectedInventory.candidates.map((candidate) => candidate.relationship === "canonical"
     ? { ...candidate, effectiveVisibility: resolveSkillVisibility(candidate.canonicalName, options.skillConfig) }
@@ -127,10 +162,16 @@ export function readSkillCatalogStatus(
       ? resolveSkillVisibility(candidate.canonicalName, options.skillConfig) === "implicit"
       : candidate.effectiveVisibility === "implicit")
   );
-  const inventory = { ...collectedInventory, candidates, harnesses: collectedInventory.harnesses.map((summary) => {
+  const inventoryBase = { ...collectedInventory, candidates, harnesses: collectedInventory.harnesses.map((summary) => {
     const candidates = implicitCandidates.filter((candidate) => candidate.applicableHarnesses.includes(summary.harness));
     return { ...summary, candidateCount: candidates.length, descriptionBytes: candidates.reduce((total, candidate) => total + candidate.descriptionBytes, 0) };
   }) };
+  const globalExposureInventory = readGlobalExternalSkillInventory({ ...options, pluginProvider });
+  const inventory = {
+    ...inventoryBase,
+    externalExposure: externalExposureEvidence(globalExposureInventory.inventory, options.skillConfig,
+      globalExposureInventory.absolutePathBySourceId, userHome),
+  };
 
   return {
     entries: entries.sort((left, right) =>
@@ -138,6 +179,101 @@ export function readSkillCatalogStatus(
     ),
     inventory,
   };
+}
+
+function externalExposureEvidence(
+  inventory: NonNullable<KilnSkillCatalogSnapshot["inventory"]>,
+  skillConfig: KilnYamlSkillsConfig | null | undefined,
+  absolutePathBySourceId: ReadonlyMap<string, string>,
+  userHome: string,
+): readonly {
+  readonly harness: "claude" | "codex" | "opencode";
+  readonly status: "not-configured" | "current" | "stale" | "blocked" | "unsupported";
+  readonly realizedImplicit: number;
+  readonly suppressed: number;
+  readonly fingerprint?: string;
+  readonly freshness: "current" | "stale" | "unknown";
+  readonly reason: string;
+}[] {
+  const policy = skillConfig?.externalCatalog;
+  const unsupported = (["claude", "opencode"] as const).map((harness) => ({
+    harness,
+    status: policy?.harnesses[harness] ? "unsupported" as const : "not-configured" as const,
+    realizedImplicit: inventory.candidates.filter((candidate) => candidate.relationship === "external"
+      && candidate.applicableHarnesses.includes(harness) && candidate.effectiveVisibility === "implicit").length,
+    suppressed: 0,
+    freshness: "unknown" as const,
+    reason: policy?.harnesses[harness]
+      ? "This build has no exact external exposure adapter for this harness."
+      : "No reviewed external exposure policy is configured for this harness.",
+  }));
+  if (!policy?.harnesses.codex) return [{
+    harness: "codex", status: "not-configured", realizedImplicit: inventory.candidates.filter((candidate) =>
+      candidate.relationship === "external" && candidate.applicableHarnesses.includes("codex") && candidate.effectiveVisibility === "implicit").length,
+    suppressed: 0,
+    ...(inventory.complete ? { fingerprint: computeCodexExternalInventoryFingerprint(inventory.candidates.filter((candidate) =>
+      candidate.relationship === "external" && candidate.applicableHarnesses.includes("codex")
+      && candidate.exposureScope !== "project" && candidate.effectiveVisibility === "implicit")) } : {}),
+    freshness: "unknown", reason: "No reviewed external exposure policy is configured for Codex; use this current complete inventory fingerprint when creating a reviewed policy.",
+  }, ...unsupported];
+  try {
+    const compiled = compileCodexExternalSkillExposure({ inventory, policy, absolutePathBySourceId });
+    const configPath = join(userHome, ".codex", "config.toml");
+    let persistedInventoryFingerprint: string | undefined;
+    let persistedPolicyFingerprint: string | undefined;
+    let persistedAdapterRevision: string | undefined;
+    let actualItems: readonly unknown[] = [];
+    if (existsSync(configPath)) {
+      const document = parseToml(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+      const kiln = document.kiln as Record<string, unknown> | undefined;
+      const evidence = kiln?.external_skill_catalog as Record<string, unknown> | undefined;
+      if (typeof evidence?.inventory_fingerprint === "string") persistedInventoryFingerprint = evidence.inventory_fingerprint;
+      if (typeof evidence?.policy_fingerprint === "string") persistedPolicyFingerprint = evidence.policy_fingerprint;
+      if (typeof evidence?.adapter_revision === "string") persistedAdapterRevision = evidence.adapter_revision;
+      const skills = document.skills as Record<string, unknown> | undefined;
+      actualItems = Array.isArray(skills?.config) ? skills.config : [];
+    }
+    const nameByPath = new Map(inventory.candidates.flatMap((candidate) => {
+      const path = absolutePathBySourceId.get(candidate.sourceId);
+      return path ? [[path, candidate.name] as const] : [];
+    }));
+    const effectiveEnabled = (path: string): boolean | undefined => {
+      let enabled: boolean | undefined;
+      const name = nameByPath.get(path);
+      for (const value of actualItems) {
+        const item = typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+        if ((item.path === path || name !== undefined && item.name === name) && typeof item.enabled === "boolean") enabled = item.enabled;
+      }
+      return enabled;
+    };
+    const actualHasAllDisabledItems = compiled.disabledItems.every((desired) => effectiveEnabled(desired.path) === false);
+    const current = persistedInventoryFingerprint === compiled.fingerprint
+      && persistedPolicyFingerprint === compiled.policyFingerprint
+      && persistedAdapterRevision === "codex-skills-config-path-v1"
+      && actualHasAllDisabledItems;
+    const keptPaths = policy.harnesses.codex.keepImplicit.map((decision) => absolutePathBySourceId.get(decision.sourceId)).filter((path): path is string => path !== undefined);
+    const realizedImplicit = keptPaths.filter((path) => effectiveEnabled(path) !== false).length;
+    const suppressed = [...compiled.disabledItems.map((item) => item.path), ...keptPaths]
+      .filter((path) => effectiveEnabled(path) === false).length;
+    return [{
+      harness: "codex", status: current ? "current" : "stale",
+      realizedImplicit,
+      suppressed, fingerprint: compiled.fingerprint,
+      freshness: current ? "current" : "stale",
+      reason: current ? "Native Codex exposure matches the reviewed inventory, policy, adapter, and actual disabled paths."
+        : `Native Codex exposure is stale or unproven (expected inventory ${policy.harnesses.codex.expectedFingerprint}, current ${compiled.fingerprint}).`,
+    }, ...unsupported];
+  } catch (error) {
+    const currentFingerprint = computeCodexExternalInventoryFingerprint(inventory.candidates.filter((candidate) =>
+      candidate.relationship === "external" && candidate.applicableHarnesses.includes("codex")
+      && candidate.exposureScope !== "project" && candidate.effectiveVisibility === "implicit"));
+    const fingerprintDrift = policy.harnesses.codex.expectedFingerprint !== currentFingerprint;
+    return [{ harness: "codex", status: "blocked", realizedImplicit: 0, suppressed: 0, freshness: "unknown",
+      ...(fingerprintDrift ? { status: "stale" as const, freshness: "stale" as const, fingerprint: currentFingerprint } : {}),
+      reason: fingerprintDrift
+        ? `Reviewed inventory fingerprint is stale (expected ${policy.harnesses.codex.expectedFingerprint}, current ${currentFingerprint}).`
+        : error instanceof Error ? error.message : String(error) }, ...unsupported];
+  }
 }
 
 function managedSkillProjectionPaths(
@@ -262,6 +398,7 @@ function projectConfiguredSkill(
   source: SkillSourceEntry,
   userHome: string,
   installState: NativeProjectionInstallState,
+  projectPath: string,
 ): KilnSkillCatalogSnapshotEntry {
   const isBuiltin = source.origin === "builtin"
     || KILN_CORE_BUILTIN_SKILLS.some((skill) => skill.name === source.index.name);
@@ -282,6 +419,7 @@ function projectConfiguredSkill(
         target.dir(userHome),
         source,
         installState,
+        projectPath,
       )
     ),
     admission: source.desiredVisibility === "disabled"
@@ -305,6 +443,7 @@ function readConfiguredProjectionStatus(
   targetRoot: string,
   source: SkillSourceEntry,
   installState: NativeProjectionInstallState,
+  projectPath: string,
 ): KilnSkillProjectionTargetSnapshot {
   const skillName = source.index.name;
   const fileNames = projectionFileNames(source, target);
@@ -364,6 +503,7 @@ function readConfiguredProjectionStatus(
   });
   const observedVisibility = readEffectiveNativeSkillVisibility(target, targetRoot, skillName);
   const openCodeExplicitOnlyUnsupported = source.desiredVisibility === "explicit-only" && target === "opencode";
+  const openCodeDenyEffective = openCodeExplicitOnlyUnsupported && hasOpenCodeSkillDeny(targetRoot, skillName, projectPath);
   const visibilityCapability = openCodeExplicitOnlyUnsupported || observedVisibility !== source.desiredVisibility
     ? "unsupported" as const
     : "exact" as const;
@@ -378,9 +518,31 @@ function readConfiguredProjectionStatus(
     visibilityReason: visibilityCapability === "exact"
       ? `Harness projection represents ${source.desiredVisibility} visibility exactly.`
       : openCodeExplicitOnlyUnsupported && observedVisibility === "disabled"
-        ? "Current OpenCode projection cannot enforce explicit-only visibility, so projection fails closed."
+        ? openCodeDenyEffective
+          ? "Stable OpenCode cannot preserve direct invocation; the observed default merged configuration denies the skill fail closed, while agent and session overrides remain unproven."
+          : "Current OpenCode projection cannot prove explicit-only enforcement; a same-name copy may remain available."
         : `Native harness exposes ${observedVisibility}; desired visibility is ${source.desiredVisibility}.`,
   };
+}
+
+function hasOpenCodeSkillDeny(targetRoot: string, skillName: string, projectPath: string): boolean {
+  let effective: unknown;
+  for (const path of [join(dirname(targetRoot), "opencode.json"), join(projectPath, "opencode.json"), join(projectPath, ".opencode", "opencode.json")]) try {
+    const config = JSON.parse(stripJsonComments(readFileSync(path, "utf8"))) as Record<string, unknown>;
+    const permission = typeof config.permission === "object" && config.permission !== null ? config.permission as Record<string, unknown> : {};
+    if (typeof permission.skill === "string") { effective = permission.skill; continue; }
+    const skill = typeof permission.skill === "object" && permission.skill !== null ? permission.skill as Record<string, unknown> : {};
+    const matched = Object.entries(skill)
+      .filter(([pattern]) => openCodeWildcardMatch(skillName, pattern))
+      .at(-1)?.[1];
+    if (matched !== undefined) effective = matched;
+  } catch { /* absent/unreadable layer supplies no proof */ }
+  return effective === "deny";
+}
+
+function openCodeWildcardMatch(value: string, pattern: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, process.platform === "win32" ? "si" : "s").test(value);
 }
 
 function readEffectiveNativeSkillVisibility(

@@ -1,13 +1,14 @@
 import { join } from "node:path";
 import readline from "node:readline";
 import { loadKilnConfig } from "../config/config-merger.js";
-import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
+import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
 import { syncNativeHookProjections } from "../config/native-hook-projection.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import { writeRepoShimProjections } from "../application/repo-shim-projection.js";
 import { syncGlobalInstructionShimProjections } from "../application/global-instruction-shim-projection.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
+import { syncCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
 import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 import type { KilnAppConfig } from "../config.js";
 
@@ -219,6 +220,8 @@ export async function syncCommand(
   let repoShimResult: Awaited<ReturnType<typeof writeRepoShimProjections>> | null = null;
   let globalInstructionResult: Awaited<ReturnType<typeof syncGlobalInstructionShimProjections>> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
+  let exposureResult: Awaited<ReturnType<typeof syncCodexExternalSkillExposure>> | null = null;
+  let openCodeSkillVisibilityResult: Awaited<ReturnType<typeof syncOpenCodeSkillVisibilityProjection>> | null = null;
   const unexpectedOutcomes: ProjectionOutcome[] = [];
 
   if (isSyncTargetSelected(flags, "permissions")) {
@@ -277,6 +280,14 @@ export async function syncCommand(
   }
 
   if (isSyncTargetSelected(flags, "skills")) {
+    exposureResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
+      syncCodexExternalSkillExposure({
+        skillConfig: kilnYaml.skills, force: forceSkillSync, dryRun: flags.dryRun,
+      }));
+    openCodeSkillVisibilityResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
+      syncOpenCodeSkillVisibilityProjection(kilnYaml, root, {
+        force: forceSkillSync, dryRun: flags.dryRun, disabledHarnesses,
+      }));
     skillsResult = await captureProjectionFailure(unexpectedOutcomes, "skills", root, () =>
       syncNativeSkillProjections(root, {
         force: forceSkillSync,
@@ -288,7 +299,7 @@ export async function syncCommand(
 
   const outcomes = [
     ...unexpectedOutcomes,
-    ...[permResult, hookResult, agentResult, repoShimResult, globalInstructionResult, skillsResult]
+    ...[permResult, hookResult, agentResult, repoShimResult, globalInstructionResult, exposureResult, openCodeSkillVisibilityResult, skillsResult]
       .flatMap((result) => result?.outcomes ?? []),
   ];
   console.log(flags.dryRun ? "\nSync Preview:" : "\nSync Results:");

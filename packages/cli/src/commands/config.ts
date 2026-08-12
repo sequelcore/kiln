@@ -63,7 +63,10 @@ type KilnYamlKey =
   | "interactiveUse.computerProvider"
   | "interactiveUse.browserEnvironment"
   | "interactiveUse.computerEnvironment"
-  | "skills.selection.mode";
+  | "skills.selection.mode"
+  | "skills.visibility.default"
+  | "skills.visibility.overrides"
+  | "skills.externalCatalog";
 
 const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "identity.name",
@@ -102,6 +105,9 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "interactiveUse.browserEnvironment",
   "interactiveUse.computerEnvironment",
   "skills.selection.mode",
+  "skills.visibility.default",
+  "skills.visibility.overrides",
+  "skills.externalCatalog",
 ]);
 
 function isValidConfigKey(key: string): key is KilnYamlKey {
@@ -234,7 +240,7 @@ export async function configCommand(
 }
 
 function setProjectNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
-  if (key.startsWith("identity.")) {
+  if (key.startsWith("identity.") || key.startsWith("skills.visibility.") || key === "skills.externalCatalog") {
     console.error(`Config key ${key} is global-only. Use 'kiln config set --global ${key} <value>'.`);
     process.exit(1);
   }
@@ -416,6 +422,18 @@ function setGovernanceOrSkillKey<T extends {
       },
     };
   }
+  if (key === "skills.visibility.default") {
+    if (rawValue !== "implicit" && rawValue !== "explicit-only" && rawValue !== "disabled") {
+      console.error(`Invalid skill visibility: ${rawValue}. Must be implicit, explicit-only, or disabled.`); process.exit(1);
+    }
+    return { ...config, skills: { ...(config.skills ?? {}), visibility: { ...(config.skills?.visibility ?? {}), default: rawValue } } };
+  }
+  if (key === "skills.visibility.overrides") {
+    return { ...config, skills: { ...(config.skills ?? {}), visibility: { ...(config.skills?.visibility ?? {}), overrides: parseJson(rawValue, key) as Record<string, "implicit" | "explicit-only" | "disabled"> } } };
+  }
+  if (key === "skills.externalCatalog") {
+    return { ...config, skills: { ...(config.skills ?? {}), externalCatalog: parseJson(rawValue, key) as NonNullable<KilnYaml["skills"]>["externalCatalog"] } };
+  }
   return undefined;
 }
 
@@ -429,6 +447,9 @@ function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): un
   if (key === "workGovernance.requireDelegationFor") return config.workGovernance?.requireDelegationFor;
   if (key === "workGovernance.requiredEvidence") return config.workGovernance?.requiredEvidence;
   if (key === "skills.selection.mode") return config.skills?.selection?.mode;
+  if (key === "skills.visibility.default") return config.skills?.visibility?.default;
+  if (key === "skills.visibility.overrides") return config.skills?.visibility?.overrides;
+  if (key === "skills.externalCatalog") return config.skills?.externalCatalog;
   const projectConfig = config as KilnYaml;
   if (key === "permissions.approval") return projectConfig.permissions?.approval;
   if (key === "permissions.sandbox") return projectConfig.permissions?.sandbox;

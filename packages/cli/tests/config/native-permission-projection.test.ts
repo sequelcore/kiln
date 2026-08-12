@@ -29,9 +29,10 @@ vi.mock("node:os", async () => {
 });
 
 import { tmpdir } from "node:os";
-import { syncNativePermissionProjections } from "../../src/config/native-permission-projection.js";
+import { syncNativePermissionProjections, syncOpenCodeSkillVisibilityProjection, uninstallOpenCodeSkillVisibilityProjection } from "../../src/config/native-permission-projection.js";
 import { uninstallNativeTargets } from "../../src/commands/uninstall.js";
 import * as nativeProjectionState from "../../src/config/native-projection-state.js";
+import { readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";
 
 interface TestPaths {
   rootPath: string;
@@ -138,6 +139,88 @@ describe("syncNativePermissionProjections", () => {
       "opencode-config",
     ]);
     expect(result.outcomes.every((outcome) => outcome.status === "planned")).toBe(true);
+  });
+
+  it("denies canonical explicit-only skills rediscovered from Claude without rewriting unrelated OpenCode permissions", async () => {
+    const source = join(paths.homePath, ".kiln", "skills", "planner");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "SKILL.md"), "---\nname: planner\ndescription: plan\n---\n", "utf8");
+    const target = join(paths.homePath, ".config", "opencode", "opencode.json");
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, JSON.stringify({ theme: "ocean", permission: { read: "allow", skill: { operator: "ask" } } }), "utf8");
+    const result = await syncOpenCodeSkillVisibilityProjection({
+      ...buildKilnYaml(), skills: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" } } },
+    }, paths.projectPath, { userHome: paths.homePath });
+    expect(result.errors).toEqual([]);
+    expect(readJson(target)).toEqual({
+      theme: "ocean", permission: { read: "allow", skill: { operator: "ask", planner: "deny" } },
+    });
+    expect(readJson(join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json")).targets)
+      .toHaveProperty("opencode-skill-visibility");
+    expect(existsSync(join(paths.projectPath, ".kiln", "install-state.json"))).toBe(false);
+    const planner = readSkillCatalogStatus({
+      projectPath: paths.projectPath, userHome: paths.homePath,
+      skillConfig: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" } } },
+      pluginProvider: () => ({ roots: [], diagnostics: [] }),
+    }).entries.find((entry) => entry.name === "planner");
+    expect(planner?.projections).toContainEqual(expect.objectContaining({
+      target: "opencode", effectiveVisibility: "disabled", visibilityCapability: "unsupported",
+      visibilityReason: expect.stringContaining("observed default merged configuration denies"),
+    }));
+    expect(uninstallOpenCodeSkillVisibilityProjection({ userHome: paths.homePath }).errors).toEqual([]);
+    expect(readJson(target)).toEqual({ theme: "ocean", permission: { read: "allow", skill: { operator: "ask" } } });
+  });
+
+  it("leaves an existing operator deny unowned while overriding a weaker same-name rule fail closed", async () => {
+    const source = join(paths.homePath, ".kiln", "skills", "planner");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "SKILL.md"), "---\nname: planner\ndescription: plan\n---\n", "utf8");
+    const target = join(paths.homePath, ".config", "opencode", "opencode.json");
+    mkdirSync(dirname(target), { recursive: true });
+    const config = { permission: { skill: { planner: "deny", operator: "allow" } } };
+    writeFileSync(target, JSON.stringify(config), "utf8");
+    const yaml = { ...buildKilnYaml(), skills: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" as const } } } };
+    expect((await syncOpenCodeSkillVisibilityProjection(yaml, paths.projectPath, { userHome: paths.homePath })).errors).toEqual([]);
+    expect(existsSync(join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json"))).toBe(false);
+    expect(uninstallOpenCodeSkillVisibilityProjection({ userHome: paths.homePath })).toEqual({ removed: [], errors: [] });
+    expect(readJson(target)).toEqual(config);
+
+    writeFileSync(target, JSON.stringify({ permission: { skill: { planner: "ask" } } }), "utf8");
+    const blocked = await syncOpenCodeSkillVisibilityProjection(yaml, paths.projectPath, { userHome: paths.homePath });
+    expect(blocked.errors.join(" ")).toContain("Existing exact OpenCode skill permission conflicts");
+    expect(readJson(target)).toEqual({ permission: { skill: { planner: "ask" } } });
+  });
+
+  it("keeps a global deny discovered from Claude when syncing a different project and blocks overriding patterns", async () => {
+    const claudeSkill = join(paths.homePath, ".claude", "skills", "planner");
+    mkdirSync(claudeSkill, { recursive: true });
+    writeFileSync(join(claudeSkill, "SKILL.md"), "---\nname: planner\ndescription: plan\ndisable-model-invocation: true\n---\n", "utf8");
+    const yaml = { ...buildKilnYaml(), skills: { builtin: { enabled: false } } };
+    expect((await syncOpenCodeSkillVisibilityProjection(yaml, join(paths.rootPath, "project-b"), { userHome: paths.homePath })).errors).toEqual([]);
+    const target = join(paths.homePath, ".config", "opencode", "opencode.json");
+    expect(readJson(target)).toMatchObject({ permission: { skill: { planner: "deny" } } });
+
+    expect(uninstallOpenCodeSkillVisibilityProjection({ userHome: paths.homePath }).errors).toEqual([]);
+    writeFileSync(target, JSON.stringify({ permission: { skill: { planner: "deny", "planner*": "allow" } } }), "utf8");
+    const blocked = await syncOpenCodeSkillVisibilityProjection(yaml, join(paths.rootPath, "project-b"), { userHome: paths.homePath });
+    expect(blocked.errors.join(" ")).toContain("overridden by a later-matching pattern");
+    expect(readJson(target)).toEqual({ permission: { skill: { planner: "deny", "planner*": "allow" } } });
+  });
+
+  it("preserves operator scalar allow when no OpenCode skill denies are desired", async () => {
+    const target = join(paths.homePath, ".config", "opencode", "opencode.json");
+    mkdirSync(dirname(target), { recursive: true });
+    const document = { theme: "ocean", permission: { skill: "allow" } };
+    writeFileSync(target, JSON.stringify(document), "utf8");
+    const result = await syncOpenCodeSkillVisibilityProjection({
+      ...buildKilnYaml(), skills: { builtin: { enabled: false } },
+    }, paths.projectPath, { userHome: paths.homePath });
+    expect(result).toEqual({
+      errors: [],
+      outcomes: [expect.objectContaining({ targetId: "opencode-skill-visibility", status: "skipped" })],
+    });
+    expect(readJson(target)).toEqual(document);
+    expect(existsSync(join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json"))).toBe(false);
   });
 
   it("merges Claude settings and writes kiln.permissionSync metadata", { timeout: 10_000 }, async () => {

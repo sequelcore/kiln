@@ -779,6 +779,7 @@ function summarizeSkillCatalog(catalog: ReturnType<typeof readSkillCatalogStatus
     divergentCollisions: identities.filter((identity) => identity.classification === "divergent-collision").length,
     caseCollisions: identities.filter((identity) => identity.classification === "case-collision").length,
     harnesses: catalog.inventory?.harnesses ?? [],
+    externalExposure: catalog.inventory?.externalExposure ?? [],
     issueCount: allIssues.length,
     omittedIssueCount: Math.max(0, allIssues.length - 12),
     issues: allIssues.slice(0, 12),
@@ -933,6 +934,10 @@ function skillProjectionRecommendations(
     return [];
   }
   const actions: KilnConfigSetupAction[] = [];
+  if (skillCatalog.inventory?.externalExposure?.some((entry) =>
+    entry.harness === "codex" && (entry.status === "stale" || entry.status === "blocked"))) {
+    actions.push("sync-native-projections");
+  }
   for (const skill of skillCatalog.entries) {
     if (!skill.configured && skill.origin === "native-harness") {
       actions.push("adopt-or-back-up-native-guidance");

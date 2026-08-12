@@ -11,7 +11,17 @@ import {
 } from "../../src/config/native-projection-state.js";
 
 describe("skill catalog status path safety", () => {
-  it("reports per-harness implicit catalogs with Codex-only external sources", () => {
+  it("reports a complete current Codex fingerprint before external policy is configured", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
+    const projectPath = join(root, "project"); const userHome = join(root, "user");
+    mkdirSync(join(userHome, ".agents", "skills", "one"), { recursive: true });
+    writeFileSync(join(userHome, ".agents", "skills", "one", "SKILL.md"), "---\nname: one\ndescription: one\n---\n", "utf8");
+    const codex = readSkillCatalogStatus({ projectPath, userHome, skillConfig: { builtin: { enabled: false } },
+      pluginProvider: () => ({ roots: [], diagnostics: [] }) }).inventory?.externalExposure?.find((entry) => entry.harness === "codex");
+    expect(codex).toMatchObject({ status: "not-configured", freshness: "unknown" });
+    expect(codex?.fingerprint).toMatch(/^sha256:[a-f0-9]{64}$/u);
+  });
+  it("reports shared-agent skills for Codex and OpenCode implicit catalogs", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
     const projectPath = join(root, "project"); const userHome = join(root, "user");
     const canonical = join(userHome, ".kiln", "skills"); const shared = join(userHome, ".agents", "skills");
@@ -20,16 +30,24 @@ describe("skill catalog status path safety", () => {
     writeFileSync(join(canonical, "explicit", "SKILL.md"), "---\nname: explicit\ndescription: excluded\n---\n", "utf8");
     writeFileSync(join(shared, "shared", "SKILL.md"), "---\nname: shared\ndescription: codex\n---\n", "utf8");
     const snapshot = readSkillCatalogStatus({ projectPath, userHome,
-      skillConfig: { builtin: { enabled: false }, visibility: { overrides: { explicit: "explicit-only" } } },
+      skillConfig: {
+        builtin: { enabled: false }, visibility: { overrides: { explicit: "explicit-only" } },
+        externalCatalog: { version: 1, harnesses: { codex: { expectedFingerprint: `sha256:${"0".repeat(64)}`, keepImplicit: [] } } },
+      },
       pluginProvider: () => ({ roots: [], diagnostics: [] }),
     });
     expect(snapshot.inventory?.harnesses).toEqual([
       expect.objectContaining({ harness: "claude", candidateCount: 1, descriptionBytes: 3 }),
       expect.objectContaining({ harness: "codex", candidateCount: 2, descriptionBytes: 8 }),
-      expect.objectContaining({ harness: "opencode", candidateCount: 1, descriptionBytes: 3 }),
+      expect.objectContaining({ harness: "opencode", candidateCount: 2, descriptionBytes: 8 }),
     ]);
     expect(snapshot.inventory?.candidates.find((candidate) => candidate.canonicalName === "explicit"))
       .toMatchObject({ relationship: "canonical", effectiveVisibility: "explicit-only" });
+    expect(snapshot.inventory?.externalExposure).toEqual(expect.arrayContaining([
+      expect.objectContaining({ harness: "codex", status: "stale", freshness: "stale", realizedImplicit: 0, suppressed: 0 }),
+      expect.objectContaining({ harness: "claude", status: "not-configured", freshness: "unknown" }),
+      expect.objectContaining({ harness: "opencode", status: "not-configured", freshness: "unknown" }),
+    ]));
   });
 
   it("counts an implicit plugin copy even when the same canonical skill is explicit-only", () => {
@@ -260,7 +278,7 @@ describe("skill catalog status path safety", () => {
         target: "opencode",
         effectiveVisibility: "disabled",
         visibilityCapability: "unsupported",
-        visibilityReason: expect.stringContaining("fails closed"),
+        visibilityReason: expect.stringContaining("cannot prove explicit-only enforcement"),
       }),
     ]));
   });

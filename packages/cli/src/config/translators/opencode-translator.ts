@@ -76,6 +76,10 @@ export function translateOpenCodePermissionProjection(input: {
   const cfg = translated.config as { permissionDefault: string };
   const { kiln: _legacyKilnMetadata, ...rawExistingDocument } = input.existingDocument;
   const staleGatewayFields = (input.previousManagedFields ?? []).filter((field) => field === "provider.kiln");
+  const existingSkillPermission = typeof rawExistingDocument.permission === "object"
+    && rawExistingDocument.permission !== null && !Array.isArray(rawExistingDocument.permission)
+    ? (rawExistingDocument.permission as Record<string, unknown>).skill
+    : undefined;
   const existingDocument = stripManagedFields({
     currentDocument: rawExistingDocument,
     managedFields: staleGatewayFields,
@@ -84,14 +88,17 @@ export function translateOpenCodePermissionProjection(input: {
     !input.gatewayProjection && input.kilnYaml
       ? resolveNativeDefaultRouteProjection("opencode", input.kilnYaml)
       : undefined;
+  const permission = buildOpenCodePermissionDocument(cfg.permissionDefault, translated.nativeRules as OpenCodeNativeRules);
+  delete permission.skill;
+  if (existingSkillPermission !== undefined) permission.skill = existingSkillPermission as OpenCodePermissionRule;
   const managedFields = [
-    "permission",
+    ...Object.keys(permission).filter((key) => key !== "skill").map((key) => `permission.${key}`),
     ...(defaultRoute?.status === "project" ? ["model"] : []),
     ...(input.gatewayProjection?.managedFields ?? []),
   ];
   const document: Record<string, unknown> = {
     ...existingDocument,
-    permission: buildOpenCodePermissionDocument(cfg.permissionDefault, translated.nativeRules as OpenCodeNativeRules),
+    permission,
   };
   if (input.gatewayProjection) {
     if (!input.gatewayProjection.managedFields.includes("model") && input.ownsManagedDefault) delete document.model;

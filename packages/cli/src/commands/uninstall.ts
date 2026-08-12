@@ -13,10 +13,13 @@ import {
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
 import type { KilnAppConfig } from "../config.js";
+import { CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID, uninstallCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
+import { OPENCODE_SKILL_VISIBILITY_TARGET_ID, uninstallOpenCodeSkillVisibilityProjection } from "../config/native-permission-projection.js";
 
 export interface UninstallNativeOptions {
   readonly target?: string;
   readonly force?: boolean;
+  readonly userHome?: string;
 }
 
 export interface UninstallNativeResult {
@@ -106,7 +109,9 @@ export async function uninstallCommand(
 export function uninstallNativeTargets(projectPath: string, options: UninstallNativeOptions = {}): UninstallNativeResult {
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
-  const targetIds = resolveTargetIds(installState, options.target);
+  const targetIds = options.target?.trim() === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID
+    || options.target?.trim() === OPENCODE_SKILL_VISIBILITY_TARGET_ID
+    ? [] : resolveTargetIds(installState, options.target);
   const removed: string[] = [];
   const skipped: string[] = [];
   const errors: string[] = [];
@@ -168,6 +173,16 @@ export function uninstallNativeTargets(projectPath: string, options: UninstallNa
     writeNativeProjectionInstallState(kilnDir, installState);
   }
 
+  const target = options.target?.trim();
+  if (!target || target === "codex" || target === "codex-config" || target === CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID) {
+    const global = uninstallCodexExternalSkillExposure({ force: options.force, userHome: options.userHome });
+    removed.push(...global.removed);
+    errors.push(...global.errors);
+  }
+  if (!target || target === "opencode" || target === "opencode-config" || target === OPENCODE_SKILL_VISIBILITY_TARGET_ID) {
+    const global = uninstallOpenCodeSkillVisibilityProjection({ force: options.force, userHome: options.userHome });
+    removed.push(...global.removed); errors.push(...global.errors);
+  }
   return { removed, skipped, errors };
 }
 

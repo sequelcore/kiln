@@ -121,10 +121,26 @@ export interface KilnYamlSkillVisibilityConfig {
   readonly overrides?: Readonly<Record<string, KilnYamlSkillVisibility>>;
 }
 
+export interface KilnExternalCatalogKeepImplicitDecision {
+  readonly sourceId: string;
+  readonly packageDigest: string;
+}
+
+export interface KilnExternalCatalogPolicy {
+  readonly version: 1;
+  readonly harnesses: {
+    readonly codex?: { readonly expectedFingerprint: string; readonly keepImplicit: readonly KilnExternalCatalogKeepImplicitDecision[] };
+    readonly claude?: { readonly expectedFingerprint: string; readonly keepImplicit: readonly KilnExternalCatalogKeepImplicitDecision[] };
+    readonly opencode?: { readonly expectedFingerprint: string; readonly keepImplicit: readonly KilnExternalCatalogKeepImplicitDecision[] };
+  };
+}
+
 export interface KilnYamlSkillsConfig {
   readonly builtin?: KilnYamlBuiltinSkillsConfig;
   readonly selection?: KilnYamlSkillSelectionConfig;
   readonly visibility?: KilnYamlSkillVisibilityConfig;
+  /** Global-only reviewed exposure policy for external harness catalogs. */
+  readonly externalCatalog?: KilnExternalCatalogPolicy;
 }
 
 export type KilnWorkGovernancePosture = "orchestrate" | "direct";
