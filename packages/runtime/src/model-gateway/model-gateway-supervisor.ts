@@ -57,7 +57,7 @@ export class ModelGatewaySupervisor {
   readonly #version: string;
   readonly #env: Readonly<Record<string, string | undefined>>;
   readonly #launch: ModelGatewayLaunchDescriptor;
-  readonly #inspect: () => Promise<ModelGatewayListenerInspection>;
+  readonly #inspect: (expected?: Pick<ModelGatewayListenerIdentity, "port" | "configDigest">) => Promise<ModelGatewayListenerInspection>;
   readonly #requestShutdown: (identity: ModelGatewayListenerIdentity) => Promise<ModelGatewayShutdownResult>;
   readonly #process: ModelGatewayProcessAdapter;
   readonly #createInstanceId: () => string;
@@ -70,7 +70,7 @@ export class ModelGatewaySupervisor {
     readonly version: string;
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly launch: ModelGatewayLaunchDescriptor;
-    readonly inspect: () => Promise<ModelGatewayListenerInspection>;
+    readonly inspect: (expected?: Pick<ModelGatewayListenerIdentity, "port" | "configDigest">) => Promise<ModelGatewayListenerInspection>;
     readonly requestShutdown: (identity: ModelGatewayListenerIdentity) => Promise<ModelGatewayShutdownResult>;
     readonly processAdapter?: ModelGatewayProcessAdapter;
     readonly createInstanceId?: () => string;
@@ -97,7 +97,8 @@ export class ModelGatewaySupervisor {
   }
 
   async status(): Promise<ModelGatewaySupervisorStatus> {
-    const [inspection, state] = await Promise.all([this.#inspect(), this.readState()]);
+    const state = await this.readState();
+    const inspection = await this.#inspect(state ? { port: state.port, configDigest: state.configDigest } : undefined);
     if (inspection.state !== "ready") return inspection;
     if (!state || !owns(inspection.identity, state)) return { state: "foreign", reason: "unmanaged-ready-listener" };
     return inspection;
@@ -146,7 +147,13 @@ export class ModelGatewaySupervisor {
 
   async #startLocked(): Promise<ModelGatewaySupervisorStatus> {
     const current = await this.status();
-    if (current.state === "ready" || current.state === "foreign") return current;
+    if (current.state === "foreign") return current;
+    if (current.state === "ready") {
+      const state = await this.readState();
+      if (state && isDesiredRuntime(current.identity, state, this.#config, this.#version, this.#launch)) return current;
+      const stopped = await this.#stopLocked();
+      if (stopped.state === "foreign") return stopped;
+    }
     const stale = await this.readState();
     if (stale && this.#process.isAlive(stale.pid)) return { state: "foreign", reason: "stale-owner-alive" };
     if (stale) await this.#removeState();
@@ -248,6 +255,19 @@ export const nodeModelGatewayProcessAdapter: ModelGatewayProcessAdapter = {
 
 function owns(identity: ModelGatewayListenerIdentity, state: ModelGatewayRuntimeState): boolean {
   return identity.instanceId === state.instanceId && identity.pid === state.pid && identity.port === state.port && identity.version === state.version && identity.configDigest === state.configDigest;
+}
+
+function isDesiredRuntime(
+  identity: ModelGatewayListenerIdentity,
+  state: ModelGatewayRuntimeState,
+  config: ModelGatewayConfig,
+  version: string,
+  launch: ModelGatewayLaunchDescriptor,
+): boolean {
+  return identity.port === config.port
+    && identity.configDigest === createModelGatewayConfigDigest(config)
+    && identity.version === version
+    && JSON.stringify(state.launch) === JSON.stringify(launch);
 }
 
 function validateLaunch(value: ModelGatewayLaunchDescriptor): ModelGatewayLaunchDescriptor {

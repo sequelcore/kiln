@@ -220,6 +220,7 @@ describe("startModelGatewayListener", () => {
     await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => readyResponse.clone() })).resolves.toMatchObject({ state: "ready", identity: { pid: 7, configDigest: digest } });
     const mismatchedResponse = new Response(JSON.stringify({ service: "kiln-model-gateway", status: "ready", protocolVersion: 1, instanceId: "instance-b", pid: 7, version: "3.0.0-test", configDigest: "f".repeat(64), port: 4819 }), { status: 200, headers: { "content-type": "application/json", "x-kiln-service": "model-gateway" } });
     await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => mismatchedResponse.clone() })).resolves.toMatchObject({ state: "foreign", reason: "identity-mismatch" });
+    await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), expected: { port: 4819, configDigest: "f".repeat(64) }, fetch: async () => mismatchedResponse.clone() })).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-b" } });
     await expect(inspectModelGatewayListener({ config, token: "t".repeat(32), fetch: async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } }); } })).resolves.toEqual({ state: "stopped" });
     // Bun reports a refused connection as a top-level `ConnectionRefused`, so
     // recognising only the Node spelling reports a stopped gateway as foreign

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,33 @@ describe("ModelGatewaySupervisor", () => {
     await expect(supervisor.stop()).resolves.toEqual({ state: "foreign", reason: "identity-mismatch" });
     expect(processAdapter.spawn).not.toHaveBeenCalled();
     expect(processAdapter.terminate).not.toHaveBeenCalled();
+  });
+
+  it("restarts an owned prior configuration revision during ensure", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-revision-"));
+    const priorIdentity = { ...identity("instance-old", 111), configDigest: "f".repeat(64) };
+    const processAdapter = adapter({ spawnPid: 222 });
+    const inspect = vi.fn()
+      .mockResolvedValueOnce({ state: "ready", identity: priorIdentity })
+      .mockResolvedValueOnce({ state: "ready", identity: priorIdentity })
+      .mockResolvedValueOnce({ state: "stopped" })
+      .mockResolvedValueOnce({ state: "stopped" })
+      .mockResolvedValue({ state: "ready", identity: identity("instance-a", 222) });
+    const supervisor = createSupervisor(root, inspect, processAdapter, () => "instance-a");
+    await writeFile(join(root, "state.json"), `${JSON.stringify({
+      schemaVersion: 1,
+      instanceId: "instance-old",
+      pid: 111,
+      port: 4819,
+      version: "3.0.0-test",
+      configDigest: "f".repeat(64),
+      startedAt: "2026-08-12T00:00:00.000Z",
+      launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
+    }, null, 2)}\n`, "utf8");
+
+    await expect(supervisor.ensure()).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-a", pid: 222 } });
+    expect(inspect).toHaveBeenCalledWith({ port: 4819, configDigest: "f".repeat(64) });
+    expect(processAdapter.spawn).toHaveBeenCalledOnce();
   });
 
   it("only stops an owned ready instance and removes its state", async () => {

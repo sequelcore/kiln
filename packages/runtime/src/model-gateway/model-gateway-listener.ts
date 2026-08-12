@@ -117,14 +117,19 @@ export function createModelGatewayConfigDigest(config: ModelGatewayConfig): stri
 export async function inspectModelGatewayListener(input: {
   readonly config: ModelGatewayConfig;
   readonly token: string;
+  readonly expected?: Pick<ModelGatewayListenerIdentity, "port" | "configDigest">;
   readonly fetch?: typeof fetch;
   readonly timeoutMs?: number;
 }): Promise<ModelGatewayListenerInspection> {
+  const expected = input.expected ?? {
+    port: input.config.port,
+    configDigest: createModelGatewayConfigDigest(input.config),
+  };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 1_000);
   let response: Response;
   try {
-    response = await (input.fetch ?? fetch)(`http://127.0.0.1:${input.config.port}${MODEL_GATEWAY_HEALTH_PATH}`, {
+    response = await (input.fetch ?? fetch)(`http://127.0.0.1:${expected.port}${MODEL_GATEWAY_HEALTH_PATH}`, {
       headers: { authorization: `Bearer ${input.token}` },
       signal: controller.signal,
     });
@@ -143,7 +148,7 @@ export async function inspectModelGatewayListener(input: {
   let identity: unknown;
   try { identity = await response.json(); } catch { return { state: "foreign", reason: "unexpected-response" }; }
   if (!isModelGatewayListenerIdentity(identity)) return { state: "foreign", reason: "unexpected-response" };
-  if (identity.configDigest !== createModelGatewayConfigDigest(input.config) || identity.port !== input.config.port) {
+  if (identity.configDigest !== expected.configDigest || identity.port !== expected.port) {
     return { state: "foreign", reason: "identity-mismatch" };
   }
   return { state: "ready", identity };
@@ -160,7 +165,7 @@ export async function requestModelGatewayShutdown(input: {
   const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 1_000);
   let response: Response;
   try {
-    response = await (input.fetch ?? fetch)(`http://127.0.0.1:${input.config.port}${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
+    response = await (input.fetch ?? fetch)(`http://127.0.0.1:${input.identity.port}${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${input.token}`,

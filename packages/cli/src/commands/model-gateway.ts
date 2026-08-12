@@ -127,7 +127,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     version: dependencies.version,
     env: dependencies.env,
     launch,
-    inspect: () => dependencies.inspectModelGatewayListener({ config, token }),
+    inspect: (expected) => dependencies.inspectModelGatewayListener({ config, token, ...(expected ? { expected } : {}) }),
     requestShutdown: (identity) => requestModelGatewayShutdown({ config, token, identity }),
   });
   if (subcommand === "uninstall") {
