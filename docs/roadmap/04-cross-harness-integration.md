@@ -1,7 +1,7 @@
 # 04 - Cross-Harness Integration
 
 Status: Active integration track
-Execution: Blocked - live Model Gateway activation and cross-harness proof remain; shared lease correctness is implemented with portable tests.
+Execution: Blocked - OpenCode live parity and cross-harness proof remain; Model Gateway-dependent projection proof waits on Roadmap 03.
 Created: 2026-07-23
 
 ## Objective
@@ -20,10 +20,10 @@ control-plane MCP discovery, migration/restore, and live conformance. Runtime
 job state, economic commitment, account capacity, and write approval follow the
 canonical [managed-agent](../architecture/coordination/managed-agents.md) and
 [managed economic commitment](../architecture/coordination/managed-account-leases.md)
-contracts; gateway service lifecycle, provider identity, and entitlement
-evidence belong to Roadmap 03. This track maps harness-native observations onto
-those shared contracts; it does not create a second identity, account-selection,
-or lifecycle owner.
+contracts. Roadmap 03 owns only Model Gateway ingress lifecycle. Provider and
+model evidence belongs to Core discovery and Runtime observations. This track
+maps harness-native observations onto those shared contracts; it does not create
+a second identity, account-selection, execution, or lifecycle owner.
 
 Core owns pure `RouteCapability` values. Runtime is the only composition and
 authority boundary: it admits capabilities, commits economic work, materializes
@@ -174,7 +174,7 @@ global-instruction and repo-shim dry runs remain unchanged.
 
 ### Slice 2 - Cross-Harness Dogfood
 
-Status: Queued behind Roadmap 03 plus Slices 0-1.
+Status: Queued behind Slices 0-1.
 
 Re-sync and live-prove the harness-neutral bridge from all three harnesses,
 then run a real bounded implementation slice through the completed per-job
@@ -315,11 +315,12 @@ assumptions, and unsupported-proof gaps.
   account leases, selection reason, and replay evidence; Slice 2 consumes that
   completed path and must not reimplement leasing or reintroduce ambient
   round-robin.
-- Roadmap 03 owns the Model Gateway process, configuration, and token
-  bootstrap; Slices 1, 3, and 5 depend on a live, operator-configured gateway
-  and must not duplicate its lifecycle or provider-identity contract.
-- Roadmap 03 also owns provider identity/access/entitlement projection; this
-  track only maps harness-native observations onto it.
+- Roadmap 03 owns Model Gateway ingress configuration, authentication,
+  supervision, recovery, and exact uninstall. Only the Model Gateway projection
+  and recovery portions of Slices 1 and 4 depend on its live proof.
+- Provider identity and entitlement evidence comes from provider-model discovery
+  and Runtime observations. This track maps harness-native evidence without
+  redefining those contracts.
 - Provider model discovery remains the runtime-owned availability and
   eligibility plane; this track's adapters project that evidence and never
   weaken fail-closed admission.

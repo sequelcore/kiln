@@ -25,7 +25,7 @@ describe("operator surface capability contract", () => {
         {
           capability: "embedded-browser-host",
           status: "unsupported",
-          reason: "Browser host proof is owned by roadmap 03.",
+          reason: "Embedded browser hosting is unavailable on this surface.",
         },
         {
           capability: "native-cockpit-contract",
@@ -46,7 +46,7 @@ describe("operator surface capability contract", () => {
     expect(operatorSurfaceCapabilityStatus(snapshot, "embedded-browser-host")).toEqual({
       capability: "embedded-browser-host",
       status: "unsupported",
-      reason: "Browser host proof is owned by roadmap 03.",
+      reason: "Embedded browser hosting is unavailable on this surface.",
     });
   });
 

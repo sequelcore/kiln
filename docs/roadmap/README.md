@@ -28,7 +28,7 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [03 - Model Gateway Lifecycle](03-model-gateway-lifecycle.md) | Blocked | Fix deterministic teardown, then apply and live-prove the reviewed user-scoped gateway configuration on an operator machine. |
+| 1 | [03 - Model Gateway Ingress Lifecycle](03-model-gateway-ingress-lifecycle.md) | Blocked | Close deterministic ingress teardown, then reconcile operator configuration and prove autostart, recovery, and exact uninstall under issue [#74](https://github.com/sequelcore/kiln/issues/74). |
 | 2 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Blocked | Close the remaining OpenCode live parity and harness-neutral bridge proof; issue #47 owns deterministic deliberation and global-config activation. |
 | 3 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
@@ -39,12 +39,12 @@ roadmap reorganization.
 
 ## Dependency Rules
 
-- `03` owns the user-scoped Model Gateway process, configuration, authentication, and supervision.
+- `03` owns Model Gateway ingress protocols, virtual-model aliases, authentication, process state, supervision, recovery, and exact uninstall. Core and Runtime retain execution authority.
 - `04` owns harness adapters, native projection, protocol parity, live cross-harness proof, and deferred federation research.
 - `05` decides whether a skill is healthy, compatible, trusted, and admitted.
 - `06` decides how admitted instructions and skill content enter provider prompts and become replayable evidence.
 - `07` owns desired stack policy and drift evidence; skills may consume its result but never own versions.
-- `08` owns the cross-surface remote/headless pairing flow and binds to `03`'s access contract; deferred behind `07` by explicit decision, not technical dependency.
+- `08` owns the cross-surface remote/headless pairing flow and its authenticated operator-session contract; deferred behind `07` by explicit decision, not technical dependency.
 - `09` is a decision boundary, not queued implementation.
 - `10` remains last; native surface promotion depends on stable release, gateway, and benchmark evidence.
 
