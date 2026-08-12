@@ -27,6 +27,7 @@ const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome"
   },
   entries: [],
 };
+const EMPTY_EXECUTION_ROUTE_CATALOG = { routes: [] } as const;
 
 // Track created WebSocket instances for testing
 let wsInstances: MockWebSocket[] = [];
@@ -1301,6 +1302,7 @@ describe("GuiWsClient", () => {
         {
           json: {
             type: "welcome",
+            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
             providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
@@ -1309,6 +1311,7 @@ describe("GuiWsClient", () => {
           },
           expected: {
             type: "welcome",
+            executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
             providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },

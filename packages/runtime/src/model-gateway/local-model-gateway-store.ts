@@ -1,4 +1,4 @@
-import { Database } from "bun:sqlite";
+import { Database, constants } from "bun:sqlite";
 import {
   createCipheriv,
   createDecipheriv,
@@ -90,7 +90,7 @@ export class LocalModelGatewayStore
         )
         .run(this.#now() + this.#ttl);
     } catch (error) {
-      this.#db.close();
+      this.#db.close(true);
       throw error;
     }
   }
@@ -258,7 +258,12 @@ export class LocalModelGatewayStore
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.#db.close();
+    try {
+      this.#db.fileControl(constants.SQLITE_FCNTL_PERSIST_WAL, 0);
+      this.#db.exec("PRAGMA wal_checkpoint(TRUNCATE);");
+    } finally {
+      this.#db.close(true);
+    }
   }
   #transition(
     key: ModelGatewayReplayKey,

@@ -4,13 +4,13 @@
  * File-path databases share a single in-memory better-sqlite3 instance keyed by
  * path, avoiding OS file locks that cause EBUSY on Windows during test cleanup.
  */
-import { closeSync, constants, openSync } from "node:fs";
+import { closeSync, constants as fsConstants, openSync } from "node:fs";
 import BetterSqlite3 from "better-sqlite3";
 
 const shared = new Map<string, { db: BetterSqlite3.Database; refs: number }>();
 
 function materializeFilePath(path: string): void {
-  const descriptor = openSync(path, constants.O_CREAT | constants.O_WRONLY, 0o600);
+  const descriptor = openSync(path, fsConstants.O_CREAT | fsConstants.O_WRONLY, 0o600);
   closeSync(descriptor);
 }
 
@@ -63,6 +63,10 @@ export class Database {
     return { immediate: () => transaction.immediate() };
   }
 
+  fileControl(_command: number, _value: unknown): void {
+    // better-sqlite3's in-memory test double has no WAL persistence handle.
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
@@ -79,3 +83,7 @@ export class Database {
     }
   }
 }
+
+export const constants = {
+  SQLITE_FCNTL_PERSIST_WAL: 10,
+} as const;

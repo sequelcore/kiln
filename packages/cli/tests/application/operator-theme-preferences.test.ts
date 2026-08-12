@@ -1,51 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../src/config/global-config.js", () => ({
-  readGlobalConfig: vi.fn(),
-  writeGlobalConfig: vi.fn(),
+  mutateGlobalConfig: vi.fn(),
   defaultGlobalConfig: () => ({
-    version: "1",
-    routing: { defaultWorker: "claude", budgetAware: false },
+    version: "2",
+    workerRouting: { defaultWorker: "claude", budgetAware: false },
     components: { include: ["baseline:core"] },
   }),
   resolveGlobalUiTheme: (config: { ui?: { theme?: string } } | null) => config?.ui?.theme,
 }));
 
-import { readGlobalConfig, writeGlobalConfig } from "../../src/config/global-config.js";
+import { mutateGlobalConfig } from "../../src/config/global-config.js";
 import {
   createCliOperatorThemeController,
   persistOperatorThemePreference,
   resolveGuiThemePreference,
 } from "../../src/application/operator-theme-preferences.js";
 
-const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
-const writeGlobalConfigMock = writeGlobalConfig as unknown as ReturnType<typeof vi.fn>;
+const mutateGlobalConfigMock = mutateGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 
 describe("operator theme preferences", () => {
   beforeEach(() => {
-    readGlobalConfigMock.mockReset();
-    writeGlobalConfigMock.mockReset();
+    mutateGlobalConfigMock.mockReset();
   });
 
   it("resolves GUI theme preference from request, then GUI config, then TUI config", () => {
-    expect(resolveGuiThemePreference("vesper", { version: "1", ui: { theme: "automata" } })).toBe("vesper");
-    expect(resolveGuiThemePreference(undefined, { version: "1", ui: { theme: "automata" } })).toBe("automata");
+    expect(resolveGuiThemePreference("vesper", { version: "2", ui: { theme: "automata" } })).toBe("vesper");
+    expect(resolveGuiThemePreference(undefined, { version: "2", ui: { theme: "automata" } })).toBe("automata");
     expect(resolveGuiThemePreference(undefined, null)).toBe("phosphor");
   });
 
   it("persists operator theme defaults into neutral UI config", () => {
-    readGlobalConfigMock.mockReturnValue({ version: "1", ui: { theme: "phosphor" } });
+    mutateGlobalConfigMock.mockImplementation((mutation) => ({
+      config: mutation({ version: "2", ui: { theme: "phosphor" } }),
+    }));
 
     persistOperatorThemePreference("vesper");
 
-    expect(writeGlobalConfigMock).toHaveBeenCalledWith({
-      version: "1",
+    expect(mutateGlobalConfigMock.mock.calls[0]?.[0]({ version: "2", ui: { theme: "phosphor" } })).toEqual({
+      version: "2",
       ui: { theme: "vesper" },
     });
   });
 
   it("lets CLI operator theme tool persist defaults but rejects live session changes", async () => {
-    readGlobalConfigMock.mockReturnValue(null);
+    mutateGlobalConfigMock.mockImplementation((mutation) => ({ config: mutation(null) }));
     const controller = createCliOperatorThemeController();
 
     await expect(controller.setTheme({ theme: "vesper", scope: "session" })).resolves.toEqual({
@@ -56,9 +55,9 @@ describe("operator theme preferences", () => {
       ok: true,
       appliedTheme: "vesper",
     });
-    expect(writeGlobalConfigMock).toHaveBeenCalledWith({
-      version: "1",
-      routing: { defaultWorker: "claude", budgetAware: false },
+    expect(mutateGlobalConfigMock.mock.calls[0]?.[0](null)).toEqual({
+      version: "2",
+      workerRouting: { defaultWorker: "claude", budgetAware: false },
       components: { include: ["baseline:core"] },
       ui: { theme: "vesper" },
     });

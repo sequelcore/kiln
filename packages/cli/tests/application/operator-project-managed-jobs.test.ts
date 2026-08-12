@@ -37,8 +37,7 @@ const TEST_MANAGED_AGENTS_CONFIG = {
     {
       id: "test-readonly-route",
       kind: "direct",
-      provider: "codex-oauth",
-      model: "gpt-5.6-terra",
+      executionRouteId: "managed-codex",
       profiles: ["foundation-readonly-plan"],
       workingDirectory: "project",
       tools: {
@@ -47,33 +46,27 @@ const TEST_MANAGED_AGENTS_CONFIG = {
         writes: false,
       },
       memory: { access: "read-only" },
-      credentials: {
-        mode: "runtime-selected",
-        accountPolicyId: "managed-codex",
-      },
     },
   ],
 };
 
-const TEST_MODEL_GATEWAY_CONFIG = {
-  port: 4819,
+const TEST_EXECUTION_CATALOG = {
   accounts: [{
     id: "test-account",
     providerId: "codex-oauth",
     credentialId: "synthetic-test-credential",
     maxConcurrency: 1,
     reservedAffinitySlots: 0,
+    economics: { capacityIdentity: "test-account", subscriptionClass: "subscription", quotaClassId: "test-account", creditPosture: "disabled", overagePosture: "disabled" },
   }],
-  replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
-  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
-  principals: [],
-  virtualModels: [{
+  accountPolicies: [{ id: "managed-codex-policy", accountIds: ["test-account"], strategy: "economic-least-pressure" }],
+  routes: [{
     id: "managed-codex",
+    label: "Managed Codex",
     providerId: "codex-oauth",
     providerModelId: "gpt-5.6-terra",
-    accountIds: ["test-account"],
-    capabilities: ["text"],
-    affinity: { continuity: "none" },
+    accountSelection: { mode: "automatic", accountPolicyId: "managed-codex-policy" },
+    economics: { adapterCapabilityId: "codex", adapterCapabilityVersion: "v1", authBillingChannel: "oauth", executionMode: "direct", serviceTier: "standard", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider", priceEvidence: { kind: "subscription", rateCardId: "codex", rateCardRevision: "v1", evidence: { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", validUntil: "2026-09-01T00:00:00.000Z", confidence: "high", authority: "configured" } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } },
   }],
 };
 
@@ -93,9 +86,9 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   return {
     ...actual,
     readGlobalConfig: vi.fn(() => ({
-      version: "1",
+      version: "2",
       managedAgents: TEST_MANAGED_AGENTS_CONFIG,
-      modelGateway: TEST_MODEL_GATEWAY_CONFIG,
+      executionCatalog: TEST_EXECUTION_CATALOG,
     })),
   };
 });
@@ -104,7 +97,7 @@ vi.mock("../../src/application/config-status.js", () => ({
   readConfigStatusSnapshot: vi.fn(async (options?: { readonly projectPath?: string }) => {
     const projectRoot = options?.projectPath ?? "C:/workspace/unresolved";
     const effectiveConfig = {
-      version: "1",
+      version: "2",
       workGovernance: {
         defaultPosture: "orchestrate",
         directExecution: { maxFiles: 1, maxRisk: "low" },
@@ -112,6 +105,7 @@ vi.mock("../../src/application/config-status.js", () => ({
         requiredEvidence: ["surface-map", "tests"],
       },
       managedAgents: TEST_MANAGED_AGENTS_CONFIG,
+      executionCatalog: TEST_EXECUTION_CATALOG,
     };
     return {
       evidenceVersion: 1,

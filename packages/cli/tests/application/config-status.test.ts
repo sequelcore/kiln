@@ -131,7 +131,7 @@ describe("config-status", () => {
     });
   });
 
-  it("reports the pre-v2 managed-agent re-authoring boundary through config health", async () => {
+  it("reports the retired global V1 boundary through config health", async () => {
     writeProjectConfig(tempDir);
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
@@ -154,9 +154,11 @@ describe("config-status", () => {
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
     expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringMatching(/retired pre-v2 schema.*re-authored as schemaVersion 2/),
+      expect.stringMatching(/Global config version must be "2"/),
     ]));
-    expect(JSON.stringify(health.value)).toMatch(/retired pre-v2 schema.*re-authored as schemaVersion 2/);
+    expect(health.value).toMatchObject({
+      global: { error: expect.stringContaining('Global config version must be "2"') },
+    });
   });
 
   it("publishes canonical MCP resolution in the shared status and bounded read view", async () => {

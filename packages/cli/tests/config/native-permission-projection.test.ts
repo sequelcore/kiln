@@ -74,8 +74,6 @@ port: 4800
 apps: []
 modelGateway:
   port: 4910
-  accounts:
-    - { id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }
   replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
   surfaces:
     openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }
@@ -90,18 +88,14 @@ modelGateway:
         contextTokens: 200000
         outputTokens: 8192
         baseInstructions: You are a governed Kiln coding agent.
-        providerId: codex-oauth
-        providerModelId: upstream-a
-        accountIds: [account]
+        executionRouteId: model-a-route
         capabilities: [text, parallel-tool-calls]
         affinity: { continuity: none }
       - id: claude-kiln-a
         displayName: Kiln Claude A
         contextTokens: 200000
         outputTokens: 8192
-        providerId: codex-oauth
-        providerModelId: upstream-a
-        accountIds: [account]
+        executionRouteId: claude-model-a-route
         capabilities: [text, parallel-tool-calls]
         affinity: { continuity: none }
 `, "utf8");

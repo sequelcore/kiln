@@ -931,6 +931,7 @@ async function invokeOrchestratorWithLedgerCapture(
       : [...retainedRuntimeEvents, runtimeFailureEvent(error, session.id, turnFailedAt)];
     const failureEvents = appendCanonicalTurnEvents({
       session,
+      executionRouteId: perCallConfig?.executionBinding?.routeId,
       turnId: perCallConfig?.turnId,
       channel: ctx.channel,
       userMessageContent: state.userText,
@@ -1232,6 +1233,7 @@ async function finalizeEgressAndPersistTurn(
   });
   const completedTurnEvents = appendCanonicalTurnEvents({
     session,
+    executionRouteId: perCallConfig?.executionBinding?.routeId,
     turnId: perCallConfig?.turnId,
     channel: ctx.channel,
     userMessageContent: userText,
@@ -1544,6 +1546,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
         : [...orchestration.capturedRuntimeEvents, runtimeFailureEvent(error, state.session.id, turnFailedAt)];
       const failureEvents = appendCanonicalTurnEvents({
         session: state.session,
+        executionRouteId: assembled.perCallConfig?.executionBinding?.routeId,
         turnId: assembled.perCallConfig?.turnId,
         channel: ctx.channel,
         userMessageContent: state.userText,

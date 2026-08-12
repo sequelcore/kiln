@@ -6,9 +6,8 @@ import {
 } from "@kilnai/gateway-contracts";
 import {
   defaultGlobalConfig,
-  readGlobalConfig,
   resolveGlobalUiTheme,
-  writeGlobalConfig,
+  mutateGlobalConfig,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
 import type { OperatorSurfaceThemeController } from "@kilnai/runtime";
@@ -52,13 +51,15 @@ export function persistOperatorThemePreference(
   if (!resolvedTheme) {
     return;
   }
-  const current = configOverride ?? readGlobalConfig() ?? defaultGlobalConfig();
-  writeGlobalConfig({
-    ...current,
-    ui: {
-      ...current.ui,
-      theme: resolvedTheme,
-    },
+  mutateGlobalConfig((persisted) => {
+    const current = persisted ?? configOverride ?? defaultGlobalConfig();
+    return {
+      ...current,
+      ui: {
+        ...current.ui,
+        theme: resolvedTheme,
+      },
+    };
   });
 }
 

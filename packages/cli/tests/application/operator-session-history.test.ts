@@ -37,6 +37,25 @@ describe("Operator session history", () => {
       startedAt: "2026-04-22T18:37:00.000Z",
       costUsd: 0.1,
     });
+    for (const [index, route] of [
+      { routeId: "codex-standard", provider: "codex-oauth", model: "gpt-5.6-codex" },
+      { routeId: "openai-fast", provider: "openai", model: "gpt-5.4-mini" },
+      { routeId: "opencode-review", provider: "opencode", model: "gpt-5.4" },
+    ].entries()) {
+      await transcriptStore.append("kiln-session-1", {
+        eventId: `route-${index + 1}`,
+        kilnSessionId: "kiln-session-1",
+        sequence: index + 1,
+        timestamp: `2026-04-22T18:37:0${index}.000Z`,
+        kind: "provider_routed",
+        source: { actor: "runtime", surface: "runtime" },
+        payload: {
+          routeId: route.routeId,
+          provider: { provider: route.provider, model: route.model },
+          reason: "test route",
+        },
+      });
+    }
     await sessionStore.append({
       sessionId: "kiln-session-1",
       provider: "opencode",
@@ -54,8 +73,8 @@ describe("Operator session history", () => {
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
       sessionId: "kiln-session-1",
-      providersUsed: ["opencode", "codex-oauth", "openai"],
-      lastRoute: { provider: "opencode" },
+      routesUsed: ["codex-standard", "openai-fast", "opencode-review"],
+      lastRoute: { routeId: "opencode-review", provider: "opencode", model: "gpt-5.4" },
       updatedAt: "2026-04-22T18:38:00.000Z",
       summary: "Plan universal session metadata and keep providers traceable.",
     });
@@ -105,14 +124,27 @@ describe("Operator session history", () => {
       lastTurnOutcome: "completed",
       costUsd: 0,
     });
+    await transcriptStore.append("kiln-session-transcript-only", {
+      eventId: "route-1",
+      kilnSessionId: "kiln-session-transcript-only",
+      sequence: 1,
+      timestamp: "2026-06-06T09:31:14.000Z",
+      kind: "provider_routed",
+      source: { actor: "runtime", surface: "runtime" },
+      payload: {
+        routeId: "codex-review",
+        provider: { provider: "codex-oauth", model: "gpt-5.5" },
+        reason: "test route",
+      },
+    });
 
     const summaries = await loadOperatorSessionSummaries(sessionStore, transcriptStore);
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
       sessionId: "kiln-session-transcript-only",
-      providersUsed: ["codex-oauth"],
-      lastRoute: { provider: "codex-oauth" },
+      routesUsed: ["codex-review"],
+      lastRoute: { routeId: "codex-review", provider: "codex-oauth", model: "gpt-5.5" },
       lastTurnOutcome: "completed",
       updatedAt: "2026-06-06T09:32:27.809Z",
       costUsd: 0,

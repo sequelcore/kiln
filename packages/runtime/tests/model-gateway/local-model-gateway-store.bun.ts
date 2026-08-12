@@ -2,16 +2,29 @@ import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelGatewayReplayDecision } from "../../src/model-gateway/replay-guard.js";
+import { defineExecutionCatalog, type ModelGatewayConfig } from "@kilnai/core";
 import { LocalModelGatewayStore } from "../../src/model-gateway/local-model-gateway-store.js";
-import { createModelGatewayIngress } from "../../src/model-gateway/model-gateway-ingress.js";
+import {
+  createModelGatewayExecutionRoutingPort,
+  createModelGatewayIngress,
+  type ModelGatewayExecutionCandidatePort,
+} from "../../src/model-gateway/model-gateway-ingress.js";
 import { startGateway } from "../../src/gateway/gateway-server.js";
 import { CredentialWatcher } from "../../src/agents/credential-pool/credential-watcher.js";
 import { WebhookDedup } from "../../src/gateway/webhook-dedup.js";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
 const secret = "synthetic-file-backed-replay-secret-32-bytes";
 const fingerprint = { rawBody: "{}", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn", route: { providerId: "codex-oauth", providerModelId: "model", scope: "virtual:model" }, toolExecutionMode: "caller-owned" };
 const completed = { responseId: "resp_synthetic", result: { parts: [{ type: "text" as const, text: "synthetic" }], usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 }, stopReason: "completed" } };
-const gatewayConfig = { port: 4901, accounts: [{ id: "account", providerId: "codex-oauth" as const, credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0 }], replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses" as const, tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, providerId: "codex-oauth" as const, providerModelId: "model", accountIds: ["account"], capabilities: ["text" as const], affinity: { continuity: "none" as const } }] };
+const evidence = { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-11T00:00:00.000Z", validUntil: "2027-08-11T00:00:00.000Z", confidence: "high" as const, authority: "configured" as const };
+const executionCatalog = defineExecutionCatalog({
+  accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "account-capacity", subscriptionClass: "subscription", quotaClassId: "quota", creditPosture: "disabled", overagePosture: "disabled" } }],
+  accountPolicies: [],
+  routes: [{ id: "route", label: "Model", providerId: "codex-oauth", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account" }, economics: { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v1", authBillingChannel: "oauth-subscription", executionMode: "responses-api", serviceTier: "standard", rateCardBasis: "configured", envelopeSemantics: "configured-upper-bound", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider-cache", priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "v1", evidence }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
+});
+const gatewayConfig: ModelGatewayConfig = { port: 4901, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, executionRouteId: "route", capabilities: ["text"], affinity: { continuity: "none" } }] };
+const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: async () => [] };
 
 function store(path: string): LocalModelGatewayStore {
   return new LocalModelGatewayStore({ path, replaySecret: secret, replayTtlMs: 5_000, replayMaxEntries: 20 });
@@ -38,6 +51,8 @@ async function spawnCrash(mode: "claimed" | "committed", path: string): Promise<
 
 async function main(): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), "kiln-real-sqlite-"));
+  const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `bun-store-${crypto.randomUUID()}`, configurationRevision: "fixture" });
+  const modelGatewayExecution = { executionCatalog, executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog), executionCandidates: noCandidates, accountCapacityAuthority };
   try {
     const durablePath = join(root, "durable.sqlite");
     const first = store(durablePath);
@@ -64,6 +79,7 @@ async function main(): Promise<void> {
     const securePath = join(root, "secure-state", "gateway.sqlite");
     const handle = await createModelGatewayIngress({
       config: gatewayConfig,
+      ...modelGatewayExecution,
       databasePath: securePath,
       credentialRootDir: join(root, "auth"),
       env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" },
@@ -75,7 +91,7 @@ async function main(): Promise<void> {
 
       const existingDirectory = join(root, "existing-parent");
       await mkdir(existingDirectory); await chmod(existingDirectory, 0o755);
-      const existingHandle = await createModelGatewayIngress({ config: gatewayConfig, databasePath: join(existingDirectory, "gateway.sqlite"), credentialRootDir: join(root, "auth-existing"), env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" } });
+      const existingHandle = await createModelGatewayIngress({ config: gatewayConfig, ...modelGatewayExecution, databasePath: join(existingDirectory, "gateway.sqlite"), credentialRootDir: join(root, "auth-existing"), env: { REPLAY: secret, TOKEN: "synthetic-bearer-token-at-least-32-bytes" } });
       existingHandle.close();
       if (((await stat(existingDirectory)).mode & 0o777) !== 0o755) throw new Error("Factory changed permissions on a pre-existing parent directory.");
     }
@@ -85,13 +101,12 @@ async function main(): Promise<void> {
 apps: []
 modelGateway:
   port: 4819
-  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0 }]
   replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }
   surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }
   principals:
       - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [model] }
   virtualModels:
-      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, providerId: codex-oauth, providerModelId: model, accountIds: [account], capabilities: [text], affinity: { continuity: none } }
+      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, executionRouteId: route, capabilities: [text], affinity: { continuity: none } }
 `, "utf8");
     process.env.REPLAY_SECRET = secret; process.env.BEARER_TOKEN = "synthetic-bearer-token-at-least-32-bytes";
     const missingGuiDist = join(root, "missing-gui-dist");
@@ -104,7 +119,7 @@ modelGateway:
     globalThis.setInterval = (() => { intervalCreationCalls += 1; return 0 as unknown as ReturnType<typeof setInterval>; }) as typeof setInterval;
     let guiValidationError: unknown;
     try {
-      await startGateway(startupConfig, { guiDistPath: missingGuiDist, modelGatewayListener: () => { modelListenerCallsBeforeGuiValidation += 1; throw new Error("Model listener must not run before GUI validation."); } });
+      await startGateway(startupConfig, { guiDistPath: missingGuiDist, modelGatewayExecution, modelGatewayListener: () => { modelListenerCallsBeforeGuiValidation += 1; throw new Error("Model listener must not run before GUI validation."); } });
     } catch (error) {
       guiValidationError = error;
     } finally {
@@ -127,7 +142,7 @@ modelGateway:
     const originalWatcherStop = CredentialWatcher.prototype.stop; const originalDedupClose = WebhookDedup.prototype.close;
     CredentialWatcher.prototype.stop = function () { watcherStopCalls += 1; return originalWatcherStop.call(this); };
     WebhookDedup.prototype.close = function () { dedupCloseCalls += 1; return originalDedupClose.call(this); };
-    try { await startGateway(startupConfig, { guiDistPath: guiDist, modelGatewayListener: () => { modelListenerCalls += 1; throw new Error("synthetic model bind failure"); } }); }
+    try { await startGateway(startupConfig, { guiDistPath: guiDist, modelGatewayExecution, modelGatewayListener: () => { modelListenerCalls += 1; throw new Error("synthetic model bind failure"); } }); }
     catch (error) { lateFailureError = error; lateFailureObserved = error instanceof Error && error.message.includes("synthetic model bind failure"); }
     finally { CredentialWatcher.prototype.stop = originalWatcherStop; WebhookDedup.prototype.close = originalDedupClose; }
     const observedLateFailure = lateFailureError instanceof Error ? lateFailureError.message : String(lateFailureError);
@@ -136,7 +151,10 @@ modelGateway:
     if (watcherStopCalls !== 1) throw new Error(`Expected CredentialWatcher.stop once after late startup failure, observed ${watcherStopCalls} call(s); observed error "${observedLateFailure}".`);
     if (dedupCloseCalls !== 1) throw new Error(`Expected WebhookDedup.close once after late startup failure, observed ${dedupCloseCalls} call(s); observed error "${observedLateFailure}".`);
     console.log("real Bun SQLite durability, fencing, recovery, permissions, and startup cleanup checks passed");
-  } finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+  } finally {
+    accountCapacityAuthority.close();
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 }
 
 const mode = process.argv[2];

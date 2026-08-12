@@ -2,18 +2,52 @@ import {
   projectOperatorSessionSummary,
   type OperatorSessionSummary,
 } from "@kilnai/gateway-contracts";
-import type { PersistedSessionMeta, SessionRecord, SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import type {
+  PersistedSessionMeta,
+  PersistedTranscriptEvent,
+  SessionRecord,
+  SessionStore,
+  TranscriptStore,
+} from "../wrapper/session-store.js";
 
-function transcriptEvidence(sessionId: string, meta: PersistedSessionMeta) {
+function transcriptRouteEvidence(meta: PersistedSessionMeta, events: readonly PersistedTranscriptEvent[]) {
+  const routedEvents = events.flatMap((event) => {
+    if (event.kind !== "provider_routed") return [];
+    const routeId = typeof event.payload.routeId === "string" ? event.payload.routeId.trim() : "";
+    if (!routeId) return [];
+    const providerEvidence = event.payload.provider;
+    const provider = typeof providerEvidence === "object" && providerEvidence !== null
+      && typeof (providerEvidence as Record<string, unknown>).provider === "string"
+      ? String((providerEvidence as Record<string, unknown>).provider).trim()
+      : undefined;
+    const model = typeof providerEvidence === "object" && providerEvidence !== null
+      && typeof (providerEvidence as Record<string, unknown>).model === "string"
+      ? String((providerEvidence as Record<string, unknown>).model).trim()
+      : undefined;
+    return [{ routeId, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }];
+  });
+  const latest = routedEvents.at(-1);
+  return {
+    routesUsed: [
+      ...routedEvents.map((route) => route.routeId),
+      ...(meta.executionBindings ?? []).map((binding) => binding.routeId),
+    ],
+    ...(latest ? latest : {}),
+  };
+}
+
+function transcriptEvidence(
+  sessionId: string,
+  meta: PersistedSessionMeta,
+  events: readonly PersistedTranscriptEvent[],
+) {
+  const route = transcriptRouteEvidence(meta, events);
   return {
     sessionId,
-    provider: meta.sessionLedger?.lastProvider ?? meta.provider,
-    providersUsed: [
-      ...(meta.providersUsed ?? []),
-      ...(meta.providerTokenUsage?.map((usage) => usage.provider) ?? []),
-      meta.provider,
-      meta.sessionLedger?.lastProvider,
-    ].filter((provider): provider is string => Boolean(provider)),
+    ...(route.routeId ? { routeId: route.routeId } : {}),
+    ...(route.provider ? { provider: route.provider } : {}),
+    ...(route.model ? { model: route.model } : {}),
+    routesUsed: route.routesUsed,
     ...(meta.title ?? meta.canonicalTitle ? { title: meta.title ?? meta.canonicalTitle } : {}),
     ...(meta.summary ? { summary: meta.summary } : {}),
     ...(meta.tags ? { tags: meta.tags } : {}),
@@ -27,8 +61,6 @@ function transcriptEvidence(sessionId: string, meta: PersistedSessionMeta) {
 
 function ledgerEvidence(record: SessionRecord) {
   return {
-    provider: record.provider,
-    providersUsed: record.providersUsed,
     ...(record.canonicalTitle ?? record.title ? { title: record.canonicalTitle ?? record.title } : {}),
     ...(record.summary ? { summary: record.summary } : {}),
     ...(record.tags ? { tags: record.tags } : {}),
@@ -50,9 +82,10 @@ export async function loadOperatorSessionSummaries(
   for (const sessionId of transcriptSessionIds) {
     const meta = await transcriptStore.readMeta(sessionId);
     if (!meta) continue;
+    const events = await transcriptStore.readTranscript(sessionId);
     const ledger = ledgerBySessionId.get(sessionId);
     summaries.push(projectOperatorSessionSummary({
-      transcript: transcriptEvidence(sessionId, meta),
+      transcript: transcriptEvidence(sessionId, meta, events),
       ...(ledger ? { ledger: ledgerEvidence(ledger) } : {}),
     }));
   }

@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { ModelGatewayConfig, ProviderUsageSnapshot } from "@kilnai/core";
+import { defineExecutionCatalog, type ProviderUsageSnapshot } from "@kilnai/core";
 import { createAccountUsageInspectionService } from "../../src/application/account-usage-inspection.js";
 
-const config: ModelGatewayConfig = {
-  port: 4801,
+const catalog = defineExecutionCatalog({
   accounts: [
-    { id: "plus", providerId: "codex-oauth", credentialId: "credential-plus", maxConcurrency: 1, reservedAffinitySlots: 0 },
-    { id: "free", providerId: "codex-oauth", credentialId: "credential-free", maxConcurrency: 1, reservedAffinitySlots: 0 },
+    { id: "plus", providerId: "codex-oauth", credentialId: "credential-plus", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "plus", subscriptionClass: "subscription", quotaClassId: "plus", creditPosture: "disabled", overagePosture: "disabled" } },
+    { id: "free", providerId: "codex-oauth", credentialId: "credential-free", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "free", subscriptionClass: "subscription", quotaClassId: "free", creditPosture: "disabled", overagePosture: "disabled" } },
   ],
-  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, principals: [], surfaces: { openAIResponses: { maxBodyBytes: 1000, maxConcurrentRequests: 1 } },
-  virtualModels: [{ id: "codex-managed", providerId: "codex-oauth", providerModelId: "gpt", accountIds: ["plus", "free"], capabilities: ["text"], affinity: { continuity: "prefer", scope: "session", allowRebind: false } }],
-};
+  accountPolicies: [{ id: "codex-automatic", accountIds: ["plus", "free"], strategy: "economic-least-pressure" }],
+  routes: [{ id: "codex-managed", label: "Codex", providerId: "codex-oauth", providerModelId: "gpt", accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" }, economics: { adapterCapabilityId: "codex", adapterCapabilityVersion: "v1", authBillingChannel: "oauth", executionMode: "direct", serviceTier: "standard", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider", priceEvidence: { kind: "subscription", rateCardId: "codex", rateCardRevision: "v1", evidence: { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-07-01T00:00:00.000Z", validUntil: "2026-08-01T00:00:00.000Z", confidence: "high", authority: "configured" } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
+});
 const usage: ProviderUsageSnapshot[] = [
   { provider: "codex-oauth", credentialId: "credential-plus", plan: "plus", primary: { usedPercent: 100, resetsAt: "2026-07-22T13:00:00.000Z" }, availability: "exhausted", observedAt: "2026-07-22T11:59:00.000Z", validUntil: "2026-07-22T12:05:00.000Z", source: "provider-endpoint", confidence: "authoritative" },
   { provider: "codex-oauth", credentialId: "credential-free", plan: "free", availability: "unknown", observedAt: "2026-07-22T11:59:00.000Z", validUntil: "2026-07-22T12:05:00.000Z", source: "unknown", confidence: "unknown" },
@@ -19,7 +18,7 @@ const usage: ProviderUsageSnapshot[] = [
 describe("account usage inspection", () => {
   it("projects sanitized freshness and eligible routes without selection authority", async () => {
     const service = createAccountUsageInspectionService({
-      readModelGateway: () => config,
+      readExecutionCatalog: () => catalog,
       readProviderUsage: async () => usage,
       listCredentialIds: async () => ["credential-plus", "credential-free"],
       now: () => new Date("2026-07-22T12:00:00.000Z"),

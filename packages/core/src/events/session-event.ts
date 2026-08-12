@@ -316,6 +316,8 @@ export interface CanonicalPlanAnalysisFindingDraft {
 }
 
 export interface CanonicalProviderRoutedEvent extends SessionEventEnvelope<"provider_routed"> {
+  /** Canonical execution route when the turn crossed execution-catalog admission. */
+  readonly routeId?: string;
   readonly provider: SessionProviderIdentity;
   readonly reason: string;
 }

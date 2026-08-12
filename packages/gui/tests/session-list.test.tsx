@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { OperatorSessionSummary } from "@kilnai/gateway-contracts";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionList } from "../src/components/session-list.js";
 import { deriveSessionContinuity } from "../src/lib/session-continuity.js";
 
@@ -10,8 +10,8 @@ const sessions = [
     title: "Runtime boundary review",
     summary: "Validate the execution envelope across operator surfaces.",
     tags: ["runtime", "review"],
-    providersUsed: ["claude"],
-    lastRoute: { provider: "claude" },
+    routesUsed: ["claude-review"],
+    lastRoute: { routeId: "claude-review", provider: "claude" },
     updatedAt: "2026-04-21T20:00:00.000Z",
     costUsd: 0.1,
   },
@@ -20,12 +20,12 @@ const sessions = [
     title: "Sidebar continuity",
     summary: "Align navigation and history into one surface.",
     tags: ["gui"],
-    providersUsed: ["codex"],
-    lastRoute: { provider: "codex" },
+    routesUsed: ["codex-terra"],
+    lastRoute: { routeId: "codex-terra", provider: "codex" },
     updatedAt: "2026-04-21T21:00:00.000Z",
     costUsd: 0.2,
   },
-] as const;
+] as const satisfies readonly OperatorSessionSummary[];
 
 function renderSessionList(input?: {
   sessions?: readonly OperatorSessionSummary[];
@@ -61,12 +61,17 @@ function renderSessionList(input?: {
 }
 
 describe("SessionList", () => {
+  beforeEach(() => localStorage.clear());
+
   it("supports arrow-key navigation across sessions", () => {
     const onSelect = vi.fn();
     renderSessionList({ selectedSessionId: "session-1", onSelect });
 
     const history = screen.getByRole("navigation", { name: "Session history" });
-    const options = within(history).getAllByRole("button");
+    const options = [
+      within(history).getByRole("button", { name: /Runtime boundary review/ }),
+      within(history).getByRole("button", { name: /Sidebar continuity/ }),
+    ];
     fireEvent.keyDown(options[0], { key: "ArrowDown" });
     expect(onSelect).toHaveBeenCalledWith("session-2");
 
@@ -133,16 +138,93 @@ describe("SessionList", () => {
     });
 
     const history = screen.getByRole("navigation", { name: "Session history" });
-    expect(within(history).getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+    expect(within(history).getAllByRole("heading").map(
+      (heading) => heading.querySelector('[data-slot="session-group-label"]')?.textContent,
+    )).toEqual([
       "Active",
       "Needs attention",
       "Older",
     ]);
-    expect(within(history).getAllByRole("button").map((button) => button.textContent)).toEqual([
+    expect(Array.from(history.querySelectorAll('[data-slot="session-row"]')).map((button) => button.textContent)).toEqual([
       "Live executionRunning",
       "Awaiting operatorPaused",
       expect.stringMatching(/^Completed history/),
     ]);
+  });
+
+  it("collapses Session groups and removes hidden rows from keyboard navigation", () => {
+    const onSelect = vi.fn();
+    renderSessionList({
+      sessions: [
+        { ...sessions[0], sessionId: "live", title: "Live execution" },
+        { ...sessions[1], sessionId: "history", title: "Completed history", lastTurnOutcome: "completed" },
+      ],
+      selectedSessionId: "live",
+      liveSessionId: "live",
+      status: "running",
+      onSelect,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Active sessions" }));
+
+    expect(screen.queryByRole("button", { name: /Live execution/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand Active sessions" })).toHaveAttribute("aria-expanded", "false");
+    expect(localStorage.getItem("kiln.gui.sessionHistory.collapsedGroups:v1")).toBe("[]");
+    const historyRow = screen.getByRole("button", { name: /Completed history/ });
+    expect(historyRow).toHaveAttribute("tabindex", "0");
+    fireEvent.keyDown(historyRow, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("history");
+  });
+
+  it("reopens a collapsed operational group when a new Session needs visibility", () => {
+    const { rerender } = renderSessionList({
+      sessions: [{ ...sessions[0], sessionId: "live", title: "Live execution" }],
+      selectedSessionId: null,
+      liveSessionId: "live",
+      status: "running",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Active sessions" }));
+
+    rerender(
+      <SessionList
+        sessions={[
+          { ...sessions[0], sessionId: "live", title: "Live execution" },
+          { ...sessions[1], sessionId: "new-live", title: "New live execution" },
+        ]}
+        selectedSessionId={null}
+        continuity={deriveSessionContinuity({
+          status: "running",
+          selectedSessionId: null,
+          liveSessionId: "live",
+          continuationTargetId: null,
+          messageCount: 0,
+          sessionEventCount: 0,
+          detachedSessionIds: ["new-live"],
+        })}
+        loadState="ready"
+        onSelect={() => {}}
+        onStartNewSession={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Collapse Active sessions" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /New live execution/ })).toBeVisible();
+  });
+
+  it("temporarily expands collapsed groups while searching", () => {
+    renderSessionList({
+      selectedSessionId: null,
+      liveSessionId: "session-1",
+      status: "running",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Active sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Search sessions" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sessions" }), {
+      target: { value: "runtime" },
+    });
+
+    expect(screen.getByRole("button", { name: /Runtime boundary review/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Collapse Active sessions" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("uses the visual attention order for keyboard navigation", () => {
@@ -175,7 +257,9 @@ describe("SessionList", () => {
     });
 
     const history = screen.getByRole("navigation", { name: "Session history" });
-    expect(within(history).getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+    expect(within(history).getAllByRole("heading").map(
+      (heading) => heading.querySelector('[data-slot="session-group-label"]')?.textContent,
+    )).toEqual([
       "Needs attention",
       "Older",
     ]);
@@ -251,13 +335,13 @@ describe("SessionList", () => {
       title: "Sidebar continuity",
       summary: "Align navigation and history into one surface.",
       tags: ["gui"],
-      providersUsed: ["codex"],
+      routesUsed: [],
       updatedAt: "2026-04-21T21:00:00.000Z",
       costUsd: 0.2,
     };
     renderSessionList({
       sessions: [
-        { ...sessions[0], sessionId: "modeled", lastRoute: { provider: "claude", model: "claude-sonnet-4-5" } },
+        { ...sessions[0], sessionId: "modeled", lastRoute: { routeId: "claude-review", provider: "claude", model: "claude-sonnet-4-5" } },
         unroutedSession,
       ],
       selectedSessionId: null,
@@ -265,6 +349,26 @@ describe("SessionList", () => {
 
     expect(screen.getByLabelText("Last route: Claude · claude-sonnet-4-5")).toBeVisible();
     expect(screen.getByRole("button", { name: /Sidebar continuity/ }).querySelector('[data-slot="session-route"]')).toBeNull();
+  });
+
+  it("searches canonical route identity and leaves route-only evidence unbranded", () => {
+    renderSessionList({
+      sessions: [{
+        ...sessions[0],
+        routesUsed: ["codex-sol"],
+        lastRoute: { routeId: "codex-sol" },
+      }],
+      selectedSessionId: null,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Search sessions" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search sessions" }), {
+      target: { value: "codex-sol" },
+    });
+
+    const row = screen.getByRole("button", { name: /Runtime boundary review/ });
+    expect(row).toBeVisible();
+    expect(row.querySelector('[data-slot="session-route"]')).toBeNull();
   });
 
   it("distinguishes initial loading, empty history, and stale refresh failure", () => {

@@ -69,6 +69,7 @@ export interface RuntimeLifecycleAttributionEvidence {
 
 export interface AppendCanonicalTurnEventsInput {
   readonly session: RuntimeSession;
+  readonly executionRouteId?: string;
   readonly turnId?: string;
   readonly channel: string;
   readonly userMessageContent: string;
@@ -197,6 +198,7 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
           kilnSessionId: session.id,
           sequence: nextSequence(),
           kind: "provider_routed",
+          ...(input.executionRouteId ? { routeId: input.executionRouteId } : {}),
           turnId,
           provider: toSessionProviderIdentity(runtimeEvent),
           reason: runtimeEvent.reason,

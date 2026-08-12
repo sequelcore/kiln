@@ -128,6 +128,14 @@ const operatorCompositionMocks = vi.hoisted(() => ({
         }),
       },
     },
+    resolveExecutionRouteAccountAvailability: vi.fn(async ({ admission }: {
+      admission: { accountSelection: { mode: "automatic" | "exact"; eligibleAccountIds?: readonly string[]; accountId?: string } };
+    }) => {
+      const accountIds = admission.accountSelection.mode === "automatic"
+        ? admission.accountSelection.eligibleAccountIds ?? []
+        : admission.accountSelection.accountId ? [admission.accountSelection.accountId] : [];
+      return accountIds.map((accountId) => ({ accountId, available: true, reasonCodes: [] }));
+    }),
     bridge: { bind: vi.fn(), dispatchCommittedTurn: vi.fn() },
     dispatcher: { dispatchTurn: vi.fn() },
     close: vi.fn(),
@@ -1951,8 +1959,8 @@ describe("makeMultiProviderSessionFactory", () => {
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
     const cwd = await mkdtemp(join(tmpdir(), "kiln-tui-direct-switch-"));
-    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("claude", "claude-sonnet-4-6", "claude-default") as never;
-    let switchToModelessRouteResult: string | undefined;
+    mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("openai", "gpt-5.4", "openai-default") as never;
+    let switchToConfiguredRouteResult: string | undefined;
     let directRouteSelectionError = "";
 
     mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {
@@ -1960,7 +1968,7 @@ describe("makeMultiProviderSessionFactory", () => {
       if (typeof session.switchExecutionRoute !== "function") {
         throw new Error("direct session did not expose switchExecutionRoute");
       }
-      switchToModelessRouteResult = await session.switchExecutionRoute("claude-default");
+      switchToConfiguredRouteResult = await session.switchExecutionRoute("openai-default");
       try {
         await session.switchExecutionRoute("missing-route");
       } catch (error) {
@@ -1977,7 +1985,7 @@ describe("makeMultiProviderSessionFactory", () => {
       await rm(cwd, { recursive: true, force: true });
     }
 
-    expect(switchToModelessRouteResult).toBe("claude-default");
+    expect(switchToConfiguredRouteResult).toBe("openai-default");
     expect(directRouteSelectionError).toContain("Execution route");
     expect(mockResolveGuiOperatorDiscoveryResults).toHaveBeenCalled();
     expect(mockProjectGuiProviderModelDiscovery).toHaveBeenCalled();

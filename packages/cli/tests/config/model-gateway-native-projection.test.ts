@@ -13,20 +13,6 @@ function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfi
   const hasMessages = principals.some((candidate) => candidate.ingress === "anthropic-messages");
   return {
     port: 4910,
-    accounts: [{
-      id: "account",
-      providerId: "codex-oauth",
-      credentialId: "credential",
-      maxConcurrency: 1,
-      reservedAffinitySlots: 0,
-      economics: {
-        capacityIdentity: "private-capacity-identity",
-        subscriptionClass: "subscription",
-        quotaClassId: "private-quota-class",
-        creditPosture: "disabled",
-        overagePosture: "disabled",
-      },
-    }],
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
     surfaces: {
       ...(hasResponses ? { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } } : {}),
@@ -40,44 +26,11 @@ function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfi
           contextTokens: 200000,
           outputTokens: 8192,
           baseInstructions: "Governed model A instructions.",
-          providerId: "codex-oauth",
-          providerModelId: "upstream-a",
-          accountIds: ["account"],
+          executionRouteId: "model-a-route",
           capabilities: ["text", "parallel-tool-calls", "input-image-url"],
           affinity: { continuity: "none" },
-          economics: {
-            adapterCapabilityId: "codex-direct",
-            adapterCapabilityVersion: "v1",
-            authBillingChannel: "private-billing-channel",
-            executionMode: "responses-api",
-            serviceTier: "standard",
-            rateCardBasis: "private-rate-card-basis",
-            envelopeSemantics: "configured-upper-bound",
-            fallbackPosture: "disabled",
-            overagePosture: "disabled",
-            contextClass: "standard-context",
-            cacheClass: "provider-cache",
-            priceEvidence: {
-              kind: "subscription",
-              rateCardId: "private-rate-card",
-              rateCardRevision: "rev-1",
-              evidence: {
-                sourceIdentity: "configured-pricing",
-                sourceRevision: "rev-1",
-                sourceDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                observedAt: "2026-07-29T00:00:00.000Z",
-                validUntil: "2026-08-29T00:00:00.000Z",
-                confidence: "high",
-                authority: "configured",
-              },
-            },
-            auxiliaryCharges: [],
-            executionEnvelope: {
-              limits: [{ atoms: "1", scale: 0, unit: "request", scheme: { kind: "unit" } }],
-            },
-          },
         },
-        { id: "model-b", displayName: "Model B", contextTokens: 100000, outputTokens: 4096, baseInstructions: "Governed model B instructions.", providerId: "codex-oauth", providerModelId: "upstream-b", accountIds: ["account"], capabilities: ["text"], affinity: { continuity: "none" } },
+        { id: "model-b", displayName: "Model B", contextTokens: 100000, outputTokens: 4096, baseInstructions: "Governed model B instructions.", executionRouteId: "model-b-route", capabilities: ["text"], affinity: { continuity: "none" } },
     ],
   };
 }
@@ -120,26 +73,20 @@ describe("model gateway native projections", () => {
     expect(JSON.stringify(projected)).not.toContain("private-billing-channel");
   });
 
-  it("projects an OpenCode-backed virtual model into Codex without exposing upstream credentials", () => {
+  it("projects a route-backed virtual model without exposing execution authority", () => {
     const configured = config([principal("codex")]);
     const crossProvider: ModelGatewayConfig = {
       ...configured,
-      accounts: [
-        { id: "go-a", providerId: "opencode-go", credentialId: "credential-a", maxConcurrency: 1, reservedAffinitySlots: 0 },
-        { id: "go-b", providerId: "opencode-go", credentialId: "credential-b", maxConcurrency: 1, reservedAffinitySlots: 0 },
-      ],
       virtualModels: configured.virtualModels.map((model) => ({
         ...model,
-        providerId: "opencode-go" as const,
-        accountIds: ["go-a", "go-b"],
+        executionRouteId: "opencode-route",
         capabilities: ["text", "function-tools"] as const,
       })),
     };
 
     const projected = buildCodexResponsesProjection({ config: crossProvider, modelCatalogPath: "C:/catalog.json" });
     expect(projected?.patch).toHaveProperty("model_providers.kiln");
-    expect(JSON.stringify(projected)).not.toContain("credential-a");
-    expect(JSON.stringify(projected)).not.toContain("opencode-go");
+    expect(JSON.stringify(projected)).not.toContain("opencode-route");
   });
 
   it("adds an OpenCode Responses provider without synthesizing the native allowlist or default", () => {

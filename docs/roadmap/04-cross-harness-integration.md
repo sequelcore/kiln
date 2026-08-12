@@ -115,7 +115,7 @@ adapter-local prose.
 
 ### Slice 1 - OpenCode Additive Vertical
 
-Status: Code complete; live proof blocked.
+Status: Execution catalog complete; additive OpenCode live proof blocked.
 
 The execution-catalog authority is complete in portable code. Global V2
 `executionCatalog` and `executionRouting.defaultRouteId` govern CLI, GUI, TUI,
@@ -126,9 +126,13 @@ capacity and revalidates credential ID/revision immediately before dispatch.
 This closes the multi-credential start blocker without a separate direct-model
 catalog. The implementation landed on `dev` in commit `0fe036ee`; the
 operator's global config is active on V2 and validates against the landed
-schema. [Issue #71](https://github.com/sequelcore/kiln/issues/71) remains open
-until the concurrent GUI session-list integration lands and the complete
-workspace gate is green.
+schema. The route-first GUI session history integration now persists and
+projects canonical route evidence without treating provider history as route
+identity. The complete CLI, Runtime, surface, and workspace typecheck gates are
+green, completing [issue #71](https://github.com/sequelcore/kiln/issues/71).
+The remaining live-proof work in this slice concerns only the additive native
+OpenCode projection described below; it does not reopen execution-catalog
+authority.
 
 Apply the health-gated additive `provider.kiln` projection to the operator's
 OpenCode config. Prove `kiln/*` model discovery, one real turn, native-provider

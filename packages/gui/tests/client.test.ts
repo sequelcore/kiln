@@ -233,6 +233,7 @@ describe("GuiGatewayClient", () => {
 
   it("loads app and tenant descriptors from the dashboard", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      executionRouteCatalog: { routes: [] },
       providers: [],
       telemetry: {
         status: "stable",
@@ -375,6 +376,7 @@ describe("GuiGatewayClient", () => {
 
   it("rejects when dashboard workspaceTree payload is malformed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      executionRouteCatalog: { routes: [] },
       providers: [],
       telemetry: {
         status: "idle",
@@ -400,6 +402,7 @@ describe("GuiGatewayClient", () => {
 
   it("rejects when dashboard workspaceTree entries payload is malformed", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      executionRouteCatalog: { routes: [] },
       providers: [],
       telemetry: {
         status: "idle",

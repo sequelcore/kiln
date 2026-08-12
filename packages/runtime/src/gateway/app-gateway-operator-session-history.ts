@@ -9,20 +9,17 @@ import type { RuntimeSession } from "../session/runtime-session.js";
 
 function routeFromSessionEvents(session: RuntimeSession): {
   readonly lastRoute?: OperatorSessionRouteIdentity;
-  readonly providersUsed: readonly string[];
   readonly lastTurnOutcome?: OperatorSessionTurnOutcome;
   readonly costUsd: number;
 } {
-  const providersUsed = new Set<string>();
   let lastRoute: OperatorSessionRouteIdentity | undefined;
   let lastTurnOutcome: OperatorSessionTurnOutcome | undefined;
   let costUsd = 0;
 
   for (const event of session.sessionEvents) {
-    if (event.kind === "provider_routed" || event.kind === "cost_updated") {
-      providersUsed.add(event.provider.provider);
+    if (event.kind === "provider_routed" && event.routeId) {
       lastRoute = {
-        routeId: `${event.provider.provider}:${event.provider.model ?? "default"}`,
+        routeId: event.routeId,
         provider: event.provider.provider,
         ...(event.provider.model ? { model: event.provider.model } : {}),
       };
@@ -33,24 +30,10 @@ function routeFromSessionEvents(session: RuntimeSession): {
     if (event.kind === "turn_completed") {
       lastTurnOutcome = event.outcome;
     }
-    if (
-      (
-        event.kind === "agent_invocation_requested"
-        || event.kind === "agent_invocation_started"
-        || event.kind === "agent_invocation_completed"
-        || event.kind === "agent_invocation_failed"
-        || event.kind === "agent_invocation_cancelled"
-      )
-      && event.providerRoute?.providerId
-    ) {
-      providersUsed.add(event.providerRoute.providerId);
-    }
   }
 
-  if (session.sessionLedger.lastProvider) providersUsed.add(session.sessionLedger.lastProvider);
   return {
     ...(lastRoute ? { lastRoute } : {}),
-    providersUsed: [...providersUsed],
     ...(lastTurnOutcome ? { lastTurnOutcome } : {}),
     costUsd,
   };
@@ -64,6 +47,7 @@ export function projectAppGatewayOperatorSessionSummary(session: RuntimeSession)
   return projectOperatorSessionSummary({
     transcript: {
       sessionId: session.id,
+      ...(route ? { routeId: route.routeId } : {}),
       ...(route ? { provider: route.provider } : {}),
       ...(route?.model ? { model: route.model } : {}),
       routesUsed: evidence.lastRoute ? [evidence.lastRoute.routeId] : [],

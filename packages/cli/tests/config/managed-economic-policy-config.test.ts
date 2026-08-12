@@ -53,7 +53,7 @@ function economicRoutingResolution() {
     lease: {
       candidate: {
         account: createAccountRef("configured:codex-account:fixture"),
-        route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "managed-economic-adoption" },
+        route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "economic:codex-standard" },
         health: "healthy" as const,
         leaseCapacity: "available" as const,
         pressure: 0,

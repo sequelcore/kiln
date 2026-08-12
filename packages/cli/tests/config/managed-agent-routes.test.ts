@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   createSessionBuiltinToolOptions,
   deriveProviderModelEligibility,
+  defineExecutionCatalog,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
@@ -278,21 +279,105 @@ function createRegistryWithCapturedHarnessRun(
 }
 
 function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
-  const routes = overrides.routes?.map((route) => ({
-    credentials: { mode: "credentialless" as const },
-    ...route,
-  }));
+  const routes = overrides.routes ?? [];
+  const directRoutes = routes.filter((route) => route.kind === "direct");
+  const executionCatalog = defineExecutionCatalog({
+    accounts: directRoutes.map((route) => {
+      const identity = testExecutionIdentity(route.executionRouteId);
+      return {
+        id: `account:${route.executionRouteId}`,
+        providerId: identity.providerId,
+        credentialId: `credential:${route.executionRouteId}`,
+        maxConcurrency: 1,
+        reservedAffinitySlots: 0,
+        economics: {
+          capacityIdentity: `capacity:${route.executionRouteId}`,
+          subscriptionClass: "subscription",
+          quotaClassId: `quota:${route.executionRouteId}`,
+          creditPosture: "disabled" as const,
+          overagePosture: "disabled" as const,
+        },
+      };
+    }),
+    accountPolicies: directRoutes.map((route) => ({
+      id: `policy:${route.executionRouteId}`,
+      accountIds: [`account:${route.executionRouteId}`],
+      strategy: "economic-least-pressure" as const,
+    })),
+    routes: directRoutes.map((route) => {
+      const identity = testExecutionIdentity(route.executionRouteId);
+      return {
+        id: route.executionRouteId,
+        label: route.executionRouteId,
+        providerId: identity.providerId,
+        providerModelId: identity.providerModelId,
+        accountSelection: {
+          mode: "automatic" as const,
+          accountPolicyId: `policy:${route.executionRouteId}`,
+        },
+        economics: {
+          adapterCapabilityId: "test-direct-adapter",
+          adapterCapabilityVersion: "1",
+          authBillingChannel: "test",
+          executionMode: "direct",
+          serviceTier: "test",
+          rateCardBasis: "configured",
+          envelopeSemantics: "bounded",
+          fallbackPosture: "disabled" as const,
+          overagePosture: "disabled" as const,
+          contextClass: "test",
+          cacheClass: "none",
+          priceEvidence: {
+            kind: "subscription" as const,
+            rateCardId: "test",
+            rateCardRevision: "1",
+            evidence: {
+              sourceIdentity: "managed-agent-routes-test",
+              sourceRevision: "1",
+              sourceDigest: `sha256:${"a".repeat(64)}`,
+              observedAt: "2026-08-01T00:00:00.000Z",
+              validUntil: "2026-09-01T00:00:00.000Z",
+              confidence: "high" as const,
+              authority: "configured" as const,
+            },
+          },
+          auxiliaryCharges: [],
+          executionEnvelope: { limits: [] },
+        },
+      };
+    }),
+  });
   return {
-    version: "1",
+    version: "2",
+    executionCatalog,
     managedAgents: {
       enabled: true,
       defaultProvider: "codex",
       defaultProfile: "foundation-readonly-plan",
       requireApproval: true,
       ...overrides,
-      ...(routes ? { routes } : {}),
+      ...(routes.length > 0 ? { routes } : {}),
     },
   };
+}
+
+function testExecutionIdentity(executionRouteId: string): {
+  readonly providerId: string;
+  readonly providerModelId: string;
+} {
+  if (executionRouteId.startsWith("opencode-go-")) {
+    return { providerId: "opencode-go", providerModelId: "kimi-k2.6" };
+  }
+  if (executionRouteId.startsWith("openai-")) {
+    return { providerId: "openai", providerModelId: "gpt-5.4-mini" };
+  }
+  if (executionRouteId === "codex-oauth-auto-review-readonly") {
+    return { providerId: "codex-oauth", providerModelId: "codex-auto-review" };
+  }
+  if (executionRouteId === "codex-oauth-reasoning-readonly") {
+    return { providerId: "codex-oauth", providerModelId: "gpt-5.5" };
+  }
+  return { providerId: "codex-oauth", providerModelId: "gpt-5.4-mini" };
 }
 
 // Minimal economic-policy coverage for a direct route under test. Direct
@@ -322,28 +407,19 @@ function economicPolicyCovering(
       comparisonDomainId: "priority-only",
       priorityRank,
       ceiling: { kind: "none" as const },
-      worstCaseReservation: { kind: "not-comparable" as const, reason: "economic-basis-unavailable" as const },
+      worstCaseReservation: { kind: "not-comparable" as const, reason: "subscription-basis" as const },
     })),
   }];
 }
 
 const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]> = {
   port: 4819,
-  accounts: [{
-    id: "managed-openai-account",
-    providerId: "openai",
-    credentialId: "synthetic-openai",
-    maxConcurrency: 1,
-    reservedAffinitySlots: 0,
-  }],
   replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
   surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
   principals: [],
   virtualModels: [{
     id: "managed-openai",
-    providerId: "openai",
-    providerModelId: "gpt-5.4-mini",
-    accountIds: ["managed-openai-account"],
+    executionRouteId: "openai-readonly",
     capabilities: ["text", "reasoning-controls"],
     deliberation: {
       levels: ["low", "high"],
@@ -358,7 +434,7 @@ const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]
 const TEST_MANAGED_ACCOUNT_COMPOSITION = {
   routing: {} as never,
   authority: {} as never,
-  updateConfig() {},
+  updateCatalog() {},
 };
 
 function makeDirectAdapter(providerId = "openai", writeCapable = false): ManagedAgentRuntimeAdapter {
@@ -551,21 +627,15 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
-  it("creates a managed invocation service for runtime-selected credential routes without worktree leases", async () => {
+  it("creates a managed invocation service for catalog-selected account routes without worktree leases", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
         economicPolicies: economicPolicyCovering(["openai-readonly"]),
         routes: [{
         id: "openai-readonly",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
-        credentials: {
-          mode: "runtime-selected",
-          routeId: "credential-route:openai:primary",
-          accountPolicyId: "managed-openai",
-        },
       }],
       }),
       modelGateway: MANAGED_OPENAI_MODEL_GATEWAY,
@@ -579,10 +649,10 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     expect(result.managedInvocation?.invocationService).toBeDefined();
-    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:openai:primary");
+    expect(result.managedInvocation?.invocationServiceKey).toContain("openai-readonly");
     expect(result.managedInvocation?.routes.find((route) => route.routeId === "openai-readonly")?.capability.capacity).toEqual({
       kind: "policy-bound",
-      accountPolicyId: "managed-openai",
+      accountPolicyId: "policy:openai-readonly",
     });
   });
 
@@ -783,21 +853,15 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(capturedRun?.system).toContain("Harness resource body.");
   });
 
-  it("normalizes explicit runtime-selected credential route ids for profiles and service keys", async () => {
+  it("derives account-leased credential evidence and service keys from the execution catalog", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
         economicPolicies: economicPolicyCovering(["openai-readonly"]),
         routes: [{
         id: "openai-readonly",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
-        credentials: {
-          mode: "runtime-selected",
-          routeId: " credential-route:openai:primary ",
-          accountPolicyId: "managed-openai",
-        },
       }],
       }),
       modelGateway: MANAGED_OPENAI_MODEL_GATEWAY,
@@ -812,21 +876,12 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"].credentialRoute).toEqual({
       mode: "account-leased",
-      routeId: "credential-route:openai:primary",
-      accountPolicyId: "managed-openai",
+      routeId: "openai-readonly",
+      accountPolicyId: "policy:openai-readonly",
     });
-    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toMatchObject({
-      provider: "openai",
-      model: "gpt-5.4-mini",
-      levels: [{ id: "low" }, { id: "high" }],
-      evidence: {
-        sourceIdentity: "model-gateway:managed-openai",
-        sourceRevision: "revision-1",
-      },
-    });
+    expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toBeUndefined();
     expect(result.managedInvocation?.invocationService).toBeDefined();
-    expect(result.managedInvocation?.invocationServiceKey).toContain("credential-route:openai:primary");
-    expect(result.managedInvocation?.invocationServiceKey).not.toContain(" credential-route:openai:primary ");
+    expect(result.managedInvocation?.invocationServiceKey).toContain("openai-readonly");
   });
 
   it("creates an invocation service for credentialless routes without lease-backed resources", async () => {
@@ -856,11 +911,12 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("admits direct sandbox working-directory routes with a shared sandbox lease manager", async () => {
     validateGlobalConfig(baseConfig({
+      schemaVersion: 2,
+      economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
       routes: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.4-mini",
+        executionRouteId: "codex-oauth-sandbox-readonly",
         profiles: ["foundation-readonly-plan"],
         workingDirectory: "sandbox",
       }],
@@ -871,8 +927,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.4-mini",
+        executionRouteId: "codex-oauth-sandbox-readonly",
         profiles: ["foundation-readonly-plan"],
         workingDirectory: "sandbox",
         tools: {
@@ -1278,8 +1333,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         routes: [{
           id: "admitted-route",
           kind: "direct",
-          provider: "codex-oauth",
-          model: "gpt-5.4-mini",
+          executionRouteId: "admitted-route",
           profiles: ["foundation-readonly-plan"],
         }, {
           id: "codex-readonly",
@@ -1391,8 +1445,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         routes: [{
           id: "admitted-route",
           kind: "direct",
-          provider: "codex-oauth",
-          model: "gpt-5.4-mini",
+          executionRouteId: "admitted-route",
           profiles: ["foundation-readonly-plan"],
         }],
       }), {
@@ -1444,8 +1497,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "admitted-route",
         kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.4-mini",
+        executionRouteId: "admitted-route",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1502,15 +1554,13 @@ describe("resolveManagedInvocationToolOptions", () => {
         routes: [{
           id: "codex-oauth-reasoning-readonly",
           kind: "direct",
-          provider: "codex-oauth",
-          model: "gpt-5.5",
+          executionRouteId: "codex-oauth-reasoning-readonly",
           profiles: ["foundation-readonly-plan"],
           taskSuitability: [{ task: "mechanical-edit", level: "limited" }],
         }, {
           id: "codex-oauth-bounded-readonly",
           kind: "direct",
-          provider: "codex-oauth",
-          model: "gpt-5.4-mini",
+          executionRouteId: "codex-oauth-bounded-readonly",
           profiles: ["foundation-readonly-plan"],
           taskSuitability: [{ task: "mechanical-edit", level: "preferred" }],
         }],
@@ -1564,7 +1614,20 @@ describe("resolveManagedInvocationToolOptions", () => {
       );
 
       const result = await resolveManagedInvocationToolOptions({
-        version: "1",
+        ...baseConfig({
+          economicPolicies: economicPolicyCovering(["opencode-go-kimi-k2-6-readonly"]),
+          routes: [{
+            id: "opencode-go-kimi-k2-6-readonly",
+            kind: "direct",
+            executionRouteId: "opencode-go-kimi-k2-6-readonly",
+            profiles: ["foundation-readonly-plan"],
+            tools: {
+              allowed: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
+              network: true,
+              writes: false,
+            },
+          }],
+        }),
         engines: {
           "opencode-go": { enabled: true, billing: "subscription" },
         },
@@ -1579,23 +1642,6 @@ describe("resolveManagedInvocationToolOptions", () => {
               model: "qwen3.6-plus",
             },
           ],
-        },
-        managedAgents: {
-          enabled: true,
-          economicPolicies: economicPolicyCovering(["opencode-go-kimi-k2-6-readonly"]),
-          routes: [{
-            id: "opencode-go-kimi-k2-6-readonly",
-            kind: "direct",
-            provider: "opencode-go",
-            model: "kimi-k2.6",
-            profiles: ["foundation-readonly-plan"],
-            credentials: { mode: "credentialless" },
-            tools: {
-              allowed: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
-              network: true,
-              writes: false,
-            },
-          }],
         },
       }, {
         cwd: root,
@@ -1691,8 +1737,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "openai-readonly",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1719,8 +1764,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "openai-readonly",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1750,8 +1794,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "codex-oauth-auto-review-readonly",
         kind: "direct",
-        provider: "codex-oauth",
-        model: "codex-auto-review",
+        executionRouteId: "codex-oauth-auto-review-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2030,8 +2073,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         virtualModels: [{
           ...MANAGED_OPENAI_MODEL_GATEWAY.virtualModels[0],
           id: "managed-claude",
-          providerId: "claude",
-          providerModelId: "claude-fable-5[1m]",
         }],
       },
     }, {
@@ -2151,8 +2192,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         virtualModels: [{
           ...MANAGED_OPENAI_MODEL_GATEWAY.virtualModels[0],
           id: "managed-opencode-native",
-          providerId: "opencode",
-          providerModelId: "opencode/gpt-5.4",
           deliberation: {
             levels: ["low", "high"],
             supportsAdaptive: false,
@@ -2433,8 +2472,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "codex-oauth-approved-write",
         kind: "direct",
-        provider: "codex-oauth",
-        model: "gpt-5.4-mini",
+        executionRouteId: "codex-oauth-approved-write",
         profiles: ["foundation-apply-approved-writes"],
         tools: {
           allowed: ["read", "write"],
@@ -2499,8 +2537,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "opencode-go-frontend-approved-write",
         kind: "direct",
-        provider: "opencode-go",
-        model: "kimi-k2.6",
+        executionRouteId: "opencode-go-frontend-approved-write",
         profiles: ["foundation-apply-approved-writes"],
         tools: {
           allowed: ["read", "web_search", "browser_observe", "write"],
@@ -2530,6 +2567,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.managedInvocation?.unavailableRoutes).toEqual([{
       routeId: "opencode-go-frontend-approved-write",
       routeSource: "explicit-managed-route",
+      accountPolicyId: "policy:opencode-go-frontend-approved-write",
       providerId: "opencode-go",
       model: "kimi-k2.6",
       profiles: ["foundation-apply-approved-writes"],
@@ -2539,15 +2577,13 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   // H1/H2 closure (issue #34): a configured direct route not covered by any
   // economic policy must fail route health at composition, not silently
-  // dispatch. This must hold for a schema-v1 config that declares no
-  // economicPolicies at all.
-  it("fails direct route health with a named reason when no economic policy covers it (schema v1)", async () => {
+  // dispatch. This must hold when no economicPolicies are declared at all.
+  it("fails direct route health with a named reason when no economic policy covers it", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       routes: [{
         id: "openai-uncovered",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-uncovered",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2581,14 +2617,12 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "openai-covered",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-covered",
         profiles: ["foundation-readonly-plan"],
       }, {
         id: "openai-uncovered",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-uncovered",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2623,8 +2657,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       routes: [{
         id: "openai-uncovered",
         kind: "direct",
-        provider: "openai",
-        model: "gpt-5.4-mini",
+        executionRouteId: "openai-uncovered",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2650,6 +2683,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
       }],
-    }))).toThrow(/must reference a supported direct economic route/u);
+    }))).toThrow(/must reference a direct managed route with executionRouteId/u);
   });
 });

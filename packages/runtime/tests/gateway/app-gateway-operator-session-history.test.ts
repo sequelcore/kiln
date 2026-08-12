@@ -19,6 +19,7 @@ describe("App Gateway operator session history", () => {
         sequence: 1,
         timestamp: new Date("2026-08-11T12:00:00.000Z"),
         kind: "provider_routed",
+        routeId: "codex-sol",
         provider: { provider: "codex-oauth", model: "gpt-5.6-sol" },
         reason: "selected route",
       },
@@ -46,8 +47,8 @@ describe("App Gateway operator session history", () => {
       sessionId: "session-1",
       title: "support",
       summary: "Resolve the customer issue",
-      providersUsed: ["codex-oauth"],
-      lastRoute: { provider: "codex-oauth", model: "gpt-5.6-sol" },
+      routesUsed: ["codex-sol"],
+      lastRoute: { routeId: "codex-sol", provider: "codex-oauth", model: "gpt-5.6-sol" },
       lastTurnOutcome: "completed",
       costUsd: 0.25,
     });
@@ -64,7 +65,7 @@ describe("App Gateway operator session history", () => {
 
     expect(projectAppGatewayOperatorSessionSummary(session)).toMatchObject({
       sessionId: "session-2",
-      providersUsed: [],
+      routesUsed: [],
       costUsd: 0,
     });
     expect(projectAppGatewayOperatorSessionSummary(session)).not.toHaveProperty("lastRoute");

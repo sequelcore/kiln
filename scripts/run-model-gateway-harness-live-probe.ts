@@ -304,7 +304,6 @@ function gatewayConfig(port: number): ModelGatewayConfig {
   } as const);
   return {
     port,
-    accounts: [{ id: "unused", providerId: "codex-oauth", credentialId: "unused", maxConcurrency: 1, reservedAffinitySlots: 0 }],
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "UNUSED" },
     surfaces: {
       openAIResponses: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 },
@@ -319,8 +318,8 @@ function gatewayConfig(port: number): ModelGatewayConfig {
       },
     ],
     virtualModels: [
-      { id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } },
-      { id: "claude-kiln-probe", displayName: "Kiln Claude Probe", contextTokens: 100000, outputTokens: 4096, providerId: "codex-oauth", providerModelId: "unused", accountIds: ["unused"], capabilities: ["text"], affinity: { continuity: "none" } },
+      { id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", executionRouteId: "model-a", capabilities: ["text"], affinity: { continuity: "none" } },
+      { id: "claude-kiln-probe", displayName: "Kiln Claude Probe", contextTokens: 100000, outputTokens: 4096, executionRouteId: "claude-kiln-probe", capabilities: ["text"], affinity: { continuity: "none" } },
     ],
   };
 }
