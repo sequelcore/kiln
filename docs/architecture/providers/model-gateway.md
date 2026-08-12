@@ -64,8 +64,11 @@ permission parity; unsupported combinations fail closed.
 
 ## Ingress Lifecycle
 
-One user-scoped supervisor owns the loopback listener, runtime state, lock,
-SQLite evidence, and optional Windows logon task. Readiness returns an
+One user-scoped supervisor owns the loopback listener, lifecycle state, lock,
+and optional Windows logon task. The Runtime-owned economic authority database
+is shared with the Operator Runtime under
+`~/.kiln/runtime/economic-authority/`; it is not gateway lifecycle state and is
+not deleted with the listener. Readiness returns an
 authenticated identity containing the instance ID, PID, version, configuration
 digest, and port. Lifecycle commands act only when that identity exactly matches
 the owned state; an unauthorized, mismatched, or unrecognized listener is
@@ -83,9 +86,10 @@ Windows autostart is a least-privilege, current-user logon task with one owned
 description digest, `IgnoreNew` instance policy, and no execution time limit.
 Install replaces only a task carrying that ownership marker. Exact uninstall
 refuses a foreign task or listener, stops the owned process, removes the owned
-task and Model Gateway runtime directory, and leaves canonical config and
-unmanaged native state unchanged. Operator commands and recovery procedure are
-documented in [Model Gateway Operations](../../operations/model-gateway.md).
+task and Model Gateway lifecycle directory, removes any owned additive native
+provider projection, and leaves canonical config, shared economic evidence,
+and unmanaged native state unchanged. Operator commands and recovery procedure
+are documented in [Model Gateway Operations](../../operations/model-gateway.md).
 
 ## Native Projection
 

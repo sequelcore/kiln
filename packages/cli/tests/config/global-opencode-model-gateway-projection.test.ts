@@ -73,6 +73,9 @@ describe("global OpenCode model gateway projection", () => {
     changed.provider.kiln.name = "operator-change";
     writeFileSync(targetPath, JSON.stringify(changed));
     await expect(syncGlobalOpenCodeModelGatewayProjection({ config: gateway, listener: ready(gateway), targetPath, installStateDir, operation: "install" })).rejects.toThrow("drift");
+    await expect(syncGlobalOpenCodeModelGatewayProjection({ config: gateway, listener: ready(gateway), targetPath, installStateDir, operation: "install", force: true }))
+      .resolves.toMatchObject({ operation: "install", changed: true });
+    expect(JSON.parse(readFileSync(targetPath, "utf8")).provider.kiln.name).toBe("Kiln");
   });
 
   it("replaces an explicitly adopted stale provider without treating it as implicit ownership", async () => {

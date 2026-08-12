@@ -1,7 +1,7 @@
 # 04 - Cross-Harness Integration
 
 Status: Ready
-Execution: Ready - Model Gateway lifecycle is stable; OpenCode live parity and cross-harness proof remain.
+Execution: Ready - OpenCode parity is live-proven; Claude quota-gated proof and final all-harness conformance remain.
 Created: 2026-07-23
 
 ## Objective
@@ -85,7 +85,7 @@ documentation, not assumption:
 
 ### Slice 0 - Harness-Neutral MCP Migration
 
-Status: Code foundation complete; live migration blocked.
+Status: Codex and OpenCode live-proven; Claude fresh-session call pending quota recovery.
 
 Migrate the installed Codex bridge from legacy `kiln` to `kiln-control-plane`,
 preserve every unrelated native MCP server, verify ownership and exact
@@ -126,7 +126,7 @@ adapter-local prose.
 
 ### Slice 1 - OpenCode Additive Vertical
 
-Status: Execution catalog complete; additive OpenCode live proof blocked.
+Status: Complete and live-proven.
 
 The execution-catalog authority is complete in portable code. Global V2
 `executionCatalog` and `executionRouting.defaultRouteId` govern CLI, GUI, TUI,
@@ -150,6 +150,15 @@ OpenCode config. Prove `kiln/*` model discovery, one real turn, native-provider
 fallback while the gateway is stopped, restart/autostart, drift repair, update,
 and exact uninstall restore that leaves native providers/defaults/allowlists
 untouched.
+
+The 2026-08-12 operator proof discovered five `kiln/*` models and completed a
+real `kiln/opencode-go-flash` turn through the supervised gateway. Native
+`opencode-go/deepseek-v4-flash` completed while the gateway was stopped.
+Config-revision restart, current-user autostart, exact uninstall, and reinstall
+all passed. Uninstall removed only the owned provider and lifecycle state;
+OpenCode's default model and `kiln-control-plane` MCP bridge remained intact.
+The shared Runtime economic database now has its own directory so gateway
+uninstall cannot delete or lock cross-surface capacity evidence.
 
 #### Deliberation and global configuration disposition
 
@@ -263,7 +272,7 @@ live-proof identity.
 
 ### Slice 4 - Codex Composite Picker
 
-Status: Queued behind OpenCode live parity and Slice 3.
+Status: Complete with terminal unsupported disposition.
 
 Close Responses protocol parity, admitted reasoning levels, hosted web search,
 and native catalog-template inspection; fail closed if no valid native catalog
@@ -275,6 +284,16 @@ projection as a fake picker. Journal ownership of catalog/cache/base-URL state
 so uninstall restores the exact prior configuration. Prove CLI before App,
 including native turn, virtual turn, pre-existing session resume, gateway
 recovery, and exact uninstall.
+
+The current official Codex configuration contract cannot implement this design
+without violating its native-semantics gate. Codex 0.147.0 and the official
+configuration reference expose one global `model_provider` plus an optional
+`model_catalog_json`; model entries do not carry provider identity. A combined
+catalog would route native entries through Kiln and change provider/session
+semantics. Kiln therefore removes the stale provider-only path and does not
+ship a fake composite picker. A future official per-entry provider or equivalent
+native-routing contract requires a new delivery issue and fresh conformance
+proof; it is not retained as speculative Roadmap 04 work.
 
 #### Provider-neutral deliberation policy
 
@@ -299,7 +318,7 @@ session-transfer behavior into Kiln's governed surface.
 
 ### Slice 5 - Unified Status And Repair
 
-Status: Queued.
+Status: Complete by shared-contract reconciliation.
 
 Project gateway lifecycle, auth bootstrap, native projection, MCP bridge,
 route eligibility, and proof age through one shared status contract. Add
@@ -309,6 +328,17 @@ blocked until the operator explicitly reviews them.
 Exit gate: `kiln status` can explain why a given harness cannot see Kiln tools
 or agents, and setup recommendations carry target-specific snapshots instead
 of bare action strings.
+
+The V2 config status evidence and `config read` views already own canonical
+configuration health, route and managed-agent eligibility, MCP discovery,
+native projection state, permission proof freshness, and target-specific setup
+snapshots. Model Gateway and Operator Runtime lifecycle remain with their
+authenticated supervisors and `doctor` contracts; copying live process
+ownership into config status would create a second lifecycle authority. Repair
+is limited to Kiln-owned setup actions, while drift review remains explicitly
+blocked for operator review. Issues #63 and #70 concern shared operator Session
+event/lifecycle projection and remain separate product work, not this
+cross-harness setup/status gate.
 
 ### Slice 6 - Federation Research
 

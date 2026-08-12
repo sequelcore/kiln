@@ -222,12 +222,16 @@ Codex and OpenCode projections are additive registration only:
 - Existing native providers, picker catalogs, defaults, search behavior, and
   sessions remain owned by the native harness and operator.
 
-A Codex picker projection is not admitted until Kiln can preserve native
-provider identity, materialize a verified composite catalog, and prove the
-loopback listener healthy before changing native traffic. Merely declaring a
-`modelGateway` principal must never replace the native picker. Sync migrates
-legacy Kiln-owned replacement fields and catalogs away while preserving the
-additive provider definition.
+A Codex picker projection is unsupported by the current native contract. The
+official Codex configuration reference (rechecked 2026-08-12) exposes one
+global `model_provider` and an optional `model_catalog_json`; catalog entries
+cannot select a provider. A combined catalog would therefore send native
+entries through the Kiln provider too, changing native provider and session
+semantics. Kiln does not implement that provider-replacement path. Merely
+declaring a `modelGateway` principal must never replace the native picker.
+Sync removes legacy Kiln-owned replacement fields and catalogs. Reconsider a
+composite picker only when an official Codex contract can bind provider
+identity per catalog entry or otherwise preserve native routing semantics.
 
 Claude Code receives an explicitly configured Anthropic Messages gateway
 configuration in project-local `.claude/settings.json`:

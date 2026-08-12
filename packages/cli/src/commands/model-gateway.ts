@@ -85,6 +85,9 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   if (flags.adoptExisting && subcommand !== "sync-native") {
     throw new Error("--adopt-existing is valid only with sync-native.");
   }
+  if (flags.force && (subcommand !== "sync-native" || flags.uninstall)) {
+    throw new Error("--force is valid only with sync-native install.");
+  }
 
   if (subcommand === "serve" && flags.configPath) {
     await serveDevelopmentConfig(resolve(flags.configPath), dependencies);
@@ -166,6 +169,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
       installStateDir: join(globalDir, "runtime", "native-projections"),
       operation: flags.uninstall ? "uninstall" : "install",
       ...(flags.adoptExisting ? { adoptExisting: true } : {}),
+      ...(flags.force ? { force: true } : {}),
     });
     printNativeSyncResult(result, flags.json, dependencies.log);
     return;
@@ -308,8 +312,8 @@ function resolveOptionalHealthToken(config: ModelGatewayConfig, env: Readonly<Re
   return config.principals.map((principal) => env[principal.tokenEnv]).find((value): value is string => !!value) ?? "";
 }
 
-function parseFlags(args: readonly string[]): { readonly configPath?: string; readonly json: boolean; readonly help: boolean; readonly globalRuntime: boolean; readonly instanceId?: string; readonly client?: string; readonly uninstall: boolean; readonly adoptExisting: boolean } {
-  let configPath: string | undefined; let json = false; let help = false; let globalRuntime = false; let instanceId: string | undefined; let client: string | undefined; let uninstall = false; let adoptExisting = false;
+function parseFlags(args: readonly string[]): { readonly configPath?: string; readonly json: boolean; readonly help: boolean; readonly globalRuntime: boolean; readonly instanceId?: string; readonly client?: string; readonly uninstall: boolean; readonly adoptExisting: boolean; readonly force: boolean } {
+  let configPath: string | undefined; let json = false; let help = false; let globalRuntime = false; let instanceId: string | undefined; let client: string | undefined; let uninstall = false; let adoptExisting = false; let force = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--config") { const value = args[index + 1]; if (!value) throw new Error("--config requires a path."); configPath = value; index += 1; continue; }
@@ -318,12 +322,13 @@ function parseFlags(args: readonly string[]): { readonly configPath?: string; re
     if (arg === "--client") { const value = args[index + 1]; if (!value) throw new Error("--client requires a value."); client = value; index += 1; continue; }
     if (arg === "--uninstall") { uninstall = true; continue; }
     if (arg === "--adopt-existing") { adoptExisting = true; continue; }
+    if (arg === "--force") { force = true; continue; }
     if (arg === "--json") { json = true; continue; }
     if (arg === "--help" || arg === "-h") { help = true; continue; }
     throw new Error(`Unknown model-gateway option '${arg}'.`);
   }
   if (adoptExisting && uninstall) throw new Error("--adopt-existing cannot be combined with --uninstall.");
-  return { ...(configPath === undefined ? {} : { configPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall, adoptExisting };
+  return { ...(configPath === undefined ? {} : { configPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall, adoptExisting, force };
 }
 
 function printNativeSyncResult(result: GlobalOpenCodeModelGatewayProjectionResult, json: boolean, log: (message: string) => void): void {
@@ -369,7 +374,7 @@ function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: 
 
 function printHelp(log: (message: string) => void): void {
   log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native> [--json]\n");
-  log("Native provider: kiln model-gateway sync-native --client opencode [--uninstall|--adopt-existing]");
+  log("Native provider: kiln model-gateway sync-native --client opencode [--uninstall|--adopt-existing|--force]");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");
 }

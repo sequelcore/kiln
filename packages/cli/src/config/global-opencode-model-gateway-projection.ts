@@ -30,7 +30,11 @@ export async function syncGlobalOpenCodeModelGatewayProjection(input: {
   readonly installStateDir: string;
   readonly operation: "install" | "uninstall";
   readonly adoptExisting?: boolean;
+  readonly force?: boolean;
 }): Promise<GlobalOpenCodeModelGatewayProjectionResult> {
+  if (input.force && input.operation !== "install") {
+    throw new Error("Forcing the OpenCode model gateway projection is valid only for owned install repair.");
+  }
   if (input.operation === "install") {
     if (!input.listener) throw new Error("Installing the OpenCode model gateway projection requires an owned ready listener.");
     requireExactListener(input.config, input.listener);
@@ -47,7 +51,7 @@ export async function syncGlobalOpenCodeModelGatewayProjection(input: {
     state: installState,
     currentDocument,
   });
-  if (drift) throw new Error(`Global OpenCode model gateway managed field drift detected: ${drift.driftedFields.join(", ")}`);
+  if (drift && !input.force) throw new Error(`Global OpenCode model gateway managed field drift detected: ${drift.driftedFields.join(", ")}`);
 
   if (input.operation === "uninstall") {
     if (!installedTarget) return { operation: "uninstall", changed: false, targetPath: input.targetPath };

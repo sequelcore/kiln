@@ -395,6 +395,27 @@ describe("modelGatewayCommand", () => {
     expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ operation: "install", adoptExisting: true }));
   });
 
+  it("forwards explicit repair authority only for an owned native install", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-repair-native-"));
+    const gatewayReady = { state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } };
+    const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "install" as const, changed: true, targetPath: "opencode.json" }));
+
+    await modelGatewayCommand(["sync-native", "--client", "opencode", "--force"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => gatewayReady), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      syncOpenCodeNativeProjection,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      entrypoint: "cli.js",
+      log: vi.fn(),
+    });
+
+    expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ operation: "install", force: true }));
+    await expect(modelGatewayCommand(["sync-native", "--client", "opencode", "--uninstall", "--force"], {
+      readGlobalConfig: () => globalConfig,
+    })).rejects.toThrow("only with sync-native install");
+  });
+
   it("removes an owned native provider without starting the gateway", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-uninstall-native-"));
     const ensure = vi.fn();

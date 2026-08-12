@@ -64,10 +64,11 @@ kiln model-gateway uninstall
 ```
 
 This command preflights ownership, stops only the exact owned listener, removes
-the owned scheduled task, and deletes only `~/.kiln/runtime/model-gateway`.
-It refuses foreign task or listener state. It does not modify global config,
-provider credentials, harness-native configuration, or other Kiln runtime
-directories.
+the owned additive OpenCode provider projection and scheduled task, and deletes
+only `~/.kiln/runtime/model-gateway`. It refuses foreign task or listener state.
+It does not modify global config, provider credentials, unmanaged harness-native
+fields, or the shared Runtime economic authority under
+`~/.kiln/runtime/economic-authority`.
 
 To remove only automatic startup while leaving the service and runtime evidence
 available, use `kiln model-gateway uninstall-autostart`.
