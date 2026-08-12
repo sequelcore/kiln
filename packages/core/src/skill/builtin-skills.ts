@@ -29,7 +29,7 @@ function defineBuiltinSkill(input: {
 export const KILN_CORE_BUILTIN_SKILLS: readonly SkillConfig[] = [
   defineBuiltinSkill({
     name: "repo-context-review",
-    description: "Review generated Kiln project context against real repository evidence before adoption or sync.",
+    description: "Validate canonical Kiln project context against durable, conflicting, and incomplete repository evidence before adoption or sync.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["kiln", "project-context", "repo-shims"],
     instructions: `
@@ -39,14 +39,28 @@ Use this skill when a task asks for project context adoption, repo instruction
 generation, or review of generated AGENTS.md / CLAUDE.md shims.
 
 Workflow:
-1. Inspect deterministic repository evidence before accepting generated context:
-   - kiln project scout --json
-   - package.json
-   - canonical docs listed by the scout output
-2. Compare .kiln/project-context.md against that evidence, including package metadata, scripts, workspace layout, and canonical docs.
-3. Report only durable repo facts. Do not encode personal workflow preferences as project facts.
-4. Recommend concrete changes to .kiln/project-context.md when evidence is missing or misleading.
-5. Do not edit generated AGENTS.md or CLAUDE.md shims directly. They are projections from canonical Kiln config.
+1. Run kiln project scout --json when available and record failure rather than
+   inventing its evidence. Inspect root and workspace manifests, lockfiles,
+   workspace metadata, CI or build configuration, and the claimed canonical
+   docs. Account for nested packages, submodules, and linked content when they
+   are material.
+2. Separate facts, inferences, conflicts, and unknowns. Resolve conflicts from
+   direct executable or configuration evidence before documentation, then
+   explain any remaining ambiguity. A document being named canonical does not
+   make every claim inside it true.
+3. Compare those facts with .kiln/project-context.md. Verify that named commands
+   exist and are portable, but do not execute destructive or externally
+   mutating commands merely to review them.
+4. Keep only durable repository-wide facts and links to owning doctrine.
+   Preserve reviewed durable human notes when evidence still supports them. Do
+   not encode personal preferences, transient incidents, branch state,
+   provider/model policy, or duplicated architecture doctrine as project facts.
+5. Recommend concrete canonical edits when context is missing, misleading, or
+   unsupported. Treat the review as blocked only when critical evidence cannot
+   be resolved; optional missing metadata is not a blocker.
+6. Do not edit generated AGENTS.md or CLAUDE.md shims directly. Do not repair
+   projection drift; route that to config-projection review. After an accepted
+   canonical change, state whether kiln sync --repo-shims must run.
 
 Review Criteria:
 - Project name, package manager, scripts, workspaces, and canonical docs match the repository.
@@ -56,7 +70,7 @@ Review Criteria:
 
 Output:
 - status: valid, needs_changes, or blocked.
-- evidence: concise file/script references.
+- evidence: concise references for each accepted fact, conflict, or unknown.
 - recommendedChanges: concrete edits for .kiln/project-context.md.
 - projectionImpact: whether kiln sync --repo-shims should be rerun.
 `,
@@ -281,7 +295,7 @@ Do not rewrite the author's intent unless the evidence shows a real problem.
   }),
   defineBuiltinSkill({
     name: "clean-architecture-boundary-review",
-    description: "Detect dependency-direction, layer, port, adapter, and surface-ownership violations.",
+    description: "Review dependency direction, runtime coupling, contract ownership, and boundary tradeoffs without rewarding speculative abstraction.",
     tools: ["read", "grep", "glob"],
     tags: ["architecture", "clean-architecture", "review"],
     instructions: `
@@ -290,19 +304,40 @@ Do not rewrite the author's intent unless the evidence shows a real problem.
 Use this skill when evaluating architecture, module ownership, or cross-surface
 changes.
 
-Check:
-1. Domain/core contracts do not import runtime, GUI, TUI, CLI, provider, or IO infrastructure.
-2. Runtime owns execution policy and event emission; surfaces project evidence.
-3. Cross-boundary behavior flows through explicit ports, DTOs, adapters, or events.
-4. Shared behavior has one owner and one projection path.
-5. Safety-sensitive behavior fails closed at the boundary.
+Workflow:
+1. Map the intended modules, policy owners, dependency graph, runtime
+   composition, and public contracts. Name the quality the boundary protects,
+   such as independent change, testability, transactional integrity, or
+   replaceable infrastructure.
+2. Trace causal dependency paths in both directions. Distinguish source
+   dependency from runtime control flow and inspect hidden coupling through
+   configuration, dependency injection, registries, reflection, generated code,
+   persistence, callbacks, events, and shared operational state.
+3. Verify that stable policy does not depend on volatile mechanisms and that
+   cross-boundary data, errors, state, and side effects have a named owner and a
+   minimal contract. Inspect public exports and whether infrastructure types or
+   duplicated schemas leak across the boundary.
+4. Identify cycles, duplicated policy or projection ownership, and unjustified
+   fan-out. Require executable architecture checks when a durable dependency
+   rule can be mechanized.
+5. Evaluate tradeoffs. Do not require speculative ports, DTOs, adapters, or
+   events that add behavior-free layers without demonstrated volatility,
+   coupling reduction, or another real consumer.
+6. Route business-language and invariant questions to DDD review and authority
+   or disclosure questions to security review; dependency shape alone proves
+   neither domain correctness nor safety.
 
-Report boundary drift separately from style concerns.
+Output findings first, ordered by severity, and separately from style. For each
+finding give the dependency path, affected surface, triggering condition,
+impact, evidence, correction direction, protected quality, and residual
+tradeoff. State the reviewed and materially unreviewed surface, verification
+performed, and residual risk. Distinguish confirmed drift from uncertain
+reachability; do not invent a finding when evidence supports none.
 `,
   }),
   defineBuiltinSkill({
     name: "ddd-boundary-review",
-    description: "Review bounded contexts, aggregate boundaries, language leakage, and coupling risk.",
+    description: "Review domain language, bounded contexts, aggregate invariants, integration relationships, and justified DDD scope.",
     tools: ["read", "grep", "glob"],
     tags: ["architecture", "ddd", "review"],
     instructions: `
@@ -311,14 +346,41 @@ Report boundary drift separately from style concerns.
 Use this skill when domain language, bounded contexts, or ownership boundaries
 matter.
 
-Check:
-1. Concepts belong to the bounded context that owns their lifecycle.
-2. Shared language is explicit and not leaked through convenience imports.
-3. Aggregates and services do not absorb unrelated responsibilities.
-4. Integration contracts are named and versioned where needed.
-5. New abstractions remove real coupling or duplication.
+Here ownership means business capability, language, invariant, lifecycle, and
+change authority. Route module placement, dependency direction, composition, and
+technical contract ownership to clean-architecture boundary review.
 
-Prefer concrete boundary evidence over abstract DDD terminology.
+Workflow:
+1. Establish the business capability, stakeholders, ubiquitous language,
+   invariants, lifecycle, authority, and change ownership from domain evidence.
+   State what evidence is missing instead of inferring a model from package
+   names alone.
+2. Distinguish bounded contexts from packages, services, databases, and
+   deployment units. Within each context, verify that terms have consistent
+   meanings; allow the same word to mean different things across contexts when
+   translation is explicit.
+3. Locate an aggregate at the smallest set that must preserve invariants
+   atomically. Identify its root, transaction and concurrency boundary,
+   cross-aggregate references, consistency timing, and emitted domain events.
+   Reject oversized aggregates and distributed transactions without a proven
+   invariant.
+4. Across contexts, name the upstream and downstream relationship, translation
+   owner, integration contract, consistency model, and active consumers.
+   Distinguish an intentional shared kernel or published language from an
+   accidental convenience import.
+5. Check for leaked language, shared persistence ownership, anemic domain
+   models, unrelated service responsibilities, temporal coupling, and
+   compatibility machinery without an active consumer.
+6. Do not introduce DDD patterns where domain complexity does not justify them.
+   A simple data-maintenance capability may need fewer concepts, not more
+   ceremony.
+
+Report findings first and ordered by severity. For each finding give the
+triggering language, invariant, lifecycle, ownership, or coupling evidence;
+impact; and narrow correction direction. State the reviewed and materially
+unreviewed surface, verification performed, residual uncertainty and risk, and
+say clearly when evidence supports no finding. Do not use DDD terminology as a
+substitute for business evidence.
 `,
   }),
   defineBuiltinSkill({
@@ -346,7 +408,7 @@ Workflow:
   }),
   defineBuiltinSkill({
     name: "security-scope-review",
-    description: "Review authorization, secret handling, prompt/tool injection, and unsafe execution scope.",
+    description: "Trace authority, untrusted data, credentials, and consequential effects to evidence-backed enforcement boundaries.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["security", "review", "safety"],
     instructions: `
@@ -355,20 +417,45 @@ Workflow:
 Use this skill for security-sensitive code, agent tools, config, credentials, or
 external inputs.
 
-Check:
-1. Authority is explicit and cannot be inferred from model output.
-2. Secrets are never logged, stored in repo files, or projected into prompts.
-3. Untrusted content cannot change tool policy, route policy, or disclosure rules.
-4. File, shell, network, and provider actions pass through the owning policy boundary.
-5. Error messages reveal enough for operators without leaking sensitive data.
+Workflow:
+1. Identify principals, protected assets, trust boundaries, untrusted data
+   paths, consequential actions, and plausible blast radius. Separate
+   authentication, authorization, delegated authority, and human consent.
+2. Trace each sensitive action from input through interpretation,
+   authorization, effect, and audit. Verify that an enforcement boundary, not
+   model text, checks subject, resource, operation, scope, purpose, parameters,
+   current policy, and revocation state immediately before the effect.
+3. Verify least privilege and attenuation across tools and child processes.
+   Credentials must be audience-bound, short-lived where practical, revocable,
+   and protected from confused-deputy use or ambient inheritance.
+4. Trace credentials and sensitive data through prompts, tools, processes, logs,
+   errors, storage, and outputs. Require minimization, redaction, rotation,
+   incident containment, and tamper-evident attribution appropriate to risk.
+5. Treat repository text, user content, model output, tool results, URLs, and
+   retrieved data as untrusted. Validate every transition into file, shell,
+   network, database, template, renderer, or provider operations, including
+   traversal, injection, SSRF/redirect, schema, and resource-bound risks.
+6. Deny when authority is missing or contradictory. When evidence is incomplete,
+   allow approval only through an authenticated, policy-defined approval path
+   whose approver has the required authority and evidence; an arbitrary human
+   confirmation cannot manufacture permission. Check cancellation,
+   retry/idempotency, rate or resource limits, and safe error disclosure for
+   consequential operations.
+7. Prefer a focused negative test or executable trace that proves policy is
+   enforced outside the prompt. A scanner, refusal instruction, or clean module
+   boundary is defense in depth, not authorization evidence.
 
-Treat prompt injection and tool injection as authorization problems, not prompt
-style problems.
+Treat prompt and tool injection as authorization problems, not prompt-style
+problems. Report findings by severity with the triggering path, impact,
+evidence, narrow correction, reviewed and unreviewed surface, verification, and
+residual risk. For a managed-child task, let managed-agent risk review lead
+lifecycle, settlement, handoff, and evidence-parity analysis; use this review for
+the general enforcement, credential, untrusted-data, and disclosure paths.
 `,
   }),
   defineBuiltinSkill({
     name: "managed-agent-risk-review",
-    description: "Audit child invocation authority, route identity, evidence, handoff, and replay guarantees.",
+    description: "Audit managed-child identity, attenuated authority, lifecycle settlement, evidence integrity, and honest replay limits.",
     tools: ["read", "grep", "glob"],
     tags: ["kiln", "managed-agents", "architecture", "review"],
     instructions: `
@@ -377,19 +464,49 @@ style problems.
 Use this skill for managed child invocation design, implementation, or live-test
 analysis.
 
-Check:
-1. Profile, provider, model, adapter, route, authority, context mode, and child identity are explicit.
-2. The parent does not lend ambient authority to the child.
-3. Requested agent profiles and skills are admitted before execution.
-4. Terminal state, transcript, result handoff, and resource URIs are replayable.
-5. Direct-provider and harness routes expose equivalent operator evidence or clearly state limitations.
+This review leads managed-child lifecycle, settlement, handoff, and adapter
+evidence analysis. Route general authorization enforcement, credential handling,
+untrusted-data sinks, and disclosure risks to security-scope review without
+duplicating the same finding.
 
-Report missing evidence as a product risk, not a UI preference.
+Workflow:
+1. Bind a unique child, task, attempt, and parent lineage to an immutable
+   admission snapshot. Include objective and success criteria; profile,
+   provider, model, adapter, route, and context identity; admitted skills and
+   tools; filesystem, network, write, and data scope; credential audience;
+   budgets, timeout, and policy/config revisions.
+2. Delegation may only attenuate parent authority. Verify enforceable child
+   identity and short-lived capabilities rather than prompt-only restrictions
+   or ambient parent credentials. Re-authorize immediately before consequential
+   effects and reject route, profile, or authority contradictions.
+3. Inspect lifecycle and settlement across admission, start, progress,
+   cancellation, timeout, retry, recovery, handoff, and immutable terminal
+   state. Require revocation, cancellation, idempotent retries, attempt identity,
+   capacity accounting, and an honest unknown state when remote work may remain
+   active.
+4. Persist ordered lifecycle, tool-call/result, artifact, transcript, handoff,
+   and terminal evidence with integrity, redaction, retention, and schema
+   identity. Bind resource URIs and outputs to the invocation that produced
+   them.
+5. Distinguish audit reconstruction from deterministic re-execution. Models and
+   external tools are generally nondeterministic; do not call a summary or
+   partial transcript fully replayable.
+6. Validate child output as untrusted data before reinjection. A child summary,
+   patch, URI, or approval claim cannot grant parent authority or bypass content
+   and resource admission.
+7. Compare adapters against one canonical evidence contract. Mark evidence as
+   observed, unsupported, unavailable, or contradictory; never fabricate
+   provider or harness parity. Consider whether delegation benefits justify its
+   coordination, latency, cost, and failure surface.
+
+Report each missing guarantee as a product risk with the triggering lifecycle
+path, evidence gap, impact, narrow correction direction, reviewed surface, and
+residual limitation.
 `,
   }),
   defineBuiltinSkill({
     name: "benchmark-readiness-review",
-    description: "Evaluate whether benchmark or eval results are reproducible, comparable, and public-ready.",
+    description: "Judge benchmark validity, reproducibility, comparability, and claim readiness with tiered evidence verdicts.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["eval", "benchmark", "readiness"],
     instructions: `
@@ -397,19 +514,51 @@ Report missing evidence as a product risk, not a UI preference.
 
 Use this skill for benchmark, eval, or public performance claims.
 
-Check:
-1. Profile id/version, dataset version, scorer set, k, pass^k, config hash, provider/model, and commit are recorded.
-2. Result artifacts, transcripts, tool calls, diagnostics, and managed invocation evidence are resolvable.
-3. Benchmark adapters project normal Kiln runtime contracts and do not create private prompt/tool paths.
-4. Limitations, unsupported rows, and failed cases are explicit.
-5. Public claims separate model capability from Kiln governance capability.
+Workflow:
+1. State the claim, construct, and deployment decision the evaluation is meant
+   to support. Verify that the benchmark, dataset, outcome, and scorer actually
+   measure that construct and that sampled tasks are solvable and relevant.
+2. Freeze the protocol: profile and dataset versions; scorer set; model and
+   provider revision, route, prompt and tool catalog; config/content hash;
+   environment, dependencies, and commit; sampling parameters, k, seeds where
+   supported, retry and failure policy, exclusions, and cost or authority limits.
+3. Validate execution through normal product contracts. Benchmark adapters must
+   not gain private prompts, tools, credentials, or shortcuts unavailable to the
+   evaluated route. Detect fallbacks and mixed cohorts rather than labeling them
+   as one model or mechanism.
+4. Retain per-item trials, typed outcomes, transcripts, tool evidence,
+   diagnostics, and immutable artifact references. Verify committed bytes and
+   content identity. Artifact availability does not imply independent
+   reproduction.
+5. Report pass^1 and pass^k with the denominator, uncertainty, subgroup, and
+   failure analysis appropriate to the claim. Distinguish pass^k repeated-run
+   reliability from pass@k candidate coverage. Validate automated or model-based
+   scorers before treating their labels as ground truth.
+6. Keep unsupported, failed, and unknown rows in accounting. Disclose
+   exclusions, contamination, fixture limitations, adverse evidence,
+   cost/latency differences, and independent rerun disagreement.
+7. Map every external claim to evidence and qualify its scope. Separate model
+   capability from routing, tooling, authority, and Kiln governance capability.
 
-Block readiness when reproducibility evidence is missing.
+Verdict:
+- blocked: validity, identity, artifact, or reproducibility evidence is missing;
+- internal-baseline-ready: useful for bounded internal comparison;
+- external-evaluation-ready: another evaluator has a complete frozen package;
+- public-claim-ready: claim wording, uncertainty, limitations, and reproducible
+  evidence are all reviewable.
+
+Do not promote one verdict from a headline score alone.
+
+Output findings first. Then state exactly one highest justified verdict, the
+claim and cohort reviewed, evidence that satisfies that tier, evidence gaps,
+excluded or adverse rows, verification performed, reviewed and unreviewed
+surface, and residual uncertainty. The tiers are monotonic: select the lowest
+blocked tier when any prerequisite for a higher tier is missing.
 `,
   }),
   defineBuiltinSkill({
     name: "config-projection-review",
-    description: "Review Kiln config, native projections, repo shims, drift state, and setup diagnostics.",
+    description: "Review canonical config, projection ownership, provenance, drift, and safe convergence through shared status evidence.",
     tools: ["read", "grep", "glob", "bash"],
     tags: ["kiln", "config", "projection", "review"],
     instructions: `
@@ -418,15 +567,33 @@ Block readiness when reproducibility evidence is missing.
 Use this skill when reviewing global config, project config, generated shims, or
 native harness projection.
 
-Check:
-1. Canonical state lives under Kiln config, instructions, agents, and skills.
-2. Native harness files and repo shims are generated projections, not durable doctrine.
-3. Drift, unmanaged files, and stale projections are reported instead of silently overwritten.
-4. Setup/status surfaces consume the shared config status contract.
-5. Model-callable config changes use proposal, approval, and apply lifecycle.
+Workflow:
+1. Inventory canonical sources, generator and adapter revision, ownership or
+   install-state evidence, source identity and digest, and current target bytes.
+   Consume the shared config-status evidence when its typed contract owns these
+   facts; do not create a competing scanner or infer state independently.
+2. Classify every source and target as canonical, current, missing, stale,
+   drifted, or unmanaged. For each projection record ownership, source identity
+   and digest, target path, managed fields or files, target evidence, and any
+   unresolved read or version failure.
+3. Separate canonical-content defects from projection-lifecycle defects.
+   Repository-context review owns whether canonical project facts are true;
+   this skill owns whether intent and generated surfaces converge safely.
+4. Never mutate while reviewing. Preserve unmanaged content and unrelated
+   operator-owned fields. Block automatic repair for unmanaged content,
+   ambiguous ownership, invalid canonical config, stale approval, incomplete
+   inventory, or authority/permission drift whose safe merge is unproven.
+5. Recommend the narrow owning operation: edit canonical state, review a
+   preview, then synchronize its projection. Model-callable mutations must use
+   proposal, approval, and apply with stale-base rejection. Never recommend
+   direct edits to generated shims or native skill files.
+6. Account for partial failure per target. State whether convergence is safe,
+   needs review, or is blocked; do not report a whole operation successful when
+   one target is unreadable or unsettled.
 
-Do not recommend direct edits to generated AGENTS.md, CLAUDE.md, or native
-harness skill files.
+Output findings first, followed by overall status (valid, needs_changes, or
+blocked), per-target evidence and action, verification performed, and residual
+unknowns.
 `,
   }),
   defineBuiltinSkill({
@@ -440,17 +607,27 @@ Use this skill when the user or agent profile requests concise, highly
 scannable, execution-oriented responses.
 
 Rules:
-1. Lead with the answer, outcome, or next concrete action. Do not begin with
-   praise, a plan announcement, or background that can follow the result.
-2. Number steps only when order matters. Keep each step to one bounded action.
-3. Make state visible when work spans turns: state what is complete, what is in
-   progress, and the next decision or action.
+1. Identify the audience, task, and requested format. Lead with the answer,
+   outcome, or next concrete action when resolved; when unresolved, lead with
+   the highest-severity finding, blocker, or
+   uncertainty. Findings-first review contracts override generic outcome-first
+   ordering. Put a safety or authority caveat immediately beside any action it
+   materially changes.
+2. Do not begin with praise, a plan announcement, or background that can follow
+   the result. Number steps only when order matters; do not turn independent
+   options into a false sequence. Use descriptive headings for longer responses.
+3. Make state visible when work spans turns. Report complete, in progress,
+   blocked, and next only when those states apply, and distinguish observed
+   state from inference.
 4. Keep tangents separate from the main task. Include them only when they
    materially change correctness, safety, or the next action.
 5. State errors with cause, evidence, and the nearest corrective action. Avoid
-   alarmist or performative language.
-6. If work remains, end with one concrete next action when that helps the user
-   proceed. Do not add generic closing pleasantries.
+   alarmist or performative language; say when the cause is not yet known.
+6. Preserve necessary nuance, citations, accessible labels, and the user's
+   requested narrative, teaching, data, or machine-readable format. If work
+   remains, end with one concrete next action only when it helps the user
+   proceed. Do not invent a next action, urgency, certainty, or completion, and
+   do not add generic closing pleasantries or calls to action.
 
 Do not invent time estimates. Do not force short answers when the user asks for
 an explanation, comparison, walkthrough, or complete analysis.

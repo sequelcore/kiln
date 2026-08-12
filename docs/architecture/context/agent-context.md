@@ -429,19 +429,19 @@ The built-in skill ids are:
 
 | Skill | Purpose | Typical agents |
 | --- | --- | --- |
-| `repo-context-review` | Validate generated project context and repo shims against repository evidence. | `scout`, `architect` |
+| `repo-context-review` | Resolve durable repository facts and conflicts before canonical context adoption or shim sync. | `scout`, `architect` |
 | `codebase-scouting` | Map ownership, causal dependency paths, affected verification, and uncertainty before broad changes. | `scout` |
 | `implementation-planning` | Convert a scoped objective into an evidence-bound, dependency-ordered sequence with verification and recovery. | `planner`, `architecture-planner` |
 | `tdd-workflow` | Design failing tests, implement only the target behavior, and verify. | `tdd`, `coder` |
 | `code-review-findings` | Perform findings-first review with severity, evidence, and test-gap risk. | `reviewer`, `adversarial-reviewer` |
-| `clean-architecture-boundary-review` | Detect dependency direction, port/adapter, layer, and surface ownership drift. | `architect`, `ddd-validator` |
-| `ddd-boundary-review` | Review bounded contexts, aggregate ownership, language leakage, and coupling. | `ddd-validator`, `architect` |
+| `clean-architecture-boundary-review` | Review dependency direction, runtime coupling, contract ownership, and justified boundary tradeoffs. | `architect`, `ddd-validator` |
+| `ddd-boundary-review` | Review domain language, bounded contexts, aggregate invariants, and integration relationships. | `ddd-validator`, `architect` |
 | `refactoring-safety` | Preserve behavior while removing dead code, redundancy, and avoidable complexity. | `refactoring-specialist` |
-| `security-scope-review` | Review authority, secrets, prompt/tool injection, and unsafe execution scope. | `adversarial-reviewer`, `reviewer` |
-| `managed-agent-risk-review` | Audit child invocation authority, route identity, handoff, replay, and evidence. | `architect`, `reviewer` |
-| `benchmark-readiness-review` | Decide whether eval or benchmark evidence is reproducible and public-ready. | `researcher`, `reviewer` |
-| `config-projection-review` | Review canonical config, generated shims, native projections, drift, and setup state. | `scout`, `architect` |
-| `action-first-communication` | Shape responses for fast scanning and execution without medical assumptions or unsafe brevity rules. | Any explicitly configured agent |
+| `security-scope-review` | Trace authority, untrusted data, credentials, and consequential effects to enforcement evidence. | `adversarial-reviewer`, `reviewer` |
+| `managed-agent-risk-review` | Audit delegated identity, attenuated authority, lifecycle settlement, evidence, and honest replay limits. | `architect`, `reviewer` |
+| `benchmark-readiness-review` | Judge benchmark validity, reproducibility, comparability, and tiered claim readiness. | `researcher`, `reviewer` |
+| `config-projection-review` | Review canonical intent, projection ownership, provenance, drift, and safe convergence. | `scout`, `architect` |
+| `action-first-communication` | Order outcomes, findings, state, and corrective actions without unsafe or invented brevity. | Any explicitly configured agent |
 | `clear-writing` | Write, rewrite, or review prose so it is clear, accurate, structured, and audience-appropriate. | Any writing or review agent |
 
 Built-ins are the lowest precedence tier. Project skills override user skills;

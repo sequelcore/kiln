@@ -187,6 +187,18 @@ define the active architecture contract. For doctrine, use
   Coding-agent, change-decomposition, small-batch, and safe-delivery evidence
   supporting conditional, repository-grounded implementation planning.
 
+- `37-security-and-managed-agent-review-skills-2026.md`
+  Agent-security, zero-trust, identity, delegation, lifecycle, and evidence
+  research supporting enforceable security and managed-agent risk reviews.
+
+- `38-architecture-boundary-review-skills-2026.md`
+  Coupling, architecture conformance, bounded-context, aggregate, and domain
+  evidence supporting distinct Clean Architecture and DDD review contracts.
+
+- `39-governance-review-skills-2026.md`
+  Projection ownership, benchmark validity, repository-context, and accessible
+  information-ordering evidence for the remaining governance review skills.
+
 - `web-retrieval-provider-routing.md`
   Accepted provider-neutral search routing decision based on current provider
   docs, decision-surface research, strict postconditions, and reproducible
@@ -237,4 +249,7 @@ define the active architecture contract. For doctrine, use
 34. `34-skill-catalog-governance-2026.md`
 35. `35-codebase-scouting-skill-2026.md`
 36. `36-implementation-planning-skill-2026.md`
-37. `web-retrieval-provider-routing.md`
+37. `37-security-and-managed-agent-review-skills-2026.md`
+38. `38-architecture-boundary-review-skills-2026.md`
+39. `39-governance-review-skills-2026.md`
+40. `web-retrieval-provider-routing.md`

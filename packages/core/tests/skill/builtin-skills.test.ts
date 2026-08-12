@@ -98,6 +98,100 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("reclassify the work as a behavior change or migration");
   });
 
+  it("requires enforcement-backed security scope review", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "security-scope-review");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/principals, protected assets, trust boundaries/);
+    expect(skill?.instructions).toMatch(/subject, resource, operation, scope/);
+    expect(skill?.instructions).toMatch(/not\s+model text/);
+    expect(skill?.instructions).toMatch(/credentials and sensitive data through prompts, tools, processes, logs,\s+errors, storage, and outputs/);
+    expect(skill?.instructions).toMatch(/Deny when authority is missing or contradictory/);
+    expect(skill?.instructions).toMatch(/arbitrary human\s+confirmation cannot manufacture permission/);
+    expect(skill?.instructions).toMatch(/triggering path, impact,\s+evidence, narrow correction/);
+  });
+
+  it("requires causal and proportionate clean-architecture review", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find(
+      (entry) => entry.name === "clean-architecture-boundary-review",
+    );
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/intended modules, policy owners, dependency graph/);
+    expect(skill?.instructions).toMatch(/configuration, dependency injection, registries, reflection, generated code/);
+    expect(skill?.instructions).toMatch(/source\s+dependency from runtime control flow/);
+    expect(skill?.instructions).toMatch(/speculative ports, DTOs, adapters, or\s+events/);
+    expect(skill?.instructions).toMatch(/dependency path, affected surface, triggering condition,\s+impact, evidence, correction direction/);
+    expect(skill?.instructions).toMatch(/findings first, ordered by severity/);
+    expect(skill?.instructions).toMatch(/reviewed and materially unreviewed surface, verification\s+performed, and residual risk/);
+  });
+
+  it("requires domain-evidenced DDD boundary review", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "ddd-boundary-review");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/business capability, stakeholders, ubiquitous language/);
+    expect(skill?.instructions).toMatch(/bounded contexts from packages, services, databases, and\s+deployment units/);
+    expect(skill?.instructions).toMatch(/smallest set that must preserve invariants\s+atomically/);
+    expect(skill?.instructions).toMatch(/upstream and downstream relationship, translation\s+owner/);
+    expect(skill?.instructions).toContain("Do not introduce DDD patterns where domain complexity does not justify them");
+    expect(skill?.instructions).toMatch(/Route module placement, dependency direction, composition/);
+    expect(skill?.instructions).toMatch(/findings first and ordered by severity/);
+    expect(skill?.instructions).toMatch(/reviewed and materially\s+unreviewed surface, verification performed/);
+  });
+
+  it("requires attenuated and replay-honest managed-agent review", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "managed-agent-risk-review");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/immutable\s+admission snapshot/);
+    expect(skill?.instructions).toContain("Delegation may only attenuate parent authority");
+    expect(skill?.instructions).toMatch(/revocation, cancellation, idempotent retries/);
+    expect(skill?.instructions).toMatch(/Distinguish audit reconstruction from deterministic re-execution/i);
+    expect(skill?.instructions).toContain("Validate child output as untrusted data");
+    expect(skill?.instructions).toMatch(/unsupported, unavailable, or contradictory/);
+    expect(skill?.instructions).toMatch(/review leads managed-child lifecycle, settlement, handoff/);
+  });
+
+  it("requires tiered and claim-bound benchmark readiness", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "benchmark-readiness-review");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/claim, construct, and deployment decision/);
+    expect(skill?.instructions).toMatch(/model and\s+provider revision, route, prompt and tool catalog/);
+    expect(skill?.instructions).toMatch(/denominator, uncertainty, subgroup, and\s+failure analysis/);
+    expect(skill?.instructions).toContain("unsupported, failed, and unknown rows");
+    expect(skill?.instructions).toContain("internal-baseline-ready");
+    expect(skill?.instructions).toContain("public-claim-ready");
+    expect(skill?.instructions).toMatch(/Artifact availability does not imply independent\s+reproduction/);
+    expect(skill?.instructions).toMatch(/state exactly one highest justified verdict/);
+    expect(skill?.instructions).toMatch(/tiers are monotonic/);
+  });
+
+  it("requires ownership-aware config projection review", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "config-projection-review");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toContain("Consume the shared config-status evidence");
+    expect(skill?.instructions).toMatch(/canonical, current, missing, stale,\s+drifted, or unmanaged/);
+    expect(skill?.instructions).toMatch(/source identity\s+and digest, target path, managed fields/);
+    expect(skill?.instructions).toMatch(/Never mutate while reviewing/);
+    expect(skill?.instructions).toMatch(/unmanaged content,\s+ambiguous ownership, invalid canonical config/);
+    expect(skill?.instructions).toContain("proposal, approval, and apply");
+  });
+
+  it("requires conflict-aware repository context review", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "repo-context-review");
+
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/facts, inferences, conflicts, and unknowns/);
+    expect(skill?.instructions).toMatch(/manifests, lockfiles,\s+workspace metadata, CI or build configuration/);
+    expect(skill?.instructions).toMatch(/direct executable or configuration evidence before documentation/);
+    expect(skill?.instructions).toContain("Preserve reviewed durable human notes");
+    expect(skill?.instructions).toMatch(/blocked only when critical evidence cannot\s+be resolved/);
+    expect(skill?.instructions).toMatch(/Do not repair\s+projection drift/);
+  });
+
   it("defines clear-writing as neutral reusable writing procedure", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "clear-writing");
 
@@ -113,9 +207,12 @@ describe("Kiln core builtin skills", () => {
 
     expect(skill).toBeDefined();
     expect(skill?.tags).toEqual(expect.arrayContaining(["accessibility", "communication"]));
-    expect(skill?.instructions).toContain("Lead with the answer, outcome, or next concrete action");
+    expect(skill?.instructions).toMatch(/Lead with the answer,\s+outcome, or next concrete action/);
     expect(skill?.instructions).toContain("Do not invent time estimates");
     expect(skill?.instructions).toContain("Safety, accuracy, and the user's requested format take precedence");
+    expect(skill?.instructions).toMatch(/highest-severity finding, blocker, or\s+uncertainty/);
+    expect(skill?.instructions).toContain("Do not invent a next action");
+    expect(skill?.instructions).toMatch(/complete, in progress,\s+blocked, and next/);
     expect(skill?.instructions).not.toMatch(/ADHD|diagnosis|every message/i);
   });
 
