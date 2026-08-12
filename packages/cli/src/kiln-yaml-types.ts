@@ -150,11 +150,33 @@ export interface KilnWorkGovernanceDirectExecutionConfig {
   readonly maxRisk?: KilnWorkGovernanceRisk;
 }
 
+/** Global ceilings only. A goal contract remains explicit and may be narrower. */
+export interface KilnBoundedWorkPolicyCeiling {
+  readonly allowedEffects?: readonly (
+    | "inspect" | "modify_source" | "modify_tests" | "modify_documentation"
+    | "modify_configuration" | "run_verification" | "invoke_managed_agent" | "external_write"
+  )[];
+  readonly allowedRoots?: readonly string[];
+  readonly deniedRoots?: readonly string[];
+  readonly maximumLimits?: {
+    readonly maxExecutionAttempts?: number;
+    readonly maxManagedInvocations?: number;
+    readonly maxConcurrentManagedInvocations?: number;
+    readonly maxChildDepth?: number;
+    readonly maxReviewRounds?: number;
+    readonly maxRemediationRounds?: number;
+    readonly maxToolCalls?: number;
+    readonly maxActiveDurationMs?: number;
+  };
+  readonly minimumHarnessCapability?: "authoritative" | "partially_enforced" | "advisory_only";
+}
+
 export interface KilnWorkGovernanceConfig {
   readonly defaultPosture?: KilnWorkGovernancePosture;
   readonly directExecution?: KilnWorkGovernanceDirectExecutionConfig;
   readonly requireDelegationFor?: readonly KilnWorkGovernanceTrigger[];
   readonly requiredEvidence?: readonly KilnWorkGovernanceEvidence[];
+  readonly boundedWorkCeiling?: KilnBoundedWorkPolicyCeiling;
 }
 
 export const DEFAULT_WORK_GOVERNANCE_CONFIG: KilnWorkGovernanceConfig = {

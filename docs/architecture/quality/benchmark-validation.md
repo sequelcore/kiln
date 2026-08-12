@@ -150,6 +150,47 @@ dataset items. It keeps policy, user turns, available tools, expected
 trajectory, and expected outcome as data for pass^k baseline runs. It does not
 claim full tau/tau2 parity until a simulator-backed environment adapter exists.
 
+## Bounded-Work Authority Benchmark
+
+The [bounded-work research record](../../research/35-bounded-work-authority-2026.md)
+defines the Slice 0 methodology for testing scope fidelity and overengineering
+control. This is a future paired experiment, not a current default or
+efficiency claim.
+
+The control and bounded-authority arms must freeze the same task definitions,
+repository/project snapshot, target and acceptance tests, provider/model,
+reasoning setting, route policy, harness and adapter commits, authority profile,
+tool catalog, context/memory inputs, configuration hash, scorer versions, and
+operator intervention protocol. The bounded arm additionally records the
+immutable contract digest, scope envelope, ceiling policy, tripwire policy, and
+candidate lineage. Randomize arm/item order where practical, use repeated runs,
+and report the full distribution plus failed and omitted cases under the same
+pass^k gate as other profiles.
+
+Quality and safety are primary outcomes. Each item records behavioral
+correctness, target verification, semantic in-scope/out-of-scope effects,
+non-goals touched, review findings, escaped defects, residual risk, and human
+intervention. Operational evidence records input/output/cache token classes,
+unknown classes, duration, tool calls, attempts, child count/concurrency/depth,
+review and correction rounds, gross/accepted/discarded/superseded churn, and
+typed stop/settlement state. Unknown usage remains unknown; it is not imputed
+as zero or treated as comparable provider spend.
+
+Overengineering is scored against the declared semantic scope and acceptance
+contract. Changed files, lines, and diff size are structural observations or
+tripwires, not a fixed risk classifier. Deterministic structural scorers are
+primary. Expert adjudication or a calibrated secondary LLM judge may assess
+semantic overengineering only with its rubric, agreement, and limitations
+reported; a hidden judge cannot establish the result.
+
+The report must bind every pair to exact target/candidate identities, contract
+revision, evidence artifacts, and configuration. A result may describe an
+effect under this fixture and route. It must not generalize to model quality,
+provider economics, or native-harness parity without a separately admitted
+design. Subscription prices, unavailable usage, synthetic fixture results,
+provider self-reports, and unverified clone claims are unsupported efficiency
+evidence.
+
 ## External Track Gate
 
 External tracks are candidates until an adapter exists. Candidate tracks still

@@ -79,6 +79,7 @@ import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js"
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
+import { createProjectBoundedWorkAuthority } from "../application/bounded-work-authority-composition.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import {
   resolveManagedInvocationToolOptions,
@@ -1256,6 +1257,8 @@ export async function runCommand(
     });
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
+  const boundedWork = createProjectBoundedWorkAuthority(cwd);
+  cleanupRegistry.register(async () => boundedWork.close());
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const runToolProjection = resolveRunBuiltinToolProjection(flags.plan === true);
   let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
@@ -1270,6 +1273,9 @@ export async function runCommand(
         goalRunStore,
         ownerSessionId: approvalMemorySessionId,
         managedInvocationProofResolver: managedInvocationProofs.resolve,
+        boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
+        boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
+        boundedWorkGoalCloseout: boundedWork.closeoutGoal,
       }),
     ],
   }, runToolProjection.profile, runToolProjection.alwaysOnTools));
@@ -1510,6 +1516,7 @@ export async function runCommand(
     localProvider: flags.localProvider,
     builtinToolOptions,
     managedInvocation: managedInvocationWithTranscriptSink,
+    boundedWork: boundedWork.surface,
     runtimeExecutionMode: flags.plan ? "plan" as const : "execute" as const,
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,

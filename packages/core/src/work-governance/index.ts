@@ -3,6 +3,62 @@ export {
   isKilnWorkGovernanceEvidence,
   type KilnWorkGovernanceEvidence,
 } from "./evidence.js";
+export type {
+  AdoptBoundedWorkContractRevisionInput,
+  AssessBoundedWorkScopeInput,
+  BoundedWorkAdoptionAuthority,
+  BoundedWorkChangeAuthority,
+  BoundedWorkContract,
+  BoundedWorkContractRevision,
+  BoundedWorkEffect,
+  BoundedWorkHarnessCapability,
+  BoundedWorkIntent,
+  BoundedWorkLimits,
+  BoundedWorkPolicy,
+  BoundedWorkScope,
+  BoundedWorkScopeAssessment,
+  BoundedWorkScopeViolation,
+  BoundedWorkScopeViolationKind,
+  BoundedWorkTripwireDiagnostic,
+  BoundedWorkTripwires,
+  SupersedeBoundedWorkContractRevisionInput,
+} from "./bounded-work-contract.js";
+export {
+  BOUNDED_WORK_CONTRACT_SCHEMA,
+  adoptBoundedWorkContractRevision,
+  assessBoundedWorkScope,
+  normalizeBoundedWorkContract,
+  normalizeBoundedWorkContractRevision,
+  supersedeBoundedWorkContractRevision,
+} from "./bounded-work-contract.js";
+export type {
+  BindBoundedWorkEvidenceInput,
+  BoundedWorkBaselineIdentity,
+  BoundedWorkCandidateEvidence,
+  BoundedWorkCandidateIdentity,
+  BoundedWorkCandidateKind,
+  BoundedWorkEvidenceKind,
+  CreateBoundedWorkCandidateInput,
+} from "./bounded-work-candidate.js";
+export {
+  bindBoundedWorkEvidence,
+  createBoundedWorkCandidate,
+} from "./bounded-work-candidate.js";
+export type {
+  BoundedWorkAccountingSnapshot,
+  BoundedWorkAdmissionDecision,
+  BoundedWorkCloseoutDecision,
+  BoundedWorkContinuation,
+  BoundedWorkLimitName,
+  BoundedWorkMeasuredValue,
+  BoundedWorkReservation,
+  BoundedWorkSatisfiedCriterion,
+} from "./bounded-work-decision.js";
+export {
+  decideBoundedWorkAdmission,
+  decideBoundedWorkCloseout,
+  normalizeBoundedWorkAccountingSnapshot,
+} from "./bounded-work-decision.js";
 export {
   resolveEvidenceRealization,
   type EvidenceRealizationCapabilityPause,
@@ -15,6 +71,7 @@ export type {
   GoalRun,
   GoalRunAuthorityEnvelope,
   GoalRunAuthorityLevel,
+  GoalRunAttachWorkItemsInput,
   GoalRunCompleteInput,
   GoalRunControlInput,
   GoalRunCreateInput,
@@ -26,6 +83,7 @@ export type {
   GoalRunRoutePolicy,
   GoalRunSnapshot,
   GoalRunStatus,
+  GoalRunSupersedeBoundedWorkContractInput,
   GoalRunTerminalInput,
   GoalRunUpdateInput,
 } from "./goal-run.js";

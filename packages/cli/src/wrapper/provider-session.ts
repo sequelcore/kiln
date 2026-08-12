@@ -59,6 +59,7 @@ import {
 } from "./direct-provider-adapter-factory.js";
 import type { DirectProviderCredentialBinding } from "./direct-provider-adapter-factory.js";
 import type { ConfiguredExecutionCredential } from "@kilnai/runtime";
+import type { AttachedRuntimeBuiltinToolSurfaceOptions } from "@kilnai/runtime";
 import { createCliOperatorThemeController } from "../application/operator-theme-preferences.js";
 
 export interface ProviderSessionConfig {
@@ -80,6 +81,7 @@ export interface ProviderSessionConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly runtimeExecutionMode?: "execute" | "plan";
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
@@ -277,6 +279,7 @@ export class ProviderSession implements IKilnSession {
       operatorSurface,
       builtinToolOptions: config.builtinToolOptions,
       managedInvocation: config.managedInvocation,
+      boundedWork: config.boundedWork,
       executionMode: config.runtimeExecutionMode ?? "execute",
     });
     this.builtinToolSurface = builtinToolSurface;

@@ -10,6 +10,13 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),
   closeMemoryRepository: vi.fn(),
   createDefaultRegistry: vi.fn(),
+  createProjectBoundedWorkAuthority: vi.fn(() => ({
+    surface: { projectRuntimeId: "project:test", authority: {} },
+    admitExecutionAttempt: vi.fn(),
+    closeoutCandidate: vi.fn(),
+    closeoutGoal: vi.fn(),
+    close: vi.fn(),
+  })),
   createSessionBuiltinToolOptions: vi.fn(),
   discoverManagedAgentProviderModels: vi.fn(),
   discoverClaudeCliModelDiscovery: vi.fn(),
@@ -135,6 +142,10 @@ vi.mock("../../src/application/config-tools.js", () => ({
 
 vi.mock("../../src/application/work-governance-tool.js", () => ({
   createWorkGovernanceTools: vi.fn(() => []),
+}));
+
+vi.mock("../../src/application/bounded-work-authority-composition.js", () => ({
+  createProjectBoundedWorkAuthority: benchmarkExecutorMocks.createProjectBoundedWorkAuthority,
 }));
 
 vi.mock("../../src/application/session-hooks.js", () => ({

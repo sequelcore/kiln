@@ -682,6 +682,7 @@ function validateWorkGovernance(value: unknown): void {
       && key !== "directExecution"
       && key !== "requireDelegationFor"
       && key !== "requiredEvidence"
+      && key !== "boundedWorkCeiling"
     ) {
       throw new KilnYamlError(`Unknown workGovernance field: ${key}`);
     }
@@ -706,6 +707,41 @@ function validateWorkGovernance(value: unknown): void {
       throw new KilnYamlError(`workGovernance.requiredEvidence contains unsupported evidence: ${evidence}`);
     }
   }
+  validateBoundedWorkCeiling(value.boundedWorkCeiling);
+}
+
+function validateBoundedWorkCeiling(value: unknown): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError("workGovernance.boundedWorkCeiling must be an object");
+  rejectUnknownFields(value, ["allowedEffects", "allowedRoots", "deniedRoots", "maximumLimits", "minimumHarnessCapability"], "workGovernance.boundedWorkCeiling");
+  validateOptionalStringArray(value.allowedEffects, "workGovernance.boundedWorkCeiling.allowedEffects");
+  for (const effect of value.allowedEffects as readonly unknown[] ?? []) {
+    if (!isBoundedWorkEffect(effect)) throw new KilnYamlError(`workGovernance.boundedWorkCeiling.allowedEffects contains unsupported effect: ${String(effect)}`);
+  }
+  validateOptionalStringArray(value.allowedRoots, "workGovernance.boundedWorkCeiling.allowedRoots");
+  validateOptionalStringArray(value.deniedRoots, "workGovernance.boundedWorkCeiling.deniedRoots");
+  if (value.minimumHarnessCapability !== undefined
+    && value.minimumHarnessCapability !== "authoritative"
+    && value.minimumHarnessCapability !== "partially_enforced"
+    && value.minimumHarnessCapability !== "advisory_only") {
+    throw new KilnYamlError("workGovernance.boundedWorkCeiling.minimumHarnessCapability is invalid");
+  }
+  if (value.maximumLimits !== undefined) {
+    if (!isRecord(value.maximumLimits)) throw new KilnYamlError("workGovernance.boundedWorkCeiling.maximumLimits must be an object");
+    const allowed = ["maxExecutionAttempts", "maxManagedInvocations", "maxConcurrentManagedInvocations", "maxChildDepth", "maxReviewRounds", "maxRemediationRounds", "maxToolCalls", "maxActiveDurationMs"];
+    rejectUnknownFields(value.maximumLimits, allowed, "workGovernance.boundedWorkCeiling.maximumLimits");
+    for (const [key, limit] of Object.entries(value.maximumLimits)) {
+      if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 0 || (key === "maxExecutionAttempts" && limit < 1)) {
+        throw new KilnYamlError(`workGovernance.boundedWorkCeiling.maximumLimits.${key} must be ${key === "maxExecutionAttempts" ? "a positive" : "a non-negative"} safe integer`);
+      }
+    }
+  }
+}
+
+function isBoundedWorkEffect(value: unknown): boolean {
+  return value === "inspect" || value === "modify_source" || value === "modify_tests"
+    || value === "modify_documentation" || value === "modify_configuration"
+    || value === "run_verification" || value === "invoke_managed_agent" || value === "external_write";
 }
 
 function validateWorkGovernanceDirectExecution(value: unknown): void {

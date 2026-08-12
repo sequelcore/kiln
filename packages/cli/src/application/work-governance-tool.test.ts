@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  adoptBoundedWorkContractRevision,
+  bindBoundedWorkEvidence,
+  createBoundedWorkCandidate,
   finishGoalExecutionAttempt,
   GoalRunStore,
   startGoalExecutionAttempt,
@@ -7,7 +10,105 @@ import {
 } from "@kilnai/core";
 import type { ManagedAgentResultHandoff } from "@kilnai/core";
 import { assessWorkGovernance } from "./work-governance-policy.js";
-import { createWorkGovernanceTools, WorkGovernanceAssessTool } from "./work-governance-tool.js";
+import { createWorkGovernanceTools as createWorkGovernanceToolsProduction, WorkGovernanceAssessTool } from "./work-governance-tool.js";
+
+function createWorkGovernanceTools(
+  config: Parameters<typeof createWorkGovernanceToolsProduction>[0],
+  options: Parameters<typeof createWorkGovernanceToolsProduction>[1] = {},
+) {
+  return createWorkGovernanceToolsProduction(config, {
+    ...options,
+    boundedWorkExecutionAttemptAdmission: options.boundedWorkExecutionAttemptAdmission ?? (() => ({
+      admitted: true as const,
+      commit: () => undefined,
+      release: () => undefined,
+    })),
+    boundedWorkCandidateCloseout: options.boundedWorkCandidateCloseout ?? (async ({ goal, workItem, attempt }) => {
+      const candidate = createBoundedWorkCandidate({
+        goalRunId: goal.id,
+        workItemId: workItem.id,
+        contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+        accountingLineageId: goal.boundedWorkContractRevision.accountingLineageId,
+        kind: "git_worktree",
+        baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
+        candidateContentDigest: `sha256:${"b".repeat(64)}`,
+        createdAt: attempt.startedAt,
+      });
+      return {
+        captured: true as const,
+        candidate,
+        evidence: [bindBoundedWorkEvidence({
+          candidate,
+          kind: "verification",
+          subjectCandidateDigest: candidate.candidateDigest,
+          evidenceDigest: `sha256:${"c".repeat(64)}`,
+          recordedAt: attempt.startedAt,
+        })],
+      };
+    }),
+    boundedWorkGoalCloseout: options.boundedWorkGoalCloseout ?? (({ goal, candidate }) => ({
+      kind: "stop_acceptance_complete" as const,
+      candidateDigest: candidate.candidateDigest,
+      contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+      accounting: {
+        schema: "kiln.bounded-work-accounting/v1" as const,
+        accountingLineageId: goal.boundedWorkContractRevision.accountingLineageId,
+        contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+        revision: 1,
+        executionAttempts: 1,
+        managedInvocations: 0,
+        activeManagedInvocations: 0,
+        reviewRounds: 0,
+        remediationRounds: 0,
+        toolCalls: { kind: "unavailable" as const, reason: "test harness does not meter tool calls" },
+        activeDurationMs: { kind: "unavailable" as const, reason: "test harness does not meter active duration" },
+      },
+    })),
+  });
+}
+
+function boundedWorkRevision(goalId: string, workItemIds: readonly string[], objective: string) {
+  return adoptBoundedWorkContractRevision({
+    accountingLineageId: goalId,
+    adoptedAt: "2026-08-12T18:00:00.000Z",
+    adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalId}` },
+    contract: {
+      schema: "kiln.bounded-work-contract/v1",
+      intent: { objective, acceptanceCriteria: ["test evidence"], nonGoals: [] },
+      scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect", "modify_source", "run_verification"], permittedSurfaces: ["cli"], allowedRoots: ["packages/cli"], deniedRoots: [], refactorAuthority: "scoped", migrationAuthority: "none", dependencyAuthority: "none" },
+      limits: { maxExecutionAttempts: 10, maxManagedInvocations: 10, maxConcurrentManagedInvocations: 3, maxChildDepth: 2, maxReviewRounds: 3, maxRemediationRounds: 3 },
+      tripwires: {},
+      policy: { scopeExpansion: "approval_required", budgetExhaustion: "pause", minimumHarnessCapability: "authoritative" },
+    },
+  });
+}
+
+function boundedWorkContract(objective: string, workItemIds: readonly string[]) {
+  return boundedWorkRevision("contract-validation", workItemIds, objective).contract;
+}
+
+function boundedWorkCloseoutDecision(goal: ReturnType<GoalRunStore["get"]> & {}) {
+  return {
+    kind: "stop_acceptance_complete" as const,
+    candidateDigest: `sha256:${"d".repeat(64)}`,
+    contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+    accounting: {
+      schema: "kiln.bounded-work-accounting/v1" as const,
+      accountingLineageId: goal.id,
+      contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+      revision: 1,
+      executionAttempts: 1,
+      managedInvocations: 0,
+      activeManagedInvocations: 0,
+      reviewRounds: 0,
+      remediationRounds: 0,
+      toolCalls: { kind: "unavailable" as const },
+      activeDurationMs: { kind: "unavailable" as const },
+    },
+  };
+}
+
+const contractAuthority = { kind: "operator" as const, actorId: "test-operator", decisionId: "operator-decision" };
 
 describe("work-governance-tool", () => {
   const policy = {
@@ -613,6 +714,7 @@ describe("work-governance-tool", () => {
       objective: "Execute approved work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-execute", [item.id], "Execute approved work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -690,7 +792,7 @@ describe("work-governance-tool", () => {
       missingEvidence: [],
       missingResidualRisk: false,
     });
-    expect(goalRunStore.get(goal.id)?.status).toBe("completed");
+    expect(goalRunStore.get(goal.id)).toMatchObject({ status: "active", currentPhase: "paused:bounded-work-acceptance" });
   });
 
   it("records managed child execution failure through a canonical finished work item event shape", async () => {
@@ -712,6 +814,7 @@ describe("work-governance-tool", () => {
       objective: "Record delegated child failure.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-fail-tool", [item.id], "Record delegated child failure."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -811,6 +914,7 @@ describe("work-governance-tool", () => {
       objective: "Close with structured managed handoff.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-handoff", [item.id], "Close with structured managed handoff."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -929,7 +1033,7 @@ describe("work-governance-tool", () => {
         },
       },
     });
-    expect(goalRunStore.get(goal.id)?.status).toBe("completed");
+    expect(goalRunStore.get(goal.id)).toMatchObject({ status: "active", currentPhase: "paused:bounded-work-acceptance" });
   });
 
   it("passes managed orchestration adoption readiness evidence through finish execution", async () => {
@@ -1005,6 +1109,7 @@ describe("work-governance-tool", () => {
       objective: "Close with adoption readiness.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-readiness", [item.id], "Close with adoption readiness."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1102,7 +1207,7 @@ describe("work-governance-tool", () => {
       missingGoalEvidence: [],
       missingVerificationGates: [],
     });
-    expect(goalRunStore.get(goal.id)?.status).toBe("completed");
+    expect(goalRunStore.get(goal.id)).toMatchObject({ status: "active", currentPhase: "paused:bounded-work-acceptance" });
   });
 
   it("returns generated goal closeout summary when final execution omits manual summary", async () => {
@@ -1122,6 +1227,7 @@ describe("work-governance-tool", () => {
       objective: "Generate closeout from evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-generated-closeout", [item.id], "Generate closeout from evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1134,6 +1240,7 @@ describe("work-governance-tool", () => {
     const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
     const startTool = tools.find((candidate) => candidate.name === "work_item.execution.start");
     const finishTool = tools.find((candidate) => candidate.name === "work_item.execution.finish");
+    const completeTool = tools.find((candidate) => candidate.name === "goal.complete");
 
     await startTool?.execute({
       name: "work_item.execution.start",
@@ -1155,17 +1262,25 @@ describe("work-governance-tool", () => {
     });
 
     expect(finished?.isError).toBe(false);
-    expect(finished?.output).toContain("Goal goal-generated-closeout completed from canonical evidence.");
-    expect(finished?.output).toContain("Evidence: tests, typecheck.");
-    expect(finished?.output).toContain("Passed gates: bun test, bun run typecheck.");
     expect(finished?.metadata).toMatchObject({
       kind: "work_item",
       operation: "execution_finished",
       goal: {
         id: goal.id,
-        status: "completed",
+        status: "active",
       },
     });
+    const completed = await completeTool?.execute({
+      name: "goal.complete",
+      input: {
+        goalRunId: goal.id,
+        acceptanceEvidence: [{ criterion: "test evidence", evidenceDigest: `sha256:${"d".repeat(64)}` }],
+      },
+    });
+    expect(completed?.isError).toBe(false);
+    expect(completed?.output).toContain("Goal goal-generated-closeout completed from canonical evidence.");
+    expect(completed?.output).toContain("Evidence: tests, typecheck.");
+    expect(completed?.output).toContain("Passed gates: bun test, bun run typecheck.");
   });
 
   it("blocks goal-bound execution finish until evidence and residual risk are present", async () => {
@@ -1185,6 +1300,7 @@ describe("work-governance-tool", () => {
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-blocked-finish", [item.id], "Execute closeout-gated work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1257,6 +1373,7 @@ describe("work-governance-tool", () => {
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-skipped-gate", [item.id], "Execute closeout-gated work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1328,6 +1445,7 @@ describe("work-governance-tool", () => {
       objective: "Close only with goal-level evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-evidence-closeout", [item.id], "Close only with goal-level evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1401,6 +1519,7 @@ describe("work-governance-tool", () => {
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-gate-results", [item.id], "Execute closeout-gated work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1485,6 +1604,7 @@ describe("work-governance-tool", () => {
       objective: "Execute risky profile work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-review-gate", ["work-review-gate"], "Execute risky profile work."),
       workItemIds: ["work-review-gate"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1614,6 +1734,7 @@ describe("work-governance-tool", () => {
       objective: "Execute ordered work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-ordered", [first.id, second.id], "Execute ordered work."),
       workItemIds: [first.id, second.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1637,6 +1758,155 @@ describe("work-governance-tool", () => {
     expect(blocked?.isError).toBe(true);
     expect(blocked?.output).toContain("Explicit work item is not the next ready item");
     expect(workItemStore.get(second.id)?.status).toBe("pending");
+  });
+
+  it("admits bounded execution attempts before mutating work-item state", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-bounded-attempt",
+      summary: "Execute one bounded attempt.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: ["tests"],
+      verificationGates: ["bun test"],
+      goalRunId: "goal-bounded-attempt",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-bounded-attempt",
+      objective: "Execute one bounded attempt.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: boundedWorkRevision(
+        "goal-bounded-attempt",
+        [item.id],
+        "Execute one bounded attempt.",
+      ),
+      workItemIds: [item.id],
+      authorityEnvelope: { maximumAuthority: "audited", escalationPolicy: "approval_required", reason: "Test." },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const admission = vi.fn(() => ({
+      admitted: false as const,
+      code: "pause_budget_exhausted",
+      message: "Execution-attempt budget is exhausted.",
+    }));
+    const startTool = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      boundedWorkExecutionAttemptAdmission: admission,
+    }).find((candidate) => candidate.name === "work_item.execution.start");
+
+    const result = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: goal.id, workItemId: item.id },
+    });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result?.output).toContain("pause_budget_exhausted");
+    expect(admission).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: "goal-bounded-attempt:work-bounded-attempt:attempt:1",
+    }));
+    expect(workItemStore.get(item.id)?.executionAttempts).toHaveLength(0);
+    expect(workItemStore.get(item.id)?.status).toBe("pending");
+  });
+
+  it("fails the Core attempt when durable accounting commit requires reconciliation", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-attempt-reconcile",
+      summary: "Start atomically governed work.",
+      workflowProfile: "verification-heavy",
+      triggers: [],
+      expectedEvidence: [],
+      verificationGates: [],
+      goalRunId: "goal-attempt-reconcile",
+    });
+    const goal = goalRunStore.create({
+      id: "goal-attempt-reconcile",
+      objective: "Start atomically governed work.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-attempt-reconcile", [item.id], "Start atomically governed work."),
+      workItemIds: [item.id],
+      authorityEnvelope: { maximumAuthority: "audited", escalationPolicy: "approval_required", reason: "Test." },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const release = vi.fn();
+    const startTool = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      boundedWorkExecutionAttemptAdmission: () => ({
+        admitted: true,
+        commit: () => { throw new Error("accounting commit failed"); },
+        release,
+      }),
+    }).find((candidate) => candidate.name === "work_item.execution.start");
+
+    const result = await startTool?.execute({
+      name: "work_item.execution.start",
+      input: { goalRunId: goal.id, workItemId: item.id },
+    });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result?.output).toContain("accounting commit failed");
+    expect(release).not.toHaveBeenCalled();
+    expect(workItemStore.get(item.id)?.status).toBe("blocked");
+    expect(workItemStore.get(item.id)?.executionAttempts).toEqual([
+      expect.objectContaining({ status: "failed", failureReason: "unavailable" }),
+    ]);
+  });
+
+  it("supersedes bounded contracts with CAS and attaches only pre-admitted work items", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const first = workItemStore.upsert({ id: "work-contract-first", summary: "First.", workflowProfile: "verification-heavy", triggers: [], expectedEvidence: [], verificationGates: [], goalRunId: "goal-contract-ops" });
+    const second = workItemStore.upsert({ id: "work-contract-second", summary: "Second.", workflowProfile: "verification-heavy", triggers: [], expectedEvidence: [], verificationGates: [] });
+    const initial = boundedWorkRevision("goal-contract-ops", [first.id, second.id], "Operate the bounded contract.");
+    goalRunStore.create({
+      id: "goal-contract-ops",
+      objective: "Operate the bounded contract.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: initial,
+      workItemIds: [first.id],
+      authorityEnvelope: { maximumAuthority: "audited", escalationPolicy: "approval_required", reason: "Test." },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const attach = tools.find((candidate) => candidate.name === "goal.work_items.attach");
+    const supersede = tools.find((candidate) => candidate.name === "goal.bounded_work_contract.supersede");
+    const attached = await attach?.execute({ name: "goal.work_items.attach", input: { goalRunId: "goal-contract-ops", workItemIds: [second.id] } });
+    expect(attached).toMatchObject({ isError: false, metadata: { operation: "update" } });
+    expect(workItemStore.get(second.id)?.goalRunId).toBe("goal-contract-ops");
+
+    const successorContract = {
+      ...initial.contract,
+      limits: { ...initial.contract.limits, maxExecutionAttempts: 9 },
+    };
+    const superseded = await supersede?.execute({
+      name: "goal.bounded_work_contract.supersede",
+      input: {
+        goalRunId: "goal-contract-ops",
+        expectedRevisionDigest: initial.revisionDigest,
+        boundedWorkContract: successorContract,
+        contractAuthority,
+      },
+    });
+    expect(superseded).toMatchObject({ isError: false, metadata: { operation: "update" } });
+    expect(goalRunStore.get("goal-contract-ops")?.boundedWorkContractRevision).toMatchObject({ revision: 2, parentRevisionDigest: initial.revisionDigest });
+    expect(goalRunStore.get("goal-contract-ops")?.boundedWorkContractRevisionHistory).toHaveLength(2);
+
+    const stale = await supersede?.execute({
+      name: "goal.bounded_work_contract.supersede",
+      input: { goalRunId: "goal-contract-ops", expectedRevisionDigest: initial.revisionDigest, boundedWorkContract: successorContract, contractAuthority },
+    });
+    expect(stale).toMatchObject({ isError: true });
+    expect(stale?.output).toContain("bounded-work revision conflict");
   });
 
   it("creates a governed goal and links existing work items before execution starts", async () => {
@@ -1673,6 +1943,8 @@ describe("work-governance-tool", () => {
         escalationPolicy: "approval_required",
         authorityReason: "Approved plan.",
         workflowProfile: "verification-heavy",
+        boundedWorkContract: boundedWorkContract("Execute linked work.", ["work-goal-linked"]),
+        contractAuthority,
       },
     });
 
@@ -1778,6 +2050,8 @@ describe("work-governance-tool", () => {
         escalationPolicy: "approval_required",
         authorityReason: "Work item owns the exact write route.",
         workflowProfile: "ui-change",
+        boundedWorkContract: boundedWorkContract("Execute route-owned UI work.", ["work-route-owned"]),
+        contractAuthority,
         preferredRouteId: "opencode-go-frontend-approved-write",
         managedAgentProfile: "frontend-coder",
       },
@@ -2146,6 +2420,7 @@ describe("work-governance-tool", () => {
       objective: "Execute approved work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-paused-requirement", ["work-paused"], "Execute approved work."),
       workItemIds: ["work-paused"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2246,6 +2521,7 @@ describe("work-governance-tool", () => {
       objective: "Execute governed work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-missing-capability", ["work-missing-capability"], "Execute governed work."),
       workItemIds: ["work-missing-capability"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2361,6 +2637,7 @@ describe("work-governance-tool", () => {
       objective: "Execute delegated work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed", [item.id], "Execute delegated work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2566,6 +2843,7 @@ describe("work-governance-tool", () => {
       objective: "Execute delegated route-owned work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-route", [item.id], "Execute delegated route-owned work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2638,6 +2916,7 @@ describe("work-governance-tool", () => {
       objective: "Refactor the GUI experience.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-ui-phase", [item.id], "Refactor the GUI experience."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2759,6 +3038,7 @@ describe("work-governance-tool", () => {
       objective: "Execute delegated route-owned work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-authority", [item.id], "Execute delegated route-owned work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2834,6 +3114,7 @@ describe("work-governance-tool", () => {
       objective: "Inspect the repository without mutations.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-readonly-ceiling", [item.id], "Inspect the repository without mutations."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -2887,6 +3168,7 @@ describe("work-governance-tool", () => {
       objective: "Verify the repository.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-managed-verification", [item.id], "Verify the repository."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2952,6 +3234,8 @@ describe("work-governance-tool", () => {
         escalationPolicy: "deny",
         authorityReason: "Read-only verification.",
         workflowProfile: "small-fix",
+        boundedWorkContract: boundedWorkContract("Close through one governed lifecycle.", [item.id]),
+        contractAuthority,
       },
     });
     const result = await completeTool?.execute({
@@ -2988,6 +3272,7 @@ describe("work-governance-tool", () => {
       objective: "Complete governed work.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-terminal", [item.id], "Complete governed work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -2997,7 +3282,11 @@ describe("work-governance-tool", () => {
       routePolicy: { workflowProfile: "small-fix" },
       evidenceRequirements: [],
     });
-    goalRunStore.complete({ id: "goal-terminal", closeoutSummary: "Done." });
+    goalRunStore.complete({
+      id: "goal-terminal",
+      closeoutSummary: "Done.",
+      boundedWorkCloseoutDecision: boundedWorkCloseoutDecision(goalRunStore.get("goal-terminal")!),
+    });
     const updateTool = createWorkGovernanceTools(policy, { workItemStore, goalRunStore })
       .find((candidate) => candidate.name === "work_item.update");
 
@@ -3054,6 +3343,8 @@ describe("work-governance-tool", () => {
         escalationPolicy: "deny",
         authorityReason: "Read-only verification.",
         workflowProfile: "small-fix",
+        boundedWorkContract: boundedWorkContract("Own one work item.", [owned.id]),
+        contractAuthority,
       },
     });
 
@@ -3068,6 +3359,8 @@ describe("work-governance-tool", () => {
         escalationPolicy: "deny",
         authorityReason: "Read-only verification.",
         workflowProfile: "small-fix",
+        boundedWorkContract: boundedWorkContract("Reuse an owned item.", [owned.id]),
+        contractAuthority,
       },
     });
     const terminalResult = await goalTool?.execute({
@@ -3081,6 +3374,8 @@ describe("work-governance-tool", () => {
         escalationPolicy: "deny",
         authorityReason: "Read-only verification.",
         workflowProfile: "small-fix",
+        boundedWorkContract: boundedWorkContract("Reuse a terminal item.", [terminal.id]),
+        contractAuthority,
       },
     });
 
@@ -3108,6 +3403,7 @@ describe("work-governance-tool", () => {
       objective: "Close with explicit evidence.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: boundedWorkRevision("goal-explicit-closeout", [item.id], "Close with explicit evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -3126,12 +3422,31 @@ describe("work-governance-tool", () => {
       workItemId: item.id,
       executionMode: "direct",
     });
+    const candidate = createBoundedWorkCandidate({
+      goalRunId: goal.id,
+      workItemId: item.id,
+      contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+      accountingLineageId: goal.boundedWorkContractRevision.accountingLineageId,
+      kind: "git_worktree",
+      baseline: { kind: "git_tree", digest: `sha256:${"0".repeat(64)}` },
+      candidateContentDigest: `sha256:${"1".repeat(64)}`,
+      createdAt: "2026-08-12T18:01:00.000Z",
+    });
+    const candidateEvidence = bindBoundedWorkEvidence({
+      candidate,
+      kind: "verification",
+      subjectCandidateDigest: candidate.candidateDigest,
+      evidenceDigest: `sha256:${"2".repeat(64)}`,
+      recordedAt: "2026-08-12T18:02:00.000Z",
+    });
     finishGoalExecutionAttempt({
       goalRunStore,
       workItemStore,
       goalRunId: goal.id,
       workItemId: item.id,
       attemptId: started.attempt.id,
+      candidate,
+      candidateEvidence: [candidateEvidence],
     });
     const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
     const evidenceTool = tools.find((candidate) => candidate.name === "goal.evidence.record");
@@ -3151,6 +3466,7 @@ describe("work-governance-tool", () => {
       input: {
         goalRunId: goal.id,
         closeoutSummary: "Release contract verified and work completed.",
+        acceptanceEvidence: [{ criterion: "test evidence", evidenceDigest: `sha256:${"3".repeat(64)}` }],
       },
     });
 
@@ -3162,7 +3478,14 @@ describe("work-governance-tool", () => {
       isError: false,
       metadata: { kind: "goal", operation: "complete" },
     });
-    expect(goalRunStore.get(goal.id)).toMatchObject({ status: "completed" });
+    expect(completed?.output).toContain('"boundedWorkCloseout"');
+    expect(goalRunStore.get(goal.id)).toMatchObject({
+      status: "completed",
+      boundedWorkCloseoutDecision: {
+        kind: "stop_acceptance_complete",
+        contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+      },
+    });
   });
 });
 

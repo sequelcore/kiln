@@ -77,6 +77,8 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly session: RuntimeSession;
   readonly turnId?: string;
   readonly toolCall: ToolCall;
+  /** Runtime-owned scope; tool input cannot override or remove this attribution. */
+  readonly executionScope?: SessionExecutionScope;
   readonly abortSignal?: AbortSignal;
   readonly emitOutput?: (output: {
     readonly stream: "stdout" | "stderr";

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GoalRunStore, WorkItemStore } from "../../src/work-governance/index.js";
+import { testBoundedWorkCloseoutDecision, testBoundedWorkRevision } from "./bounded-work-fixtures.js";
 
 describe("work-governance store restore", () => {
   it("restores work items with canonical sequence and resource notifications", () => {
@@ -52,6 +53,7 @@ describe("work-governance store restore", () => {
       objective: "Resume the governed repair goal.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-restored", ["work-restored"], "Resume the governed repair goal."),
       workItemIds: ["work-restored"],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -66,6 +68,7 @@ describe("work-governance store restore", () => {
     const goal = source.complete({
       id: activeGoal.id,
       closeoutSummary: "Restored goal completed before the follow-up goal starts.",
+      boundedWorkCloseoutDecision: testBoundedWorkCloseoutDecision(activeGoal.id, activeGoal.boundedWorkContractRevision),
     });
     const notifications: string[] = [];
     const store = new GoalRunStore({
@@ -91,6 +94,7 @@ describe("work-governance store restore", () => {
       objective: "Continue with a new goal.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-2" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-next", ["test-work-item"], "Continue with a new goal."),
       workItemIds: [],
       authorityEnvelope: {
         maximumAuthority: "read_only",

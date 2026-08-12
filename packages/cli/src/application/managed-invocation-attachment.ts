@@ -38,6 +38,8 @@ export function createManagedInvocationExecutionProofResolverRef(): ManagedInvoc
         goalRunId: scope.goalRunId,
         workItemId: scope.workItemId,
         resultHandoff,
+        candidateCaptureRoot: snapshot.record?.resourceLease?.workingDirectoryPath
+          ?? snapshot.request.authority.workingDirectory.path,
       };
     },
     bind(next): void {

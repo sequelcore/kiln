@@ -1493,6 +1493,7 @@ export class RuntimeSessionToolExecutor {
           session,
           ...(turnId ? { turnId } : {}),
           toolCall,
+          ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
           emitOutput: (output: { readonly stream: "stdout" | "stderr"; readonly delta: string }) => {
             if (outputTruncated || output.delta.length === 0) return;

@@ -18,6 +18,36 @@ This doctrine refines [`identity.md`](identity.md),
 [`managed-agents.md`](../coordination/managed-agents.md). It does not create a second workflow,
 route, job, evidence, or replay owner.
 
+## Bounded Work Contract
+
+The [bounded-work authority record](../../research/35-bounded-work-authority-2026.md)
+is the research basis for the contract that this outer loop executes. Work
+Governance remains the owner: Core defines an immutable, content-digested
+revision; Runtime enforces admission, project-scoped CAS reservation and
+settlement, accounting, transitions, and terminal truth; surfaces only project
+or report the canonical state.
+
+The revision separates semantic scope from hard ceilings, configurable
+tripwires, and diagnostics. Scope names permitted effects, roots, non-goals,
+and refactor authority. Hard ceilings are cumulative across routes and
+sessions; unknown usage never becomes zero. Tripwires may require review or a
+pause but do not turn fixed LOC or diff size into an overengineering classifier.
+Diagnostics do not grant authority or prove completion.
+
+Every accepted result binds the target/baseline, exact candidate snapshot or
+diff digest, revision lineage, requirement traceability, verification/review
+and correction evidence, and final receipt. A correction is a new candidate
+and evidence relation. Native harness state, provider claims, or a child
+invocation result cannot substitute for this binding.
+
+Typed continuation and stop decisions map to the existing goal/work/attempt
+lifecycle and `SessionContinuityDecision`/`SessionTurnOutcome` values. A scope
+revision, exhausted ceiling, unresolved review, missing capability, failed
+verification, or timeout preserves blocking/failure evidence and cannot be
+reported as successful completion. Capability tiers (authoritative, partial,
+advisory, unsupported) describe evidence for one operation; they do not imply
+parity between Kiln Runtime, direct providers, native harnesses, or adapters.
+
 ## Operating Model
 
 The canonical outer loop is:

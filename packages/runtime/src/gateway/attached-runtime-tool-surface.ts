@@ -1,3 +1,4 @@
+import { isAbsolute, relative, resolve } from "node:path";
 import type {
   ActionEffectEnvelope,
   AnalysisStateStore,
@@ -75,6 +76,7 @@ import {
   resolveManagedInvocationService,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolAttachment,
+  type ManagedInvocationBoundedWorkAdmission,
 } from "../agents/managed-invocation/runtime-tool/index.js";
 import {
   createManagedAgentInvocationResourceProvider,
@@ -85,6 +87,7 @@ import {
   managedInvocationFailureReasonFromStatus,
 } from "../agents/managed-invocation/phase-recovery.js";
 import { authorityFromCapability } from "./tool-authority.js";
+import type { SqliteBoundedWorkAuthority } from "../work-governance/index.js";
 
 export interface AttachedRuntimeBuiltinToolSurface {
   readonly callBuiltinTools: ReadonlyMap<string, RuntimeBuiltinToolExecutor>;
@@ -115,6 +118,10 @@ export interface AttachedRuntimeBuiltinToolSurfaceOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly executionMode?: OperatorExecutionMode;
   readonly managedInvocation?: AttachedRuntimeManagedInvocationConfig;
+  readonly boundedWork?: {
+    readonly projectRuntimeId: string;
+    readonly authority: SqliteBoundedWorkAuthority;
+  };
 }
 
 const RUNTIME_OBSERVE_METADATA_EGRESS: ActionEffectEnvelope = {
@@ -472,6 +479,8 @@ export function createAttachedRuntimeBuiltinToolSurface(
         },
         governedScopeAdmission: managedInvocationAttachment.governedScopeAdmission
           ?? createManagedInvocationGovernedScopeAdmission(coreSurface),
+        boundedWorkAdmission: managedInvocationAttachment.boundedWorkAdmission
+          ?? createManagedInvocationBoundedWorkAdmission(coreSurface, options.boundedWork),
       }
     : undefined;
 
@@ -491,7 +500,6 @@ export function createAttachedRuntimeBuiltinToolSurface(
   if (goalCreateExecutor) {
     callBuiltinTools.set(GOAL_CREATE_TOOL_NAME, createSessionAwareGoalCreateExecutor(goalCreateExecutor));
   }
-
   const registerRuntimeTool = (tool: ToolDefinition, capability: Capability): void => {
     toolDefinitions.push(tool);
     capabilities.set(tool.name, capability);
@@ -504,7 +512,7 @@ export function createAttachedRuntimeBuiltinToolSurface(
     materializableCapabilities.set(tool.name, capability);
   };
 
-  if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor) {
+  if (!themeController && options.executionMode !== "plan" && !managedInvocation && !goalCreateExecutor && !options.boundedWork) {
     return baseSurface;
   }
 
@@ -628,6 +636,17 @@ export function createAttachedRuntimeBuiltinToolSurface(
     );
   }
 
+  // Project bounded-work evidence after all runtime wrappers have completed so
+  // managed delegation, candidate closeout, and accounting updates are visible
+  // in the same terminal event delivered to operator surfaces.
+  if (options.boundedWork) {
+    for (const [toolName, executor] of callBuiltinTools) {
+      if (toolName.startsWith("work_item.")) {
+        callBuiltinTools.set(toolName, createBoundedWorkProjectionExecutor(executor, coreSurface, options.boundedWork));
+      }
+    }
+  }
+
   return {
     callBuiltinTools: strictToolAllowlist
       ? filterMapByAllowlist(callBuiltinTools, strictToolAllowlist) ?? new Map()
@@ -746,9 +765,7 @@ function createManagedInvocationGovernedScopeAdmission(
         message: `Work item ${workItem.id} is ${workItem.status}; managed invocation requires an open work item.`,
       };
     }
-    if (!input.attemptId) {
-      return { admitted: true };
-    }
+    if (!input.attemptId) return { admitted: true };
     const attempt = workItem.executionAttempts.find((candidate) => candidate.id === input.attemptId);
     if (!attempt) {
       return {
@@ -764,8 +781,195 @@ function createManagedInvocationGovernedScopeAdmission(
         message: `Execution attempt ${attempt.id} is not an active attempt for work item ${workItem.id} and goal ${goal.id}.`,
       };
     }
+    if (attempt.boundedWorkContractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest) {
+      return {
+        admitted: false,
+        code: "bounded_work_attempt_revision_stale",
+        message: `Execution attempt ${attempt.id} is bound to a superseded bounded-work contract revision.`,
+      };
+    }
     return { admitted: true };
   };
+}
+
+function createManagedInvocationBoundedWorkAdmission(
+  surface: DefaultBuiltinToolSurface,
+  boundedWork: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"],
+): ManagedInvocationBoundedWorkAdmission | undefined {
+  if (!boundedWork) return undefined;
+  return (input) => {
+    const goal = surface.goalRunStore?.get(input.goalRunId);
+    const workItem = surface.workItemStore?.get(input.workItemId);
+    if (!goal || !workItem || goal.ownerSessionId !== input.parentSessionId) {
+      return {
+        admitted: false,
+        code: "bounded_work_attribution_invalid",
+        message: "Managed invocation bounded-work attribution is no longer valid.",
+      };
+    }
+    const attempt = input.attemptId
+      ? workItem.executionAttempts.find((candidate) => candidate.id === input.attemptId)
+      : undefined;
+    if (
+      workItem.goalRunId !== goal.id
+      || !goal.workItemIds.includes(workItem.id)
+      || (input.attemptId !== undefined && (
+        !attempt
+        || attempt.status !== "started"
+        || attempt.boundedWorkContractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest
+      ))
+    ) {
+      return {
+        admitted: false,
+        code: "bounded_work_attempt_invalid",
+        message: "Managed invocation requires a current active execution attempt.",
+      };
+    }
+    const permittedEffects = new Set(goal.boundedWorkContractRevision.contract.scope.permittedEffects);
+    const writeEffects = input.requestedEffects.filter((effect) =>
+      effect === "modify_source"
+      || effect === "modify_tests"
+      || effect === "modify_documentation"
+      || effect === "modify_configuration"
+      || effect === "external_write");
+    if (
+      input.writeRequested
+      && (writeEffects.length === 0 || input.requestedEffects.some((effect) => !permittedEffects.has(effect)))
+    ) {
+      return {
+        admitted: false,
+        code: "bounded_work_effect_authority_denied",
+        message: "Governed write delegation requires explicit requested effects contained by the bounded-work contract.",
+      };
+    }
+    const reservation = boundedWork.authority.reserve({
+      projectRuntimeId: boundedWork.projectRuntimeId,
+      goalRunId: goal.id,
+      workItemId: workItem.id,
+      contractRevision: goal.boundedWorkContractRevision,
+      idempotencyKey: `managed:${input.invocationId}`,
+      route: { routeId: input.routeId, harnessId: input.harnessId },
+      harnessCapability: "authoritative",
+      scope: {
+        workItemId: workItem.id,
+        effect: "invoke_managed_agent",
+        surface: workItem.surface ?? goal.boundedWorkContractRevision.contract.scope.permittedSurfaces[0]!,
+        paths: workItem.referenceRoots ?? [],
+      },
+      reservation: { kind: "managed_invocation", amount: 1, childDepth: input.childDepth },
+    });
+    if (reservation.decision.kind !== "admitted") {
+      return {
+        admitted: false,
+        code: reservation.decision.kind,
+        message: boundedWorkDecisionMessage(reservation.decision),
+        suggestedNextTool: reservation.decision.kind === "pause_scope_revision_required"
+          ? "goal.bounded_work_contract.supersede"
+          : undefined,
+      };
+    }
+    const workspaceAuthority = intersectBoundedWorkspaceAuthority({
+      workspaceRoot: input.workspaceRoot,
+      contractAllowedRoots: goal.boundedWorkContractRevision.contract.scope.allowedRoots,
+      contractDeniedRoots: goal.boundedWorkContractRevision.contract.scope.deniedRoots,
+      routeAllowedPaths: input.routeWriteAllowedPaths,
+      routeDeniedPaths: input.routeWriteDeniedPaths,
+    });
+    if (input.writeRequested && workspaceAuthority.allowedPaths.length === 0) {
+      boundedWork.authority.releaseBeforeDispatch({
+        reservationId: reservation.reservation!.reservationId,
+        expectedReservationRevision: reservation.reservation!.revision,
+      });
+      return {
+        admitted: false,
+        code: "bounded_work_workspace_authority_empty",
+        message: "The bounded-work roots and route write authority do not overlap.",
+      };
+    }
+    let receipt = reservation.reservation!;
+    return {
+      admitted: true,
+      workspaceAuthority,
+      lifecycle: {
+        markDispatched(dispatchId) {
+          receipt = boundedWork.authority.markDispatched({
+            reservationId: receipt.reservationId,
+            expectedReservationRevision: receipt.revision,
+            dispatchId,
+          });
+        },
+        releaseBeforeDispatch() {
+          receipt = boundedWork.authority.releaseBeforeDispatch({
+            reservationId: receipt.reservationId,
+            expectedReservationRevision: receipt.revision,
+          });
+        },
+        settleTerminal(outcome, evidenceDigest) {
+          receipt = boundedWork.authority.settleTerminal({
+            reservationId: receipt.reservationId,
+            expectedReservationRevision: receipt.revision,
+            terminalOutcome: outcome,
+            terminalEvidenceDigest: evidenceDigest,
+          });
+        },
+        settleUnknown(reason) {
+          receipt = boundedWork.authority.settleUnknown({
+            reservationId: receipt.reservationId,
+            expectedReservationRevision: receipt.revision,
+            reason,
+          });
+        },
+      },
+    };
+  };
+}
+
+function intersectBoundedWorkspaceAuthority(input: {
+  readonly workspaceRoot: string;
+  readonly contractAllowedRoots: readonly string[];
+  readonly contractDeniedRoots: readonly string[];
+  readonly routeAllowedPaths: readonly string[];
+  readonly routeDeniedPaths: readonly string[];
+}): { readonly allowedPaths: readonly string[]; readonly deniedPaths: readonly string[] } {
+  const workspaceRoot = resolve(input.workspaceRoot);
+  const contractAllowed = input.contractAllowedRoots.map((path) => resolve(workspaceRoot, path));
+  const routeAllowed = input.routeAllowedPaths.map((path) => resolve(workspaceRoot, path));
+  const allowedPaths = uniquePaths(contractAllowed.flatMap((contractPath) =>
+    routeAllowed.flatMap((routePath) => {
+      if (containsPath(contractPath, routePath)) return [routePath];
+      if (containsPath(routePath, contractPath)) return [contractPath];
+      return [];
+    })));
+  return {
+    allowedPaths,
+    deniedPaths: uniquePaths([
+      ...input.contractDeniedRoots.map((path) => resolve(workspaceRoot, path)),
+      ...input.routeDeniedPaths.map((path) => isAbsolute(path) ? resolve(path) : resolve(workspaceRoot, path)),
+    ]),
+  };
+}
+
+function containsPath(parent: string, child: string): boolean {
+  const value = relative(parent, child);
+  return value === "" || (!value.startsWith("..") && !isAbsolute(value));
+}
+
+function uniquePaths(paths: readonly string[]): readonly string[] {
+  return [...new Set(paths.map((path) => resolve(path)))].sort();
+}
+
+function boundedWorkDecisionMessage(
+  decision: Exclude<ReturnType<SqliteBoundedWorkAuthority["reserve"]>["decision"], { readonly kind: "admitted" }>,
+): string {
+  switch (decision.kind) {
+    case "pause_scope_revision_required":
+      return `Managed invocation requires a bounded-work scope revision: ${decision.violations.map((entry) => entry.kind).join(", ")}.`;
+    case "pause_budget_exhausted":
+    case "stop_budget_exhausted":
+      return `Managed invocation bounded-work limits are exhausted: ${decision.exhaustedLimits.join(", ")}.`;
+    case "pause_capability_unavailable":
+      return `Managed invocation lacks required bounded-work capability: ${decision.unavailableMetrics.join(", ")}.`;
+  }
 }
 
 function attachSessionScopedManagedResourceExecutors(
@@ -849,6 +1053,67 @@ function createSessionAwareGoalCreateExecutor(goalCreateExecutor: RuntimeBuiltin
       ...(needsOwnerSessionId ? { ownerSessionId: context!.session.id } : {}),
       ...(needsOperatorTurnId ? { operatorTurnId: context!.turnId } : {}),
     }, context);
+  };
+}
+
+function createBoundedWorkProjectionExecutor(
+  executor: RuntimeBuiltinToolExecutor,
+  surface: DefaultBuiltinToolSurface,
+  boundedWork: NonNullable<AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"]>,
+): RuntimeBuiltinToolExecutor {
+  return async (input, context) => {
+    const rawResult = await executor(input, context);
+    if (!rawResult || typeof rawResult !== "object") return rawResult;
+    const result = rawResult as { readonly metadata?: unknown; readonly [key: string]: unknown };
+    const metadata = result.metadata as Record<string, unknown> | undefined;
+    const item = metadata?.item as Record<string, unknown> | undefined;
+    const goalRunId = typeof item?.goalRunId === "string" ? item.goalRunId : undefined;
+    const goal = goalRunId ? surface.goalRunStore?.get(goalRunId) : undefined;
+    const state = goal ? boundedWork.authority.inspectProjection({
+      projectRuntimeId: boundedWork.projectRuntimeId,
+      accountingLineageId: goal.id,
+    }) : undefined;
+    if (!metadata || !item || !goal || !state) return result;
+    const limits = goal.boundedWorkContractRevision.contract.limits;
+    const latestAttempt = (item.executionAttempts as readonly Record<string, unknown>[] | undefined)?.at(-1);
+    const candidate = latestAttempt?.candidate as Record<string, unknown> | undefined;
+    return {
+      ...result,
+      metadata: {
+        ...metadata,
+        item: {
+          ...item,
+          boundedWork: {
+            contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+            ...(typeof candidate?.candidateDigest === "string" ? { candidateDigest: candidate.candidateDigest } : {}),
+            accounting: {
+              revision: state.accounting.revision,
+              executionAttempts: { used: state.accounting.executionAttempts, limit: limits.maxExecutionAttempts },
+              managedInvocations: {
+                used: state.accounting.managedInvocations,
+                active: state.accounting.activeManagedInvocations,
+                limit: limits.maxManagedInvocations,
+              },
+              reviewRounds: { used: state.accounting.reviewRounds, limit: limits.maxReviewRounds },
+              remediationRounds: { used: state.accounting.remediationRounds, limit: limits.maxRemediationRounds },
+              ...(limits.maxToolCalls !== undefined
+                ? { toolCalls: { ...state.accounting.toolCalls, limit: limits.maxToolCalls } }
+                : {}),
+              ...(limits.maxActiveDurationMs !== undefined
+                ? { activeDurationMs: { ...state.accounting.activeDurationMs, limit: limits.maxActiveDurationMs } }
+                : {}),
+            },
+            decision: state.decision ?? {
+              kind: "admitted",
+              contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+              accountingRevision: state.accounting.revision,
+              reserved: {},
+              diagnostics: [],
+            },
+          },
+        },
+      } as typeof result.metadata,
+    };
   };
 }
 

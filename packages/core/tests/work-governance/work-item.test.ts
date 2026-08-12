@@ -7,6 +7,7 @@ import {
   type WorkItemPauseRequirement,
   type WorkItemUpsertInput,
 } from "../../src/work-governance/index.js";
+import { testBoundedWorkRevision } from "./bounded-work-fixtures.js";
 
 describe("WorkItemStore work classification", () => {
   it("normalizes and preserves paired classification with plan work-item provenance", () => {
@@ -393,6 +394,7 @@ describe("WorkItemStore pause requirement supersession", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-supersede-unblocks", [item.id], "Execute approved plan."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -439,6 +441,7 @@ describe("WorkItemStore pause requirement supersession", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-supersede-still-blocks", [item.id], "Execute approved plan."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",

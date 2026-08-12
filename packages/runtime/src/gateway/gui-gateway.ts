@@ -49,6 +49,7 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   resolveAttachedRuntimeToolCallMetadata,
   type AttachedRuntimeBuiltinToolSurface,
+  type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./attached-runtime-tool-surface.js";
 import {
   withManagedInvocationService,
@@ -161,6 +162,7 @@ export interface StartGuiGatewayOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly operatorTransport?: OperatorGuiSessionTransportOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
   readonly operatorTerminalAdapter?: OperatorPtyAdapter;
   readonly goalController?: GuiGoalController;
@@ -669,6 +671,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       onDiscoveryUpdated: (listener) => operatorCatalog?.subscribe((snapshot) => listener(snapshot.discovery)) ?? (() => {}),
       builtinToolOptions,
       managedInvocation,
+      boundedWork: options.boundedWork,
       executionRouteSelection: options.executionRouteSelection,
       operatorTerminalCapability,
       operatorTerminalService,
@@ -775,6 +778,7 @@ function wireOperatorTransport(
     onDiscoveryUpdated: (listener: (discovery: readonly GuiProviderDiscoveryResult[]) => void) => () => void;
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
     managedInvocation?: ManagedInvocationToolAttachment;
+    boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
     executionRouteSelection?: OperatorExecutionRouteSelectionPort;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
@@ -788,6 +792,7 @@ function wireOperatorTransport(
   const approvalRegistry = new ApprovalGateRegistry();
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: input.builtinToolOptions,
+    boundedWork: input.boundedWork,
     managedInvocation: input.managedInvocation,
   });
   const resourceSurfaces: AttachedRuntimeBuiltinToolSurface[] = [builtinToolSurface];
@@ -835,6 +840,7 @@ function wireOperatorTransport(
     assertGuiTurnModeCompatibility(executionMode, governedWorkRequirement);
     const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: input.builtinToolOptions,
+      boundedWork: input.boundedWork,
       executionMode,
       managedInvocation: attachManagedInvocationSessionEventSink(
         input.managedInvocation,

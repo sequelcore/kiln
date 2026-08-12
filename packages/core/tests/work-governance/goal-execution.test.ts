@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   completeGoalExecution,
+  bindBoundedWorkEvidence,
+  createBoundedWorkCandidate,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   GoalRunStore,
@@ -9,10 +11,66 @@ import {
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WorkItemStore,
+  type GoalRun,
 } from "../../src/work-governance/index.js";
 import { createSessionEvent } from "../../src/events/index.js";
+import { testBoundedWorkRevision } from "./bounded-work-fixtures.js";
 
 describe("goal execution loop", () => {
+  it("binds attempts to one contract revision and rejects stale completion after supersession", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-revision-bound",
+      summary: "Finish only under the admitted revision.",
+      workflowProfile: "small-fix",
+      triggers: [],
+      expectedEvidence: [],
+      verificationGates: [],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-revision-bound",
+      objective: "Bind the attempt revision.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision(
+        "goal-revision-bound",
+        [item.id],
+        "Bind the attempt revision.",
+      ),
+      workItemIds: [item.id],
+      authorityEnvelope: { maximumAuthority: "audited", escalationPolicy: "approval_required", reason: "Test." },
+      routePolicy: { workflowProfile: "small-fix" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+    expect(started.attempt.boundedWorkContractRevisionDigest)
+      .toBe(goal.boundedWorkContractRevision.revisionDigest);
+    goalRunStore.supersedeBoundedWorkContract({
+      id: goal.id,
+      expectedRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+      contract: {
+        ...goal.boundedWorkContractRevision.contract,
+        limits: { ...goal.boundedWorkContractRevision.contract.limits, maxExecutionAttempts: 2 },
+      },
+      adoptedAt: "2026-05-12T18:01:00.000Z",
+      adoptedBy: { kind: "operator", actorId: "operator-1", decisionId: "revision-2" },
+    });
+    expect(() => finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+    })).toThrow("stale bounded-work contract revision");
+  });
+
   it("accepts a verified direct managed handoff without inventing managed orchestration policy", () => {
     const goalRunStore = new GoalRunStore({ now: fixedNow });
     const workItemStore = new WorkItemStore({ now: fixedNow });
@@ -30,6 +88,7 @@ describe("goal execution loop", () => {
       objective: "Adopt a direct managed child result.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-direct-managed-handoff", [item.id], "Adopt a direct managed child result."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -53,6 +112,7 @@ describe("goal execution loop", () => {
         goalRunId: goal.id,
         workItemId: item.id,
         resultHandoff: handoff,
+        candidateCaptureRoot: "C:/workspace/kiln/.kiln/managed-worktrees/invocation-direct-1",
       },
     });
 
@@ -76,8 +136,9 @@ describe("goal execution loop", () => {
         status: "completed",
         managedInvocationId: "invocation-direct-1",
         managedInvocationResultHandoff: handoff,
+        candidateCaptureRoot: "C:/workspace/kiln/.kiln/managed-worktrees/invocation-direct-1",
       },
-      goal: { status: "completed", currentPhase: "completed" },
+      goal: { status: "active", currentPhase: "paused:bounded-work-acceptance" },
     });
   });
 
@@ -98,6 +159,7 @@ describe("goal execution loop", () => {
       objective: "Require managed invocation provenance.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed-proof", [item.id], "Require managed invocation provenance."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -130,6 +192,7 @@ describe("goal execution loop", () => {
         goalRunId: goal.id,
         workItemId: item.id,
         resultHandoff: managedResultHandoff(),
+        candidateCaptureRoot: "C:/workspace/kiln/.kiln/managed-worktrees/invocation-1",
       },
     }).attempt.managedInvocationId).toBe("invocation-1");
   });
@@ -150,6 +213,7 @@ describe("goal execution loop", () => {
       objective: "Close with explicit release evidence.",
       ownerSessionId: "session-1",
       source: { kind: "operator_direct", turnId: "turn-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-closeout", [item.id], "Close with explicit release evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "read_only",
@@ -175,6 +239,7 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       attemptId: started.attempt.id,
       providedEvidence: ["tests"],
+      ...candidateBinding(goal, item.id, started.attempt.startedAt),
     });
     expect(finished.goal.currentPhase).toBe("paused:goal-closeout");
     expect(finished.missingGoalEvidence).toEqual(["release-contract"]);
@@ -190,6 +255,7 @@ describe("goal execution loop", () => {
       workItemStore,
       goalRunId: goal.id,
       closeoutSummary: "Release contract and work-item evidence verified.",
+      boundedWorkCloseoutDecision: acceptanceDecision(goalRunStore.get(goal.id)!, workItemStore, item.id),
     })).toMatchObject({
       status: "completed",
       closeoutSummary: "Release contract and work-item evidence verified.",
@@ -224,6 +290,7 @@ describe("goal execution loop", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-execution", [completed.id, ready.id], "Execute approved plan."),
       workItemIds: [completed.id, ready.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -276,6 +343,7 @@ describe("goal execution loop", () => {
       objective: "Record managed child failure.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed-failure", [item.id], "Record managed child failure."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -343,6 +411,7 @@ describe("goal execution loop", () => {
       objective: "Record managed child cancellation.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed-cancelled", [item.id], "Record managed child cancellation."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -410,6 +479,7 @@ describe("goal execution loop", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-paused", [blocked.id], "Execute approved plan."),
       workItemIds: [blocked.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -456,6 +526,7 @@ describe("goal execution loop", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-needs-input", [item.id], "Execute approved plan."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -534,6 +605,7 @@ describe("goal execution loop", () => {
       objective: "Execute governed review.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-needs-harness-capability", [item.id], "Execute governed review."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -579,6 +651,7 @@ describe("goal execution loop", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-attempts", [item.id], "Execute approved plan."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -649,6 +722,7 @@ describe("goal execution loop", () => {
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-skipped-gate", [item.id], "Execute closeout-gated work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -712,8 +786,8 @@ describe("goal execution loop", () => {
         residualRisk: "Typecheck was skipped because this change only exercised test fixtures.",
       },
       goal: {
-        status: "completed",
-        closeoutSummary: "Skipped gate documented.",
+        status: "active",
+        currentPhase: "paused:bounded-work-acceptance",
       },
     });
   });
@@ -734,6 +808,7 @@ describe("goal execution loop", () => {
       objective: "Execute closeout-gated work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-gate-results", [item.id], "Execute closeout-gated work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -808,8 +883,8 @@ describe("goal execution loop", () => {
         ],
       },
       goal: {
-        status: "completed",
-        closeoutSummary: "All gates passed.",
+        status: "active",
+        currentPhase: "paused:bounded-work-acceptance",
       },
     });
   });
@@ -830,6 +905,7 @@ describe("goal execution loop", () => {
       objective: "Execute risky profile work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-review-gate", [item.id], "Execute risky profile work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -889,8 +965,8 @@ describe("goal execution loop", () => {
         status: "completed",
       },
       goal: {
-        status: "completed",
-        closeoutSummary: "Risky profile review passed.",
+        status: "active",
+        currentPhase: "paused:bounded-work-acceptance",
       },
     });
   });
@@ -911,6 +987,7 @@ describe("goal execution loop", () => {
       objective: "Execute UI profile work.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-browser-gate", [item.id], "Execute UI profile work."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -973,8 +1050,8 @@ describe("goal execution loop", () => {
         status: "completed",
       },
       goal: {
-        status: "completed",
-        closeoutSummary: "Browser QA passed.",
+        status: "active",
+        currentPhase: "paused:bounded-work-acceptance",
       },
     });
   });
@@ -995,6 +1072,7 @@ describe("goal execution loop", () => {
       objective: "Close only with goal-level evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-evidence-closeout", [item.id], "Close only with goal-level evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1085,6 +1163,7 @@ describe("goal execution loop", () => {
       objective: "Close with managed adoption evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed-adoption", [item.id], "Close with managed adoption evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1134,13 +1213,15 @@ describe("goal execution loop", () => {
         adoptedAt: "2026-05-12T10:30:00.000Z",
         resourceUris: ["kiln://artifacts/orch-adoption-goal/adoption"],
       },
+      ...candidateBinding(goal, item.id, started.attempt.startedAt),
     });
 
     expect(completed).toMatchObject({
       missingEvidence: [],
       missingGoalEvidence: [],
       goal: {
-        status: "completed",
+        status: "active",
+        currentPhase: "paused:bounded-work-acceptance",
       },
       item: {
         status: "completed",
@@ -1151,7 +1232,13 @@ describe("goal execution loop", () => {
         },
       },
     });
-    expect(completed.goal.closeoutSummary).toContain(
+    const closed = completeGoalExecution({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      boundedWorkCloseoutDecision: acceptanceDecision(goalRunStore.get(goal.id)!, workItemStore, item.id),
+    });
+    expect(closed.closeoutSummary).toContain(
       "Evidence: managed-orchestration:adoption-gate, managed-orchestration:result-handoff.",
     );
   });
@@ -1225,6 +1312,7 @@ describe("goal execution loop", () => {
       objective: "Close only after adoption readiness.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-managed-readiness", [item.id], "Close only after adoption readiness."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1542,6 +1630,7 @@ describe("goal execution loop", () => {
       objective: "Do not close with raw adoption evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-raw-adoption", [item.id, "work-trigger-closeout"], "Do not close with raw adoption evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1565,9 +1654,9 @@ describe("goal execution loop", () => {
       expectedEvidence: ["tests"],
       verificationGates: ["bun test"],
     });
-    const goalWithSecondItem = goalRunStore.update({
+    const goalWithSecondItem = goalRunStore.attachWorkItems({
       id: goal.id,
-      workItemIds: [item.id, second.id],
+      workItemIds: [second.id],
     });
     const started = startGoalExecutionAttempt({
       goalRunStore,
@@ -1641,6 +1730,7 @@ describe("goal execution loop", () => {
       objective: "Do not close with raw handoff evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-raw-handoff", [item.id, "work-trigger-handoff-closeout"], "Do not close with raw handoff evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1664,9 +1754,9 @@ describe("goal execution loop", () => {
       expectedEvidence: ["tests"],
       verificationGates: ["bun test"],
     });
-    const goalWithSecondItem = goalRunStore.update({
+    const goalWithSecondItem = goalRunStore.attachWorkItems({
       id: goal.id,
-      workItemIds: [item.id, second.id],
+      workItemIds: [second.id],
     });
     const started = startGoalExecutionAttempt({
       goalRunStore,
@@ -1749,6 +1839,7 @@ describe("goal execution loop", () => {
       objective: "Do not close without policy-required managed handoff.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-policy-handoff", [item.id, second.id], "Do not close without policy-required managed handoff."),
       workItemIds: [item.id, second.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1852,6 +1943,7 @@ describe("goal execution loop", () => {
       objective: "Do not close with rejected adoption.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-rejected-adoption", [adoptedButRejected.id, second.id], "Do not close with rejected adoption."),
       workItemIds: [adoptedButRejected.id, second.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -1988,6 +2080,7 @@ describe("goal execution loop", () => {
       objective: "Generate closeout from evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-closeout-summary", [item.id], "Generate closeout from evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2016,9 +2109,20 @@ describe("goal execution loop", () => {
         { gate: "bun test", status: "passed", summary: "Focused tests passed." },
         { gate: "bun run typecheck", status: "passed", summary: "Typecheck passed." },
       ],
+      ...candidateBinding(goal, item.id, started.attempt.startedAt),
     });
 
     expect(completed.goal).toMatchObject({
+      status: "active",
+      currentPhase: "paused:bounded-work-acceptance",
+    });
+    const closed = completeGoalExecution({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      boundedWorkCloseoutDecision: acceptanceDecision(goalRunStore.get(goal.id)!, workItemStore, item.id),
+    });
+    expect(closed).toMatchObject({
       status: "completed",
       closeoutSummary: [
         "Goal goal-closeout-summary completed from canonical evidence.",
@@ -2047,6 +2151,7 @@ describe("goal execution loop", () => {
       objective: "Replay execution.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-replay", [item.id], "Replay execution."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -2125,6 +2230,53 @@ function managedProof(goalRunId: string, workItemId: string, invocationId: strin
     goalRunId,
     workItemId,
     resultHandoff: managedResultHandoff(),
+    candidateCaptureRoot: `C:/workspace/kiln/.kiln/managed-worktrees/${invocationId}`,
+  };
+}
+
+function candidateBinding(goal: GoalRun, workItemId: string, createdAt: string) {
+  const candidate = createBoundedWorkCandidate({
+    goalRunId: goal.id,
+    workItemId,
+    contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+    accountingLineageId: goal.id,
+    kind: "git_worktree",
+    baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
+    candidateContentDigest: `sha256:${"b".repeat(64)}`,
+    createdAt,
+  });
+  return {
+    candidate,
+    candidateEvidence: [bindBoundedWorkEvidence({
+      candidate,
+      kind: "verification",
+      subjectCandidateDigest: candidate.candidateDigest,
+      evidenceDigest: `sha256:${"c".repeat(64)}`,
+      recordedAt: createdAt,
+    })],
+  };
+}
+
+function acceptanceDecision(goal: GoalRun, workItemStore: WorkItemStore, workItemId: string) {
+  const candidate = workItemStore.get(workItemId)?.executionAttempts.at(-1)?.candidate;
+  if (!candidate) throw new Error("test candidate is required");
+  return {
+    kind: "stop_acceptance_complete" as const,
+    candidateDigest: candidate.candidateDigest,
+    contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+    accounting: {
+      schema: "kiln.bounded-work-accounting/v1" as const,
+      accountingLineageId: goal.id,
+      contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+      revision: 1,
+      executionAttempts: 1,
+      managedInvocations: 0,
+      activeManagedInvocations: 0,
+      reviewRounds: 0,
+      remediationRounds: 0,
+      toolCalls: { kind: "unavailable" as const },
+      activeDurationMs: { kind: "unavailable" as const },
+    },
   };
 }
 

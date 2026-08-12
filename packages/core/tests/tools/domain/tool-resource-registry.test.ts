@@ -10,6 +10,7 @@ import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-sto
 import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
 import { GoalRunStore, startGoalExecutionAttempt, WorkItemStore } from "../../../src/work-governance/index.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
+import { testBoundedWorkRevision } from "../../work-governance/bounded-work-fixtures.js";
 
 describe("ToolResourceRegistry", () => {
   it("lists stable read-only resources and templates from the shared tool surface", () => {
@@ -217,6 +218,7 @@ describe("ToolResourceRegistry", () => {
       objective: "Verify runtime work evidence.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-1", [item.id], "Verify runtime work evidence."),
       workItemIds: [item.id],
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -332,6 +334,7 @@ describe("ToolResourceRegistry", () => {
       objective: "Execute approved plan.",
       ownerSessionId: "session-1",
       source: { kind: "approved_plan", planId: "plan-1" },
+      boundedWorkContractRevision: testBoundedWorkRevision("goal-1", ["wi-1"], "Execute approved plan."),
       workItemIds: ["wi-1"],
       authorityEnvelope: {
         maximumAuthority: "audited",

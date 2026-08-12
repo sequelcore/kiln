@@ -90,6 +90,7 @@ export interface PreparedManagedInvocationRequest {
   readonly capabilitySnapshotInput: ManagedAgentCapabilitySnapshotInput;
   readonly canonicalizedForbiddenInputFields?: readonly string[];
   readonly lifecycleOptions?: ManagedAgentRuntimeInvocationLifecycleOptions;
+  readonly boundedWorkLifecycle?: import("./types.js").ManagedInvocationBoundedWorkLifecycle;
 }
 
 type PrepareFailure = { readonly ok: false; readonly result: ManagedInvocationToolResult };
@@ -326,6 +327,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       }, toolName),
     };
   }
+
   const candidateSet: ManagedEconomicCandidateSet = collectManagedEconomicCandidates({
     economicPolicyId,
     economicPolicyRevision,
@@ -950,6 +952,7 @@ async function resolveManagedInvocationContextPhase(
 
 /** Phase 5: allocate the invocation id, request authority approval, and assemble the invocation request record. */
 async function buildManagedInvocationRequestRecord(input: {
+  readonly attachment: ManagedInvocationToolAttachment;
   readonly context: RuntimeBuiltinToolExecutionContext;
   readonly options: ManagedInvocationToolAttachment["options"];
   readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
@@ -967,7 +970,7 @@ async function buildManagedInvocationRequestRecord(input: {
   readonly admittedDeliberationResolution?: DeliberationResolution;
 }): Promise<PrepareOutcome> {
   const {
-    context, options, callerIdentity, canonicalizedRawInput, parsed, requestedAuthority,
+    attachment, context, options, callerIdentity, canonicalizedRawInput, parsed, requestedAuthority,
     route, profileDefaults, prompt, resolution, contextMetadata,
     toolName, parentTurnId, invocationId, admittedDeliberationResolution,
   } = input;
@@ -991,6 +994,86 @@ async function buildManagedInvocationRequestRecord(input: {
         routeId: route.routeId,
       }, toolName),
     };
+  }
+
+  if (context.executionScope?.managedInvocationId) {
+    return {
+      ok: false,
+      result: errorResult(
+        "Nested managed delegation is unavailable for a bounded child runtime because descendant accounting authority was not propagated.",
+        { errorCode: "bounded_work_nested_delegation_unavailable", status: "denied" },
+        toolName,
+      ),
+    };
+  }
+  if (
+    context.executionScope?.kind === "work_item"
+    && (
+      parsed.goalRunId !== context.executionScope.goalRunId
+      || parsed.workItemId !== context.executionScope.workItemId
+      || (context.executionScope.attemptId !== undefined && parsed.attemptId !== context.executionScope.attemptId)
+    )
+  ) {
+    return {
+      ok: false,
+      result: errorResult(
+        "Managed invocation attribution must match the runtime-owned bounded work scope.",
+        { errorCode: "bounded_work_inherited_scope_mismatch", status: "denied" },
+        toolName,
+      ),
+    };
+  }
+
+  let boundedWorkAdmission: Extract<
+    import("./types.js").ManagedInvocationBoundedWorkAdmissionResult,
+    { readonly admitted: true }
+  > | undefined;
+  if (parsed.goalRunId) {
+    if (!parsed.workItemId) {
+      return {
+        ok: false,
+        result: errorResult("Managed bounded work requires a work item identity.", {
+          errorCode: "bounded_work_attribution_required",
+          status: "denied",
+        }, toolName),
+      };
+    }
+    const admission = attachment.boundedWorkAdmission;
+    if (!admission) {
+      return {
+        ok: false,
+        result: errorResult("Managed bounded work authority is unavailable on this runtime surface.", {
+          errorCode: "bounded_work_admission_unavailable",
+          status: "denied",
+        }, toolName),
+      };
+    }
+    const result = admission({
+      parentSessionId: context.session.id,
+      goalRunId: parsed.goalRunId,
+      workItemId: parsed.workItemId,
+      ...(parsed.attemptId ? { attemptId: parsed.attemptId } : {}),
+      invocationId,
+      routeId: route.routeId,
+      harnessId: `${adapter.descriptor.adapterKind}:${adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness"}`,
+      workspaceRoot: resolvedAuthority.workingDirectory.path,
+      routeWriteAllowedPaths: resolvedAuthority.writeAuthority?.scope.workspace.allowedPaths ?? [],
+      routeWriteDeniedPaths: resolvedAuthority.writeAuthority?.scope.workspace.deniedPaths ?? [],
+      writeRequested: profileDefaults.writeAllowed === true,
+      requestedEffects: parsed.boundedWorkEffects ?? [],
+      childDepth: 1,
+    });
+    if (!result.admitted) {
+      return {
+        ok: false,
+        result: errorResult(result.message, {
+          errorCode: result.code,
+          status: "denied",
+          ...(result.suggestedNextTool ? { suggestedNextTool: result.suggestedNextTool } : {}),
+        }, toolName),
+      };
+    }
+    boundedWorkAdmission = result;
   }
 
   const executionScope = parsed.workItemId
@@ -1050,7 +1133,23 @@ async function buildManagedInvocationRequestRecord(input: {
       credentialRoute: normalizeManagedInvocationCredentialRoute(profileDefaults.credentialRoute),
       memoryScope: profileDefaults.memoryScope,
       ...(profileDefaults.readAuthority ? { readAuthority: profileDefaults.readAuthority } : {}),
-      ...(resolvedAuthority.writeAuthority ? { writeAuthority: resolvedAuthority.writeAuthority } : {}),
+      ...(resolvedAuthority.writeAuthority
+        ? {
+            writeAuthority: boundedWorkAdmission
+              ? {
+                  ...resolvedAuthority.writeAuthority,
+                  scope: {
+                    ...resolvedAuthority.writeAuthority.scope,
+                    workspace: {
+                      ...resolvedAuthority.writeAuthority.scope.workspace,
+                      allowedPaths: boundedWorkAdmission.workspaceAuthority.allowedPaths,
+                      deniedPaths: boundedWorkAdmission.workspaceAuthority.deniedPaths,
+                    },
+                  },
+                }
+              : resolvedAuthority.writeAuthority,
+          }
+        : {}),
     },
     input: {
       summary: parsed.summary,
@@ -1102,6 +1201,7 @@ async function buildManagedInvocationRequestRecord(input: {
           ...(route.voiceProfile ? { voiceProfile: route.voiceProfile } : {}),
         },
       },
+      ...(boundedWorkAdmission ? { boundedWorkLifecycle: boundedWorkAdmission.lifecycle } : {}),
       ...(canonicalizedRawInput.canonicalizedForbiddenInputFields.length > 0
         ? { canonicalizedForbiddenInputFields: canonicalizedRawInput.canonicalizedForbiddenInputFields }
         : {}),
@@ -1164,6 +1264,7 @@ export async function prepareManagedInvocationRequest(
   const { prompt, resolution, contextMetadata } = contextOutcome;
 
   return buildManagedInvocationRequestRecord({
+    attachment,
     context,
     options,
     callerIdentity,

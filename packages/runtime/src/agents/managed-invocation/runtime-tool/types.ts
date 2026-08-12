@@ -27,6 +27,7 @@ import type {
   WorkClassification,
   WorkItemPauseRequirement,
   WorkRecommendedSkillDiagnostic,
+  BoundedWorkEffect,
 } from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
 import type { ManagedAgentRuntimeAdapter, RuntimeManagedAgentInvocationService } from "../index.js";
@@ -162,6 +163,7 @@ export interface ManagedInvocationToolAttachment {
   readonly options: ManagedInvocationToolOptions;
   readonly callerIdentity: ManagedAgentCallerAttachmentIdentity;
   readonly governedScopeAdmission?: ManagedInvocationGovernedScopeAdmission;
+  readonly boundedWorkAdmission?: ManagedInvocationBoundedWorkAdmission;
 }
 
 export interface ManagedInvocationGovernedScopeAdmissionInput {
@@ -185,6 +187,52 @@ export type ManagedInvocationGovernedScopeAdmissionResult =
 export type ManagedInvocationGovernedScopeAdmission = (
   input: ManagedInvocationGovernedScopeAdmissionInput,
 ) => ManagedInvocationGovernedScopeAdmissionResult;
+
+export type ManagedInvocationBoundedWorkTerminalOutcome = "completed" | "failed" | "cancelled";
+
+export interface ManagedInvocationBoundedWorkLifecycle {
+  markDispatched(dispatchId: string): void;
+  releaseBeforeDispatch(): void;
+  settleTerminal(outcome: ManagedInvocationBoundedWorkTerminalOutcome, evidenceDigest: string): void;
+  settleUnknown(reason: string): void;
+}
+
+export interface ManagedInvocationBoundedWorkAdmissionInput {
+  readonly parentSessionId: string;
+  readonly goalRunId: string;
+  readonly workItemId: string;
+  readonly attemptId?: string;
+  readonly invocationId: string;
+  readonly routeId: string;
+  readonly harnessId: string;
+  readonly workspaceRoot: string;
+  readonly routeWriteAllowedPaths: readonly string[];
+  readonly routeWriteDeniedPaths: readonly string[];
+  readonly writeRequested: boolean;
+  readonly requestedEffects: readonly BoundedWorkEffect[];
+  /** This attached surface dispatches a direct child of its owning runtime session. */
+  readonly childDepth: 1;
+}
+
+export type ManagedInvocationBoundedWorkAdmissionResult =
+  | {
+      readonly admitted: true;
+      readonly lifecycle: ManagedInvocationBoundedWorkLifecycle;
+      readonly workspaceAuthority: {
+        readonly allowedPaths: readonly string[];
+        readonly deniedPaths: readonly string[];
+      };
+    }
+  | {
+      readonly admitted: false;
+      readonly code: string;
+      readonly message: string;
+      readonly suggestedNextTool?: string;
+    };
+
+export type ManagedInvocationBoundedWorkAdmission = (
+  input: ManagedInvocationBoundedWorkAdmissionInput,
+) => ManagedInvocationBoundedWorkAdmissionResult;
 
 export interface ManagedInvocationAgentCatalogEntry {
   readonly name: string;
@@ -328,6 +376,7 @@ export interface ManagedInvocationToolInput {
   readonly residualRiskRequired?: boolean;
   readonly outputVerbosity?: "concise" | "standard" | "detailed";
   readonly executionPhase?: Record<string, unknown>;
+  readonly boundedWorkEffects?: readonly BoundedWorkEffect[];
 }
 
 export interface ManagedInvocationToolResult {

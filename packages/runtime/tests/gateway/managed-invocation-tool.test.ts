@@ -74,6 +74,16 @@ function createAttachedRuntimeBuiltinToolSurface(
             options: managedInvocation,
             callerIdentity,
             governedScopeAdmission: () => ({ admitted: true as const }),
+            boundedWorkAdmission: () => ({
+              admitted: true as const,
+              workspaceAuthority: { allowedPaths: ["C:/workspace/kiln"], deniedPaths: [] },
+              lifecycle: {
+                markDispatched: () => undefined,
+                releaseBeforeDispatch: () => undefined,
+                settleTerminal: () => undefined,
+                settleUnknown: () => undefined,
+              },
+            }),
           },
         }
       : {}),

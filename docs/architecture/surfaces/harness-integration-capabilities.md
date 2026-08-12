@@ -11,6 +11,49 @@ shape, sync, install-state, and drift behavior remain owned by
 
 ## Capability Model
 
+Capability is evidence for one operation, not a product label. The four
+authority tiers below are the canonical interpretation used by bounded-work
+admission:
+
+| Tier | Meaning | Authority consequence |
+| --- | --- | --- |
+| **Authoritative** | Attached Kiln Runtime can enforce the operation, observe its result, and provide canonical evidence and terminal truth. | May satisfy the relevant contract when other gates pass. |
+| **Partial** | Some dimensions are enforceable or observable, while another required dimension is missing or lossy. | Admit only with a narrowed contract or record a capability pause. |
+| **Advisory** | A recommendation, signal, or self-report without enforcement or completion proof. | Cannot satisfy an authority or acceptance gate by itself. |
+| **Unsupported** | No trustworthy action or observation is available for the requested operation. | Fail closed or use an explicitly admitted alternate; never infer support from provider/model identity. |
+
+These tiers are separate from the integration statuses used elsewhere in this
+document (`native-supported`, `adapter-supported`, and `unsupported`). An
+integration status says that a transport or mechanism exists; an authority tier
+says what that mechanism can prove and enforce for a specific contract.
+
+| Surface or route | Default bounded-work capability | What it can and cannot establish |
+| --- | --- | --- |
+| Project-scoped Kiln Core + Runtime | **Authoritative** when the session is attached to the project Runtime. | Canonical policy, admission, CAS reservation/settlement, evidence, lifecycle, and terminal truth. Projection still cannot be treated as authority. |
+| Codex native harness | **Partial** and operation-specific. | Process-scoped injection and some permission evidence may be observed; standalone native policy is not the Kiln authority. `codex-oauth` is authoritative only through the attached Runtime route. |
+| OpenCode native harness | **Partial** and operation-specific. | Process-scoped injection and adapter observations may be available; an approval setting is not proof of a filesystem sandbox or bounded-work settlement. |
+| Claude native harness | **Partial**, **advisory**, or **unsupported** by operation. | Exact plan-artifact capability may be evidenced for a pinned version; generic Runtime injection and permission/authority parity are not assumed. |
+| CLI, GUI, TUI, SDK, MCP, replay, and native adapters | **Partial** for their explicitly supported projection/report operations. | They may narrow a request and return source-attributed evidence; they cannot widen scope, reset a ceiling, fabricate a candidate receipt, or own terminal truth. |
+
+CLI `run`, GUI, TUI, and repository benchmark sessions compose the same
+project-scoped bounded-work authority. Standalone native harness execution does
+not. A bounded managed child cannot drop its runtime-owned execution scope to
+create an unaccounted descendant: nested delegation is denied until the child
+surface receives descendant authority and depth explicitly.
+
+The capability tier is evaluated at admission from source, observation time,
+harness/route identity, and operation-specific evidence. Stale, missing, or
+lossy evidence is not silently upgraded. If a required dimension is unknown,
+the work item records a capability pause or uses a separately admitted
+alternate. See the [bounded-work research record](../../research/35-bounded-work-authority-2026.md)
+for the contract and its benchmark limitations.
+
+There is no claim of parity between native harnesses and Kiln Runtime, direct
+provider routes and native processes, route availability and usage evidence,
+approval mode and sandbox authority, candidate completion and acceptance, or
+the two comparative clones and Kiln. A capability label never implies those
+claims.
+
 ## Cross-Harness Authority Vocabulary
 
 The cross-harness control-plane contract establishes these terms. They are

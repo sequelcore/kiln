@@ -9,6 +9,8 @@ import {
   projectManagedOrchestrationAdoptionGate,
   projectManagedOrchestrationResultHandoff,
 } from "./work-item.js";
+import type { BoundedWorkCloseoutDecision } from "./bounded-work-decision.js";
+import type { BoundedWorkCandidateEvidence, BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
 import type {
   ManagedAgentResultHandoff,
 } from "../agents/managed-invocation/index.js";
@@ -85,6 +87,8 @@ export interface ManagedInvocationExecutionProof {
   readonly goalRunId: string;
   readonly workItemId: string;
   readonly resultHandoff: ManagedAgentResultHandoff;
+  /** Exact checkout or workspace in which the managed invocation executed. */
+  readonly candidateCaptureRoot: string;
 }
 
 export interface CompleteGoalExecutionInput {
@@ -92,6 +96,7 @@ export interface CompleteGoalExecutionInput {
   readonly workItemStore: WorkItemStore;
   readonly goalRunId: string;
   readonly closeoutSummary?: string;
+  readonly boundedWorkCloseoutDecision: Extract<BoundedWorkCloseoutDecision, { readonly kind: "stop_acceptance_complete" }>;
 }
 
 export interface GoalExecutionAttemptTransition {
@@ -114,6 +119,8 @@ export interface FinishGoalExecutionAttemptInput {
   readonly managedInvocationResultHandoff?: ManagedAgentResultHandoff;
   readonly managedOrchestrationAdoption?: WorkItem["managedOrchestrationAdoption"];
   readonly closeoutSummary?: string;
+  readonly candidate?: BoundedWorkCandidateIdentity;
+  readonly candidateEvidence?: readonly BoundedWorkCandidateEvidence[];
 }
 
 export interface FailGoalExecutionAttemptInput {
@@ -240,10 +247,12 @@ export function startGoalExecutionAttempt(input: StartGoalExecutionAttemptInput)
   const started = input.workItemStore.startExecutionAttempt({
     id: input.workItemId,
     goalRunId: goal.id,
+    boundedWorkContractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
     executionMode: input.executionMode,
     summary: input.summary,
     managedInvocationId: input.managedInvocationId,
     managedInvocationResultHandoff: input.managedInvocationProof?.resultHandoff,
+    candidateCaptureRoot: input.managedInvocationProof?.candidateCaptureRoot,
   });
   if (!started) {
     throw new Error(`Work item ${input.workItemId} was not found.`);
@@ -271,15 +280,18 @@ export function completeGoalExecution(input: CompleteGoalExecutionInput): GoalRu
   if (missingGoalEvidence.length > 0) {
     throw new Error(`Goal ${goal.id} is missing required evidence: ${missingGoalEvidence.join(", ")}.`);
   }
+  assertBoundedWorkCloseoutDecision(input, goal);
   return input.goalRunStore.complete({
     id: goal.id,
     closeoutSummary: input.closeoutSummary ?? generateGoalCloseoutSummary(goal, input.workItemStore),
+    boundedWorkCloseoutDecision: input.boundedWorkCloseoutDecision,
   });
 }
 
 export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInput): GoalExecutionAttemptFinish {
   const goal = requireNonTerminalGoal(input.goalRunStore, input.goalRunId);
   assertGoalContainsWorkItem(goal, input.workItemId);
+  assertAttemptContractRevision(input.workItemStore.get(input.workItemId), input.attemptId, goal);
   const completed = input.workItemStore.finishExecutionAttempt({
     id: input.workItemId,
     attemptId: input.attemptId,
@@ -290,6 +302,8 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     summary: input.summary,
     managedInvocationResultHandoff: input.managedInvocationResultHandoff,
     managedOrchestrationAdoption: input.managedOrchestrationAdoption,
+    candidate: input.candidate,
+    candidateEvidence: input.candidateEvidence,
   });
   if (!completed) {
     throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
@@ -325,6 +339,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
 export function failGoalExecutionAttempt(input: FailGoalExecutionAttemptInput): GoalExecutionAttemptFinish {
   const goal = requireNonTerminalGoal(input.goalRunStore, input.goalRunId);
   assertGoalContainsWorkItem(goal, input.workItemId);
+  assertAttemptContractRevision(input.workItemStore.get(input.workItemId), input.attemptId, goal);
   const failed = input.workItemStore.failExecutionAttempt({
     id: input.workItemId,
     attemptId: input.attemptId,
@@ -385,12 +400,32 @@ function transitionGoalAfterCompletedItem(
     };
   }
   return {
-    goal: input.goalRunStore.complete({
+    goal: input.goalRunStore.update({
       id: goal.id,
-      closeoutSummary: input.closeoutSummary ?? generateGoalCloseoutSummary(goal, input.workItemStore),
+      currentPhase: "paused:bounded-work-acceptance",
     }),
     missingGoalEvidence: [],
   };
+}
+
+function assertBoundedWorkCloseoutDecision(input: CompleteGoalExecutionInput, goal: GoalRun): void {
+  const decision = input.boundedWorkCloseoutDecision;
+  if (
+    !decision
+    || decision.kind !== "stop_acceptance_complete"
+    || decision.contractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest
+    || decision.accounting.accountingLineageId !== goal.id
+    || decision.accounting.contractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest
+  ) {
+    throw new Error(`Goal ${goal.id} requires a current bounded-work acceptance decision.`);
+  }
+  const candidateExists = goal.workItemIds.some((workItemId) =>
+    input.workItemStore.get(workItemId)?.executionAttempts.some((attempt) =>
+      attempt.status === "completed"
+      && attempt.candidate?.candidateDigest === decision.candidateDigest));
+  if (!candidateExists) {
+    throw new Error(`Goal ${goal.id} bounded-work acceptance does not reference a completed execution candidate.`);
+  }
 }
 
 export function missingRequiredGoalEvidence(goal: GoalRun): readonly string[] {
@@ -499,6 +534,20 @@ function requireNonTerminalGoal(goalRunStore: GoalRunStore, id: string): GoalRun
 function assertGoalContainsWorkItem(goal: GoalRun, workItemId: string): void {
   if (!goal.workItemIds.includes(workItemId)) {
     throw new Error(`Goal ${goal.id} does not include work item ${workItemId}.`);
+  }
+}
+
+function assertAttemptContractRevision(
+  item: WorkItem | undefined,
+  attemptId: string,
+  goal: GoalRun,
+): void {
+  const attempt = item?.executionAttempts.find((candidate) => candidate.id === attemptId);
+  if (!attempt) return;
+  if (attempt.boundedWorkContractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest) {
+    throw new Error(
+      `Execution attempt ${attemptId} is bound to a stale bounded-work contract revision.`,
+    );
   }
 }
 

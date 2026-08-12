@@ -1,7 +1,12 @@
 // Extracted from the managed-invocation runtime tool; behavior is intentionally unchanged.
 // The invoke and start executors that call prepareManagedInvocationRequest
 // then drive the invocation service.
-import type { CanonicalSessionEvent, ManagedAgentExternalRuntimeAttachmentIdentity } from "@kilnai/core";
+import { createHash } from "node:crypto";
+import type {
+  CanonicalSessionEvent,
+  ManagedAgentExternalRuntimeAttachmentIdentity,
+  ManagedAgentInvocationRecord,
+} from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
 import {
   MANAGED_AGENT_INVOKE_TOOL_NAME,
@@ -40,6 +45,28 @@ interface ManagedInvocationExternalRuntimeAttachmentDenial {
   readonly output: string;
   readonly requestedAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
   readonly routeAttachment?: ManagedAgentExternalRuntimeAttachmentIdentity;
+}
+
+function boundedWorkTerminalOutcome(
+  record: ManagedAgentInvocationRecord,
+): "completed" | "failed" | "cancelled" {
+  if (record.lifecycleState === "completed") return "completed";
+  if (record.lifecycleState === "cancelled") return "cancelled";
+  return "failed";
+}
+
+function boundedWorkTerminalEvidenceDigest(record: ManagedAgentInvocationRecord): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(record)).digest("hex")}`;
+}
+
+function settleBoundedWorkTerminal(
+  prepared: Awaited<ReturnType<typeof prepareManagedInvocationRequest>> & { readonly ok: true },
+  record: ManagedAgentInvocationRecord,
+): void {
+  prepared.prepared.boundedWorkLifecycle?.settleTerminal(
+    boundedWorkTerminalOutcome(record),
+    boundedWorkTerminalEvidenceDigest(record),
+  );
 }
 
 // Roadmap 01 Slice 3.1 - the admission decision (denied/missingCapabilities)
@@ -97,18 +124,27 @@ export async function executeManagedInvocationTool(
   const { prepared } = preparedResult;
   const { adapter } = prepared.route;
   const startedAt = Date.now();
-  const startResult = await service.start(
-    prepared.request,
-    adapter,
-    prepared.capabilitySnapshotInput,
-    {
-      ...prepared.lifecycleOptions,
-      ...(options.invocationOwner ? { owner: options.invocationOwner } : {}),
-      ...(!prepared.lifecycleOptions?.abortSignal && prepared.context.abortSignal
-        ? { abortSignal: prepared.context.abortSignal }
-        : {}),
-    },
-  );
+  prepared.boundedWorkLifecycle?.markDispatched(`managed-dispatch:${prepared.request.invocationId}`);
+  let startResult: Awaited<ReturnType<RuntimeManagedAgentInvocationService["start"]>>;
+  try {
+    startResult = await service.start(
+      prepared.request,
+      adapter,
+      prepared.capabilitySnapshotInput,
+      {
+        ...prepared.lifecycleOptions,
+        ...(options.invocationOwner ? { owner: options.invocationOwner } : {}),
+        ...(!prepared.lifecycleOptions?.abortSignal && prepared.context.abortSignal
+          ? { abortSignal: prepared.context.abortSignal }
+          : {}),
+      },
+    );
+  } catch (error) {
+    const terminalizedSnapshot = service.status(prepared.request.invocationId);
+    if (terminalizedSnapshot?.record) settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
+    else prepared.boundedWorkLifecycle?.settleUnknown("managed invocation start failed without terminal evidence");
+    throw error;
+  }
   const startEvents = await appendAndPublishManagedInvocationStartSessionEvents({
     options,
     context: prepared.context,
@@ -116,6 +152,10 @@ export async function executeManagedInvocationTool(
     decision: startResult.decision,
   });
   if (startResult.status === "denied") {
+    prepared.boundedWorkLifecycle?.settleTerminal(
+      "failed",
+      `sha256:${createHash("sha256").update(JSON.stringify(startResult.decision)).digest("hex")}`,
+    );
     const attachmentDenial = managedInvocationExternalRuntimeAttachmentDenial(
       prepared.route.routeId,
       prepared.route.externalRuntimeAttachment,
@@ -177,8 +217,10 @@ export async function executeManagedInvocationTool(
   } catch (error) {
     const terminalizedSnapshot = service.status(prepared.request.invocationId);
     if (terminalizedSnapshot?.record === undefined) {
+      prepared.boundedWorkLifecycle?.settleUnknown("managed invocation join failed without terminal evidence");
       throw error;
     }
+    settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
     const terminalEvents = await appendAndPublishManagedInvocationTerminalSessionEvent({
       options,
       context: prepared.context,
@@ -211,6 +253,7 @@ export async function executeManagedInvocationTool(
     throw new Error("Admitted managed invocation returned a denied terminal result.");
   }
   const durationMs = Date.now() - startedAt;
+  settleBoundedWorkTerminal(preparedResult, invocationResult.record);
   const terminalEvents = await appendAndPublishManagedInvocationTerminalSessionEvent({
     options,
     context: prepared.context,
@@ -268,6 +311,7 @@ export async function executeManagedInvocationStartTool(
         if (!terminalPublicationEnabled) {
           return;
         }
+        settleBoundedWorkTerminal(preparedResult, notification.record);
         await appendAndPublishManagedInvocationTerminalSessionEvent({
           options,
           context: prepared.context,
@@ -279,6 +323,7 @@ export async function executeManagedInvocationStartTool(
       .catch(() => undefined);
   };
   let startResult: Awaited<ReturnType<RuntimeManagedAgentInvocationService["start"]>>;
+  prepared.boundedWorkLifecycle?.markDispatched(`managed-dispatch:${prepared.request.invocationId}`);
   try {
     startResult = await service.start(
       prepared.request,
@@ -294,6 +339,7 @@ export async function executeManagedInvocationStartTool(
   } catch (error) {
     const terminalizedSnapshot = service.status(prepared.request.invocationId);
     if (terminalizedSnapshot?.record !== undefined) {
+      settleBoundedWorkTerminal(preparedResult, terminalizedSnapshot.record);
       const record = projectManagedInvocationRecordResources(terminalizedSnapshot.record, {
         artifactStore: options.artifactStore,
       });
@@ -338,6 +384,7 @@ export async function executeManagedInvocationStartTool(
     }
     terminalPublicationEnabled = false;
     markStartSessionEventsReady();
+    prepared.boundedWorkLifecycle?.settleUnknown("managed background invocation start failed without terminal evidence");
     throw error;
   }
   let events: readonly CanonicalSessionEvent[] = [];
@@ -353,6 +400,10 @@ export async function executeManagedInvocationStartTool(
   }
 
   if (startResult.status === "denied") {
+    prepared.boundedWorkLifecycle?.settleTerminal(
+      "failed",
+      `sha256:${createHash("sha256").update(JSON.stringify(startResult.decision)).digest("hex")}`,
+    );
     const attachmentDenial = managedInvocationExternalRuntimeAttachmentDenial(
       prepared.route.routeId,
       prepared.route.externalRuntimeAttachment,

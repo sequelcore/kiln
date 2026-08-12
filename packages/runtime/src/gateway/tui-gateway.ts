@@ -51,6 +51,7 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   resolveAttachedRuntimeToolCallMetadata,
   type AttachedRuntimeBuiltinToolSurface,
+  type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "./attached-runtime-tool-surface.js";
 import {
   attachManagedInvocationSessionEventSink,
@@ -139,6 +140,7 @@ export interface TuiGatewayOptions {
   readonly executionMode?: OperatorExecutionMode;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
@@ -433,6 +435,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
   const activityStreamer = new TuiActivityStreamer(approvalRegistry);
   const builtinToolSurface = createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions,
+    boundedWork: options.boundedWork,
     managedInvocation: attachManagedInvocationSessionEventSink(
       managedInvocation,
       { publish: (events) => activityStreamer.forwardSessionEvents(events) },
@@ -476,6 +479,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     const requestedAuthority = resolveTuiRequestedAuthority(payload.message.requestedAuthority);
     const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions,
+      boundedWork: options.boundedWork,
       executionMode,
       managedInvocation: attachManagedInvocationSessionEventSink(
         managedInvocation,
