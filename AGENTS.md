@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:d2b2f0e180f985d4b048359724b191dcde688ad9b62999003478a860056a7d65
+contentHash: sha256:95e54500d334197c22e7cf915c5e8ed354d754e73467ac63c10d75a98e4d181d
 -->
 # Agents
 
@@ -16,7 +16,7 @@ contentHash: sha256:d2b2f0e180f985d4b048359724b191dcde688ad9b62999003478a860056a
 - Name: kiln
 - Domain: default
 - Default provider: codex-oauth
-- Default model: gpt-5.6-terra
+- Default model: gpt-5.6-sol
 - Max depth: 3
 - Parallel workers: 1
 
