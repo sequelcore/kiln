@@ -287,7 +287,7 @@ describe("syncNativePermissionProjections", () => {
     expect(readFileSync(target, "utf8")).toBe(content);
   });
 
-  it("merges Codex TOML, removes unsupported service tier values, and writes kiln.permission_sync metadata section", async () => {
+  it("merges only supported Codex fields and keeps translation evidence in install state", async () => {
     const codexConfigPath = join(paths.homePath, ".codex", "config.toml");
     mkdirSync(join(paths.homePath, ".codex"), { recursive: true });
     writeFileSync(
@@ -323,10 +323,10 @@ describe("syncNativePermissionProjections", () => {
     expect(projects.default).toBe("kiln");
     const kiln = asRecord(config.kiln);
     expect(kiln.legacy).toBe("keep");
-    const metadata = asRecord(kiln.permission_sync);
-    expect(metadata.backend).toBe("codex");
-    expect((metadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
-    expect((metadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
+    expect(kiln.permission_sync).toBeUndefined();
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const integrity = asRecord(asRecord(asRecord(state.targets)["codex-config"]).permissionIntegrity);
+    expect((integrity.semanticLoss as unknown[]).length).toBeGreaterThan(0);
   });
 
   it("merges OpenCode JSON without writing schema-invalid Kiln metadata", async () => {
@@ -357,7 +357,7 @@ describe("syncNativePermissionProjections", () => {
     expect(config.kiln).toBeUndefined();
   });
 
-  it("writes non-empty translation metadata for granular policy across all backends", async () => {
+  it("writes non-empty translation evidence without extending native Codex schema", async () => {
     const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
 
     expect(result.errors).toHaveLength(0);
@@ -371,10 +371,10 @@ describe("syncNativePermissionProjections", () => {
     expect((claudeMetadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
 
     const codexConfig = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
-    const codexMetadata = asRecord(asRecord(codexConfig.kiln).permission_sync);
-    expect((codexMetadata.representableRules as unknown[]).length).toBe(0);
-    expect((codexMetadata.unsupportedRules as unknown[]).length).toBeGreaterThan(0);
-    expect((codexMetadata.constraintInstructions as string[]).length).toBeGreaterThan(0);
+    expect(asRecord(codexConfig.kiln).permission_sync).toBeUndefined();
+    const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
+    const codexIntegrity = asRecord(asRecord(asRecord(state.targets)["codex-config"]).permissionIntegrity);
+    expect((codexIntegrity.semanticLoss as unknown[]).length).toBeGreaterThan(0);
 
     const opencodeConfig = readJson(opencodeConfigPath);
     // Unlike codex, OpenCode can carry Kiln's granular rules natively, so they
@@ -403,7 +403,6 @@ describe("syncNativePermissionProjections", () => {
     expect(asRecord(targets["codex-config"]).managedFields).toEqual([
       "approval_policy",
       "sandbox_mode",
-      "kiln.permission_sync",
     ]);
     expect(asRecord(asRecord(targets["codex-config"]).permissionIntegrity)).toMatchObject({
       harness: "codex",
@@ -423,7 +422,7 @@ describe("syncNativePermissionProjections", () => {
     });
   });
 
-  it("adds gateway providers while preserving native picker, search, and provider allowlist state", async () => {
+  it("keeps Codex routing separate while projecting the OpenCode and Claude gateways", async () => {
     writeModelGateway(paths.projectPath);
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     const codexPath = join(paths.homePath, ".codex", "config.toml");
@@ -450,10 +449,7 @@ describe("syncNativePermissionProjections", () => {
       web_search: "live",
     });
     expect(asRecord(codex.model_providers).operator).toEqual({ base_url: "https://operator.example/v1" });
-    expect(asRecord(asRecord(codex.model_providers).kiln)).toMatchObject({
-      base_url: "http://127.0.0.1:4910/v1", env_key: "CODEX_GATEWAY_TOKEN", wire_api: "responses",
-      request_max_retries: 0, stream_max_retries: 0, supports_websockets: false,
-    });
+    expect(asRecord(codex.model_providers).kiln).toBeUndefined();
     expect(existsSync(join(paths.projectPath, ".kiln", "projections", "codex-model-catalog.json"))).toBe(false);
     expect(readFileSync(codexPath, "utf8")).not.toContain("Bearer");
 
@@ -610,7 +606,7 @@ describe("syncNativePermissionProjections", () => {
     expect(readJson(opencodePath).enabled_providers).toEqual(["anthropic", "google"]);
   });
 
-  it("migrates legacy gateway picker, catalog, and allowlist ownership without removing the safe provider", async () => {
+  it("removes the obsolete Codex provider while migrating legacy picker and catalog ownership", async () => {
     writeModelGateway(paths.projectPath);
     const codexPath = join(paths.homePath, ".codex", "config.toml");
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
@@ -666,7 +662,7 @@ describe("syncNativePermissionProjections", () => {
     expect(migratedCodex.model_provider).toBeUndefined();
     expect(migratedCodex.model_catalog_json).toBeUndefined();
     expect(migratedCodex.web_search).toBeUndefined();
-    expect(asRecord(migratedCodex.model_providers).kiln).toBeDefined();
+    expect(asRecord(migratedCodex.model_providers).kiln).toBeUndefined();
     expect(existsSync(catalogPath)).toBe(false);
     const migratedOpenCode = readJson(opencodePath);
     expect(migratedOpenCode.model).toBeUndefined();
@@ -758,7 +754,6 @@ describe("syncNativePermissionProjections", () => {
     expect(target.managedFields).toEqual([
       "approval_policy",
       "sandbox_mode",
-      "kiln.permission_sync",
       "model",
     ]);
   });
@@ -799,7 +794,6 @@ describe("syncNativePermissionProjections", () => {
     expect(target.managedFields).toEqual([
       "approval_policy",
       "sandbox_mode",
-      "kiln.permission_sync",
     ]);
   });
 
@@ -822,7 +816,6 @@ describe("syncNativePermissionProjections", () => {
     expect(target.managedFields).toEqual([
       "approval_policy",
       "sandbox_mode",
-      "kiln.permission_sync",
     ]);
   });
 
@@ -894,7 +887,7 @@ describe("syncNativePermissionProjections", () => {
     expect(second.codex).toBe(false);
     expect(second.opencode).toBe(true);
     expect(second.errors).toEqual([
-      "Codex: managed field drift detected: approval_policy, kiln.permission_sync",
+      "Codex: managed field drift detected: approval_policy",
     ]);
     const after = parseToml(readFileSync(codexConfigPath, "utf-8")) as Record<string, unknown>;
     expect(after.approval_policy).toBe("never");
@@ -933,7 +926,6 @@ describe("syncNativePermissionProjections", () => {
     expect(codexTarget.managedFields).toEqual([
       "approval_policy",
       "sandbox_mode",
-      "kiln.permission_sync",
     ]);
   });
 

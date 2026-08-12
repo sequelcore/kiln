@@ -2,11 +2,6 @@ import type { ModelGatewayConfig, ModelGatewayPrincipalConfig, ModelGatewayVirtu
 
 export type ResponsesNativeHarness = "codex" | "opencode";
 
-export interface CodexResponsesProjection {
-  readonly patch: Record<string, unknown>;
-  readonly managedFields: readonly string[];
-}
-
 export interface OpenCodeResponsesProjection {
   readonly patch: Record<string, unknown>;
   readonly managedFields: readonly string[];
@@ -94,30 +89,6 @@ export function buildClaudeMessagesProjection(input: {
       ...Object.keys(env).map((key) => `env.${key}`),
       ...(defaultModel ? ["model"] : []),
     ],
-  };
-}
-
-export function buildCodexResponsesProjection(input: {
-  readonly config: ModelGatewayConfig;
-}): CodexResponsesProjection | undefined {
-  const source = resolveResponsesNativeProjectionSource(input.config, "codex");
-  if (!source) return undefined;
-  return {
-    patch: {
-      model_providers: {
-        kiln: {
-          name: "Kiln",
-          base_url: `http://127.0.0.1:${source.port}/v1`,
-          env_key: source.principal.tokenEnv,
-          requires_openai_auth: false,
-          wire_api: "responses",
-          request_max_retries: 0,
-          stream_max_retries: 0,
-          supports_websockets: false,
-        },
-      },
-    },
-    managedFields: ["model_providers.kiln"],
   };
 }
 

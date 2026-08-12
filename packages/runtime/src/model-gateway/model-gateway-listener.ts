@@ -12,6 +12,7 @@ import type { ExecutionCatalog } from "@kilnai/core";
 import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
 import type { GovernedOneRoundDispatcherResolver } from "./governed-one-round-invocation.js";
 import pkg from "../../package.json" with { type: "json" };
+import { createCodexCompositeFetch } from "./codex-composite-router.js";
 
 export const MODEL_GATEWAY_HEALTH_PATH = "/.well-known/kiln/model-gateway/ready";
 export const MODEL_GATEWAY_SHUTDOWN_PATH = "/.well-known/kiln/model-gateway/shutdown";
@@ -100,9 +101,14 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
     }, env, options.identity ? () => { setTimeout(resolveShutdownRequested, 50); } : undefined);
     if (handle.openAIResponses) modelApp.route("/", createOpenAIResponsesRoutes(handle.openAIResponses));
     if (handle.anthropicMessages) modelApp.route("/", createAnthropicMessagesRoutes(handle.anthropicMessages));
+    const listenerFetch = options.config.principals.some(
+      (principal) => principal.ingress === "openai-responses" && principal.nativeHarness === "codex",
+    )
+      ? createCodexCompositeFetch({ config: options.config, env, canonicalFetch: modelApp.fetch })
+      : modelApp.fetch;
     listener = options.listen
-      ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch })
-      : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: modelApp.fetch });
+      ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: listenerFetch })
+      : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: listenerFetch });
   } catch (error) {
     handle.close();
     throw error;

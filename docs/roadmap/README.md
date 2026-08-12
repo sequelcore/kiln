@@ -28,7 +28,7 @@ roadmap reorganization.
 
 | Order | Track | State | Next bounded work |
 | --- | --- | --- | --- |
-| 1 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Ready | Close the additive OpenCode projection, harness-neutral bridge proof, Claude effort proof, and composite-picker/status slices. Direct Go/Zen deliberation is intentionally unsupported. |
+| 1 | [04 - Cross-Harness Integration](04-cross-harness-integration.md) | Ready | OpenCode and Codex composite projections are live-proven; close the quota-gated Claude proof and final all-harness conformance. Direct Go/Zen deliberation is intentionally unsupported. |
 | 2 | [05 - Skill Capability Plane](05-skill-capability-plane.md) | Research | Define the provider-neutral skill evidence and admission contract. |
 | 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
 | 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |

@@ -294,6 +294,7 @@ describe("modelGatewayCommand", () => {
     const uninstall = vi.fn(async () => ({ state: "absent" as const }));
     const removeRuntimeDir = vi.fn(async () => undefined);
     const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPath: "opencode.json" }));
+    const syncCodexNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPath: "config.toml", catalogPath: "catalog.json" }));
     const log = vi.fn();
 
     await modelGatewayCommand(["uninstall", "--json"], {
@@ -303,11 +304,13 @@ describe("modelGatewayCommand", () => {
       createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "installed" as const, digest: "a".repeat(64) })), install: vi.fn(), uninstall }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       syncOpenCodeNativeProjection,
+      syncCodexNativeProjection,
       removeRuntimeDir,
       log,
     });
 
     expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, operation: "uninstall" }));
+    expect(syncCodexNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, operation: "uninstall" }));
     expect(stop).toHaveBeenCalledOnce();
     expect(uninstall).toHaveBeenCalledOnce();
     expect(removeRuntimeDir).toHaveBeenCalledWith(join(root, "runtime", "model-gateway"));
@@ -375,6 +378,34 @@ describe("modelGatewayCommand", () => {
 
     expect(ensure).toHaveBeenCalledOnce();
     expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, listener: gatewayReady.identity, operation: "install" }));
+  });
+
+  it("captures the native catalog only after ensuring the gateway and synchronizes Codex", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-sync-codex-"));
+    const codexGateway = { ...modelGateway, principals: modelGateway.principals.map((principal) => ({ ...principal, nativeHarness: "codex" as const })) };
+    const codexGlobalConfig = { ...globalConfig, modelGateway: codexGateway };
+    const gatewayReady = { state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } };
+    const readCodexNativeCatalog = vi.fn(() => ({ models: [{ slug: "gpt-native" }] }));
+    const syncCodexNativeProjection = vi.fn(async () => ({ operation: "install" as const, changed: true, targetPath: "config.toml", catalogPath: "catalog.json" }));
+
+    await modelGatewayCommand(["sync-native", "--client", "codex", "--json"], {
+      readGlobalConfig: () => codexGlobalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => gatewayReady), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      readCodexNativeCatalog,
+      syncCodexNativeProjection,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      entrypoint: "cli.js",
+      log: vi.fn(),
+    });
+
+    expect(readCodexNativeCatalog).toHaveBeenCalledOnce();
+    expect(syncCodexNativeProjection).toHaveBeenCalledWith(expect.objectContaining({
+      config: codexGateway,
+      listener: gatewayReady.identity,
+      nativeCatalog: { models: [{ slug: "gpt-native" }] },
+      operation: "install",
+    }));
   });
 
   it("requires an explicit flag to adopt a pre-existing provider and forwards that authority", async () => {

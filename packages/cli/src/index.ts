@@ -31,13 +31,11 @@ export type { GlobalOpenCodeModelGatewayProjectionResult } from "./config/global
 export { syncGlobalOpenCodeModelGatewayProjection } from "./config/global-opencode-model-gateway-projection.js";
 export type {
   ClaudeMessagesProjection,
-  CodexResponsesProjection,
   OpenCodeResponsesProjection,
   ResponsesNativeHarness,
 } from "./config/model-gateway-native-projection.js";
 export {
   buildClaudeMessagesProjection,
-  buildCodexResponsesProjection,
   buildOpenCodeResponsesProjection,
   resolveClaudeMessagesNativeProjectionSource,
   resolveResponsesNativeProjectionSource,

@@ -148,7 +148,6 @@ describe("permission projection translators", () => {
     expect(projection.managedFields).toEqual([
       "approval_policy",
       "sandbox_mode",
-      "kiln.permission_sync",
     ]);
     expect(projection.document.model).toBe("gpt-5.4");
     expect(projection.document.projects).toEqual({ default: "kiln" });
@@ -156,7 +155,7 @@ describe("permission projection translators", () => {
     expect(projection.document.sandbox_mode).toBe("workspace-write");
     const kiln = asRecord(projection.document.kiln);
     expect(kiln.legacy).toBe("keep");
-    expect(asRecord(kiln.permission_sync).backend).toBe("codex");
+    expect(kiln.permission_sync).toBeUndefined();
     expect(projection.integrity.classification).toBe("unsupported-semantic-translation");
     expect(projection.integrity.semanticLoss.join(" ")).toContain("granular permission rule");
   });

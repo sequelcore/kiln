@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -25,6 +26,10 @@ import pkg from "../../package.json" with { type: "json" };
 import { readGlobalConfig, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatewayProjectionResult } from "../config/global-opencode-model-gateway-projection.js";
+import {
+  syncGlobalCodexModelGatewayProjection,
+  type CodexNativeCatalog,
+} from "../config/global-codex-model-gateway-projection.js";
 
 interface SupervisorSurface {
   start(): Promise<ModelGatewaySupervisorStatus>;
@@ -51,6 +56,8 @@ interface ModelGatewayCommandDependencies {
   readonly entrypoint: string;
   readonly registerShutdown: (close: () => Promise<void>, shutdownRequested: Promise<void>) => Promise<void>;
   readonly syncOpenCodeNativeProjection: typeof syncGlobalOpenCodeModelGatewayProjection;
+  readonly syncCodexNativeProjection: typeof syncGlobalCodexModelGatewayProjection;
+  readonly readCodexNativeCatalog: () => CodexNativeCatalog;
   readonly removeRuntimeDir: (path: string) => Promise<void>;
   readonly log: (message: string) => void;
 }
@@ -70,6 +77,8 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
   entrypoint: process.argv[1] ?? "",
   registerShutdown: registerProcessShutdown,
   syncOpenCodeNativeProjection: syncGlobalOpenCodeModelGatewayProjection,
+  syncCodexNativeProjection: syncGlobalCodexModelGatewayProjection,
+  readCodexNativeCatalog: readCodexNativeCatalog,
   removeRuntimeDir: (path) => rm(path, { recursive: true, force: true }),
   log: console.log,
 };
@@ -152,26 +161,53 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
       installStateDir: join(globalDir, "runtime", "native-projections"),
       operation: "uninstall",
     });
+    await dependencies.syncCodexNativeProjection({
+      config,
+      env: dependencies.env,
+      nativeCatalog: { models: [] },
+      targetPath: join(dirname(globalDir), ".codex", "config.toml"),
+      catalogPath: join(globalDir, "runtime", "native-projections", "codex-composite-models.json"),
+      installStateDir: join(globalDir, "runtime", "native-projections"),
+      operation: "uninstall",
+    });
     if (autostartStatus.state === "installed") await autostart.uninstall();
     await dependencies.removeRuntimeDir(runtimeDir);
     dependencies.log(flags.json ? JSON.stringify({ state: "uninstalled" }) : "Model gateway: uninstalled");
     return;
   }
   if (subcommand === "sync-native") {
-    if (flags.client !== "opencode") throw new Error("sync-native currently requires --client opencode.");
+    if (flags.client !== "opencode" && flags.client !== "codex") throw new Error("sync-native requires --client codex or --client opencode.");
     const globalDir = dirname(dependencies.resolveGlobalConfigPath());
     const ensured = flags.uninstall ? undefined : await supervisor.ensure();
     if (ensured && ensured.state !== "ready") throw new Error("Model gateway is not owned and ready; native configuration was not modified.");
-    const result = await dependencies.syncOpenCodeNativeProjection({
-      config,
-      ...(ensured ? { listener: ensured.identity } : {}),
-      targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
-      installStateDir: join(globalDir, "runtime", "native-projections"),
-      operation: flags.uninstall ? "uninstall" : "install",
-      ...(flags.adoptExisting ? { adoptExisting: true } : {}),
-      ...(flags.force ? { force: true } : {}),
-    });
-    printNativeSyncResult(result, flags.json, dependencies.log);
+    const operation = flags.uninstall ? "uninstall" : "install";
+    const installStateDir = join(globalDir, "runtime", "native-projections");
+    if (flags.client === "codex") {
+      const result = await dependencies.syncCodexNativeProjection({
+        config,
+        ...(ensured ? { listener: ensured.identity } : {}),
+        env: dependencies.env,
+        nativeCatalog: operation === "install" ? dependencies.readCodexNativeCatalog() : { models: [] },
+        targetPath: join(dirname(globalDir), ".codex", "config.toml"),
+        catalogPath: join(installStateDir, "codex-composite-models.json"),
+        installStateDir,
+        operation,
+        ...(flags.adoptExisting ? { adoptExisting: true } : {}),
+        ...(flags.force ? { force: true } : {}),
+      });
+      printNativeSyncResult({ ...result, client: "Codex" }, flags.json, dependencies.log);
+    } else {
+      const result = await dependencies.syncOpenCodeNativeProjection({
+        config,
+        ...(ensured ? { listener: ensured.identity } : {}),
+        targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
+        installStateDir,
+        operation,
+        ...(flags.adoptExisting ? { adoptExisting: true } : {}),
+        ...(flags.force ? { force: true } : {}),
+      });
+      printNativeSyncResult({ ...result, client: "OpenCode" }, flags.json, dependencies.log);
+    }
     return;
   }
   const result = subcommand === "doctor"
@@ -331,9 +367,30 @@ function parseFlags(args: readonly string[]): { readonly configPath?: string; re
   return { ...(configPath === undefined ? {} : { configPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall, adoptExisting, force };
 }
 
-function printNativeSyncResult(result: GlobalOpenCodeModelGatewayProjectionResult, json: boolean, log: (message: string) => void): void {
+function printNativeSyncResult(result: GlobalOpenCodeModelGatewayProjectionResult & { readonly client?: string }, json: boolean, log: (message: string) => void): void {
   if (json) { log(JSON.stringify(result)); return; }
-  log(`OpenCode model gateway projection: ${result.operation}${result.changed ? "ed" : " unchanged"} (${result.targetPath})`);
+  log(`${result.client ?? "Native"} model gateway projection: ${result.operation}${result.changed ? "ed" : " unchanged"} (${result.targetPath})`);
+}
+
+function readCodexNativeCatalog(): CodexNativeCatalog {
+  let output: string;
+  try {
+    output = execFileSync("codex", ["debug", "models", "--bundled"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+    });
+  } catch (error) {
+    throw new Error(`Codex native model catalog could not be inspected: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(output); }
+  catch { throw new Error("Codex native model catalog was not valid JSON."); }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { models?: unknown }).models)) {
+    throw new Error("Codex native model catalog was empty or malformed.");
+  }
+  return parsed as CodexNativeCatalog;
 }
 
 function printResult(result: ModelGatewaySupervisorStatus | ModelGatewaySupervisorDoctor, json: boolean, log: (message: string) => void): void {
@@ -374,7 +431,7 @@ function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: 
 
 function printHelp(log: (message: string) => void): void {
   log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native> [--json]\n");
-  log("Native provider: kiln model-gateway sync-native --client opencode [--uninstall|--adopt-existing|--force]");
+  log("Native provider: kiln model-gateway sync-native --client <codex|opencode> [--uninstall|--adopt-existing|--force]");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");
 }

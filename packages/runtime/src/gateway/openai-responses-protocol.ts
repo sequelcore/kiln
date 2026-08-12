@@ -14,6 +14,7 @@ export const OPENAI_RESPONSES_PROTOCOL_LIMITS = {
   maxMetadataEntries: 16,
   maxMetadataKeyLength: 64,
   maxMetadataValueLength: 4_096,
+  maxToolDescriptionLength: 262_144,
 } as const;
 
 export class OpenAIResponsesProtocolError extends Error {
@@ -177,9 +178,13 @@ function validateInputItem(value: unknown, callIds: Map<string, CallRecord>): vo
   const item = dataObject(value, "input item"); const type = boundedString(item.type, "input item.type");
   if (!INPUT_TYPES.has(type)) fail("unsupported input item type");
   if (type === "message") {
-    noUnknown(item, ["type", "id", "role", "content", "status", "phase"], "message");
+    noUnknown(item, ["type", "id", "role", "content", "status", "phase", "internal_chat_message_metadata_passthrough"], "message");
     const role = oneOf(item.role, ["user", "developer", "assistant"], "message.role"); validateContent(item.content, role);
-    optionalString(item.id, "message.id"); optionalString(item.status, "message.status"); optionalString(item.phase, "message.phase"); return;
+    optionalString(item.id, "message.id"); optionalString(item.status, "message.status"); optionalString(item.phase, "message.phase");
+    if (item.internal_chat_message_metadata_passthrough !== undefined) {
+      portable(dataObject(item.internal_chat_message_metadata_passthrough, "message.internal_chat_message_metadata_passthrough"), "message.internal_chat_message_metadata_passthrough");
+    }
+    return;
   }
   if (type === "reasoning") {
     noUnknown(item, ["type", "id", "summary", "content", "encrypted_content"], "reasoning"); optionalString(item.id, "reasoning.id"); optionalString(item.encrypted_content, "reasoning.encrypted_content");
@@ -209,10 +214,10 @@ function validateTools(value: unknown): void {
   let expandedTools = 0;
   for (const raw of tools) {
     const tool = dataObject(raw, "tool"); const type = boundedString(tool.type, "tool.type");
-    if (type === "function") { expandedTools++; noUnknown(tool, ["type", "name", "description", "parameters", "strict", "namespace", "defer_loading"], "function tool"); boundedString(tool.name, "function tool.name"); optionalString(tool.description, "function tool.description"); optionalString(tool.namespace, "function tool.namespace"); if (tool.strict !== undefined && typeof tool.strict !== "boolean") fail("function tool.strict must be boolean"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("function tool.defer_loading must be boolean"); if (tool.parameters !== undefined) portable(dataObject(tool.parameters, "function tool.parameters"), "function tool.parameters"); }
+    if (type === "function") { expandedTools++; noUnknown(tool, ["type", "name", "description", "parameters", "strict", "namespace", "defer_loading"], "function tool"); boundedString(tool.name, "function tool.name"); if (tool.description !== undefined) boundedString(tool.description, "function tool.description", OPENAI_RESPONSES_PROTOCOL_LIMITS.maxToolDescriptionLength); optionalString(tool.namespace, "function tool.namespace"); if (tool.strict !== undefined && typeof tool.strict !== "boolean") fail("function tool.strict must be boolean"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("function tool.defer_loading must be boolean"); if (tool.parameters !== undefined) portable(dataObject(tool.parameters, "function tool.parameters"), "function tool.parameters"); }
     else if (type === "custom") {
       expandedTools++;
-      noUnknown(tool, ["type", "name", "description", "format", "namespace", "defer_loading"], "custom tool"); boundedString(tool.name, "custom tool.name"); optionalString(tool.description, "custom tool.description"); optionalString(tool.namespace, "custom tool.namespace"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("custom tool.defer_loading must be boolean");
+      noUnknown(tool, ["type", "name", "description", "format", "namespace", "defer_loading"], "custom tool"); boundedString(tool.name, "custom tool.name"); if (tool.description !== undefined) boundedString(tool.description, "custom tool.description", OPENAI_RESPONSES_PROTOCOL_LIMITS.maxToolDescriptionLength); optionalString(tool.namespace, "custom tool.namespace"); if (tool.defer_loading !== undefined && typeof tool.defer_loading !== "boolean") fail("custom tool.defer_loading must be boolean");
       if (tool.format !== undefined) { const format = dataObject(tool.format, "custom tool.format"); noUnknown(format, ["type", "syntax", "definition"], "custom tool.format"); if (format.type !== "grammar") fail("custom tool.format.type is unsupported"); oneOf(format.syntax, ["lark"], "custom tool.format.syntax"); boundedString(format.definition, "custom tool.format.definition"); }
     } else if (type === "tool_search") { expandedTools++; noUnknown(tool, ["type", "description"], "tool_search tool"); optionalString(tool.description, "tool_search.description"); }
     else if (type === "namespace") {

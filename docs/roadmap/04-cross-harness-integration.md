@@ -1,7 +1,7 @@
 # 04 - Cross-Harness Integration
 
 Status: Ready
-Execution: Ready - OpenCode parity is live-proven; Claude quota-gated proof and final all-harness conformance remain.
+Execution: Ready - OpenCode and Codex composite parity are live-proven; Claude quota-gated proof and final all-harness conformance remain.
 Created: 2026-07-23
 
 ## Objective
@@ -272,7 +272,7 @@ live-proof identity.
 
 ### Slice 4 - Codex Composite Picker
 
-Status: Complete with terminal unsupported disposition.
+Status: Complete and live-proven on Codex 0.147.0.
 
 Close Responses protocol parity, admitted reasoning levels, hosted web search,
 and native catalog-template inspection; fail closed if no valid native catalog
@@ -285,15 +285,26 @@ so uninstall restores the exact prior configuration. Prove CLI before App,
 including native turn, virtual turn, pre-existing session resume, gateway
 recovery, and exact uninstall.
 
-The current official Codex configuration contract cannot implement this design
-without violating its native-semantics gate. Codex 0.147.0 and the official
-configuration reference expose one global `model_provider` plus an optional
-`model_catalog_json`; model entries do not carry provider identity. A combined
-catalog would route native entries through Kiln and change provider/session
-semantics. Kiln therefore removes the stale provider-only path and does not
-ship a fake composite picker. A future official per-entry provider or equivalent
-native-routing contract requires a new delivery issue and fresh conformance
-proof; it is not retained as speculative Roadmap 04 work.
+Codex 0.147.0's documented `openai_base_url` and `model_catalog_json` controls
+provide the required contract without replacing the built-in `openai`
+provider. Kiln captures the bundled native catalog before projection, preserves
+native entries, appends capability-conservative virtual entries, and points
+the built-in provider at a capability-addressed supervised loopback. The
+loopback dispatches admitted virtual ids through canonical Model Gateway
+ingress and forwards every native id to Codex's native backend with its caller
+authorization and a strict header allowlist. Native provider/session identity
+therefore remains `openai`; Kiln never installs a second Codex provider.
+
+The 2026-08-12 operator proof completed strict-config native and virtual turns,
+resumed a pre-existing native session, survived an owned gateway restart, and
+proved exact uninstall followed by reinstall. Uninstall removed only
+`openai_base_url`, `model_catalog_json`, the generated catalog, and their
+install-state ownership; a native turn still completed while projection was
+absent. Codex's initial WebSocket probe receives 426 and falls back to HTTP.
+Virtual requests retain only tools and optional controls admitted by the
+selected model's canonical capabilities. The obsolete `model_providers.kiln`
+path and schema-invalid native `[kiln.permission_sync]` metadata are removed;
+permission evidence remains in Kiln install state.
 
 #### Provider-neutral deliberation policy
 
@@ -378,10 +389,9 @@ assumptions, and unsupported-proof gaps.
 - Every projection preserves unmanaged fields and exact restore.
 - All adapters consume shared authority and lifecycle contracts.
 - OpenCode closes before Codex picker takeover.
-- Claude entitlement proof (Slice 3) is admitted ahead of the Codex composite
-  picker (Slice 4) per the 2026-07-24 reprioritization; it still requires the
-  same strict live-proof bar as every other slice before any model enters the
-  live-proven set.
+- Claude entitlement proof (Slice 3) still requires the same strict live-proof
+  bar before its model enters the live-proven set. Codex composite proof no
+  longer depends on waiting for that independent entitlement check.
 - No slice claims live validation from code-complete or integration-complete
   evidence alone; operator-machine proof is recorded separately.
 - Uninstall/restore is proven exact for every projection this track owns

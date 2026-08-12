@@ -4,7 +4,9 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelGatewayConfig } from "../packages/core/src/engine/gateway/gateway-config.js";
-import { buildClaudeMessagesProjection, buildCodexResponsesProjection, buildOpenCodeResponsesProjection } from "../packages/cli/src/config/model-gateway-native-projection.js";
+import { buildClaudeMessagesProjection, buildOpenCodeResponsesProjection } from "../packages/cli/src/config/model-gateway-native-projection.js";
+import { buildCodexCompositeCatalog } from "../packages/cli/src/config/global-codex-model-gateway-projection.js";
+import { CODEX_COMPOSITE_PATH_PREFIX, createCodexCompositeCapability } from "../packages/runtime/src/model-gateway/codex-composite-router.js";
 
 const TOKEN = "synthetic-live-probe-token-0000000000000000";
 const TIMEOUT_MS = 45_000;
@@ -40,7 +42,7 @@ try {
     server.stop(true);
   }
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 async function probeResponse(request: Request): Promise<Response> {
@@ -103,12 +105,16 @@ async function probeCodex(config: ModelGatewayConfig): Promise<void> {
   const home = join(root, "codex-home");
   const workspace = join(root, "codex-workspace");
   await mkdir(home, { recursive: true }); await mkdir(workspace, { recursive: true });
-  const projection = buildCodexResponsesProjection({ config });
-  if (!projection) throw new Error("Codex projection was not configured.");
-  await writeFile(join(home, "config.toml"), serializeCodexProbeProjection(projection.patch), "utf8");
+  const catalogPath = join(home, "models.json");
+  const bundled = await runBounded(executable, ["debug", "models", "--bundled"], workspace, {});
+  if (bundled.exitCode !== 0) throw new Error(`Codex bundled catalog inspection failed: ${redact(bundled.stderr)}`);
+  const nativeCatalog = JSON.parse(bundled.stdout) as { models: Record<string, unknown>[] };
+  const catalog = buildCodexCompositeCatalog({ config, nativeCatalog });
+  await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+  await writeFile(join(home, "config.toml"), serializeCodexProbeProjection(serverOrigin(config.port), catalogPath), "utf8");
   const outputPath = join(home, "last-message.txt");
   activeObserved = [];
-  const result = await runBounded(executable, ["exec", "--strict-config", "--ephemeral", "--ignore-rules", "--skip-git-repo-check", "--color", "never", "--output-last-message", outputPath, "Return exactly PROBE_OK and do not call tools."], workspace, {
+  const result = await runBounded(executable, ["exec", "--strict-config", "--ephemeral", "--ignore-rules", "--skip-git-repo-check", "--disable", "plugins", "--disable", "remote_plugin", "--disable", "plugin_sharing", "--disable", "goals", "--disable", "skill_search", "--color", "never", "--output-last-message", outputPath, "Return exactly PROBE_OK and do not call tools."], workspace, {
     CODEX_HOME: home,
     CODEX_GATEWAY_TOKEN: TOKEN,
   });
@@ -203,8 +209,15 @@ function assertProbe(harness: string, result: ProcessResult, output: string, obs
   if (!output.includes("PROBE_OK")) throw new Error(`${harness} did not return PROBE_OK: ${redact(output)}`);
   if (observed.length !== 1) throw new Error(`${harness} made ${observed.length} model POSTs; expected exactly one.`);
   const request = observed[0]!;
-  if (request.path !== "/v1/responses") throw new Error(`${harness} used unexpected path '${request.path}'.`);
-  if (request.authorization !== `Bearer ${TOKEN}`) throw new Error(`${harness} did not use the projected bearer environment variable.`);
+  const expectedPath = harness === "Codex"
+    ? `${CODEX_COMPOSITE_PATH_PREFIX}/${createCodexCompositeCapability(TOKEN)}/v1/responses`
+    : "/v1/responses";
+  if (request.path !== expectedPath) throw new Error(`${harness} used unexpected path '${request.path}'.`);
+  if (harness === "Codex") {
+    if (request.authorization !== null || request.apiKey !== null) throw new Error("Codex leaked synthetic routing authority into request headers.");
+  } else if (request.authorization !== `Bearer ${TOKEN}`) {
+    throw new Error(`${harness} did not use the projected bearer environment variable.`);
+  }
   if (request.body.model !== "model-a") throw new Error(`${harness} did not use the projected virtual model.`);
   if (harness === "Codex") {
     if (typeof request.body.instructions !== "string" || request.body.instructions.length === 0) throw new Error("Codex omitted its native instructions.");
@@ -283,19 +296,18 @@ function redact(value: string): string {
   return value.replaceAll(TOKEN, "[REDACTED]").slice(0, 4_000);
 }
 
-function serializeCodexProbeProjection(patch: Record<string, unknown>): string {
-  const providers = patch.model_providers as Record<string, Record<string, unknown>> | undefined;
-  const provider = providers?.kiln;
-  if (!provider) throw new Error("Codex probe projection omitted model_providers.kiln.");
-  const line = (key: string, value: unknown) => `${key} = ${typeof value === "string" ? JSON.stringify(value) : String(value)}\n`;
+function serializeCodexProbeProjection(origin: string, catalogPath: string): string {
+  const capability = createCodexCompositeCapability(TOKEN);
   return [
-    line("model", "model-a"),
-    line("model_provider", "kiln"),
-    "\n[model_providers.kiln]\n",
-    ...["name", "base_url", "env_key", "requires_openai_auth", "wire_api", "request_max_retries", "stream_max_retries", "supports_websockets"]
-      .map((key) => line(key, provider[key])),
-  ].join("");
+    `model = "model-a"`,
+    `model_provider = "openai"`,
+    `openai_base_url = ${JSON.stringify(`${origin}${CODEX_COMPOSITE_PATH_PREFIX}/${capability}/v1`)}`,
+    `model_catalog_json = ${JSON.stringify(catalogPath)}`,
+    "",
+  ].join("\n");
 }
+
+function serverOrigin(port: number): string { return `http://127.0.0.1:${port}`; }
 
 function gatewayConfig(port: number): ModelGatewayConfig {
   const principal = (nativeHarness: "codex" | "opencode", tokenEnv: string) => ({

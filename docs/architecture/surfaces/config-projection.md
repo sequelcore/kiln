@@ -211,27 +211,38 @@ shared status contract.
 
 ## Model Gateway Native Projection
 
-Canonical `modelGateway` surfaces are projected through the same composed
-native writers and install-state used for permission projection. The global
-Codex and OpenCode projections are additive registration only:
+Canonical `modelGateway` surfaces use harness-specific composed writers and a
+shared install-state contract:
 
-- Codex receives only `model_providers.kiln`. Kiln does not set
-  `model_provider`, `model_catalog_json`, `model`, or `web_search`.
+- Codex composite lifecycle owns only `openai_base_url`,
+  `model_catalog_json`, and its generated catalog. It neither sets
+  `model_provider`, `model`, nor `web_search`, and it does not install a
+  `model_providers.kiln` entry.
 - OpenCode receives only `provider.kiln`. Kiln does not create or modify
   `enabled_providers` and does not select a default `model`.
 - Existing native providers, picker catalogs, defaults, search behavior, and
   sessions remain owned by the native harness and operator.
 
-A Codex picker projection is unsupported by the current native contract. The
-official Codex configuration reference (rechecked 2026-08-12) exposes one
-global `model_provider` and an optional `model_catalog_json`; catalog entries
-cannot select a provider. A combined catalog would therefore send native
-entries through the Kiln provider too, changing native provider and session
-semantics. Kiln does not implement that provider-replacement path. Merely
-declaring a `modelGateway` principal must never replace the native picker.
-Sync removes legacy Kiln-owned replacement fields and catalogs. Reconsider a
-composite picker only when an official Codex contract can bind provider
-identity per catalog entry or otherwise preserve native routing semantics.
+The Codex composite keeps the built-in `openai` provider and uses Codex's
+documented `openai_base_url` override to place one supervised loopback in front
+of it. The loopback is addressed by an HMAC capability derived from the
+dedicated Codex principal token. Native model ids retain caller OAuth and are
+forwarded to the native Codex backend; admitted virtual ids re-enter canonical
+Model Gateway ingress under the Codex principal. The generated catalog starts
+from `codex debug models --bundled`, preserves native entries structurally,
+rejects id collisions, and appends virtual entries that advertise only
+canonical capabilities. A missing ready listener, missing token, malformed or
+empty native catalog, unmanaged field collision, or managed drift fails closed.
+
+`kiln model-gateway sync-native --client codex` installs or repairs the
+projection only after exact listener inspection. `--uninstall` removes only
+owned fields and the owned catalog; general model-gateway uninstall composes
+that restore before deleting runtime lifecycle state. Permission sync remains
+a separate writer and records evidence in Kiln install state instead of adding
+private tables to Codex's native schema. Its one-time stale-field cleanup may
+remove previously owned `model_providers.kiln`, replacement picker fields, and
+`kiln.permission_sync`; those paths are not retained as runtime compatibility
+variants.
 
 Claude Code receives an explicitly configured Anthropic Messages gateway
 configuration in project-local `.claude/settings.json`:

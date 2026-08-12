@@ -8,7 +8,6 @@ import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { stripJsonComments } from "./json-comments.js";
 import {
   buildClaudeMessagesProjection,
-  buildCodexResponsesProjection,
   buildOpenCodeResponsesProjection,
 } from "./model-gateway-native-projection.js";
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
@@ -360,7 +359,6 @@ async function syncCodexPermissions(
   const catalogTargetId = "codex-model-catalog";
   const catalogState = installState.targets[catalogTargetId];
   const catalogPath = catalogState?.filePath ?? join(kilnDir, "projections", "codex-model-catalog.json");
-  const gatewayProjection = modelGateway ? buildCodexResponsesProjection({ config: modelGateway }) : undefined;
   const originalCatalogContent = existsSync(catalogPath) ? readFileSync(catalogPath, "utf8") : undefined;
   const catalogDrift = catalogState
     ? detectNativeProjectionFileDrift({
@@ -375,7 +373,9 @@ async function syncCodexPermissions(
     existingDocument: doc,
     kilnYaml,
     ownsManagedDefault: installState.targets[targetId]?.managedFields.includes("model") === true,
-    gatewayProjection,
+    suppressManagedDefault: modelGateway?.principals.some(
+      (principal) => principal.ingress === "openai-responses" && principal.nativeHarness === "codex",
+    ) === true,
     previousManagedFields,
     storedAuthorization: readTrustedExecutionAuthorization("codex", projectPath),
   });

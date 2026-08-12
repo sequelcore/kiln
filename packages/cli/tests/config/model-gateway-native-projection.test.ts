@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { ModelGatewayConfig } from "@kilnai/core";
 import {
   buildClaudeMessagesProjection,
-  buildCodexResponsesProjection,
   buildOpenCodeResponsesProjection,
   resolveClaudeMessagesNativeProjectionSource,
   resolveResponsesNativeProjectionSource,
@@ -56,39 +55,6 @@ function claudeConfig(tokenEnv = "ANTHROPIC_AUTH_TOKEN", modelIds = ["claude-mod
 }
 
 describe("model gateway native projections", () => {
-  it("adds a secret-free Codex Responses provider without taking ownership of the native picker", () => {
-    const projected = buildCodexResponsesProjection({ config: config([principal("codex")]), modelCatalogPath: "C:/project/.kiln/projections/codex-model-catalog.json" });
-    expect(projected?.patch).toMatchObject({
-      model_providers: { kiln: { base_url: "http://127.0.0.1:4910/v1", env_key: "CODEX_TOKEN", wire_api: "responses", request_max_retries: 0, stream_max_retries: 0, supports_websockets: false, requires_openai_auth: false } },
-    });
-    expect(projected?.patch).not.toHaveProperty("model");
-    expect(projected?.patch).not.toHaveProperty("model_provider");
-    expect(projected?.patch).not.toHaveProperty("model_catalog_json");
-    expect(projected?.patch).not.toHaveProperty("web_search");
-    expect(projected?.managedFields).toEqual(["model_providers.kiln"]);
-    expect(projected).not.toHaveProperty("catalog");
-    expect(JSON.stringify(projected)).not.toContain("Bearer");
-    expect(JSON.stringify(projected)).not.toContain("private-capacity-identity");
-    expect(JSON.stringify(projected)).not.toContain("private-rate-card");
-    expect(JSON.stringify(projected)).not.toContain("private-billing-channel");
-  });
-
-  it("projects a route-backed virtual model without exposing execution authority", () => {
-    const configured = config([principal("codex")]);
-    const crossProvider: ModelGatewayConfig = {
-      ...configured,
-      virtualModels: configured.virtualModels.map((model) => ({
-        ...model,
-        executionRouteId: "opencode-route",
-        capabilities: ["text", "function-tools"] as const,
-      })),
-    };
-
-    const projected = buildCodexResponsesProjection({ config: crossProvider, modelCatalogPath: "C:/catalog.json" });
-    expect(projected?.patch).toHaveProperty("model_providers.kiln");
-    expect(JSON.stringify(projected)).not.toContain("opencode-route");
-  });
-
   it("adds an OpenCode Responses provider without synthesizing the native allowlist or default", () => {
     const projected = buildOpenCodeResponsesProjection({ config: config([principal("opencode")]), existingEnabledProviders: ["anthropic"] });
     expect(projected?.patch).toEqual({
@@ -171,12 +137,10 @@ describe("model gateway native projections", () => {
     expect(resolveResponsesNativeProjectionSource(config([invalidIngress]), "codex")).toBeUndefined();
   });
 
-  it("does not require catalog-only base instructions when adding the Codex provider", () => {
-    const withoutInstructions = config([principal("codex")]);
-    const model = withoutInstructions.virtualModels[0]!;
-    const invalid = { ...withoutInstructions, virtualModels: [{ ...model, baseInstructions: undefined }] };
-    expect(buildCodexResponsesProjection({ config: invalid, modelCatalogPath: "C:/catalog.json" })).toBeDefined();
-    const openCodeOnly = { ...invalid, principals: [principal("opencode")] };
+  it("does not require Codex-only instructions for an OpenCode projection", () => {
+    const configured = config([principal("opencode")]);
+    const model = configured.virtualModels[0]!;
+    const openCodeOnly = { ...configured, virtualModels: [{ ...model, baseInstructions: undefined }] };
     expect(buildOpenCodeResponsesProjection({ config: openCodeOnly })).toBeDefined();
   });
 });

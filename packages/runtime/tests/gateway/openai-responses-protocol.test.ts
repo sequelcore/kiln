@@ -13,7 +13,7 @@ describe("parseOpenAIResponsesRequest", () => {
     instructions: "Be concise.",
     input: [
       { type: "message", role: "developer", content: "Use tools carefully." },
-      { type: "message", role: "user", content: [{ type: "input_text", text: "inspect" }, { type: "input_image", image_url: "https://example.test/a.png", detail: "low" }] },
+      { type: "message", role: "user", content: [{ type: "input_text", text: "inspect" }, { type: "input_image", image_url: "https://example.test/a.png", detail: "low" }], internal_chat_message_metadata_passthrough: { turn_id: "turn-1" } },
       { type: "reasoning", id: "rsn_1", summary: [{ type: "summary_text", text: "prior reasoning" }] },
       { type: "function_call", id: "fc_1", call_id: "call_fn", name: "lookup", arguments: "{\"q\":\"x\"}" },
       { type: "function_call_output", call_id: "call_fn", output: "found" },
@@ -41,13 +41,19 @@ describe("parseOpenAIResponsesRequest", () => {
     },
   };
 
-  it("preserves the supported 0.144.5 request semantics without adapter mapping", () => {
+  it("preserves the supported current Codex request semantics without adapter mapping", () => {
     const parsed = parseOpenAIResponsesRequest(request);
     expect(parsed).toEqual(request);
   });
 
   it("accepts missing custom format only at the wire parser boundary", () => {
     expect(() => parseOpenAIResponsesRequest({ model: "gpt-5-codex", input: [{ type: "message", role: "user", content: "hi" }], tools: [{ type: "custom", name: "legacy_freeform" }], stream: true, store: false })).not.toThrow();
+  });
+
+  it("bounds current Codex custom tool descriptions independently from ordinary strings", () => {
+    const description = "x".repeat(OPENAI_RESPONSES_PROTOCOL_LIMITS.maxToolDescriptionLength);
+    expect(() => parseOpenAIResponsesRequest({ ...request, tools: [{ type: "custom", name: "exec", description, format: { type: "grammar", syntax: "lark", definition: "start: /.+/" } }] })).not.toThrow();
+    expect(() => parseOpenAIResponsesRequest({ ...request, tools: [{ type: "custom", name: "exec", description: `${description}x`, format: { type: "grammar", syntax: "lark", definition: "start: /.+/" } }] })).toThrow("custom tool.description exceeds");
   });
 
   it("accepts Codex history, item references, reasoning context, and grammar custom tools", () => {

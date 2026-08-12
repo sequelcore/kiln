@@ -175,6 +175,12 @@ export {
   requestModelGatewayShutdown,
   startModelGatewayListener,
 } from "./model-gateway/model-gateway-listener.js";
+export {
+  CODEX_COMPOSITE_PATH_PREFIX,
+  createCodexCompositeCapability,
+  createCodexCompositeFetch,
+  type CodexCompositeFetchOptions,
+} from "./model-gateway/codex-composite-router.js";
 export { ModelGatewaySupervisor, nodeModelGatewayProcessAdapter } from "./model-gateway/model-gateway-supervisor.js";
 export type { ModelGatewayLaunchDescriptor, ModelGatewayProcessAdapter, ModelGatewayRuntimeState, ModelGatewaySpawnDescriptor, ModelGatewaySupervisorDoctor, ModelGatewaySupervisorStatus } from "./model-gateway/model-gateway-supervisor.js";
 export { WindowsModelGatewayAutostartAdapter, createModelGatewayAutostartDigest } from "./model-gateway/model-gateway-autostart.js";
