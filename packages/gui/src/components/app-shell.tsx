@@ -53,6 +53,7 @@ import { createExecutionRoutePickerActions } from "./app-shell-execution-route-a
 import { createAppShellFrameHandler } from "./app-shell-frame-handler.js";
 import { ExecutionRoutePicker } from "./execution-route-picker.js";
 import { ModelSelector } from "./ai-elements/model-selector.js";
+import { ProviderGlyph } from "./provider-glyph.js";
 import {
   WorkbenchInspectorPanel,
 } from "./workbench-side-panels.js";
@@ -1233,6 +1234,9 @@ function useAppShellRuntimeView() {
                   onClick={openExecutionRoutePicker}
                   className="h-8 min-w-0 max-w-full shrink justify-start px-2 text-left"
                 >
+                  {activeExecutionRoute ? (
+                    <ProviderGlyph providerId={activeExecutionRoute.providerId} />
+                  ) : null}
                   <span className="min-w-0 truncate">{activeExecutionRoute?.label ?? "Select execution route"}</span>
                 </Button>
               ),

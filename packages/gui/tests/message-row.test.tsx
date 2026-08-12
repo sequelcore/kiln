@@ -89,6 +89,21 @@ describe("MessageRow", () => {
   });
 
   it("keeps assistant metadata and markdown content aligned without a redundant avatar column", () => {
+    useSessionStore.setState({
+      executionRouteCatalog: {
+        routes: [{
+          routeId: "claude-current",
+          label: "Claude current",
+          providerId: "claude",
+          providerModelId: "claude-sonnet-4-6",
+          accountSelection: { mode: "exact", eligibleAccountCount: 1, allowOperatorOverride: false },
+          availability: "available",
+          reasonCodes: [],
+          repairActions: [],
+        }],
+      },
+      activeRouteId: "claude-current",
+    });
     const { container } = render(
       <MessageRow
         message={{
@@ -107,6 +122,8 @@ describe("MessageRow", () => {
     const header = container.querySelector('[data-slot="message-header"]');
     const bubbleContent = container.querySelector('[data-slot="bubble-content"]');
     expect(container.querySelector('[data-slot="message-avatar"]')).toBeNull();
+    expect(header?.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
+    expect(header?.querySelector('[data-provider-brand="claude"]')).toBeNull();
     expect(header).toHaveClass("min-h-5", "leading-5");
     expect(bubbleContent).toHaveClass("group-data-[variant=ghost]/bubble:overflow-visible");
     expect(screen.getByText("Mi team de agentes configurado en Kiln para esta sesión es:")).toBeInTheDocument();
@@ -179,7 +196,7 @@ describe("MessageRow", () => {
       activeRouteId: "terra",
     });
 
-    render(
+    const { container } = render(
       <MessageRow
         message={{
           id: "streaming-route-evidence",
@@ -193,6 +210,7 @@ describe("MessageRow", () => {
     );
 
     expect(screen.getByText("Codex OAuth / gpt-5.6-terra")).toBeInTheDocument();
+    expect(container.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
   });
 
   it("keeps voice synthesis failure and retry on the source message", () => {

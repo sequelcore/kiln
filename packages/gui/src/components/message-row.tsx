@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/message";
 import { cn } from "@/lib/utils";
 import { TranscriptSurface } from "./transcript-surface.js";
+import { ProviderGlyph } from "./provider-glyph.js";
 
 type ResourceDataUrlLoader = (uri: string) => Promise<string | null>;
 
@@ -364,8 +365,9 @@ export function MessageRow(props: MessageRowProps) {
         <MessageContent className={cn(isUser ? "items-end" : "items-start")}>
           <MessageHeader className={cn("gap-2 px-0", isUser ? "sr-only" : "")}>
             <span>{label}</span>
-            {assistantProviderLabel ? (
-              <Badge variant="outline" className="max-w-full truncate">
+            {assistantProvider && assistantProviderLabel ? (
+              <Badge variant="outline" className="max-w-full gap-1.5 truncate">
+                <ProviderGlyph providerId={assistantProvider} className="size-3.5" />
                 {assistantProviderLabel}
                 {assistantModel ? ` / ${assistantModel}` : " / —"}
               </Badge>

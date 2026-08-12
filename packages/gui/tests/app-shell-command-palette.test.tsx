@@ -421,6 +421,36 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(executionRoutePickerPropsLog.at(-1)?.anchor?.current).toBe(routeControl);
   });
 
+  it("identifies the selected execution route with its provider mark", async () => {
+    const { container } = render(<AppShell />);
+    act(() => useSessionStore.setState({
+      activeRouteId: "codex-default",
+      executionRouteCatalog: {
+        routes: [{
+          routeId: "codex-default",
+          label: "GPT 5.6",
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.6",
+          availability: "available",
+          reasonCodes: ["configured"],
+          repairActions: [],
+          accountSelection: {
+            mode: "automatic",
+            eligibleAccountCount: 1,
+            allowOperatorOverride: true,
+          },
+        }],
+      },
+    }));
+
+    const routeControl = await screen.findByRole("button", {
+      name: /Current selection: GPT 5\.6/i,
+    });
+    expect(routeControl).toHaveTextContent("GPT 5.6");
+    expect(routeControl.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
+    expect(container.querySelector('[data-provider-fallback="true"]')).toBeNull();
+  });
+
   it("mounts the execution route picker on first use from a composer command", async () => {
     render(<AppShell />);
 
