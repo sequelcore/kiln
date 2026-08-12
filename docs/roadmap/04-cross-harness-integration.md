@@ -124,7 +124,11 @@ lowest-economic, least-pressured eligible account after safety, health, quota,
 and capacity gates; exact account selection never falls back. Runtime fences
 capacity and revalidates credential ID/revision immediately before dispatch.
 This closes the multi-credential start blocker without a separate direct-model
-catalog. Landing is tracked by [issue #71](https://github.com/sequelcore/kiln/issues/71).
+catalog. The implementation landed on `dev` in commit `0fe036ee`; the
+operator's global config is active on V2 and validates against the landed
+schema. [Issue #71](https://github.com/sequelcore/kiln/issues/71) remains open
+until the concurrent GUI session-list integration lands and the complete
+workspace gate is green.
 
 Apply the health-gated additive `provider.kiln` projection to the operator's
 OpenCode config. Prove `kiln/*` model discovery, one real turn, native-provider
