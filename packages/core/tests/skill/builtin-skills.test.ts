@@ -66,10 +66,14 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).not.toMatch(/ADHD|diagnosis|every message/i);
   });
 
-  it("requires portable synthetic fixtures in the TDD workflow", () => {
+  it("defines proportional verification and test-value discipline in the TDD workflow", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "tdd-workflow");
 
     expect(skill).toBeDefined();
+    expect(skill?.instructions).toContain("Run the owning suite and affected downstream suites");
+    expect(skill?.instructions).toContain("If impact is uncertain, widen the gate");
+    expect(skill?.instructions).toContain("Do not use test count or raw coverage as quality objectives");
+    expect(skill?.instructions).toContain("Do not delete a test solely because its line coverage overlaps");
     expect(skill?.instructions).toContain("Use synthetic, portable fixture values");
     expect(skill?.instructions).toContain("Never copy operator-specific paths");
     expect(skill?.instructions).toContain("temporary directories");

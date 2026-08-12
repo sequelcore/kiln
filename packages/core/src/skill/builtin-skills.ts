@@ -119,7 +119,22 @@ Workflow:
 2. Write or specify the smallest failing test that proves the intended behavior.
 3. Implement only enough production code to pass.
 4. Refactor without changing behavior.
-5. Run the focused test, then the relevant broader gate.
+5. Run the focused test during red-green iteration.
+6. Run the owning suite and affected downstream suites before completion when
+   behavior, contracts, or shared dependencies change.
+7. Run the complete suite when repository evidence, risk, integration, release,
+   or scheduled CI requires it. If impact is uncertain, widen the gate and state
+   what remains uncertain.
+
+Test value:
+- Retain a test when it protects distinct public behavior, a regression, a
+  boundary or invariant, or a materially different failure mode.
+- Prefer strengthening an existing test when it already provides the required
+  regression signal. Do not use test count or raw coverage as quality objectives.
+- Repair or delete tests that are obsolete, redundant, flaky,
+  implementation-coupled, or behavior-free.
+- Do not delete a test solely because its line coverage overlaps another test.
+  Use behavioral and fault-detection evidence when distinct value is uncertain.
 
 Fixture hygiene:
 - Use synthetic, portable fixture values that express only the behavior under test.
