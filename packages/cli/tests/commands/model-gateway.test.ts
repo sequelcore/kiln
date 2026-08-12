@@ -333,6 +333,26 @@ describe("modelGatewayCommand", () => {
     expect(removeRuntimeDir).not.toHaveBeenCalled();
   });
 
+  it("preserves the native projection when the running gateway is foreign", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-uninstall-foreign-runtime-"));
+    const syncOpenCodeNativeProjection = vi.fn();
+    const removeRuntimeDir = vi.fn();
+
+    await modelGatewayCommand(["uninstall", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop: vi.fn(async () => ({ state: "foreign" as const, reason: "ownership-mismatch" as const })), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "absent" as const })), install: vi.fn(), uninstall: vi.fn() }),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      syncOpenCodeNativeProjection,
+      removeRuntimeDir,
+      log: vi.fn(),
+    });
+
+    expect(syncOpenCodeNativeProjection).not.toHaveBeenCalled();
+    expect(removeRuntimeDir).not.toHaveBeenCalled();
+  });
+
   it("fails closed when the canonical config has no modelGateway block", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-missing-"));
     const configPath = join(root, "gateway.yaml");

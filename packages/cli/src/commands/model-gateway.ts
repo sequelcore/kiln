@@ -136,6 +136,11 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
       printAutostartResult(autostartStatus, flags.json, dependencies.log);
       return;
     }
+    const stopped = await supervisor.stop();
+    if (stopped.state === "foreign") {
+      printResult(stopped, flags.json, dependencies.log);
+      return;
+    }
     const globalDir = dirname(dependencies.resolveGlobalConfigPath());
     await dependencies.syncOpenCodeNativeProjection({
       config,
@@ -143,11 +148,6 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
       installStateDir: join(globalDir, "runtime", "native-projections"),
       operation: "uninstall",
     });
-    const stopped = await supervisor.stop();
-    if (stopped.state === "foreign") {
-      printResult(stopped, flags.json, dependencies.log);
-      return;
-    }
     if (autostartStatus.state === "installed") await autostart.uninstall();
     await dependencies.removeRuntimeDir(runtimeDir);
     dependencies.log(flags.json ? JSON.stringify({ state: "uninstalled" }) : "Model gateway: uninstalled");
