@@ -215,12 +215,12 @@ describe("SkillRegistry", () => {
       expect(registry.get("beta")).toBeDefined();
     });
 
-    it("loads flat .md files from directory", () => {
+    it("ignores legacy flat .md files because skills are complete directory packages", () => {
       writeFileSync(join(tmpDir, "flat-skill.md"), validSkillMd("flat"), "utf-8");
 
       const loaded = registry.discoverFrom(tmpDir);
-      expect(loaded).toBe(1);
-      expect(registry.get("flat")).toBeDefined();
+      expect(loaded).toBe(0);
+      expect(registry.get("flat")).toBeUndefined();
     });
 
     it("skips invalid SKILL.md files silently", () => {

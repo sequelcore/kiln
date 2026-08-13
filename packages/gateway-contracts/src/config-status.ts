@@ -378,6 +378,32 @@ export interface KilnSkillSourceCandidateSnapshot {
   readonly relatedSourceId?: string;
   readonly packageDigest: string;
   readonly descriptionBytes: number;
+  readonly version?: string;
+  readonly compatibility?: string;
+  readonly license?: string;
+  readonly trust: {
+    readonly level: "builtin" | "local-configured" | "external-unverified";
+    readonly reason: string;
+  };
+  readonly freshness: {
+    readonly status: "current" | "unknown";
+    readonly reason: string;
+  };
+  readonly dependencies: {
+    readonly allowedTools: readonly string[];
+    readonly executableResources: number;
+  };
+  readonly health: {
+    readonly status: "healthy" | "warning" | "blocked";
+    readonly fileCount: number;
+    readonly packageBytes: number;
+    readonly brokenResourceCount: number;
+    readonly riskSignals: readonly {
+      readonly kind: "code-execution" | "network-access" | "credential-pattern" | "outside-filesystem-access";
+      readonly path: string;
+    }[];
+    readonly diagnostics: readonly { readonly code: string; readonly message: string; readonly path?: string }[];
+  };
   readonly applicableHarnesses: readonly ("claude" | "codex" | "opencode")[];
   readonly effectiveVisibility: "implicit" | "explicit-only" | "disabled";
 }
@@ -418,7 +444,13 @@ export interface KilnSkillSourceInventorySnapshot {
     readonly harness: "claude" | "codex" | "opencode";
     readonly candidateCount: number;
     readonly descriptionBytes: number;
-    readonly budget: { readonly status: "unknown"; readonly reason: string };
+    readonly budget: {
+      readonly status: "known" | "unknown";
+      readonly authority?: string;
+      readonly contextRatio?: number;
+      readonly fallbackCharacters?: number;
+      readonly reason: string;
+    };
   }[];
   readonly diagnostics: readonly KilnSkillInventoryDiagnosticSnapshot[];
   readonly externalExposure?: readonly {
@@ -434,6 +466,9 @@ export interface KilnSkillSourceInventorySnapshot {
 
 export interface KilnSkillCatalogSummarySnapshot {
   readonly complete: boolean;
+  readonly healthyPackages: number;
+  readonly warningPackages: number;
+  readonly blockedPackages: number;
   readonly equivalentDuplicates: number;
   readonly divergentCollisions: number;
   readonly caseCollisions: number;
@@ -800,6 +835,20 @@ export const KilnSkillCatalogSnapshotSchema = z.object({
       relationship: z.enum(["canonical", "external", "managed-projection", "linked-alias"]),
       relatedCanonicalName: z.string().optional(), relatedSourceId: z.string().optional(), packageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
       descriptionBytes: z.number().int().nonnegative(),
+      version: z.string().optional(), compatibility: z.string().optional(), license: z.string().optional(),
+      trust: z.object({
+        level: z.enum(["builtin", "local-configured", "external-unverified"]), reason: z.string().min(1),
+      }),
+      freshness: z.object({ status: z.enum(["current", "unknown"]), reason: z.string().min(1) }),
+      dependencies: z.object({
+        allowedTools: z.array(z.string()), executableResources: z.number().int().nonnegative(),
+      }),
+      health: z.object({
+        status: z.enum(["healthy", "warning", "blocked"]), fileCount: z.number().int().nonnegative(),
+        packageBytes: z.number().int().nonnegative(), brokenResourceCount: z.number().int().nonnegative(),
+        riskSignals: z.array(z.object({ kind: z.enum(["code-execution", "network-access", "credential-pattern", "outside-filesystem-access"]), path: z.string() })),
+        diagnostics: z.array(z.object({ code: z.string(), message: z.string(), path: z.string().optional() })),
+      }),
       applicableHarnesses: z.array(z.enum(["claude", "codex", "opencode"])).default([]),
       effectiveVisibility: z.enum(["implicit", "explicit-only", "disabled"]).default("implicit"),
     })),
@@ -817,7 +866,7 @@ export const KilnSkillCatalogSnapshotSchema = z.object({
     })).default([]),
     harnesses: z.array(z.object({
       harness: z.enum(["claude", "codex", "opencode"]), candidateCount: z.number().int().nonnegative(),
-      descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.literal("unknown"), reason: z.string() }),
+      descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.enum(["known", "unknown"]), authority: z.string().optional(), contextRatio: z.number().positive().optional(), fallbackCharacters: z.number().int().positive().optional(), reason: z.string() }),
     })).default([]),
     diagnostics: z.array(z.object({ code: z.string(), message: z.string(), sourceId: z.string().optional() })),
     externalExposure: z.array(z.object({
@@ -831,11 +880,11 @@ export const KilnSkillCatalogSnapshotSchema = z.object({
 });
 
 export const KilnSkillCatalogSummarySnapshotSchema = z.object({
-  complete: z.boolean(), equivalentDuplicates: z.number().int().nonnegative(),
+  complete: z.boolean(), healthyPackages: z.number().int().nonnegative(), warningPackages: z.number().int().nonnegative(), blockedPackages: z.number().int().nonnegative(), equivalentDuplicates: z.number().int().nonnegative(),
   divergentCollisions: z.number().int().nonnegative(), caseCollisions: z.number().int().nonnegative(),
   harnesses: z.array(z.object({
     harness: z.enum(["claude", "codex", "opencode"]), candidateCount: z.number().int().nonnegative(),
-    descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.literal("unknown"), reason: z.string() }),
+    descriptionBytes: z.number().int().nonnegative(), budget: z.object({ status: z.enum(["known", "unknown"]), authority: z.string().optional(), contextRatio: z.number().positive().optional(), fallbackCharacters: z.number().int().positive().optional(), reason: z.string() }),
   })),
   externalExposure: z.array(z.object({
     harness: z.enum(["claude", "codex", "opencode"]),

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Skills are reusable knowledge packages that give agents specialized capabilities without hardcoding domain knowledge into agent definitions. Skills use the SKILL.md format (markdown with YAML frontmatter) and are discovered through a 3-tier registry.
+Skills are reusable directory packages that give agents specialized capabilities without hardcoding domain knowledge into agent definitions. Every package contains `SKILL.md` and may include scripts, references, assets, and harness metadata. Skills are discovered through a 3-tier registry.
 
 Skills package intent over canonical tools. They can tell an agent when to use
 tools, which tool groups are appropriate, what workflow to follow, and what
@@ -24,8 +24,11 @@ A skill file is a markdown document with YAML frontmatter. The parser is in `pac
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `name` | string | Yes | Kebab-case identifier (max 40 chars) |
-| `description` | string | Yes | One-sentence description |
+| `name` | string | Yes | Portable lowercase kebab-case identifier, maximum 64 characters |
+| `description` | string | Yes | What the skill does and when to use it, maximum 1024 characters |
+| `license` | string | No | License name or bundled license reference |
+| `compatibility` | string | No | Environment and harness requirements, maximum 500 characters |
+| `metadata` | object | No | Portable or namespaced metadata preserved as string values |
 | `tools` | string[] | No | Canonical tool names or tool groups this skill may use |
 | `tags` | string[] | No | Tags for discovery (e.g., "database", "testing") |
 | `triggers` | array | No | Event triggers that activate the skill |
@@ -118,6 +121,7 @@ Current core built-ins:
 - `security-scope-review`
 - `managed-agent-risk-review`
 - `research-workflow`
+- `orchestration-workflow`
 - `kiln-control-plane-workflow`
 - `benchmark-readiness-review`
 - `config-projection-review`
@@ -229,10 +233,17 @@ are not counted as independent collisions. These inventory rows never become
 managed-task skills without explicit adoption into a canonical Kiln source.
 
 Catalog pressure is reported as exact UTF-8 description bytes and visibility
-counts per harness. Token totals and utilization remain unknown unless the
-installed harness or an identified tokenizer supplies comparable evidence.
-This prevents an approximate byte conversion or a limit inspected from another
-harness version from being presented as current authority.
+counts per harness. Codex status also records its documented discovery budget:
+two percent of model context, or an 8,000-character fallback when context is
+unknown. Claude and OpenCode remain unknown unless a versioned authority
+supplies comparable evidence.
+
+Every candidate also carries bounded complete-package health: portable identity,
+file and package size, local Markdown resource integrity, and review signals for
+scripts, network access, credentials, and outside-package filesystem access.
+Those signals tell an operator what to inspect; they do not label the package
+safe or malicious. Explicit broken packages fail closed, and automatic
+recommendations never load them.
 
 GUI Setup presents this as a diagnostic Skill Catalog with explicit copy-path
 controls; TUI Setup prints the same shared evidence deterministically. In both
@@ -309,6 +320,21 @@ so Kiln does not silently turn repository analysis into web research or vice
 versa. Prose-like research output may additionally recommend `clear-writing`.
 These procedures govern method, not network admission, route choice, provider
 identity, or citation tooling.
+
+Work with mode `delegate` recommends `orchestration-workflow`. It consumes
+executable work governance, builds conflict-free child contracts and an acyclic
+work graph, treats child output as an untrusted proposal, and reports requested,
+admitted, executed, and adopted work separately. It cannot create delegation,
+route, permission, budget, approval, or lifecycle authority.
+
+## Value Evaluation
+
+Do not promote a skill from frontmatter validity, popularity, installation
+count, stars, author reputation, or one successful example. Use paired baseline
+and skill observations on representative tasks and retain per-task regressions,
+routing errors, authority failures, context cost, latency, cost, environment,
+and replay evidence. Material changes to skill digest, candidate catalog,
+model, harness, tools, permissions, or fixture version require re-evaluation.
 
 Unknown explicit facet values fail closed. In advisory mode, the classification
 is recorded and recommendations remain diagnostics. In auto mode, Kiln may
@@ -477,13 +503,21 @@ Sessions run in CLI-wrapper mode without an API key print a capture hint after c
 | Command | Description |
 |---------|-------------|
 | `kiln skill list` | Show available skills (all 3 tiers) |
-| `kiln skill install <path>` | Install a SKILL.md file to project |
+| `kiln skill install <path>` | Validate and atomically install a complete local package; refuse overwrite |
+| `kiln skill update <name> [path] [--force]` | Update an owned package with drift protection and backup |
+| `kiln skill remove <name> [--force]` | Remove an owned package with drift protection and recoverable backup |
 | `kiln skill publish` | Validate SKILL.md for npm publishing |
 | `kiln skill capture [sessionId]` | Generate a skill from a session transcript |
 
 Use `kiln config read skills` when you need origin, projection, unmanaged
 native, or admission diagnostics. Use `kiln skill list` for the shorter
 operator-facing configured registry list.
+
+Installation records a complete-package digest and source path in
+`.kiln/skill-install-state.json`. Update and removal refuse locally modified
+content unless the operator explicitly uses `--force` after review. Backups are
+stored under `.kiln/backups/skills/<name>/`. These commands operate on local
+packages; Kiln does not infer trust from a marketplace listing.
 
 ## Event Triggers
 

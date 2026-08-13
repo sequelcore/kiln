@@ -12,7 +12,7 @@ const DEFAULT_THRESHOLD = 0.6;
 const MAX_NAME_LENGTH = 40;
 
 const SYSTEM_PROMPT = `You are a skill extractor. Given a completed AI task and its output, generate a reusable SKILL.md file that captures the key technique or procedure demonstrated.
-Format: YAML frontmatter (---) with name (kebab-case, max 40 chars), description (one sentence), tools (array of tool names used), tags (array). Then a markdown body with clear step-by-step instructions. Be concise. Output ONLY the SKILL.md content, nothing else.`;
+Format: YAML frontmatter (---) with an Agent Skills-compatible lowercase kebab-case name (max 64 chars), description of what the skill does and when to use it (max 1024 chars), tools (array of tool names used), and tags (array). Then a markdown body with clear step-by-step instructions. Be concise. Output ONLY the SKILL.md content, nothing else.`;
 
 export interface SkillGeneratorConfig {
   readonly provider: ProviderAdapter;

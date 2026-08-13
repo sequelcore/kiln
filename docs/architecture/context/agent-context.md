@@ -289,6 +289,10 @@ Task/model recommended skills are advisory by default. When
 for the selected route, route suitability task, or explicit work
 classification after the same registry admission check. Auto-selected skills
 do not grant tool authority and are recorded as admitted procedural context.
+Explicit broken skills fail closed. Broken automatic recommendations remain
+unavailable evidence and are not materialized. Delegate-mode work recommends
+`orchestration-workflow`; repository and external research recommendations
+remain separated by evidence scope.
 
 `WorkClassification` is the cross-domain classification contract. It is not a
 model/provider suitability enum and must not grow into a software-only task
@@ -369,6 +373,52 @@ tracks these states separately:
 - blocked: policy, route capability, profile, or drift prevents use.
 - unavailable: an explicit skill reference cannot be resolved through the
   governed Kiln registry.
+
+### Package evidence and health
+
+Kiln treats a skill as a complete directory package, not an isolated prompt
+file. `SKILL.md` carries portable Agent Skills identity and may declare
+`license`, `compatibility`, and string-normalized `metadata`; scripts,
+references, assets, and harness extension files remain part of the package
+digest. Parsing stays permissive enough to inventory incompatible or
+case-colliding native packages, while package health records portable-spec
+violations and prevents unhealthy canonical packages from admission.
+
+Bounded health inspection reports file and package bytes, broken or escaping
+local Markdown references, unreadable content, symlinks, traversal limits, and
+risk signals for executable code, network access, credentials, and
+outside-package filesystem access. Risk signals are review evidence, not a
+claim that a package is malicious. Structural validity does not prove
+compatibility, trust, authority, or value.
+
+Catalog candidates preserve the complete-package digest, optional version,
+license and compatibility declarations, health status, and host applicability.
+Codex catalog evidence records the current documented discovery budget of two
+percent of model context with an 8,000-character fallback when context is
+unknown. Claude and OpenCode remain `unknown` until a versioned authority
+publishes comparable limits.
+
+### Value promotion
+
+`skill-value-promotion-v1` compares paired baseline and skill observations by
+stable task id. Each observation binds skill and candidate-set digests, fixture
+version, model, harness, replay evidence, routing correctness,
+authority-boundary failures, outcome, quality, context tokens, latency, and
+cost. Promotion fails for missing pairs, insufficient breadth, per-task
+regressions, incorrect routing, missing replay evidence, authority failures, or
+inferior aggregate success. This contract makes evidence comparable; it does
+not replace representative trials or authorize a public claim.
+
+### Governed package operations
+
+`kiln skill install` accepts a complete local directory package or a legacy
+single `SKILL.md` staged as a one-file package. It validates health, computes a
+complete-package digest, applies atomically, records source and ownership, and
+refuses an existing destination. `kiln skill update` and `kiln skill remove`
+refuse locally drifted content unless `--force` is provided after review. Both
+preserve recoverable backups under `.kiln/backups/skills/`. These local
+operations do not establish a universal remote registry or infer trust from
+installability.
 
 Native catalog visibility is another independent contract. Kiln resolves one
 of three canonical states for each configured skill before native projection:

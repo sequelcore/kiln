@@ -37,6 +37,19 @@ description: Summarizes content
 Summarize the provided content.
 `;
 
+const portableSkillMd = `---
+name: portable-review
+description: Reviews portable agent skill packages. Use when validating a skill before admission.
+license: Apache-2.0
+compatibility: Requires a filesystem-backed Agent Skills host.
+metadata:
+  author: kiln
+  version: "1.2.0"
+---
+
+Review the complete package before admission.
+`;
+
 describe("parseSkillMd", () => {
   it("parses full SKILL.md with all frontmatter fields", () => {
     const config = parseSkillMd(fullSkillMd);
@@ -61,6 +74,23 @@ describe("parseSkillMd", () => {
     expect(config.tags).toEqual([]);
     expect(config.handler).toBeUndefined();
     expect(config.instructions).toBe("Summarize the provided content.");
+  });
+
+  it("preserves portable Agent Skills package metadata", () => {
+    const config = parseSkillMd(portableSkillMd);
+    expect(config.license).toBe("Apache-2.0");
+    expect(config.compatibility).toBe("Requires a filesystem-backed Agent Skills host.");
+    expect(config.metadata).toEqual({ author: "kiln", version: "1.2.0" });
+  });
+
+  it("rejects invalid portable metadata and compatibility limits", () => {
+    expect(() => parseSkillMd(`---\nname: valid-name\ndescription: Valid description\ncompatibility: ${"x".repeat(501)}\nmetadata:\n  version:\n    nested: invalid\n---\n\nBody.`))
+      .toThrow(SkillMdError);
+  });
+
+  it("preserves host-extension metadata primitives for later compatibility inspection", () => {
+    const parsed = parseSkillMd(`---\nname: host-extension\ndescription: Host extension\nmetadata:\n  opencode/autoinvoke: false\n---\n\nBody.`);
+    expect(parsed.metadata).toEqual({ "opencode/autoinvoke": "false" });
   });
 
   it("throws SkillMdError for missing frontmatter", () => {

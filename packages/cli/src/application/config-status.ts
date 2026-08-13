@@ -775,6 +775,9 @@ function summarizeSkillCatalog(catalog: ReturnType<typeof readSkillCatalogStatus
   }));
   return {
     complete: catalog.inventory?.complete ?? false,
+    healthyPackages: catalog.inventory?.candidates.filter((candidate) => candidate.health.status === "healthy").length ?? 0,
+    warningPackages: catalog.inventory?.candidates.filter((candidate) => candidate.health.status === "warning").length ?? 0,
+    blockedPackages: catalog.inventory?.candidates.filter((candidate) => candidate.health.status === "blocked").length ?? 0,
     equivalentDuplicates: identities.filter((identity) => identity.classification === "equivalent-duplicate").length,
     divergentCollisions: identities.filter((identity) => identity.classification === "divergent-collision").length,
     caseCollisions: identities.filter((identity) => identity.classification === "case-collision").length,

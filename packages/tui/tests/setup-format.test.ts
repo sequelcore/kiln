@@ -66,6 +66,9 @@ function setupSnapshot(): KilnConfigSetupSnapshot {
 function skillCatalog(): KilnSkillCatalogSummarySnapshot {
   return {
     complete: false,
+    healthyPackages: 3,
+    warningPackages: 1,
+    blockedPackages: 1,
     equivalentDuplicates: 3,
     issues: [{ skillName: "planner", kind: "drifted", harness: "codex", projectionState: "drifted", path: "C:/Users/test/.codex/skills/planner/SKILL.md" }],
     divergentCollisions: 2,

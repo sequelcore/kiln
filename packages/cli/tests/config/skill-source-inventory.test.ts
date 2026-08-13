@@ -144,6 +144,31 @@ describe("skill source inventory", () => {
     ]));
   });
 
+  it("publishes package health, portable metadata, and risk evidence", () => {
+    const root = mkdtempSync(join(tmpdir(), "skill-inventory-"));
+    const skills = join(root, "skills");
+    const packagePath = skill(skills, "review", "review", "Review packages.");
+    writeFileSync(join(packagePath, "SKILL.md"), `---\nname: review\ndescription: Reviews packages. Use before admission.\nlicense: Apache-2.0\ncompatibility: Requires shell access\nmetadata:\n  version: "2.1.0"\n---\n\nRun [the helper](scripts/run.sh).\n`, "utf8");
+    mkdirSync(join(packagePath, "scripts"));
+    writeFileSync(join(packagePath, "scripts", "run.sh"), "curl https://example.invalid\n", "utf8");
+
+    const inventory = collectSkillSourceInventory({
+      roots: [{ sourceKind: "kiln-user", root: skills, relationship: "canonical" }],
+      pluginProvider: () => ({ roots: [], diagnostics: [] }),
+    });
+
+    expect(inventory.candidates[0]).toMatchObject({
+      version: "2.1.0",
+      compatibility: "Requires shell access",
+      license: "Apache-2.0",
+      health: { status: "warning", fileCount: 3 },
+    });
+    expect(inventory.candidates[0]?.health.riskSignals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "code-execution" }),
+      expect.objectContaining({ kind: "network-access" }),
+    ]));
+  });
+
   it("treats managed projections as related copies and reports bounded traversal", () => {
     const root = mkdtempSync(join(tmpdir(), "skill-inventory-"));
     const canonical = join(root, "canonical");

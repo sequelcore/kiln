@@ -16,5 +16,6 @@ product behavior.
 8. [Tool Execution and Trust](09-tool-execution-and-trust.md)
 9. [Coordination Intelligence](10-coordination-intelligence.md)
 10. [Work Governance and Verification](13-work-governance-and-verification.md)
+11. [Skill Capability Governance](14-skill-capability-governance.md)
 
 For current contracts, use the [architecture index](../../architecture/README.md).

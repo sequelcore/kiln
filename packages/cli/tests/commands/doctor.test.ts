@@ -22,7 +22,7 @@ describe("doctorCommand", () => {
       json: false, projectRoot: "C:\\repo", env: { USERPROFILE: "C:\\Users\\ExampleUser", PATH: "" },
       fileExists: () => false, runVersion: vi.fn(async () => undefined),
       readConfigStatus: vi.fn(async () => ({ projections: [], skills: {
-        complete: false, equivalentDuplicates: 0, divergentCollisions: 0, caseCollisions: 0,
+        complete: false, healthyPackages: 0, warningPackages: 0, blockedPackages: 1, equivalentDuplicates: 0, divergentCollisions: 0, caseCollisions: 0,
         issueCount: 4, omittedIssueCount: 2,
         issues: [
           { skillName: "planner", kind: "capability", harness: "opencode", projectionState: "missing", path: "C:\\skills\\planner\\SKILL.md" },
@@ -110,7 +110,7 @@ describe("doctorCommand", () => {
       readConfigStatus: vi.fn(async () => ({
         projections: [],
         skills: {
-          complete: false,
+          complete: false, healthyPackages: 0, warningPackages: 0, blockedPackages: 0,
           equivalentDuplicates: 2,
           issues: [],
           divergentCollisions: 1,
@@ -154,7 +154,7 @@ describe("doctorCommand", () => {
       };
     };
     expect(parsed.skills).toMatchObject({
-      complete: false,
+      complete: false, healthyPackages: 0, warningPackages: 0, blockedPackages: 0,
       equivalentDuplicates: 2,
       issues: [],
       issueCount: 0,

@@ -80,6 +80,9 @@ function setupSnapshot(overrides: Partial<KilnConfigSetupSnapshot> = {}): KilnCo
 function skillCatalog(): KilnSkillCatalogSummarySnapshot {
   return {
     complete: false,
+    healthyPackages: 8,
+    warningPackages: 2,
+    blockedPackages: 1,
     equivalentDuplicates: 2,
     divergentCollisions: 1,
     caseCollisions: 3,
@@ -87,7 +90,7 @@ function skillCatalog(): KilnSkillCatalogSummarySnapshot {
     omittedIssueCount: 3,
     harnesses: [
       { harness: "claude", candidateCount: 7, descriptionBytes: 512, budget: { status: "unknown", reason: "Claude does not publish an authoritative catalog budget." } },
-      { harness: "codex", candidateCount: 11, descriptionBytes: 1_024, budget: { status: "unknown", reason: "Codex does not publish an authoritative catalog budget." } },
+      { harness: "codex", candidateCount: 11, descriptionBytes: 1_024, budget: { status: "known", authority: "OpenAI Codex docs", contextRatio: 0.02, fallbackCharacters: 8000, reason: "Published Codex budget." } },
       { harness: "opencode", candidateCount: 5, descriptionBytes: 256, budget: { status: "unknown", reason: "OpenCode does not publish an authoritative catalog budget." } },
     ],
     issues: [{ skillName: "planner", kind: "drifted", harness: "codex", projectionState: "drifted", path: "C:/Users/test/.codex/skills/planner/SKILL.md" }],
@@ -357,6 +360,7 @@ describe("SetupPanel", () => {
     expect(identitySummary).toHaveTextContent("Equivalent duplicates2");
     expect(identitySummary).toHaveTextContent("Divergent collision1");
     expect(identitySummary).toHaveTextContent("Case collisions3");
+    expect(screen.getByText("Package health: 8 healthy, 2 warning, 1 blocked.")).toBeInTheDocument();
     const inventory = screen.getByRole("table", { name: "Per-harness implicit skill catalog" });
     expect(inventory).toHaveTextContent("Claude Code");
     expect(inventory).toHaveTextContent("7");

@@ -114,6 +114,13 @@ export function readSkillCatalogStatus(
       relationship: "canonical" as const,
       packageDigest: digestSkillPackage([{ path: "SKILL.md", content }]),
       descriptionBytes: Buffer.byteLength(entry.index.description, "utf8"),
+      ...(entry.index.metadata?.version ? { version: entry.index.metadata.version } : {}),
+      ...(entry.index.compatibility ? { compatibility: entry.index.compatibility } : {}),
+      ...(entry.index.license ? { license: entry.index.license } : {}),
+      trust: { level: "builtin" as const, reason: "Versioned with the running Kiln build." },
+      freshness: { status: "current" as const, reason: "Read from the running Kiln build during this inventory." },
+      dependencies: { allowedTools: entry.index.tools, executableResources: 0 },
+      health: { status: "healthy" as const, fileCount: 1, packageBytes: content.byteLength, brokenResourceCount: 0, riskSignals: [], diagnostics: [] },
       applicableHarnesses: ["claude", "codex", "opencode"] as const,
       effectiveVisibility: entry.desiredVisibility,
     };

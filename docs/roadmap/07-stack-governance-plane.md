@@ -131,7 +131,7 @@ single-package fixtures pass on supported platforms.
 Status: Queued behind Slice 3.
 
 Expose the same read-only evidence to agent tools and managed jobs. Record the
-profile/evidence used so Roadmap 05 skills can consume facts without duplicating policy.
+profile/evidence used so admitted skills can consume facts without duplicating policy.
 
 Exit gate: tools do not recompute policy independently; tool results identify
 profile and evidence provenance; managed invocations record the stack evidence

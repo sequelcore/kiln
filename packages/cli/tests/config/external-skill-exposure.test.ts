@@ -3,11 +3,12 @@ import type { KilnSkillSourceInventorySnapshot } from "@kilnai/gateway-contracts
 import { compileCodexExternalSkillExposure, computeCodexExternalInventoryFingerprint } from "../../src/config/external-skill-exposure.js";
 
 const digest = (char: string) => `sha256:${char.repeat(64)}`;
+const healthy = { status: "healthy" as const, fileCount: 1, packageBytes: 10, brokenResourceCount: 0, riskSignals: [], diagnostics: [] };
 function inventory(complete = true): KilnSkillSourceInventorySnapshot {
   return { complete, candidates: [
-    { name: "one", canonicalName: "one", sourceKind: "shared-agents", sourceId: "shared:one", exposureScope: "user", sourcePath: "one/SKILL.md", relationship: "external", packageDigest: digest("a"), descriptionBytes: 3, applicableHarnesses: ["codex", "opencode"], effectiveVisibility: "implicit" },
-    { name: "two", canonicalName: "two", sourceKind: "plugin", sourceId: "plugin:two", exposureScope: "user", sourcePath: "two/SKILL.md", relationship: "external", packageDigest: digest("b"), descriptionBytes: 3, applicableHarnesses: ["codex"], effectiveVisibility: "implicit" },
-    { name: "manual", canonicalName: "manual", sourceKind: "system", sourceId: "system:manual", exposureScope: "harness", sourcePath: "manual/SKILL.md", relationship: "external", packageDigest: digest("c"), descriptionBytes: 3, applicableHarnesses: ["codex"], effectiveVisibility: "explicit-only" },
+    { name: "one", canonicalName: "one", sourceKind: "shared-agents", sourceId: "shared:one", exposureScope: "user", sourcePath: "one/SKILL.md", relationship: "external", packageDigest: digest("a"), descriptionBytes: 3, health: healthy, applicableHarnesses: ["codex", "opencode"], effectiveVisibility: "implicit" },
+    { name: "two", canonicalName: "two", sourceKind: "plugin", sourceId: "plugin:two", exposureScope: "user", sourcePath: "two/SKILL.md", relationship: "external", packageDigest: digest("b"), descriptionBytes: 3, health: healthy, applicableHarnesses: ["codex"], effectiveVisibility: "implicit" },
+    { name: "manual", canonicalName: "manual", sourceKind: "system", sourceId: "system:manual", exposureScope: "harness", sourcePath: "manual/SKILL.md", relationship: "external", packageDigest: digest("c"), descriptionBytes: 3, health: healthy, applicableHarnesses: ["codex"], effectiveVisibility: "explicit-only" },
   ], sources: [], identities: [], resolutions: [], harnesses: [], diagnostics: complete ? [] : [{ code: "incomplete", message: "failed" }] };
 }
 
@@ -25,6 +26,18 @@ describe("external skill exposure", () => {
     expect(() => compileCodexExternalSkillExposure({ inventory: inventory(false), policy: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } }, absolutePathBySourceId: new Map() })).toThrow("incomplete");
     expect(() => compileCodexExternalSkillExposure({ inventory: inventory(), policy: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [{ sourceId: "shared:one", packageDigest: digest("c") }] } } }, absolutePathBySourceId: new Map() })).toThrow("digest drifted");
     expect(() => compileCodexExternalSkillExposure({ inventory: inventory(), policy: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } }, absolutePathBySourceId: new Map() })).toThrow("Absolute external catalog path");
+  });
+
+  it("refuses to keep a digest-reviewed package that currently has blocked health", () => {
+    const base = inventory();
+    const candidates = base.candidates.map((candidate) => candidate.sourceId === "shared:one"
+      ? { ...candidate, health: { ...healthy, status: "blocked" as const, diagnostics: [{ code: "broken-resource", message: "Missing referenced file." }] } }
+      : candidate);
+    expect(() => compileCodexExternalSkillExposure({
+      inventory: { ...base, candidates },
+      policy: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [{ sourceId: "shared:one", packageDigest: digest("a") }] } } },
+      absolutePathBySourceId: new Map(),
+    })).toThrow("blocked by package health");
   });
 
   it("excludes project-scoped candidates from global rules and fingerprints", () => {

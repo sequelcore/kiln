@@ -375,7 +375,7 @@ describe("native-skill-projection", () => {
     expect(dirs.has("repo-context-review")).toBe(false);
   });
 
-  it("uses project over user over builtin precedence for mixed-case flat skill names", () => {
+  it("ignores legacy flat skill files", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
     const projectDir = join(projectPath, ".kiln", "skills");
@@ -392,10 +392,7 @@ describe("native-skill-projection", () => {
     });
 
     const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig);
-    const source = sources.get(canonicalSkillKey("BuildTools"));
-
-    expect(source?.skillName).toBe("buildtools");
-    expect(source?.files?.[0]?.content).toContain("description: project");
+    expect(sources.has(canonicalSkillKey("BuildTools"))).toBe(false);
     expect(sources.has(canonicalSkillKey("../escape"))).toBe(false);
   });
 
@@ -457,6 +454,51 @@ describe("native-skill-projection", () => {
       "Codex skill \"planner\" file \"SKILL.md\" failed: managed projection identity mismatch",
     );
     expect(fsMocks.files.get(join("/home/tester", ".codex", "skills", "planner", "SKILL.md"))).toBe(PLANNER_SKILL);
+  });
+
+  it("adopts byte-identical unmanaged files and blocks divergent unmanaged files unless forced", async () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const skillSourceDir = join(globalDir, "planner");
+    const codexSkillPath = join("/home/tester", ".codex", "skills", "planner", "SKILL.md");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
+      throw new Error("ENOENT");
+    });
+    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
+    fsMocks.files.set(codexSkillPath, "operator-owned content\n");
+
+    const blocked = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+
+    expect(blocked.codex).toBe(false);
+    expect(blocked.errors).toContain(
+      "Codex skill \"planner\" file \"SKILL.md\" failed: unmanaged skill file exists; rerun with force after review",
+    );
+    expect(fsMocks.files.get(codexSkillPath)).toBe("operator-owned content\n");
+
+    const forced = await syncNativeSkillProjections(projectPath, { ...SKILLS_DISABLED, force: true });
+    expect(forced.codex).toBe(true);
+    expect(fsMocks.files.get(codexSkillPath)).toBe(PLANNER_SKILL);
+
+    fsMocks.files.delete(join(projectPath, ".kiln", "install-state.json"));
+    writeFileSyncMock.mockClear();
+    const adoptionPlan = await syncNativeSkillProjections(projectPath, { ...SKILLS_DISABLED, dryRun: true });
+    expect(adoptionPlan.outcomes).toContainEqual(expect.objectContaining({
+      targetId: "codex-skill:planner/SKILL.md",
+      status: "planned",
+      reason: "adopted byte-identical unmanaged skill file",
+    }));
+    expect(fsMocks.files.has(join(projectPath, ".kiln", "install-state.json"))).toBe(false);
+
+    const adopted = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+    expect(adopted.codex).toBe(true);
+    expect(adopted.outcomes).toContainEqual(expect.objectContaining({
+      targetId: "codex-skill:planner/SKILL.md",
+      status: "unchanged",
+      reason: "adopted byte-identical unmanaged skill file",
+    }));
+    expect(writeFileSyncMock).not.toHaveBeenCalledWith(codexSkillPath, expect.anything(), expect.anything());
   });
 
   it("adopts a legacy canonical skill snapshot without rewriting or backing up the file", async () => {
@@ -579,7 +621,7 @@ describe("native-skill-projection", () => {
 
     expect(result.outcomes).toContainEqual(expect.objectContaining({
       targetId: "codex-skill:planner/SKILL.md",
-      status: "unchanged",
+      status: "planned",
       reason: "reconciled legacy managed skill file snapshot",
     }));
     expect(fsMocks.files.get(statePath)).toBe(legacyState);
@@ -779,6 +821,13 @@ describe("native-skill-projection", () => {
       harness: "claude",
       sourceIdentity: "user:planner/SKILL.md",
     });
+
+    writeFileSyncMock.mockClear();
+    const converged = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
+    expect(converged.errors).toEqual([]);
+    expect(converged.outcomes.every((outcome) => outcome.status === "unchanged")).toBe(true);
+    expect(converged.outcomes.every((outcome) => outcome.reason === "managed skill file is current")).toBe(true);
+    expect(writeFileSyncMock.mock.calls.some(([path]) => String(path).includes(join("skills", "planner")))).toBe(false);
   });
 
   it("reconciles stale fully-owned skill snapshots without rewriting canonical files", async () => {

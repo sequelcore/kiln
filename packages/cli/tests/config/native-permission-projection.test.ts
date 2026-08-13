@@ -175,6 +175,10 @@ describe("syncNativePermissionProjections", () => {
     expect(readJson(join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json")).targets)
       .toHaveProperty("opencode-skill-visibility");
     expect(existsSync(join(paths.projectPath, ".kiln", "install-state.json"))).toBe(false);
+    const converged = await syncOpenCodeSkillVisibilityProjection({
+      ...buildKilnYaml(), skills: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" } } },
+    }, paths.projectPath, { userHome: paths.homePath, dryRun: true });
+    expect(converged).toMatchObject({ errors: [], outcomes: [{ status: "unchanged", reason: "fail-closed OpenCode skill visibility is current" }] });
     const planner = readSkillCatalogStatus({
       projectPath: paths.projectPath, userHome: paths.homePath,
       skillConfig: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" } } },
@@ -238,6 +242,35 @@ describe("syncNativePermissionProjections", () => {
     });
     expect(readJson(target)).toEqual(document);
     expect(existsSync(join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json"))).toBe(false);
+  });
+
+  it("force-adopts an operator scalar deny and removes stale visibility ownership", async () => {
+    const source = join(paths.homePath, ".kiln", "skills", "planner");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "SKILL.md"), "---\nname: planner\ndescription: plan\n---\n", "utf8");
+    const target = join(paths.homePath, ".config", "opencode", "opencode.json");
+    const statePath = join(paths.homePath, ".config", "opencode", ".kiln", "install-state.json");
+    const yaml = { ...buildKilnYaml(), skills: { builtin: { enabled: false }, visibility: { overrides: { planner: "explicit-only" as const } } } };
+
+    expect((await syncOpenCodeSkillVisibilityProjection(yaml, paths.projectPath, { userHome: paths.homePath })).errors).toEqual([]);
+    expect(asRecord(readJson(statePath).targets)).toHaveProperty("opencode-skill-visibility");
+    const operatorDocument = { theme: "ocean", permission: { skill: "deny" } };
+    writeFileSync(target, JSON.stringify(operatorDocument), "utf8");
+
+    const plan = await syncOpenCodeSkillVisibilityProjection(yaml, paths.projectPath, {
+      userHome: paths.homePath, force: true, dryRun: true,
+    });
+    expect(plan).toMatchObject({ errors: [], outcomes: [{ status: "planned", reason: "adopt operator scalar skill deny and remove stale ownership" }] });
+    expect(asRecord(readJson(statePath).targets)).toHaveProperty("opencode-skill-visibility");
+    expect(readJson(target)).toEqual(operatorDocument);
+
+    const adopted = await syncOpenCodeSkillVisibilityProjection(yaml, paths.projectPath, { userHome: paths.homePath, force: true });
+    expect(adopted).toMatchObject({ errors: [], outcomes: [{ status: "removed", reason: "operator scalar skill deny adopted; stale ownership removed" }] });
+    expect(asRecord(readJson(statePath).targets)).not.toHaveProperty("opencode-skill-visibility");
+    expect(readJson(target)).toEqual(operatorDocument);
+
+    const stable = await syncOpenCodeSkillVisibilityProjection(yaml, paths.projectPath, { userHome: paths.homePath });
+    expect(stable).toMatchObject({ errors: [], outcomes: [{ status: "skipped", reason: "operator scalar skill deny already fails closed" }] });
   });
 
   it("merges Claude settings and writes kiln.permissionSync metadata", { timeout: 10_000 }, async () => {

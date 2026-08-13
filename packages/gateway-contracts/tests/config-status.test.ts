@@ -26,6 +26,13 @@ describe("KilnSkillCatalogSnapshotSchema", () => {
           sourceId: "shared-agents:planner", sourcePath: "skills/planner/SKILL.md",
           relationship: "external", exposureScope: "user", packageDigest: `sha256:${"a".repeat(64)}`,
           descriptionBytes: 9,
+          trust: { level: "external-unverified", reason: "External package." },
+          freshness: { status: "unknown", reason: "No upstream comparison." },
+          dependencies: { allowedTools: [], executableResources: 0 },
+          health: {
+            status: "healthy", fileCount: 1, packageBytes: 100, brokenResourceCount: 0,
+            riskSignals: [], diagnostics: [],
+          },
         }],
         sources: [{ sourceKind: "shared-agents", candidateCount: 1, descriptionBytes: 9 }],
         identities: [{ canonicalName: "planner", names: ["Planner"], candidateSourceIds: ["shared-agents:planner"], classification: "unique" }],

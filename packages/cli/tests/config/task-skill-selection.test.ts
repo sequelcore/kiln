@@ -282,4 +282,14 @@ describe("task skill selection work classification", () => {
     expect(selection.projectionEvidence.avoidedSourceBytes).toBeGreaterThan(2_000);
     expect(JSON.stringify(selection.projectionEvidence)).not.toContain(root);
   });
+
+  it("blocks explicit and automatic admission when package health is broken", () => {
+    const root = tempRoot();
+    writeSkill(root, "broken-skill", "Read [missing](references/missing.md).");
+
+    expect(() => resolveTaskSkillSelection({
+      explicitSkills: ["broken-skill"], projectPath: root, userHome: root,
+      skillConfig: { builtin: { enabled: false } }, requesterLabel: "Task skill selection",
+    })).toThrow(/blocked skill.*broken-skill.*missing/i);
+  });
 });

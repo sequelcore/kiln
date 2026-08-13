@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, realpathSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { parse } from "yaml";
-import { canonicalSkillIdentity, digestSkillPackage, loadSkillMdIndex } from "@kilnai/core";
+import { canonicalSkillIdentity, digestSkillPackage, inspectSkillPackage, loadSkillMdIndex } from "@kilnai/core";
 import type {
   KilnSkillInventoryDiagnosticSnapshot,
   KilnSkillSourceCandidateSnapshot,
@@ -133,7 +133,9 @@ export function collectSkillSourceInventory(
       return {
         harness, candidateCount: applicable.length,
         descriptionBytes: applicable.reduce((total, entry) => total + entry.descriptionBytes, 0),
-        budget: { status: "unknown" as const, reason: "No authoritative harness metadata budget was supplied." },
+        budget: harness === "codex"
+          ? { status: "known" as const, authority: "OpenAI Codex Build skills documentation, accessed 2026-08-12", contextRatio: 0.02, fallbackCharacters: 8_000, reason: "Codex limits the initial skill list to 2% of model context, or 8,000 characters when context is unknown." }
+          : { status: "unknown" as const, reason: "No authoritative harness metadata budget was supplied." },
       };
     }),
     diagnostics,
@@ -233,6 +235,7 @@ function collectRoot(
         ? "managed-projection" as const
         : root.relationship;
       const sourceId = `${root.id ?? root.sourceKind}:${canonicalName}:${relative(root.root, candidate.logicalPath).replaceAll("\\", "/") || "."}`;
+      const health = projectHealth(inspectSkillPackage(candidate.physicalPath));
       candidates.push({
         name: index.name,
         canonicalName,
@@ -243,6 +246,16 @@ function collectRoot(
         relationship,
         packageDigest: digestSkillPackage(result.files),
         descriptionBytes: Buffer.byteLength(index.description, "utf8"),
+        ...(index.metadata?.version ? { version: index.metadata.version } : {}),
+        ...(index.compatibility ? { compatibility: index.compatibility } : {}),
+        ...(index.license ? { license: index.license } : {}),
+        trust: candidateTrust(root.sourceKind, relationship),
+        freshness: candidateFreshness(relationship),
+        dependencies: {
+          allowedTools: index.tools,
+          executableResources: health.riskSignals.filter((entry) => entry.kind === "code-execution").length,
+        },
+        health,
         applicableHarnesses: root.applicableHarnesses ?? applicableHarnesses(root.sourceKind),
         effectiveVisibility: readCandidateVisibility(root, candidate.physicalPath, result.skillFile.path),
       });
@@ -252,6 +265,32 @@ function collectRoot(
     }
   }
   return candidates;
+}
+
+function projectHealth(health: ReturnType<typeof inspectSkillPackage>): KilnSkillSourceCandidateSnapshot["health"] {
+  return {
+    status: health.status, fileCount: health.fileCount, packageBytes: health.packageBytes,
+    brokenResourceCount: health.brokenResources.length,
+    riskSignals: health.riskSignals,
+    diagnostics: health.diagnostics,
+  };
+}
+
+function candidateTrust(
+  sourceKind: KilnSkillSourceKind,
+  relationship: KilnSkillSourceRelationship,
+): KilnSkillSourceCandidateSnapshot["trust"] {
+  if (sourceKind === "builtin") return { level: "builtin", reason: "Versioned with the running Kiln build." };
+  if (relationship === "canonical") return { level: "local-configured", reason: "Loaded from a configured local Kiln source." };
+  return { level: "external-unverified", reason: "Discovered outside canonical Kiln ownership; package contents require review before admission." };
+}
+
+function candidateFreshness(
+  relationship: KilnSkillSourceRelationship,
+): KilnSkillSourceCandidateSnapshot["freshness"] {
+  return relationship === "canonical"
+    ? { status: "current", reason: "Read directly from the canonical package during this inventory." }
+    : { status: "unknown", reason: "No authoritative upstream version comparison is available for this discovered copy." };
 }
 
 function defaultExposureScope(root: SkillInventoryRoot): "user" | "project" | "harness" | "builtin" {

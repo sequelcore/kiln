@@ -82,6 +82,9 @@ function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnaps
               <SkillIdentityMetric value={props.skills.divergentCollisions} label="Divergent collision" />
               <SkillIdentityMetric value={props.skills.caseCollisions} label="Case collision" />
             </dl>
+            <p className="border-b border-border/70 px-4 py-3 text-sm text-muted-foreground">
+              Package health: {NUMBER_FORMATTER.format(props.skills.healthyPackages)} healthy, {NUMBER_FORMATTER.format(props.skills.warningPackages)} warning, {NUMBER_FORMATTER.format(props.skills.blockedPackages)} blocked.
+            </p>
             {props.skills.harnesses.length === 0 ? (
               <p role="status" aria-label="Per-harness skill catalog status" className="px-4 py-5 text-sm text-muted-foreground">No per-harness skill catalog evidence is available.</p>
             ) : (
@@ -101,7 +104,7 @@ function SkillCatalogCard(props: { readonly skills: KilnSkillCatalogSummarySnaps
                       <TableCell className="text-right tabular-nums">{NUMBER_FORMATTER.format(harness.candidateCount)}</TableCell>
                       <TableCell className="text-right tabular-nums">{NUMBER_FORMATTER.format(harness.descriptionBytes)} B</TableCell>
                       <TableCell className="min-w-52 whitespace-normal">
-                        <Badge variant="secondary">Unknown</Badge>
+                        <Badge variant="secondary">{harness.budget.status === "known" ? "Known" : "Unknown"}</Badge>
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">{harness.budget.reason}</p>
                       </TableCell>
                     </TableRow>

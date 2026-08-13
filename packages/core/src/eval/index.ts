@@ -65,6 +65,10 @@ export type {
   ProgressiveLoadingPromotionReport,
   ProgressiveLoadingTokenDelta,
 } from "./progressive-loading-benchmark.js";
+export { evaluateSkillValuePromotion } from "./skill-value-promotion.js";
+export type { SkillValueObservation, SkillValuePromotionReport } from "./skill-value-promotion.js";
+export { evaluateWorkflowScenario, WORKFLOW_SCENARIOS } from "./workflow-scenario-evaluation.js";
+export type { WorkflowScenarioEvaluation, WorkflowScenarioId, WorkflowScenarioObservation } from "./workflow-scenario-evaluation.js";
 export { evaluateContextAllocationPromotion } from "./context-allocation-benchmark.js";
 export type {
   ContextAllocationBenchmarkPolicy,

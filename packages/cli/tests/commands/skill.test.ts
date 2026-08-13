@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DomainRegistry } from "@kilnai/core";
@@ -89,7 +89,7 @@ describe("skillCommand", () => {
       const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       await skillCommand(TEST_CONFIG, "install", [skillPath]);
 
-      const installed = join(tmpDir, ".kiln", "skills", "test-skill.md");
+      const installed = join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md");
       expect(existsSync(installed)).toBe(true);
       consoleSpy.mockRestore();
     });
@@ -111,6 +111,128 @@ describe("skillCommand", () => {
       await skillCommand(TEST_CONFIG, "install", [yamlPath]);
       expect(mockExit).toHaveBeenCalledWith(1);
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe("governed package lifecycle", () => {
+    it("installs a complete directory package and records immutable evidence", async () => {
+      const packagePath = join(tmpDir, "source", "test-skill");
+      mkdirSync(join(packagePath, "references"), { recursive: true });
+      writeFileSync(join(packagePath, "SKILL.md"), VALID_SKILL_MD, "utf8");
+      writeFileSync(join(packagePath, "references", "guide.md"), "# Guide\n", "utf8");
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      await skillCommand(TEST_CONFIG, "install", [packagePath]);
+
+      expect(existsSync(join(tmpDir, ".kiln", "skills", "test-skill", "references", "guide.md"))).toBe(true);
+      const state = JSON.parse(readFileSync(join(tmpDir, ".kiln", "skill-install-state.json"), "utf8"));
+      expect(state.packages["test-skill"]).toMatchObject({ sourcePath: packagePath });
+      expect(state.packages["test-skill"].packageDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      spy.mockRestore();
+    });
+
+    it("refuses overwrite, updates current owned packages, and backs up replacements", async () => {
+      const source = join(tmpDir, "source", "test-skill");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD, "utf8");
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await skillCommand(TEST_CONFIG, "install", [source]);
+      await skillCommand(TEST_CONFIG, "install", [source]);
+      expect(mockExit).toHaveBeenCalledWith(1);
+      mockExit.mockClear();
+      writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD.replace("Follow best practices", "Follow governed practices"), "utf8");
+      await skillCommand(TEST_CONFIG, "update", ["test-skill", source]);
+      expect(readFileSync(join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md"), "utf8")).toContain("governed practices");
+      expect(existsSync(join(tmpDir, ".kiln", "backups", "skills", "test-skill"))).toBe(true);
+      log.mockRestore(); error.mockRestore();
+    });
+
+    it("blocks removal after local drift and preserves a recoverable backup when forced", async () => {
+      const source = join(tmpDir, "source", "test-skill");
+      mkdirSync(source, { recursive: true }); writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD, "utf8");
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await skillCommand(TEST_CONFIG, "install", [source]);
+      const installed = join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md");
+      writeFileSync(installed, VALID_SKILL_MD.replace("best", "locally modified"), "utf8");
+      await skillCommand(TEST_CONFIG, "remove", ["test-skill"]);
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(existsSync(installed)).toBe(true);
+      mockExit.mockClear();
+      await skillCommand(TEST_CONFIG, "remove", ["test-skill", "--force"]);
+      expect(existsSync(installed)).toBe(false);
+      expect(existsSync(join(tmpDir, ".kiln", "backups", "skills", "test-skill"))).toBe(true);
+      log.mockRestore(); error.mockRestore();
+    });
+
+    it("accepts --force before an update source without treating it as a path", async () => {
+      const source = join(tmpDir, "source", "test-skill");
+      mkdirSync(source, { recursive: true }); writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD, "utf8");
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      await skillCommand(TEST_CONFIG, "install", [source]);
+      writeFileSync(join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md"), VALID_SKILL_MD.replace("best", "local"), "utf8");
+      writeFileSync(join(source, "SKILL.md"), VALID_SKILL_MD.replace("best", "upstream"), "utf8");
+
+      await skillCommand(TEST_CONFIG, "update", ["test-skill", "--force", source]);
+
+      expect(readFileSync(join(tmpDir, ".kiln", "skills", "test-skill", "SKILL.md"), "utf8")).toContain("upstream practices");
+      log.mockRestore();
+    });
+
+    it("rejects tampered lifecycle state before resolving any package path", async () => {
+      const stateDir = join(tmpDir, ".kiln");
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "skill-install-state.json"), JSON.stringify({
+        version: 1,
+        packages: {
+          "../../victim": {
+            sourcePath: join(tmpDir, "source"),
+            packageDigest: `sha256:${"a".repeat(64)}`,
+            installedAt: new Date().toISOString(),
+          },
+        },
+      }), "utf8");
+      const victim = join(tmpDir, "victim");
+      mkdirSync(victim); writeFileSync(join(victim, "keep.txt"), "keep", "utf8");
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await skillCommand(TEST_CONFIG, "remove", ["../../victim", "--force"]);
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(readFileSync(join(victim, "keep.txt"), "utf8")).toBe("keep");
+      error.mockRestore();
+    });
+
+    it("rejects an otherwise valid operation when any persisted package key is unsafe", async () => {
+      const stateDir = join(tmpDir, ".kiln");
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "skill-install-state.json"), JSON.stringify({
+        version: 1,
+        packages: {
+          "safe-skill": {
+            sourcePath: join(tmpDir, "source"), packageDigest: `sha256:${"a".repeat(64)}`,
+            installedAt: new Date().toISOString(),
+          },
+          "../unsafe": {
+            sourcePath: join(tmpDir, "source"), packageDigest: `sha256:${"b".repeat(64)}`,
+            installedAt: new Date().toISOString(),
+          },
+        },
+      }), "utf8");
+      const { skillCommand } = await import("../../src/commands/skill.js");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await skillCommand(TEST_CONFIG, "remove", ["safe-skill", "--force"]);
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(error).toHaveBeenCalledWith("Skill install state is invalid; refusing lifecycle mutation.");
+      error.mockRestore();
     });
   });
 

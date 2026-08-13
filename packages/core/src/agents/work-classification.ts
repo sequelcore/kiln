@@ -169,6 +169,9 @@ export function recommendedSkillsForWorkClassification(
   if (isResearch && classification.evidenceScopes?.some((scope) => scope === "external" || scope === "provided")) {
     recommended.push("research-workflow");
   }
+  if (classification.modes?.includes("delegate")) {
+    recommended.push("orchestration-workflow");
+  }
   if (isClearWritingWork(classification)) {
     recommended.push("clear-writing");
   }

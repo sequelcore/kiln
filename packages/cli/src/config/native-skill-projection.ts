@@ -124,8 +124,6 @@ export function discoverSkillProjectionSources(
       sourceDir,
     });
   }
-  addFlatSkillProjectionSources(discovered, join(userHome, ".kiln", "skills"), "user", false, skillConfig);
-  addFlatSkillProjectionSources(discovered, join(projectPath, ".kiln", "skills"), "project", true, skillConfig);
   for (const skill of resolveKilnCoreBuiltinSkills(skillConfig?.builtin)) {
     if (!isSafeProjectionPathComponent(skill.name)) continue;
     const visibility = resolveSkillVisibility(skill.name, skillConfig);
@@ -140,43 +138,6 @@ export function discoverSkillProjectionSources(
     }
   }
   return discovered;
-}
-
-function addFlatSkillProjectionSources(
-  discovered: Map<string, SkillProjectionSource>,
-  root: string,
-  origin: "user" | "project",
-  override: boolean,
-  skillConfig?: KilnYamlSkillsConfig | null,
-): void {
-  try {
-    for (const entry of readdirSync(root, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
-      const filePath = join(root, entry.name);
-      try {
-        const index = loadSkillMdIndex(filePath);
-        if (!isSafeProjectionPathComponent(index.name)
-          || !isSafeProjectionPathComponent(entry.name)) {
-          continue;
-        }
-        const key = canonicalSkillKey(index.name);
-        const visibility = resolveSkillVisibility(index.name, skillConfig);
-        if (visibility === "disabled") continue;
-        if (override || !discovered.has(key)) {
-          discovered.set(key, {
-            skillName: index.name,
-            visibility,
-            sourceIdentity: `${origin}:${key}`,
-            files: [{ fileName: entry.name, content: readFileSync(filePath, "utf-8") }],
-          });
-        }
-      } catch {
-        // Invalid flat skill files are not projection sources.
-      }
-    }
-  } catch {
-    // Missing or unreadable registries contribute no flat skill sources.
-  }
 }
 
 export function discoverOpenCodeDeniedSkillNames(
@@ -578,6 +539,36 @@ function syncSkillFile(input: {
     if (existsSync(input.targetFile)) {
       const currentContent = readFileSync(input.targetFile);
       const historicalTarget = input.installState.targets[targetId];
+      if (!historicalTarget) {
+        if (Buffer.from(currentContent).equals(Buffer.from(input.content))) {
+          return {
+            ok: true,
+            ...(input.options.dryRun ? {} : {
+              snapshot: createNativeProjectionFileSnapshot({
+                targetId,
+                filePath: input.targetFile,
+                content: currentContent,
+                harness: expectedIdentity.harness,
+                sourceIdentity: expectedIdentity.sourceIdentity,
+              }),
+            }),
+            outcome: {
+              targetId,
+              path: input.targetFile,
+              status: input.options.dryRun ? "planned" : "unchanged",
+              reason: "adopted byte-identical unmanaged skill file",
+            },
+          };
+        }
+        if (!input.options.force) {
+          const reason = "unmanaged skill file exists; rerun with force after review";
+          return {
+            ok: false,
+            error: reason,
+            outcome: { targetId, path: input.targetFile, status: "blocked", reason },
+          };
+        }
+      }
       if (historicalTarget && !isFullyOwnedNativeProjectionFile(historicalTarget, expectedIdentity)) {
         const adopted = adoptLegacyNativeProjectionFile({
           target: historicalTarget,
@@ -597,7 +588,7 @@ function syncSkillFile(input: {
               outcome: {
                 targetId,
                 path: input.targetFile,
-                status: "unchanged",
+                status: "planned",
                 reason: "reconciled legacy managed skill file snapshot",
               },
             };
@@ -627,6 +618,22 @@ function syncSkillFile(input: {
         state: input.installState,
         currentContent,
       });
+      if (!drift && nativeProjectionFileMatchesDesired({
+        target: input.installState.targets[targetId],
+        currentContent,
+        desiredContent: input.content,
+        expected: expectedIdentity,
+      })) {
+        return {
+          ok: true,
+          outcome: {
+            targetId,
+            path: input.targetFile,
+            status: "unchanged",
+            reason: "managed skill file is current",
+          },
+        };
+      }
       if (drift && nativeProjectionFileMatchesDesired({
         target: input.installState.targets[targetId],
         currentContent,

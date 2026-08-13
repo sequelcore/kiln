@@ -22,6 +22,7 @@ describe("Kiln core builtin skills", () => {
       "security-scope-review",
       "managed-agent-risk-review",
       "research-workflow",
+      "orchestration-workflow",
       "kiln-control-plane-workflow",
       "benchmark-readiness-review",
       "config-projection-review",
@@ -196,6 +197,17 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/Do not choose routes, providers, models, credentials, budgets, permissions, or\s+approvals/);
     expect(skill?.instructions).toMatch(/Do not replace a missing control-plane operation with a shell command/);
     expect(skill?.instructions).toMatch(/does not grant tool availability or authority/);
+  });
+
+  it("requires governed, conflict-aware orchestration", () => {
+    const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "orchestration-workflow");
+    expect(skill).toBeDefined();
+    expect(skill?.instructions).toMatch(/consume.*work-governance/i);
+    expect(skill?.instructions).toMatch(/acyclic work graph/i);
+    expect(skill?.instructions).toMatch(/shared mutable surface/i);
+    expect(skill?.instructions).toMatch(/untrusted proposals/i);
+    expect(skill?.instructions).toMatch(/requested, admitted, executed, and adopted/i);
+    expect(skill?.instructions).toMatch(/does not grant route, provider, model, permission, budget, approval,\s+or lifecycle authority/i);
   });
 
   it("requires tiered and claim-bound benchmark readiness", () => {

@@ -43,6 +43,13 @@ have all been verified.
   secret-free and fail closed; the historical dispatch-fenced OpenCode outcome
   remains explicitly unknown and capacity-consuming because no authoritative
   terminal evidence exists.
+- Completed the provider-neutral skill capability plane: portable package
+  identity and recursive health evidence, fail-closed external exposure and
+  task admission, progressive loading, paired value gates, reversible governed
+  lifecycle operations, portable orchestration and research workflows, shared
+  status surfaces, canonical cross-harness projection, and dated fresh-session
+  acceptance evidence. The single-fixture pairs do not establish general
+  quality or cost improvement.
 
 Candidate details and unresolved promotion gates are recorded in
 [`docs/releases/3.0.0-beta.1.md`](releases/3.0.0-beta.1.md). The release

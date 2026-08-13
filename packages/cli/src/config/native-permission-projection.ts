@@ -101,7 +101,13 @@ export async function syncOpenCodeSkillVisibilityProjection(
   }
   const scalarSkill = typeof permission.skill === "string" ? permission.skill : undefined;
   if (scalarSkill !== undefined) {
-    if (scalarSkill === "deny") return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "operator scalar skill deny already fails closed" }] };
+    if (scalarSkill === "deny") {
+      if (!previous) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "operator scalar skill deny already fails closed" }] };
+      if (options.dryRun) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "planned", reason: "adopt operator scalar skill deny and remove stale ownership" }] };
+      state = removeNativeProjectionTargetState(state, OPENCODE_SKILL_VISIBILITY_TARGET_ID);
+      writeNativeProjectionInstallState(stateDir, state);
+      return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "removed", reason: "operator scalar skill deny adopted; stale ownership removed" }] };
+    }
     return { errors: [`Existing scalar OpenCode skill permission conflicts with fail-closed deny: ${scalarSkill}`], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "failed", reason: "operator scalar skill permission would be overwritten" }] };
   }
   const existingSkill = requireOptionalRecord(permission.skill) ?? {};
@@ -116,6 +122,14 @@ export async function syncOpenCodeSkillVisibilityProjection(
     (next.permission as Record<string, unknown>).skill as Record<string, unknown>, name) !== "deny");
   if (ineffective.length > 0) return { errors: [`OpenCode skill deny is overridden by a later-matching pattern: ${ineffective.join(", ")}`], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "failed", reason: "existing OpenCode skill permission pattern overrides fail-closed deny" }] };
   if (managedFields.length === 0 && !previous) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "skipped", reason: "operator OpenCode skill deny already fails closed" }] };
+  if (!drift && previous && sameStrings(previous.managedFields, managedFields)) {
+    return { errors: [], outcomes: [{
+      targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID,
+      path: target,
+      status: "unchanged",
+      reason: "fail-closed OpenCode skill visibility is current",
+    }] };
+  }
   if (options.dryRun) return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "planned", reason: "write fail-closed OpenCode skill visibility" }] };
   ensureDir(dirname(target)); backupNativeProjectionFile({ kilnDir: stateDir, targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, filePath: target });
   try {
@@ -127,6 +141,10 @@ export async function syncOpenCodeSkillVisibilityProjection(
     writeNativeProjectionInstallState(stateDir, state);
   } catch (error) { restoreFile(target, original); throw error; }
   return { errors: [], outcomes: [{ targetId: OPENCODE_SKILL_VISIBILITY_TARGET_ID, path: target, status: "written", reason: "explicit-only skills denied because stable OpenCode cannot preserve direct invocation" }] };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function requireOptionalRecord(value: unknown): Record<string, unknown> | undefined {

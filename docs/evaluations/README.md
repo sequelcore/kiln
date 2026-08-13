@@ -22,3 +22,4 @@ Public claims require the evidence gates defined there.
 ## Smoke Reports
 
 - [Context Semantics Cross-Surface Smoke](smoke/33-context-semantics-cross-surface-smoke-2026.md)
+- [Skill Capability Plane Acceptance](smoke/41-skill-capability-plane-2026.md)

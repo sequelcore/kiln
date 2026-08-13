@@ -128,12 +128,15 @@ describe("configCommand", () => {
       version: 1,
       harnesses: { codex: { expectedFingerprint: `sha256:${"b".repeat(64)}`, keepImplicit: [{ sourceId: "plugin:docs:pdf:.", packageDigest: `sha256:${"a".repeat(64)}` }] } },
     };
+    const builtin = { enabled: true, include: ["research-workflow", "orchestration-workflow"] };
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.builtin", JSON.stringify(builtin)], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.default", "explicit-only"], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.overrides", '{"pdf":"implicit"}'], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.externalCatalog", JSON.stringify(external)], tempDir);
 
     const global = parseYaml(readFileSync(join(globalDir, "config.yaml"), "utf8")) as KilnYaml;
     expect(global.skills).toMatchObject({
+      builtin,
       visibility: { default: "explicit-only", overrides: { pdf: "implicit" } },
       externalCatalog: external,
     });

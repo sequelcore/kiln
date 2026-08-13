@@ -17,6 +17,13 @@ export {
 export type { BuiltinSkillPolicy } from "./builtin-skills.js";
 export { canonicalSkillIdentity, digestSkillPackage } from "./skill-identity.js";
 export type { SkillPackageDigestFile } from "./skill-identity.js";
+export { inspectSkillPackage } from "./package-health.js";
+export type {
+  SkillPackageHealth,
+  SkillPackageHealthOptions,
+  SkillPackageHealthStatus,
+  SkillPackageRiskKind,
+} from "./package-health.js";
 export { SkillCaptureService } from "./skill-capture.js";
 export type {
   SkillCaptureSummary,

@@ -82,12 +82,28 @@ export async function syncCodexExternalSkillExposure(input: {
       ...(input.commandRunner ? { commandRunner: input.commandRunner } : {}),
     });
     const projection = compileCodexExternalSkillExposure({ inventory: global.inventory, policy, absolutePathBySourceId: global.absolutePathBySourceId });
-    const skills = asRecord(base.skills);
-    const existing = Array.isArray(skills.config) ? skills.config : [];
+    const applied = asRecord(asRecord(document.kiln).external_skill_catalog);
     const nameByPath = new Map(global.inventory.candidates.flatMap((candidate) => {
       const path = global.absolutePathBySourceId.get(candidate.sourceId);
       return path ? [[path, candidate.name] as const] : [];
     }));
+    const documentSkills = asRecord(document.skills);
+    const documentItems = Array.isArray(documentSkills.config) ? documentSkills.config : [];
+    const effectivelySuppressed = projection.disabledItems.every((desired) =>
+      lastEffectiveEnabled(documentItems, desired.path, nameByPath.get(desired.path)) === false);
+    if (!drift && previous
+      && applied.inventory_fingerprint === projection.fingerprint
+      && applied.policy_fingerprint === projection.policyFingerprint
+      && effectivelySuppressed) {
+      return { errors: [], outcomes: [{
+        targetId: CODEX_EXTERNAL_SKILL_EXPOSURE_TARGET_ID,
+        path: target,
+        status: "unchanged",
+        reason: "reviewed Codex external exposure rules are current",
+      }] };
+    }
+    const skills = asRecord(base.skills);
+    const existing = Array.isArray(skills.config) ? skills.config : [];
     const owned = projection.disabledItems.filter((desired) =>
       lastEffectiveEnabled(existing, desired.path, nameByPath.get(desired.path)) !== false);
     const next = {

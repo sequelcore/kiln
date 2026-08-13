@@ -80,6 +80,7 @@ function formatSkillCatalog(skills: KilnSkillCatalogSummarySnapshot | undefined)
   }
   return [
     `  - inventory=${skills.complete ? "complete" : "incomplete"}`,
+    `    health=healthy:${skills.healthyPackages},warning:${skills.warningPackages},blocked:${skills.blockedPackages}`,
     `    duplicates=${skills.equivalentDuplicates} collisions=divergent:${skills.divergentCollisions},case:${skills.caseCollisions}`,
     ...(skills.externalExposure ?? []).filter((entry) => entry.status !== "not-configured").map((entry) =>
       `    external ${entry.harness}=${entry.status} implicit:${entry.realizedImplicit} suppressed:${entry.suppressed} freshness:${entry.freshness}`),

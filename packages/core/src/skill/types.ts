@@ -10,6 +10,9 @@ export interface SkillTrigger {
 export interface SkillIndex {
   readonly name: string;
   readonly description: string;
+  readonly license?: string;
+  readonly compatibility?: string;
+  readonly metadata?: Readonly<Record<string, string>>;
   readonly tools: readonly string[];
   readonly triggers: readonly SkillTrigger[];
   readonly tags: readonly string[];

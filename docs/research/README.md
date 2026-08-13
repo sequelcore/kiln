@@ -46,13 +46,13 @@ Durable research lives under [`foundations/`](foundations/README.md):
 - tool execution and trust
 - coordination intelligence
 - work governance and verification
+- skill capability governance
 
 ## Active Investigations
 
 Open, owner-backed research lives under [`active/`](active/README.md):
 
 - prompt component governance — Roadmap 06
-- skill catalog governance — Roadmap 05
 - visual work abstraction — issue-backed research awaiting an explicit
   documentation promotion target
 - general work contracts — issue-backed research awaiting an explicit

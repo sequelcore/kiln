@@ -38,6 +38,9 @@ export function compileCodexExternalSkillExposure(input: {
     const candidate = byId.get(decision.sourceId);
     if (!candidate) throw new Error(`Reviewed external catalog source is absent: ${decision.sourceId}`);
     if (candidate.packageDigest !== decision.packageDigest) throw new Error(`Reviewed external catalog digest drifted: ${decision.sourceId}`);
+    if (candidate.health.status === "blocked") {
+      throw new Error(`Reviewed external catalog source is blocked by package health: ${decision.sourceId}`);
+    }
     keep.add(decision.sourceId);
   }
   const disabledItems = external.filter((candidate) => !keep.has(candidate.sourceId)).map((candidate) => {

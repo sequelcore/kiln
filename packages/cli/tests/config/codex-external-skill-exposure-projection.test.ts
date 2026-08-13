@@ -28,6 +28,12 @@ describe("Codex external skill exposure projection", () => {
     const items = ((parseToml(readFileSync(config, "utf8")) as Record<string, any>).skills.config) as unknown[];
     expect(items).toEqual([{ path, enabled: false }, { name: "one", enabled: true }, { path, enabled: false }]);
 
+    const before = readFileSync(config, "utf8");
+    const converged = await syncCodexExternalSkillExposure({ userHome: home, pluginProvider: () => ({ roots: [], diagnostics: [] }),
+      skillConfig: { externalCatalog: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } } }, dryRun: true });
+    expect(converged).toMatchObject({ errors: [], outcomes: [{ status: "unchanged", reason: "reviewed Codex external exposure rules are current" }] });
+    expect(readFileSync(config, "utf8")).toBe(before);
+
     writeFileSync(config, `${readFileSync(config, "utf8")}\n[[skills.config]]\nname = "one"\nenabled = true\n`, "utf8");
     const status = readSkillCatalogStatus({
       projectPath: join(root, "project"), userHome: home,
@@ -35,6 +41,15 @@ describe("Codex external skill exposure projection", () => {
       pluginProvider: () => ({ roots: [], diagnostics: [] }),
     }).inventory?.externalExposure?.find((entry) => entry.harness === "codex");
     expect(status).toMatchObject({ status: "stale", freshness: "stale", suppressed: 0 });
+
+    const repaired = await syncCodexExternalSkillExposure({ userHome: home, pluginProvider: () => ({ roots: [], diagnostics: [] }),
+      skillConfig: { externalCatalog: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } } } });
+    expect(repaired).toMatchObject({ errors: [], outcomes: [{ status: "written" }] });
+    const repairedItems = ((parseToml(readFileSync(config, "utf8")) as Record<string, any>).skills.config) as unknown[];
+    expect(repairedItems.at(-1)).toEqual({ path, enabled: false });
+    const stable = await syncCodexExternalSkillExposure({ userHome: home, pluginProvider: () => ({ roots: [], diagnostics: [] }),
+      skillConfig: { externalCatalog: { version: 1, harnesses: { codex: { expectedFingerprint, keepImplicit: [] } } } }, dryRun: true });
+    expect(stable).toMatchObject({ errors: [], outcomes: [{ status: "unchanged" }] });
 
     expect(uninstallCodexExternalSkillExposure({ userHome: home, force: true }).errors).toEqual([]);
     const rolledBack = ((parseToml(readFileSync(config, "utf8")) as Record<string, any>).skills.config) as unknown[];

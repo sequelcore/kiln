@@ -64,6 +64,7 @@ type KilnYamlKey =
   | "interactiveUse.browserEnvironment"
   | "interactiveUse.computerEnvironment"
   | "skills.selection.mode"
+  | "skills.builtin"
   | "skills.visibility.default"
   | "skills.visibility.overrides"
   | "skills.externalCatalog";
@@ -105,6 +106,7 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "interactiveUse.browserEnvironment",
   "interactiveUse.computerEnvironment",
   "skills.selection.mode",
+  "skills.builtin",
   "skills.visibility.default",
   "skills.visibility.overrides",
   "skills.externalCatalog",
@@ -422,6 +424,9 @@ function setGovernanceOrSkillKey<T extends {
       },
     };
   }
+  if (key === "skills.builtin") {
+    return { ...config, skills: { ...(config.skills ?? {}), builtin: parseJson(rawValue, key) as NonNullable<KilnYaml["skills"]>["builtin"] } };
+  }
   if (key === "skills.visibility.default") {
     if (rawValue !== "implicit" && rawValue !== "explicit-only" && rawValue !== "disabled") {
       console.error(`Invalid skill visibility: ${rawValue}. Must be implicit, explicit-only, or disabled.`); process.exit(1);
@@ -447,6 +452,7 @@ function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): un
   if (key === "workGovernance.requireDelegationFor") return config.workGovernance?.requireDelegationFor;
   if (key === "workGovernance.requiredEvidence") return config.workGovernance?.requiredEvidence;
   if (key === "skills.selection.mode") return config.skills?.selection?.mode;
+  if (key === "skills.builtin") return config.skills?.builtin;
   if (key === "skills.visibility.default") return config.skills?.visibility?.default;
   if (key === "skills.visibility.overrides") return config.skills?.visibility?.overrides;
   if (key === "skills.externalCatalog") return config.skills?.externalCatalog;

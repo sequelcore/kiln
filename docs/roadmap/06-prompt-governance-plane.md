@@ -59,7 +59,9 @@ basis lives in
 
 This track owns prompt assembly evidence, activation of admitted instruction and
 skill content, component evaluation, and privacy-safe operator inspection. Skill
-eligibility belongs to Roadmap 05; provider/model/budget decisions remain config.
+eligibility belongs to the canonical skill capability plane in
+`docs/architecture/context/agent-context.md`; provider/model/budget decisions
+remain config.
 
 ## Scope
 
@@ -136,7 +138,7 @@ only through this gate.
 
 Status: Queued behind Slice 2.
 
-Roadmap 05 decides which skill is admitted; this slice decides when its body
+The skill capability plane decides which skill is admitted; this slice decides when its body
 and resources enter the prompt. Keep initial skill projection metadata-only;
 load full instructions and resources only after explicit or policy-owned
 selection. Resolve nested repository instructions when work reaches the
@@ -180,7 +182,7 @@ is published.
 - Evidence contains hashes and counts, never prompt content or secrets.
 - Exact request attribution survives routing, retry, fallback, managed-child,
   and restored-session paths.
-- Skill activation consumes Roadmap 05 admission rather than recomputing it.
+- Skill activation consumes canonical skill admission rather than recomputing it.
 - No default component change bypasses model-specific evaluation and removal
   ablation.
 - Token or cache improvement does not compensate for correctness, safety, or

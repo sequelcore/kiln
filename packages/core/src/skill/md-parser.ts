@@ -68,6 +68,22 @@ function validateFrontmatter(data: unknown): ValidationError[] {
     errors.push({ field: "description", message: "Required string field" });
   }
 
+  if ("license" in obj && (typeof obj.license !== "string" || obj.license.trim() === "")) {
+    errors.push({ field: "license", message: "Expected a non-empty string" });
+  }
+  if ("compatibility" in obj && (typeof obj.compatibility !== "string" || obj.compatibility.length > 500)) {
+    errors.push({ field: "compatibility", message: "Expected a string of at most 500 characters" });
+  }
+  if ("metadata" in obj) {
+    if (typeof obj.metadata !== "object" || obj.metadata === null || Array.isArray(obj.metadata)) {
+      errors.push({ field: "metadata", message: "Expected a string-to-string object" });
+    } else {
+      for (const [key, value] of Object.entries(obj.metadata)) {
+        if (typeof value !== "string" && typeof value !== "boolean" && typeof value !== "number") errors.push({ field: `metadata.${key}`, message: "Expected string, boolean, or number" });
+      }
+    }
+  }
+
   // Optional: handler (string)
   if ("handler" in obj && typeof obj.handler !== "string") {
     errors.push({ field: "handler", message: `Expected string, got ${typeof obj.handler}` });
@@ -138,6 +154,9 @@ function buildIndex(obj: Record<string, unknown>, filePath: string): SkillIndex 
   return {
     name: obj.name as string,
     description: obj.description as string,
+    ...(obj.license !== undefined ? { license: obj.license as string } : {}),
+    ...(obj.compatibility !== undefined ? { compatibility: obj.compatibility as string } : {}),
+    metadata: Object.fromEntries(Object.entries((obj.metadata as Record<string, string | boolean | number> | undefined) ?? {}).map(([key, value]) => [key, String(value)])),
     tools: (obj.tools as string[] | undefined) ?? [],
     triggers: rawTriggers.map((t) => ({
       event: t.event as EventType,

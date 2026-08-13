@@ -129,6 +129,20 @@ describe("work classification", () => {
     ]);
   });
 
+  it("recommends orchestration procedure only for explicit delegate mode", () => {
+    const delegated = defineWorkClassification({
+      intents: ["plan"], artifacts: ["workflow"], domains: ["software"],
+      effects: ["read-only"], modes: ["delegate"],
+    });
+    const direct = defineWorkClassification({
+      intents: ["plan"], artifacts: ["workflow"], domains: ["software"],
+      effects: ["read-only"], modes: ["answer"],
+    });
+
+    expect(recommendedSkillsForWorkClassification(delegated)).toEqual(["orchestration-workflow"]);
+    expect(recommendedSkillsForWorkClassification(direct)).toEqual([]);
+  });
+
   it("fails closed for unknown evidence scope", () => {
     expect(() => defineWorkClassification({
       intents: ["research"],

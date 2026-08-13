@@ -107,14 +107,12 @@ export class SkillRegistry {
     let loaded = 0;
 
     for (const entry of entries) {
-      // Convention: each skill is a directory containing SKILL.md, or a flat SKILL.md file
+      // Portable Agent Skills are complete directory packages containing SKILL.md.
       if (entry.isDirectory()) {
         const skillMdPath = join(dirPath, entry.name, "SKILL.md");
         if (existsSync(skillMdPath)) {
           loaded += this.tryLoadIndex(skillMdPath);
         }
-      } else if (entry.name.endsWith(".md")) {
-        loaded += this.tryLoadIndex(join(dirPath, entry.name));
       }
     }
 

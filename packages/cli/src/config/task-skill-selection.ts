@@ -1,8 +1,10 @@
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   estimateTextTokens,
+  inspectSkillPackage,
   skillConfigToContextCandidate,
   type ContextCandidate,
   type ModelTaskSuitability,
@@ -86,8 +88,10 @@ export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskS
       `${input.requesterLabel} references unavailable skill(s): ${missingExplicit.join(", ")}`,
     );
   }
+  for (const skill of explicitResolved) assertSkillHealthy(skill.filePath, skill.name, input.requesterLabel);
 
-  const autoResolved = registry.resolve(autoRecommendedSkillNames);
+  const autoCandidates = registry.resolve(autoRecommendedSkillNames);
+  const autoResolved = autoCandidates.filter((skill) => skillHealth(skill.filePath).status !== "blocked");
   const autoResolvedNames = new Set(autoResolved.map((skill) => skill.name));
   const unavailableAutoSkillNames = autoRecommendedSkillNames.filter((skill) => !autoResolvedNames.has(skill));
   const skillNames = unique([
@@ -140,6 +144,21 @@ export function resolveTaskSkillSelection(input: TaskSkillSelectionInput): TaskS
     contextCandidates,
     projectionEvidence,
   };
+}
+
+function assertSkillHealthy(filePath: string, name: string, requesterLabel: string): void {
+  const health = skillHealth(filePath);
+  if (health.status !== "blocked") return;
+  const reasons = [
+    ...health.brokenResources.map((entry) => `${entry.reason} resource ${entry.target}`),
+    ...health.diagnostics.map((entry) => entry.code),
+  ];
+  throw new Error(`${requesterLabel} references blocked skill "${name}": ${reasons.join(", ") || "package health failed"}`);
+}
+
+function skillHealth(filePath: string): ReturnType<typeof inspectSkillPackage> {
+  if (filePath.startsWith("builtin://")) return { status: "healthy", fileCount: 1, packageBytes: 0, brokenResources: [], riskSignals: [], diagnostics: [] };
+  return inspectSkillPackage(dirname(filePath));
 }
 
 function buildProjectionEvidence(
