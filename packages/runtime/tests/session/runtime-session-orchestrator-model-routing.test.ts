@@ -15,6 +15,8 @@ import {
   defineManagedAgentInvocationRecord,
   extractText,
   textParts,
+  resolveCommunicationIntent,
+  sha256ContentIdentity,
 } from "@kilnai/core";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
@@ -371,6 +373,88 @@ describe("RuntimeSessionOrchestrator model routing", () => {
       },
     })).rejects.toThrow("cannot transport the resolved deliberation level");
     expect(routedProvider.createMessage).not.toHaveBeenCalled();
+  });
+
+  it("resolves communication after route selection and attributes it to the provider request", async () => {
+    const routedProvider = { ...makeProvider("routed"), communicationTransport: "native" as const };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "configured-model",
+      modelRouter: makeRouter({
+        provider: "routed",
+        model: "routed-model",
+        reasoning: "Communication-capable route",
+        confidence: 1,
+        routingTier: "rule",
+      }),
+      providerPool: new Map([["routed", routedProvider]]),
+    });
+    const communicationIntent = resolveCommunicationIntent([{
+      source: "user",
+      intent: {
+        responseDetail: "concise",
+        locale: "es-MX",
+        requiredContent: ["warning", "verification"],
+        onUnsupported: "deny",
+      },
+    }]);
+
+    const result = await orchestrator.processMessage(makeSession(), textParts("summarize"), undefined, undefined, {
+      communicationIntent,
+      modelRoutingPolicy: {
+        routeCapabilities: new Map([["routed/routed-model", {
+          communication: {
+            provider: "routed",
+            model: "routed-model",
+            responseDetail: {
+              mechanism: "native",
+              supported: ["concise", "standard", "detailed"],
+              nativeValues: { concise: "low", standard: "medium", detailed: "high" },
+            },
+            evidence: {
+              sourceIdentity: "routed/models",
+              sourceRevision: "communication-r1",
+              observedAt: "2026-08-13T00:00:00.000Z",
+            },
+          },
+        }]]),
+      },
+    });
+
+    expect(result.communicationResolution?.responseDetail).toMatchObject({
+      status: "exact",
+      mechanism: "native",
+      nativeValue: "low",
+    });
+    expect(routedProvider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      communicationResolution: result.communicationResolution,
+      system: expect.stringContaining("--- Kiln Communication Contract ---"),
+    }));
+    const request = vi.mocked(routedProvider.createMessage).mock.calls[0]?.[0];
+    expect(request?.system).toContain("locale 'es-MX'");
+    expect(request?.system).toContain("verification, warning");
+    expect(result.providerRequests?.[0]?.effectivePrompt?.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: sha256ContentIdentity("runtime-communication-contract"),
+        revision: sha256ContentIdentity(result.communicationResolution!.identity),
+        provenance: { source: sha256ContentIdentity("runtime-communication-policy") },
+      }),
+    ]));
+    expect(result.providerRequests?.[0]?.communicationResolution?.identity)
+      .toBe(result.communicationResolution?.identity);
+  });
+
+  it("rejects unsupported communication policy before provider I/O", async () => {
+    const provider = makeProvider("routed");
+    const orchestrator = new RuntimeSessionOrchestrator({ provider, model: "routed-model" });
+
+    await expect(orchestrator.processMessage(makeSession(), textParts("summarize"), undefined, undefined, {
+      communicationIntent: resolveCommunicationIntent([{
+        source: "user",
+        intent: { responseDetail: "concise", onUnsupported: "deny" },
+      }]),
+    })).rejects.toThrow("Communication intent is unsupported");
+    expect(provider.createMessage).not.toHaveBeenCalled();
   });
 
   it("fails closed before provider execution when selected route cannot preserve deliberation intent", async () => {

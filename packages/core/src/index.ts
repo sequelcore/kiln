@@ -22,6 +22,7 @@ export * from "./tools/index.js";
 export * from "./work-governance/index.js";
 export * from "./mcp/index.js";
 export * from "./feedback/index.js";
+export * from "./change-artifacts/index.js";
 export * from "./external-engagement/index.js";
 export * from "./credentials/index.js";
 export type { FsPolicy, NetPolicy, SandboxConfig } from "./sandbox/index.js";

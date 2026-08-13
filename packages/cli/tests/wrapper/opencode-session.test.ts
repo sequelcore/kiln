@@ -6,7 +6,7 @@ import {
 } from "../../src/wrapper/opencode-session.js";
 import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import { defineDeliberationLevelId, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
+import { defineDeliberationLevelId, resolveCommunicationIntent, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
 
 const createOpencodeClient = vi.fn();
 const viRuntime = vi as typeof vi & { mocked?: <T>(item: T) => T };
@@ -24,6 +24,12 @@ function baseConfig(overrides: Partial<OpenCodeSessionConfig> = {}): OpenCodeSes
     baseUrl: "http://127.0.0.1:9999",
     ...overrides,
   };
+}
+
+async function collectEvents(iter: AsyncIterable<ExecutionSessionEvent>): Promise<ExecutionSessionEvent[]> {
+  const events: ExecutionSessionEvent[] = [];
+  for await (const event of iter) events.push(event);
+  return events;
 }
 
 describe("OpenCodeSession implements IKilnSession", () => {
@@ -276,6 +282,39 @@ describe("OpenCodeSession.run() integration", () => {
       expect.objectContaining({ variant: "high" }),
       expect.anything(),
     );
+  });
+
+  it("fails before SDK transport when invocation communication is not exactly representable", async () => {
+    const session = new OpenCodeSession(baseConfig({
+      model: "openai/gpt-5.6-sol",
+      communicationIntent: resolveCommunicationIntent([{
+        source: "invocation",
+        intent: { responseDetail: "detailed", onUnsupported: "deny" },
+      }]),
+    }));
+
+    await expect(collectEvents(session.run({ prompt: "test" })))
+      .rejects.toThrow("opencode cannot exactly project");
+    expect(createOpencodeClient).not.toHaveBeenCalled();
+  });
+
+  it("materializes locale and required content in the standalone OpenCode prompt", async () => {
+    const mock = makeMockClient("ses_communication", [], 0);
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+    const session = new OpenCodeSession(baseConfig({
+      communicationIntent: resolveCommunicationIntent([{
+        source: "invocation",
+        intent: { locale: "es-MX", requiredContent: ["verification"] },
+      }]),
+    }));
+
+    await collectEvents(session.run({ prompt: "test" }));
+
+    const call = mock.session.prompt.mock.calls[0]?.[0] as {
+      parts?: Array<{ type: string; text?: string }>;
+    } | undefined;
+    expect(call?.parts?.[0]?.text).toContain("Respond using locale 'es-MX'");
+    expect(call?.parts?.[0]?.text).toContain("verification");
   });
 
   it("uses the discovery-bound managed executable instead of ambient CLI resolution", () => {
@@ -1441,7 +1480,13 @@ describe("OpenCodeSession.run() integration", () => {
         .mockResolvedValueOnce({ provider: "opencode", nativeSessionId: "oc-abc" });
       vi.spyOn(SessionStore.prototype, "append").mockResolvedValueOnce(undefined);
 
-      const session = new OpenCodeSession(baseConfig({ continuationSessionId: "k-123" }));
+      const session = new OpenCodeSession(baseConfig({
+        continuationSessionId: "k-123",
+        communicationIntent: resolveCommunicationIntent([{
+          source: "project",
+          intent: { locale: "es-MX" },
+        }]),
+      }));
       const events: object[] = [];
       for await (const event of await session.run({ prompt: "resume me" })) {
         events.push(event);
@@ -1452,6 +1497,12 @@ describe("OpenCodeSession.run() integration", () => {
         { throwOnError: true },
       );
       expect(mock.session.create).not.toHaveBeenCalled();
+      expect(session.communicationResolution?.requested.authority.locale).toBe("project");
+      expect(session.effectivePromptObservation).toMatchObject({
+        providerId: "opencode",
+        communicationResolution: { locale: { status: "exact", mechanism: "prompt" } },
+      });
+      expect(JSON.stringify(session.effectivePromptObservation)).not.toContain("Respond using locale");
     });
 
     it("calls session.create when no continuationSessionId configured", async () => {

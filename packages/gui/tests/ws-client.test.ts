@@ -503,12 +503,22 @@ describe("GuiWsClient", () => {
         type: "message",
         content: "fresh turn",
         sessionIntent: "fresh",
+        communicationIntent: {
+          responseDetail: "concise",
+          locale: "es-MX",
+          requiredContent: ["verification"],
+        },
       });
 
       expect(wsInstance.send).toHaveBeenCalledWith(JSON.stringify({
         type: "message",
         content: "fresh turn",
         sessionIntent: "fresh",
+        communicationIntent: {
+          responseDetail: "concise",
+          locale: "es-MX",
+          requiredContent: ["verification"],
+        },
       }));
     });
 

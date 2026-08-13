@@ -6,7 +6,7 @@ import type {
   ProviderAdapter,
   ToolCall,
 } from "../index.js";
-import { admitDeliberationForExecution } from "../index.js";
+import { admitCommunicationForExecution, admitDeliberationForExecution } from "../index.js";
 import { textPart, extractText } from "../../engine/domain/content.js";
 import type { ContentPart } from "../../engine/domain/content.js";
 import { KilnError } from "../../engine/errors.js";
@@ -62,6 +62,9 @@ interface ResponsesRequestBody {
   readonly temperature?: number;
   readonly reasoning?: {
     readonly effort: DeliberationLevelId;
+  };
+  readonly text?: {
+    readonly verbosity: string;
   };
   readonly tools?: readonly ResponsesTool[];
 }
@@ -126,6 +129,7 @@ interface FunctionCallArgumentsDoneEnvelope {
 export class CodexOAuthAdapter implements ProviderAdapter {
   readonly name = "codex-oauth";
   readonly deliberationTransport = "native-level" as const;
+  readonly communicationTransport = "native" as const;
 
   private readonly auth: AccessTokenProvider;
   private readonly model: string;
@@ -474,6 +478,10 @@ export class CodexOAuthAdapter implements ProviderAdapter {
     options: CreateMessageOptions,
   ): ResponsesRequest {
     const deliberationLevel = admitDeliberationForExecution(options.deliberationResolution);
+    const communication = admitCommunicationForExecution(options.communicationResolution);
+    if (communication.interactionProfile) {
+      throw new Error("Codex OAuth direct-provider transport does not admit native interaction profiles.");
+    }
     const input: ResponsesInputItem[] = [];
     const toolNames = createProviderToolNameCodec(collectCanonicalToolNames(options));
 
@@ -505,6 +513,7 @@ export class CodexOAuthAdapter implements ProviderAdapter {
         store: false,
         stream: true,
         ...(deliberationLevel ? { reasoning: { effort: deliberationLevel } } : {}),
+        ...(communication.responseDetail ? { text: { verbosity: communication.responseDetail } } : {}),
         ...(tools ? { tools } : {}),
       },
       toolNames,

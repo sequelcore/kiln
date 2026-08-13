@@ -78,6 +78,7 @@ export interface SessionLike {
     executionMode?: OperatorExecutionMode;
     requestedAuthority?: OperatorTurnRequestedAuthority;
     deliberationIntent?: import("@kilnai/gateway-contracts").GuiDeliberationIntent;
+    communicationIntent?: import("@kilnai/gateway-contracts").GuiCommunicationIntent;
   }): AsyncIterable<SessionEventInternal>;
   dispose(): Promise<void>;
 }

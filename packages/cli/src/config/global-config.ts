@@ -22,6 +22,7 @@ import {
   validateManagedEconomicAmount,
   validateVoiceConfig,
   defineExecutionCatalog,
+  resolveCommunicationIntent,
   isDirectProviderId,
   type ManagedEconomicAmount,
   type ModelGatewayConfig,
@@ -31,6 +32,7 @@ import {
   type ExecutionCatalog,
   type ExecutionRoute,
   type ExecutionRouteAccountSelection,
+  type CommunicationIntent,
 } from "@kilnai/core";
 import { describeRunningCliBuild } from "../build-identity.js";
 import { KilnYamlError } from "../kiln-yaml.js";
@@ -137,6 +139,7 @@ export interface KilnGlobalConfig {
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
+  readonly communication?: CommunicationIntent;
   readonly web?: KilnGlobalWebConfig;
   readonly ui?: KilnGlobalUiConfig;
   readonly skills?: KilnYamlSkillsConfig;
@@ -170,6 +173,7 @@ const ROOT_FIELDS = fieldNamesOf<KilnGlobalConfig>({
   managedAgents: true,
   modelTaskSuitability: true,
   deliberationPolicy: true,
+  communication: true,
   web: true,
   ui: true,
   skills: true,
@@ -543,6 +547,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "hooks");
   validateRecordField(config, "managedAgents");
   validateRecordField(config, "deliberationPolicy");
+  validateRecordField(config, "communication");
   validateRecordField(config, "web");
   validateRecordField(config, "ui");
   validateRecordField(config, "skills");
@@ -561,6 +566,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateManagedAgents(config.managedAgents, config.operatorVoice as VoiceConfig | undefined);
   validateModelTaskSuitability(config.modelTaskSuitability);
   validateDeliberationPolicy(config.deliberationPolicy);
+  validateCommunication(config.communication, "communication", "global");
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
   validateGlobalUi(config.ui, config.executionCatalog);
@@ -1837,6 +1843,18 @@ function validateDeliberationPolicy(value: unknown): void {
       }
       identities.add(identity);
     }
+  }
+}
+
+function validateCommunication(value: unknown, path: string, source: "global" | "project"): void {
+  if (value === undefined) return;
+  try {
+    resolveCommunicationIntent([{
+      source,
+      intent: value as CommunicationIntent,
+    }]);
+  } catch (error) {
+    throw new KilnYamlError(`${path} is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

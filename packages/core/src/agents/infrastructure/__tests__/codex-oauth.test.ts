@@ -4,7 +4,11 @@ import type {
   AgentStreamEvent,
   CreateMessageOptions,
 } from "../../index.js";
-import { KNOWN_DELIBERATION_LEVEL_IDS } from "../../index.js";
+import {
+  KNOWN_DELIBERATION_LEVEL_IDS,
+  resolveCommunicationIntent,
+  resolveCommunicationProfile,
+} from "../../index.js";
 import { getInvalidToolInputDetails } from "../../tool-call-input.js";
 
 const mockFetch = vi.fn();
@@ -372,6 +376,70 @@ describe("CodexOAuthAdapter", () => {
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       const body = JSON.parse(String(init.body)) as { reasoning?: unknown };
       expect(body.reasoning).toBeUndefined();
+    });
+
+    it("sends revisioned response detail through the Responses text control", async () => {
+      mockFetch.mockResolvedValueOnce(sseResponse([{
+        event: "response.completed",
+        data: {
+          response: {
+            id: "resp_detail",
+            status: "completed",
+            output: [],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+        },
+      }]));
+
+      const { adapter } = await createAdapter("gpt-5.4");
+      const communicationResolution = resolveCommunicationProfile({
+        intent: resolveCommunicationIntent([{
+          source: "user",
+          intent: { responseDetail: "detailed", onUnsupported: "deny" },
+        }]),
+        execution: {
+          provider: "codex-oauth",
+          model: "gpt-5.4",
+          surface: "runtime",
+        },
+        capabilities: {
+          provider: "codex-oauth",
+          model: "gpt-5.4",
+          responseDetail: {
+            mechanism: "native",
+            supported: ["concise", "standard", "detailed"],
+            nativeValues: { concise: "low", standard: "medium", detailed: "high" },
+          },
+          evidence: {
+            sourceIdentity: "codex-model-catalog",
+            sourceRevision: "9",
+            observedAt: "2026-08-13T00:00:00.000Z",
+          },
+        },
+      });
+      await adapter.createMessage(createOptions({ communicationResolution }));
+
+      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body)) as { text?: { verbosity?: string } };
+      expect(body.text).toEqual({ verbosity: "high" });
+    });
+
+    it("rejects unsupported communication before provider I/O", async () => {
+      const { adapter } = await createAdapter("gpt-5.4");
+      const communicationResolution = resolveCommunicationProfile({
+        intent: resolveCommunicationIntent([{
+          source: "user",
+          intent: { responseDetail: "concise", onUnsupported: "deny" },
+        }]),
+        execution: {
+          provider: "codex-oauth",
+          model: "gpt-5.4",
+          surface: "runtime",
+        },
+      });
+      await expect(adapter.createMessage(createOptions({ communicationResolution })))
+        .rejects.toThrow("Unsupported communication intent");
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("rejects denied deliberation before provider I/O", async () => {

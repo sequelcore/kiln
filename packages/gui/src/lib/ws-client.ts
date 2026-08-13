@@ -10,6 +10,8 @@ import type {
 } from "@kilnai/gateway-contracts";
 import {
   ContextUsageProjectionSchema,
+  CommunicationIntentSchema,
+  EffectivePromptObservationSchema,
   ExecutionRouteCatalogSchema,
   ExecutionRouteReasonCodeSchema,
   ExecutionRouteRepairActionSchema,
@@ -78,6 +80,7 @@ const GuiOutboundFrameSchema = z.discriminatedUnion("type", [
     continuationSessionId: z.string().optional(),
     sessionIntent: z.literal("fresh").optional(),
     deliberationIntent: DeliberationIntentSchema.optional(),
+    communicationIntent: CommunicationIntentSchema.optional(),
     gatewayTargetId: z.string().optional(),
     appName: z.string().optional(),
     tenantId: z.string().optional(),
@@ -524,6 +527,7 @@ const GuiSessionEventSchema = z.object({
     "file_changed",
     "cost_updated",
     "context_usage_observed",
+    "effective_prompt_observed",
     "lifecycle_attribution_recorded",
     "work_item_updated",
     "work_item_execution_started",
@@ -564,9 +568,11 @@ const GuiSessionEventSchema = z.object({
   }).optional(),
   payload: z.record(z.string(), z.unknown()),
 }).superRefine((event, ctx) => {
-  if (event.kind !== "context_usage_observed") return;
-  if (!ContextUsageProjectionSchema.safeParse(event.payload.contextUsage).success) {
+  if (event.kind === "context_usage_observed" && !ContextUsageProjectionSchema.safeParse(event.payload.contextUsage).success) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "context_usage_observed requires a valid contextUsage projection" });
+  }
+  if (event.kind === "effective_prompt_observed" && !EffectivePromptObservationSchema.safeParse(event.payload.effectivePrompt).success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "effective_prompt_observed requires valid content-free evidence" });
   }
 });
 

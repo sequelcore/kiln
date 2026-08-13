@@ -183,6 +183,9 @@ export function createManagedInvocationToolCallMetadataResolver(
         surface: route.surface ?? "configured",
         ...(parsed.input.providerRoute.model ?? route.model ? { model: parsed.input.providerRoute.model ?? route.model } : {}),
         ...(parsed.input.providerRoute.deliberationIntent ? { deliberationIntent: parsed.input.providerRoute.deliberationIntent } : {}),
+        ...(parsed.input.providerRoute.communicationIntent
+          ? { communicationIntent: parsed.input.providerRoute.communicationIntent }
+          : {}),
       },
       adapterKind: route.capability.adapter.kind === "direct-provider" ? "direct" : "harness",
       executionMode: route.surface ?? "cli-harness",

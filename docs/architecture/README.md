@@ -51,6 +51,9 @@ Attention, memory, and context assembly.
 - [`context/context-governance.md`](context/context-governance.md)
   Context assembly, budget enforcement, attention bottleneck, and context
   policy.
+- [`context/communication-governance.md`](context/communication-governance.md)
+  Provider-neutral response detail, interaction behavior, preservation
+  obligations, final-request evidence, and native harness projection.
 - [`context/agent-context.md`](context/agent-context.md)
   Canonical operator identity, instruction profiles, agent profiles, skills,
   managed child context, precedence, admission, and surface parity.

@@ -26,14 +26,17 @@ import type {
   TtsAdapter,
   VoiceConfig,
   CanonicalSessionEvent,
-  SessionTurnOutcome
+  SessionTurnOutcome,
+  EffectivePromptObservation,
+  CommunicationResolution,
 } from "@kilnai/core";
 import {
   estimateTextTokens,
   extractText,
   textParts,
   GroundingRail,
-  skillConfigToContextCandidate
+  skillConfigToContextCandidate,
+  projectFinalEffectivePromptObservation,
 } from "@kilnai/core";
 import type {
   AbuseDetectionConfig
@@ -327,6 +330,8 @@ export interface AdmittedTurnResult {
   };
   readonly contextAudit?: RuntimeContextAudit;
   readonly effectiveTurnAuthority?: NonNullable<PerCallToolConfig["effectiveTurnAuthority"]>;
+  readonly communicationResolution?: CommunicationResolution;
+  readonly effectivePromptObservation?: EffectivePromptObservation;
 }
 
 export interface BudgetDeniedResult {
@@ -1268,6 +1273,7 @@ async function finalizeEgressAndPersistTurn(
       turnId: perCallConfig?.turnId,
       contextWindow: ctx.contextUsageWindow,
     }),
+    providerRequests: result.providerRequests,
   });
 
   return {
@@ -1509,6 +1515,8 @@ async function finalizeAndEmitTurnEvents(
       runtimeContinuity: assembled.runtimeContinuityPresentation.runtimeContinuity,
       contextAudit: projectedContextAudit,
       effectiveTurnAuthority: perCallConfig?.effectiveTurnAuthority,
+      communicationResolution: result.communicationResolution,
+      effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
     },
   };
 }
@@ -1563,6 +1571,7 @@ export async function processAdmittedTurn(ctx: AdmittedTurnContext): Promise<Pro
             estimatedTokens: estimateTextTokens(runtimeFinalOutputText),
           },
         },
+        providerRequests: orchestration.result.providerRequests,
       });
       await ctx.sessionRegistry.save(state.session);
       ctx.publishCanonicalSessionEvents?.(failureEvents);

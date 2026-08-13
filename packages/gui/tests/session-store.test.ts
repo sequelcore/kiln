@@ -2790,6 +2790,7 @@ describe("session-store", () => {
       appName: "support",
       tenantId: "acme",
       deliberationIntent: { mode: "fixed", preferredLevel: "medium", onUnsupported: "deny" },
+      communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
     });
 
     expect(accepted).toBe(true);
@@ -2802,6 +2803,7 @@ describe("session-store", () => {
       appName: "support",
       tenantId: "acme",
       deliberationIntent: { mode: "fixed", preferredLevel: "medium", onUnsupported: "deny" },
+      communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
     });
   });
 

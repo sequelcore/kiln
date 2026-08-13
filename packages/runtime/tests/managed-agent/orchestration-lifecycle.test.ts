@@ -119,6 +119,73 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
     ]);
   });
 
+  it("propagates agent-profile communication authority into orchestration children", async () => {
+    const observedRequests: ManagedAgentRuntimeInvocationInput["request"][] = [];
+    const base = createManagedInvocation({
+      requestObserver: (request) => observedRequests.push(request),
+    });
+    const managedInvocation: ManagedInvocationToolOptions = {
+      ...base,
+      agentCatalog: [{
+        name: "concise-reviewer",
+        role: "Reviewer",
+        goal: "Review concisely and retain findings.",
+        tier: "reasoning",
+        authorityProfile: "foundation-apply-approved-writes",
+        routeId: "test-write",
+        communication: {
+          responseDetail: "concise",
+          requiredContent: ["finding"],
+        },
+      }],
+    };
+
+    await runManagedAgentOrchestrationLifecycle({
+      orchestrationRequest: buildManagedAgentDecompositionOrchestrationRequest({
+        orchestrationId: "communication-test",
+        parentSessionId: "parent-session",
+        parentTurnId: "parent-turn",
+        requestedBy: "operator",
+        requestSource: "runtime-test",
+        task: "Review the implementation",
+        childPlans: [
+          {
+            roleIntent: "reviewer",
+            task: "Report findings.",
+            agentProfile: "concise-reviewer",
+          },
+          {
+            roleIntent: "verifier",
+            task: "Verify the reported findings.",
+            agentProfile: "concise-reviewer",
+          },
+        ],
+        maxConcurrentChildren: 1,
+        workingDirectoryMode: "isolated-worktree",
+      }),
+      managedInvocation,
+      profile: "foundation-apply-approved-writes",
+      callerIdentity: {
+        kind: "kiln-runtime",
+        surface: "test",
+        attachmentId: "attachment:test",
+        parentEffectiveRequestedAuthority: "destructive",
+      },
+      requestedAuthority: "audited",
+    });
+
+    expect(observedRequests[0]?.providerRoute.communicationIntent).toMatchObject({
+      intent: {
+        responseDetail: "concise",
+        requiredContent: ["finding"],
+      },
+      authority: {
+        responseDetail: "agent-profile",
+        requiredContent: { finding: ["agent-profile"] },
+      },
+    });
+  });
+
   it("routes each team member independently and propagates completed dependency handoffs", async () => {
     const observedRequests: ManagedAgentRuntimeInvocationInput["request"][] = [];
     const managedInvocation = createManagedInvocation({

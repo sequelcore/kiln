@@ -6,6 +6,30 @@ import { useKilnChat } from "../src/use-kiln-chat.js";
 import type { KilnConfig, ChatMessage } from "../src/types.js";
 import type { ContentPart } from "@kilnai/core";
 
+const communicationEvidence = {
+  version: "v1",
+  requestIndex: 0,
+  providerId: "codex-oauth",
+  modelId: "gpt-5.6-sol",
+  finalPromptHash: `sha256:${"a".repeat(64)}`,
+  estimatedTokens: 10,
+  componentCount: 1,
+  componentScopeCounts: { static: 1, dynamic: 0, deferred: 0 },
+  effectivePrompt: {
+    version: "v1",
+    components: [{
+      id: `sha256:${"b".repeat(64)}`,
+      revision: `sha256:${"c".repeat(64)}`,
+      scope: "static",
+      estimatedTokens: 10,
+      provenance: { source: `sha256:${"d".repeat(64)}` },
+    }],
+    finalPromptHash: `sha256:${"a".repeat(64)}`,
+    estimatedTokens: 10,
+  },
+  evidenceIdentity: `sha256:${"e".repeat(64)}`,
+} as const;
+
 function createWrapper(config: KilnConfig) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return createElement(KilnProvider, { config }, children);
@@ -97,7 +121,7 @@ describe("useKilnChat", () => {
   });
 
   it("send() adds assistant message from API response", async () => {
-    mockFetch({ content: "assistant reply" });
+    mockFetch({ content: "assistant reply", effectivePromptObservation: communicationEvidence });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -111,6 +135,7 @@ describe("useKilnChat", () => {
     const assistantMsg = result.current.messages[1];
     expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.content).toBe("assistant reply");
+    expect(result.current.communicationEvidence).toEqual(communicationEvidence);
   });
 
   it("send() preserves REST response parts on assistant message", async () => {
@@ -160,12 +185,16 @@ describe("useKilnChat", () => {
     });
 
     await act(async () => {
-      await result.current.send("just text", { requestedAuthority: "audited" });
+      await result.current.send("just text", {
+        requestedAuthority: "audited",
+        communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
+      });
     });
 
     const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.requestedAuthority).toBe("audited");
+    expect(body.communicationIntent).toEqual({ responseDetail: "concise", requiredContent: ["warning"] });
   });
 
   it("send() posts requestedAuthority from hook options", async () => {

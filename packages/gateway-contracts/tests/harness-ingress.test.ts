@@ -27,6 +27,12 @@ const turnStart = {
     preferredLevel: "medium",
     onUnsupported: "deny",
   },
+  communicationIntent: {
+    responseDetail: "concise",
+    locale: "es-MX",
+    requiredContent: ["verification"],
+    onUnsupported: "deny",
+  },
 } as const;
 
 describe("harness-neutral ingress contract", () => {
@@ -123,6 +129,8 @@ describe("harness-neutral ingress contract", () => {
     expect(() => parseHarnessIngressClientFrame({ ...turnStart, content: undefined, parts: [{ type: "text", text: "safe", unexpected: true }] }, transportIdentity)).toThrow();
     expect(() => parseHarnessIngressClientFrame(Object.assign(Object.create({ inherited: true }), turnStart), transportIdentity)).toThrow();
     expect(() => parseHarnessIngressClientFrame({ ...turnStart, content: undefined, parts: [Object.assign(Object.create({ provider: "native" }), { type: "text", text: "safe" })] }, transportIdentity)).toThrow();
+    expect(() => parseHarnessIngressClientFrame({ ...turnStart, communicationIntent: { responseDetail: "concise", rawPrompt: "private" } }, transportIdentity)).toThrow();
+    expect(() => parseHarnessIngressClientFrame({ ...turnStart, communicationIntent: { locale: "not a locale" } }, transportIdentity)).toThrow();
   });
 
   it.each([

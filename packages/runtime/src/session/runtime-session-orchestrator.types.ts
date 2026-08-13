@@ -29,6 +29,9 @@ import type {
   ProviderTransportObserver,
   ProviderTransportWatchdog,
   ExecutionSessionBindingEvidence,
+  CommunicationResolution,
+  ResolvedCommunicationIntent,
+  ModelCommunicationCapabilities,
 } from "@kilnai/core";
 import type { ProviderRequestEvidence } from "@kilnai/core";
 import type { KilnMcpClient } from "@kilnai/core";
@@ -216,6 +219,7 @@ export interface OrchestrateResult {
     readonly deliberationResolution?: DeliberationResolution;
     readonly rationale?: ModelRoutingRationale;
   };
+  readonly communicationResolution?: CommunicationResolution;
 }
 
 export interface GovernedRuntimeContext {
@@ -311,6 +315,7 @@ export interface EffectiveTurnAuthorityAdmissionContext {
 
 export interface ModelRoutingRouteCapabilities {
   readonly deliberation?: ModelDeliberationCapabilities;
+  readonly communication?: ModelCommunicationCapabilities;
 }
 
 export interface ModelRoutingPolicyConfig {
@@ -362,6 +367,8 @@ export interface PerCallToolConfig {
   readonly deliberationIntent?: DeliberationIntent;
   readonly deliberationSource?: Exclude<DeliberationSource, "provider-default">;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
+  readonly communicationResolution?: CommunicationResolution;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
   readonly authorityContext?: EffectiveTurnAuthorityAdmissionContext;
   readonly modelRoutingPolicy?: ModelRoutingPolicyConfig;

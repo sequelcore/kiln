@@ -17,6 +17,8 @@ export type {
   EffectivePromptManifest,
   EffectivePromptManifestInput,
 } from "./effective-prompt-manifest.js";
+export { observeStandaloneEffectivePrompt, projectFinalEffectivePromptObservation } from "./effective-prompt-observation.js";
+export type { EffectivePromptObservation } from "./effective-prompt-observation.js";
 export type {
   ContextAllocationMode,
   ContextCandidateSegment,

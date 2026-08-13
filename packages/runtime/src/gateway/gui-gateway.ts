@@ -15,6 +15,7 @@ import {
   type DefaultBuiltinToolRegistryOptions,
   type TurnTemporalContext,
   assertScopedExecutionSessionToolEvent,
+  type CommunicationIntentCandidate,
   type ExecutionSessionEvent,
 } from "@kilnai/core";
 import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.js";
@@ -23,6 +24,7 @@ import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
+import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import type {
   RuntimeTurnApprovalTransition,
@@ -166,6 +168,8 @@ export interface StartGuiGatewayOptions {
   readonly memoryLatticeDefaultScope?: GuiMemoryLatticeScope;
   readonly operatorTerminalAdapter?: OperatorPtyAdapter;
   readonly goalController?: GuiGoalController;
+  /** Persisted sources retain provenance; a message-local user intent is added per turn. */
+  readonly communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
 }
 
 export interface GuiGoalController {
@@ -672,6 +676,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       builtinToolOptions,
       managedInvocation,
       boundedWork: options.boundedWork,
+      communicationIntentCandidates: options.communicationIntentCandidates,
       executionRouteSelection: options.executionRouteSelection,
       operatorTerminalCapability,
       operatorTerminalService,
@@ -779,6 +784,7 @@ function wireOperatorTransport(
     builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
     managedInvocation?: ManagedInvocationToolAttachment;
     boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
+    communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
     executionRouteSelection?: OperatorExecutionRouteSelectionPort;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
@@ -834,6 +840,10 @@ function wireOperatorTransport(
       committed.admission.providerModelId,
     );
     const deliberationIntent = toCoreDeliberationIntent(payload.message.deliberationIntent);
+    const communicationIntent = resolveOperatorCommunicationIntent(
+      input.communicationIntentCandidates,
+      payload.message.communicationIntent,
+    );
     const executionMode = resolveExecutionMode(payload.message.executionMode);
     const requestedAuthority = resolveGuiRequestedAuthority(payload.message.requestedAuthority);
     const governedWorkRequirement = resolveGuiGovernedWorkRequirement(payload.message.governedWorkRequirement);
@@ -862,6 +872,7 @@ function wireOperatorTransport(
         payload.operatorTimeZone
           ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone })
           : undefined,
+        communicationIntent,
       ),
       abortSignal: payload.abortSignal,
       executionBinding: committed.binding,
@@ -1827,6 +1838,7 @@ export function buildGuiTurnPerCallConfig(
   workingDirectory?: string,
   governedWorkRequirement?: PerCallToolConfig["governedWorkRequirement"],
   temporalContext?: TurnTemporalContext,
+  communicationIntent?: PerCallToolConfig["communicationIntent"],
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: GUI_TENANT_ID,
@@ -1836,6 +1848,7 @@ export function buildGuiTurnPerCallConfig(
     activeModel,
     ...(activeModelCapabilities ? { activeModelCapabilities: toCoreModelCapabilities(activeModelCapabilities) } : {}),
     ...(deliberationIntent ? { deliberationIntent } : {}),
+    ...(communicationIntent ? { communicationIntent } : {}),
     builtinToolSurface,
     executionMode,
     requestedAuthority,

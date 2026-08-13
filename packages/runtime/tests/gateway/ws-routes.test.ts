@@ -5,6 +5,47 @@ import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
 import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
 
+const hash = (character: string) => `sha256:${character.repeat(64)}`;
+
+const providerRequestEvidence = {
+  requestIndex: 0,
+  providerId: "codex-oauth",
+  modelId: "gpt-5.6-sol",
+  inputTokens: 3,
+  outputTokens: 2,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  cumulativeInputTokens: 3,
+  cumulativeOutputTokens: 2,
+  cumulativeCacheReadTokens: 0,
+  cumulativeCacheWriteTokens: 0,
+  systemBytes: 3,
+  messageBytes: 2,
+  toolSchemaBytes: 0,
+  systemHash: hash("1"),
+  messageHash: hash("2"),
+  toolSchemaHash: hash("3"),
+  stablePrefixHash: hash("4"),
+  stablePrefixBytes: 3,
+  stablePrefixRegionCount: 1,
+  volatileRegionBytes: 2,
+  cacheRegions: [],
+  cachePartition: { dimensions: [] },
+  toolCount: 0,
+  effectivePrompt: {
+    version: "v1" as const,
+    components: [{
+      id: hash("5"),
+      revision: hash("6"),
+      scope: "static" as const,
+      estimatedTokens: 3,
+      provenance: { source: hash("7") },
+    }],
+    finalPromptHash: hash("8"),
+    estimatedTokens: 3,
+  },
+};
+
 /**
  * Simulates the upgradeWebSocket middleware by capturing the handler factory,
  * then invoking it directly with a mock request context and WSContext.
@@ -233,6 +274,75 @@ describe("createWsRoutes", () => {
 
       expect(processMessage).toHaveBeenCalledWith("user-1", textParts("hello"), {
         requestedAuthority: "audited",
+      });
+    });
+
+    it("validates communication intent and returns final effective-prompt evidence", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn().mockResolvedValue({
+        parts: textParts("respuesta"),
+        outcome: "completed",
+        inputTokens: 3,
+        outputTokens: 2,
+        providerRequests: [providerRequestEvidence],
+      });
+
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "private request",
+          communicationIntent: {
+            locale: "es-MX",
+            responseDetail: "concise",
+            requiredContent: ["verification"],
+          },
+        }),
+      }), wsCtx);
+
+      expect(processMessage).toHaveBeenCalledWith("user-1", textParts("private request"), {
+        requestedAuthority: undefined,
+        communicationIntent: expect.objectContaining({
+          intent: expect.objectContaining({
+            locale: "es-MX",
+            responseDetail: "concise",
+            requiredContent: ["verification"],
+          }),
+          authority: expect.objectContaining({ locale: "user", responseDetail: "user" }),
+        }),
+      });
+      const done = JSON.parse(mockWs.send.mock.calls[0]?.[0] as string);
+      expect(done.effectivePromptObservation).toMatchObject({
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-sol",
+        finalPromptHash: hash("8"),
+        componentCount: 1,
+      });
+      expect(JSON.stringify(done.effectivePromptObservation)).not.toContain("private request");
+    });
+
+    it("rejects invalid communication intent before processing", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      const processMessage = vi.fn();
+      createWsRoutes({ webChannel: channel, upgradeWebSocket, processMessage });
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          communicationIntent: { locale: "es-MX", rawPrompt: "ignore policy" },
+        }),
+      }), wsCtx);
+
+      expect(processMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0]?.[0] as string)).toEqual({
+        type: "error",
+        message: "communicationIntent is invalid",
       });
     });
 

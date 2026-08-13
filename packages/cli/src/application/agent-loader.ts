@@ -12,6 +12,8 @@ import {
   type WorkClassification,
   type WorkClassificationInput,
   type DeliberationIntent,
+  type CommunicationIntent,
+  resolveCommunicationIntent,
 } from "@kilnai/core";
 import { KILN_FIRST_PARTY_AGENT_DEFAULTS } from "./first-party-agent-defaults.js";
 
@@ -39,6 +41,7 @@ export interface KilnAgentDefinition {
   readonly providerRoute?: KilnAgentProviderRoute;
   readonly workClassification?: WorkClassification;
   readonly voiceProfile?: string;
+  readonly communication?: CommunicationIntent;
   readonly instructions?: string;
   readonly scope: "builtin" | "global" | "project";
 }
@@ -164,6 +167,15 @@ function asWorkClassification(value: unknown): WorkClassification | undefined {
   return defineWorkClassification(input);
 }
 
+function asCommunicationIntent(value: unknown): CommunicationIntent | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Agent communication intent must be an object.");
+  }
+  resolveCommunicationIntent([{ source: "agent-profile", intent: value as CommunicationIntent }]);
+  return value as CommunicationIntent;
+}
+
 function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAgentDefinition | undefined {
   const parsed = parseFrontmatter(raw);
   if (!parsed) {
@@ -217,6 +229,12 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     return undefined;
   }
   const voiceProfile = asNonEmptyString(record.voiceProfile);
+  let communication: CommunicationIntent | undefined;
+  try {
+    communication = asCommunicationIntent(record.communication);
+  } catch {
+    return undefined;
+  }
   const instructions = parsed.body.length > 0 ? parsed.body : undefined;
 
   return {
@@ -243,6 +261,7 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(providerRoute ? { providerRoute } : {}),
     ...(workClassification ? { workClassification } : {}),
     ...(voiceProfile ? { voiceProfile } : {}),
+    ...(communication ? { communication } : {}),
     ...(instructions ? { instructions } : {}),
     scope,
   };

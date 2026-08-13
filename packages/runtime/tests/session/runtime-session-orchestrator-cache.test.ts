@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
 import type { ActionEffectEnvelope, ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
-import { textParts, EventBus, sha256ContentIdentity, ToolCache } from "@kilnai/core";
+import { textParts, EventBus, resolveCommunicationIntent, sha256ContentIdentity, ToolCache } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { measureProviderRequestRegions } from "../../src/session/runtime-session-orchestrator-telemetry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -110,7 +110,18 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       toolCache,
     });
 
-    const result = await orchestrator.processMessage(makeSession(), textParts("weather in London"));
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("weather in London"),
+      undefined,
+      undefined,
+      {
+        communicationIntent: resolveCommunicationIntent([{
+          source: "project",
+          intent: { locale: "en-GB", requiredContent: ["verification"], onUnsupported: "omit" },
+        }]),
+      },
+    );
 
     expect(result.providerRequests).toEqual([
       expect.objectContaining({
@@ -133,6 +144,10 @@ describe("RuntimeSessionOrchestrator - Tool Result Caching", () => {
       }),
     ]);
     expect(result.providerRequests?.[0]?.systemBytes).toBeGreaterThan(0);
+    expect(result.providerRequests?.map((request) => request.communicationResolution?.identity)).toEqual([
+      result.communicationResolution?.identity,
+      result.communicationResolution?.identity,
+    ]);
     expect(result.providerRequests?.[0]?.messageBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.toolSchemaBytes).toBeGreaterThan(0);
     expect(result.providerRequests?.[0]?.systemHash).toMatch(/^sha256:[a-f0-9]{64}$/u);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { resolveCommunicationIntent, textParts } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
@@ -547,5 +547,21 @@ describe("GUI authority forwarding", () => {
       allowed: true,
       requiresApproval: false,
     });
+  });
+
+  it("projects GUI communication intent with exact route capability evidence", async () => {
+    const { buildGuiTurnPerCallConfig } = await import("../../src/gateway/gui-gateway.js");
+    const communicationIntent = resolveCommunicationIntent([{
+      source: "user",
+      intent: { responseDetail: "concise", requiredContent: ["warning"] },
+    }]);
+    const cfg = buildGuiTurnPerCallConfig(
+      "codex-oauth", "gpt-5.6-sol", undefined, undefined, undefined,
+      "execute", undefined, undefined, undefined, undefined, communicationIntent,
+    );
+
+    expect(cfg.communicationIntent).toBe(communicationIntent);
+    expect(cfg.modelRoutingPolicy?.routeCapabilities?.get("codex-oauth/gpt-5.6-sol")?.communication)
+      .toMatchObject({ evidence: { sourceRevision: "2026-08-13" } });
   });
 });

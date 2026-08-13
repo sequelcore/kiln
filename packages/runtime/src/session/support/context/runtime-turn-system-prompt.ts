@@ -4,6 +4,8 @@ import {
   validateAdmittedContextBlocks,
   validatePartitionedProjectedContext,
   sha256ContentIdentity,
+  renderCommunicationPromptProjection,
+  type CommunicationResolution,
   type DeferredEffectivePromptComponentInput,
   type EffectivePromptComponentInput,
   type EffectivePromptManifest,
@@ -187,6 +189,26 @@ export function reconcileRuntimeInvocationPromptManifest(
         provenance: { source: "runtime-routing-replacement" },
       },
       ...deferred,
+    ],
+  });
+}
+
+export function appendRuntimeCommunicationPromptManifest(
+  manifest: EffectivePromptManifest,
+  resolution: CommunicationResolution | undefined,
+): EffectivePromptManifest {
+  const content = renderCommunicationPromptProjection(resolution);
+  if (!content) return manifest;
+  return buildEffectivePromptManifest({
+    components: [
+      ...manifest.components,
+      {
+        id: "runtime-communication-contract",
+        revision: resolution!.identity,
+        scope: "dynamic",
+        content,
+        provenance: { source: "runtime-communication-policy" },
+      },
     ],
   });
 }

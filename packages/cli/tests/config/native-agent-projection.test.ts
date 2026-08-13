@@ -99,6 +99,77 @@ describe("native-agent-projection", () => {
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
+  it("projects only evidence-backed native communication controls", () => {
+    const agent = {
+      name: "reviewer",
+      role: "Reviewer",
+      goal: "Review changes",
+      tier: "reasoning" as const,
+      scope: "project" as const,
+      communication: {
+        responseDetail: "detailed" as const,
+        locale: "es-MX",
+        requiredContent: ["verification" as const],
+        interactionProfile: {
+          id: "pragmatic",
+          revision: "v1",
+          behaviors: ["outcome-first" as const, "plain-language" as const, "next-action-explicit" as const],
+        },
+      },
+    };
+
+    expect(agentToCodexToml(agent, "gpt-5.6-sol")).toContain('model_verbosity = "high"');
+    expect(agentToCodexToml(agent, "gpt-5.6-sol")).toContain('personality = "pragmatic"');
+    expect(agentToCodexToml(agent, "gpt-5.6-sol")).toContain("Respond using locale 'es-MX'");
+    expect(agentToCodexToml(agent, "gpt-5.6-sol")).toContain("verification");
+    expect(agentToOpenCodeMd({
+      ...agent,
+      communication: { responseDetail: "concise" as const },
+    }, "openai/gpt-5.6-sol")).toContain("textVerbosity: low");
+    expect(agentToClaudeMd({
+      ...agent,
+      communication: { locale: "es-MX", requiredContent: ["verification" as const] },
+    }, "claude-opus-4-1")).toContain("Respond using locale 'es-MX'");
+  });
+
+  it("persists global/project/agent communication provenance with each owned projection", async () => {
+    loadAgentDefinitionsMock.mockResolvedValueOnce([{
+      name: "reviewer",
+      role: "Reviewer",
+      goal: "Review changes",
+      tier: "reasoning",
+      scope: "project",
+      communication: { requiredContent: ["finding"] },
+    }]);
+
+    const result = await syncNativeAgentProjections("/workspace/project", {
+      communicationCandidates: [
+        { source: "global", intent: { locale: "en-US" } },
+        { source: "project", intent: { locale: "es-MX", requiredContent: ["verification"] } },
+      ],
+    });
+
+    expect(result.errors).toEqual([]);
+    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+      targets: Record<string, { communicationResolution?: { requested: { authority: Record<string, unknown>; intent: { requiredContent: string[] } } } }>;
+    };
+    expect(state.targets["codex-agent:reviewer"]?.communicationResolution?.requested).toMatchObject({
+      authority: { locale: "project", requiredContent: { finding: ["agent-profile"], verification: ["project"] } },
+      intent: { locale: "es-MX", requiredContent: ["finding", "verification"] },
+    });
+  });
+
+  it("fails closed when a standalone harness cannot represent requested communication", () => {
+    expect(() => agentToClaudeMd({
+      name: "writer",
+      role: "Writer",
+      goal: "Write",
+      tier: "reasoning",
+      scope: "project",
+      communication: { responseDetail: "detailed" },
+    }, "claude-opus-4-1")).toThrow("cannot exactly project");
+  });
+
   it("passes an explicit userHome to the agent loader and never falls back to the OS home", async () => {
     const userHome = "/synthetic/user-home";
     loadAgentDefinitionsMock.mockImplementation(async (_projectPath: string, options: { userHome?: string }) => {

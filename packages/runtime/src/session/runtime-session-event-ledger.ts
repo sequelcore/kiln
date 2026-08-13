@@ -22,6 +22,7 @@ import type {
   ContextAuditEntry,
   ContextUsageProjection,
   VerifiedEfficiencyPolicyIdentity,
+  ProviderRequestEvidence,
 } from "@kilnai/core";
 import {
   createSessionEvent,
@@ -29,6 +30,7 @@ import {
   projectCostUpdatedEventToLifecycleLedger,
   projectVerifiedEfficiencyEvidence,
   reconcileLifecycleAttributionLedger,
+  projectFinalEffectivePromptObservation,
 } from "@kilnai/core";
 import type { RuntimeSession } from "./runtime-session.js";
 import type { RuntimeTurnFileChange } from "./runtime-turn-record.js";
@@ -136,6 +138,7 @@ export interface AppendCanonicalTurnEventsInput {
   readonly authorityMutationViolations?: readonly RuntimeTurnAuthorityMutationViolation[];
   readonly fileChanges?: readonly RuntimeTurnFileChange[];
   readonly contextUsage?: ContextUsageProjection;
+  readonly providerRequests?: readonly ProviderRequestEvidence[];
 }
 
 export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
@@ -576,6 +579,19 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
       contextUsage: input.contextUsage,
       source: runtimeSource,
       timestamp: new Date(input.contextUsage.observedAt),
+    }));
+  }
+
+  const effectivePrompt = projectFinalEffectivePromptObservation(input.providerRequests);
+  if (effectivePrompt) {
+    events.push(createSessionEvent<"effective_prompt_observed">({
+      kilnSessionId: session.id,
+      sequence: nextSequence(),
+      kind: "effective_prompt_observed",
+      turnId,
+      effectivePrompt,
+      source: runtimeSource,
+      timestamp: input.turnCompletedAt,
     }));
   }
 

@@ -8,7 +8,7 @@ import {
   type HarnessIngressServerFrame,
   type HarnessIngressTransportIdentity,
 } from "@kilnai/gateway-contracts";
-import type { ContentPart } from "@kilnai/core";
+import { resolveCommunicationIntent, type ContentPart } from "@kilnai/core";
 import type { ProviderAdapterAppRuntime } from "./provider-adapter-routes.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
 import { toCoreDeliberationIntent } from "./deliberation-projection.js";
@@ -139,6 +139,9 @@ async function completeTurn(input: {
 }): Promise<void> {
   try {
     const deliberationIntent = toCoreDeliberationIntent(input.frame.deliberationIntent);
+    const communicationIntent = input.frame.communicationIntent
+      ? resolveCommunicationIntent([{ source: "user", intent: input.frame.communicationIntent }])
+      : undefined;
     const result = await input.runAdmittedTurn({
       orchestrator: input.runtime.orchestrator,
       sessionRegistry: input.runtime.sessionRegistry,
@@ -163,8 +166,8 @@ async function completeTurn(input: {
       groundingDeps: input.runtime.groundingDeps,
       contextArtifactCache: input.runtime.contextArtifactCache,
       coordinationContextProvider: input.runtime.coordinationContextProvider,
-      ...(input.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: input.runtime.toolAllowlist, turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), abortSignal: input.active.controller.signal } }
-        : { perCallConfig: { turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), abortSignal: input.active.controller.signal } }),
+      ...(input.runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: input.runtime.toolAllowlist, turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), ...(communicationIntent ? { communicationIntent } : {}), abortSignal: input.active.controller.signal } }
+        : { perCallConfig: { turnId: input.frame.requestId, ...(deliberationIntent ? { deliberationIntent, deliberationSource: "operator" as const } : {}), ...(communicationIntent ? { communicationIntent } : {}), abortSignal: input.active.controller.signal } }),
     });
     if (!result.ok) {
       send(input.ws, errorFrame(input.frame.requestId, "unavailable"));

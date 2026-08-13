@@ -10,7 +10,7 @@ import type {
   ActionEffectEnvelope,
   KilnMcpClient,
 } from "@kilnai/core";
-import { textParts, EventBus, normalizeToolInput } from "@kilnai/core";
+import { textParts, EventBus, normalizeToolInput, resolveCommunicationIntent } from "@kilnai/core";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
@@ -1911,10 +1911,25 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       executionEnvelope: { toolRounds: { max: 1 } },
     });
 
-    const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+    const result = await orchestrator.processMessage(
+      makeSession(),
+      textParts("fetch data"),
+      undefined,
+      undefined,
+      {
+        communicationIntent: resolveCommunicationIntent([{
+          source: "invocation",
+          intent: { locale: "en-GB", requiredContent: ["failure"], onUnsupported: "omit" },
+        }]),
+      },
+    );
 
     expect(result.stopReason).toBe("length");
     expect(result.parts).toEqual(textParts("fallback after tool budget"));
+    expect(result.providerRequests?.map((request) => request.communicationResolution?.identity)).toEqual([
+      result.communicationResolution?.identity,
+      result.communicationResolution?.identity,
+    ]);
     const fallbackCall = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as {
       readonly messages?: readonly { readonly parts?: readonly { readonly type: string; readonly content?: string }[] }[];
       readonly tools?: readonly ToolDefinition[];

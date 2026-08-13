@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { KilnYamlError } from "./kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./config/mcp-config.js";
+import { resolveCommunicationIntent } from "@kilnai/core";
 import type {
   KilnYaml,
   KilnModelTaskSuitabilityOverride,
@@ -94,6 +95,16 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
     if ((skills as Record<string, unknown> | undefined)?.externalCatalog !== undefined) {
       throw new KilnYamlError("skills.externalCatalog is global-only because it governs user-global native harness exposure");
     }
+    if ((parsed as Record<string, unknown>).communication !== undefined) {
+      try {
+        resolveCommunicationIntent([{
+          source: "project",
+          intent: (parsed as KilnYaml).communication!,
+        }]);
+      } catch (error) {
+        throw new KilnYamlError(`communication is invalid: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     return parsed as KilnYaml;
   } catch (err) {
     if (err instanceof KilnYamlError) {
@@ -133,6 +144,7 @@ export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): Kiln
     managedAgents: override.managedAgents ?? base.managedAgents,
     modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
     deliberationPolicy: mergeDeliberationPolicy(base.deliberationPolicy, override.deliberationPolicy),
+    communication: mergeCommunication(base.communication, override.communication),
     web: mergeWeb(base.web, override.web),
     interactiveUse: mergeInteractiveUse(base.interactiveUse, override.interactiveUse),
     skills: mergeSkills(base.skills, override.skills),
@@ -161,6 +173,17 @@ function mergeWorkGovernance(
       | readonly KilnWorkGovernanceEvidence[]
       | undefined,
   };
+}
+
+function mergeCommunication(
+  base: KilnYaml["communication"],
+  override: KilnYaml["communication"],
+): KilnYaml["communication"] {
+  if (!base && !override) return undefined;
+  return resolveCommunicationIntent([
+    ...(override ? [{ source: "project" as const, intent: override }] : []),
+    ...(base ? [{ source: "global" as const, intent: base }] : []),
+  ]).intent;
 }
 
 function mergeDeliberationPolicy(

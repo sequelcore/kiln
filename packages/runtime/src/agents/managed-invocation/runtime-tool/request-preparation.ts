@@ -15,9 +15,11 @@ import {
   admitManagedRoute,
   digestManagedEconomicValue,
   isKilnWorkGovernanceEvidence,
+  resolveCommunicationIntent,
   resolveEvidenceRealization,
 } from "@kilnai/core";
 import type {
+  CommunicationRequiredContent,
   DeliberationResolution,
   ManagedAgentCallerAttachmentIdentity,
   ManagedAgentCapabilitySnapshotInput,
@@ -41,6 +43,44 @@ import type {
   ManagedInvocationToolResult,
   ManagedInvocationToolRoute,
 } from "./types.js";
+
+function applyManagedAgentCommunication(
+  parsed: ManagedInvocationToolInput,
+  agentProfile: ManagedInvocationAgentCatalogEntry | undefined,
+): ManagedInvocationToolInput {
+  const invocation = parsed.providerRoute.communicationIntent;
+  const agent = agentProfile?.communication;
+  if (invocation && hasPreservedCommunicationAuthority(invocation)) return parsed;
+  if (!invocation && !agent) return parsed;
+  const requiredByAuthority = new Set<CommunicationRequiredContent>(
+    (parsed.expectedEvidence ?? []).filter(isCommunicationRequiredContent),
+  );
+  if (parsed.requestedAuthority === "destructive") requiredByAuthority.add("approval-requirement");
+  if (parsed.residualRiskRequired) requiredByAuthority.add("residual-risk");
+  const communicationIntent = resolveCommunicationIntent([
+    ...(invocation ? [{ source: "invocation" as const, intent: invocation.intent }] : []),
+    ...(agent ? [{ source: "agent-profile" as const, intent: agent }] : []),
+    ...(requiredByAuthority.size > 0
+      ? [{ source: "safety-authority" as const, intent: { requiredContent: [...requiredByAuthority].sort() } }]
+      : []),
+  ]);
+  return {
+    ...parsed,
+    providerRoute: { ...parsed.providerRoute, communicationIntent },
+  };
+}
+
+function hasPreservedCommunicationAuthority(intent: import("@kilnai/core").ResolvedCommunicationIntent): boolean {
+  const serialized = JSON.stringify(intent.authority);
+  return ["agent-profile", "project", "global", "user", "safety-authority"].some((source) => serialized.includes(source));
+}
+
+function isCommunicationRequiredContent(value: string): value is CommunicationRequiredContent {
+  return [
+    "approval-requirement", "citation", "decision", "failure", "finding",
+    "next-action", "residual-risk", "verification", "warning",
+  ].includes(value);
+}
 import { unique } from "./catalog-descriptions.js";
 import {
   buildRouteProfileConflictRecovery,
@@ -378,6 +418,7 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     task: parsed.task,
     summary: parsed.summary,
     deliberationIntent: economicProviderRoute.deliberationIntent ?? null,
+    communicationIntentIdentity: economicProviderRoute.communicationIntent?.identity ?? null,
     candidateSet,
   }).slice("sha256:".length);
   const economicPreparation = await options.economicDispatch.prepare({
@@ -485,6 +526,9 @@ async function resolveManagedInvocationEconomicCommitment(input: {
         ...(economicProviderRoute.deliberationIntent
           ? { deliberationIntent: economicProviderRoute.deliberationIntent }
           : {}),
+        ...(economicProviderRoute.communicationIntent
+          ? { communicationIntent: economicProviderRoute.communicationIntent }
+          : {}),
       },
     };
   });
@@ -495,6 +539,9 @@ async function resolveManagedInvocationEconomicCommitment(input: {
       routeId: selected.routeId,
       providerRoute: {
         ...economicProviderRoute,
+        ...(economicProviderRoute.communicationIntent
+          ? { communicationIntent: economicProviderRoute.communicationIntent.intent }
+          : {}),
         providerId: selected.providerId,
         model: selected.modelId,
       },
@@ -1106,6 +1153,7 @@ async function buildManagedInvocationRequestRecord(input: {
       ...(parsed.providerRoute.model ?? route.model ? { model: parsed.providerRoute.model ?? route.model } : {}),
       ...(parsed.providerRoute.deliberationIntent ? { deliberationIntent: parsed.providerRoute.deliberationIntent } : {}),
       ...(admittedDeliberationResolution ? { deliberationResolution: admittedDeliberationResolution } : {}),
+      ...(parsed.providerRoute.communicationIntent ? { communicationIntent: parsed.providerRoute.communicationIntent } : {}),
     },
     adapterKind: adapter.descriptor.adapterKind,
     executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",
@@ -1236,9 +1284,10 @@ export async function prepareManagedInvocationRequest(
 
   const scopeOutcome = admitManagedInvocationScope(rawInput, context, attachment, toolName, scopeAdmission);
   if (!scopeOutcome.ok) return scopeOutcome;
-  const { canonicalizedRawInput, parsed, requestedAuthority } = scopeOutcome;
+  const { canonicalizedRawInput, parsed: scopedParsed, requestedAuthority } = scopeOutcome;
 
-  const agentProfile = resolveManagedInvocationAgentProfile(options, parsed.agentProfile);
+  const agentProfile = resolveManagedInvocationAgentProfile(options, scopedParsed.agentProfile);
+  const parsed = applyManagedAgentCommunication(scopedParsed, agentProfile);
   if (agentProfile?.economicPolicyId && agentProfile.economicPolicyRevision) {
     return resolveManagedInvocationEconomicCommitment({
       rawInput,

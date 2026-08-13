@@ -8,7 +8,9 @@ import type {
 } from "@kilnai/gateway-contracts";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
-import { loadKilnConfig } from "../config/config-merger.js";
+import { loadKilnConfig, loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
+import { readKilnYaml } from "../kiln-yaml.js";
+import { configuredCommunicationCandidates } from "../config/communication-policy.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
 import { ConfigMutationStore } from "./config-mutation-store.js";
 import { hashText } from "./config-proposal.js";
@@ -107,7 +109,14 @@ async function syncConfigMutationProjections(
   const effects: KilnConfigProjectionEffectResult[] = [];
   const disabledHarnesses = [] as const;
   if (operation === "agent.upsert" || operation === "agent.attach_skills") {
-    const result = await syncNativeAgentProjections(projectPath, { disabledHarnesses });
+    const { globalConfig } = await loadKilnConfigWithGlobalAuthority(projectPath);
+    const result = await syncNativeAgentProjections(projectPath, {
+      disabledHarnesses,
+      communicationCandidates: configuredCommunicationCandidates({
+        global: globalConfig?.communication,
+        project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
+      }),
+    });
     effects.push({
       target: "native-agents",
       status: result.errors.length === 0 ? "ok" : "failed",

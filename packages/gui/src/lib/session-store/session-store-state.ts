@@ -187,6 +187,7 @@ export interface TurnStreamingActions {
       parts?: readonly unknown[];
       displayContent?: string;
       deliberationIntent?: GuiDeliberationIntent;
+      communicationIntent?: import("@kilnai/gateway-contracts").GuiCommunicationIntent;
       requestedAuthority?: OperatorTurnRequestedAuthority;
       governedWorkRequirement?: OperatorGoalMaterializationRequirement;
       gatewayTargetId?: string;

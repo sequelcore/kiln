@@ -133,6 +133,7 @@ export type TuiOutboundFrame =
       executionMode?: OperatorExecutionMode;
       requestedAuthority?: OperatorTurnRequestedAuthority;
       deliberationIntent?: import("@kilnai/gateway-contracts").GuiDeliberationIntent;
+      communicationIntent?: import("@kilnai/gateway-contracts").GuiCommunicationIntent;
     }
   | { type: "voice_synthesis_request"; requestId: string; sourceMessageId: string }
   | { type: "clear" }

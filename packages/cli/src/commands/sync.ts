@@ -11,6 +11,8 @@ import { syncNativeSkillProjections } from "../config/native-skill-projection.js
 import { syncCodexExternalSkillExposure } from "../config/codex-external-skill-exposure-projection.js";
 import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 import type { KilnAppConfig } from "../config.js";
+import { readKilnYaml } from "../kiln-yaml.js";
+import { configuredCommunicationCandidates } from "../config/communication-policy.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
@@ -249,6 +251,10 @@ export async function syncCommand(
         force: forceAgentSync,
         dryRun: flags.dryRun,
         disabledHarnesses,
+        communicationCandidates: configuredCommunicationCandidates({
+          global: globalConfig?.communication,
+          project: readKilnYaml(join(root, ".kiln"))?.communication,
+        }),
       }));
   }
 

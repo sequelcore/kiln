@@ -37,6 +37,7 @@ import {
   type TurnTemporalContext,
   defineTurnTemporalContext,
   assertScopedExecutionSessionToolEvent,
+  type CommunicationIntentCandidate,
   type ExecutionSessionEvent,
 } from "@kilnai/core";
 import { toCoreDeliberationIntent, toCoreModelCapabilities } from "./deliberation-projection.js";
@@ -44,6 +45,7 @@ import { CliSubscriptionExecutor } from "../execution/cli-subscription-executor.
 import type { CliDeliberationTransport, CliSessionFactory } from "../execution/cli-subscription-executor.js";
 import { ApprovalGateRegistry } from "./approval-registry.js";
 import { processAdmittedTurn, sanitizeAssistantEgressText } from "./message-pipeline/index.js";
+import { resolveOperatorCommunicationIntent } from "./communication-intent-resolution.js";
 import type { RuntimeSessionHydrator } from "./message-pipeline/index.js";
 import { synthesizeVoiceOutputOnDemand } from "./voice-output-synthesizer.js";
 import {
@@ -146,6 +148,8 @@ export interface TuiGatewayOptions {
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
+  /** Persisted sources retain provenance; a message-local user intent is added per turn. */
+  readonly communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
 }
 
 export interface TuiGateway {
@@ -276,6 +280,7 @@ export function buildTuiTurnPerCallConfig(
   executionMode: OperatorExecutionMode = "execute",
   requestedAuthority?: OperatorTurnRequestedAuthority,
   temporalContext?: TurnTemporalContext,
+  communicationIntent?: PerCallToolConfig["communicationIntent"],
 ): PerCallToolConfig {
   return buildAttachedRuntimePerCallToolConfig({
     tenantId: TUI_TENANT_ID,
@@ -283,6 +288,7 @@ export function buildTuiTurnPerCallConfig(
     activeModel,
     ...(activeModelCapabilities ? { activeModelCapabilities: toCoreModelCapabilities(activeModelCapabilities) } : {}),
     ...(deliberationIntent ? { deliberationIntent } : {}),
+    ...(communicationIntent ? { communicationIntent } : {}),
     builtinToolSurface,
     executionMode,
     requestedAuthority,
@@ -475,6 +481,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       committed.admission.providerModelId,
     );
     const deliberationIntent = toCoreDeliberationIntent(payload.message.deliberationIntent);
+    const communicationIntent = resolveOperatorCommunicationIntent(
+      options.communicationIntentCandidates,
+      payload.message.communicationIntent,
+    );
     const executionMode = resolveExecutionMode(payload.message.executionMode);
     const requestedAuthority = resolveTuiRequestedAuthority(payload.message.requestedAuthority);
     const turnBuiltinToolSurface = createAttachedRuntimeBuiltinToolSurface({
@@ -499,6 +509,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
         payload.operatorTimeZone
           ? defineTurnTemporalContext({ observedAt: new Date().toISOString(), timeZone: payload.operatorTimeZone })
           : undefined,
+        communicationIntent,
       ),
       executionBinding: committed.binding,
       executionCredential: committed.credential,

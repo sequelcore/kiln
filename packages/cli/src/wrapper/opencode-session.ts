@@ -5,8 +5,13 @@ import { isAbsolute, resolve } from "node:path";
 import {
   admitDeliberationForExecution,
   appendExecutionIdentity,
+  renderCommunicationPromptProjection,
+  observeStandaloneEffectivePrompt,
   resolveExecutionIdentity,
+  type CommunicationResolution,
+  type EffectivePromptObservation,
   type ExecutionSessionEvent,
+  type ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import type {
   SessionCapabilities,
@@ -22,6 +27,7 @@ import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { resolveNativeCliExecutable } from "./native-cli-executable.js";
+import { resolveNativeCommunication } from "../config/native-communication-capabilities.js";
 
 interface OpencodeClientShape {
   session: {
@@ -155,6 +161,7 @@ export interface OpenCodeSessionConfig {
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly deliberationResolution?: import("@kilnai/core").DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   /** Discovery-bound binary for managed routes; ambient resolution is forbidden when set. */
   readonly harnessExecutable?: string;
   readonly harnessEvidence?: { readonly executable: string; readonly version: string };
@@ -525,6 +532,8 @@ export class OpenCodeSession implements IKilnSession {
   private _abortController: AbortController | null = null;
   private _eventAbortController: AbortController | null = null;
   private _disposed = false;
+  private _communicationResolution: CommunicationResolution | undefined;
+  private _effectivePromptObservation: EffectivePromptObservation | undefined;
 
   constructor(config: OpenCodeSessionConfig) {
     this.sessionId = config.runtimeSessionId ?? randomUUID();
@@ -558,8 +567,27 @@ export class OpenCodeSession implements IKilnSession {
     return this._remoteSessionId ?? undefined;
   }
 
+  get communicationResolution(): CommunicationResolution | undefined {
+    return this._communicationResolution;
+  }
+
+  get effectivePromptObservation(): EffectivePromptObservation | undefined {
+    return this._effectivePromptObservation;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
+    const communicationIntent = options.communicationIntent ?? this._config.communicationIntent;
+    this._communicationResolution = communicationIntent
+      ? resolveNativeCommunication({
+          intent: communicationIntent,
+          harness: "opencode",
+          model: this._config.model ?? "provider-default",
+          surface: "cli",
+          projection: "invocation",
+        })
+      : undefined;
+    const communicationPromptProjection = renderCommunicationPromptProjection(this._communicationResolution);
     const admittedDeliberationLevel = admitDeliberationForExecution(
       options.deliberationResolution ?? this._config.deliberationResolution,
     );
@@ -731,7 +759,7 @@ export class OpenCodeSession implements IKilnSession {
       };
 
       const promptWithExecutionIdentity = appendExecutionIdentity(
-        appendPreparedSystemContext(options.prompt, options.system),
+        `${appendPreparedSystemContext(options.prompt, options.system)}${communicationPromptProjection ?? ""}`,
         resolveExecutionIdentity({
           configuredProvider: "opencode",
           configuredModel: this._config.model,
@@ -740,6 +768,18 @@ export class OpenCodeSession implements IKilnSession {
       );
       const promptWithTaskReminder = appendTaskReminder(promptWithExecutionIdentity, options.prompt);
       const nativeModel = parseOpenCodeModel(this._config.model);
+      const providerPrompt = appendConstraintInstructions(
+        promptWithTaskReminder,
+        this._config.constraintInstructions,
+        this._config.nativeRules,
+      );
+      this._effectivePromptObservation = observeStandaloneEffectivePrompt({
+        providerId: "opencode",
+        modelId: this._config.model ?? "provider-default",
+        finalPrompt: providerPrompt,
+        communicationProjection: communicationPromptProjection,
+        communicationResolution: this._communicationResolution,
+      });
       let promptError: unknown;
       const promptResult = await client.session
         .prompt(
@@ -749,11 +789,7 @@ export class OpenCodeSession implements IKilnSession {
             ...(admittedDeliberationLevel ? { variant: admittedDeliberationLevel } : {}),
             parts: [{
               type: "text",
-              text: appendConstraintInstructions(
-                promptWithTaskReminder,
-                this._config.constraintInstructions,
-                this._config.nativeRules,
-              ),
+              text: providerPrompt,
             }],
             directory: cwd,
           },

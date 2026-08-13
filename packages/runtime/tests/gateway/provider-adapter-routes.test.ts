@@ -91,6 +91,41 @@ describe("createProviderAdapterRoutes", () => {
       expect(body.content).toBe("mock response");
     });
 
+    it("validates and applies SDK communication intent", async () => {
+      const provider = makeMockProvider();
+      const runtime = makeRuntime({ orchestrator: new RuntimeSessionOrchestrator({ provider }) });
+      const app = createProviderAdapterRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "hello",
+          userId: "user-1",
+          communicationIntent: { locale: "es-MX", requiredContent: ["verification"] },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+        system: expect.stringContaining("Respond using locale 'es-MX'"),
+      }));
+      expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+        system: expect.stringContaining("verification"),
+      }));
+
+      const invalid = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "hello",
+          userId: "user-1",
+          communicationIntent: { locale: "es-MX", rawPrompt: "private" },
+        }),
+      });
+      expect(invalid.status).toBe(400);
+    });
+
     it("creates session for new user", async () => {
       const runtime = makeRuntime();
       const app = createProviderAdapterRoutes(runtime);
@@ -423,4 +458,3 @@ describe("createProviderAdapterRoutes", () => {
     });
   });
 });
-

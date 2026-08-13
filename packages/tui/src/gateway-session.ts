@@ -186,6 +186,17 @@ function mapCanonicalSessionEvent(event: OperatorSessionEvent): SessionEventInte
       ...scoped,
     };
   }
+  if (event.kind === "effective_prompt_observed") {
+    return {
+      type: "activity",
+      activity: event.kind,
+      details: presentation.compactText,
+      metadata: { effectivePrompt: payload.effectivePrompt },
+      surfaces: presentation.surfaces,
+      sessionEvent: event,
+      ...scoped,
+    };
+  }
   if (event.kind === "lifecycle_attribution_recorded") {
     return {
       type: "activity",
@@ -340,6 +351,7 @@ export class GatewaySession implements SessionLike {
     executionMode?: "execute" | "plan";
     requestedAuthority?: OperatorTurnRequestedAuthority;
     deliberationIntent?: import("@kilnai/gateway-contracts").GuiDeliberationIntent;
+    communicationIntent?: import("@kilnai/gateway-contracts").GuiCommunicationIntent;
   }): AsyncGenerator<SessionEventInternal> {
     // Wait for connection to be established
     await this.waitForConnection();
@@ -358,6 +370,7 @@ export class GatewaySession implements SessionLike {
       executionMode: opts.executionMode ?? (this._planMode ? "plan" : "execute"),
       ...(opts.requestedAuthority ? { requestedAuthority: opts.requestedAuthority } : {}),
       ...(opts.deliberationIntent ? { deliberationIntent: opts.deliberationIntent } : {}),
+      ...(opts.communicationIntent ? { communicationIntent: opts.communicationIntent } : {}),
     });
 
     yield* this.drainQueue();

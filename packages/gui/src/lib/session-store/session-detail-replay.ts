@@ -401,6 +401,24 @@ export function mapSessionDetailToLoadedState(detail: GuiSessionDetail): {
       continue;
     }
 
+    if (event.kind === "effective_prompt_observed") {
+      const presentation = presentOperatorEventPayload(event.kind, payload);
+      timelineEntries.push({
+        id: `timeline:${event.eventId}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...(event.turnId ? { turnId: event.turnId } : {}),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+        details: payload.effectivePrompt,
+      });
+      continue;
+    }
+
     if (isWorkItemTimelineEventKind(event.kind)) {
       const presentation = presentOperatorEventPayload(event.kind, payload);
       timelineEntries.push({

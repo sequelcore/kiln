@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
-import { createSessionEvent, InMemoryContextArtifactCache, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { createSessionEvent, InMemoryContextArtifactCache, resolveCommunicationIntent, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
@@ -426,6 +426,41 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(registry.createSession).toHaveBeenCalled();
     expect(sessions[0]?.continuationSessionId).toBeUndefined();
+  });
+
+  it("passes persisted communication intent into fresh direct provider sessions", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const cache = makeContextArtifactCache();
+    const communicationIntent = resolveCommunicationIntent([{
+      source: "project",
+      intent: { locale: "es-MX", requiredContent: ["verification"] },
+    }]);
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      "/p",
+      registry,
+      store as any,
+      transcriptStore,
+      cache,
+      undefined,
+      "tui",
+      undefined,
+      undefined,
+      communicationIntent,
+    );
+    const session = factory("sys", "/p");
+
+    for await (const _ of session.run({ prompt: "test" } as any)) {}
+    for await (const _ of session.run({ prompt: "continue" } as any)) {}
+
+    expect(vi.mocked(registry.createSession).mock.calls).toHaveLength(2);
+    for (const [provider, config] of vi.mocked(registry.createSession).mock.calls) {
+      expect(provider).toBe("claude");
+      expect(config).toEqual(expect.objectContaining({ communicationIntent }));
+    }
   });
 
   it("passes the parent runtime authority and workspace into the provider session", async () => {

@@ -4,6 +4,7 @@ import {
   admitManagedRoute,
   digestManagedEconomicValue,
   defineManagedAgentInvocationRequest,
+  resolveCommunicationIntent,
   type ManagedAgentAdmissionDecision,
   type ManagedAgentAdmissionProfile,
   type ManagedAgentAuthorityProfile,
@@ -17,6 +18,7 @@ import {
   type ManagedAgentRequestedAuthority,
   type ManagedAgentWorkingDirectory,
   type DeliberationResolution,
+  type ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import {
   collectManagedEconomicCandidates,
@@ -89,6 +91,7 @@ interface PreparedOrchestrationChild {
   readonly agentProfile?: string;
   readonly deliberationIntent?: ManagedAgentInvocationRequest["providerRoute"]["deliberationIntent"];
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly route: ManagedInvocationToolRoute;
   readonly profile: ManagedInvocationRouteProfile;
   readonly economicCandidateSet?: ManagedEconomicCandidateSet;
@@ -117,6 +120,10 @@ export async function runManagedAgentOrchestrationLifecycle(
     if (agent?.authorityProfile && agent.authorityProfile !== input.profile) {
       throw new Error(`Managed orchestration agent profile '${agent.name}' requires '${agent.authorityProfile}', not '${input.profile}'`);
     }
+    const communicationIntent = agent?.providerRoute?.communicationIntent
+      ?? (agent?.communication
+        ? resolveCommunicationIntent([{ source: "agent-profile", intent: agent.communication }])
+        : undefined);
     let economicCandidateSet: ManagedEconomicCandidateSet | undefined;
     if (agent?.economicPolicyId && agent.economicPolicyRevision) {
       economicCandidateSet = collectManagedEconomicCandidates({
@@ -139,6 +146,7 @@ export async function runManagedAgentOrchestrationLifecycle(
                   ...(agent?.providerRoute?.deliberationIntent
                     ? { deliberationIntent: agent.providerRoute.deliberationIntent }
                     : {}),
+                  ...(communicationIntent ? { communicationIntent } : {}),
                 },
               }
             : {}),
@@ -168,6 +176,7 @@ export async function runManagedAgentOrchestrationLifecycle(
       ...(agent?.providerRoute?.deliberationIntent
         ? { deliberationIntent: agent.providerRoute.deliberationIntent }
         : {}),
+      ...(communicationIntent ? { communicationIntent } : {}),
       route,
       ...(economicCandidateSet ? { economicCandidateSet } : {}),
       profile: requireOrchestrationProfile(
@@ -218,6 +227,7 @@ export async function runManagedAgentOrchestrationLifecycle(
               roleIntent: entry.child.roleIntent,
               ...(entry.agentProfile ? { agentProfile: entry.agentProfile } : {}),
               ...(entry.deliberationIntent ? { deliberationIntent: entry.deliberationIntent } : {}),
+              ...(entry.communicationIntent ? { communicationIntent: entry.communicationIntent } : {}),
               ...(dispatched.deliberationResolution
                 ? { deliberationResolution: dispatched.deliberationResolution }
                 : {}),
@@ -689,6 +699,7 @@ function buildOrchestrationChildInvocationRequest(input: {
   readonly agentProfile?: string;
   readonly deliberationIntent?: ManagedAgentInvocationRequest["providerRoute"]["deliberationIntent"];
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly dependencyRecords: readonly ManagedAgentInvocationRecord[];
   readonly route: ManagedInvocationExecutableRoute;
   readonly profile: ManagedInvocationRouteProfile;
@@ -752,6 +763,7 @@ function buildOrchestrationChildInvocationRequest(input: {
       ...(input.route.model ? { model: input.route.model } : {}),
       ...(input.deliberationIntent ? { deliberationIntent: input.deliberationIntent } : {}),
       ...(input.deliberationResolution ? { deliberationResolution: input.deliberationResolution } : {}),
+      ...(input.communicationIntent ? { communicationIntent: input.communicationIntent } : {}),
     },
     adapterKind: adapter.descriptor.adapterKind,
     executionMode: adapter.descriptor.supportedExecutionModes[0] ?? "cli-harness",

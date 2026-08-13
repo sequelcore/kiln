@@ -38,6 +38,7 @@ import {
 } from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import {
   createOperatorExecutionRouteSelectionPort,
   resolveOperatorStartupExecutionRoute,
@@ -173,6 +174,7 @@ interface TuiBootstrapOptions {
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<ConfiguredExecutionCredential, OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>;
   readonly closeOperatorTurnComposition: () => void;
+  readonly communicationIntentCandidates?: readonly import("@kilnai/core").CommunicationIntentCandidate[];
 }
 
 interface TuiBootstrapResult {
@@ -451,6 +453,7 @@ export async function makeMultiProviderSessionFactory(
   transcriptSurface: OperatorTranscriptSurface = "tui",
   managedInvocation?: ManagedInvocationToolAttachment,
   budgetAdmission?: RuntimeBudgetAdmissionPort,
+  configuredCommunicationIntent?: import("@kilnai/core").ResolvedCommunicationIntent,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
 
@@ -573,6 +576,7 @@ export async function makeMultiProviderSessionFactory(
             executionCredential: context.executionCredential as ConfiguredExecutionCredential,
           } : {}),
           deliberationResolution: options.deliberationResolution,
+          communicationIntent: options.communicationIntent ?? configuredCommunicationIntent,
           ...(context?.requestedAuthority ? { requestedAuthority: context.requestedAuthority } : {}),
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
@@ -1071,6 +1075,7 @@ async function bootstrapGatewaySession(
     resumeSessionHydrator: options.resumeSessionHydrator,
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
+    communicationIntentCandidates: options.communicationIntentCandidates,
   });
   options.startupProfiler?.mark("gateway-started", { port: gateway.port });
 
@@ -1562,6 +1567,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     "tui",
     managedInvocationAttachment,
     runtimeBudgetAdmission,
+    resolveConfiguredCommunication({
+      global: globalConfig.communication,
+      project: projectConfig?.communication,
+    }),
   );
   startupProfiler.mark("session-manager-ready");
   if (startupModel) {
@@ -1600,6 +1609,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     operatorTurnDispatcher: operatorTurnComposition.dispatcher,
     operatorTurnExecutionBridge: operatorTurnComposition.bridge,
     closeOperatorTurnComposition: operatorTurnComposition.close,
+    communicationIntentCandidates: configuredCommunicationCandidates({
+      global: globalConfig.communication,
+      project: projectConfig?.communication,
+    }),
   });
   startupProfiler.mark("bootstrap-context-ready", { transport: startupTransport });
   stagedManagedInvocation?.startBackgroundRefresh();

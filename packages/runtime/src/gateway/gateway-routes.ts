@@ -479,25 +479,28 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
                 parts,
                 projectedTurnContext,
                 undefined,
-                options?.requestedAuthority ? {
-                  ...((options.requestedAuthority !== "auto")
-                    ? { toolAllowlist: new Set<string>() }
-                    : runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
-                  effectiveTurnAuthority: {
-                    executionMode: "execute",
-                    requestedAuthority: options.requestedAuthority,
-                    admittedAuthority: options.requestedAuthority !== "auto"
-                      ? "fail_closed"
-                      : "unknown",
-                    sourcePolicy: "runtime_surface_projection",
-                    reason: "provider-adapter websocket requested turn authority before full min-policy admission",
-                    completeness: options.requestedAuthority !== "auto"
-                      ? "authoritative"
-                      : "partial",
-                    toolCount: 0,
-                    deniedToolCount: 0,
-                  },
-                } : runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : undefined,
+                options?.requestedAuthority || options?.communicationIntent || runtime.toolAllowlist
+                  ? {
+                      ...(options?.requestedAuthority && options.requestedAuthority !== "auto"
+                        ? { toolAllowlist: new Set<string>() }
+                        : runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
+                      ...(options?.requestedAuthority
+                        ? {
+                            effectiveTurnAuthority: {
+                              executionMode: "execute" as const,
+                              requestedAuthority: options.requestedAuthority,
+                              admittedAuthority: options.requestedAuthority !== "auto" ? "fail_closed" as const : "unknown" as const,
+                              sourcePolicy: "runtime_surface_projection" as const,
+                              reason: "provider-adapter websocket requested turn authority before full min-policy admission",
+                              completeness: options.requestedAuthority !== "auto" ? "authoritative" as const : "partial" as const,
+                              toolCount: 0,
+                              deniedToolCount: 0,
+                            },
+                          }
+                        : {}),
+                      ...(options?.communicationIntent ? { communicationIntent: options.communicationIntent } : {}),
+                    }
+                  : undefined,
               );
             },
           });

@@ -25,5 +25,6 @@ export { DefaultAgentHandoffSummarizer } from "./summarization/agent-handoff-sum
 export type { AgentHandoffSummarizer } from "./summarization/agent-handoff-summarizer.js";
 export {
   buildRuntimeTurnSystemPrompt,
+  appendRuntimeCommunicationPromptManifest,
   reconcileRuntimeInvocationPromptManifest,
 } from "./context/runtime-turn-system-prompt.js";

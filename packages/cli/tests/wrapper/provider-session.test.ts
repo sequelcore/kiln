@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { AllCredentialsExhaustedError, KilnError, type ExecutionSessionEvent, type KilnMcpClient } from "@kilnai/core";
+import { AllCredentialsExhaustedError, KilnError, resolveCommunicationIntent, type ExecutionSessionEvent, type KilnMcpClient } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
@@ -636,6 +636,63 @@ describe("ProviderSession.run()", () => {
       billingMode: "metered",
     }));
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+  });
+
+  it("resolves neutral communication intent before direct provider dispatch", async () => {
+    adapterMocks["codex-oauth"].stream.mockReturnValue(streamEvents([{ type: "done", content: "" }]));
+    const session = new ProviderSession(baseConfig({
+      provider: "codex-oauth",
+      model: "gpt-5.6-sol",
+      executionMode: "text-only",
+      communicationIntent: resolveCommunicationIntent([{
+        source: "user",
+        intent: {
+          responseDetail: "detailed",
+          locale: "es-MX",
+          requiredContent: ["verification"],
+        },
+      }]),
+    }));
+
+    await collectEvents(session.run({ prompt: "Explain." }));
+
+    expect(adapterMocks["codex-oauth"].stream).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.stringContaining("Respond using locale 'es-MX'"),
+      communicationResolution: expect.objectContaining({
+        responseDetail: expect.objectContaining({
+          requested: "detailed",
+          effective: "detailed",
+          nativeValue: "high",
+        }),
+      }),
+    }));
+    expect(adapterMocks["codex-oauth"].stream).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.stringContaining("verification"),
+    }));
+  });
+
+  it("denies unsupported communication intent before direct provider I/O", async () => {
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-4o",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "text-only",
+      communicationIntent: resolveCommunicationIntent([{
+        source: "user",
+        intent: { responseDetail: "detailed", onUnsupported: "deny" },
+      }]),
+    }));
+
+    const events = await collectEvents(session.run({ prompt: "Explain." }));
+
+    expect(events).toContainEqual({
+      type: "error",
+      code: "PROVIDER_SESSION_ERROR",
+      message: "Unsupported communication intent cannot execute under deny policy.",
+      isRetryable: false,
+    });
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
+    expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
   it.each([

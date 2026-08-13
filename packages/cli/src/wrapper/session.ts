@@ -19,6 +19,7 @@ import type {
   MemoryLayerKind,
   MemoryScopeKind,
   DeliberationResolution,
+  ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
@@ -188,6 +189,7 @@ export interface SessionRunOptions {
   /** Runtime tool sandbox context. Used only by Kiln-executable direct-provider sessions. */
   readonly toolSandbox?: unknown;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly env?: Record<string, string>;
   readonly abortSignal?: AbortSignal;
@@ -311,6 +313,10 @@ export interface IKilnSession {
   dispose(): Promise<void>;
   /** Harness version observed during the current run, when the harness reports it. */
   readonly observedHarnessVersion?: string;
+  /** Content-free resolved communication evidence for the current or last run. */
+  readonly communicationResolution?: import("@kilnai/core").CommunicationResolution;
+  /** Content-free evidence for the exact final prompt handed to a standalone harness. */
+  readonly effectivePromptObservation?: import("@kilnai/core").EffectivePromptObservation;
   /** Optional drain for terminal evidence finalized during disposal. */
   drainEphemeralHarnessStateEvidence?(): readonly ExecutionSessionEphemeralHarnessStateEvidence[];
   readonly capabilities: SessionCapabilities;

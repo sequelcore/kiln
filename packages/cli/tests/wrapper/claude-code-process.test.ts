@@ -14,7 +14,7 @@ import {
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
   CLAUDE_PRIVATE_PLAN_ARTIFACT_LOCK_FILE,
 } from "../../src/wrapper/claude-private-plan-artifacts.js";
-import type { DeliberationResolution, ExecutionSessionEvent } from "@kilnai/core";
+import { resolveCommunicationIntent, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
 function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSessionConfig {
@@ -76,6 +76,42 @@ function pendingQueryFixture() {
 }
 
 describe("ClaudeSession implements IKilnSession", () => {
+  it("fails before Agent SDK transport when invocation communication is not exactly representable", async () => {
+    const queryCallCount = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    const session = new ClaudeSession(baseConfig({
+      model: "claude-opus-4-1",
+      communicationIntent: resolveCommunicationIntent([{
+        source: "invocation",
+        intent: { responseDetail: "detailed", onUnsupported: "deny" },
+      }]),
+    }));
+
+    await expect(collectEvents(session.run({ prompt: "test" })))
+      .rejects.toThrow("claude cannot exactly project");
+    expect((mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls)
+      .toHaveLength(queryCallCount);
+  });
+
+  it("materializes locale and required content in the standalone Claude system prompt", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", total_cost_usd: 0, is_error: false };
+    })());
+    const session = new ClaudeSession(baseConfig({
+      model: "claude-opus-4-1",
+      communicationIntent: resolveCommunicationIntent([{
+        source: "invocation",
+        intent: { locale: "es-MX", requiredContent: ["verification"] },
+      }]),
+    }));
+
+    await collectEvents(session.run({ prompt: "test" }));
+
+    const calls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const call = calls.at(-1)?.[0] as { options?: { systemPrompt?: { append?: string } } } | undefined;
+    expect(call?.options?.systemPrompt?.append).toContain("Respond using locale 'es-MX'");
+    expect(call?.options?.systemPrompt?.append).toContain("verification");
+  });
+
   it("lowers an evidence-backed admitted deliberation level to the Agent SDK effort option", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
       yield { type: "result", total_cost_usd: 0, is_error: false };

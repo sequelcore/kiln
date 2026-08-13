@@ -121,6 +121,11 @@ describe("agent-loader", () => {
           "providerRoute:",
           "  providerId: codex-oauth",
           "  model: gpt-5.4-mini",
+          "communication:",
+          "  responseDetail: detailed",
+          "  locale: es-MX",
+          "  requiredContent:",
+          "    - finding",
           "workClassification:",
           "  intents:",
           "    - review",
@@ -163,6 +168,11 @@ describe("agent-loader", () => {
         providerRoute: {
           providerId: "codex-oauth",
           model: "gpt-5.4-mini",
+        },
+        communication: {
+          responseDetail: "detailed",
+          locale: "es-MX",
+          requiredContent: ["finding"],
         },
         workClassification: {
           intents: ["review"],

@@ -3,6 +3,7 @@ import type {
   ExecutionSessionRunOptions,
   ExecutionSessionEphemeralHarnessStateEvidence,
   DeliberationResolution,
+  ResolvedCommunicationIntent,
   ProviderExecutionRequestedAuthority,
   ExecutionSessionBindingEvidence,
 } from "@kilnai/core";
@@ -25,6 +26,8 @@ export interface CliSessionFactoryContext {
   readonly operatorSurface?: OperatorSurfaceController;
   /** Route-admitted deliberation decision forwarded unchanged to the native wrapper. */
   readonly deliberationResolution?: DeliberationResolution;
+  /** Child-owned communication decision; never inherited from parent ambience. */
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly permissionPolicy?: {
     readonly approval: "never" | "on-request" | "on-failure" | "untrusted";
     readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";

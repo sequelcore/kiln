@@ -22,6 +22,7 @@ import {
 } from "../../src/config/native-projection-state.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 import { defaultKilnYaml, writeKilnYaml } from "../../src/kiln-yaml.js";
+import { resolveCommunicationIntent, resolveCommunicationProfile } from "@kilnai/core";
 
 let tempDir: string;
 
@@ -727,6 +728,64 @@ describe("config-status", () => {
 
     expect(JSON.stringify(agents.value)).toContain('"id":"opencode-reviewer"');
     expect(JSON.stringify(agents.value)).toContain('"kind":"route-admission"');
+  });
+
+  it("reports content-free communication resolution for native agent projections", async () => {
+    writeProjectConfig(tempDir);
+    const agentsDir = join(tempDir, ".kiln", "agents");
+    mkdirSync(agentsDir, { recursive: true });
+    writeFileSync(join(agentsDir, "reviewer.md"), [
+      "---",
+      "name: reviewer",
+      "role: Review specialist",
+      "goal: Review implementation quality",
+      "tier: reasoning",
+      "communication:",
+      "  locale: es-MX",
+      "  requiredContent: [finding, verification]",
+      "---",
+      "Private agent instructions.",
+      "",
+    ].join("\n"), "utf-8");
+    const persistedResolution = resolveCommunicationProfile({
+      intent: resolveCommunicationIntent([{
+        source: "project",
+        intent: { locale: "es-MX", requiredContent: ["finding", "verification"] },
+      }]),
+      execution: { provider: "codex", model: "provider-default", surface: "standalone-harness", harness: "codex" },
+    });
+    writeNativeProjectionInstallState(join(tempDir, ".kiln"), upsertNativeProjectionTargetState(
+      emptyNativeProjectionInstallState(),
+      createNativeProjectionFileSnapshot({
+        targetId: "codex-agent:reviewer",
+        filePath: join(tempDir, "home", ".codex", "agents", "reviewer.toml"),
+        content: "owned projection",
+        harness: "codex",
+        sourceIdentity: "reviewer",
+        communicationResolution: persistedResolution,
+      }),
+    ));
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
+    const agents = await readConfigStatusView(snapshot, "agents", { userHome: join(tempDir, "home") });
+    const value = agents.value as { agents: readonly { id: string; nativeProjections: readonly unknown[] }[] };
+    const reviewer = value.agents.find((agent) => agent.id === "reviewer");
+    const serialized = JSON.stringify(reviewer);
+
+    expect(reviewer?.nativeProjections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        target: "codex",
+        status: "projected",
+        communicationResolution: expect.objectContaining({
+          identity: persistedResolution.identity,
+          execution: expect.objectContaining({ harness: "codex" }),
+          requested: expect.objectContaining({
+            intent: expect.objectContaining({ locale: "es-MX", requiredContent: ["finding", "verification"] }),
+          }),
+        }),
+      }),
+    ]));
+    expect(serialized).not.toContain("Private agent instructions");
   });
 
   it("reports canonical direct-route admission independently from native projection", async () => {

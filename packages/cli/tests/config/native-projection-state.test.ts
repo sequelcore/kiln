@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveCommunicationIntent, resolveCommunicationProfile } from "@kilnai/core";
 import {
   createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,
@@ -20,6 +21,33 @@ import {
 } from "../../src/config/native-projection-state.js";
 
 describe("native projection install state", () => {
+  it("rejects tampered persisted communication evidence before status can expose it", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-native-state-"));
+    try {
+      const resolution = resolveCommunicationProfile({
+        intent: resolveCommunicationIntent([{ source: "project", intent: { locale: "es-MX" } }]),
+        execution: { provider: "openai", model: "gpt-5.6-sol", surface: "standalone-harness", harness: "codex" },
+      });
+      const state = upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), createNativeProjectionFileSnapshot({
+        targetId: "codex-agent:reviewer",
+        filePath: "C:/Users/test/.codex/agents/reviewer.toml",
+        content: "model = 'gpt-5.6-sol'\n",
+        communicationResolution: resolution,
+      }));
+      writeNativeProjectionInstallState(root, state);
+      const statePath = join(root, "install-state.json");
+      const tampered = JSON.parse(readFileSync(statePath, "utf8")) as {
+        targets: Record<string, { communicationResolution: { responseDetail: Record<string, unknown> } }>;
+      };
+      tampered.targets["codex-agent:reviewer"]!.communicationResolution.responseDetail.rawPrompt = "secret";
+      writeFileSync(statePath, JSON.stringify(tampered), "utf8");
+
+      expect(() => readNativeProjectionInstallState(root)).toThrow("Invalid communication resolution");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("strips only the owned multiplicity from the end of managed arrays", () => {
     const item = { path: "C:/same/SKILL.md", enabled: false };
     expect(stripManagedFields({

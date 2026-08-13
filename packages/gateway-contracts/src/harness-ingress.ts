@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CommunicationIntentSchema, type CommunicationIntentWire } from "./communication-intent.js";
 
 /** The first stable, harness-neutral ingress wire contract. */
 export const HARNESS_INGRESS_PROTOCOL_VERSION = "2" as const;
@@ -73,6 +74,7 @@ export const HarnessIngressDeliberationIntentSchema = z.discriminatedUnion("mode
 ]);
 
 export type HarnessIngressDeliberationIntent = z.infer<typeof HarnessIngressDeliberationIntentSchema>;
+export type HarnessIngressCommunicationIntent = CommunicationIntentWire;
 
 const HarnessIngressTextPartSchema = z.object({
   type: z.literal("text"),
@@ -120,6 +122,7 @@ export const HarnessIngressTurnStartSchema = z.object({
   parts: z.array(HarnessIngressContentPartSchema).min(1).max(HARNESS_INGRESS_MAX_PARTS).optional(),
   requestedAuthority: z.enum(HARNESS_INGRESS_REQUESTED_AUTHORITIES).optional(),
   deliberationIntent: HarnessIngressDeliberationIntentSchema.optional(),
+  communicationIntent: CommunicationIntentSchema.optional(),
 }).strict().superRefine((frame, context) => {
   if ((frame.content === undefined) === (frame.parts === undefined)) {
     context.addIssue({

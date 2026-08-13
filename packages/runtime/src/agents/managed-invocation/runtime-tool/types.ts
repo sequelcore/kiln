@@ -4,6 +4,7 @@
 import type {
   ArtifactResourceStore,
   CanonicalSessionEvent,
+  CommunicationIntent,
   DeliberationIntent,
   KilnWorkGovernanceEvidence,
   ManagedAgentAdmissionProfile,
@@ -17,6 +18,7 @@ import type {
   ManagedAgentProviderRoute,
   ManagedAgentRequestedAuthority,
   RouteCapability,
+  ResolvedCommunicationIntent,
   ManagedAgentResultField,
   ManagedAgentRouteSource,
   ManagedAgentWorkingDirectory,
@@ -252,8 +254,10 @@ export interface ManagedInvocationAgentCatalogEntry {
     readonly providerId: string;
     readonly model?: string;
     readonly deliberationIntent?: DeliberationIntent;
+    readonly communicationIntent?: ResolvedCommunicationIntent;
   };
   readonly voiceProfile?: string;
+  readonly communication?: CommunicationIntent;
 }
 
 export interface ManagedInvocationWorkingDirectoryLease {

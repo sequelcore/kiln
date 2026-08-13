@@ -77,6 +77,52 @@ export const MANAGED_AGENT_INVOKE_TOOL: ToolDefinition = {
             required: ["mode", "onUnsupported"],
             additionalProperties: false,
           },
+          communicationIntent: {
+            type: "object",
+            description: "Optional provider-neutral communication intent. Retry templates may carry a complete identity-verified resolution so source authority is unchanged.",
+            properties: {
+              version: { type: "string", enum: ["v1"] },
+              intent: { type: "object" },
+              authority: { type: "object" },
+              identity: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
+              responseDetail: { type: "string", enum: ["provider-default", "concise", "standard", "detailed"] },
+              interactionProfile: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  revision: { type: "string" },
+                  behaviors: {
+                    type: "array",
+                    items: { type: "string", enum: ["audience-calibrated", "findings-first", "next-action-explicit", "outcome-first", "plain-language", "state-visible"] },
+                  },
+                },
+                required: ["id", "revision", "behaviors"],
+                additionalProperties: false,
+              },
+              locale: { type: "string" },
+              requiredContent: {
+                type: "array",
+                items: { type: "string", enum: ["approval-requirement", "citation", "decision", "failure", "finding", "next-action", "residual-risk", "verification", "warning"] },
+              },
+              artifactContract: {
+                type: "object",
+                properties: { id: { type: "string" }, revision: { type: "string" } },
+                required: ["id", "revision"],
+                additionalProperties: false,
+              },
+              responseSkills: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { id: { type: "string" }, revision: { type: "string" } },
+                  required: ["id", "revision"],
+                  additionalProperties: false,
+                },
+              },
+              onUnsupported: { type: "string", enum: ["deny", "omit"] },
+            },
+            additionalProperties: false,
+          },
         },
         required: ["providerId"],
         additionalProperties: false,

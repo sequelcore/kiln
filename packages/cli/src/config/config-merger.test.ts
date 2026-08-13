@@ -116,6 +116,10 @@ describe("config-merger", () => {
           },
         },
       },
+      communication: {
+        responseDetail: "concise",
+        requiredContent: ["warning", "verification"],
+      },
     };
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(null);
@@ -168,6 +172,10 @@ describe("config-merger", () => {
             target: "latency-first",
           },
         },
+      },
+      communication: {
+        responseDetail: "concise",
+        requiredContent: ["warning", "verification"],
       },
     });
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();

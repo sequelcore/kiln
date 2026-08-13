@@ -4,6 +4,8 @@ import type {
   OperatorManagedAgentInvocationEventPayload,
   OperatorTurnRequestedAuthority,
   OperatorSessionEvent,
+  GuiCommunicationIntent,
+  EffectivePromptObservation,
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
@@ -28,10 +30,12 @@ export interface ChatOptions {
   readonly appName?: string;
   readonly sessionId?: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+  readonly communicationIntent?: GuiCommunicationIntent;
 }
 
 export interface ChatSendOptions {
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+  readonly communicationIntent?: GuiCommunicationIntent;
 }
 
 /** Visitor identity for the identify frame */
@@ -49,6 +53,7 @@ export interface UseChatReturn {
   identify?(visitor: VisitorInfo): void;
   readonly isLoading: boolean;
   readonly error: Error | null;
+  readonly communicationEvidence: EffectivePromptObservation | null;
   clearMessages(): void;
 }
 
@@ -62,6 +67,7 @@ export type InspectableWorkItemSnapshotResource = Omit<WorkItemSnapshot, "items"
 };
 
 export type {
+  GuiCommunicationIntent,
   KilnConfigSetupAction,
   KilnConfigSetupSnapshot,
   KilnConfigStatusSnapshot,
@@ -69,6 +75,7 @@ export type {
   OperatorManagedAgentInvocationEventPayload,
   OperatorTurnRequestedAuthority,
   OperatorSessionEvent,
+  EffectivePromptObservation,
   VerifiedEfficiencyEvidenceProjection,
 };
 
@@ -78,10 +85,18 @@ export interface WsChatRequest {
   readonly content: string;
   readonly parts?: readonly ContentPart[];
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+  readonly communicationIntent?: GuiCommunicationIntent;
 }
 
 /** WebSocket chat response frame (server -> client) */
 export type WsChatFrame =
   | { readonly type: "chunk"; readonly content: string }
-  | { readonly type: "done"; readonly content: string; readonly parts?: readonly ContentPart[]; readonly inputTokens: number; readonly outputTokens: number }
+  | {
+      readonly type: "done";
+      readonly content: string;
+      readonly parts?: readonly ContentPart[];
+      readonly inputTokens: number;
+      readonly outputTokens: number;
+      readonly effectivePromptObservation?: EffectivePromptObservation;
+    }
   | { readonly type: "error"; readonly message: string };

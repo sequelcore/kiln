@@ -1,4 +1,4 @@
-import type { DeliberationResolution } from "@kilnai/core";
+import type { CommunicationResolution, DeliberationResolution, EffectivePromptObservation } from "@kilnai/core";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
   ProviderId,
@@ -103,6 +103,8 @@ export interface RunSessionResult {
   /** True when at least one managed_agent.invoke or managed_agent.start was dispatched
    *  during the session. Set from the session event loop. */
   readonly managedChildDispatched: boolean;
+  readonly communicationResolution?: CommunicationResolution;
+  readonly effectivePromptObservation?: EffectivePromptObservation;
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
@@ -150,6 +152,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
   const exactArtifacts = new Set<string>();
   let submittedPlan: string | undefined;
   let managedChildDispatched = false;
+  let communicationResolution: CommunicationResolution | undefined;
+  let effectivePromptObservation: EffectivePromptObservation | undefined;
   let transcriptSeq = 0;
   let isFirstDeltaOfTurn = false;
   let awaitingTurnStart = true;
@@ -553,6 +557,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
         }
       }
     } finally {
+      communicationResolution = session.communicationResolution ?? communicationResolution;
+      effectivePromptObservation = session.effectivePromptObservation ?? effectivePromptObservation;
       await session.dispose();
     }
 
@@ -600,6 +606,8 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
     exactArtifacts: [...exactArtifacts],
     submittedPlan,
     managedChildDispatched,
+    ...(communicationResolution ? { communicationResolution } : {}),
+    ...(effectivePromptObservation ? { effectivePromptObservation } : {}),
   };
 }
 

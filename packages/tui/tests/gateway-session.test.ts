@@ -118,6 +118,7 @@ function sentMessageFrame(ws: MockWebSocket): {
   executionMode?: "execute" | "plan";
   requestedAuthority?: "auto" | "read_only" | "audited";
   deliberationIntent?: { mode: "fixed"; preferredLevel: string; onUnsupported: "deny" };
+  communicationIntent?: { responseDetail: "concise"; requiredContent: ["warning"] };
 } {
   const messageCall = ws.send.mock.calls.find(([payload]) => {
     if (typeof payload !== "string" || payload === "ping") return false;
@@ -130,6 +131,7 @@ function sentMessageFrame(ws: MockWebSocket): {
     executionMode?: "execute" | "plan";
     requestedAuthority?: "auto" | "read_only" | "audited";
     deliberationIntent?: { mode: "fixed"; preferredLevel: string; onUnsupported: "deny" };
+    communicationIntent?: { responseDetail: "concise"; requiredContent: ["warning"] };
   };
 }
 
@@ -1175,6 +1177,27 @@ describe("GatewaySession execution modes", () => {
       outcome: "completed",
       inputTokens: 1,
       outputTokens: 1,
+    }));
+    await collect;
+    await session.dispose();
+  });
+
+  it("sends provider-neutral communication intent on the message frame", async () => {
+    const session = new GatewaySession("ws://localhost:4801/tui/ws");
+    const ws = wsInstances[0];
+    ws.simulateOpen();
+    const collect = (async () => {
+      for await (const _event of session.run({
+        prompt: "summarize",
+        communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
+      })) { /* drain */ }
+    })();
+    await Promise.resolve();
+    expect(sentMessageFrame(ws)).toMatchObject({
+      communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
+    });
+    ws.simulateMessage(JSON.stringify({
+      type: "done", content: "", outcome: "completed", inputTokens: 1, outputTokens: 1,
     }));
     await collect;
     await session.dispose();

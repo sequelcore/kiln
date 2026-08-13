@@ -3,8 +3,11 @@
 import {
   defineDeliberationLevelId,
   defineWorkClassification,
+  resolveCommunicationIntent,
+  validateResolvedCommunicationIntent,
 } from "@kilnai/core";
 import type {
+  CommunicationIntent,
   DeliberationIntent,
   ManagedAgentAdmissionProfile,
   ManagedAgentAuthorityApproval,
@@ -83,6 +86,26 @@ function assertManagedDeliberationKeys(
   const admitted = new Set(allowed);
   const unknown = Object.keys(input).find((key) => !admitted.has(key));
   if (unknown) throw new Error(`${toolName} providerRoute.deliberationIntent has unknown field '${unknown}'.`);
+}
+
+function parseManagedCommunicationIntent(value: unknown, toolName: string) {
+  const input = readRecord(value);
+  if (!input) throw new Error(`${toolName} providerRoute.communicationIntent must be an object.`);
+  try {
+    if (input.version === "v1" && input.intent !== undefined && input.authority !== undefined) {
+      return validateResolvedCommunicationIntent(
+        input as unknown as import("@kilnai/core").ResolvedCommunicationIntent,
+      );
+    }
+    return resolveCommunicationIntent([{
+      source: "invocation",
+      intent: input as CommunicationIntent,
+    }]);
+  } catch (error) {
+    throw new Error(
+      `${toolName} providerRoute.communicationIntent is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 export function parseInput(
@@ -166,6 +189,9 @@ export function parseInput(
         ...(readText(providerRoute?.model) ? { model: readText(providerRoute?.model) } : {}),
         ...(providerRoute?.deliberationIntent !== undefined
           ? { deliberationIntent: parseManagedDeliberationIntent(providerRoute.deliberationIntent, toolName) }
+          : {}),
+        ...(providerRoute?.communicationIntent !== undefined
+          ? { communicationIntent: parseManagedCommunicationIntent(providerRoute.communicationIntent, toolName) }
           : {}),
       },
       ...(externalRuntimeAttachment.value ? { externalRuntimeAttachment: externalRuntimeAttachment.value } : {}),

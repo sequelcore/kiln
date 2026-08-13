@@ -17,6 +17,7 @@ import {
 } from "../application/runtime-budget-admission.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -262,6 +263,10 @@ export async function guiCommand(
     "gui",
     managedInvocationAttachment,
     runtimeBudgetAdmission,
+    resolveConfiguredCommunication({
+      global: globalConfig.communication,
+      project: projectConfig?.communication,
+    }),
   );
   startupProfiler.mark("session-manager-ready");
   const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
@@ -338,6 +343,10 @@ export async function guiCommand(
     builtinToolOptions,
     managedInvocation: managedInvocationForGateway,
     boundedWork: boundedWork.surface,
+    communicationIntentCandidates: configuredCommunicationCandidates({
+      global: globalConfig.communication,
+      project: projectConfig?.communication,
+    }),
     memoryLatticeDefaultScope: resolveProjectMemoryScope(cwd),
     operatorTransport: {
       sessionManager,

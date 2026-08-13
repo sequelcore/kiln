@@ -1,7 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { stringify } from "yaml";
-import type { RouteAdmissionDecision } from "@kilnai/core";
+import {
+  resolveCommunicationIntent,
+  renderCommunicationPromptProjection,
+  type CommunicationResolution,
+  type CommunicationIntentCandidate,
+  type RouteAdmissionDecision,
+} from "@kilnai/core";
 import { loadAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
@@ -27,6 +33,7 @@ import {
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
 import { decideNativeAgentProjection, type NativeAgentProjectionDecision } from "./native-agent-projection-decision.js";
 import { createManagedAgentRouteAdmissionResolver } from "./managed-agent-route-admission.js";
+import { resolveNativeCommunication } from "./native-communication-capabilities.js";
 
 export interface NativeAgentProjectionResult {
   claude: boolean;
@@ -36,6 +43,14 @@ export interface NativeAgentProjectionResult {
   errors: string[];
   outcomes: readonly ProjectionOutcome[];
   unavailable: readonly NativeAgentProjectionUnavailable[];
+  communication: readonly NativeAgentCommunicationProjectionEvidence[];
+}
+
+export interface NativeAgentCommunicationProjectionEvidence {
+  readonly targetId: string;
+  readonly agentName: string;
+  readonly harness: "claude" | "codex" | "opencode";
+  readonly resolution: CommunicationResolution;
 }
 
 export interface NativeAgentProjectionUnavailable {
@@ -46,6 +61,7 @@ export interface NativeAgentProjectionUnavailable {
 }
 
 export interface NativeAgentProjectionOptions extends NativeProjectionSyncOptions {
+  readonly communicationCandidates?: readonly CommunicationIntentCandidate[];
   readonly resolveRouteAdmission?: (input: {
     readonly agent: KilnAgentDefinition;
     readonly routeId?: string;
@@ -60,7 +76,7 @@ interface NativeAgentProjectionTarget {
   readonly label: "Claude Code" | "Codex" | "OpenCode";
   readonly dir: string;
   readonly extension: "md" | "toml";
-  readonly render: (agent: KilnAgentDefinition, nativeModel?: string) => string;
+  readonly render: (agent: KilnAgentDefinition, nativeModel?: string, communication?: CommunicationResolution) => string;
 }
 
 interface NativeAgentFileSyncResult {
@@ -70,6 +86,7 @@ interface NativeAgentFileSyncResult {
   readonly error?: string;
   readonly outcome: ProjectionOutcome;
   readonly unavailable?: NativeAgentProjectionUnavailable;
+  readonly communication?: NativeAgentCommunicationProjectionEvidence;
 }
 
 function escapeTomlString(value: string): string {
@@ -80,7 +97,8 @@ function escapeTomlMultiline(value: string): string {
   return value.replaceAll("\"\"\"", "\\\"\\\"\\\"");
 }
 
-export function agentToClaudeMd(agent: KilnAgentDefinition, nativeModel?: string): string {
+export function agentToClaudeMd(agent: KilnAgentDefinition, nativeModel?: string, resolved?: CommunicationResolution): string {
+  const communication = resolved ?? resolveNativeAgentCommunication(agent, "claude", nativeModel);
   const frontmatter: Record<string, unknown> = {
     name: agent.name,
     role: agent.role,
@@ -127,12 +145,13 @@ export function agentToClaudeMd(agent: KilnAgentDefinition, nativeModel?: string
   }
 
   const yamlFrontmatter = stringify(frontmatter).trimEnd();
-  const body = agent.instructions ?? "";
+  const body = appendNativeCommunicationInstructions(agent.instructions ?? "", communication);
   return `---\n${yamlFrontmatter}\n---\n${body}`;
 }
 
-export function agentToCodexToml(agent: KilnAgentDefinition, nativeModel?: string): string {
-  const instructions = buildNativeAgentInstructions(agent);
+export function agentToCodexToml(agent: KilnAgentDefinition, nativeModel?: string, resolved?: CommunicationResolution): string {
+  const communication = resolved ?? resolveNativeAgentCommunication(agent, "codex", nativeModel);
+  const instructions = buildNativeAgentInstructions(agent, communication);
   const lines = [
     `name = "${escapeTomlString(agent.name)}"`,
     `description = "${escapeTomlString(agent.description ?? agent.role)}"`,
@@ -141,6 +160,12 @@ export function agentToCodexToml(agent: KilnAgentDefinition, nativeModel?: strin
 
   if (nativeModel) {
     lines.push(`model = "${escapeTomlString(nativeModel)}"`);
+  }
+  if (communication.responseDetail.mechanism === "native" && communication.responseDetail.nativeValue) {
+    lines.push(`model_verbosity = "${escapeTomlString(communication.responseDetail.nativeValue)}"`);
+  }
+  if (communication.interactionProfile.mechanism === "native" && communication.interactionProfile.nativeValue) {
+    lines.push(`personality = "${escapeTomlString(communication.interactionProfile.nativeValue)}"`);
   }
 
   const nicknameCandidates = nativeNicknameCandidates(agent);
@@ -154,7 +179,8 @@ export function agentToCodexToml(agent: KilnAgentDefinition, nativeModel?: strin
   return `${lines.join("\n")}\n`;
 }
 
-export function agentToOpenCodeMd(agent: KilnAgentDefinition, nativeModel?: string): string {
+export function agentToOpenCodeMd(agent: KilnAgentDefinition, nativeModel?: string, resolved?: CommunicationResolution): string {
+  const communication = resolved ?? resolveNativeAgentCommunication(agent, "opencode", nativeModel);
   const frontmatter: Record<string, unknown> = {
     name: agent.name,
     description: agent.description ?? agent.role,
@@ -167,6 +193,9 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition, nativeModel?: stri
   }
   if (nativeModel) {
     frontmatter.model = nativeModel;
+  }
+  if (communication.responseDetail.mechanism === "native" && communication.responseDetail.nativeValue) {
+    frontmatter.textVerbosity = communication.responseDetail.nativeValue;
   }
   if (agent.mode) {
     frontmatter.mode = agent.mode;
@@ -182,12 +211,15 @@ export function agentToOpenCodeMd(agent: KilnAgentDefinition, nativeModel?: stri
   }
 
   const yamlFrontmatter = stringify(frontmatter).trimEnd();
-  const body = buildNativeAgentInstructions(agent);
+  const body = buildNativeAgentInstructions(agent, communication);
   return `---\n${yamlFrontmatter}\n---\n${body}`;
 }
 
-function buildNativeAgentInstructions(agent: KilnAgentDefinition): string {
-  return [
+function buildNativeAgentInstructions(
+  agent: KilnAgentDefinition,
+  communication: CommunicationResolution,
+): string {
+  const base = [
     agent.displayName ? `Display name: ${agent.displayName}` : undefined,
     `Goal: ${agent.goal}`,
     agent.backstory ? `Backstory: ${agent.backstory}` : undefined,
@@ -195,6 +227,15 @@ function buildNativeAgentInstructions(agent: KilnAgentDefinition): string {
     agent.taskAffinity?.length ? `Task affinity: ${agent.taskAffinity.join(", ")}` : undefined,
     agent.instructions,
   ].filter((line): line is string => Boolean(line)).join("\n\n");
+  return appendNativeCommunicationInstructions(base, communication);
+}
+
+function appendNativeCommunicationInstructions(
+  base: string,
+  communication: CommunicationResolution,
+): string {
+  const projection = renderCommunicationPromptProjection(communication);
+  return `${base}${projection ?? ""}`;
 }
 
 function nativeNicknameCandidates(agent: KilnAgentDefinition): readonly string[] {
@@ -215,6 +256,7 @@ export async function syncNativeAgentProjections(
   const errors: string[] = [];
   const outcomes: ProjectionOutcome[] = [];
   const unavailable: NativeAgentProjectionUnavailable[] = [];
+  const communication: NativeAgentCommunicationProjectionEvidence[] = [];
   let synced = 0;
   const kilnDir = join(projectPath, ".kiln");
   let installState = readNativeProjectionInstallState(kilnDir);
@@ -239,13 +281,14 @@ export async function syncNativeAgentProjections(
         reason: `Agent load failed: ${message}`,
       }],
       unavailable,
+      communication,
     };
   }
 
   const hasManagedAgentProjection = Object.keys(installState.targets)
     .some((targetId) => targetId.includes("-agent:"));
   if (agents.length === 0 && !hasManagedAgentProjection) {
-    return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes, unavailable };
+    return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes, unavailable, communication };
   }
   const defaultAdmissionResolver = options.resolveRouteAdmission || !agents.some((agent) => agent.providerRoute)
     ? undefined
@@ -330,6 +373,7 @@ export async function syncNativeAgentProjections(
       const result = syncAgentFile(agent, target, kilnDir, installState, { ...options, resolveRouteAdmission });
       outcomes.push(result.outcome);
       if (result.unavailable) unavailable.push(result.unavailable);
+      if (result.communication) communication.push(result.communication);
       if (!result.ok) {
         setTargetFailed(target.key);
         errors.push(`${target.label} agent "${agent.name}" failed: ${result.error ?? "unknown error"}`);
@@ -349,7 +393,7 @@ export async function syncNativeAgentProjections(
 
   if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
 
-  return { claude, codex, opencode, synced, errors, outcomes, unavailable };
+  return { claude, codex, opencode, synced, errors, outcomes, unavailable, communication };
 }
 
 function syncAgentFile(
@@ -473,6 +517,13 @@ function syncAgentFile(
   }
 
   try {
+    const communicationResolution = resolveNativeAgentCommunication(
+      agent,
+      target.key,
+      decision.nativeModel,
+      options.communicationCandidates,
+    );
+    const communication = { targetId, agentName: agent.name, harness: target.key, resolution: communicationResolution };
     if (existsSync(filePath)) {
       const drift = detectNativeProjectionFileDrift({
         targetId,
@@ -489,16 +540,18 @@ function syncAgentFile(
             status: "blocked",
             reason: `managed drift detected: ${describeProjectionDrift(drift.driftedFields)}`,
           },
+          communication,
         };
       }
     }
 
-    const content = target.render(agent, decision.nativeModel);
-    const snapshot = createNativeProjectionFileSnapshot({ ...identity, content });
+    const content = target.render(agent, decision.nativeModel, communicationResolution);
+    const snapshot = createNativeProjectionFileSnapshot({ ...identity, content, communicationResolution });
     if (options.dryRun) {
       return {
         ok: true,
         outcome: { targetId, path: filePath, status: "planned", reason: "write projected agent file content" },
+        communication,
       };
     }
     backupNativeProjectionFile({ kilnDir, targetId, filePath });
@@ -507,6 +560,7 @@ function syncAgentFile(
       ok: true,
       snapshot,
       outcome: { targetId, path: filePath, status: "written" },
+      communication,
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -516,6 +570,25 @@ function syncAgentFile(
       outcome: { targetId, path: filePath, status: "failed", reason },
     };
   }
+}
+
+export function resolveNativeAgentCommunication(
+  agent: KilnAgentDefinition,
+  harness: "claude" | "codex" | "opencode",
+  nativeModel?: string,
+  inheritedCandidates: readonly CommunicationIntentCandidate[] = [],
+): CommunicationResolution {
+  const intent = resolveCommunicationIntent([
+    ...inheritedCandidates,
+    ...(agent.communication ? [{ source: "agent-profile" as const, intent: agent.communication }] : []),
+  ]);
+  const provider = harness;
+  const model = nativeModel ?? "provider-default";
+  return resolveNativeCommunication({
+    intent,
+    harness: provider,
+    model,
+  });
 }
 
 function pruneOmittedNativeAgentProjections(input: {

@@ -1,7 +1,7 @@
 # 06 - Prompt Governance Plane
 
 Status: Active staged-governance track
-Execution: Queued - higher-priority Ready work closes first.
+Execution: Active - observation and communication-governance slices complete.
 Created: 2026-07-21
 
 ## Objective
@@ -31,6 +31,11 @@ The foundation is implemented:
   doctrine or a diagnosis-shaped default.
 - A proposed universal executable-tool prompt reduction was reverted because
   it lacked representative model-specific evaluation.
+- The final actual provider request now emits one canonical, content-free
+  `effective_prompt_observed` event across live and replay surfaces.
+- Core owns provider-neutral communication intent/resolution, Runtime owns its
+  per-route decision and identified prompt component, and adapters project
+  only revision-backed native controls.
 
 Stable boundaries are documented in
 [Context Governance](../architecture/context/context-governance.md),
@@ -98,7 +103,7 @@ invocation.
 
 ### Slice 1 - Canonical Observation
 
-Status: Queued; next admissible work after higher priorities.
+Status: Complete.
 
 Persist one `effective_prompt_observed` event for the final completed provider
 request. Attribute retry and fallback evidence to the final completed
@@ -113,6 +118,30 @@ fabricated events for unsupported paths; event hash equals the exact prompt
 used by the attributed provider request; serialization contains no base
 prompt, governed context, deferred content, or secret-bearing identifier;
 context-usage evidence remains a separate semantic projection.
+
+### Slice 1.5 - Communication Governance
+
+Status: Complete.
+
+Core resolves response detail, observable interaction profiles, locale,
+required-content preservation, artifact/skill references, precedence, and
+unsupported behavior. Runtime resolves after route selection and attributes
+explicit locale/preservation instructions to
+`runtime-communication-contract`. Parent and managed-child decisions are
+independent. Provider attempts, final-request observation, CLI diagnostics,
+GUI, TUI, SDK, and replay carry the same content-free evidence.
+
+Codex GPT-5 routes project revision-backed verbosity; supported standalone
+Codex profiles report translated personality loss. Owned OpenCode agent files
+use route-specific `textVerbosity`. Claude output-style mutation and OpenCode
+invocation mutation remain unsupported and fail before transport under `deny`.
+Commit and pull-request renderers bind every claim to exact candidate,
+verification, and residual-risk evidence.
+
+Acceptance: no provider label becomes canonical vocabulary; no unsupported
+control is silently approximated; native projection preserves unmanaged state
+and existing drift/rollback ownership; no global communication default or
+prompt-fallback profile is promoted without Slice 2 evaluation.
 
 ### Slice 2 - Evaluation And Ablation
 

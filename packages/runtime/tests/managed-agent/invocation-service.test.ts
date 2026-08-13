@@ -4412,6 +4412,16 @@ describe("RuntimeManagedAgentInvocationService", () => {
           resourceUris: ["kiln://artifacts/write-1/worktree-lease"],
         },
       });
+      const forgedCommunicationCheckpoint = JSON.parse(JSON.stringify(checkpoints[0])) as ManagedAgentRuntimeRecoveryCheckpoint;
+      (forgedCommunicationCheckpoint.request.providerRoute as Record<string, unknown>).communicationIntent = {
+        version: "v1",
+        intent: { responseDetail: "detailed", requiredContent: [], responseSkills: [], onUnsupported: "deny" },
+        authority: { responseDetail: "invocation", responseSkills: [], onUnsupported: "invocation", requiredContent: {} },
+        identity: `sha256:${"0".repeat(64)}`,
+      };
+      expect(() => validateManagedAgentRuntimeRecoveryCheckpoint(forgedCommunicationCheckpoint)).toThrow(
+        "Managed invocation communication intent must be a resolved v1 contract",
+      );
 
       terminal.resolve(makeRecordForRequest(
         request,

@@ -16,6 +16,8 @@ import { writeRepoShimProjections } from "./repo-shim-projection.js";
 import { syncGlobalInstructionShimProjections } from "./global-instruction-shim-projection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import { syncGlobalControlPlaneMcpProjections } from "../config/global-control-plane-mcp-projection.js";
+import { readKilnYaml } from "../kiln-yaml.js";
+import { configuredCommunicationCandidates } from "../config/communication-policy.js";
 
 export interface ExecuteConfigSetupActionInput {
   readonly projectPath: string;
@@ -132,7 +134,14 @@ async function syncNativeProjections(
     modelGateway: globalConfig?.modelGateway,
   });
   const hookResult = await syncNativeHookProjections(projectPath, join(projectPath, ".kiln"), { disabledHarnesses });
-  const agentResult = await syncNativeAgentProjections(projectPath, { disabledHarnesses, userHome });
+  const agentResult = await syncNativeAgentProjections(projectPath, {
+    disabledHarnesses,
+    userHome,
+    communicationCandidates: configuredCommunicationCandidates({
+      global: globalConfig?.communication,
+      project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
+    }),
+  });
   const skillResult = await syncNativeSkillProjections(projectPath, {
     disabledHarnesses,
     skillConfig: kilnYaml.skills,

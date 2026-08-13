@@ -3,11 +3,17 @@ import { spawn } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import {
   CODEX_DEFAULT_MODEL,
+  admitCommunicationForExecution,
   admitDeliberationForExecution,
   appendExecutionIdentity,
+  renderCommunicationPromptProjection,
+  observeStandaloneEffectivePrompt,
   resolveExecutionIdentity,
   type ExecutionSessionEvent,
   type DeliberationResolution,
+  type CommunicationResolution,
+  type EffectivePromptObservation,
+  type ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import type {
   SessionCapabilities,
@@ -20,6 +26,7 @@ import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { resolveNativeCliExecutable } from "./native-cli-executable.js";
+import { resolveNativeCommunication } from "../config/native-communication-capabilities.js";
 
 interface TranslationRuleMetadata {
   readonly category: string;
@@ -33,6 +40,7 @@ export interface CodexSessionConfig {
   readonly task: string;
   readonly model?: string;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly cwd?: string;
   readonly env?: Record<string, string>;
   readonly approvalMode?: "never" | "on-request" | "on-failure" | "untrusted";
@@ -192,6 +200,8 @@ export class CodexSession implements IKilnSession {
   private _disposed = false;
   private _threadId: string | null = null;
   private readonly _constraintInstructions: readonly string[];
+  private _communicationResolution: CommunicationResolution | undefined;
+  private _effectivePromptObservation: EffectivePromptObservation | undefined;
 
   constructor(private readonly config: CodexSessionConfig) {
     this.sessionId = config.runtimeSessionId ?? randomUUID();
@@ -218,6 +228,14 @@ export class CodexSession implements IKilnSession {
     return this._threadId ?? undefined;
   }
 
+  get communicationResolution(): CommunicationResolution | undefined {
+    return this._communicationResolution;
+  }
+
+  get effectivePromptObservation(): EffectivePromptObservation | undefined {
+    return this._effectivePromptObservation;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this._disposed) return;
 
@@ -227,6 +245,18 @@ export class CodexSession implements IKilnSession {
       CODEX_DEFAULT_MODEL;
 
     const cwd = options.cwd ?? this.config.cwd ?? process.cwd();
+    const communicationIntent = options.communicationIntent ?? this.config.communicationIntent;
+    this._communicationResolution = communicationIntent
+      ? resolveNativeCommunication({
+          intent: communicationIntent,
+          harness: "codex",
+          model,
+          surface: "cli",
+          projection: "invocation",
+        })
+      : undefined;
+    const communication = admitCommunicationForExecution(this._communicationResolution);
+    const communicationPromptProjection = renderCommunicationPromptProjection(this._communicationResolution);
 
     let resumeThreadId: string | undefined;
     if (this.config.continuationSessionId !== undefined) {
@@ -258,6 +288,12 @@ export class CodexSession implements IKilnSession {
     if (deliberationLevel) {
       args.push("-c", `model_reasoning_effort=${deliberationLevel}`);
     }
+    if (communication.responseDetail) {
+      args.push("-c", `model_verbosity=${JSON.stringify(communication.responseDetail)}`);
+    }
+    if (communication.interactionProfile) {
+      args.push("-c", `personality=${JSON.stringify(communication.interactionProfile)}`);
+    }
     if (this.config.profile) {
       args.push("--profile", this.config.profile);
     }
@@ -280,7 +316,7 @@ export class CodexSession implements IKilnSession {
       args.push("--ephemeral");
     }
     const promptWithExecutionIdentity = appendExecutionIdentity(
-      appendPreparedSystemContext(options.prompt, options.system),
+      `${appendPreparedSystemContext(options.prompt, options.system)}${communicationPromptProjection ?? ""}`,
       resolveExecutionIdentity({
         configuredProvider: this.config.localProvider ?? "codex",
         configuredModel: model,
@@ -293,6 +329,13 @@ export class CodexSession implements IKilnSession {
       promptWithTaskReminder,
       this._constraintInstructions,
     );
+    this._effectivePromptObservation = observeStandaloneEffectivePrompt({
+      providerId: "codex",
+      modelId: model,
+      finalPrompt: promptWithConstraints,
+      communicationProjection: communicationPromptProjection,
+      communicationResolution: this._communicationResolution,
+    });
     args.push("-C", cwd, "-");
 
     if (options.abortSignal?.aborted) {

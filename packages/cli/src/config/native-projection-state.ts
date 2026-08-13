@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
+import { CommunicationResolutionSchema, type TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
+import { validateResolvedCommunicationIntent, type CommunicationResolution } from "@kilnai/core";
 import { normalizeProjectionPath, resolveProjectionPathWithin } from "./native-projection-paths.js";
 
 export type NativeProjectionFileHarness = "claude" | "codex" | "opencode";
@@ -27,6 +28,7 @@ export interface NativeProjectionTargetState {
   readonly managedArrayItems?: Readonly<Record<string, readonly unknown[]>>;
   readonly updatedAt: string;
   readonly permissionIntegrity?: TrustedExecutionIntegrity;
+  readonly communicationResolution?: CommunicationResolution;
 }
 
 export interface NativeProjectionInstallState {
@@ -41,6 +43,7 @@ export interface NativeProjectionSnapshotInput {
   readonly managedFields: readonly string[];
   readonly managedArrayItems?: Readonly<Record<string, readonly unknown[]>>;
   readonly updatedAt?: string;
+  readonly communicationResolution?: CommunicationResolution;
   readonly permissionIntegrity?: TrustedExecutionIntegrity;
 }
 
@@ -51,6 +54,7 @@ export interface NativeProjectionFileSnapshotInput {
   readonly harness?: NativeProjectionFileHarness;
   readonly sourceIdentity?: string;
   readonly updatedAt?: string;
+  readonly communicationResolution?: CommunicationResolution;
 }
 
 export interface NativeProjectionLegacyFileAdoptionInput {
@@ -86,7 +90,47 @@ export function readNativeProjectionInstallState(kilnDir: string): NativeProject
   if (parsed.version !== 1 || typeof parsed.targets !== "object" || parsed.targets === null) {
     throw new Error(`Invalid native projection install state at ${path}`);
   }
-  return parsed;
+  const targets = Object.fromEntries(Object.entries(parsed.targets).map(([targetId, target]) => {
+    if (!isRecord(target)) throw new Error(`Invalid native projection target '${targetId}' at ${path}`);
+    const communicationResolution = target.communicationResolution === undefined
+      ? undefined
+      : validatePersistedCommunicationResolution(target.communicationResolution, targetId, path);
+    return [targetId, {
+      ...target,
+      ...(communicationResolution ? { communicationResolution } : {}),
+    } as unknown as NativeProjectionTargetState];
+  }));
+  return { version: 1, targets };
+}
+
+function validatePersistedCommunicationResolution(
+  input: unknown,
+  targetId: string,
+  path: string,
+): CommunicationResolution {
+  const parsed = CommunicationResolutionSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new Error(`Invalid communication resolution for '${targetId}' at ${path}`);
+  }
+  const requested = validateResolvedCommunicationIntent(parsed.data.requested);
+  const value = { ...parsed.data, requested } as CommunicationResolution;
+  const expectedIdentity = `sha256:${createHash("sha256").update(stableStringify({
+    version: value.version,
+    requested: value.requested,
+    execution: value.execution,
+    responseDetail: value.responseDetail,
+    interactionProfile: value.interactionProfile,
+    locale: value.locale,
+    requiredContent: value.requiredContent,
+    artifactContract: value.artifactContract,
+    responseSkills: value.responseSkills,
+    ...(value.capabilityEvidence ? { capabilityEvidence: value.capabilityEvidence } : {}),
+    semanticLoss: value.semanticLoss,
+  })).digest("hex")}`;
+  if (value.identity !== expectedIdentity) {
+    throw new Error(`Invalid communication resolution identity for '${targetId}' at ${path}`);
+  }
+  return value;
 }
 
 export function writeNativeProjectionInstallState(
@@ -120,6 +164,7 @@ export function createNativeProjectionSnapshot(
     managedFieldHashes,
     ...(input.managedArrayItems ? { managedArrayItems: input.managedArrayItems } : {}),
     updatedAt: input.updatedAt ?? new Date().toISOString(),
+    ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
     ...(input.permissionIntegrity ? { permissionIntegrity: input.permissionIntegrity } : {}),
   };
 }
@@ -140,6 +185,7 @@ export function createNativeProjectionFileSnapshot(
       "$file": contentHash,
     },
     updatedAt: input.updatedAt ?? new Date().toISOString(),
+    ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
   };
 }
 

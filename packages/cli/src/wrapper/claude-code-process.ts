@@ -10,10 +10,15 @@ import { randomUUID } from "node:crypto";
 import {
   admitDeliberationForExecution,
   appendExecutionIdentity,
+  renderCommunicationPromptProjection,
+  observeStandaloneEffectivePrompt,
   resolveExecutionIdentity,
   type DeliberationResolution,
+  type CommunicationResolution,
+  type EffectivePromptObservation,
   type ExecutionSessionEphemeralHarnessStateEvidence,
   type ExecutionSessionEvent,
+  type ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import type {
   SessionCapabilities,
@@ -30,6 +35,7 @@ import {
   createClaudePrivatePlanArtifactTracker,
   type ClaudePrivatePlanArtifactCapability,
 } from "./claude-private-plan-artifacts.js";
+import { resolveNativeCommunication } from "../config/native-communication-capabilities.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
@@ -82,6 +88,7 @@ export interface ClaudeSessionConfig {
   readonly sessionLedgerOwner?: "wrapper" | "host";
   readonly model?: string;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   /** Managed-child result schema, enforced by the Agent SDK when present. */
   readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
   /**
@@ -173,6 +180,8 @@ export class ClaudeSession implements IKilnSession {
   private activePrivatePlanArtifactTracker: ReturnType<typeof createClaudePrivatePlanArtifactTracker> = undefined;
   private pendingEphemeralHarnessStateEvidence: ExecutionSessionEphemeralHarnessStateEvidence[] = [];
   private disposeRequested = false;
+  private _communicationResolution: CommunicationResolution | undefined;
+  private _effectivePromptObservation: EffectivePromptObservation | undefined;
 
   constructor(private readonly config: ClaudeSessionConfig) {
     this.sessionId = config.runtimeSessionId ?? randomUUID();
@@ -206,8 +215,27 @@ export class ClaudeSession implements IKilnSession {
     return this._observedHarnessVersion;
   }
 
+  get communicationResolution(): CommunicationResolution | undefined {
+    return this._communicationResolution;
+  }
+
+  get effectivePromptObservation(): EffectivePromptObservation | undefined {
+    return this._effectivePromptObservation;
+  }
+
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
     if (this.disposeRequested) return;
+    const communicationIntent = options.communicationIntent ?? this.config.communicationIntent;
+    this._communicationResolution = communicationIntent
+      ? resolveNativeCommunication({
+          intent: communicationIntent,
+          harness: "claude",
+          model: this.config.model ?? "provider-default",
+          surface: "cli",
+          projection: "invocation",
+        })
+      : undefined;
+    const communicationPromptProjection = renderCommunicationPromptProjection(this._communicationResolution);
     const deliberationLevel = admitDeliberationForExecution(
       options.deliberationResolution ?? this.config.deliberationResolution,
     );
@@ -264,22 +292,31 @@ export class ClaudeSession implements IKilnSession {
       });
       userPrompt = promptResolution.userPrompt;
 
+      const effectiveSystemPrompt = appendExecutionIdentity(
+        appendConstraintMetadataToSystemPrompt(
+          `${promptResolution.systemPrompt}${communicationPromptProjection ?? ""}`,
+          this.config.nativeRules,
+          this.config.constraintInstructions,
+        ),
+        resolveExecutionIdentity({
+          configuredProvider: "claude-code",
+          configuredModel: this.config.model,
+        }),
+      );
+      this._effectivePromptObservation = observeStandaloneEffectivePrompt({
+        providerId: "claude-code",
+        modelId: this.config.model ?? "provider-default",
+        finalPrompt: effectiveSystemPrompt,
+        communicationProjection: communicationPromptProjection,
+        communicationResolution: this._communicationResolution,
+      });
+
       sdkOptions = {
         abortController,
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append: appendExecutionIdentity(
-            appendConstraintMetadataToSystemPrompt(
-              promptResolution.systemPrompt,
-              this.config.nativeRules,
-              this.config.constraintInstructions,
-            ),
-            resolveExecutionIdentity({
-              configuredProvider: "claude-code",
-              configuredModel: this.config.model,
-            }),
-          ),
+          append: effectiveSystemPrompt,
         },
         mcpServers: this.config.mcpServers,
         cwd: options.cwd ?? this.config.cwd,

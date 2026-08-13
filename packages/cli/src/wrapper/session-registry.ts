@@ -14,6 +14,7 @@ import {
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
   type DeliberationResolution,
+  type ResolvedCommunicationIntent,
 } from "@kilnai/core";
 import {
   HarnessCredentialPoolService,
@@ -165,6 +166,7 @@ export interface ProviderCreateConfig {
   readonly credentialBinding?: DirectProviderCredentialBinding;
   readonly executionCredential?: import("@kilnai/runtime").ConfiguredExecutionCredential;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly continuationSessionId?: string;
   readonly sessionLedgerOwner?: "wrapper" | "host";
@@ -1095,6 +1097,7 @@ function createDirectProviderSession(
     ...(config.runtimeExecutionMode ? { runtimeExecutionMode: config.runtimeExecutionMode } : {}),
     ...(config.budgetAdmission ? { budgetAdmission: config.budgetAdmission } : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
+    ...(config.communicationIntent ? { communicationIntent: config.communicationIntent } : {}),
     ...(config.canonicalMcpServers ? {
       mcpClients: config.canonicalMcpServers.map(createCanonicalMcpClient),
     } : {}),
@@ -1187,6 +1190,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           sessionLedgerOwner: config.sessionLedgerOwner,
           model: config.model,
           deliberationResolution: config.deliberationResolution,
+          communicationIntent: config.communicationIntent,
           structuredOutputSchema: config.structuredOutputSchema,
           harnessExecutable: config.harnessExecutable,
           harnessEvidence: config.harnessEvidence,
@@ -1241,6 +1245,8 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           outputSchema: config.outputSchema,
           addDir: config.addDir,
           localProvider: config.localProvider,
+          deliberationResolution: config.deliberationResolution,
+          communicationIntent: config.communicationIntent,
           nativeRules: translated.nativeRules,
           representableRules: translated.representableRules,
           unsupportedRules: translated.unsupportedRules,
@@ -1296,6 +1302,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           continuationSessionId: (config as { continuationSessionId?: string }).continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
           deliberationResolution: config.deliberationResolution,
+          communicationIntent: config.communicationIntent,
           harnessExecutable: config.harnessExecutable,
           harnessEvidence: config.harnessEvidence,
         });

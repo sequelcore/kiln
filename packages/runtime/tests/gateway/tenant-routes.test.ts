@@ -146,6 +146,41 @@ describe("createTenantRoutes", () => {
       expect(body.tenantId).toBe("test-tenant");
     });
 
+    it("validates and applies tenant SDK communication intent", async () => {
+      const provider = makeMockProvider();
+      const runtime = makeRuntime({ orchestrator: new RuntimeSessionOrchestrator({ provider }) });
+      runtime.tenantRegistry.create(makeTenantConfig());
+      const app = createTenantRoutes(runtime);
+
+      const res = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "hello",
+          userId: "user-1",
+          tenantId: "test-tenant",
+          communicationIntent: { locale: "es-MX", requiredContent: ["verification"] },
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+        system: expect.stringContaining("Respond using locale 'es-MX'"),
+      }));
+
+      const invalid = await app.request("/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "hello",
+          userId: "user-1",
+          tenantId: "test-tenant",
+          communicationIntent: { locale: "not a locale" },
+        }),
+      });
+      expect(invalid.status).toBe(400);
+    });
+
     it("creates session with tenantId", async () => {
       const runtime = makeRuntime();
       runtime.tenantRegistry.create(makeTenantConfig());
@@ -437,4 +472,3 @@ describe("createTenantRoutes", () => {
     });
   });
 });
-

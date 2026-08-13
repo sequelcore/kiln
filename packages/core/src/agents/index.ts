@@ -1,6 +1,7 @@
 import type { ContentPart } from "../engine/domain/content.js";
 import type { ContextUsageRawEvidence } from "../events/context-usage-projection.js";
 import type { DeliberationResolution } from "./deliberation-policy.js";
+import type { CommunicationResolution } from "./communication-policy.js";
 
 /**
  * Agent role in the orchestration.
@@ -42,6 +43,36 @@ export {
   defineDeliberationLevelId,
   resolveDeliberation,
 } from "./deliberation-policy.js";
+export {
+  admitCommunicationForExecution,
+  renderCommunicationPromptProjection,
+  knownModelCommunicationCapabilities,
+  resolveCommunicationIntent,
+  resolveCommunicationProfile,
+  validateResolvedCommunicationIntent,
+} from "./communication-policy.js";
+export type {
+  CommunicationCapabilityEvidence,
+  CommunicationContractReference,
+  CommunicationExecutionIdentity,
+  CommunicationIntent,
+  CommunicationIntentCandidate,
+  CommunicationIntentSource,
+  CommunicationRequiredContent,
+  CommunicationResolution,
+  CommunicationResolutionReason,
+  CommunicationProjectionResolution,
+  CommunicationSurface,
+  InteractionBehavior,
+  InteractionProfileCapability,
+  InteractionProfileIntent,
+  InteractionProfileResolution,
+  ModelCommunicationCapabilities,
+  ResolvedCommunicationIntent,
+  ResponseDetailCapabilities,
+  ResponseDetailIntent,
+  ResponseDetailResolution,
+} from "./communication-policy.js";
 export type {
   DeliberationBounds,
   DeliberationCapabilityEvidence,
@@ -62,6 +93,8 @@ export interface ProviderAdapter {
   readonly name: string;
   /** Whether executable deliberation levels are projected to this provider's native request. */
   readonly deliberationTransport?: "native-level" | "none";
+  /** Whether this adapter can carry a resolved communication control natively. */
+  readonly communicationTransport?: "native" | "none";
   createMessage(options: CreateMessageOptions): Promise<AgentResponse>;
   streamMessage(options: CreateMessageOptions): AsyncGenerator<AgentStreamEvent>;
 }
@@ -133,6 +166,7 @@ export interface CreateMessageOptions {
   readonly outputSchema?: Record<string, unknown>;
   readonly maxTokens?: number;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationResolution?: CommunicationResolution;
   readonly signal?: AbortSignal;
   readonly transportWatchdog?: ProviderTransportWatchdog;
   readonly transportObserver?: ProviderTransportObserver;

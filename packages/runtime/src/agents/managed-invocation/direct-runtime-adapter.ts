@@ -35,6 +35,7 @@ import {
   defineStructuredExecutionResult,
   textParts,
   digestManagedEconomicValue,
+  knownModelCommunicationCapabilities,
 } from "@kilnai/core";
 import { RuntimeSession } from "../../session/runtime-session.js";
 import { RuntimeSessionOrchestrator } from "../../session/runtime-session-orchestrator.js";
@@ -407,6 +408,21 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
         ...(capabilityMap.size > 0 ? { capabilityMap } : {}),
       };
       const orchestrator = new RuntimeSessionOrchestrator(deps);
+      const routeModel = request.providerRoute.model ?? this.model ?? "";
+      const communicationCapabilities = request.providerRoute.communicationIntent
+        ? knownModelCommunicationCapabilities(request.providerRoute.providerId, routeModel)
+        : undefined;
+      const routeCapabilities = this.config.deliberationCapabilities || communicationCapabilities
+        ? new Map([[
+            `${request.providerRoute.providerId}/${routeModel}`,
+            {
+              ...(this.config.deliberationCapabilities
+                ? { deliberation: this.config.deliberationCapabilities }
+                : {}),
+              ...(communicationCapabilities ? { communication: communicationCapabilities } : {}),
+            },
+          ]])
+        : undefined;
       const perCallConfig: PerCallToolConfig = {
         tenantId: request.authority.memoryScope.scope.id,
         ...(request.executionScope ? { executionScope: request.executionScope } : {}),
@@ -422,16 +438,12 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
           ? {
               deliberationIntent: request.providerRoute.deliberationIntent,
               deliberationSource: "route",
-              ...(this.config.deliberationCapabilities
-                ? { modelRoutingPolicy: {
-                    routeCapabilities: new Map([[
-                      `${request.providerRoute.providerId}/${request.providerRoute.model ?? this.model ?? ""}`,
-                      { deliberation: this.config.deliberationCapabilities },
-                    ]]),
-                  } }
-                : {}),
             }
           : {}),
+        ...(request.providerRoute.communicationIntent
+          ? { communicationIntent: request.providerRoute.communicationIntent }
+          : {}),
+        ...(routeCapabilities ? { modelRoutingPolicy: { routeCapabilities } } : {}),
         providerTransport: {
           projectId: managedProviderTransportProjectId(request),
           requestIdPrefix: managedProviderTransportRequestIdPrefix(request),
@@ -680,6 +692,7 @@ export class ManagedDirectProviderRuntimeAdapter implements ManagedAgentRuntimeA
       surface: "direct-provider",
       ...(route.model ?? this.model ? { model: route.model ?? this.model } : {}),
       ...(route.deliberationIntent !== undefined ? { deliberationIntent: route.deliberationIntent } : {}),
+      ...(route.communicationIntent !== undefined ? { communicationIntent: route.communicationIntent } : {}),
     };
   }
 }

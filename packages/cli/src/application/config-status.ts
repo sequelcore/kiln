@@ -51,6 +51,8 @@ import {
 } from "../config/native-route-integrity.js";
 import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
+import { resolveNativeAgentCommunication } from "../config/native-agent-projection.js";
+import { configuredCommunicationCandidates } from "../config/communication-policy.js";
 import {
   createManagedAgentRouteAdmissionResolver,
   type ManagedAgentRouteAdmissionResolver,
@@ -103,6 +105,7 @@ interface NativeAgentProjectionSummary {
   readonly nativeModel?: string;
   readonly reason?: unknown;
   readonly admission?: RouteAdmissionDecision;
+  readonly communicationResolution?: import("@kilnai/core").CommunicationResolution;
 }
 
 interface AgentInvocationCapabilitySummary {
@@ -855,6 +858,11 @@ async function readAgentIndexes(projectPath: string, options: ReadConfigStatusVi
   const createRouteAdmissionResolver = options.createManagedAgentRouteAdmissionResolver
     ?? createManagedAgentRouteAdmissionResolver;
   const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath);
+  const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
+  const communicationCandidates = configuredCommunicationCandidates({
+    global: readGlobalConfig()?.communication,
+    project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
+  });
   return {
     agents: agents.map((agent) => ({
       id: agent.name,
@@ -865,7 +873,7 @@ async function readAgentIndexes(projectPath: string, options: ReadConfigStatusVi
       skills: agent.skills,
       taskAffinity: agent.taskAffinity,
       routeId: agent.routeId,
-      nativeProjections: nativeAgentProjectionSummaries(agent, routeAdmissionResolver),
+      nativeProjections: nativeAgentProjectionSummaries(agent, routeAdmissionResolver, installState, communicationCandidates),
       invocationCapabilities: agentInvocationCapabilitySummaries(agent, routeAdmissionResolver),
     })),
   };
@@ -874,6 +882,8 @@ async function readAgentIndexes(projectPath: string, options: ReadConfigStatusVi
 function nativeAgentProjectionSummaries(
   agent: KilnAgentDefinition,
   routeAdmissionResolver: Awaited<ReturnType<typeof createManagedAgentRouteAdmissionResolver>>,
+  installState: NativeProjectionInstallState,
+  communicationCandidates: ReturnType<typeof configuredCommunicationCandidates>,
 ): readonly NativeAgentProjectionSummary[] {
   return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => {
     const decision = decideNativeAgentProjection({ agent, harness: target, admission: routeAdmissionResolver.resolve(agent) });
@@ -889,6 +899,8 @@ function nativeAgentProjectionSummaries(
       target,
       status: "projected",
       ...(decision.nativeModel ? { nativeModel: decision.nativeModel } : {}),
+      communicationResolution: installState.targets[`${target}-agent:${agent.name}`]?.communicationResolution
+        ?? resolveNativeAgentCommunication(agent, target, decision.nativeModel, communicationCandidates),
     };
   });
 }

@@ -5,6 +5,7 @@ import {
 import type { GuiInboundFrame } from "@kilnai/gateway-contracts";
 import { toGatewayContextUsageProjection } from "./context-usage-projection-mapper.js";
 import { toGatewayVerifiedEfficiencyEvidence } from "./verified-efficiency-evidence-mapper.js";
+import { toGatewayEffectivePromptObservation } from "./effective-prompt-observation-mapper.js";
 
 export function toOperatorSessionEventFrame(
   event: CanonicalSessionEvent,
@@ -52,6 +53,9 @@ function canonicalSessionEventPayload(
   }
   if (event.kind === "context_usage_observed") {
     payload.contextUsage = toGatewayContextUsageProjection(event.contextUsage);
+  }
+  if (event.kind === "effective_prompt_observed") {
+    payload.effectivePrompt = toGatewayEffectivePromptObservation(event.effectivePrompt);
   }
   if (event.kind === "lifecycle_attribution_recorded") {
     payload.efficiencyEvidence = toGatewayVerifiedEfficiencyEvidence(event.efficiencyEvidence);

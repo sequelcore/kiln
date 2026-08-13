@@ -3,14 +3,14 @@
 
 import { Hono } from "hono";
 import type { ArtifactResourceStore, ContentPart, ContextArtifactCache, TtsAdapter, VoiceConfig } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
+import { resolveCommunicationIntent, textParts, extractText } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import type { BillingConfig } from "./budget-middleware.js";
 import { requireApiKey } from "./auth-middleware.js";
 import { processAdmittedTurn } from "./message-pipeline/index.js";
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 /** Runtime configuration for a multi-tenant App */
 export interface TenantAppRuntime {
@@ -37,6 +37,7 @@ interface TenantMessageRequest {
   readonly tenantId: string;
   readonly plan?: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+  readonly communicationIntent?: unknown;
 }
 
 export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
@@ -70,6 +71,15 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
     if (!isRequestedAuthority(body.requestedAuthority)) {
       return c.json({ error: "requestedAuthority must be auto, read_only, audited, or destructive" }, 400);
     }
+    const parsedCommunication = body.communicationIntent === undefined
+      ? undefined
+      : CommunicationIntentSchema.safeParse(body.communicationIntent);
+    if (parsedCommunication && !parsedCommunication.success) {
+      return c.json({ error: "communicationIntent is invalid" }, 400);
+    }
+    const communicationIntent = parsedCommunication?.success
+      ? resolveCommunicationIntent([{ source: "user", intent: parsedCommunication.data }])
+      : undefined;
 
     // Resolve tenant
     const tenant = runtime.tenantRegistry.get(body.tenantId);
@@ -98,7 +108,14 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       billing: billingConfig,
       channel: "api",
       tenant,
-      ...(runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: runtime.toolAllowlist } } : {}),
+      ...(runtime.toolAllowlist || communicationIntent
+        ? {
+            perCallConfig: {
+              ...(runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
+              ...(communicationIntent ? { communicationIntent } : {}),
+            },
+          }
+        : {}),
       idleTimeoutMs: tenant.idleTimeoutMs,
       groundingMode: tenant.groundingMode,
       groundingDeps: runtime.groundingDeps,
@@ -122,6 +139,8 @@ export function createTenantRoutes(runtime: TenantAppRuntime): Hono {
       outputTokens: result.outputTokens,
       sessionId: result.sessionId,
       tenantId: body.tenantId,
+      communicationResolution: result.communicationResolution,
+      effectivePromptObservation: result.effectivePromptObservation,
     });
   });
 

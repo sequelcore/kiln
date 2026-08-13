@@ -11,14 +11,20 @@ import type {
   RetrievalPipeline,
   ContactMemoryService,
 } from "@kilnai/core";
-import { textParts, extractText, hasModality } from "@kilnai/core";
+import {
+  projectFinalEffectivePromptObservation,
+  resolveCommunicationIntent,
+  textParts,
+  extractText,
+  hasModality,
+} from "@kilnai/core";
 import type { RuntimeSessionOrchestrator, PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import type { TenantRegistry } from "../tenant/tenant-registry.js";
 import { resolveAgentContextAsync } from "../tenant/agent-resolver.js";
 import type { AgentHandoffSummarizer } from "../session/support/summarization/agent-handoff-summarizer.js";
 import type { EventBus } from "@kilnai/core";
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
+import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { extractSuggestions } from "../tenant/suggestion-parser.js";
 import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import { checkBudget, reportUsage } from "./budget-middleware.js";
@@ -169,6 +175,16 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                 }));
                 return;
               }
+              const parsedCommunication = parsed.communicationIntent === undefined
+                ? undefined
+                : CommunicationIntentSchema.safeParse(parsed.communicationIntent);
+              if (parsedCommunication && !parsedCommunication.success) {
+                ws.send(JSON.stringify({ type: "error", message: "communicationIntent is invalid" }));
+                return;
+              }
+              const communicationIntent = parsedCommunication?.success
+                ? resolveCommunicationIntent([{ source: "user", intent: parsedCommunication.data }])
+                : undefined;
               const trace = new TraceContext();
               trace.log("ws", "Message received", { tenantId: tenant.tenantId, userId });
 
@@ -356,6 +372,7 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   toolAuthority: tenantToolCtx.toolAuthority,
                   additionalTools: tenantToolCtx.toolDefinitions.length > 0 ? tenantToolCtx.toolDefinitions : undefined,
                   perCallCapabilities: tenantToolCtx.capabilities.size > 0 ? tenantToolCtx.capabilities : undefined,
+                  ...(communicationIntent ? { communicationIntent } : {}),
                 }, parsed.requestedAuthority);
 
                 const result = await config.orchestrator.processMessage(
@@ -478,6 +495,8 @@ export function createWsTenantRoutes(config: WsTenantRoutesConfig): Hono {
                   inputTokens: result.inputTokens,
                   outputTokens: result.outputTokens,
                   outcome: result.outcome,
+                  communicationResolution: result.communicationResolution,
+                  effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
                 }));
 
                 if (followUpSuggestions.length > 0) {

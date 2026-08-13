@@ -26,9 +26,16 @@ import {
   resolveDirectProviderExecutionProfile,
   type DefaultBuiltinToolRegistryOptions,
   CONSERVATIVE_UNKNOWN_ENVELOPE,
+  knownModelCommunicationCapabilities,
+  admitCommunicationForExecution,
+  renderCommunicationPromptProjection,
+  observeStandaloneEffectivePrompt,
+  resolveCommunicationProfile,
   deriveAuthorityFromEffect,
   getBuiltinEffectEnvelope,
   type KilnMcpClient,
+  type ResolvedCommunicationIntent,
+  type EffectivePromptObservation,
 } from "@kilnai/core";
 import {
   buildEffectiveTurnAuthorityPolicyInputs,
@@ -69,6 +76,7 @@ export interface ProviderSessionConfig {
   readonly credentialBinding?: DirectProviderCredentialBinding;
   readonly executionCredential?: ConfiguredExecutionCredential;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly task: string;
   readonly systemPrompt?: string;
@@ -141,6 +149,22 @@ const MANAGED_DELEGATION_TOOL_NAMES = new Set([
   "managed_agent.start",
   "managed_agent.orchestrate",
 ]);
+
+function communicationPerCallProjection(
+  provider: string,
+  model: string | undefined,
+  communicationIntent: ResolvedCommunicationIntent | undefined,
+): Partial<Pick<PerCallToolConfig, "communicationIntent" | "modelRoutingPolicy">> {
+  if (!communicationIntent) return {};
+  if (!model) throw new Error("Communication intent requires an admitted model identity.");
+  const communication = knownModelCommunicationCapabilities(provider, model);
+  return {
+    communicationIntent,
+    ...(communication
+      ? { modelRoutingPolicy: { routeCapabilities: new Map([[`${provider}/${model}`, { communication }]]) } }
+      : {}),
+  };
+}
 
 function isDelegatableManagedInvocationTool(toolName: string): boolean {
   return MANAGED_DELEGATION_TOOL_NAMES.has(toolName);
@@ -260,6 +284,8 @@ export class ProviderSession implements IKilnSession {
   private readonly materializableTools: ReadonlyMap<string, ToolDefinition>;
   private readonly capabilityMap: ReadonlyMap<string, Capability>;
   private readonly eventBus: EventBus;
+  private _communicationResolution: import("@kilnai/core").CommunicationResolution | undefined;
+  private _effectivePromptObservation: EffectivePromptObservation | undefined;
   private readonly builtinToolSurface: ReturnType<typeof createAttachedRuntimeBuiltinToolSurface>;
   private disposePromise?: Promise<void>;
 
@@ -304,6 +330,14 @@ export class ProviderSession implements IKilnSession {
 
   get providerSessionId(): string | undefined {
     return undefined;
+  }
+
+  get communicationResolution(): import("@kilnai/core").CommunicationResolution | undefined {
+    return this._communicationResolution;
+  }
+
+  get effectivePromptObservation(): EffectivePromptObservation | undefined {
+    return this._effectivePromptObservation;
   }
 
   async *run(options: SessionRunOptions): AsyncIterable<ExecutionSessionEvent> {
@@ -491,6 +525,27 @@ export class ProviderSession implements IKilnSession {
     const executionBinding = directProviderExecutionBinding(adapter);
     const { systemPrompt, userPrompt } = this.buildSystemAndPrompt(options);
     const messages = this.buildConversationMessages(userPrompt, options.messages);
+    const communicationIntent = options.communicationIntent ?? this.config.communicationIntent;
+    const communicationResolution = communicationIntent
+      ? resolveCommunicationProfile({
+          intent: communicationIntent,
+          execution: { provider: this.config.provider, model: this.resolvedModel ?? "", surface: "cli" },
+          capabilities: knownModelCommunicationCapabilities(this.config.provider, this.resolvedModel ?? ""),
+        })
+      : undefined;
+    this._communicationResolution = communicationResolution;
+    const communicationPromptProjection = renderCommunicationPromptProjection(communicationResolution);
+    const effectiveSystemPrompt = `${systemPrompt}${communicationPromptProjection ?? ""}`;
+    this._effectivePromptObservation = observeStandaloneEffectivePrompt({
+      providerId: this.config.provider,
+      modelId: this.resolvedModel ?? "provider-default",
+      finalPrompt: effectiveSystemPrompt,
+      communicationProjection: communicationPromptProjection,
+      communicationResolution,
+    });
+    if (communicationResolution) {
+      admitCommunicationForExecution(communicationResolution);
+    }
 
     if (executionBinding) {
       yield {
@@ -506,9 +561,10 @@ export class ProviderSession implements IKilnSession {
     }
 
     for await (const event of adapter.streamMessage({
-      system: systemPrompt,
+      system: effectiveSystemPrompt,
       messages,
       deliberationResolution: options.deliberationResolution ?? this.config.deliberationResolution,
+      ...(communicationResolution ? { communicationResolution } : {}),
       ...(options.abortSignal ? { signal: options.abortSignal } : {}),
     })) {
       if (options.abortSignal?.aborted) {
@@ -576,6 +632,7 @@ export class ProviderSession implements IKilnSession {
 
   private buildPerCallConfig(
     deliberationResolution: DeliberationResolution | undefined,
+    communicationIntent: ResolvedCommunicationIntent | undefined,
     requestedAuthority: OperatorTurnRequestedAuthority | undefined,
     abortSignal: AbortSignal | undefined,
     turnId: string | undefined,
@@ -598,6 +655,7 @@ export class ProviderSession implements IKilnSession {
       return {
         ...(turnId ? { turnId } : {}),
         ...(deliberationResolution ? { deliberationResolution } : {}),
+        ...communicationPerCallProjection(this.config.provider, this.resolvedModel, communicationIntent),
         ...(abortSignal ? { abortSignal } : {}),
         ...(workingDirectory ? { workingDirectory } : {}),
         ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
@@ -678,6 +736,7 @@ export class ProviderSession implements IKilnSession {
     return {
       ...(turnId ? { turnId } : {}),
       ...(deliberationResolution ? { deliberationResolution } : {}),
+      ...communicationPerCallProjection(this.config.provider, this.resolvedModel, communicationIntent),
       ...(abortSignal ? { abortSignal } : {}),
       ...(workingDirectory ? { workingDirectory } : {}),
       ...(toolSandbox !== undefined ? { sandbox: toolSandbox } : {}),
@@ -720,6 +779,7 @@ export class ProviderSession implements IKilnSession {
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
     const perCallConfig = this.buildPerCallConfig(
       options.deliberationResolution ?? this.config.deliberationResolution,
+      options.communicationIntent ?? this.config.communicationIntent,
       requestedAuthority,
       options.abortSignal,
       options.turnId,
@@ -872,6 +932,7 @@ export class ProviderSession implements IKilnSession {
     if (!result) {
       throw new Error("Runtime session orchestrator did not return a result.");
     }
+    this._communicationResolution = result.communicationResolution;
 
     for (const toolExec of result.toolExecutions ?? []) {
       if (!hasLiveToolEvents) {

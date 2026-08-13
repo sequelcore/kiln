@@ -8,6 +8,7 @@
 import type { OperatorSurfaceKind } from "./operator-surface-capability.js";
 import type { OperatorSessionTurnOutcome } from "./operator-session-summary.js";
 import type { OperatorWorkspaceHomeProjection } from "./operator-workspace-home.js";
+import type { CommunicationIntentWire } from "./communication-intent.js";
 import type {
   ExecutionRouteCatalog,
   ExecutionRouteChangeFailed,
@@ -86,6 +87,8 @@ export type GuiDeliberationIntent =
       readonly bounds?: { readonly min?: GuiDeliberationLevelId; readonly max?: GuiDeliberationLevelId };
       readonly onUnsupported: GuiUnsupportedDeliberationPolicy;
     };
+
+export type GuiCommunicationIntent = CommunicationIntentWire;
 
 export interface GuiModelDeliberationCapabilities {
   readonly provider: string;
@@ -523,6 +526,7 @@ export type OperatorSessionEventKind =
   | "file_changed"
   | "cost_updated"
   | "context_usage_observed"
+  | "effective_prompt_observed"
   | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"
@@ -1180,6 +1184,7 @@ export type GuiOutboundFrame =
       sessionIntent?: "fresh";
       continuationSessionId?: string;
       deliberationIntent?: GuiDeliberationIntent;
+      communicationIntent?: GuiCommunicationIntent;
       gatewayTargetId?: string;
       appName?: string;
       tenantId?: string;

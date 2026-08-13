@@ -7,6 +7,8 @@ import type { SessionExecutionScope } from "./session-execution-scope.js";
 import type { SessionTurnOutcome } from "./session-event.js";
 import type { ConversationProjectionEvidence } from "../context/conversation-projection.js";
 import type { EffectivePromptEvidence } from "../context/effective-prompt-manifest.js";
+import type { CommunicationResolution } from "../agents/communication-policy.js";
+import type { ResolvedCommunicationIntent } from "../agents/communication-policy.js";
 
 export type ExecutionSessionCostTrackingMode =
   | "native"
@@ -21,6 +23,7 @@ export interface ExecutionSessionRunOptions {
   readonly messages?: readonly AgentMessage[];
   readonly cwd?: string;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
   readonly env?: Readonly<Record<string, string>>;
   readonly abortSignal?: AbortSignal;
   readonly executionScope?: SessionExecutionScope;
@@ -65,6 +68,7 @@ export interface ProviderRequestEvidence {
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly conversationProjection?: ConversationProjectionEvidence;
   readonly effectivePrompt?: EffectivePromptEvidence;
+  readonly communicationResolution?: CommunicationResolution;
   readonly stopReason?: string;
   readonly contextUsage?: ContextUsageRawEvidence;
 }

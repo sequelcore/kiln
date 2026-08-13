@@ -211,6 +211,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       kilnSessionId: childSessionId,
       permissionPolicy: permissionPolicyFromAuthority(request, this.providerId),
       ...(deliberationResolution ? { deliberationResolution } : {}),
+      ...(request.providerRoute.communicationIntent
+        ? { communicationIntent: request.providerRoute.communicationIntent }
+        : {}),
       ...(this.privatePlanArtifactCapability ? {
         privatePlanArtifactCapability: this.privatePlanArtifactCapability,
       } : {}),
@@ -225,6 +228,9 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       cwd,
       system,
       ...(input.environment !== undefined ? { env: input.environment } : {}),
+      ...(request.providerRoute.communicationIntent
+        ? { communicationIntent: request.providerRoute.communicationIntent }
+        : {}),
     }, collected);
     input.registerAdapterCompletion(runPromise);
     const timeoutPromise = sleep(request.authority.timeoutMs).then(() => TIMEOUT);
@@ -526,6 +532,7 @@ export class ManagedCliHarnessAdapter implements ManagedAgentRuntimeAdapter {
       surface: "cli-harness",
       model: route.model ?? this.model,
       ...(route.deliberationIntent !== undefined ? { deliberationIntent: route.deliberationIntent } : {}),
+      ...(route.communicationIntent !== undefined ? { communicationIntent: route.communicationIntent } : {}),
     };
   }
 

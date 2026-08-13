@@ -72,6 +72,27 @@ describe("buildRunJsonOutputEnvelope", () => {
     expect(envelope.telemetry.sessionSucceeded).toBe(true);
   });
 
+  it("exposes canonical communication evidence in JSON diagnostics without recomputing it", () => {
+    const communicationResolution = {
+      version: "v1",
+      responseDetail: { status: "exact", mechanism: "native" },
+      interactionProfile: { status: "defaulted", mechanism: "default" },
+      semanticLoss: [],
+      identity: "sha256:test",
+    } as Parameters<typeof buildRunJsonOutputEnvelope>[0]["communicationResolution"];
+    expect(buildRunJsonOutputEnvelope({ ...base, communicationResolution }).diagnostics.communicationResolution)
+      .toBe(communicationResolution);
+  });
+
+  it("exposes standalone final-prompt evidence in JSON diagnostics without raw prompt text", () => {
+    const effectivePromptObservation = {
+      evidenceIdentity: "sha256:observation",
+    } as Parameters<typeof buildRunJsonOutputEnvelope>[0]["effectivePromptObservation"];
+    const diagnostics = buildRunJsonOutputEnvelope({ ...base, effectivePromptObservation }).diagnostics;
+    expect(diagnostics.effectivePromptObservation).toBe(effectivePromptObservation);
+    expect(JSON.stringify(diagnostics)).not.toContain("rawPrompt");
+  });
+
   it("omits capabilityGap from diagnostics when not supplied (backward-compat)", () => {
     const envelope = buildRunJsonOutputEnvelope(base);
     expect(envelope.diagnostics).not.toHaveProperty("capabilityGap");

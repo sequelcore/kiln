@@ -30,6 +30,46 @@ vi.mock("../../src/tenant/agent-resolver.js", () => ({
 
 const TEST_APP = "kilvo";
 const WIDGET_ID = "widget-uuid-abc";
+const hash = (character: string) => `sha256:${character.repeat(64)}`;
+
+const providerRequestEvidence = {
+  requestIndex: 0,
+  providerId: "codex-oauth",
+  modelId: "gpt-5.6-sol",
+  inputTokens: 3,
+  outputTokens: 2,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  cumulativeInputTokens: 3,
+  cumulativeOutputTokens: 2,
+  cumulativeCacheReadTokens: 0,
+  cumulativeCacheWriteTokens: 0,
+  systemBytes: 3,
+  messageBytes: 2,
+  toolSchemaBytes: 0,
+  systemHash: hash("1"),
+  messageHash: hash("2"),
+  toolSchemaHash: hash("3"),
+  stablePrefixHash: hash("4"),
+  stablePrefixBytes: 3,
+  stablePrefixRegionCount: 1,
+  volatileRegionBytes: 2,
+  cacheRegions: [],
+  cachePartition: { dimensions: [] },
+  toolCount: 0,
+  effectivePrompt: {
+    version: "v1" as const,
+    components: [{
+      id: hash("5"),
+      revision: hash("6"),
+      scope: "dynamic" as const,
+      estimatedTokens: 3,
+      provenance: { source: hash("7") },
+    }],
+    finalPromptHash: hash("8"),
+    estimatedTokens: 3,
+  },
+};
 
 function makeToolDefinition(name: string): ToolDefinition {
   return {
@@ -525,6 +565,74 @@ describe("createWsTenantRoutes", () => {
       }));
       const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
       expect(perCallConfig?.toolAuthority).toBe(mockedToolAuthority);
+    });
+
+    it("propagates communication intent and returns raw-free final prompt evidence", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      vi.mocked(mockOrchestrator.processMessage).mockResolvedValueOnce({
+        parts: textParts("Respuesta"),
+        outcome: "completed",
+        inputTokens: 3,
+        outputTokens: 2,
+        providerRequests: [providerRequestEvidence],
+      });
+
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "private tenant request",
+          communicationIntent: {
+            locale: "es-MX",
+            responseDetail: "detailed",
+            requiredContent: ["residual-risk", "verification"],
+          },
+        }),
+      }), wsCtx);
+
+      const perCallConfig = vi.mocked(mockOrchestrator.processMessage).mock.calls[0]![4];
+      expect(perCallConfig?.communicationIntent).toEqual(expect.objectContaining({
+        intent: expect.objectContaining({
+          locale: "es-MX",
+          responseDetail: "detailed",
+          requiredContent: ["residual-risk", "verification"],
+        }),
+        authority: expect.objectContaining({ locale: "user", responseDetail: "user" }),
+      }));
+      const done = JSON.parse(mockWs.send.mock.calls.at(-1)?.[0] as string);
+      expect(done.effectivePromptObservation).toMatchObject({
+        providerId: "codex-oauth",
+        modelId: "gpt-5.6-sol",
+        finalPromptHash: hash("8"),
+        componentScopeCounts: { static: 0, dynamic: 1, deferred: 0 },
+      });
+      expect(JSON.stringify(done.effectivePromptObservation)).not.toContain("private tenant request");
+    });
+
+    it("rejects invalid communication intent before tenant runtime invocation", async () => {
+      const { upgradeWebSocket, simulateConnection } = makeUpgradeWebSocket();
+      vi.mocked(mockTenantRegistry.resolveByWidgetId).mockReturnValue(makeTenantConfig());
+      createWsTenantRoutes(makeConfig(channel, upgradeWebSocket, mockTenantRegistry, mockSessionRegistry, mockOrchestrator));
+
+      const { handlers, mockWs, wsCtx } = simulateConnection({ widgetId: WIDGET_ID, userId: "user-1" });
+      handlers.onOpen!(new Event("open"), wsCtx);
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({
+          type: "message",
+          content: "hello",
+          communicationIntent: { responseDetail: "verbose" },
+        }),
+      }), wsCtx);
+
+      expect(mockOrchestrator.processMessage).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls.at(-1)?.[0] as string)).toEqual({
+        type: "error",
+        message: "communicationIntent is invalid",
+      });
     });
 
     it("narrows tenant tools before provider invocation when read-only authority is requested", async () => {

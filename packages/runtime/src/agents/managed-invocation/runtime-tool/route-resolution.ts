@@ -141,6 +141,7 @@ function buildManagedInvocationRetryInputTemplate(
       providerId: input.providerRoute.providerId,
       ...(input.providerRoute.model ? { model: input.providerRoute.model } : {}),
       ...(input.providerRoute.deliberationIntent ? { deliberationIntent: input.providerRoute.deliberationIntent } : {}),
+      ...(input.providerRoute.communicationIntent ? { communicationIntent: input.providerRoute.communicationIntent } : {}),
     },
     ...(input.requestedAuthority ? { requestedAuthority: input.requestedAuthority } : {}),
     task: input.task,

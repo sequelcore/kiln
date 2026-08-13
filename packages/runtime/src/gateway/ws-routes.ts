@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import type { UpgradeWebSocket, WSContext } from "hono/ws";
 import type { WebChannel } from "../channels/web-channel.js";
-import type { ArtifactResourceStore, ContentPart, IncomingMessage, SessionTurnOutcome } from "@kilnai/core";
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
-import { textParts, extractText } from "@kilnai/core";
+import type { ArtifactResourceStore, CommunicationResolution, ContentPart, IncomingMessage, ProviderRequestEvidence, ResolvedCommunicationIntent, SessionTurnOutcome } from "@kilnai/core";
+import { projectFinalEffectivePromptObservation, resolveCommunicationIntent, textParts, extractText } from "@kilnai/core";
+import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import { createGenericMediaDownloader } from "./audio-preprocessor.js";
 import { captureMultimodalArtifacts } from "./multimodal-artifact-ingestion.js";
 
@@ -17,11 +17,14 @@ export interface WsRoutesConfig {
   readonly artifactStore?: ArtifactResourceStore;
   readonly processMessage?: (userId: string, parts: readonly ContentPart[], options?: {
     readonly requestedAuthority?: OperatorTurnRequestedAuthority;
+    readonly communicationIntent?: ResolvedCommunicationIntent;
   }) => Promise<{
     parts: readonly ContentPart[];
     inputTokens: number;
     outputTokens: number;
     outcome: SessionTurnOutcome;
+    communicationResolution?: CommunicationResolution;
+    providerRequests?: readonly ProviderRequestEvidence[];
   }>;
 }
 
@@ -85,6 +88,16 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
                 }));
                 return;
               }
+              const parsedCommunication = parsed.communicationIntent === undefined
+                ? undefined
+                : CommunicationIntentSchema.safeParse(parsed.communicationIntent);
+              if (parsedCommunication && !parsedCommunication.success) {
+                ws.send(JSON.stringify({ type: "error", message: "communicationIntent is invalid" }));
+                return;
+              }
+              const communicationIntent = parsedCommunication?.success
+                ? resolveCommunicationIntent([{ source: "user", intent: parsedCommunication.data }])
+                : undefined;
               let userParts: readonly ContentPart[] = Array.isArray(parsed.parts)
                 ? (parsed.parts as ContentPart[])
                 : textParts(String(parsed.content ?? ""));
@@ -101,6 +114,7 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
                 }
                 const result = await config.processMessage(userId, userParts, {
                   requestedAuthority: parsed.requestedAuthority,
+                  ...(communicationIntent ? { communicationIntent } : {}),
                 });
                 ws.send(JSON.stringify({
                   type: "done",
@@ -109,6 +123,8 @@ export function createWsRoutes(config: WsRoutesConfig): Hono {
                   inputTokens: result.inputTokens,
                   outputTokens: result.outputTokens,
                   outcome: result.outcome,
+                  communicationResolution: result.communicationResolution,
+                  effectivePromptObservation: projectFinalEffectivePromptObservation(result.providerRequests),
                 }));
               } catch (err) {
                 ws.send(JSON.stringify({

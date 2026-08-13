@@ -76,6 +76,7 @@ import { readGlobalConfig, type KilnGlobalConfig } from "../config/global-config
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
+import { admittedCommunicationEvidence, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
 import { createWorkGovernanceTools } from "../application/work-governance-tool.js";
@@ -1501,6 +1502,11 @@ export async function runCommand(
       .map((block) => block.content),
   });
 
+  const admittedCommunication = admittedCommunicationEvidence({
+    ...(flags.outputSchema ? { outputSchema: await readFile(flags.outputSchema) } : {}),
+    projectedBlocks: context.projectedContext.blocks,
+    requestedAuthority: flags.requestedAuthority,
+  });
   const sessionConfig = {
     task,
     mcpServerEntryPath: context.mcpServerEntryPath,
@@ -1521,6 +1527,12 @@ export async function runCommand(
     ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
     model: effectiveModel,
     requestedAuthority: flags.requestedAuthority,
+    communicationIntent: resolveConfiguredCommunication({
+      global: globalConfig?.communication,
+      project: projectConfig?.communication,
+      agent: resolvedAgent?.communication,
+      ...admittedCommunication,
+    }),
     ...(admittedMcpServers.length > 0 ? { canonicalMcpServers: admittedMcpServers } : {}),
   };
 
@@ -1639,6 +1651,8 @@ export async function runCommand(
     exactArtifacts,
     submittedPlan: submittedPlanFromSession,
     managedChildDispatched,
+    communicationResolution,
+    effectivePromptObservation,
   } = runResult;
 
   // Unify the delegation capability gap post-session. The pre-session gap
@@ -1676,6 +1690,20 @@ export async function runCommand(
     measurement: "runtime_estimate",
     lifecycle: "completed",
   });
+  if (communicationResolution && runOutput.mode === "human") {
+    runOutput.writeTelemetryLine(
+      `[kiln] Communication: detail=${communicationResolution.responseDetail.status}/${communicationResolution.responseDetail.mechanism}`
+      + ` profile=${communicationResolution.interactionProfile.status}/${communicationResolution.interactionProfile.mechanism}`
+      + ` locale=${communicationResolution.locale.status}/${communicationResolution.locale.mechanism}`
+      + ` required=${communicationResolution.requiredContent.status}/${communicationResolution.requiredContent.mechanism}`
+      + ` artifact=${communicationResolution.artifactContract.status}/${communicationResolution.artifactContract.mechanism}`
+      + ` skills=${communicationResolution.responseSkills.status}/${communicationResolution.responseSkills.mechanism}`
+      + ` evidence=${communicationResolution.capabilityEvidence?.sourceRevision ?? "none"}`
+      + (communicationResolution.semanticLoss.length > 0
+        ? ` semantic-loss=${communicationResolution.semanticLoss.join("; ")}`
+        : ""),
+    );
+  }
 
   if (directRouteHealthStore) {
     for (const attempt of attempts) {
@@ -1884,6 +1912,8 @@ export async function runCommand(
       lastError: appendCleanupFailure(lastError, cleanupErrorMessage),
       attempts,
       exactArtifacts,
+      communicationResolution,
+      effectivePromptObservation,
     });
     exitRunCommand(1, executionOptions);
   }
@@ -1921,8 +1951,10 @@ export async function runCommand(
         lastError: appendCleanupFailure(errorMessage, cleanupErrorMessage),
         attempts,
         exactArtifacts,
-capabilityGap: postSessionCapabilityGap,
+        capabilityGap: postSessionCapabilityGap,
         managedInvocationAuthorityNotes,
+        communicationResolution,
+        effectivePromptObservation,
       });
       exitRunCommand(1, executionOptions);
     }
@@ -2061,8 +2093,10 @@ capabilityGap: postSessionCapabilityGap,
       verificationResult,
       evalScore,
       exactArtifacts,
-capabilityGap: postSessionCapabilityGap,
+      capabilityGap: postSessionCapabilityGap,
       managedInvocationAuthorityNotes,
+      communicationResolution,
+      effectivePromptObservation,
     });
     exitRunCommand(1, executionOptions);
   }
@@ -2095,6 +2129,8 @@ capabilityGap: postSessionCapabilityGap,
     exactArtifacts,
     capabilityGap: postSessionCapabilityGap,
     managedInvocationAuthorityNotes,
+    communicationResolution,
+    effectivePromptObservation,
     proposedPlan: submittedPlan,
   };
 
@@ -2176,6 +2212,8 @@ interface RunOutputEmissionInput {
   readonly exactArtifacts: readonly string[];
   readonly capabilityGap?: CapabilityGapRecord;
   readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
+  readonly communicationResolution?: import("@kilnai/core").CommunicationResolution;
+  readonly effectivePromptObservation?: import("@kilnai/core").EffectivePromptObservation;
   readonly proposedPlan?: string;
 }
 
@@ -2204,6 +2242,8 @@ interface RunFailureOutputInput {
   readonly exactArtifacts?: readonly string[];
   readonly capabilityGap?: CapabilityGapRecord;
   readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
+  readonly communicationResolution?: import("@kilnai/core").CommunicationResolution;
+  readonly effectivePromptObservation?: import("@kilnai/core").EffectivePromptObservation;
 }
 
 function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureOutputInput): void {
@@ -2236,6 +2276,8 @@ function emitRunFailureOutput(runOutput: RunOutputController, input: RunFailureO
     exactArtifacts: input.exactArtifacts ?? [],
     capabilityGap: input.capabilityGap,
     managedInvocationAuthorityNotes: input.managedInvocationAuthorityNotes,
+    communicationResolution: input.communicationResolution,
+    effectivePromptObservation: input.effectivePromptObservation,
   });
 }
 

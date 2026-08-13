@@ -50,6 +50,7 @@ import {
 } from "./runtime-session-orchestrator.types.js";
 import {
   buildRuntimeTurnSystemPrompt,
+  appendRuntimeCommunicationPromptManifest,
   reconcileRuntimeInvocationPromptManifest,
 } from "./support/index.js";
 import {
@@ -304,6 +305,7 @@ export class RuntimeSessionOrchestrator {
         },
         toolExecutions: [routing.delegatedMultimodalResult.toolExecution],
         routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        communicationResolution: routing.communicationResolution,
         preLlmEscalation: escalation,
       });
     }
@@ -324,9 +326,9 @@ export class RuntimeSessionOrchestrator {
       (sessionId, message) => this.telemetry.emitError(sessionId, message),
       callBuiltinTools,
     );
-    const invocationPromptManifest = reconcileRuntimeInvocationPromptManifest(
-      systemManifest,
-      routing.invocationSystem,
+    const invocationPromptManifest = appendRuntimeCommunicationPromptManifest(
+      reconcileRuntimeInvocationPromptManifest(systemManifest, routing.invocationSystem),
+      routing.communicationResolution,
     );
     const budgetRouteModel = routing.routingDecision?.model ?? this.model;
     let projectedRoundTools = routing.effectiveTools;
@@ -372,6 +374,7 @@ export class RuntimeSessionOrchestrator {
           providerRequests: this.telemetry.requestSnapshot(),
           toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
           outcome: "failed",
         });
@@ -399,6 +402,7 @@ export class RuntimeSessionOrchestrator {
           usageTotals: this.telemetry.snapshot(),
           providerRequests: this.telemetry.requestSnapshot(),
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
         });
       }
@@ -419,6 +423,14 @@ export class RuntimeSessionOrchestrator {
         && routing.effectiveProvider.deliberationTransport !== "native-level") {
         throw new Error(
           `Provider adapter '${routing.effectiveProvider.name}' cannot transport the resolved deliberation level.`,
+        );
+      }
+      if (routing.communicationResolution
+        && (routing.communicationResolution.responseDetail.mechanism === "native"
+          || routing.communicationResolution.interactionProfile.mechanism === "native")
+        && routing.effectiveProvider.communicationTransport !== "native") {
+        throw new Error(
+          `Provider adapter '${routing.effectiveProvider.name}' cannot transport the resolved communication control.`,
         );
       }
       const response = await routing.effectiveProvider.createMessage({
@@ -444,6 +456,9 @@ export class RuntimeSessionOrchestrator {
         maxTokens: this.deps.maxTokens,
         ...(routing.deliberationResolution
           ? { deliberationResolution: routing.deliberationResolution }
+          : {}),
+        ...(routing.communicationResolution
+          ? { communicationResolution: routing.communicationResolution }
           : {}),
         signal: perCallConfig?.abortSignal,
         ...(perCallConfig?.providerTransport?.watchdog
@@ -487,6 +502,7 @@ export class RuntimeSessionOrchestrator {
           }),
           cachePartition,
           conversationProjection: conversationProjection.evidence,
+          communicationResolution: routing.communicationResolution,
           ...(response.stopReason ? { stopReason: response.stopReason } : {}),
         }),
       );
@@ -538,6 +554,7 @@ export class RuntimeSessionOrchestrator {
           toolExecutions,
           stopReason: response.stopReason,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
+          communicationResolution: routing.communicationResolution,
           preLlmEscalation: escalation,
         });
       }
@@ -699,6 +716,7 @@ export class RuntimeSessionOrchestrator {
         usageTotals: this.telemetry.snapshot(),
         providerRequests: this.telemetry.requestSnapshot(),
         routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        communicationResolution: routing.communicationResolution,
         preLlmEscalation: escalation,
       });
     }
@@ -718,6 +736,7 @@ export class RuntimeSessionOrchestrator {
         usageTotals: this.telemetry.snapshot(),
         providerRequests: this.telemetry.requestSnapshot(),
         routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        communicationResolution: routing.communicationResolution,
         preLlmEscalation: escalation,
       });
     }
@@ -740,6 +759,7 @@ export class RuntimeSessionOrchestrator {
       executionEnvelope?.conversation?.toolResults,
       perCallConfig?.abortSignal,
       perCallConfig?.providerTransport,
+      routing.communicationResolution,
     );
     const usageTotals = this.telemetry.recordResponse(
       session.id,
@@ -764,6 +784,7 @@ export class RuntimeSessionOrchestrator {
       toolExecutions,
       stopReason: finalizedFallback.stopReason,
       routingDecision: toPublicRoutingDecision(routing.routingDecision),
+      communicationResolution: routing.communicationResolution,
       preLlmEscalation: escalation,
     });
   }
@@ -832,6 +853,7 @@ export class RuntimeSessionOrchestrator {
       input.executionEnvelope?.conversation?.toolResults,
       input.abortSignal,
       input.providerTransport,
+      input.routing.communicationResolution,
     );
     const fallbackUsageTotals = this.telemetry.recordResponse(
       input.session.id,
@@ -855,6 +877,7 @@ export class RuntimeSessionOrchestrator {
       toolExecutions: input.toolExecutions,
       stopReason: finalizedFallback.stopReason,
       routingDecision: toPublicRoutingDecision(input.routing.routingDecision),
+      communicationResolution: input.routing.communicationResolution,
       preLlmEscalation: input.preLlmEscalation,
     });
   }
@@ -1274,6 +1297,7 @@ function finalizeManagedInvocationTransitionRequired(input: {
   };
   readonly providerRequests: readonly ProviderRequestEvidence[];
   readonly routingDecision: OrchestrateResult["routingDecision"];
+  readonly communicationResolution: OrchestrateResult["communicationResolution"];
   readonly preLlmEscalation: OrchestrateResult["escalation"];
 }): Promise<OrchestrateResult> {
   const parts = textParts(formatManagedInvocationTransitionExhaustedMessage(input.pending));
@@ -1292,6 +1316,7 @@ function finalizeManagedInvocationTransitionRequired(input: {
     toolExecutions: input.toolExecutions,
     stopReason: RUNTIME_SESSION_MANAGED_INVOCATION_STATE_TRANSITION_REQUIRED_STOP_REASON,
     routingDecision: input.routingDecision,
+    communicationResolution: input.communicationResolution,
     preLlmEscalation: input.preLlmEscalation,
   });
 }
@@ -1309,6 +1334,7 @@ function finalizeGovernedWorkMaterializationRequired(input: {
   };
   readonly providerRequests: readonly ProviderRequestEvidence[];
   readonly routingDecision: OrchestrateResult["routingDecision"];
+  readonly communicationResolution: OrchestrateResult["communicationResolution"];
   readonly preLlmEscalation: OrchestrateResult["escalation"];
 }): Promise<OrchestrateResult> {
   return finalizeRuntimeSessionResponse({
@@ -1329,6 +1355,7 @@ function finalizeGovernedWorkMaterializationRequired(input: {
     toolExecutions: input.toolExecutions,
     stopReason: RUNTIME_SESSION_GOVERNED_WORK_MATERIALIZATION_REQUIRED_STOP_REASON,
     routingDecision: input.routingDecision,
+    communicationResolution: input.communicationResolution,
     preLlmEscalation: input.preLlmEscalation,
   });
 }
@@ -1790,6 +1817,7 @@ function buildRuntimeProviderRequestCachePartition(
     canonicalModel: routing.routingDecision?.canonicalModel
       ?? routing.executionIdentity?.canonicalModel,
     deliberationResolution: routing.deliberationResolution,
+    communicationResolution: routing.communicationResolution,
     policyIdentity: {
       executionEnvelope,
       modelRoutingPolicy: projectModelRoutingPolicy(perCallConfig?.modelRoutingPolicy),

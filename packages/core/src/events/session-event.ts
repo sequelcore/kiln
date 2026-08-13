@@ -1,6 +1,7 @@
 import type { ExecutionBillingMode } from "../agents/execution-identity.js";
 import type { ExecutionSessionToolResultResourceLink } from "./execution-session-event.js";
 import type { ContextUsageProjection } from "./context-usage-projection.js";
+import type { EffectivePromptObservation } from "../context/effective-prompt-observation.js";
 import type { VerifiedEfficiencyEvidenceProjection } from "../efficiency/verified-efficiency-evidence.js";
 import type {
   ManagedEconomicCoreRejectionReason,
@@ -67,6 +68,7 @@ export type CanonicalSessionEventKind =
   | "file_changed"
   | "cost_updated"
   | "context_usage_observed"
+  | "effective_prompt_observed"
   | "lifecycle_attribution_recorded"
   | "work_item_updated"
   | "work_item_execution_started"
@@ -424,6 +426,10 @@ export interface CanonicalContextUsageObservedEvent extends SessionEventEnvelope
   readonly contextUsage: ContextUsageProjection;
 }
 
+export interface CanonicalEffectivePromptObservedEvent extends SessionEventEnvelope<"effective_prompt_observed"> {
+  readonly effectivePrompt: EffectivePromptObservation;
+}
+
 export interface CanonicalLifecycleAttributionRecordedEvent extends SessionEventEnvelope<"lifecycle_attribution_recorded"> {
   readonly ledger: SessionLifecycleAttributionLedger;
   readonly summary: SessionLifecycleAttributionSummary;
@@ -716,6 +722,7 @@ export interface CanonicalSessionEventMap {
   file_changed: CanonicalFileChangedEvent;
   cost_updated: CanonicalCostUpdatedEvent;
   context_usage_observed: CanonicalContextUsageObservedEvent;
+  effective_prompt_observed: CanonicalEffectivePromptObservedEvent;
   lifecycle_attribution_recorded: CanonicalLifecycleAttributionRecordedEvent;
   work_item_updated: CanonicalWorkItemUpdatedEvent;
   work_item_execution_started: CanonicalWorkItemExecutionStartedEvent;

@@ -58,6 +58,7 @@ kiln config set --global skills.selection.mode auto
 | `managedAgents` | `KilnManagedAgentsConfig` | Governed child-agent route configuration shared by GUI, TUI, and CLI runtime surfaces. |
 | `modelTaskSuitability` | `KilnModelTaskSuitabilityOverride[]` | Operator or project overrides for provider/model task suitability evidence. |
 | `deliberationPolicy` | `KilnDeliberationPolicyConfig` | Provider-neutral default, task, and exact-route deliberation intents. Runtime resolves them against revisioned model capability evidence. |
+| `communication` | `CommunicationIntent` | Provider-neutral response detail, interaction behavior, locale, required-content preservation, and unsupported-control policy. |
 | `identity` | `KilnGlobalIdentity` | Global identity values used for personalization and prompt context. |
 | `identity.name` | `string` | Default operator name for generated prompt context and UI personalization. |
 | `identity.timezone` | `string` | Default timezone identifier for prompt context and scheduling-aware flows. |
@@ -200,6 +201,66 @@ digests, client identity, user agent, and streaming usage request. These fields
 provide transport correlation only. Account leasing and the OpenCode gateway's
 own routing remain the governing capacity and continuity boundaries; none of
 these headers authorizes an effort level or grants filesystem authority.
+
+Communication policy is separate from deliberation and model suitability. A
+global or project default may request detail and preserve applicable content:
+
+```yaml
+communication:
+  responseDetail: standard
+  locale: es-MX
+  requiredContent:
+    - failure
+    - warning
+    - verification
+    - residual-risk
+  onUnsupported: deny
+```
+
+An agent profile may add an observable interaction profile and obligations:
+
+```yaml
+---
+name: reviewer
+role: Findings-first reviewer
+goal: Report actionable defects and verification gaps
+communication:
+  responseDetail: detailed
+  interactionProfile:
+    id: findings-first
+    revision: v1
+    behaviors: [findings-first, state-visible, next-action-explicit]
+  requiredContent: [finding, verification, residual-risk]
+  onUnsupported: deny
+---
+```
+
+Scalar precedence is safety/authority, user, artifact contract, response
+skill, invocation, agent, project, global, then provider default. Required
+content accumulates rather than being replaced. `concise` changes default
+detail only; it never authorizes omission of applicable evidence.
+
+Native controls are route-specific. Codex GPT-5 may receive
+`model_verbosity`; a supported Codex personality is recorded as a translated
+profile with semantic-loss evidence only when profile ID, revision, and the
+canonical behavior set all match. OpenCode `textVerbosity` is projected
+only into an owned agent file for an admitted OpenAI GPT-5 route. Kiln does not
+overwrite Claude output styles or mutate persistent OpenCode agents for one
+turn. With `onUnsupported: deny`, those invocation paths fail before provider
+I/O; `omit` executes without the unsupported axis and records that outcome.
+
+CLI human diagnostics show mechanism, exactness, capability revision, and
+semantic loss. `--output json` exposes the full content-free
+`diagnostics.communicationResolution`. GUI, TUI, SDK, and replay consume the
+same Gateway evidence rather than recalculating policy. REST and WebSocket SDK
+hooks expose the validated final-request observation as
+`communicationEvidence`; it contains hashes, attribution, counts, and the
+resolution, never raw prompt text. See
+[Communication Governance](../../architecture/context/communication-governance.md).
+Standalone CLI wrappers expose the same final-request observation in JSON
+diagnostics. Native-agent sync persists the global/project/agent resolution in
+owned install state, so `kiln config read agents` reports the exact projection
+evidence rather than recomputing provenance after the fact.
 
 The same runtime tool can request `agentProfile`, `skills`, and `contextMode`.
 GUI, TUI, and CLI-launched managed invocations resolve those fields from

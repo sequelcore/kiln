@@ -17,6 +17,7 @@ import type {
   ConversationProjectionEvidence,
   EffectivePromptEvidence,
   EffectivePromptManifest,
+  CommunicationResolution,
 } from "@kilnai/core";
 import {
   computeUsageCostUsd,
@@ -64,6 +65,7 @@ export interface ProviderRequestRegionEvidence {
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly conversationProjection?: ConversationProjectionEvidence;
   readonly effectivePrompt?: EffectivePromptEvidence;
+  readonly communicationResolution?: CommunicationResolution;
   readonly stopReason?: string;
 }
 
@@ -103,6 +105,7 @@ export function measureProviderRequestRegions(input: {
   readonly toolProjection?: ProviderRequestToolProjectionEvidence;
   readonly conversationProjection?: ConversationProjectionEvidence;
   readonly effectivePrompt?: EffectivePromptManifest;
+  readonly communicationResolution?: CommunicationResolution;
   readonly stopReason?: string;
   readonly requestRegionOrder?: readonly ProviderRequestCacheRegionSource[];
   readonly cachePartition?: ProviderRequestCachePartitionInput;
@@ -153,6 +156,9 @@ export function measureProviderRequestRegions(input: {
     ...(input.effectivePrompt
       ? { effectivePrompt: toEffectivePromptEvidence(input.effectivePrompt) }
       : {}),
+    ...(input.communicationResolution
+      ? { communicationResolution: input.communicationResolution }
+      : {}),
     ...(input.stopReason ? { stopReason: input.stopReason } : {}),
   };
 }
@@ -182,6 +188,7 @@ export interface ProviderRequestCachePartitionInput {
   readonly model?: string;
   readonly canonicalModel?: string;
   readonly deliberationResolution?: unknown;
+  readonly communicationResolution?: unknown;
   readonly policyIdentity?: unknown;
   readonly authority?: {
     readonly effectiveTurnAuthority?: unknown;
@@ -450,6 +457,7 @@ function buildCachePartitionEvidence(
     model: input?.model ?? "unknown",
     canonicalModel: input?.canonicalModel ?? "unknown",
     deliberationResolution: input?.deliberationResolution ?? { status: "not-requested" },
+    communicationResolution: input?.communicationResolution ?? { status: "not-requested" },
   };
   const policyValue = input?.policyIdentity ?? { policy: "default" };
   const authorityValue = input?.authority ?? { authority: "unknown" };

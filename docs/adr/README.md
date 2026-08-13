@@ -24,3 +24,4 @@ Execution sequencing belongs in `docs/roadmap/`. Stable doctrine belongs in
 | [ADR-010](ADR-010-native-credential-projection.md) | Native credential projection into harness credential stores |
 | [ADR-011](ADR-011-provider-neutral-deliberation-policy.md) | Provider-neutral deliberation policy and resolution authority |
 | [ADR-012](ADR-012-global-config-schema-evolution.md) | Global config schema evolution and build-identified diagnostics |
+| [ADR-013](ADR-013-provider-neutral-communication-governance.md) | Provider-neutral communication resolution, evidence, and harness projection |

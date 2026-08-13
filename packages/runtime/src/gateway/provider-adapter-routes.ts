@@ -3,8 +3,8 @@
 
 import { Hono } from "hono";
 import type { ArtifactResourceStore, ContentPart, TenantConfig, RetrievalPipeline, ContextArtifactCache, TtsAdapter, VoiceConfig } from "@kilnai/core";
-import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
-import { textParts, extractText } from "@kilnai/core";
+import { resolveCommunicationIntent, textParts, extractText } from "@kilnai/core";
+import { CommunicationIntentSchema, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../session/persistence/session-registry.js";
 import { checkTier } from "./budget-middleware.js";
@@ -44,6 +44,7 @@ interface MessageRequest {
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly plan?: string;
   readonly context?: Record<string, string>;
+  readonly communicationIntent?: unknown;
 }
 
 export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime): Hono {
@@ -75,6 +76,15 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
     if (!isRequestedAuthority(body.requestedAuthority)) {
       return c.json({ error: "requestedAuthority must be auto, read_only, audited, or destructive" }, 400);
     }
+    const parsedCommunication = body.communicationIntent === undefined
+      ? undefined
+      : CommunicationIntentSchema.safeParse(body.communicationIntent);
+    if (parsedCommunication && !parsedCommunication.success) {
+      return c.json({ error: "communicationIntent is invalid" }, 400);
+    }
+    const communicationIntent = parsedCommunication?.success
+      ? resolveCommunicationIntent([{ source: "user", intent: parsedCommunication.data }])
+      : undefined;
 
     // Validate optional context: must be a plain non-array object with string values
     if (body.context !== undefined) {
@@ -128,7 +138,14 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
         groundingDeps: runtime.groundingDeps,
         contextArtifactCache: runtime.contextArtifactCache,
         coordinationContextProvider: runtime.coordinationContextProvider,
-        ...(runtime.toolAllowlist ? { perCallConfig: { toolAllowlist: runtime.toolAllowlist } } : {}),
+        ...(runtime.toolAllowlist || communicationIntent
+          ? {
+              perCallConfig: {
+                ...(runtime.toolAllowlist ? { toolAllowlist: runtime.toolAllowlist } : {}),
+                ...(communicationIntent ? { communicationIntent } : {}),
+              },
+            }
+          : {}),
       });
     } catch (err) {
       console.error(`[${runtime.appName}] processMessage error:`, err);
@@ -149,6 +166,8 @@ export function createProviderAdapterRoutes(runtime: ProviderAdapterAppRuntime):
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       sessionId: result.sessionId,
+      communicationResolution: result.communicationResolution,
+      effectivePromptObservation: result.effectivePromptObservation,
     });
   });
 

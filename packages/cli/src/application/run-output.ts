@@ -1,4 +1,4 @@
-import type { VerificationResult } from "@kilnai/core";
+import type { CommunicationResolution, VerificationResult } from "@kilnai/core";
 import {
   VerifiedEfficiencyEvidenceProjectionSchema,
   type ContextUsageProjection,
@@ -245,6 +245,8 @@ export interface RunJsonOutputEnvelope {
      *  is attached. Diagnostic-only: informs the operator that canceling a
      *  child requires re-invoking with --authority destructive. */
     readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
+    readonly communicationResolution?: CommunicationResolution;
+    readonly effectivePromptObservation?: import("@kilnai/core").EffectivePromptObservation;
   };
   readonly resources: {
     readonly exactArtifacts: readonly string[];
@@ -372,6 +374,8 @@ export function buildRunJsonOutputEnvelope(input: {
   readonly exactArtifacts: readonly string[];
   readonly capabilityGap?: CapabilityGapRecord;
   readonly managedInvocationAuthorityNotes?: ManagedInvocationAuthorityNote;
+  readonly communicationResolution?: CommunicationResolution;
+  readonly effectivePromptObservation?: import("@kilnai/core").EffectivePromptObservation;
   readonly proposedPlan?: string;
 }): RunJsonOutputEnvelope {
   return {
@@ -409,6 +413,8 @@ export function buildRunJsonOutputEnvelope(input: {
       ...(input.managedInvocationAuthorityNotes
         ? { managedInvocationAuthorityNotes: input.managedInvocationAuthorityNotes }
         : {}),
+      ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
+      ...(input.effectivePromptObservation ? { effectivePromptObservation: input.effectivePromptObservation } : {}),
     },
     resources: {
       exactArtifacts: input.exactArtifacts,

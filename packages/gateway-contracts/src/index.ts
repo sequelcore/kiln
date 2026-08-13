@@ -9,6 +9,14 @@ export type {
   KilnConfigValidationDiagnostic,
 } from "./config-mutation.js";
 export {
+  COMMUNICATION_INTERACTION_BEHAVIORS,
+  COMMUNICATION_REQUIRED_CONTENT,
+  COMMUNICATION_RESPONSE_DETAILS,
+  CommunicationIntentSchema,
+} from "./communication-intent.js";
+export type { CommunicationIntentWire } from "./communication-intent.js";
+
+export {
   KILN_CONFIG_CHANGE_OPERATIONS,
 } from "./config-mutation.js";
 
@@ -205,6 +213,7 @@ export type {
   GuiModelRoutingRankingEvidence,
   GuiDeliberationCapabilityEvidence,
   GuiDeliberationIntent,
+  GuiCommunicationIntent,
   GuiDeliberationLevelId,
   GuiDeliberationResolution,
   GuiDeliberationSource,
@@ -727,6 +736,12 @@ export {
   formatContextUsageProjection,
 } from "./context-usage-projection.js";
 export type { ContextUsageProjection } from "./context-usage-projection.js";
+export {
+  CommunicationResolutionSchema,
+  EffectivePromptObservationSchema,
+  formatEffectivePromptObservation,
+} from "./effective-prompt-observation.js";
+export type { EffectivePromptObservation } from "./effective-prompt-observation.js";
 
 export {
   OperatorSessionHistoryResponseSchema,
@@ -798,6 +813,7 @@ export {
 } from "./harness-ingress.js";
 export type {
   HarnessIngressClientFrame,
+  HarnessIngressCommunicationIntent,
   HarnessIngressContentPart,
   HarnessIngressDeliberationIntent,
   HarnessIngressServerFrame,

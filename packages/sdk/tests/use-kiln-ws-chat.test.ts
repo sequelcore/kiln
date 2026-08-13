@@ -5,6 +5,30 @@ import { KilnProvider } from "../src/provider.js";
 import { useKilnWsChat } from "../src/use-kiln-ws-chat.js";
 import type { KilnConfig } from "../src/types.js";
 
+const communicationEvidence = {
+  version: "v1",
+  requestIndex: 0,
+  providerId: "codex-oauth",
+  modelId: "gpt-5.6-sol",
+  finalPromptHash: `sha256:${"a".repeat(64)}`,
+  estimatedTokens: 10,
+  componentCount: 1,
+  componentScopeCounts: { static: 1, dynamic: 0, deferred: 0 },
+  effectivePrompt: {
+    version: "v1",
+    components: [{
+      id: `sha256:${"b".repeat(64)}`,
+      revision: `sha256:${"c".repeat(64)}`,
+      scope: "static",
+      estimatedTokens: 10,
+      provenance: { source: `sha256:${"d".repeat(64)}` },
+    }],
+    finalPromptHash: `sha256:${"a".repeat(64)}`,
+    estimatedTokens: 10,
+  },
+  evidenceIdentity: `sha256:${"e".repeat(64)}`,
+} as const;
+
 // Mock WebSocket
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -111,13 +135,17 @@ describe("useKilnWsChat", () => {
     });
 
     await act(async () => {
-      await result.current.send("hello", { requestedAuthority: "audited" });
+      await result.current.send("hello", {
+        requestedAuthority: "audited",
+        communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
+      });
     });
 
     expect(JSON.parse(ws.send.mock.calls[0]?.[0] as string)).toEqual({
       type: "message",
       content: "hello",
       requestedAuthority: "audited",
+      communicationIntent: { responseDetail: "concise", requiredContent: ["warning"] },
     });
   });
 
@@ -164,6 +192,7 @@ describe("useKilnWsChat", () => {
         parts: responseParts,
         inputTokens: 3,
         outputTokens: 7,
+        effectivePromptObservation: communicationEvidence,
       });
     });
 
@@ -172,6 +201,7 @@ describe("useKilnWsChat", () => {
     expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.content).toBe("response");
     expect(assistantMsg.parts).toEqual(responseParts);
+    expect(result.current.communicationEvidence).toEqual(communicationEvidence);
   });
 
   it("handles error frame by setting error state", async () => {

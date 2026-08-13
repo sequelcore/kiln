@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ContentPart } from "@kilnai/core";
+import { EffectivePromptObservationSchema } from "@kilnai/gateway-contracts";
 import { useKilnContext } from "./provider.js";
 import { buildUserMessage } from "./build-user-message.js";
 import type { ChatMessage, ChatOptions, ChatSendOptions, UseChatReturn, VisitorInfo, WsChatFrame } from "./types.js";
@@ -9,6 +10,7 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [communicationEvidence, setCommunicationEvidence] = useState<import("@kilnai/gateway-contracts").EffectivePromptObservation | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const idCounter = useRef(0);
   const stableUserId = useRef(config.userId ?? crypto.randomUUID());
@@ -38,6 +40,10 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
         }
         const frame = parsed as WsChatFrame;
         if (frame.type === "done") {
+          const parsedEvidence = frame.effectivePromptObservation === undefined
+            ? undefined
+            : EffectivePromptObservationSchema.safeParse(frame.effectivePromptObservation);
+          setCommunicationEvidence(parsedEvidence?.success ? parsedEvidence.data : null);
           setMessages((prev) => [...prev, {
             id: String(++idCounter.current),
             role: "assistant" as const,
@@ -83,9 +89,12 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
         ...((sendOptions?.requestedAuthority ?? options?.requestedAuthority) ? {
           requestedAuthority: sendOptions?.requestedAuthority ?? options?.requestedAuthority,
         } : {}),
+        ...((sendOptions?.communicationIntent ?? options?.communicationIntent) ? {
+          communicationIntent: sendOptions?.communicationIntent ?? options?.communicationIntent,
+        } : {}),
       }));
     },
-    [options?.requestedAuthority],
+    [options?.requestedAuthority, options?.communicationIntent],
   );
 
   const identify = useCallback((visitor: VisitorInfo) => {
@@ -97,7 +106,8 @@ export function useKilnWsChat(options?: ChatOptions): UseChatReturn {
   const clearMessages = useCallback(() => {
     setMessages([]);
     setError(null);
+    setCommunicationEvidence(null);
   }, []);
 
-  return { messages, send, identify, isLoading, error, clearMessages };
+  return { messages, send, identify, isLoading, error, communicationEvidence, clearMessages };
 }

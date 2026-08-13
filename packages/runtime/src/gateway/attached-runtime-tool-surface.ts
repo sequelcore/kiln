@@ -34,6 +34,7 @@ import {
   ResourceTemplateListTool,
   resolveDirectProviderExecutionProfile,
   getBuiltinEffectEnvelope,
+  knownModelCommunicationCapabilities,
 } from "@kilnai/core";
 import {
   OPERATOR_THEME_NAMES,
@@ -1618,6 +1619,7 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
   readonly activeModel?: string;
   readonly activeModelCapabilities?: DiscoveredDirectProviderModelCapabilities;
   readonly deliberationIntent?: PerCallToolConfig["deliberationIntent"];
+  readonly communicationIntent?: PerCallToolConfig["communicationIntent"];
   readonly builtinToolSurface?: AttachedRuntimeBuiltinToolSurface;
   readonly executionMode?: OperatorExecutionMode;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
@@ -1648,14 +1650,20 @@ export function buildAttachedRuntimePerCallToolConfig(input: {
     ...(input.deliberationIntent
       ? { deliberationIntent: input.deliberationIntent, deliberationSource: "operator" }
       : {}),
+    ...(input.communicationIntent ? { communicationIntent: input.communicationIntent } : {}),
     ...(input.authorityContext ? { authorityContext: input.authorityContext } : {}),
     ...(input.temporalContext ? { temporalContext: input.temporalContext } : {}),
-    ...(profile && input.activeModelCapabilities?.deliberation
+    ...(profile && (input.activeModelCapabilities?.deliberation || input.communicationIntent)
       ? {
           modelRoutingPolicy: {
             routeCapabilities: new Map([
               [`${profile.provider}/${profile.model}`, {
-                deliberation: input.activeModelCapabilities.deliberation,
+                ...(input.activeModelCapabilities?.deliberation
+                  ? { deliberation: input.activeModelCapabilities.deliberation }
+                  : {}),
+                ...(input.communicationIntent
+                  ? { communication: knownModelCommunicationCapabilities(profile.provider, profile.model) }
+                  : {}),
               }],
             ]),
           },

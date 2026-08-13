@@ -14,6 +14,10 @@ import {
   VerifiedEfficiencyEvidenceProjectionSchema,
   formatVerifiedEfficiencyEvidence,
 } from "./verified-efficiency-evidence.js";
+import {
+  EffectivePromptObservationSchema,
+  formatEffectivePromptObservation,
+} from "./effective-prompt-observation.js";
 
 export type OperatorEventTone = "info" | "running" | "success" | "warning" | "error";
 export type OperatorEventSurface = "conversation_inline" | "activity_panel" | "inspector";
@@ -2179,6 +2183,64 @@ function lifecycleAttributionPresentation(payload: Record<string, unknown>): Ope
   };
 }
 
+function effectivePromptPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
+  const parsed = EffectivePromptObservationSchema.safeParse(payload.effectivePrompt);
+  if (!parsed.success) {
+    return {
+      title: "Effective prompt evidence unavailable",
+      summary: "Canonical final-request evidence is missing or invalid",
+      compactText: "Effective prompt evidence unavailable",
+      tone: "warning",
+      details: [],
+      surfaces: ACTIVITY_SURFACES,
+      conversationDisposition: "none",
+    };
+  }
+  const observation = parsed.data;
+  const communication = asRecord(observation.communicationResolution);
+  const detail = asRecord(communication?.responseDetail);
+  const profile = asRecord(communication?.interactionProfile);
+  const locale = asRecord(communication?.locale);
+  const requiredContent = asRecord(communication?.requiredContent);
+  const artifactContract = asRecord(communication?.artifactContract);
+  const responseSkills = asRecord(communication?.responseSkills);
+  const semanticLoss = Array.isArray(communication?.semanticLoss)
+    ? communication.semanticLoss.filter((value): value is string => typeof value === "string")
+    : [];
+  const details: OperatorEventDetailItem[] = [];
+  addItem(details, "Provider", observation.providerId);
+  addItem(details, "Model", observation.modelId);
+  addItem(details, "Request", observation.requestIndex + 1);
+  addItem(details, "Prompt hash", observation.finalPromptHash);
+  addItem(details, "Estimated tokens", observation.estimatedTokens);
+  addItem(details, "Components", observation.componentCount);
+  addItem(details, "Detail requested", detail?.requested);
+  addItem(details, "Detail effective", detail?.effective);
+  addItem(details, "Detail mechanism", detail?.mechanism);
+  addItem(details, "Profile requested", profile?.requestedProfileId);
+  addItem(details, "Profile effective", profile?.effectiveProfileId);
+  addItem(details, "Profile mechanism", profile?.mechanism);
+  addItem(details, "Locale effective", locale?.effective);
+  addItem(details, "Locale mechanism", locale?.mechanism);
+  addItem(details, "Required content", Array.isArray(requiredContent?.effective) ? requiredContent.effective.join(", ") : undefined);
+  addItem(details, "Required-content mechanism", requiredContent?.mechanism);
+  addItem(details, "Artifact contract", artifactContract?.effective ? JSON.stringify(artifactContract.effective) : undefined);
+  addItem(details, "Artifact mechanism", artifactContract?.mechanism);
+  addItem(details, "Response skills", Array.isArray(responseSkills?.effective) ? JSON.stringify(responseSkills.effective) : undefined);
+  addItem(details, "Response-skill mechanism", responseSkills?.mechanism);
+  addItem(details, "Semantic loss", semanticLoss.join(", "));
+  const summary = formatEffectivePromptObservation(observation);
+  return {
+    title: "Effective prompt observed",
+    summary,
+    compactText: summary,
+    tone: semanticLoss.length > 0 ? "warning" : "info",
+    details,
+    surfaces: ACTIVITY_SURFACES,
+    conversationDisposition: "none",
+  };
+}
+
 function approvalRequestedPresentation(payload: Record<string, unknown>): OperatorEventPresentation {
   const summary = readString(payload.action) ?? readString(payload.justification) ?? "Approval required";
   const details: OperatorEventDetailItem[] = [];
@@ -2892,6 +2954,8 @@ export function presentOperatorEventPayload(
       return costUpdatedPresentation(payload);
     case "lifecycle_attribution_recorded":
       return lifecycleAttributionPresentation(payload);
+    case "effective_prompt_observed":
+      return effectivePromptPresentation(payload);
     case "goal.created":
     case "goal.updated":
     case "goal.completed":

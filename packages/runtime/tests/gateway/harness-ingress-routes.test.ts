@@ -124,10 +124,30 @@ describe("createHarnessIngressRoutes", () => {
     const fixture = createFixture();
     const { handlers, ws } = fixture.upgrade.connect();
     await open(handlers, ws);
-    await message(handlers, ws, frame({ sessionId: "session-requested", requestedAuthority: "audited", deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" } }));
+    await message(handlers, ws, frame({
+      sessionId: "session-requested",
+      requestedAuthority: "audited",
+      deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      communicationIntent: {
+        responseDetail: "concise",
+        requiredContent: ["verification"],
+        onUnsupported: "deny",
+      },
+    }));
     expect(fixture.processAdmittedTurn).toHaveBeenCalledWith(expect.objectContaining({
       appName: "app-one", tenantId: "tenant-1", userId: "user-1", sessionId: "session-requested", channel: "harness", requestedAuthority: "audited",
-      perCallConfig: expect.objectContaining({ turnId: "request-1", deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" }, abortSignal: expect.any(AbortSignal) }),
+      perCallConfig: expect.objectContaining({
+        turnId: "request-1",
+        deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+        communicationIntent: expect.objectContaining({
+          intent: expect.objectContaining({
+            responseDetail: "concise",
+            requiredContent: ["verification"],
+          }),
+          authority: expect.objectContaining({ responseDetail: "user" }),
+        }),
+        abortSignal: expect.any(AbortSignal),
+      }),
     }));
     expect(sent(ws)).toEqual([
       { protocolVersion: "2", type: "turn_accepted", requestId: "request-1", turnId: "request-1", sessionId: "session-requested" },

@@ -12,6 +12,7 @@ import { measureProviderRequestRegions, type OrchestratorUsageSnapshot, type Orc
 import type { EscalationSignal } from "./support/escalation/escalation-detector.js";
 import { deriveRuntimeTurnOutcome, hasUnrecoverableManagedInvocationFailure } from "./governed-turn-outcome.js";
 import type { SessionTurnOutcome } from "@kilnai/core";
+import type { CommunicationResolution } from "@kilnai/core";
 
 export interface FinalizeRuntimeSessionResponseInput {
   readonly deps: OrchestratorDeps;
@@ -30,6 +31,7 @@ export interface FinalizeRuntimeSessionResponseInput {
   };
   readonly preLlmEscalation?: EscalationSignal;
   readonly outcome?: SessionTurnOutcome;
+  readonly communicationResolution?: CommunicationResolution;
 }
 
 export async function finalizeRuntimeSessionResponse(
@@ -78,6 +80,7 @@ export async function finalizeRuntimeSessionResponse(
     ...(input.stopReason !== undefined ? { stopReason: input.stopReason } : {}),
     toolExecutions: input.toolExecutions.length > 0 ? input.toolExecutions : undefined,
     routingDecision: input.routingDecision,
+    ...(input.communicationResolution ? { communicationResolution: input.communicationResolution } : {}),
   };
 }
 
@@ -125,6 +128,7 @@ export async function requestRuntimeSessionFallbackResponse(
   conversationPolicy?: ConversationToolResultProjectionPolicy,
   abortSignal?: AbortSignal,
   providerTransport?: RuntimeProviderTransportConfig,
+  communicationResolution?: CommunicationResolution,
 ): Promise<{
   readonly parts: readonly ContentPart[];
   readonly toolCalls: readonly ToolCall[];
@@ -163,6 +167,7 @@ export async function requestRuntimeSessionFallbackResponse(
       : {}),
     ...(providerTransport?.watchdog ? { transportWatchdog: providerTransport.watchdog } : {}),
     ...(providerTransport?.observer ? { transportObserver: providerTransport.observer } : {}),
+    ...(communicationResolution ? { communicationResolution } : {}),
   });
 
   return {
@@ -183,6 +188,7 @@ export async function requestRuntimeSessionFallbackResponse(
       toolCount: 0,
       cachePartition,
       conversationProjection: conversationProjection.evidence,
+      communicationResolution,
       ...(response.stopReason ? { stopReason: response.stopReason } : {}),
     }),
   };

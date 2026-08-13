@@ -15,6 +15,7 @@ import type {
   MultimodalTransportModality,
   MultimodalTransformCandidate,
   ManagedAgentInvocationRecord,
+  CommunicationResolution,
 } from "@kilnai/core";
 import {
   appendExecutionIdentity,
@@ -24,6 +25,7 @@ import {
   ModelCapabilityRegistry,
   planMultimodalRoute,
   resolveDeliberation,
+  resolveCommunicationProfile,
   resolveExecutionIdentity,
   scoreComplexity,
   textParts,
@@ -51,6 +53,7 @@ export interface RuntimeSessionRoutingResolution {
   readonly executionIdentity?: ExecutionIdentity;
   readonly routingDecision?: RoutingDecision;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationResolution?: CommunicationResolution;
   readonly delegatedMultimodalResult?: RuntimeMultimodalDelegationExecutionResult;
   readonly transformedUserParts?: readonly ContentPart[];
   readonly preModelToolExecutions?: readonly ToolExecutionSummary[];
@@ -222,6 +225,32 @@ export async function resolveRuntimeSessionRouting(
     throw new Error(`Deliberation denied for the selected route: ${deliberationResolution.reason}`);
   }
 
+  const communicationProvider = routingDecision?.provider ?? executionIdentity?.provider ?? deps.provider.name;
+  const communicationModel = routingDecision?.model ?? executionIdentity?.model ?? deps.model ?? "provider-default";
+  const communicationResolution = perCallConfig?.communicationResolution
+    ?? (perCallConfig?.communicationIntent
+      ? resolveCommunicationProfile({
+          intent: perCallConfig.communicationIntent,
+          execution: {
+            ...(routingDecision?.provider ? { routeId: `${routingDecision.provider}/${routingDecision.model}` } : {}),
+            provider: communicationProvider,
+            model: communicationModel,
+            surface: "runtime",
+          },
+          capabilities: communicationCapabilitiesFor(
+            communicationProvider,
+            communicationModel,
+            perCallConfig.modelRoutingPolicy,
+          ),
+        })
+      : undefined);
+  if (communicationResolution
+    && communicationResolution.requested.intent.onUnsupported === "deny"
+    && (communicationResolution.responseDetail.status === "unsupported"
+      || communicationResolution.interactionProfile.status === "unsupported")) {
+    throw new Error("Communication intent is unsupported for the selected route.");
+  }
+
   if (routingDecision) {
     const routingTargetIdentity = resolveExecutionIdentity({
       configuredProvider: routingDecision.provider,
@@ -280,10 +309,19 @@ export async function resolveRuntimeSessionRouting(
     executionIdentity,
     routingDecision,
     ...(deliberationResolution ? { deliberationResolution } : {}),
+    ...(communicationResolution ? { communicationResolution } : {}),
     ...(delegatedMultimodalResult ? { delegatedMultimodalResult } : {}),
     ...(multimodalEffect?.transformedUserParts ? { transformedUserParts: multimodalEffect.transformedUserParts } : {}),
     ...(multimodalEffect?.transformToolExecution ? { preModelToolExecutions: [multimodalEffect.transformToolExecution] } : {}),
   };
+}
+
+function communicationCapabilitiesFor(
+  provider: string,
+  model: string,
+  policy: ModelRoutingPolicyConfig | undefined,
+): import("@kilnai/core").ModelCommunicationCapabilities | undefined {
+  return policy?.routeCapabilities?.get(`${provider}/${model}`)?.communication;
 }
 
 async function resolveRuntimeMultimodalRoute(input: {

@@ -6,6 +6,7 @@ import type {
   McpServerConfiguration,
   MemoryLayerKind,
   MemoryScopeKind,
+  CommunicationIntent,
 } from "@kilnai/core";
 import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
 
@@ -690,6 +691,7 @@ export interface KilnYaml {
   readonly managedAgents?: KilnManagedAgentsConfig;
   readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
+  readonly communication?: CommunicationIntent;
   readonly web?: KilnYamlWebConfig;
   readonly interactiveUse?: KilnYamlInteractiveUseConfig;
   readonly skills?: KilnYamlSkillsConfig;

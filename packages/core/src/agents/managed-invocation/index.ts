@@ -4,6 +4,8 @@ import { defineWorkClassification } from "../work-classification.js";
 import type { WorkClassification } from "../work-classification.js";
 import { admitDeliberationForExecution, defineDeliberationLevelId } from "../deliberation-policy.js";
 import type { DeliberationIntent, DeliberationResolution, UnsupportedDeliberationPolicy } from "../deliberation-policy.js";
+import { validateResolvedCommunicationIntent } from "../communication-policy.js";
+import type { ResolvedCommunicationIntent } from "../communication-policy.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 import type { ExecutionSessionEphemeralHarnessStateEvidence } from "../../events/execution-session-event.js";
 import {
@@ -119,6 +121,7 @@ export interface ManagedAgentProviderRoute {
   readonly model?: string;
   readonly deliberationIntent?: DeliberationIntent;
   readonly deliberationResolution?: DeliberationResolution;
+  readonly communicationIntent?: ResolvedCommunicationIntent;
 }
 
 export interface ManagedAgentToolAuthority {
@@ -1992,7 +1995,18 @@ function requireProviderRoute(input: ManagedAgentProviderRoute): ManagedAgentPro
     ...(input.deliberationResolution !== undefined
       ? { deliberationResolution: requireDeliberationResolution(input.deliberationResolution) }
       : {}),
+    ...(input.communicationIntent !== undefined
+      ? { communicationIntent: requireResolvedCommunicationIntent(input.communicationIntent) }
+      : {}),
   };
+}
+
+function requireResolvedCommunicationIntent(input: ResolvedCommunicationIntent): ResolvedCommunicationIntent {
+  try {
+    return validateResolvedCommunicationIntent(input);
+  } catch {
+    throw new Error("Managed invocation communication intent must be a resolved v1 contract.");
+  }
 }
 
 function requireDeliberationResolution(input: DeliberationResolution): DeliberationResolution {
@@ -2170,6 +2184,7 @@ function requireInvocationRecordProviderRoute(
     || providerRoute.model !== admitted.model
     || JSON.stringify(providerRoute.deliberationIntent) !== JSON.stringify(admitted.deliberationIntent)
     || JSON.stringify(providerRoute.deliberationResolution) !== JSON.stringify(admitted.deliberationResolution)
+    || JSON.stringify(providerRoute.communicationIntent) !== JSON.stringify(admitted.communicationIntent)
   ) {
     throw new Error("Managed invocation usage route must match the admitted capability snapshot");
   }

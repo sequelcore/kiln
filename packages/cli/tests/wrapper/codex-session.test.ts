@@ -9,6 +9,30 @@ vi.mock("@kilnai/core", () => ({
   CODEX_DEFAULT_MODEL: "gpt-5.4",
   defineDeliberationLevelId: (value: string) => value,
   admitDeliberationForExecution: (resolution: { selectedLevel?: string } | undefined) => resolution?.selectedLevel,
+  admitCommunicationForExecution: (resolution: {
+    responseDetail?: { mechanism?: string; nativeValue?: string };
+    interactionProfile?: { mechanism?: string; nativeValue?: string };
+  } | undefined) => ({
+    ...(resolution?.responseDetail?.mechanism === "native" && resolution.responseDetail.nativeValue
+      ? { responseDetail: resolution.responseDetail.nativeValue }
+      : {}),
+    ...(resolution?.interactionProfile?.mechanism === "native" && resolution.interactionProfile.nativeValue
+      ? { interactionProfile: resolution.interactionProfile.nativeValue }
+      : {}),
+  }),
+  renderCommunicationPromptProjection: (resolution: unknown) => resolution
+    ? "\n\n--- Kiln Communication Contract ---\nRespond using locale 'es-MX'.\nDo not omit verification."
+    : undefined,
+  observeStandaloneEffectivePrompt: (input: {
+    providerId: string;
+    modelId: string;
+    communicationResolution?: unknown;
+  }) => ({
+    providerId: input.providerId,
+    modelId: input.modelId,
+    communicationResolution: input.communicationResolution,
+    evidenceIdentity: "sha256:observation",
+  }),
   resolveExecutionIdentity: ({
     configuredProvider,
     configuredModel,
@@ -42,6 +66,18 @@ vi.mock("@kilnai/core", () => ({
     const section = lines.join("\n");
     return basePrompt.trim().length > 0 ? `${basePrompt}\n\n${section}` : section;
   },
+}));
+
+vi.mock("../../src/config/native-communication-capabilities.js", () => ({
+  resolveNativeCommunication: () => ({
+    version: "v1",
+    requested: { intent: { locale: "es-MX", requiredContent: ["verification"], onUnsupported: "deny" } },
+    execution: { provider: "codex", model: "gpt-5.4", surface: "cli" },
+    responseDetail: { status: "exact", mechanism: "native", nativeValue: "high" },
+    interactionProfile: { status: "translated", mechanism: "native", nativeValue: "pragmatic" },
+    semanticLoss: ["translated"],
+    identity: "sha256:test",
+  }),
 }));
 
 const mockSpawn = vi.hoisted(() => vi.fn<(...args: unknown[]) => unknown>());
@@ -229,6 +265,31 @@ describe("CodexSession implements IKilnSession", () => {
 describe("CodexSession.run() JSONL parsing", () => {
   beforeEach(() => {
     mockSpawn.mockReset();
+  });
+
+  it("projects a resolved communication intent into invocation-scoped Codex controls", async () => {
+    const { proc, emitLine, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    const session = new CodexSession(baseConfig({
+      communicationIntent: { version: "v1" } as CodexSessionConfig["communicationIntent"],
+    }));
+    const collectPromise = collectEvents(session.run({ prompt: "test" }));
+
+    emitLine({ type: "thread.started", thread_id: "t1" });
+    emitLine({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    resolveExit(0);
+    await collectPromise;
+
+    const args = vi.mocked(mockSpawn).mock.calls[0]?.[1] as string[];
+    expect(args).toContain("model_verbosity=\"high\"");
+    expect(args).toContain("personality=\"pragmatic\"");
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("Respond using locale 'es-MX'"));
+    expect(proc.stdin.end).toHaveBeenCalledWith(expect.stringContaining("Do not omit verification"));
+    expect(session.communicationResolution).toMatchObject({
+      responseDetail: { status: "exact", mechanism: "native" },
+      interactionProfile: { status: "translated", mechanism: "native" },
+      semanticLoss: ["translated"],
+    });
   });
 
   it("run() deterministically appends constraintInstructions to the prompt sent to codex", async () => {

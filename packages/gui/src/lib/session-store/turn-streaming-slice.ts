@@ -362,6 +362,29 @@ function handleLifecycleAttributionRecorded(ctx: SessionEventContext): void {
   });
 }
 
+function handleEffectivePromptObserved(ctx: SessionEventContext): void {
+  const { set, get, event, payload } = ctx;
+  const presentation = presentOperatorEventPayload(event.kind, payload);
+  set({
+    timelineEntries: [
+      ...get().timelineEntries,
+      {
+        id: `timeline:${event.eventId}`,
+        type: "event",
+        eventKind: event.kind,
+        createdAt: event.timestamp,
+        sequence: event.sequence,
+        ...timelineTurnId(event),
+        title: presentation.title,
+        summary: presentation.summary,
+        tone: presentation.tone,
+        presentationDetails: presentation.details,
+        details: payload.effectivePrompt,
+      },
+    ],
+  });
+}
+
 function handleWorkItemTimelineEvent(ctx: SessionEventContext): void {
   const { set, get, event, payload } = ctx;
   const presentation = presentOperatorEventPayload(event.kind, payload);
@@ -616,6 +639,7 @@ const SESSION_EVENT_HANDLERS: Partial<Record<OperatorSessionEventKind, (ctx: Ses
   context_usage_observed: handleContextUsageObserved,
   cost_updated: handleCostUpdated,
   lifecycle_attribution_recorded: handleLifecycleAttributionRecorded,
+  effective_prompt_observed: handleEffectivePromptObserved,
   agent_invocation_requested: handleAgentInvocationRequested,
   agent_invocation_started: handleAgentInvocationStarted,
   agent_invocation_completed: handleAgentInvocationCompleted,
@@ -1050,6 +1074,7 @@ export const createTurnStreamingSlice: StateCreator<
       continuationSessionId: continuity.outboundContinuationSessionId,
       ...(continuity.outboundSessionIntent ? { sessionIntent: continuity.outboundSessionIntent } : {}),
       ...(options?.deliberationIntent ? { deliberationIntent: options.deliberationIntent } : {}),
+      ...(options?.communicationIntent ? { communicationIntent: options.communicationIntent } : {}),
       ...(options?.requestedAuthority ? { requestedAuthority: options.requestedAuthority } : {}),
       ...(options?.governedWorkRequirement ? { governedWorkRequirement: options.governedWorkRequirement } : {}),
       ...(options?.gatewayTargetId ? { gatewayTargetId: options.gatewayTargetId } : {}),

@@ -1016,6 +1016,7 @@ function projectManagedAgentCatalogEntry(
       ...(routeHint?.routeId ? { routeId: routeHint.routeId } : {}),
       ...(routeHint?.providerRoute ? { providerRoute: routeHint.providerRoute } : {}),
       ...(agent.voiceProfile ? { voiceProfile: agent.voiceProfile } : {}),
+      ...(agent.communication ? { communication: agent.communication } : {}),
     },
   };
 }
@@ -2231,6 +2232,9 @@ function createHarnessSessionFactory(
       sessionLedgerOwner: "host",
       ...(factoryContext?.deliberationResolution
         ? { deliberationResolution: factoryContext.deliberationResolution }
+        : {}),
+      ...(factoryContext?.communicationIntent
+        ? { communicationIntent: factoryContext.communicationIntent }
         : {}),
       ...(harnessExecutable
         ? {

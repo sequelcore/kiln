@@ -6294,6 +6294,10 @@ describe("managed invocation runtime tool", () => {
             providerId: "opencode",
             model: "model-fast",
           },
+          communication: {
+            responseDetail: "detailed",
+            requiredContent: ["finding"],
+          },
         }],
         contextResolver: async () => ({ admittedAgentProfile: "scout" }),
       },
@@ -6334,6 +6338,75 @@ describe("managed invocation runtime tool", () => {
     expect(slowAdapter.invoke).not.toHaveBeenCalled();
   });
 
+  it("resolves managed-child communication from its agent profile and invocation override", async () => {
+    const adapter = makeAdapter();
+    const surface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: {
+        routes: [makeManagedRoute("opencode-review", "openai/gpt-5.6-sol", async () => adapter)],
+        agentCatalog: [{
+          name: "reviewer",
+          role: "Review changes",
+          goal: "Lead with actionable findings",
+          tier: "reasoning",
+          routeId: "opencode-review",
+          providerRoute: { providerId: "opencode", model: "openai/gpt-5.6-sol" },
+          communication: {
+            responseDetail: "concise",
+            requiredContent: ["finding", "residual-risk"],
+          },
+        }],
+        contextResolver: async () => ({ admittedAgentProfile: "reviewer" }),
+      },
+    });
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeSession(),
+      toolCall: { id: "tool-call-communication", name: "managed_agent.invoke", input: {} },
+    };
+
+    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      routeId: "opencode-review",
+      providerRoute: {
+        providerId: "opencode",
+        model: "openai/gpt-5.6-sol",
+        communicationIntent: {
+          responseDetail: "detailed",
+          requiredContent: ["verification"],
+          artifactContract: { id: "review-report", revision: "v1" },
+          responseSkills: [{ id: "code-review-findings", revision: "v1" }],
+        },
+      },
+      agentProfile: "reviewer",
+      contextMode: "isolated",
+      residualRiskRequired: true,
+      task: "Review the candidate change.",
+    }, context) as { readonly isError: boolean; readonly output: string };
+
+    expect(result.isError, result.output).toBe(false);
+    expect(adapter.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({
+        providerRoute: expect.objectContaining({
+          communicationIntent: expect.objectContaining({
+            intent: expect.objectContaining({
+              responseDetail: "detailed",
+              requiredContent: ["finding", "residual-risk", "verification"],
+              artifactContract: { id: "review-report", revision: "v1" },
+              responseSkills: [{ id: "code-review-findings", revision: "v1" }],
+            }),
+            authority: expect.objectContaining({
+              responseDetail: "invocation",
+              artifactContract: "invocation",
+              responseSkills: ["invocation"],
+              requiredContent: expect.objectContaining({
+                "residual-risk": ["safety-authority", "agent-profile"],
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+  });
+
   it("fails closed when an explicit route contradicts the selected agent profile route hint", async () => {
     const fastAdapter = makeAdapter();
     const slowAdapter = makeAdapter();
@@ -6353,6 +6426,10 @@ describe("managed invocation runtime tool", () => {
           providerRoute: {
             providerId: "opencode",
             model: "model-fast",
+          },
+          communication: {
+            responseDetail: "detailed",
+            requiredContent: ["finding"],
           },
         }],
         contextResolver: async () => ({ admittedAgentProfile: "scout" }),
@@ -6407,6 +6484,12 @@ describe("managed invocation runtime tool", () => {
         readonly routeId?: string;
         readonly agentProfile?: string;
         readonly workItemId?: string;
+        readonly providerRoute?: {
+          readonly communicationIntent?: {
+            readonly identity?: string;
+            readonly authority?: { readonly responseDetail?: string };
+          };
+        };
       };
       readonly forbiddenInputFields?: readonly string[];
     };
@@ -6423,6 +6506,10 @@ describe("managed invocation runtime tool", () => {
       forbiddenInputFields: ["agentProfile"],
     });
     expect(output.retryInputTemplate?.agentProfile).toBeUndefined();
+    expect(output.retryInputTemplate?.providerRoute?.communicationIntent).toMatchObject({
+      identity: expect.stringMatching(/^sha256:/),
+      authority: { responseDetail: "agent-profile" },
+    });
     expect(result.metadata).toMatchObject({
       status: "route_profile_conflict",
       managedInvocationId: "session-parent:tool-call-1:route-profile-conflict",
