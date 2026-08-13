@@ -38,7 +38,6 @@ export interface KilnAppConfig {
   readonly contextCandidates?: readonly ContextCandidate[];
   /** Validated IANA timezone used to derive dynamic operator-turn context. */
   readonly operatorTimeZone?: string;
-  readonly studioDistPath?: string;
   readonly kilnYaml?: KilnYaml;
   readonly hooks?: KilnHooksConfig;
   readonly managedInvocation?: ManagedInvocationToolOptions;

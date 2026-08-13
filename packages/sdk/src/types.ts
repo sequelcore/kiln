@@ -14,8 +14,6 @@ export interface KilnConfig {
   readonly baseUrl: string;
   readonly appName?: string;
   readonly userId?: string;
-  /** SSE reconnect delay in milliseconds (default: 3000) */
-  readonly reconnectDelayMs?: number;
 }
 
 export interface ChatMessage {
@@ -52,27 +50,6 @@ export interface UseChatReturn {
   readonly isLoading: boolean;
   readonly error: Error | null;
   clearMessages(): void;
-}
-
-export interface UseEventsReturn {
-  readonly events: readonly KilnEventData[];
-  readonly connected: boolean;
-  clear(): void;
-}
-
-export interface UseStateReturn {
-  readonly state: Record<string, unknown>;
-  readonly cost: Record<string, unknown>;
-  readonly apps: readonly string[];
-  readonly isLoading: boolean;
-  readonly error: Error | null;
-  refresh(): Promise<void>;
-}
-
-export interface KilnEventData {
-  readonly type: string;
-  readonly timestamp: string;
-  readonly data: Record<string, unknown>;
 }
 
 export type InspectableWorkItemResource = WorkItem & {

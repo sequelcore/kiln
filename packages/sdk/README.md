@@ -18,7 +18,7 @@
 > This is a provisional workspace package in a source-only development tree.
 > There is no supported package installation for the current repository state.
 
-`@kilnai/react` provides React hooks for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway. Supports HTTP, WebSocket, event streams, and dev-route approval controls. Memory is consumed through gateway/resource contracts, not SDK-owned memory CRUD hooks.
+`@kilnai/react` provides React hooks and an HTTP client for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway through public app contracts. Memory and operator telemetry are consumed through gateway/resource contracts, not SDK-owned private routes.
 
 ## Use in this workspace
 
@@ -77,47 +77,15 @@ WebSocket-based chat with a persistent connection while the component is mounted
 const { messages, send, identify, isLoading, error } = useKilnWsChat();
 ```
 
-### `useKilnEvents`
-
-Subscribe to real-time gateway events via SSE.
-
-```tsx
-const { events, connected } = useKilnEvents();
-```
-
-### `useKilnState`
-
-Access dev-mode gateway state (sessions, costs, events).
-
-```tsx
-const { state, refresh } = useKilnState();
-```
-
-### `useApproval`
-
-Dev-route approval controls (`/dev/approve`, `/dev/reject`) for tools or playground workflows.
-This is an SDK-facing approval surface; it does not make direct API providers
-locally executable tool backends.
-
-```tsx
-const { approve, reject, isLoading, error } = useApproval();
-await approve("approval-123");
-await reject("Not safe to run", "approval-123");
-```
-
 ## Clients
 
 For non-React usage, the package also exports low-level clients:
 
 ```typescript
-import { ApiClient, SseClient } from "@kilnai/react";
+import { ApiClient } from "@kilnai/react";
 
 const api = new ApiClient("http://localhost:3000");
-const sse = new SseClient("http://localhost:3000/dev/events", {
-  onEvent(event) { console.log(event); },
-  onConnect() { console.log("connected"); },
-  onDisconnect() { console.log("disconnected"); },
-});
+const health = await api.get<{ status: string }>("/health");
 ```
 
 ## Documentation

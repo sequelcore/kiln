@@ -44,9 +44,6 @@ import { HealthRegistry } from "./health-registry.js";
 import { securityMiddleware } from "./security-middleware.js";
 import { safetyMiddleware } from "./safety-middleware.js";
 import type { SafetyPipeline } from "@kilnai/core";
-import type { DevRoutesConfig } from "./dev-routes.js";
-import { createDevRoutes } from "./dev-routes.js";
-import { createDevInspectorHtml } from "./dev-inspector.js";
 import type { TriggerRegistry } from "../trigger/trigger-registry.js";
 import type { CredentialPoolObservabilityRegistry } from "../agents/credential-pool/credential-pool-observability.js";
 import type { ConversationEventEmitter } from "./conversation-event-emitter.js";
@@ -117,12 +114,9 @@ export interface GatewayServerConfig {
   readonly startTime?: number;
   readonly securityConfig?: SecurityConfig;
   readonly auditLog?: AuditLog;
-  readonly devMode?: boolean;
-  readonly devRoutesConfig?: DevRoutesConfig;
   readonly triggerRegistry?: TriggerRegistry;
   readonly credentialPoolObservability?: CredentialPoolObservabilityRegistry;
   readonly safetyPipelines?: Map<string, SafetyPipeline>;
-  readonly studioDistPath?: string;
   readonly upgradeWebSocket?: WsRoutesConfig["upgradeWebSocket"];
   /** Explicit opt-in cross-harness ingress; absent means the route is not exposed. */
   readonly harnessIngress?: HarnessIngressRoutesConfig;
@@ -348,18 +342,6 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
         resource_documentation: `${baseUrl}/mcp`,
       });
     });
-  }
-
-  // Dev mode routes (local development only -- no auth)
-  if (config.devMode) {
-    if (config.studioDistPath) {
-      app.get("/dev/", (c) => c.redirect("/studio/"));
-      // Studio static files are served separately by the gateway server
-    } else {
-      app.get("/dev/", (c) => c.html(createDevInspectorHtml()));
-    }
-    const devRoutes = createDevRoutes(config.devRoutesConfig ?? {});
-    app.route("/dev", devRoutes);
   }
 
   // Per-app routes

@@ -54,15 +54,16 @@ Walks you through:
 
 ### `kiln dev`
 
-Start in dev mode with YAML hot-reload and Studio UI:
+Start the canonical App Gateway from `.kiln/gateway.yaml`:
 
 ```bash
 kiln dev
 ```
 
-- Watches `app.yaml` for changes and reloads automatically
-- Serves Studio at `/studio` for visual inspection
-- Exposes dev endpoints at `/dev/*` for state, events, memory, cost
+- Requires `.kiln/gateway.yaml`, or a gateway path supplied with `--config`
+- Watches the gateway config and local `.kiln/app.yaml`, reporting when a restart is required
+- Enables project-local swarm coordination for development workflows
+- Accepts `--open` to open the existing GUI at `/gui/`; it does not start a separate development UI or control plane
 
 ### `kiln run`
 

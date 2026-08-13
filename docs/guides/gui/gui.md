@@ -7,7 +7,9 @@ starts the local GUI Operator Gateway, serves the web UI, and launches the
 interface in a managed app-mode browser window so the Kiln process can shut
 down cleanly when the window closes.
 
-This is intentionally different from `kiln dev --playground` or manually opening a URL in an arbitrary browser tab. `kiln gui` owns the operator session lifecycle.
+`kiln gui` owns the local operator session lifecycle. `kiln dev --open` instead
+starts the canonical App Gateway for YAML apps and opens the same GUI at
+`/gui/`; it does not create a separate development interface.
 
 This local Operator Gateway is not the deployable App Gateway that loads
 `gateway.yaml` and bound `app.yaml` files. The canonical path for operating YAML

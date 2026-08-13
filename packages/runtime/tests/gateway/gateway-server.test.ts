@@ -916,39 +916,11 @@ describe("createGatewayApp multi-tenant wiring", () => {
   });
 });
 
-describe("createGatewayApp devMode", () => {
-  it("does not mount /dev/ when devMode is falsy", async () => {
+describe("createGatewayApp retired development inspector", () => {
+  it("does not expose the retired development inspector or API", async () => {
     const app = createGatewayApp(makeConfig([]));
-    const res = await app.request("/dev/");
-    expect(res.status).toBe(404);
-  });
-
-  it("mounts GET /dev/ returning HTML when devMode is true", async () => {
-    const app = createGatewayApp({ ...makeConfig([]), devMode: true });
-    const res = await app.request("/dev/");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/html");
-    const text = await res.text();
-    expect(text).toContain("Kiln Dev Inspector");
-  });
-
-  it("mounts /dev/state when devMode is true", async () => {
-    const app = createGatewayApp({
-      ...makeConfig([]),
-      devMode: true,
-      devRoutesConfig: {
-        getPhaseState: () => ({ status: "running", phase: "implement" }),
-      },
-    });
-    const res = await app.request("/dev/state");
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; phase: string };
-    expect(body.phase).toBe("implement");
-  });
-
-  it("does not expose /dev/state when devMode is falsy", async () => {
-    const app = createGatewayApp(makeConfig([]));
-    const res = await app.request("/dev/state");
-    expect(res.status).toBe(404);
+    expect((await app.request("/dev/")).status).toBe(404);
+    expect((await app.request("/dev/state")).status).toBe(404);
+    expect((await app.request("/studio/")).status).toBe(404);
   });
 });

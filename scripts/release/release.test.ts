@@ -205,7 +205,7 @@ describe("buildReleasePlan", () => {
 describe("buildWorkspaceOrder", () => {
   it("orders public and private builds through runtime and dev dependency edges", () => {
     const records = [
-      packageRecord("@kilnai/studio", { "@kilnai/react": "2.2.0-beta.1" }, {
+      packageRecord("@kilnai/private-surface", { "@kilnai/react": "2.2.0-beta.1" }, {
         private: true,
         scripts: { build: "vite build" },
       }),
@@ -221,7 +221,7 @@ describe("buildWorkspaceOrder", () => {
     expect(buildWorkspaceOrder(records).map(({ name }) => name)).toEqual([
       "@kilnai/gateway-contracts",
       "@kilnai/react",
-      "@kilnai/studio",
+      "@kilnai/private-surface",
     ]);
   });
 });

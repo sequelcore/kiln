@@ -272,8 +272,6 @@ export { createHarnessIngressRoutes } from "./gateway/harness-ingress-routes.js"
 export type { HarnessIngressRoutesConfig } from "./gateway/harness-ingress-routes.js";
 export { startGateway } from "./gateway/gateway-server.js";
 export type { ModelGatewayExecutionBundle, StartGatewayOptions } from "./gateway/gateway-server.js";
-export { startDevServer } from "./gateway/gateway-server.js";
-export type { DevServerOptions } from "./gateway/gateway-server.js";
 export { startGuiGateway } from "./gateway/gui-gateway.js";
 export { BunPtyAdapter } from "./operator-terminal/bun-pty-adapter.js";
 export {
@@ -761,10 +759,6 @@ export { createHandoffRoutes } from "./gateway/handoff-routes.js";
 export type { HandoffRoutesConfig } from "./gateway/handoff-routes.js";
 export { ApprovalGateRegistry } from "./gateway/approval-registry.js";
 export type { ApprovalTarget } from "./gateway/approval-registry.js";
-export { DevOrchestrator } from "./gateway/dev-orchestrator.js";
-export type { DevOrchestratorConfig, DevRunResult } from "./gateway/dev-orchestrator.js";
-export { DevTokenStore } from "./gateway/dev-token-store.js";
-export type { DevToken } from "./gateway/dev-token-store.js";
 
 // Message Pipeline
 export { processAdmittedTurn } from "./gateway/message-pipeline/index.js";

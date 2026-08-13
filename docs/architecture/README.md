@@ -133,8 +133,8 @@ Tool execution policy and the shared builtin-tool surface.
 Runtime, operator, and harness-facing surface contracts.
 
 - [`surfaces/runtime-surfaces.md`](surfaces/runtime-surfaces.md)
-  Canonical taxonomy for App Gateway, Operator Gateway, Studio Dev Server,
-  CLI, GUI, native, TUI, SDK/widget, and MCP boundaries.
+  Canonical taxonomy for App Gateway, Operator Gateway, CLI, GUI, native, TUI,
+  SDK/widget, and MCP boundaries.
 - [`surfaces/execution-surfaces.md`](surfaces/execution-surfaces.md)
   Canonical product and architecture contract for Kiln Operator Workspace,
   Kiln Gateway as app AI runtime, harnesses as adapters, and contract-first

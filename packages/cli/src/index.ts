@@ -73,7 +73,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     domain: "Manage domain packages (install, list, search, info, remove)",
     gateway: "Start persistent Gateway (multi-app hosting)",
     "model-gateway": "Run or inspect the dedicated loopback model gateway",
-    dev: "Start development mode with hot-reload and event streaming (--playground)",
+    dev: "Start the App Gateway for local development (--open)",
     gui: "Start the GUI operator surface or attach to an App Gateway",
     goal: goalCommand?.description ?? "Inspect and update canonical workflow goals from session transcripts",
     "managed-agent": "Inspect managed child invocations from canonical session transcripts",
@@ -113,7 +113,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     console.log("  --prod       Force gui command to run in prod mode");
     console.log("  --open       Open GUI URL in default browser");
     console.log("  --no-open    Do not open browser automatically");
-    console.log("  --playground Open Studio in browser (dev mode)");
     console.log("  --mcp       Start tools command in MCP stdio mode");
     console.log("  --resources List shared tool resources as JSON");
     console.log("  --resource  Read one shared tool resource URI");
@@ -285,8 +284,8 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     const { devCommand } = await import("./commands/dev.js");
     const port = parsePort(args, 4800);
     const configPath = findFlag(args, "--config");
-    const playground = args.includes("--playground");
-    await devCommand(config, { port, configPath, playground });
+    const open = args.includes("--open");
+    await devCommand(config, { port, configPath, open });
     return;
   }
 

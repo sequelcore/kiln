@@ -137,7 +137,7 @@ reduced-motion preferences and must never replace textual status, focus, or
 durable event evidence.
 
 The canonical brand mark is `docs/assets/logo.svg`; use it for product identity
-in README files, operator shell headers, internal studio navigation, and other
+in README files, operator shell headers, operator navigation, and other
 Kiln-owned surfaces. Use `docs/assets/logo.png` only when a raster image is
 required by a renderer or preview system. `docs/assets/mascot.png` is secondary
 marketing art and should not replace the logo in operator surfaces.

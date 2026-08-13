@@ -81,7 +81,6 @@ Guides are grouped by the task or surface they support.
 - [GUI parity](guides/gui/gui-parity.md)
 - [GUI parity walkthrough](guides/gui/gui-parity-walkthrough.md)
 - [TUI](guides/gui/tui.md)
-- [Studio](guides/gui/studio.md)
 - [React SDK](guides/gui/react-sdk.md)
 - [CLI wrapper](guides/gui/cli-wrapper.md)
 

@@ -1,6 +1,6 @@
 # Evaluation Framework
 
-The evaluation framework measures agent output quality against labeled datasets using configurable scorers. It is declared in the `eval` block of `app.yaml` and runs through the dev API at `/dev/eval/`.
+The evaluation framework measures agent output quality against labeled datasets using configurable scorers. It is declared in the `eval` block of `app.yaml` and implemented by the canonical Core evaluation contracts.
 
 Source: `packages/core/src/eval/`.
 
@@ -162,7 +162,9 @@ experiments:
     compare: baseline
 ```
 
-The Eval Dashboard in Kiln Studio displays the comparison as a score table with delta indicators. See [Studio](../gui/studio.md).
+`compareExperiments()` returns scorer-level baseline, candidate, and delta data.
+Any CLI or GUI presentation must consume a canonical typed result contract
+rather than creating surface-owned evaluation state.
 
 ## Consistency Runner (pass^k)
 

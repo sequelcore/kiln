@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:95e54500d334197c22e7cf915c5e8ed354d754e73467ac63c10d75a98e4d181d
+contentHash: sha256:84b9d7a65ee83d2375b1add70c75d106d545dcadd96720719a87f89beddb3a31
 -->
 # Agents
 
@@ -39,16 +39,16 @@ through `kiln project adopt`; do not put durable repo guidance directly in
 ## Commands
 
 - `build`: `bun run --filter '*' build`
-- `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/studio test && bun run --filter @kilnai/gui test`
+- `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/gui test`
 - `test:e2e`: `bun run --cwd packages/gui test:e2e`
 - `test:managed-agents:live`: `vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1`
-- `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
+- `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
 
 ## Canonical References
 
 - README.md
 - docs/architecture/README.md
-- docs/architecture/engineering-standards.md
+- docs/architecture/core/engineering-standards.md
 - docs/research/README.md
 - docs/roadmap/README.md
 
@@ -69,7 +69,7 @@ exception, and it is a data-migration question decided per change, not a reason
 to keep an API compatibility layer. Discarding local state with no
 future-useful evidence is an admitted outcome.
 
-Canonical statement and full rules: `docs/architecture/engineering-standards.md`,
+Canonical statement and full rules: `docs/architecture/core/engineering-standards.md`,
 section "Consumer Surface".
 
 ## Active Instruction Profiles

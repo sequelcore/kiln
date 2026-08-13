@@ -4,7 +4,7 @@
 
 Kiln has one control-plane runtime and multiple surfaces that operate it. This
 document is the canonical vocabulary for those surfaces across app deployment,
-local GUI workflows, native desktop, Studio, CLI, TUI, SDK, widget, and MCP.
+local GUI workflows, native desktop, CLI, TUI, SDK, widget, and MCP.
 
 The control-plane owner for deployed apps is the app gateway started from
 `gateway.yaml`. Operator surfaces may run helper servers or use separate ports,
@@ -16,7 +16,6 @@ but they must not become separate app control planes.
 |---------|-------|---------------|------------------|-------|
 | App Gateway | `startGateway(gateway.yaml)` | `gateway.yaml` plus bound `app.yaml` files | HTTP, WebSocket, channels, MCP | Deployable runtime for real apps, tenants, sessions, memory, safety, events, triggers, and tool gates. |
 | Operator Gateway | `startGuiGateway()` / `startTuiGateway()` | CLI flags and local operator state | HTTP and WebSocket operator contract | Local human-operator bridge for coding/dev sessions. It is not a deployable app host and must attach to an App Gateway when operating deployable YAML apps. |
-| Studio Dev Server | `kiln dev` | `.kiln/gateway.yaml` or local `app.yaml` | `/studio/*` and `/dev/*` | Development and inspection surface. With `gateway.yaml`, it runs the App Gateway in dev mode. Without it, it is a lightweight editor/inspector server. |
 | CLI | `@kilnai/cli` commands | CLI flags plus projected global config | Local process, HTTP/WS attach, MCP projection | Public install surface for automation, validation, launch, sync, and scripting. CLI does not own app runtime semantics. |
 | GUI | `@kilnai/gui` | Operator preferences plus gateway attach target | HTTP/WS operator contract | Public first-party human operator UI served by runtime. It should attach to an existing App Gateway when operating YAML apps. |
 | Native | `@kilnai/native` | Operator preferences plus gateway attach target | HTTP/WS operator contract plus local Electron process | Source-only experimental desktop operator surface in this release. It owns native window lifecycle and surface telemetry only; runtime truth remains in App/Operator Gateway. |
@@ -51,6 +50,11 @@ but they must not become separate app control planes.
    through MCP.
 7. A local machine may run multiple App Gateways only when they represent
    distinct environments, projects, or isolation boundaries.
+
+`kiln dev` is a CLI lifecycle command for the canonical App Gateway. It requires
+a gateway configuration, enables project-local development coordination, and
+may open the same GUI served at `/gui/`. It does not create a separate runtime,
+private operator API, or development-only UI.
 
 The machine-global Operator Runtime owns one physical account-capacity ledger
 under the global Model Gateway runtime directory. Project identities namespace
@@ -164,7 +168,6 @@ Use precise names in new docs and code:
 
 - `App Gateway` for the deployable `startGateway(gateway.yaml)` runtime.
 - `Operator Gateway` for local GUI/TUI bridge servers.
-- `Studio Dev Server` for `kiln dev` without a gateway config.
 - `operator API` or `operator HTTP/WS contract` for GUI/Native/CLI/TUI
   control.
 - `native operator surface` for the Electron-backed `@kilnai/native` surface;

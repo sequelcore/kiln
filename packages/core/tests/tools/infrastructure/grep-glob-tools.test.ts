@@ -768,8 +768,8 @@ describe("GlobTool", () => {
       if (cwd.endsWith(join("packages", "gui")) && args[3] === "**/*.tsx") {
         return { stdout: "src/components/app-shell.tsx\n", stderr: "" };
       }
-      if (cwd.endsWith(join("packages", "studio")) && args[3] === "**/*.css") {
-        return { stdout: "src/styles/tokens.css\n", stderr: "" };
+      if (cwd.endsWith(join("packages", "widget")) && args[3] === "**/*.ts") {
+        return { stdout: "src/styles.ts\n", stderr: "" };
       }
       throw Object.assign(new Error("no matches"), { code: 1, stdout: "", stderr: "" });
     });
@@ -784,7 +784,7 @@ describe("GlobTool", () => {
     const result = await tool.execute({
       name: "glob",
       input: {
-        pattern: "packages/{gui,studio,widget,tui}/**/*.{tsx,ts,css,scss}",
+        pattern: "packages/{gui,widget}/**/*.{tsx,ts}",
         path: ".",
         verbosity: "raw",
       },
@@ -792,7 +792,7 @@ describe("GlobTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("packages/gui/src/components/app-shell.tsx");
-    expect(result.output).toContain("packages/studio/src/styles/tokens.css");
+    expect(result.output).toContain("packages/widget/src/styles.ts");
     expect(result.metadata?.["count"]).toBe(2);
   });
 

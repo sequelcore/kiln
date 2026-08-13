@@ -111,12 +111,10 @@ When an App declares a `web` channel binding, the Gateway mounts a WebSocket upg
 
 The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSocket` helper with `createBunWebSocket()`.
 
-**Authentication:** Two auth modes for WebSocket:
-
-- **Dev mode:** A `validateToken` callback validates `?token=` query params (via `DevTokenStore` sliding-window TTL).
-- **Production mode:** `apiKeyEnv` on the channel binding validates `?apiKey=` query params. Dev mode takes priority when both are configured.
-
-Invalid or missing credentials receive a `401` response before upgrade. If the dev token validator returns a `userId`, it is used as the session key.
+**Authentication:** `apiKeyEnv` on the channel binding validates `?apiKey=`
+query parameters. Invalid or missing credentials receive a `401` response
+before upgrade. Gateway integrations may also supply a token validator through
+the runtime contract; a validated token identity becomes the session key.
 
 **Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session. When a tenant defines multiple `agents` with `routing` config, each message is routed to the appropriate agent via a 3-tier cascade: regex rules (Tier 1), embedding similarity via AgentRAG (Tier 2, threshold configurable via `embeddingThreshold`, default 0.75), or fallback. Agent switches include a warm handoff brief (LLM-generated context summary) and are subject to the ping-pong guard (`maxHandoffs`, `rerouteAfterTurns`). AGENT_ROUTED conversation events include `routingTier` and `routingConfidence` for observability. Use `POST /tenants/:id/routing/test` to dry-run routing. See [Multi-agent and role routing](../agents/multi-agent.md).
 

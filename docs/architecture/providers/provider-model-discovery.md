@@ -82,7 +82,7 @@ Canonical provider-model evidence keeps these concepts separate:
 - final eligibility decision with reason codes
 
 `@kilnai/core` owns the pure eligibility derivation. Runtime adapters supply
-evidence and projections; CLI, GUI, TUI, SDK, widget, native, and studio
+evidence and projections; CLI, GUI, TUI, SDK, widget, and native
 surfaces render the canonical projection. Operator surfaces may filter a
 projection to show eligible routes first, but they must not invent local
 eligibility rules, promote stale catalogs, or treat provider availability as a

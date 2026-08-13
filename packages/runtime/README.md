@@ -79,19 +79,11 @@ apps:
         multiTenant: true
 ```
 
-### Dev mode with hot-reload
-
-```typescript
-import { startDevServer } from "@kilnai/runtime";
-
-await startDevServer("app.yaml", { port: 3000 });
-```
-
 ## Key exports
 
 | Module | Exports |
 |--------|---------|
-| Gateway | `startGateway()`, `startDevServer()`, `createGatewayApp()`, `resolveApps()` |
+| Gateway | `startGateway()`, `createGatewayApp()`, `resolveApps()` |
 | Session | `RuntimeSessionOrchestrator`, `RuntimeSession`, `SessionRegistry`, `SessionMode`, `SessionStore`, `InMemorySessionStore`, `RedisSessionStore`, `serializeSession`, `deserializeSession` |
 | Tenant | `TenantRegistry`, `buildTenantSystemPrompt()`, `extractSuggestions()` |
 | Triggers | `TriggerRegistry`, `createWebhookHandler()`, `EventListener`, `Scheduler` |

@@ -35,7 +35,6 @@ and platform-specific tool packages:
 | `packages/tui` | `@kilnai/tui` | Terminal operator surface. Experimental and maintenance-only per ADR-005. |
 | `packages/gui` | `@kilnai/gui` | Primary web operator surface served by the runtime gateway. |
 | `packages/native` | `@kilnai/native` (private) | Electron-backed native operator surface. It consumes gateway contracts and must not import runtime or core implementations directly. |
-| `packages/studio` | `@kilnai/studio` (private) | Dev UI SPA served at `/studio` in dev mode. Not published to npm. |
 | `packages/tools` | `@kilnai/tools` | Vendored developer-tool resolver for platform packages. |
 | `packages/tools-*` | `@kilnai/tools-*` | Platform-specific optional packages for vendored tool binaries. |
 
@@ -118,7 +117,7 @@ type(scope): description
 
 **Types:** `feat`, `fix`, `refactor`, `chore`, `docs`, `test`
 
-**Scopes:** `core`, `engine`, `orchestrator`, `agents`, `domain`, `package`, `skill`, `memory`, `tree`, `events`, `cost`, `sandbox`, `verification`, `security`, `safety`, `knowledge`, `enrichment`, `eval`, `observability`, `a2a`, `runtime`, `gateway`, `trigger`, `session`, `tenant`, `channel`, `cli`, `sdk`, `widget`, `studio`, `docs`
+**Scopes:** `core`, `engine`, `orchestrator`, `agents`, `domain`, `package`, `skill`, `memory`, `tree`, `events`, `cost`, `sandbox`, `verification`, `security`, `safety`, `knowledge`, `enrichment`, `eval`, `observability`, `a2a`, `runtime`, `gateway`, `trigger`, `session`, `tenant`, `channel`, `cli`, `sdk`, `widget`, `gui`, `native`, `docs`
 
 Examples:
 ```

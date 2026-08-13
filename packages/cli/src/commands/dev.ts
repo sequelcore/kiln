@@ -7,30 +7,70 @@ import { loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 
 export interface DevFlags {
-  port?: number;
-  configPath?: string;
-  playground?: boolean;
+  readonly port?: number;
+  readonly configPath?: string;
+  readonly open?: boolean;
 }
 
-export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Promise<void> {
-  const root = process.cwd();
+export type DevLaunchPlan =
+  | {
+      readonly ok: true;
+      readonly gatewayPath: string;
+      readonly port: number;
+      readonly watchPaths: readonly string[];
+      readonly openUrl?: string;
+    }
+  | {
+      readonly ok: false;
+      readonly message: string;
+    };
+
+export function resolveDevLaunchPlan(
+  root: string,
+  flags: DevFlags = {},
+  pathExists: (path: string) => boolean = existsSync,
+): DevLaunchPlan {
   const appDir = join(root, ".kiln");
 
-  if (!existsSync(appDir)) {
-    console.error(`Not initialized. Run 'kiln init' first.`);
-    process.exit(1);
+  if (!pathExists(appDir)) {
+    return { ok: false, message: "Not initialized. Run 'kiln init' first." };
   }
 
-  const gatewayPath = flags?.configPath ?? join(appDir, "gateway.yaml");
+  const gatewayPath = flags.configPath ?? join(appDir, "gateway.yaml");
+  if (!pathExists(gatewayPath)) {
+    return {
+      ok: false,
+      message: "No gateway configuration found. Run 'kiln init' or pass --config <path>.",
+    };
+  }
+
   const appYamlPath = join(appDir, "app.yaml");
-  const hasGateway = existsSync(gatewayPath);
+  const watchPaths = [gatewayPath];
+  if (pathExists(appYamlPath)) watchPaths.push(appYamlPath);
+  const port = flags.port ?? 4800;
 
-  const watchPaths = hasGateway ? [gatewayPath] : [];
-  if (existsSync(appYamlPath)) watchPaths.push(appYamlPath);
+  return {
+    ok: true,
+    gatewayPath,
+    port,
+    watchPaths,
+    ...(flags.open ? { openUrl: `http://localhost:${port}/gui/` } : {}),
+  };
+}
 
-  if (watchPaths.length > 0) {
+export async function devCommand(_appConfig: KilnAppConfig, flags: DevFlags = {}): Promise<void> {
+  const root = process.cwd();
+  const plan = resolveDevLaunchPlan(root, flags);
+
+  if (!plan.ok) {
+    console.error(plan.message);
+    process.exit(1);
+    return;
+  }
+
+  if (plan.watchPaths.length > 0) {
     const watcher = new YamlWatcher({
-      paths: watchPaths,
+      paths: plan.watchPaths,
       debounceMs: 300,
       onReload: (path) => {
         console.log(`\n[watch] ${path} changed. Restart \`kiln dev\` to apply changes.`);
@@ -42,31 +82,19 @@ export async function devCommand(appConfig: KilnAppConfig, flags?: DevFlags): Pr
     watcher.start();
   }
 
-  const port = flags?.port ?? 4800;
-
   try {
-    if (hasGateway) {
-      const { startGateway } = await import("@kilnai/runtime");
-      const mcp = loadResolvedKilnMcpConfiguration(root);
-      if (mcp.diagnostics.length > 0) {
-        throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
-      }
-      await startGateway(gatewayPath, {
-        port,
-        devMode: true,
-        studioDistPath: appConfig.studioDistPath,
-        canonicalMcpServers: new Map(Object.entries(mcp.servers)),
-        mcpCredentialResolver: createMcpCredentialAccess().resolve,
-      });
-    } else {
-      const { startDevServer } = await import("@kilnai/runtime");
-      await startDevServer({ port, appYamlPath: existsSync(appYamlPath) ? appYamlPath : undefined, studioDistPath: appConfig.studioDistPath });
+    const { startGateway } = await import("@kilnai/runtime");
+    const mcp = loadResolvedKilnMcpConfiguration(root);
+    if (mcp.diagnostics.length > 0) {
+      throw new Error(`Canonical MCP configuration is invalid: ${mcp.diagnostics.map((item) => item.code).join(", ")}`);
     }
-
-    if (flags?.playground) {
-      const url = `http://localhost:${port}/studio/`;
-      openBrowser(url);
-    }
+    await startGateway(plan.gatewayPath, {
+      port: plan.port,
+      swarmCoordination: "project-local",
+      canonicalMcpServers: new Map(Object.entries(mcp.servers)),
+      mcpCredentialResolver: createMcpCredentialAccess().resolve,
+      ...(plan.openUrl ? { onReady: () => openBrowser(plan.openUrl!) } : {}),
+    });
   } catch (err) {
     console.error(`Failed to start: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
