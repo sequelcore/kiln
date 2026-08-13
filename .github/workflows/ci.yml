@@ -21,6 +21,9 @@ jobs:
       - name: Validate release cohort
         run: bun run release:validate
 
+      - name: Validate documentation
+        run: bun run docs:check
+
       - name: Typecheck
         run: bun run typecheck
 

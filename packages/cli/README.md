@@ -5,7 +5,6 @@
 <h1 align="center">@kilnai/cli</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kilnai/cli"><img src="https://img.shields.io/npm/v/@kilnai/cli.svg" alt="npm version" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
@@ -15,25 +14,26 @@
 
 ## What is this?
 
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state,
+> and the package coordinate is expected to change before the next release.
+
 `@kilnai/cli` is the command-line interface for
 [Kiln](https://github.com/sequelcore/kiln). It provides local operator
 commands, GUI/TUI launchers, config projection tools, workflow commands, and
 the dev-tools MCP server.
 
-## Install
+## Run from source
 
 ```bash
-bun add -g @kilnai/cli
+bun install --frozen-lockfile
+bun packages/cli/src/index.ts --help
 ```
 
-This installs the official CLI, GUI launcher/assets, TUI, runtime, and gateway
-contracts so `kiln gui` and `kiln tui` can run from any project directory.
-
-Or use directly:
-
-```bash
-bunx @kilnai/cli init
-```
+Run these commands from the repository root. The command reference below uses
+the installed spelling `kiln` to describe the interface; it is not a current
+package-install instruction.
 
 ## Commands
 
@@ -225,10 +225,10 @@ plane as a stdio child; it does not require the HTTP Model Gateway process.
 
 ## Documentation
 
-- [Getting Started](https://github.com/sequelcore/kiln/blob/main/docs/getting-started.md)
-- [App Configuration](https://github.com/sequelcore/kiln/blob/main/docs/configuration/app-yaml.md)
-- [Gateway Configuration](https://github.com/sequelcore/kiln/blob/main/docs/configuration/gateway-yaml.md)
+- [Getting started](../../docs/getting-started.md)
+- [Application configuration](../../docs/configuration/app-yaml.md)
+- [Gateway configuration](../../docs/configuration/gateway-yaml.md)
 
 ## License
 
-[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache 2.0](../../LICENSE)

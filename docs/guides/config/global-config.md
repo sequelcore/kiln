@@ -1,4 +1,4 @@
-# Global Config
+# Global configuration
 
 ## Overview
 
@@ -16,14 +16,18 @@ for Kiln-launched processes only when a harness supports it, and `kiln sync`
 pushes derived backend configs into native CLIs when native projection is
 required.
 
-The architecture contracts are `docs/architecture/config-projection.md` and
-`docs/architecture/harness-integration-capabilities.md`. Agent-context doctrine
-is `docs/architecture/agent-context.md`. This guide is the operator-facing
-usage view.
+The architecture contracts are [Config projection](../../architecture/surfaces/config-projection.md)
+and [Harness integration capabilities](../../architecture/surfaces/harness-integration-capabilities.md).
+[Agent context](../../architecture/context/agent-context.md) owns the related
+identity and context doctrine. This guide is the operator-facing usage view.
 For the shortest setup path for personality, engineering standards, and
 work-governance posture, use [Operator Doctrine](../ops/operator-doctrine.md).
 
-## File Location
+Command examples use `kiln` as the concise CLI name. While the project is
+source-only, follow the [source entrypoint convention](../../getting-started.md#run-commands-from-source)
+and keep your shell in the project you intend to operate.
+
+## File location
 
 - Default: `~/.kiln/config.yaml`
 - Linux with `XDG_CONFIG_HOME` set: `$XDG_CONFIG_HOME/kiln/config.yaml`
@@ -275,7 +279,7 @@ broadening them.
 Visibility belongs in `~/.kiln/config.yaml`. Kiln rejects project-level
 visibility so syncing one repository cannot hide or remove skills for another.
 
-## Repository Hygiene
+## Repository hygiene
 
 Global config and global instruction profiles are the right place for personal
 operator preferences and durable self-improvement notes that apply across
@@ -296,7 +300,7 @@ the same contract.
 When the CLI `operator_set_theme` tool is called with `scope: "persisted"`, it
 writes `ui.theme` because there is no live CLI visual surface to update.
 
-## Operator Execution Routes
+## Operator execution routes
 
 Operator sessions do not use `workerRouting.routes`. Configure one execution catalog
 and select its route by ID. Runtime, not the surface, applies safety, health,
@@ -331,7 +335,7 @@ dispatch when the first is saturated. Exact account selection and an eligible
 operator account override never fall back. Runtime fences capacity and
 revalidates the selected credential ID and revision before dispatch.
 
-## Running And Surface Selection
+## Running and surface selection
 
 Run the default route or select a configured route explicitly:
 
@@ -349,202 +353,29 @@ selects a credential ID.
 
 ## Example
 
-```yaml
-version: "1"
-engines:
-  claude:
-    enabled: true
-    billing: subscription
-  codex:
-    enabled: true
-    billing: plus-quota
-routing:
-  routes:
-    - provider: codex-oauth
-      model: gpt-5.6-terra
-    - provider: openrouter
-      model: openrouter/free
-    - provider: codex
-      model: gpt-5.3-codex-spark
-  budgetAware: false
-models:
-  codex: gpt-5.3-codex-spark
-deliberationPolicy:
-  default: { mode: fixed, preferredLevel: medium, onUnsupported: omit }
-  byTask:
-    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
-    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
-modelTaskSuitability:
-  - provider: codex-oauth
-    model: gpt-5.6-terra
-    task: frontend-design
-    level: limited
-    reason: Prefer a visual-design-specialized route when available.
-permissions:
-  approval: on-request
-  sandbox: read-only
-identity:
-  name: Alex
-  timezone: America/Tijuana
-activeInstructionProfiles:
-  - sequel-engineering
-workGovernance:
-  defaultPosture: orchestrate
-  directExecution:
-    maxFiles: 1
-    maxRisk: low
-  requireDelegationFor:
-    - architecture
-    - security
-    - ui
-    - runtime
-    - provider-routing
-    - managed-agents
-    - config
-    - multi-file
-    - cross-surface
-    - long-running
-    - verification-heavy
-    - formal-proof-candidate
-  requiredEvidence:
-    - surface-map
-    - risk-hypothesis
-    - plan
-    - tests
-    - typecheck
-    - residual-risk
-ui:
-  theme: phosphor
-components:
-  include:
-    - baseline:core
-```
+Use the parser-validated
+[task-aware model-team configuration](../../examples/configs/task-aware-model-team.yaml)
+as the complete V2 shape. It demonstrates execution accounts and routes,
+managed agents, work governance, native Model Gateway principals, skills, and
+operator preferences without storing credential values.
 
-## Sanitized Personal Setup Example
+For the smallest economic managed-agent shape, use the parser-validated
+[schema-v2 subscription example](../../examples/configs/managed-agents-schema-v2-subscription.yaml).
 
-This example reflects a local operator setup where direct Codex OAuth is the
-primary implementation route, exact Claude Sonnet 5 is a read-only plan route,
-OpenCode Go contributes provisional task-specialized direct models, and native
-write-capable CLI harnesses are disabled by default. OpenCode Go DeepSeek V4 Flash is excluded
-because the current provider matrix permits training and offers no retention
-agreement. It is a shape example only; secrets stay in
-environment variables or credential pools. Enable a native harness only as an
-explicit fallback when direct provider use is unavailable or not compliant with
-the provider terms for the desired workflow.
-For a complete sanitized file that includes task-aware skill selection and
-managed read-only routes, see
-`docs/examples/configs/task-aware-model-team.yaml`.
+Both files are synthetic. Replace identities, limits, model metadata, route
+economics, and evidence with current facts before operational use.
 
-```yaml
-version: "1"
-engines:
-  claude:
-    enabled: true
-    billing: subscription
-  codex-oauth:
-    enabled: true
-    billing: subscription
-  opencode-go:
-    enabled: true
-    billing: subscription
-  codex:
-    enabled: true
-    billing: plus-quota
-  opencode:
-    enabled: true
-    billing: free
-routing:
-  routes:
-    - provider: codex-oauth
-      model: gpt-5.6-terra
-    - provider: codex-oauth
-      model: gpt-5.6-sol
-    - provider: codex-oauth
-      model: gpt-5.6-luna
-    - provider: claude
-      model: claude-sonnet-5
-    - provider: opencode-go
-      model: kimi-k2.7-code
-    - provider: opencode-go
-      model: glm-5.2
-    - provider: opencode-go
-      model: deepseek-v4-pro
-    - provider: opencode-go
-      model: qwen3.7-max
-    - provider: codex
-      model: gpt-5.3-codex-spark
-    - provider: opencode
-      model: opencode/minimax-m2.5-free
-  budgetAware: false
-deliberationPolicy:
-  default: { mode: fixed, preferredLevel: medium, onUnsupported: omit }
-  byTask:
-    architecture-review: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: deny }
-    backend-coding: { mode: fixed, preferredLevel: high, onUnsupported: deny }
-    frontend-design: { mode: fixed, preferredLevel: high, onUnsupported: deny }
-    test-writing: { mode: fixed, preferredLevel: high, onUnsupported: deny }
-    research: { mode: adaptive, target: quality-first, bounds: { min: high }, onUnsupported: omit }
-    mechanical-edit: { mode: fixed, preferredLevel: low, onUnsupported: omit }
-modelTaskSuitability:
-  - provider: opencode-go
-    model: kimi-k2.7-code
-    task: frontend-design
-    level: preferred
-    reason: Operator benchmark preference for frontend and visual implementation tasks.
-  - provider: opencode-go
-    model: deepseek-v4-pro
-    task: backend-coding
-    level: preferred
-    reason: Operator benchmark preference for backend/debugging and provider-runtime tasks.
-  - provider: opencode-go
-    model: qwen3.7-max
-    task: research
-    level: preferred
-    reason: Operator benchmark preference for synthesis, comparison, and evidence-heavy research.
-skills:
-  selection:
-    mode: auto
-  builtin:
-    enabled: true
-permissions:
-  approval: on-request
-  sandbox: read-only
-identity:
-  name: Alex
-  timezone: America/Tijuana
-activeInstructionProfiles:
-  - sequel-engineering
-workGovernance:
-  defaultPosture: orchestrate
-  directExecution:
-    maxFiles: 1
-    maxRisk: low
-  requireDelegationFor:
-    - architecture
-    - security
-    - ui
-    - runtime
-    - provider-routing
-    - managed-agents
-    - config
-    - multi-file
-    - cross-surface
-    - long-running
-    - verification-heavy
-    - formal-proof-candidate
-  requiredEvidence:
-    - surface-map
-    - risk-hypothesis
-    - plan
-    - tests
-    - typecheck
-    - residual-risk
-ui:
-  theme: phosphor
-components:
-  include:
-    - baseline:core
-```
+## Complete configuration example
+
+Use the
+[task-aware model-team configuration](../../examples/configs/task-aware-model-team.yaml)
+for a complete, sanitized V2 example. It includes task-aware routing, managed
+agents, work governance, native harness projections, skills, and operator
+preferences.
+
+The example is loaded by the CLI configuration tests. Keep it synthetic:
+replace identities, provider facts, limits, evidence, and secret references
+before operational use. Never copy credentials into the file.
 
 Durable instruction profiles live under `~/.kiln/instructions/` or
 `.kiln/instructions/`. Example:
@@ -664,9 +495,9 @@ CLI-owned GUI, TUI, and CLI sessions.
 
 Economic governance uses one canonical, one-way configuration boundary:
 
-- `modelGateway.accounts[].economics` owns stable capacity identity,
+- `executionCatalog.accounts[].economics` owns stable capacity identity,
   subscription/quota classification, and explicit credit/overage posture.
-- `modelGateway.virtualModels[].economics` owns the exact billing channel,
+- `executionCatalog.routes[].economics` owns the exact billing channel,
   adapter capability ID/version, execution mode and tier, rate-card basis and
   evidence, auxiliary charges, envelope semantics, and bounded execution
   envelope for that provider/model route.
@@ -676,12 +507,15 @@ Economic governance uses one canonical, one-way configuration boundary:
   `noRouteAction: deny`.
 - each project or global agent with `mode: managed-child` or `mode: all`
   references exactly one policy through `economicPolicyId`.
+- `modelGateway.virtualModels[]` is only an ingress and picker overlay. Each
+  entry references one `executionRouteId` and contains no account, credential,
+  provider, or economic authority.
 
-Every `runtime-selected` route must declare `managedAgents.schemaVersion: 2`
-and complete economic policy authority. The loader rejects the retired pre-v2
-shape with a re-authoring diagnostic before validating individual route
-credentials. Credentialless and native-harness routes do not acquire account
-authority and are not forced into the economic schema. The loader also rejects
+Every direct managed route declares `managedAgents.schemaVersion: 2` and one
+`executionRouteId`. It does not copy provider, model, credential, account
+policy, or economics from the execution catalog. Physical native-harness
+routes remain a separate route kind and do not acquire account authority. The
+loader rejects the retired pre-v2 shape with a re-authoring diagnostic. It also rejects
 unknown keys, aliases, duplicate identities,
 duplicate candidate routes, non-canonical decimals, incompatible ceiling
 units/schemes, unbounded route envelopes, unsupported providers, missing
@@ -704,7 +538,7 @@ unknown price classes remain explicitly non-comparable with their matching
 reason; they are never rewritten as numeric zero.
 
 Migration is not an inference step. Add complete account and exact-route
-economics, add the versioned policy, then replace each governed agent's
+economics to `executionCatalog`, add the versioned managed policy, then replace each governed agent's
 route-authority frontmatter with `economicPolicyId`. An explicit `routeId` or
 `providerRoute` may remain only as a narrowing constraint admitted by that
 policy. It cannot add a candidate, choose an account, or create a default.
@@ -732,19 +566,17 @@ decision.
 Unconfigured builtin agents are therefore absent from the schema-v2 managed
 catalog. A project or global definition, including an override with the same
 name as a builtin, is admitted only with a valid `economicPolicyId`.
-Policy agents are exposed to native managed-job submission through the V9
-record. V9 uses an explicit `dispatch.kind` branch: `economic` persists the
+Policy agents are exposed to native managed-job submission through the current
+managed-invocation record. Its `dispatch.kind` branch persists either an
+economic commitment or exact native-harness identity. The economic branch persists the
 policy id/revision, normalized narrowing constraints, governance evidence,
 admitted candidate set, `economicAttemptId`, objective, and adopted decision
-time before the atomic commitment transaction; `native-harness` persists only
+time before the atomic commitment transaction; the native-harness branch persists only
 the exact route/provider/model identity, a versioned credentialless route
 acknowledgement, and the optional dispatch fence. The selected route,
 reservation, optional account lease, and dispatch fence remain
-SQLite-authoritative rather than duplicated into the job projection. Pre-V9
-records are unsupported. Native-harness managed routes must use
-`credentials.mode: credentialless`; `runtime-selected` is rejected before
-adapter, credential, process, or account-authority materialization. #34
-internal Slice 5 dispatches committed work only after the durable fence,
+SQLite-authoritative rather than duplicated into the job projection. Runtime
+dispatches committed work only after the durable fence,
 materializes the exact committed adapter and credential identity for economic
 routes, and requires typed settlement. Unknown or incomplete provider
 outcomes remain capacity-consuming until authoritative settlement or audited
@@ -777,12 +609,12 @@ authority and route diagnostics intact:
 
 ```yaml
 managedAgents:
+  schemaVersion: 2
   enabled: true
   routes:
     - id: codex-oauth-readonly-timeout-proof
       kind: direct
-      provider: codex-oauth
-      model: gpt-5.6-luna
+      executionRouteId: codex-luna
       profiles:
         - foundation-readonly-plan
       workingDirectory: read-only
@@ -795,15 +627,11 @@ managedAgents:
         writes: false
       memory:
         access: read-only
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-codex-luna
 ```
 
-Every `runtime-selected` route must name an `accountPolicyId` whose
-`modelGateway.virtualModels` entry has the same direct provider and model. The
-policy owns the eligible account set; the managed route must not duplicate or
-infer it.
+The referenced execution route owns provider, model, account selection, and
+economics. The managed route contributes only child-specific profile, working
+directory, timeout, tool, memory, and authority constraints.
 
 The managed-agent route catalog must show `timeoutMs=1000
 source=explicit-route` for that route. A child that exceeds the budget should
@@ -820,6 +648,7 @@ child.
 
 ```yaml
 managedAgents:
+  schemaVersion: 2
   enabled: true
   worktreeLease:
     mode: git
@@ -827,8 +656,7 @@ managedAgents:
   routes:
     - id: opencode-go-service-approved-write
       kind: direct
-      provider: opencode-go
-      model: glm-5.2
+      executionRouteId: opencode-go-glm
       profiles:
         - foundation-apply-approved-writes
       workingDirectory: isolated-worktree
@@ -869,9 +697,6 @@ managedAgents:
             - git-commit
         approval:
           mode: required-before-apply
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-glm
 ```
 
 Live-proven direct-provider adapters expose approved workspace-write routes for
@@ -892,11 +717,11 @@ allowed to edit them. Example:
 
 ```yaml
 managedAgents:
+  schemaVersion: 2
   routes:
     - id: opencode-go-qwen3-7-max-readonly
       kind: direct
-      provider: opencode-go
-      model: qwen3.7-max
+      executionRouteId: opencode-go-qwen
       profiles:
         - foundation-readonly-plan
       workingDirectory: project
@@ -915,9 +740,6 @@ managedAgents:
             - /workspace/references/vllm-studio
       memory:
         access: read-only
-      credentials:
-        mode: runtime-selected
-        accountPolicyId: managed-opencode-go-qwen
 ```
 
 Read and write authority projection automatically denies standard repository
@@ -1004,8 +826,6 @@ managedAgents:
         invokeUrl: https://remote.example.test/managed-agent/invoke
         cancelUrl: https://remote.example.test/managed-agent/cancel
         authTokenEnv: KILN_CODEX_CLOUD_TOKEN
-      credentials:
-        mode: credentialless
       tools:
         allowed:
           - read
@@ -1061,9 +881,12 @@ so credentials and provider selection are reusable across projects. It may not d
 project `.kiln/kiln.yaml`. This keeps provider capability global while every
 repo still grants its own network access explicitly.
 
+The following blocks are fragments, not complete files. Add the global block
+to a complete V2 global configuration such as the
+[validated model-team example](../../examples/configs/task-aware-model-team.yaml).
+
 ```yaml
-# ~/.kiln/config.yaml
-version: "1"
+# Fragment for ~/.kiln/config.yaml (global schema version 2)
 web:
   searchProvider:
     type: tavily
@@ -1091,14 +914,14 @@ The merge is performed by `loadKilnConfig(projectPath)` in
 command-level code. `kiln sync` materializes the merged result into native CLI
 configs; edit Kiln config files, not the generated native configs directly.
 
-## Invalid Configs
+## Invalid configs
 
 Kiln has one canonical global config schema. Partial or obsolete files are not
 loaded as compatibility inputs. Commands that intentionally replace invalid
 global config perform the backup and canonical replacement under the same
 interprocess mutation lock.
 
-## Agent Sync
+## Agent sync
 
 Kiln agent profiles are canonical executable roles. A valid `.kiln/agents/*.md`
 or `~/.kiln/agents/*.md` file must declare `name`, `role`, `goal`, and `tier`.
@@ -1256,7 +1079,7 @@ through the config proposal lifecycle below.
 Global instruction shim status includes canonical shared `harness` identity
 (`codex`, `claude-code`, or `opencode`), which GUI and TUI display directly.
 
-## Governed Config Mutation
+## Governed config mutation
 
 Agents may propose bounded setup changes through `kiln_config.propose_change`.
 The tool validates `skill.upsert`, `agent.upsert`, and `agent.attach_skills`
@@ -1351,7 +1174,7 @@ inspect structurally. Keep explanatory nuance in the markdown body. This avoids
 duplicating long prompts in `AGENTS.md`, `CLAUDE.md`, Codex agent TOML files,
 OpenCode agent files, GUI prompts, and SDK consumers.
 
-## Skills Sync
+## Skills sync
 
 Run `kiln sync --skills` (or explicitly select every surface with `kiln sync --all`) to copy skill
 directories from `~/.kiln/skills/` and `.kiln/skills/` to enabled native CLIs.
@@ -1392,7 +1215,7 @@ declare `evidenceScopes: [repository]` to recommend `codebase-scouting`,
 Admission still follows the governed skill registry and
 `skills.selection.mode`.
 
-## Drift, Backups, And Disabled Engines
+## Drift, backups, and disabled engines
 
 `kiln sync` records managed native targets in `.kiln/install-state.json`.
 Document targets track managed fields; file targets track the whole file. If a

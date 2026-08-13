@@ -17,30 +17,31 @@ runtime. See
 
 ## Usage
 
-Install the public CLI package when operating Kiln from another repository,
-local machine, or VPS:
+The current repository is source-only. To develop the GUI, run this command
+from the repository root:
 
 ```bash
-bun add -g @kilnai/cli@2.1.0
-kiln gui
+bun packages/cli/src/index.ts gui --dev
 ```
 
-The installed CLI carries the public `@kilnai/gui` static asset package through
-the runtime. A normal `kiln gui` run serves those assets in production mode from
-any working directory.
+The command starts the source-tree Vite server and the local GUI Operator
+Gateway. It requires a Chromium-family browser unless you pass `--no-open`.
+
+To exercise built production assets instead, build the workspace first:
 
 ```bash
-kiln gui
+bun run build
+bun packages/cli/src/index.ts gui --prod
 ```
 
 By default, the command:
 
 1. Starts the local GUI Operator Gateway on port `4810`
-2. Serves the installed `@kilnai/gui` static build
+2. Serves either the source Vite application or the built GUI assets
 3. Opens the UI in a managed app-mode window using Microsoft Edge, Google Chrome, or Chromium
 4. Shuts down the gateway when that window closes
 
-Use `--dev` only when developing this repository's GUI source. Dev mode expects
+Use `--dev` when developing this repository's GUI source. Dev mode expects
 the `packages/gui` workspace to exist in the current Kiln source checkout. Vite
 owns GUI assets in this mode, while the local gateway exposes only the operator
 API and WebSocket contract; a prebuilt `packages/gui/dist` bundle is not a dev
@@ -109,7 +110,7 @@ tools continue through canonical tool authority and do not share this PTY.
 | `--port <number>` | Override the gateway port |
 | `--gui-port <number>` | Override the Vite dev server port in dev mode |
 | `--dev` | Use the source-tree Vite dev server from `packages/gui` |
-| `--prod` | Use the installed public GUI static build |
+| `--prod` | Use the built GUI static assets |
 | `--open` | Launch the managed GUI window |
 | `--no-open` | Start the gateway without opening a window |
 

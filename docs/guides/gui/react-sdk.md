@@ -2,15 +2,23 @@
 
 `@kilnai/react` is a React hooks library for building frontends that communicate with a Kiln Gateway. It provides typed hooks for chat, event streaming, approvals, and dev state. Memory is exposed through Gateway and resource-plane contracts rather than SDK-owned memory CRUD hooks.
 
+> [!IMPORTANT]
+> The SDK is currently supported only as a workspace package in this source
+> tree. Its package coordinate is provisional and expected to change before the
+> next public release.
+
 The SDK imports only **types** from `@kilnai/core` -- never implementations or
 runtime code. Peer dependencies: React 19+, `@kilnai/core`, and
 `@kilnai/gateway-contracts`.
 
-## Installation
+## Workspace use
 
 ```bash
-bun add @kilnai/react
+bun install --frozen-lockfile
+bun run --filter @kilnai/react test
 ```
+
+Repository applications consume the package through `workspace:*`.
 
 ## KilnProvider
 

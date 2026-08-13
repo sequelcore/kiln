@@ -105,7 +105,8 @@ Sessions have a `sessionMode` field that controls how messages are processed:
 
 The AI guard in `RuntimeSessionOrchestrator` checks `sessionMode` before processing. When a session is `queued` or `human_active`, the message is stored and `{ queued: true }` is returned. When a session is `resolved`, it auto-transitions to `ai_active` and processes normally.
 
-See [Gateway YAML Reference](../../configuration/gateway-yaml.md#session--handoff) for the full handoff API.
+See the [Gateway YAML reference](../../configuration/gateway-yaml.md) for the
+current file boundary. Verify exact handoff routes against the runtime contract.
 
 ## Budget Enforcement
 
@@ -114,7 +115,9 @@ every `POST /message` request. Budget checks fail closed: if the budget service
 is unavailable or the tenant is over budget, request execution is blocked to
 prevent uncontrolled spend.
 
-For the complete billing configuration reference (YAML fields, endpoint contracts, tier definitions), see [Gateway YAML Reference](../../configuration/gateway-yaml.md#mode-b-details).
+See the [Gateway YAML reference](../../configuration/gateway-yaml.md) for the
+current file boundary. Verify exact billing fields and endpoint contracts
+against the parser and runtime tests.
 
 ## Tenant Admin Routes
 
@@ -161,7 +164,7 @@ These fields can be updated via `PATCH /admin/{appName}/tenants/:tenantId`:
 | `emailFromAddress` | string | Outbound sender email address |
 | `emailFromName` | string | Outbound sender display name |
 | `emailTransportConfig` | object | Email transport provider config (Postmark, Resend, or generic) |
-| `preChatForm` | object | Pre-chat form config for web widget (see [Channels: Pre-Chat Form](../channels/channels.md#pre-chat-form)) |
+| `preChatForm` | object | Pre-chat form config for web widget (see [Pre-chat form](../channels/channels.md#pre-chat-form)) |
 | `agents` | array | Multi-agent config: each agent has id, name, role, goal, tools (see [Multi-Agent Routing](../agents/multi-agent.md)) |
 | `routing` | object | Agent routing config: rules, fallback, maxHandoffs, embeddingThreshold (see [Multi-Agent Routing](../agents/multi-agent.md)) |
 | `integrations` | array | Integration adapters: provider, credentialKey, operations filter, config (see [Tool Use: Integration Tools](../channels/tool-use.md#integration-tools)) |

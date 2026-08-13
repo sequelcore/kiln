@@ -1,142 +1,140 @@
-# Getting Started
+# Getting started from source
 
-This document is the shortest safe entry into Kiln's current repository and
-documentation.
+This tutorial takes you from a clean checkout to a verified Kiln CLI. It does
+not require a provider account, API key, or installed agent harness.
 
-Kiln is a biocybernetic control plane for governed AI work.
+## Before you begin
 
-## Current Baseline
+Kiln is under active development and currently supported only from source.
+There is no supported package installation for this repository state. The
+current project name and `@kilnai/*` package coordinates are provisional.
 
-Kiln `2.1.0` is the current supported public package line for the
-biocybernetic control-plane architecture. Kiln `2.0.0` remains the first
-supported public baseline. The repo can be built and tested from source.
+You need:
 
-Use this guide for public package installation, source checkout, verification,
-and contribution. Do not treat older `@kilnai/*` npm versions as the supported
-public baseline.
+- Git;
+- Bun 1.3.14, matching `packageManager` in the root `package.json` and CI; and
+- a shell on Windows, macOS, or Linux.
 
-## Install
+Provider-backed execution has additional credentials and harness requirements,
+but they are not needed for this tutorial.
 
-For normal use from any project or machine, install the public CLI package:
-
-```bash
-bun add -g @kilnai/cli@2.1.0
-kiln auth codex login
-kiln gui
-```
-
-The global CLI installation includes the official CLI, GUI static assets, TUI,
-runtime, and gateway contracts. `kiln gui` uses the installed `@kilnai/gui`
-package by default; source-tree GUI development requires an explicit `--dev`
-run from this repository.
-
-For source development:
+## Clone the repository
 
 ```bash
 git clone https://github.com/sequelcore/kiln.git
 cd kiln
-bun install
 ```
 
-## First Verification Path
+All remaining commands run from the repository root unless stated otherwise.
 
-The first successful experience should prove the repo is coherent before
-running any operator surface:
+## Run commands from source
+
+Other guides use `kiln` as the concise name of the CLI command. Until a new
+package release exists, run those commands from the project you want to operate
+and substitute the source entrypoint:
+
+```text
+bun "<kiln-checkout>/packages/cli/src/index.ts" <command-and-arguments>
+```
+
+`<kiln-checkout>` is the absolute path to this repository. Keeping your shell
+in the target project preserves project discovery; using `bun --cwd` would
+change it.
+
+## Install the workspace
+
+```bash
+bun install --frozen-lockfile
+```
+
+`--frozen-lockfile` makes the install fail if `package.json` and `bun.lock`
+disagree. This is the same installation mode used by CI.
+
+## Run the CLI safely
+
+```bash
+bun packages/cli/src/index.ts --help
+```
+
+You should see `Kiln -- Governed AI control-plane CLI` followed by the command
+catalog. This command proves that Bun can resolve and execute the source CLI
+without reading provider credentials or starting a local service.
+
+> [!NOTE]
+> Do not append `--help` to an arbitrary subcommand and assume that it is
+> side-effect free. Some commands perform their normal read-only inspection
+> when invoked that way. Use the root help command for this first check.
+
+## Verify the type graph
 
 ```bash
 bun run typecheck
+```
+
+This checks the shared contracts, core, runtime, SDK, CLI, operator surfaces,
+and repository scripts. A successful command exits with status 0 and no
+TypeScript errors.
+
+## Run the broader gates
+
+Before submitting a change, run the gates justified by the affected surface.
+The complete deterministic baseline is:
+
+```bash
 bun run test
 bun run build
 ```
 
-## Verify The Workspace
+Use `bun run test`, not `bun test`. The repository script runs the configured
+Vitest suites with the required package isolation; Bun's built-in test runner
+does not represent the project test contract.
 
-Run the same baseline checks before claiming work is complete:
+Some browser and live-provider checks are intentionally separate because they
+require installed browsers, credentials, quota, or native harnesses. The
+contributing guide names those gates and when they apply.
+
+## Choose what to do next
+
+### Learn the product
+
+Read [Core concepts](concepts.md), then use the
+[architecture index](architecture/README.md) to go deeper. You do not need to
+read every architecture document before trying a surface.
+
+### Inspect available commands
+
+Use the root command catalog:
 
 ```bash
-bun run typecheck
-bun run test
-bun run build
+bun packages/cli/src/index.ts --help
 ```
 
-For GUI-only work, also use:
+Commands that inspect native harnesses or machine-global configuration may
+report local state. Read the relevant guide before running commands that sync,
+install, start, stop, or uninstall projections and services.
 
-```bash
-bun run --cwd packages/gui lint
-```
+### Explore an application example
 
-## Run A Surface From Source
+Start with the [example index](examples/README.md). Each example states its own
+provider, credential, and environment requirements. Do not commit real secrets
+to example YAML or `.env` files.
 
-Use the CLI source entry point when working inside the repository:
+### Contribute
 
-```bash
-bun --cwd packages/cli src/index.ts tui
-bun --cwd packages/cli src/index.ts gui
-bun --cwd packages/cli src/index.ts run "Inspect this repository"
-```
+Read [Contributing](../CONTRIBUTING.md) for repository boundaries, commands,
+and pull-request expectations. For prose, navigation, examples, or references,
+also read the [documentation guide](contributing/documentation.md).
 
-Choose the surface by workflow:
+### Configure native harness integration
 
-| Workflow | Surface |
-|---|---|
-| Terminal-first supervision | TUI |
-| Rich local or remote browser supervision | GUI |
-| Automation, scripting, setup, and one-shot runs | CLI |
-| Gateway, channels, and remote attach patterns | Runtime and gateway contracts |
-| Desktop-specific capability experiments | Native, from source only in this release |
+Read [Model Gateway operations](operations/model-gateway.md) before projecting
+Kiln models into Codex, Claude Code, or OpenCode. The Model Gateway changes
+native client configuration and runs a user-scoped loopback service, so its
+lifecycle and restore rules matter.
 
-See [Operator Surfaces](guides/ops/operator-surfaces.md).
+## Get help
 
-## Read This First
-
-Read the doctrine in this order:
-
-1. [Architecture Index](architecture/README.md)
-2. [Identity](architecture/core/identity.md)
-3. [Control Model](architecture/core/control-model.md)
-4. [Invariants](architecture/core/invariants.md)
-5. [Research Synthesis](research/foundations/01-kiln-research-synthesis.md)
-
-Then continue with the subsystem and flow docs:
-
-- [Subsystems](architecture/core/subsystems.md)
-- [Flows](architecture/core/flows.md)
-- [Safety](architecture/safety/safety.md)
-- [Coordination](architecture/coordination/coordination.md)
-- [Memory](architecture/context/memory.md)
-- [Context Governance](architecture/context/context-governance.md)
-- [Adaptation](architecture/core/adaptation.md)
-
-## What To Understand First
-
-Before touching code, keep these points fixed:
-
-- Kiln regulates work; it does not merely dispatch prompts.
-- Context is governed, budgeted, and safety-bounded.
-- Coordination is explicit and stateful, not magical prompt inheritance.
-- Safety defaults to fail-closed on ambiguous dangerous work.
-- Memory is layered and revision-aware.
-- Biological metaphors may explain mechanisms, but cybernetics is the governing framework.
-
-## Current Documentation State
-
-The architecture docs under [`docs/architecture/`](architecture/README.md) are
-the source of truth for current system behavior. Research records rationale and
-evidence; it does not define active contracts.
-
-Operational guides under `docs/guides/` complement those docs with
-configuration, workflow, and runtime details. If a guide and an architecture
-doc overlap, the architecture doc defines doctrine and the guide defines usage.
-
-Release notes and the changelog start at the supported `2.0` baseline. Older
-published artifacts were experimental and are not the current public contract.
-
-## Where To Go Next
-
-- If you need doctrine: [Architecture](architecture/README.md)
-- If you need operator/team standards setup: [Operator Doctrine](guides/ops/operator-doctrine.md)
-- If you need rationale: [Research](research/README.md)
-- If you need sequencing: [Roadmap](roadmap/README.md)
-- If you need surface selection: [Operator Surfaces](guides/ops/operator-surfaces.md)
-- If you need runtime configuration details: [Configuration](configuration/app-yaml.md)
-- If you need release status: [Changelog](changelog.md)
+- Use the [documentation index](README.md) to find task and reference pages.
+- Check the [FAQ](faq.md) for product and repository questions.
+- Open a GitHub issue with reproducible commands, expected behavior, actual
+  behavior, operating system, and the relevant commit.

@@ -1,11 +1,26 @@
-# Model Gateway Operations
+# Operate the Model Gateway
 
-Model Gateway is the user-scoped loopback ingress for virtual models configured
-in `~/.kiln/config.yaml`. Its principals expose OpenAI Responses or Anthropic
-Messages while Runtime remains the only account, credential, capacity, and
-dispatch authority.
+The Model Gateway lets Codex, Claude Code, and OpenCode use virtual models from
+Kiln's canonical execution catalog. It runs as an authenticated, user-scoped
+service bound to loopback. Kiln Runtime remains the only authority for routes,
+accounts, credentials, capacity, and provider dispatch.
 
-## Prerequisites
+The harnesses share model access, not agent identity. Each harness keeps its
+own tools, permissions, prompts, sessions, and agent loop.
+
+## What setup changes
+
+| Harness | Projection | Effect |
+| --- | --- | --- |
+| Codex | Global Codex config and a generated merged catalog | Native Codex models and admitted Kiln virtual models appear in one picker; all model requests enter the authenticated composite listener. |
+| Claude Code | Project `.claude/settings.json` | The project uses the loopback Anthropic Messages endpoint and the admitted Claude-compatible virtual model IDs. |
+| OpenCode | Global OpenCode provider config | An additive `kiln` provider exposes admitted virtual models without replacing the native provider. |
+
+Kiln records ownership and backups for every managed field. Exact uninstall
+restores projections before stopping the listener, so a harness is not left
+pointing at a dead local endpoint.
+
+## Before you begin
 
 - Global config is V2 and declares `executionCatalog`, `executionRouting`, and
   `modelGateway`.
@@ -13,15 +28,70 @@ dispatch authority.
   available to supervised processes. Secret values never belong in YAML,
   command output, issue evidence, or scheduled-task arguments.
 - Each virtual model references one canonical `executionRouteId`.
+- Each native harness has at most one principal. Codex and OpenCode principals
+  use `openai-responses`; Claude uses `anthropic-messages` and must reference
+  `ANTHROPIC_AUTH_TOKEN`.
+- Every principal token and the replay HMAC secret contain at least 32 random
+  bytes. Token values are unique and never stored in YAML.
+
+Start from the parser-validated
+[task-aware model-team example](../examples/configs/task-aware-model-team.yaml).
+Replace its synthetic accounts, routes, capability metadata, and evidence with
+facts for your installation. `modelGateway.virtualModels` contains only picker
+metadata and an `executionRouteId`; it must not repeat provider, credential,
+account, or economic authority.
+
+Generate secrets locally with a cryptographically secure random-number
+generator and store them in the user environment available to supervised
+processes. For example, this Bun command prints 32 random bytes as hexadecimal:
+
+```bash
+bun -e "console.log(Array.from(crypto.getRandomValues(new Uint8Array(32)), value => value.toString(16).padStart(2, '0')).join(''))"
+```
+
+Run it independently for every token. Do not paste the output into chat, logs,
+issues, committed files, or command arguments.
+
+## Install native projections
+
+The following commands mutate native configuration and start or reuse the
+owned listener. Run them from the repository root only after reviewing the
+canonical config and native files in scope:
+
+```bash
+bun packages/cli/src/index.ts model-gateway sync-native --client codex --json
+bun packages/cli/src/index.ts model-gateway sync-native --client claude --project . --json
+bun packages/cli/src/index.ts model-gateway sync-native --client opencode --json
+```
+
+The Claude projection is project-scoped; repeat it with an explicit
+`--project <path>` for each project that should use the Gateway. Codex and
+OpenCode projections are user-global. A foreign field or unowned drift fails
+closed unless you explicitly choose the documented adoption or force flow
+after reviewing the affected native config.
+
+On Windows, install current-user logon startup only after all required
+projections succeed:
+
+```bash
+bun packages/cli/src/index.ts model-gateway install-autostart --json
+```
+
+## Verify setup
 
 Validate without printing secrets:
 
-```powershell
-kiln model-gateway doctor --json
+```bash
+bun packages/cli/src/index.ts model-gateway doctor --json
 ```
 
 `ready` is valid only when the listener identity, PID, version, port, and config
-digest match owned state and `diagnostics` is empty.
+digest match owned state and `diagnostics` is empty. Open a new session in each
+configured harness and confirm that its admitted virtual models appear before
+running a provider-backed turn. A picker entry proves projection and discovery;
+only a real bounded turn proves provider compatibility and entitlement.
+
+## Configure ingress limits
 
 Use provider-aligned request envelopes in canonical config:
 
@@ -42,7 +112,7 @@ request also approaches the model's useful token budget. After changing the
 canonical config, restart and run `doctor` so the owned listener's config digest
 converges. Do not edit native Codex or Claude projections to change this limit.
 
-## Why Native Codex Requests Use The Kiln URL
+## Why native Codex requests use the Kiln URL
 
 Kiln projects a composite base URL into Codex so one model selector can expose
 native Codex models and Kiln virtual models. The URL is a dispatch boundary,
@@ -103,11 +173,11 @@ client still reports `stream disconnected before completion` or
 
 ## Lifecycle
 
-```powershell
-kiln model-gateway start
-kiln model-gateway status
-kiln model-gateway restart
-kiln model-gateway stop
+```bash
+bun packages/cli/src/index.ts model-gateway start
+bun packages/cli/src/index.ts model-gateway status
+bun packages/cli/src/index.ts model-gateway restart
+bun packages/cli/src/index.ts model-gateway stop
 ```
 
 `start` is idempotent. `restart` first waits for graceful resource settlement
@@ -127,8 +197,8 @@ fallback and is not a replacement transport authority.
 With the listener stopped, inspect post-fence work whose provider outcome is
 still unknown:
 
-```powershell
-kiln model-gateway capacity-incidents --json
+```bash
+bun packages/cli/src/index.ts model-gateway capacity-incidents --json
 ```
 
 The command opens the ledger read-only and returns every capacity-consuming
@@ -145,11 +215,11 @@ terminal evidence. If no authoritative terminal result exists, the incident
 remains `settlement-pending` and capacity-consuming. Do not edit the SQLite
 ledger or replace `unknown` with a guessed terminal outcome.
 
-## Windows Autostart And Recovery
+## Windows autostart and recovery
 
-```powershell
-kiln model-gateway install-autostart
-kiln model-gateway autostart-status
+```bash
+bun packages/cli/src/index.ts model-gateway install-autostart
+bun packages/cli/src/index.ts model-gateway autostart-status
 ```
 
 The installed current-user task starts `model-gateway ensure` at logon, runs at
@@ -157,19 +227,19 @@ least privilege, ignores duplicate starts, and has no scheduler execution time
 limit. Run `install-autostart` again after changing the installed CLI entrypoint
 or version; the ownership digest makes this an exact update. Then run:
 
-```powershell
-kiln model-gateway restart
-kiln model-gateway doctor --json
+```bash
+bun packages/cli/src/index.ts model-gateway restart
+bun packages/cli/src/index.ts model-gateway doctor --json
 ```
 
 Recovery proof consists of stopping the service, running the owned task (or
 logging into a fresh operator session), and observing `ready` with the expected
 version and config digest.
 
-## Exact Uninstall
+## Exact uninstall
 
-```powershell
-kiln model-gateway uninstall
+```bash
+bun packages/cli/src/index.ts model-gateway uninstall
 ```
 
 This command checks task and listener ownership, restores the owned Codex,
@@ -186,4 +256,8 @@ unmanaged harness-native fields, or the shared Runtime economic authority under
 `~/.kiln/runtime/economic-authority`.
 
 To remove only automatic startup while leaving the service and runtime evidence
-available, use `kiln model-gateway uninstall-autostart`.
+available, run:
+
+```bash
+bun packages/cli/src/index.ts model-gateway uninstall-autostart
+```

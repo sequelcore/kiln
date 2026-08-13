@@ -5,7 +5,6 @@
 <h1 align="center">@kilnai/widget</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kilnai/widget"><img src="https://img.shields.io/npm/v/@kilnai/widget.svg" alt="npm version" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
@@ -15,32 +14,23 @@
 
 ## What is this?
 
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported CDN or package installation for the current repository
+> state.
+
 `@kilnai/widget` adds a chat widget to any website that connects to a [Kiln](https://github.com/sequelcore/kiln) gateway via WebSocket. Built with Shadow DOM for style isolation, auto-reconnects on disconnect, and has zero runtime dependencies.
 
-## Install
+## Use in this workspace
 
-### Script tag (recommended)
-
-Pin an exact published version; do not use a moving dist-tag for production
-embeds.
-
-```html
-<script
-  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@<published-version>/dist/widget.iife.js"
-  data-gateway="wss://your-gateway.example.com"
-  data-app="your-app"
-  data-widget-id="your-widget-id"
-  async>
-</script>
-```
-
-That's it. The widget renders a floating chat button in the bottom-right corner.
-
-### npm
+Build the workspace before loading the generated IIFE bundle:
 
 ```bash
-bun add @kilnai/widget
+bun install --frozen-lockfile
+bun run --filter @kilnai/widget build
 ```
+
+Workspace consumers can import the provisional coordinate directly:
 
 ```typescript
 import { KilnWidget } from "@kilnai/widget";
@@ -53,6 +43,11 @@ const widget = new KilnWidget({
 ```
 
 Construction mounts the widget into `document.body`.
+
+For a script-tag experiment, serve `packages/widget/dist/widget.iife.js`
+yourself. Do not use an historical CDN package as evidence for current source
+behavior. The package coordinate is expected to change before the next public
+release.
 
 ## Configuration
 
@@ -98,10 +93,10 @@ AI Agent responds with text and suggestion chips
 
 ## Documentation
 
-- [Widget Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/channels.md)
-- [Multi-Tenant Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/multi-tenant.md)
-- [Booking Assistant Example](https://github.com/sequelcore/kiln/tree/main/docs/examples/booking-assistant) -- Working demo with widget
+- [Channel and widget guide](../../docs/guides/channels/channels.md)
+- [Multi-tenant guide](../../docs/guides/config/multi-tenant.md)
+- [Booking assistant example](../../docs/examples/booking-assistant/README.md) -- working demo with the widget
 
 ## License
 
-[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache 2.0](../../LICENSE)

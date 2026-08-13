@@ -1,17 +1,20 @@
 # Changelog
 
-This changelog tracks supported public changes beginning with the Kiln 2.0
-baseline. Active and deferred execution tracks live in
+This changelog separates current unreleased source changes from historical
+public releases beginning with the Kiln 2.0 baseline. Active and deferred
+execution tracks live in
 [`docs/roadmap/`](roadmap/README.md); stable doctrine lives in
 [`docs/architecture/`](architecture/README.md); curated release notes live in
 [`docs/releases/`](releases/README.md).
 
-## Unreleased - 3.0.0-beta.1 candidate
+## Unreleased source
 
-This section describes the current prerelease candidate in the repository. It
-is not a publication record. Kiln `2.1.0` remains the supported public package
-line until the beta tag, package graph, publish workflow, and registry evidence
-have all been verified.
+This section describes current source behavior. It is not a release note or
+publication record. The former `3.0.0-beta.1` candidate was not published and
+is preserved as historical prerelease evidence. No supported installable
+release currently represents this repository state; rebranding, new package
+coordinates, additional live validation, and a new release decision remain
+future work.
 
 - Extended managed-agent execution with background and parallel lifecycle
   evidence, bounded result resources, recovery, dependency-aware orchestration,
@@ -51,7 +54,7 @@ have all been verified.
   acceptance evidence. The single-fixture pairs do not establish general
   quality or cost improvement.
 
-Candidate details and unresolved promotion gates are recorded in
+Historical candidate details and its unresolved promotion gates are recorded in
 [`docs/releases/3.0.0-beta.1.md`](releases/3.0.0-beta.1.md). The release
 procedure is defined in
 [`docs/operations/release.md`](operations/release.md).

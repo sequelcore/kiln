@@ -1,121 +1,109 @@
-version: "1"
+# Synthetic, parser-validated schema-v2 example. Replace all provider, account,
+# model, price, and evidence values with current facts before operational use.
+version: "2"
 
 managedAgents:
   schemaVersion: 2
-  enabled: true
   routes:
-    - id: codex-subscription-review
+    - id: codex-standard
       kind: direct
-      provider: codex-oauth
-      model: gpt-5.6-codex
-      profiles:
-        - foundation-readonly-plan
-      workingDirectory: sandbox
-      tools:
-        allowed:
-          - read
-          - rg
-        network: false
-        writes: false
-      memory:
-        access: read-only
-      credentials:
-        mode: runtime-selected
-        routeId: codex-subscription-review
-        accountPolicyId: codex-subscription
+      executionRouteId: codex-standard
   economicPolicies:
-    - id: bounded-subscription-review
-      revision: rev-2026-08
+    - id: default-economic-policy
+      revision: rev-example-1
       evidenceRequirements:
         quota: required-for-account-bound
         price: required
       noRouteAction: deny
       comparisonDomains:
-        - id: subscription-priority
+        - id: usd-worst-case
           rank: 0
           unit: request
           scheme:
             kind: currency
             currency: USD
-          rateCardBasis: provider-subscription
+          rateCardBasis: public-rate-card
           envelopeSemantics: configured-upper-bound
       candidates:
-        - routeId: codex-subscription-review
-          comparisonDomainId: subscription-priority
+        - routeId: codex-standard
+          comparisonDomainId: usd-worst-case
           priorityRank: 0
           ceiling:
-            kind: none
+            kind: finite
+            amount:
+              atoms: "25"
+              scale: 0
+              unit: request
+              scheme:
+                kind: currency
+                currency: USD
           worstCaseReservation:
-            kind: not-comparable
-            reason: subscription-basis
+            kind: exact
+            amount:
+              atoms: "25"
+              scale: 0
+              unit: request
+              scheme:
+                kind: currency
+                currency: USD
 
-modelGateway:
-  port: 4819
+executionCatalog:
   accounts:
-    - id: codex-operator
+    - id: codex-account
       providerId: codex-oauth
-      credentialId: codex-operator-oauth
+      credentialId: codex-credential
       maxConcurrency: 1
       reservedAffinitySlots: 0
       economics:
-        capacityIdentity: codex-operator-subscription
-        subscriptionClass: subscription
-        quotaClassId: codex-subscription-quota
+        capacityIdentity: codex-capacity
+        subscriptionClass: metered
+        quotaClassId: codex-standard
         creditPosture: disabled
         overagePosture: disabled
-  replay:
-    ttlMs: 60000
-    maxEntries: 10
-    hmacKeyEnv: KILN_REPLAY_SECRET
-  surfaces:
-    openAIResponses:
-      # Matches Kiln's bounded OpenAI Responses envelope for Codex clients.
-      maxBodyBytes: 67108864
-      maxConcurrentRequests: 1
-  principals:
-    - tokenEnv: KILN_RESPONSES_TOKEN
-      ingress: openai-responses
-      tenantId: operator
-      applicationId: managed-agent
-      callerId: kiln-runtime
-      capabilityId: model-invoke
-      scopes:
-        - model.invoke
-      budgetEvidenceId: operator-subscription-budget
-      virtualModelIds:
-        - codex-subscription
-  virtualModels:
-    - id: codex-subscription
+  accountPolicies:
+    - id: codex-standard-policy
+      accountIds:
+        - codex-account
+      strategy: economic-least-pressure
+  routes:
+    - id: codex-standard
+      label: Codex Standard
       providerId: codex-oauth
       providerModelId: gpt-5.6-codex
-      accountIds:
-        - codex-operator
-      capabilities:
-        - text
-      affinity:
-        continuity: none
+      accountSelection:
+        mode: automatic
+        accountPolicyId: codex-standard-policy
       economics:
-        adapterCapabilityId: codex-oauth-direct
-        adapterCapabilityVersion: "1"
+        adapterCapabilityId: codex-direct
+        adapterCapabilityVersion: v1
         authBillingChannel: oauth-subscription
         executionMode: responses-api
         serviceTier: standard
-        rateCardBasis: provider-subscription
+        rateCardBasis: public-rate-card
         envelopeSemantics: configured-upper-bound
         fallbackPosture: disabled
         overagePosture: disabled
         contextClass: standard-context
         cacheClass: provider-cache
         priceEvidence:
-          kind: subscription
-          rateCardId: codex-subscription
-          rateCardRevision: rev-2026-08
+          kind: metered
+          rateCardId: codex-public
+          rateCardRevision: rev-example-1
+          unitPrices:
+            - usageUnit: input-token
+              price:
+                atoms: "125"
+                scale: 6
+                unit: input-token
+                scheme:
+                  kind: currency
+                  currency: USD
           evidence:
-            sourceIdentity: provider-subscription-terms
-            sourceRevision: rev-2026-08
+            sourceIdentity: provider-pricing-example
+            sourceRevision: rev-example-1
             sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-            observedAt: 2026-08-01T00:00:00.000Z
-            validUntil: 2026-09-01T00:00:00.000Z
+            observedAt: 2026-01-01T00:00:00.000Z
+            validUntil: 2027-01-01T00:00:00.000Z
             confidence: high
             authority: provider-reported
         auxiliaryCharges: []

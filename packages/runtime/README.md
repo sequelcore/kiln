@@ -5,7 +5,6 @@
 <h1 align="center">@kilnai/runtime</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kilnai/runtime"><img src="https://img.shields.io/npm/v/@kilnai/runtime.svg" alt="npm version" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
@@ -14,6 +13,10 @@
 ---
 
 ## What is this?
+
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state.
 
 `@kilnai/runtime` is the production runtime for [Kiln](https://github.com/sequelcore/kiln). It turns your YAML-configured AI apps into a running server with:
 
@@ -26,14 +29,16 @@
 - **Session management** -- per-user sessions with idle cleanup
 - **Safety & security middleware** -- prompt injection scanning, PII/content/rails pipeline
 
-## Install
+## Use in this workspace
 
 ```bash
-bun add @kilnai/runtime
+bun install --frozen-lockfile
+bun run --filter @kilnai/runtime test
 ```
 
-This package depends on `@kilnai/core`, `@kilnai/gateway-contracts`, and the
-public `@kilnai/gui` static asset package.
+Workspace consumers declare this package with `workspace:*`. It depends on
+`@kilnai/core`, `@kilnai/gateway-contracts`, and the GUI static asset package.
+The current coordinates are expected to change before the next public release.
 
 ## Usage
 
@@ -113,12 +118,12 @@ When the gateway starts, it automatically mounts:
 
 ## Documentation
 
-- [Gateway Configuration](https://github.com/sequelcore/kiln/blob/main/docs/configuration/gateway-yaml.md)
-- [Channels Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/channels.md)
-- [Multi-Tenant Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/multi-tenant.md)
-- [Triggers Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/triggers.md)
-- [Examples](https://github.com/sequelcore/kiln/tree/main/docs/examples)
+- [Gateway configuration](../../docs/configuration/gateway-yaml.md)
+- [Channels guide](../../docs/guides/channels/channels.md)
+- [Multi-tenant guide](../../docs/guides/config/multi-tenant.md)
+- [Triggers guide](../../docs/guides/channels/triggers.md)
+- [Examples](../../docs/examples/README.md)
 
 ## License
 
-[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache 2.0](../../LICENSE)

@@ -2,6 +2,11 @@
 
 Shared HTTP and WebSocket frame contracts for the Kiln operator gateway.
 
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state,
+> and the package coordinate is expected to change before the next release.
+
 Both the runtime gateway (`@kilnai/runtime`) and the operator clients
 (`@kilnai/gui`, `@kilnai/native`, `@kilnai/tui`, SDK, and widget) depend on
 this package so that frame shapes and shared operator projections are

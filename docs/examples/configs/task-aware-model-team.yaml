@@ -215,11 +215,16 @@ modelGateway:
       # byte admission does not imply useful model context at this size.
       maxBodyBytes: 67108864
       maxConcurrentRequests: 8
+    anthropicMessages:
+      # Claude Code's Messages ingress has a separate 32 MiB ceiling.
+      maxBodyBytes: 33554432
+      maxConcurrentRequests: 8
   principals:
-    - tokenEnv: KILN_MODEL_GATEWAY_BEARER_TOKEN
+    - tokenEnv: KILN_CODEX_TOKEN
       ingress: openai-responses
+      nativeHarness: codex
       tenantId: example-team
-      applicationId: example-client
+      applicationId: codex
       callerId: example-operator
       capabilityId: model-invoke
       scopes:
@@ -230,26 +235,88 @@ modelGateway:
         - managed-codex-sol
         - managed-codex-luna
         - managed-opencode-go-glm
+    - tokenEnv: KILN_OPENCODE_TOKEN
+      ingress: openai-responses
+      nativeHarness: opencode
+      tenantId: example-team
+      applicationId: opencode
+      callerId: example-operator
+      capabilityId: model-invoke
+      scopes:
+        - model.invoke
+      budgetEvidenceId: example-subscription-budget
+      virtualModelIds:
+        - managed-codex-terra
+        - managed-codex-sol
+        - managed-codex-luna
+        - managed-opencode-go-glm
+    - tokenEnv: ANTHROPIC_AUTH_TOKEN
+      ingress: anthropic-messages
+      nativeHarness: claude
+      tenantId: example-team
+      applicationId: claude
+      callerId: example-operator
+      capabilityId: model-invoke
+      scopes:
+        - model.invoke
+      budgetEvidenceId: example-subscription-budget
+      virtualModelIds:
+        - claude-kiln-codex-terra
+        - claude-kiln-opencode-go-glm
   virtualModels:
     - id: managed-codex-terra
+      displayName: Codex Terra through Kiln
+      contextTokens: 200000
+      outputTokens: 8192
+      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
       executionRouteId: codex-terra
       capabilities:
         - text
       affinity:
         continuity: none
     - id: managed-codex-sol
+      displayName: Codex Sol through Kiln
+      contextTokens: 200000
+      outputTokens: 8192
+      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
       executionRouteId: codex-sol
       capabilities:
         - text
       affinity:
         continuity: none
     - id: managed-codex-luna
+      displayName: Codex Luna through Kiln
+      contextTokens: 200000
+      outputTokens: 8192
+      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
       executionRouteId: codex-luna
       capabilities:
         - text
       affinity:
         continuity: none
     - id: managed-opencode-go-glm
+      displayName: OpenCode Go GLM through Kiln
+      contextTokens: 131072
+      outputTokens: 8192
+      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
+      executionRouteId: opencode-go-glm
+      capabilities:
+        - text
+      affinity:
+        continuity: none
+    - id: claude-kiln-codex-terra
+      displayName: Codex Terra through Kiln
+      contextTokens: 200000
+      outputTokens: 8192
+      executionRouteId: codex-terra
+      capabilities:
+        - text
+      affinity:
+        continuity: none
+    - id: claude-kiln-opencode-go-glm
+      displayName: OpenCode Go GLM through Kiln
+      contextTokens: 131072
+      outputTokens: 8192
       executionRouteId: opencode-go-glm
       capabilities:
         - text

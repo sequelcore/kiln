@@ -75,11 +75,11 @@ that already belongs in architecture or release history.
 - Live tests require explicit authority for credentials, quota, subscription, machine configuration, and destructive restore operations.
 - Update this index and the owning track atomically when state or priority changes.
 
-## Release Position
+## Release position
 
-The GUI release-truth track is closed from implemented tests and operator use;
-its stable invariants are promoted to architecture. `3.0.0-beta.1` nevertheless
-remains a candidate until the exact commit passes `docs/operations/release.md`,
-including trusted publishing, package contents, cross-platform smoke, provenance,
-and registry installation verification. Kiln `2.1.0` remains the supported
-public line until that succeeds.
+The current repository has no active release candidate and no supported
+installable package line. The historical `3.0.0-beta.1` candidate was not
+published and is no longer the target: additional live validation, a complete
+rebrand, and new package coordinates must precede any future release process.
+Release work starts only after those product decisions are canonical and the
+exact committed candidate satisfies `docs/operations/release.md`.

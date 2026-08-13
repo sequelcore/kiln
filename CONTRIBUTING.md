@@ -1,16 +1,25 @@
 # Contributing to Kiln
 
-## Getting Started
+Kiln is under active development and currently supported only from source.
+The current project name and `@kilnai/*` package coordinates are provisional;
+use them to navigate this repository, not as a promise of a supported public
+package release.
+
+## Getting started
 
 ```bash
 git clone https://github.com/sequelcore/kiln.git
 cd kiln
-bun install
+bun install --frozen-lockfile
 bun run typecheck
 bun run test
 ```
 
-## Project Structure
+Documentation is part of the public product surface. Read the
+[documentation guide](docs/contributing/documentation.md) before changing
+prose, examples, navigation, or release/status claims.
+
+## Project structure
 
 Kiln is a Bun monorepo with publishable packages, private operator surfaces,
 and platform-specific tool packages:
@@ -34,6 +43,7 @@ and platform-specific tool packages:
 
 | Command | Description |
 |---------|-------------|
+| `bun run docs:check` | Validate public Markdown structure, local links, and source-only package status |
 | `bun run typecheck` | Type-check all packages and private surfaces |
 | `bun run test` | Run deterministic tests via Vitest |
 | `bun run test:startup-profile` | Run the real-browser GUI startup gate |
@@ -68,9 +78,9 @@ root `bun run typecheck` must work before a local Vite dev server has generated
 fresh route metadata. When GUI routes change, run `bun run --cwd packages/gui build`
 or start the GUI dev server to refresh the generated route tree before commit.
 
-## Bounded Context Rules
+## Bounded context rules
 
-### Creating a New Bounded Context
+### Create a bounded context
 
 1. Create a directory under the appropriate package: `packages/core/src/{context}/` or `packages/runtime/src/{context}/`.
 2. Define the context's public types in a `types.ts` file.
@@ -78,7 +88,7 @@ or start the GUI dev server to refresh the generated route tree before commit.
 4. Import from other contexts only through their barrel exports — never import directly from another context's internal files.
 5. If the new context introduces engine-level interfaces (zero-dependency primitives), place them in `packages/core/src/engine/domain/`.
 
-### Dependency Rules Summary
+### Dependency rules summary
 
 - Engine primitives (`packages/core/src/engine/domain/`) have zero npm dependencies.
 - Application layer (orchestrator, tree, phase machine) depends on engine interfaces only.
@@ -91,7 +101,7 @@ or start the GUI dev server to refresh the generated route tree before commit.
 - `@kilnai/native` must not import `@kilnai/core` or `@kilnai/runtime` implementations directly.
 - Runtime can serve compiled private surfaces, but it must not import their source code.
 
-## Code Standards
+## Code standards
 
 - **No dead code or backwards-compatibility hacks.** Remove unused code rather than leaving it for potential future use.
 - **Explicit imports only.** No wildcard imports (`import * as foo`).
@@ -100,7 +110,7 @@ or start the GUI dev server to refresh the generated route tree before commit.
 - **Tests required for new functionality.** Every new bounded context, capability, or configuration option must have corresponding tests.
 - **No premature abstractions.** Introduce an abstraction when there is a second concrete use case, not in anticipation of one.
 
-## Commit Format
+## Commit format
 
 ```
 type(scope): description
@@ -117,15 +127,16 @@ fix(memory): prevent cross-tenant query in SQLite FTS5 store
 refactor(agents): extract circuit breaker into shared utility
 ```
 
-## Pull Request Checklist
+## Pull request checklist
 
 Before opening a PR, verify:
 
+- `bun run docs:check` passes when the change affects public documentation or navigation.
 - `bun run typecheck` passes with zero errors.
 - `bun run test` passes with all tests green.
 - New functionality has tests with meaningful coverage.
 - No cross-context imports have been introduced.
-- No `@temper` references (`grep -r "@temper" packages/` returns zero results).
+- No `@temper` references (`rg "@temper" packages` returns zero results).
 - The PR description explains the change and links to any relevant issues.
 
 ## License

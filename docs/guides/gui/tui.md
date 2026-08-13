@@ -13,17 +13,16 @@ Sources: `packages/tui/src/app.tsx`, `packages/tui/src/theme.ts`, `packages/tui/
 
 ## Starting the TUI
 
-Install the public CLI package when operating Kiln from another repository,
-local machine, or remote shell:
+The current repository is source-only. From the repository root, start the TUI
+through the source CLI:
 
 ```bash
-bun add -g @kilnai/cli@2.1.0
-kiln tui
+bun packages/cli/src/index.ts tui
 ```
 
-The global CLI installation includes `@kilnai/tui`, `@kilnai/runtime`,
-`@kilnai/core`, and the shared gateway contracts, so the terminal surface can be
-started from any project directory.
+The workspace resolves `@kilnai/tui`, `@kilnai/runtime`, `@kilnai/core`, and the
+shared gateway contracts locally. There is no supported global package install
+for this repository state.
 
 The `kiln tui` command currently accepts these flags from `packages/cli/src/commands/tui.ts`:
 
@@ -42,15 +41,15 @@ at startup.
 Examples:
 
 ```bash
-kiln tui
+bun packages/cli/src/index.ts tui
 ```
 
 ```bash
-kiln tui --theme vesper
+bun packages/cli/src/index.ts tui --theme vesper
 ```
 
 ```bash
-kiln tui --port 4900 --plan
+bun packages/cli/src/index.ts tui --port 4900 --plan
 ```
 
 Transport note: `tui.ts` now resolves startup transport to `gateway` by default. The direct bootstrap path still exists for debugging and explicit opt-in, and is enabled only when `KILN_TUI_TRANSPORT=direct` is set.

@@ -110,8 +110,8 @@ safety:
       required: [GDPR]
 ```
 
-See the [App YAML Reference](../../configuration/app-yaml.md#safety) for the full
-surrounding schema.
+See the [App YAML reference](../../configuration/app-yaml.md) for the current
+file boundary. Verify the exact safety shape against the application parser.
 
 ## Grounding Rail
 

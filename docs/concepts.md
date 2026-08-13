@@ -1,121 +1,101 @@
-# Core Concepts
+# Core concepts
 
-This document defines Kiln's current conceptual vocabulary at a high level.
-Detailed doctrine lives in the modular architecture docs.
+Kiln is a control plane for governed AI work. It sits between an operator's
+intent and the systems that perform the work, then applies policy before,
+during, and after execution.
 
-## Primary Frame
+This page introduces the vocabulary used throughout the documentation. The
+linked architecture pages define the exact contracts.
 
-Kiln is a biocybernetic control plane for governed AI work.
+## The control loop
 
-That means the system is organized around regulation:
+Kiln repeatedly performs a simple loop:
 
-- sensing state
-- comparing state against goals, policy, and constraints
-- selecting bounded actions
-- measuring outcomes
-- correcting drift
+1. Observe the request and current state.
+2. Compare them with goals, policy, capacity, and safety constraints.
+3. Admit, reject, defer, or narrow the work.
+4. Select an allowed execution route and context.
+5. Observe the result and record evidence.
+6. Recover or adapt when the result differs from the intended state.
 
-This is the canonical frame. Kiln's operational contracts are cybernetic, while
-its mechanism lineage is biological and neural. Older descriptions based on
-orchestration-first language are subordinate to that hierarchy.
+The architecture calls this a *biocybernetic* control plane. *Cybernetic*
+describes the feedback-and-regulation contracts above. *Biological* describes
+some of the research lineage behind mechanisms such as layered safety,
+attention, memory revision, and coordination. The term is an architectural
+frame, not a claim that Kiln is an organism.
 
-## Core Questions
+## Admission
 
-Kiln exists to answer five questions repeatedly and safely:
+Work does not execute merely because it arrived. Kiln can admit, reject,
+defer, or downgrade it according to policy and current operating conditions.
 
-1. Should this work enter the system?
-2. What context is sufficient for it?
-3. What execution pattern is allowed?
-4. What actions are safe to permit?
-5. How should the system recover or adapt afterward?
+See [Core subsystems](architecture/core/subsystems.md).
 
-## Canonical Concepts
+## Governed context
 
-### Admission
+Context is a bounded resource, not an automatic replay of every available
+message or file. Kiln exposes enough evidence for the task while enforcing
+budget, relevance, provenance, and authority boundaries.
 
-Work does not simply arrive and execute. It is admitted, rejected, deferred, or
-downgraded according to policy and current operating conditions.
+See [Context governance](architecture/context/context-governance.md).
 
-Primary subsystem:
+## Execution routes
 
-- [IngressGovernor](architecture/core/subsystems.md)
+An execution route identifies an allowed provider, model, account policy, and
+capability envelope. User-facing aliases and Model Gateway entries reference
+routes; they do not duplicate that authority.
 
-### Context
+See [Model routing](guides/config/model-routing.md) and
+[global configuration](guides/config/global-config.md).
 
-Context is a governed resource, not a raw transcript replay. The system should
-expose enough context to act effectively without flooding the working set or
-piercing safety boundaries.
+## Coordination
 
-Primary subsystem:
+Multi-agent work is an explicit lifecycle. Kiln assigns bounded work, tracks
+dependencies and leases, records outcomes, and requires evidence for
+completion. A child agent does not inherit unrestricted parent authority.
 
-- [ContextGovernor](architecture/context/context-governance.md)
+See [Coordination](architecture/coordination/coordination.md),
+[work governance](architecture/core/work-governance.md), and
+[managed agents](architecture/coordination/managed-agents.md).
 
-### Coordination
+## Safety and authority
 
-Coordination is explicit and stateful. Workers coordinate through regulated
-allocation, tracked tasks, and shared substrate, not by folklore multi-agent
-magic.
+Safety decisions can block or constrain execution even when another subsystem
+would prefer progress. Credentials, tools, external effects, and managed-child
+permissions cross explicit authority boundaries and fail closed when required
+evidence is missing.
 
-Primary subsystems:
+See [Safety](architecture/safety/safety.md) and
+[credential governance](architecture/safety/credential-governance.md).
 
-- [Managed coordination policy](architecture/coordination/coordination.md)
-- [Governed goals and work items](architecture/core/work-governance.md)
-- [Managed orchestration lifecycle](architecture/coordination/managed-agents.md)
+## Memory
 
-### Safety
+Operational state, episodic records, and durable semantic knowledge have
+different lifecycles. Kiln records provenance and revisions so that memory can
+be admitted, corrected, expired, or rejected without treating every prior
+statement as permanent truth.
 
-Safety is a kernel concern. It must be able to block or constrain execution
-even when every other subsystem would prefer progress.
+See [Memory](architecture/context/memory.md) and
+[adaptation](architecture/core/adaptation.md).
 
-Primary subsystem:
+## Operating modes and recovery
 
-- [SafetyKernel](architecture/safety/safety.md)
+Kiln can change behavior when it is degraded, locked, recovering, or under
+high load. Mode changes are explicit state transitions with bounded behavior,
+not informal suggestions to an agent.
 
-### Memory
+See the [control model](architecture/core/control-model.md) and
+[canonical flows](architecture/core/flows.md).
 
-Memory is layered. Operational state, episodic records, and durable semantic
-knowledge are not the same thing and should not be stored or mutated the same
-way.
+## How to use the biological research
 
-Primary docs:
+Biological analogies are useful when they lead to a testable mechanism:
 
-- [Memory](architecture/context/memory.md)
-- [Adaptation](architecture/core/adaptation.md)
+- nervous-system regulation can inform fast and slow gates;
+- immune-system regulation can inform layered safety;
+- reconsolidation can inform revision-aware memory;
+- stigmergic and swarm mechanisms can inform coordination substrates.
 
-### Modes
-
-Kiln's behavior changes by operating mode. A healthy system should not behave
-the same way when degraded, locked, or recovering.
-
-Primary docs:
-
-- [Control Model](architecture/core/control-model.md)
-- [Flows](architecture/core/flows.md)
-
-## Biological Mechanisms
-
-Biological research remains useful as both mechanism lineage and disciplined
-identity support, not as a substitute for explicit contracts.
-
-Use it this way:
-
-- nervous-system analogies help explain fast and slow gating
-- immune-system analogies help explain layered safety
-- reconsolidation helps explain revision-aware memory mutation
-- stigmergic and swarm mechanisms help explain coordination substrate design
-
-Do not use it this way:
-
-- not as permission to create organism-like abstractions without control logic
-- not as a literal-organism claim
-- not as a substitute for explicit subsystem ownership
-
-See:
-
-- [Biological Mechanisms](research/foundations/03-biological-mechanisms.md)
-- [Cybernetic Foundations](research/foundations/02-cybernetic-foundations.md)
-
-## Guide Relationship
-
-The conceptual vocabulary lives here and in the modular architecture docs.
-Operational guides should assume this vocabulary rather than redefine it.
+They must not replace explicit ownership, state, interfaces, or failure
+behavior. See [Biological mechanisms](research/foundations/03-biological-mechanisms.md)
+and [Cybernetic foundations](research/foundations/02-cybernetic-foundations.md).

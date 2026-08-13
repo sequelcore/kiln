@@ -2,18 +2,21 @@
 
 Rich web operator surface for the Kiln control plane.
 
-## Distribution
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state.
 
-`@kilnai/gui` publishes the built static GUI assets consumed by
-`@kilnai/runtime`. Install `@kilnai/cli` for normal operator use:
+## Source use
+
+`@kilnai/gui` builds the static GUI assets consumed by `@kilnai/runtime`. From
+the repository root, start the source GUI through the CLI:
 
 ```bash
-bun add -g @kilnai/cli
-kiln gui
+bun packages/cli/src/index.ts gui --dev
 ```
 
-The package includes `dist/` for runtime serving. Development dependencies are
-only needed when working on the GUI source in this repository.
+The current package coordinate is expected to change before the next public
+release.
 
 ## Development
 

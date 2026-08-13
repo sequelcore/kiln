@@ -12,9 +12,10 @@ operator-facing control surfaces.
 
 ## Is Kiln published?
 
-Yes. The current supported public package line is `2.1.0`; `2.0.0` remains the
-first supported public baseline. Earlier published versions were experimental
-and are not the current public contract.
+Historical `2.x` packages were published, but the current repository state has
+no supported installable release. Evaluate and contribute to it from source.
+The current project name and `@kilnai/*` package coordinates are provisional
+and are expected to change before the next public release.
 
 ## Where should a new contributor start?
 
@@ -42,6 +43,8 @@ The workspace packages are under `packages/*`.
 
 ## What are the main packages?
 
+These are current workspace identities, not promised future package names:
+
 - `@kilnai/gateway-contracts`: shared gateway, projection, and operator-surface
   contracts.
 - `@kilnai/core`: control-plane contracts, policy, safety, memory, routing, and
@@ -63,6 +66,29 @@ TUI is best for SSH and terminal-first operation, CLI is best for automation,
 and gateway integrations are best for Discord, Slack, webhooks, and product
 channels. See [Operator Surfaces](guides/ops/operator-surfaces.md).
 
+## Is the Model Gateway a proxy?
+
+Yes, in a narrow and deliberate sense. It is a local, authenticated gateway
+that accepts supported Codex, Claude Code, and OpenCode model requests. Native
+Codex requests are forwarded to Codex; Kiln virtual model IDs resolve to
+canonical execution routes owned by Kiln Runtime.
+
+It is not a general-purpose network proxy and does not replace provider terms,
+credentials, or entitlement checks. See
+[Operate the Model Gateway](operations/model-gateway.md).
+
+## Can every harness use every other harness's models?
+
+Not automatically. Supported harnesses can receive a shared catalog of
+Kiln-admitted virtual models when a compatible ingress, principal, execution
+route, and provider entitlement are configured. Codex and OpenCode use the
+OpenAI Responses ingress; Claude Code uses Anthropic Messages.
+
+The harnesses share model access, not their agent loops. Each still owns its
+tools, prompts, permissions, session behavior, and native capabilities. A
+model appearing in a picker proves configuration discovery; only a real,
+bounded turn proves that the provider route and entitlement work.
+
 ## How is roadmap work tracked?
 
 Active and deferred execution tracks live under `docs/roadmap/`. Completed
@@ -71,8 +97,10 @@ instead of being archived as stale roadmap files.
 
 ## How are release notes different from the changelog?
 
-`docs/changelog.md` tracks supported public changes from the 2.0 baseline.
-Curated release notes live under `docs/releases/`.
+`docs/changelog.md` separates current unreleased source changes from historical
+public changes. Curated historical release and prerelease records live under
+`docs/releases/`. Neither surface proves that the current repository state is
+published.
 
 ## How does configuration work?
 

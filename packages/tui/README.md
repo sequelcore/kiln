@@ -2,11 +2,14 @@
 
 Terminal interface package for Kiln.
 
-Install `@kilnai/cli` for normal operator use:
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state.
+
+From the repository root, start the TUI through the source CLI:
 
 ```bash
-bun add -g @kilnai/cli
-kiln tui
+bun packages/cli/src/index.ts tui
 ```
 
 `@kilnai/tui` owns terminal rendering, keyboard handling, theme application,

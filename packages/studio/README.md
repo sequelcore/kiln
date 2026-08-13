@@ -1,6 +1,10 @@
-# @kilnai/studio
+# Studio workspace
 
 Development UI for [Kiln](https://github.com/sequelcore/kiln). Private package -- not published to npm. Served at `/studio` when running in dev mode.
+
+> [!IMPORTANT]
+> Studio is a private source workspace. The Kiln name and all `@kilnai/*`
+> workspace coordinates are provisional during the planned rebrand.
 
 ## Views
 
@@ -21,19 +25,21 @@ Development UI for [Kiln](https://github.com/sequelcore/kiln). Private package -
 - `@xyflow/react` (graph visualization)
 - `@kilnai/react` (hooks for gateway communication)
 
-## Development
+## Develop from source
+
+From the repository root:
 
 ```bash
-cd packages/studio
-bun run dev        # Vite dev server (standalone, proxies to gateway)
-bun run build      # Production build (output served by gateway at /studio)
-bun run typecheck  # Type checking
+bun install --frozen-lockfile
+bun run --cwd packages/studio dev
+bun run --cwd packages/studio build
+bun run --cwd packages/studio typecheck
 ```
 
-In normal usage, Studio is accessed through `bunx @kilnai/cli dev`, which
-serves the built output at `http://localhost:{port}/studio`.
+The standalone development server proxies gateway requests. The built output
+is served by the runtime at `/studio` in development mode.
 
 ## Documentation
 
-- [Studio Overview](https://github.com/sequelcore/kiln/blob/main/docs/guides/studio.md)
-- [Dev Mode](https://github.com/sequelcore/kiln/blob/main/docs/getting-started.md)
+- [Studio guide](../../docs/guides/gui/studio.md)
+- [Getting started from source](../../docs/getting-started.md)

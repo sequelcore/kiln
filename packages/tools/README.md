@@ -2,6 +2,11 @@
 
 Platform-aware resolver for Kiln vendored developer tool binaries.
 
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state,
+> and the package coordinate is expected to change before the next release.
+
 This package resolves candidate platform packages and concrete binary paths for
 vendored developer tools. It does not execute binaries and never reports a
 vendored tool unless the platform package declares it in `tools.json` and

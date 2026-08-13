@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "build": "bun run scripts/release/cli.ts build",
+    "docs:check": "bun run scripts/validate-docs.ts",
     "typecheck": "tsc -b packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/studio/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "test": "bun run test:scripts && bun run test:foundation && bun run test:runtime && bun run test:cli && bun run test:surfaces",
     "test:foundation": "bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/tools test && bun run --filter @kilnai/core test",

@@ -298,7 +298,16 @@ describe("managed economic policy config", () => {
       "utf8",
     ));
 
-    expect(() => validateGlobalConfig(example)).toThrow(/Global config version must be "2"|executionRouteId is required/u);
+    expect(() => validateGlobalConfig(example)).not.toThrow();
+  });
+
+  it("keeps the documented task-aware model-team example executable", () => {
+    const example = parse(readFileSync(
+      new URL("../../../../docs/examples/configs/task-aware-model-team.yaml", import.meta.url),
+      "utf8",
+    ));
+
+    expect(() => validateGlobalConfig(example)).not.toThrow();
   });
 
   it("rejects broken candidate, route, and account cross-links", () => {

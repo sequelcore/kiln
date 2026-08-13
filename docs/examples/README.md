@@ -1,11 +1,11 @@
 # Kiln Examples
 
-These examples show Kiln's current 2.1 package line from the deployable
-runtime side: app declarations, gateway bindings, tenant isolation, MCP tools,
-safety policy, triggers, and embeddable surfaces.
+These examples show the current source runtime: application declarations,
+gateway bindings, tenant isolation, MCP tools, safety policy, triggers, and
+embeddable surfaces.
 
-The examples can be run from source while developing the repository, or adapted
-to the published `@kilnai/*@2.1.0` package line.
+Run them from a source checkout. There is no supported package release for the
+current repository state, and the project and package names are provisional.
 
 ## Example Map
 
@@ -26,7 +26,7 @@ to the published `@kilnai/*@2.1.0` package line.
 From the repository root:
 
 ```bash
-bun install
+bun install --frozen-lockfile
 bun run typecheck
 bun run test
 bun run build
@@ -39,12 +39,12 @@ cd docs/examples/hello-agent
 bun run start
 ```
 
-The examples default to `codex-oauth`, backed by the local ChatGPT Plus OAuth
-credential pool. Sign in once before running provider-backed examples:
+The examples default to `codex-oauth`, backed by a local Codex OAuth credential
+pool. From the repository root, sign in before running provider-backed examples:
 
 ```bash
-kiln auth codex login
-kiln auth codex status
+bun packages/cli/src/index.ts auth codex login
+bun packages/cli/src/index.ts auth codex status
 ```
 
 Example `.env.example` files list only non-provider variables, such as webhook
@@ -58,5 +58,6 @@ secrets or demo gateway secrets.
   shared runtime contracts.
 - Tenant files in these examples are demo data. Do not put production secrets in
   tenant JSON or committed YAML.
-- Published npm package examples should target `@kilnai/*@2.1.0`. Source
-  development should use workspace packages from this repository.
+- Current examples use workspace packages from this repository. Do not rewrite
+  them as package-install examples until a future release and package names are
+  verified.

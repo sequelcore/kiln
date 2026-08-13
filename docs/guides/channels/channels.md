@@ -118,7 +118,7 @@ The WebSocket lifecycle is managed by `ws-routes.ts` using Hono's `upgradeWebSoc
 
 Invalid or missing credentials receive a `401` response before upgrade. If the dev token validator returns a `userId`, it is used as the session key.
 
-**Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session. When a tenant defines multiple `agents` with `routing` config, each message is routed to the appropriate agent via a 3-tier cascade: regex rules (Tier 1), embedding similarity via AgentRAG (Tier 2, threshold configurable via `embeddingThreshold`, default 0.75), or fallback. Agent switches include a warm handoff brief (LLM-generated context summary) and are subject to the ping-pong guard (`maxHandoffs`, `rerouteAfterTurns`). AGENT_ROUTED conversation events include `routingTier` and `routingConfidence` for observability. Use `POST /tenants/:id/routing/test` to dry-run routing. See [Concepts: Multi-Agent Routing](../../concepts.md#multi-agent-routing).
+**Multi-tenant mode.** For SaaS products with `multiTenant: true`, the Gateway mounts `ws-tenant-routes.ts` instead. Clients connect with `?widgetId=UUID`, which resolves to a tenant via `TenantRegistry.resolveByWidgetId()`. The tenant's system prompt, billing, and idle timeout are applied per-session. When a tenant defines multiple `agents` with `routing` config, each message is routed to the appropriate agent via a 3-tier cascade: regex rules (Tier 1), embedding similarity via AgentRAG (Tier 2, threshold configurable via `embeddingThreshold`, default 0.75), or fallback. Agent switches include a warm handoff brief (LLM-generated context summary) and are subject to the ping-pong guard (`maxHandoffs`, `rerouteAfterTurns`). AGENT_ROUTED conversation events include `routingTier` and `routingConfidence` for observability. Use `POST /tenants/:id/routing/test` to dry-run routing. See [Multi-agent and role routing](../agents/multi-agent.md).
 
 **WebSocket heartbeat.** The gateway sends a `ping` frame every 30 seconds. Clients must respond with a `pong` within 90 seconds or the connection is closed. The `@kilnai/widget` and `@kilnai/react` (useKilnWsChat) handle pong responses automatically. Custom WebSocket clients must implement pong handling to maintain the connection.
 
@@ -143,7 +143,9 @@ const widget = new KilnWidget(config);
 // Identity is sent automatically if stored, or via pre-chat form
 ```
 
-**Pre-Chat Form.** Tenants can configure an optional pre-chat form that collects visitor information before the conversation starts. The form configuration is delivered via the WebSocket welcome frame and rendered in the widget. Returning visitors with stored identity data skip the form automatically.
+#### Pre-chat form
+
+Tenants can configure an optional pre-chat form that collects visitor information before the conversation starts. The form configuration is delivered via the WebSocket welcome frame and rendered in the widget. Returning visitors with stored identity data skip the form automatically.
 
 Configure via `TenantConfig.preChatForm`:
 
@@ -163,13 +165,18 @@ Configure via `TenantConfig.preChatForm`:
 
 Field types: `text`, `email`, `phone`. Maximum 10 fields per form. Field keys must be unique. When the visitor submits the form, the widget sends an `identify` frame and transitions to the chat view. The gateway passes `displayName` (from `visitor.name`) in all subsequent `ConversationEvent` emissions for the web channel.
 
-**Embeddable Widget.** The `@kilnai/widget` package provides a ready-made chat UI for embedding on any website. It connects to the gateway WebSocket, manages reconnection, and renders inside a Shadow DOM for style isolation.
+**Embeddable Widget.** The provisional `@kilnai/widget` workspace package
+provides a ready-made chat UI for embedding on a website. It connects to the
+gateway WebSocket, manages reconnection, and renders inside a Shadow DOM for
+style isolation.
 
-Pin the exact published widget version used by the deployment.
+Build the widget from the current source tree, then serve
+`packages/widget/dist/widget.iife.js` from your own application. There is no
+supported CDN package for the current repository state.
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@kilnai/widget@<published-version>/dist/widget.iife.js"
+  src="/assets/widget.iife.js"
   data-gateway="https://gw.example.com"
   data-app="my-app"
   data-widget-id="550e8400-e29b-41d4-a716-446655440000"
@@ -595,7 +602,9 @@ Channels participate in the human handoff workflow. When a session is in `queued
 
 All channels call `SessionRegistry.save()` after processing to persist session mutations (critical for Redis-backed stores).
 
-See [Gateway YAML Reference](../../configuration/gateway-yaml.md#session--handoff) for the handoff API routes and event types.
+See the [Gateway YAML reference](../../configuration/gateway-yaml.md) for the
+current file boundary. Runtime route and event contracts remain owned by the
+gateway implementation and architecture until the reference is expanded.
 
 ---
 

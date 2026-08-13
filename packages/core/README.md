@@ -5,7 +5,6 @@
 <h1 align="center">@kilnai/core</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kilnai/core"><img src="https://img.shields.io/npm/v/@kilnai/core.svg" alt="npm version" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
@@ -14,6 +13,10 @@
 ---
 
 ## What is this?
+
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state.
 
 `@kilnai/core` is the contract and domain package behind
 [Kiln](https://github.com/sequelcore/kiln), a control plane for governed AI
@@ -30,11 +33,15 @@ work. It provides:
 - **Eval framework**: 12 scorer types, YAML-configured experiments
 - Typed error codes with context-aware suggestions
 
-## Install
+## Use in this workspace
 
 ```bash
-bun add @kilnai/core
+bun install --frozen-lockfile
+bun run --filter @kilnai/core test
 ```
+
+Workspace consumers declare `@kilnai/core` with `workspace:*`. The coordinate
+is expected to change before the next public release.
 
 ## Usage
 
@@ -98,11 +105,11 @@ Engine.validateApp(app);
 
 ## Documentation
 
-- [Getting Started](https://github.com/sequelcore/kiln/blob/main/docs/getting-started.md)
-- [Core Concepts](https://github.com/sequelcore/kiln/blob/main/docs/concepts.md)
-- [App Configuration](https://github.com/sequelcore/kiln/blob/main/docs/configuration/app-yaml.md)
-- [Architecture](https://github.com/sequelcore/kiln/blob/main/docs/architecture/README.md)
+- [Getting started](../../docs/getting-started.md)
+- [Core concepts](../../docs/concepts.md)
+- [Application configuration](../../docs/configuration/app-yaml.md)
+- [Architecture](../../docs/architecture/README.md)
 
 ## License
 
-[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache 2.0](../../LICENSE)

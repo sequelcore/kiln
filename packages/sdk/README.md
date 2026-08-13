@@ -5,7 +5,6 @@
 <h1 align="center">@kilnai/react</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kilnai/react"><img src="https://img.shields.io/npm/v/@kilnai/react.svg" alt="npm version" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache-2.0" /></a>
 </p>
 
@@ -15,16 +14,22 @@
 
 ## What is this?
 
+> [!IMPORTANT]
+> This is a provisional workspace package in a source-only development tree.
+> There is no supported package installation for the current repository state.
+
 `@kilnai/react` provides React hooks for connecting to a [Kiln](https://github.com/sequelcore/kiln) gateway. Supports HTTP, WebSocket, event streams, and dev-route approval controls. Memory is consumed through gateway/resource contracts, not SDK-owned memory CRUD hooks.
 
-## Install
+## Use in this workspace
 
 ```bash
-bun add @kilnai/react
+bun install --frozen-lockfile
+bun run --filter @kilnai/react test
 ```
 
-Requires `react >= 19.0.0`, `@kilnai/core`, and
-`@kilnai/gateway-contracts` as peer dependencies.
+Workspace consumers use the local package. It requires `react >= 19.0.0`,
+`@kilnai/core`, and `@kilnai/gateway-contracts` as peer dependencies. These
+package coordinates are expected to change before the next public release.
 
 ## Quick start
 
@@ -117,9 +122,9 @@ const sse = new SseClient("http://localhost:3000/dev/events", {
 
 ## Documentation
 
-- [React SDK Guide](https://github.com/sequelcore/kiln/blob/main/docs/guides/react-sdk.md)
-- [Examples](https://github.com/sequelcore/kiln/tree/main/docs/examples)
+- [React SDK guide](../../docs/guides/gui/react-sdk.md)
+- [Examples](../../docs/examples/README.md)
 
 ## License
 
-[Apache-2.0](https://github.com/sequelcore/kiln/blob/main/LICENSE)
+[Apache 2.0](../../LICENSE)
