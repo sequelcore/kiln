@@ -10,6 +10,7 @@ import {
 } from "./governed-one-round-invocation.js";
 import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "./replay-guard.js";
+import { claimModelGatewayRequestLifetime } from "./model-gateway-request-lifetime.js";
 import { ANTHROPIC_MESSAGES_VERSION, AnthropicMessagesProtocolError, encodeAnthropicMessagesSseEvent, parseAnthropicMessagesRequest } from "./anthropic-messages-protocol.js";
 import { AnthropicMessagesModelTurnError, inspectAnthropicMessagesCapabilities, mapAnthropicMessagesRequestToModelTurn, mapModelTurnResultToAnthropicMessagesEvents, type AnthropicMessagesModelTurnCapability } from "./anthropic-messages-model-turn.js";
 
@@ -65,6 +66,7 @@ export function createAnthropicMessagesRoutes(config: AnthropicMessagesIngressCo
       release = concurrency.acquire();
       if (!release) throw new MessagesIngressError(429, "rate_limit_error", "The Messages ingress is at capacity.");
       const bounded = await readBounded(context.req.raw, maximum);
+      claimModelGatewayRequestLifetime(context.req.raw);
       let decoded: unknown;
       try { decoded = JSON.parse(bounded.text); } catch { throw new MessagesIngressError(400, "invalid_request_error", "The request body must contain valid JSON."); }
       const request = parseAnthropicMessagesRequest(decoded);

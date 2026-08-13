@@ -6,6 +6,7 @@ import {
   zstdDecompressSync,
 } from "node:zlib";
 import type { ModelGatewayConfig, ModelGatewayVirtualModelConfig } from "@kilnai/core";
+import { claimModelGatewayRequestLifetime } from "./model-gateway-request-lifetime.js";
 
 export const CODEX_COMPOSITE_PATH_PREFIX = "/.well-known/kiln/codex-composite";
 const CODEX_NATIVE_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -76,6 +77,7 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
   const virtualModels = new Map(options.config.virtualModels.map((model) => [model.id, model]));
   const maxBodyBytes = options.config.surfaces.openAIResponses?.maxBodyBytes;
   if (!maxBodyBytes) throw new Error("Codex composite routing requires the OpenAI Responses surface.");
+  const concurrency = createCompositeConcurrencyLimiter(options.config.surfaces.openAIResponses?.maxConcurrentRequests ?? 1);
   const nativeFetch = options.nativeFetch ?? fetch;
   const nativeBaseUrl = (options.nativeBaseUrl ?? CODEX_NATIVE_BASE_URL).replace(/\/+$/u, "");
 
@@ -94,13 +96,18 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
       return jsonError(404, "unsupported_composite_route");
     }
 
+    const releaseConcurrency = concurrency.acquire();
+    if (!releaseConcurrency) return jsonError(429, "composite_ingress_overloaded");
     let encodedBody: Buffer;
     try {
       encodedBody = await readBoundedRequestBody(request, maxBodyBytes);
     } catch (error) {
+      releaseConcurrency();
       if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
       throw error;
     }
+    claimModelGatewayRequestLifetime(request);
+    try {
     let decodedBody: Buffer;
     try {
       decodedBody = decodeBody(encodedBody, request.headers.get("content-encoding"), maxBodyBytes);
@@ -149,10 +156,11 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
           throw error;
         }
       }
-      return options.canonicalFetch(new Request(canonicalUrl, {
+      return await options.canonicalFetch(new Request(canonicalUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(normalized),
+        signal: request.signal,
       }));
     }
 
@@ -163,12 +171,28 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
     const search = routePath === "/v1/alpha/search" && url.searchParams.get("source") === "codex"
       ? "?source=codex"
       : "";
-    return nativeFetch(`${nativeBaseUrl}${upstreamPath}${search}`, {
+    return await nativeFetch(`${nativeBaseUrl}${upstreamPath}${search}`, {
       method: "POST",
       headers,
       body: Uint8Array.from(encodedBody),
       signal: request.signal,
     });
+    } finally {
+      releaseConcurrency();
+    }
+  };
+}
+
+function createCompositeConcurrencyLimiter(maximum: number): { acquire(): (() => void) | undefined } {
+  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new TypeError("Codex composite maxConcurrentRequests is invalid.");
+  let active = 0;
+  return {
+    acquire() {
+      if (active >= maximum) return undefined;
+      active += 1;
+      let released = false;
+      return () => { if (!released) { released = true; active -= 1; } };
+    },
   };
 }
 

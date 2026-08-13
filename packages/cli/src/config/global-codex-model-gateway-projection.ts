@@ -20,6 +20,7 @@ import {
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "./native-projection-state.js";
+import { runGlobalNativeProjectionTransaction, type GlobalNativeProjectionLockToken } from "./global-native-projection-lock.js";
 
 export const GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID = "global-codex-model-gateway";
 export const GLOBAL_CODEX_MODEL_CATALOG_TARGET_ID = "global-codex-model-catalog";
@@ -30,7 +31,7 @@ export interface CodexNativeCatalog {
   readonly [key: string]: unknown;
 }
 
-export async function syncGlobalCodexModelGatewayProjection(input: {
+interface SyncGlobalCodexModelGatewayProjectionInput {
   readonly config: ModelGatewayConfig;
   readonly listener?: ModelGatewayListenerIdentity;
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -41,7 +42,14 @@ export async function syncGlobalCodexModelGatewayProjection(input: {
   readonly operation: "install" | "uninstall";
   readonly adoptExisting?: boolean;
   readonly force?: boolean;
-}): Promise<{ readonly operation: "install" | "uninstall"; readonly changed: boolean; readonly targetPath: string; readonly catalogPath: string }> {
+  readonly lock?: GlobalNativeProjectionLockToken;
+}
+
+export function syncGlobalCodexModelGatewayProjection(input: SyncGlobalCodexModelGatewayProjectionInput): Promise<{ readonly operation: "install" | "uninstall"; readonly changed: boolean; readonly targetPath: string; readonly catalogPath: string }> {
+  return runGlobalNativeProjectionTransaction(input.installStateDir, input.lock, () => syncGlobalCodexModelGatewayProjectionUnlocked(input));
+}
+
+async function syncGlobalCodexModelGatewayProjectionUnlocked(input: SyncGlobalCodexModelGatewayProjectionInput): Promise<{ readonly operation: "install" | "uninstall"; readonly changed: boolean; readonly targetPath: string; readonly catalogPath: string }> {
   if (input.force && input.operation !== "install") throw new Error("Forcing the Codex composite projection is valid only for owned install repair.");
   if (input.operation === "install") {
     if (!input.listener) throw new Error("Installing the Codex composite projection requires an owned ready listener.");

@@ -96,6 +96,21 @@ policy. A larger HTTP envelope is necessary for tool-rich coding-agent turns,
 but it neither expands a model context window nor proves that the model can use
 all admitted context effectively.
 
+The dedicated listener owns model-request lifetime separately from model and
+ingress limits. Authentication and bounded body receipt retain Bun's finite
+transport timeout. After authentication, concurrency admission, and bounded
+body receipt, the listener disables the idle timeout before JSON, protocol, and
+model validation because unary operations such as `/responses/compact` may
+legitimately produce no downstream bytes while an upstream model is working,
+and streamed responses may also be quiet between events. Control,
+unauthenticated, overloaded, oversized, and body-stalled requests never acquire
+this lifetime; a later-invalid JSON or protocol request may acquire it briefly
+before returning 4xx. This is not an infinite
+execution budget: the downstream connection remains the lifetime authority,
+and its abort signal propagates to native Codex forwarding and governed
+virtual-model fetches. Closing the client therefore cancels upstream work
+instead of leaving an unbounded orphan request.
+
 One user-scoped supervisor owns the loopback listener, lifecycle state, lock,
 and optional Windows logon task. The Runtime-owned economic authority database
 is shared with the Operator Runtime under
@@ -117,10 +132,12 @@ path.
 Windows autostart is a least-privilege, current-user logon task with one owned
 description digest, `IgnoreNew` instance policy, and no execution time limit.
 Install replaces only a task carrying that ownership marker. Exact uninstall
-refuses a foreign task or listener, stops the owned process, removes the owned
-task and Model Gateway lifecycle directory, removes any owned additive native
-provider projection, and leaves canonical config, shared economic evidence,
-and unmanaged native state unchanged. Operator commands and recovery procedure
+refuses a foreign task or listener, restores every listener-dependent Codex and
+Claude projection plus the owned additive OpenCode projection, then stops the
+owned process and removes the owned task and Model Gateway lifecycle directory.
+Projection failure leaves the listener running. Canonical config, shared
+economic evidence, and unmanaged native state remain unchanged. Operator
+commands and recovery procedure
 are documented in [Model Gateway Operations](../../operations/model-gateway.md).
 
 ## Native Projection
@@ -173,4 +190,13 @@ Required focused evidence covers virtual-model-to-route validation, deterministi
 selection and rejection reasons, shared capacity/fencing, credential revision
 drift after fencing, post-fence dispatcher materialization, deterministic
 resource close, authenticated exact-instance shutdown, no secret projection,
-and exact native projection restore.
+exact native projection restore, quiet requests beyond Bun's configured idle
+timeout, and downstream cancellation reaching both composite routing branches.
+
+Lifecycle commands preserve the native projection/listener invariant: installed
+Codex composite and globally registered Claude projections may be restarted or
+uninstalled, but not left pointing at an intentionally stopped listener.
+Retained post-fence capacity is
+observable only through a secret-free incident projection; absent authoritative
+terminal evidence remains capacity-consuming rather than becoming an
+operator-asserted settlement.

@@ -126,6 +126,16 @@ type LeaseRow = {
   configuration_revision: string | null;
 };
 
+type AccountCapacityIncidentRow = Pick<LeaseRow,
+  | "runtime_invocation_id"
+  | "lifecycle_state"
+  | "provider_id"
+  | "model_id"
+  | "route_scope"
+  | "dispatch_fence_id"
+  | "settlement_json"
+>;
+
 type AffinityRow = {
   affinity_key: string;
   capacity_identity: string;
@@ -163,6 +173,61 @@ const CAPACITY_CONSUMING_STATES = [
   "release-failed",
   "leaked",
 ] as const;
+
+export interface AccountCapacityIncidentInspectionOptions {
+  readonly path: string;
+  readonly participantKind: SharedAccountCapacityParticipantKind;
+  readonly recoveryDomain: string;
+}
+
+/**
+ * Reads retained account-only capacity without claiming participant ownership,
+ * advancing a heartbeat, running recovery, or changing a lease generation.
+ */
+export function readAccountCapacityIncidents(
+  options: AccountCapacityIncidentInspectionOptions,
+): readonly AccountCapacityIncident[] {
+  if (!options.path.trim()) throw new TypeError("Managed account lease database path is required.");
+  if (!existsSync(options.path)) return [];
+  const participantKind = requireCanonicalText(
+    options.participantKind,
+    "Managed account participant kind is required.",
+  );
+  const recoveryDomain = requireCanonicalText(
+    options.recoveryDomain,
+    "Managed account recovery domain is required.",
+  );
+  const db = new Database(options.path, { readonly: true, strict: true });
+  try {
+    const openedVersion = Number(
+      db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0,
+    );
+    if (openedVersion > SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) {
+      throw new Error(
+        `Managed economic authority schema version ${openedVersion} is newer than supported version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
+      );
+    }
+    const hasLeaseTable = db
+      .query<{ present: number }, []>(
+        "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='account_leases'",
+      )
+      .get();
+    if (!hasLeaseTable) return [];
+    return db
+      .query<AccountCapacityIncidentRow, [string, string, ...string[]]>(
+        `SELECT runtime_invocation_id, lifecycle_state, provider_id, model_id,
+                route_scope, dispatch_fence_id, settlement_json
+         FROM account_leases
+         WHERE economic_attempt_id IS NULL AND participant_kind=? AND recovery_domain=?
+           AND lifecycle_state IN (${CAPACITY_CONSUMING_STATES.map(() => "?").join(",")})
+         ORDER BY acquired_at, lease_id`,
+      )
+      .all(participantKind, recoveryDomain, ...CAPACITY_CONSUMING_STATES)
+      .map(accountCapacityIncident);
+  } finally {
+    db.close();
+  }
+}
 
 export class SqliteManagedAccountLeaseAuthority {
   readonly #db: Database;
@@ -1863,6 +1928,14 @@ export interface AccountCapacityRecord {
   readonly dispatchFenceId?: string;
 }
 
+export interface AccountCapacityIncident {
+  readonly runtimeInvocationId: string;
+  readonly state: (typeof CAPACITY_CONSUMING_STATES)[number];
+  readonly route: AccountCapacityRecord["route"];
+  readonly dispatchFenceId?: string;
+  readonly settlement?: Extract<AccountCapacitySettlement, { readonly kind: "unknown" }>;
+}
+
 /** Deliberately secret-free gateway settlement evidence. */
 export type AccountCapacitySettlement =
   | {
@@ -2445,6 +2518,46 @@ function accountCapacityRecord(row: LeaseRow): AccountCapacityRecord {
     ...(row.affinity_commit_outcome ? { affinityCommitOutcome: row.affinity_commit_outcome } : {}),
     ...(row.dispatch_fence_id ? { dispatchFenceId: row.dispatch_fence_id } : {}),
   };
+}
+
+function accountCapacityIncident(row: AccountCapacityIncidentRow): AccountCapacityIncident {
+  if (!(CAPACITY_CONSUMING_STATES as readonly string[]).includes(row.lifecycle_state)) {
+    throw new Error("Account capacity incident state is corrupt.");
+  }
+  if (row.runtime_invocation_id === null) {
+    throw new Error("Account capacity incident identity is corrupt.");
+  }
+  const settlement = row.settlement_json === null
+    ? undefined
+    : parseUnknownAccountCapacitySettlement(row.settlement_json);
+  return {
+    runtimeInvocationId: row.runtime_invocation_id,
+    state: row.lifecycle_state as AccountCapacityIncident["state"],
+    route: { providerId: row.provider_id, providerModelId: row.model_id, scope: row.route_scope },
+    ...(row.dispatch_fence_id ? { dispatchFenceId: row.dispatch_fence_id } : {}),
+    ...(settlement ? { settlement } : {}),
+  };
+}
+
+function parseUnknownAccountCapacitySettlement(value: string): Extract<AccountCapacitySettlement, { readonly kind: "unknown" }> {
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch { throw new Error("Account capacity incident settlement is corrupt."); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Account capacity incident settlement is corrupt.");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (
+    Object.keys(record).sort().join(",") !== "kind,observedAt,reason"
+    || record.kind !== "unknown"
+    || typeof record.reason !== "string"
+    || typeof record.observedAt !== "string"
+  ) {
+    throw new Error("Account capacity incident settlement is corrupt.");
+  }
+  const settlement = { kind: "unknown" as const, reason: record.reason, observedAt: record.observedAt };
+  validateAccountCapacitySettlement(settlement);
+  return settlement;
 }
 
 function validateAccountCapacitySettlement(settlement: AccountCapacitySettlement): void {

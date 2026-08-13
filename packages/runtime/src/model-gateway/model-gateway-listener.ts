@@ -13,6 +13,13 @@ import type { OperatorSessionAccountCapacityAuthority } from "../execution-routi
 import type { GovernedOneRoundDispatcherResolver } from "./governed-one-round-invocation.js";
 import pkg from "../../package.json" with { type: "json" };
 import { createCodexCompositeFetch } from "./codex-composite-router.js";
+import {
+  ownModelGatewayRequestLifetime,
+  type ModelGatewayListenerFetch,
+} from "./model-gateway-request-lifetime.js";
+
+export { ownModelGatewayRequestLifetime } from "./model-gateway-request-lifetime.js";
+export type { ModelGatewayListenerFetch, ModelGatewayRequestLifetimeControl } from "./model-gateway-request-lifetime.js";
 
 export const MODEL_GATEWAY_HEALTH_PATH = "/.well-known/kiln/model-gateway/ready";
 export const MODEL_GATEWAY_SHUTDOWN_PATH = "/.well-known/kiln/model-gateway/shutdown";
@@ -49,7 +56,7 @@ export interface StartModelGatewayListenerOptions {
   readonly listen?: (input: {
     readonly hostname: "127.0.0.1";
     readonly port: number;
-    readonly fetch: (request: Request) => Response | Promise<Response>;
+    readonly fetch: ModelGatewayListenerFetch;
   }) => { stop(force?: boolean): void | Promise<void> };
 }
 
@@ -106,9 +113,10 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
     )
       ? createCodexCompositeFetch({ config: options.config, env, canonicalFetch: modelApp.fetch })
       : modelApp.fetch;
+    const lifetimeOwnedFetch = ownModelGatewayRequestLifetime(listenerFetch);
     listener = options.listen
-      ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: listenerFetch })
-      : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: listenerFetch });
+      ? options.listen({ hostname: "127.0.0.1", port: options.config.port, fetch: lifetimeOwnedFetch })
+      : Bun.serve({ hostname: "127.0.0.1", port: options.config.port, fetch: lifetimeOwnedFetch });
   } catch (error) {
     handle.close();
     throw error;

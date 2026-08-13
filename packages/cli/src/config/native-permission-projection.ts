@@ -7,7 +7,6 @@ import type { KilnYaml } from "../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { stripJsonComments } from "./json-comments.js";
 import {
-  buildClaudeMessagesProjection,
   buildOpenCodeResponsesProjection,
 } from "./model-gateway-native-projection.js";
 import { resolveNativeHarnessDir } from "./native-harness-home.js";
@@ -201,7 +200,7 @@ export async function syncNativePermissionProjections(
   try {
     claudeResult = isNativeProjectionHarnessDisabled(options, "claude")
       ? skippedPermissionTarget(PERMISSION_PROJECTION_TARGET_IDS.claude, join(projectPath, ".claude", "settings.json"))
-      : await syncClaudePermissions(policy, projectPath, installState, options, modelGateway);
+      : await syncClaudePermissions(policy, projectPath, installState, options);
     outcomes.push(...claudeResult.outcomes);
     if (claudeResult.rollback) rollbacks.push(claudeResult.rollback);
     if (claudeResult.snapshot) installState = upsertNativeProjectionTargetState(installState, claudeResult.snapshot);
@@ -256,7 +255,6 @@ async function syncClaudePermissions(
   projectPath: string,
   installState: NativeProjectionInstallState,
   options: NativePermissionProjectionOptions,
-  modelGateway: ModelGatewayConfig | undefined,
 ): Promise<PermissionTargetResult> {
   const targetId = PERMISSION_PROJECTION_TARGET_IDS.claude;
   const target = join(projectPath, ".claude", "settings.json");
@@ -285,11 +283,9 @@ async function syncClaudePermissions(
     };
   }
 
-  const gatewayProjection = modelGateway ? buildClaudeMessagesProjection({ config: modelGateway }) : undefined;
   const projection = translateClaudePermissionProjection({
     policy,
     existingDocument: existing,
-    gatewayProjection,
     previousManagedFields: installState.targets[targetId]?.managedFields,
     storedAuthorization: readTrustedExecutionAuthorization("claude-code", projectPath),
   });

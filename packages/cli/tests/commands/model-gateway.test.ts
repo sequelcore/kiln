@@ -233,7 +233,7 @@ describe("modelGatewayCommand", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it.each(["start", "ensure", "stop", "restart", "status"] as const)("dispatches %s against the user-scoped supervisor without --config", async (command) => {
+  it.each(["start", "ensure", "restart", "status"] as const)("dispatches %s against the user-scoped supervisor without --config", async (command) => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-global-"));
     const log = vi.fn();
     const methods = { start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() };
@@ -255,6 +255,73 @@ describe("modelGatewayCommand", () => {
     expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ state: "stopped" });
   });
 
+  it("stops only when every listener-dependent native projection is absent", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-stop-"));
+    const stop = vi.fn(async () => ({ state: "stopped" as const }));
+    const log = vi.fn();
+
+    await modelGatewayCommand(["stop", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      hasListenerDependentNativeProjection: () => false,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      log,
+    });
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ state: "stopped" });
+  });
+
+  it("refuses to strand any native client by stopping an installed listener-dependent projection", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-stop-projected-"));
+    const stop = vi.fn();
+
+    await expect(modelGatewayCommand(["stop", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      hasListenerDependentNativeProjection: () => true,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      log: vi.fn(),
+    })).rejects.toThrow("listener-dependent native projection is installed");
+
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("serializes stop behind native install and rechecks projection ownership before stopping", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-stop-install-race-"));
+    let releaseEnsure!: () => void;
+    let ensureStarted!: () => void;
+    const observedEnsure = new Promise<void>((resolve) => { ensureStarted = resolve; });
+    const ensureGate = new Promise<void>((resolve) => { releaseEnsure = resolve; });
+    const gatewayReady = { state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } };
+    let installed = false;
+    const stop = vi.fn(async () => ({ state: "stopped" as const }));
+    const dependencies = {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({
+        start: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn(), stop,
+        ensure: vi.fn(async () => { ensureStarted(); await ensureGate; return gatewayReady; }),
+      }),
+      syncClaudeNativeProjection: vi.fn(async () => { installed = true; return { operation: "install" as const, changed: true, targetPaths: ["settings.json"] }; }),
+      hasListenerDependentNativeProjection: () => installed,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      log: vi.fn(),
+    };
+    const installing = modelGatewayCommand(["sync-native", "--client", "claude"], dependencies);
+    await observedEnsure;
+    const stopping = modelGatewayCommand(["stop"], dependencies);
+    await Promise.resolve();
+    expect(stop).not.toHaveBeenCalled();
+    releaseEnsure();
+    await installing;
+
+    await expect(stopping).rejects.toThrow("listener-dependent native projection is installed");
+    expect(stop).not.toHaveBeenCalled();
+  });
+
   it("runs doctor through the same global supervisor", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-doctor-"));
     const doctor = vi.fn(async () => ({ status: { state: "stopped" as const }, stateFile: "absent" as const, configDigest: "a".repeat(64), version: "3.0.0-test", diagnostics: [] }));
@@ -266,6 +333,53 @@ describe("modelGatewayCommand", () => {
     });
     expect(doctor).toHaveBeenCalledOnce();
     expect(JSON.parse(String(log.mock.calls[0]![0]))).toMatchObject({ status: { state: "stopped" }, diagnostics: [] });
+  });
+
+  it("lists retained gateway capacity incidents only after proving the listener is stopped", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-incidents-"));
+    const log = vi.fn();
+    const status = vi.fn(async () => ({ state: "stopped" as const }));
+    const readCapacityIncidents = vi.fn(() => [{
+      runtimeInvocationId: "gateway-attempt-1",
+      dispatchFenceId: "gateway-fence-1",
+      state: "settlement-pending" as const,
+      route: { providerId: "opencode-go", providerModelId: "model", scope: "gateway" },
+    }]);
+    await modelGatewayCommand(["capacity-incidents", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), status, doctor: vi.fn() }),
+      readCapacityIncidents,
+      env: {},
+      log,
+    });
+
+    expect(status).toHaveBeenCalledOnce();
+    expect(readCapacityIncidents).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ incidents: [{
+      runtimeInvocationId: "gateway-attempt-1",
+      dispatchFenceId: "gateway-fence-1",
+      state: "settlement-pending",
+      route: { providerId: "opencode-go", providerModelId: "model", scope: "gateway" },
+    }] });
+  });
+
+  it("does not inspect retained capacity while the gateway listener is ready", async () => {
+    const readCapacityIncidents = vi.fn();
+    await expect(modelGatewayCommand(["capacity-incidents", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      createSupervisor: () => ({
+        start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), doctor: vi.fn(),
+        status: vi.fn(async () => ({
+          state: "ready" as const,
+          identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "instance", pid: 99, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 },
+        })),
+      }),
+      readCapacityIncidents,
+      env: { BEARER_TOKEN: "b".repeat(32) },
+      log: vi.fn(),
+    })).rejects.toThrow("requires a stopped model gateway");
+    expect(readCapacityIncidents).not.toHaveBeenCalled();
   });
 
   it("installs, inspects, and removes user autostart through the injected adapter", async () => {
@@ -295,26 +409,91 @@ describe("modelGatewayCommand", () => {
     const removeRuntimeDir = vi.fn(async () => undefined);
     const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPath: "opencode.json" }));
     const syncCodexNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPath: "config.toml", catalogPath: "catalog.json" }));
+    const syncClaudeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: true, targetPaths: ["settings.json"] }));
     const log = vi.fn();
 
     await modelGatewayCommand(["uninstall", "--json"], {
       readGlobalConfig: () => globalConfig,
       resolveGlobalConfigPath: () => join(root!, "config.yaml"),
-      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), status: vi.fn(async () => ({ state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } })), doctor: vi.fn() }),
       createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "installed" as const, digest: "a".repeat(64) })), install: vi.fn(), uninstall }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       syncOpenCodeNativeProjection,
       syncCodexNativeProjection,
+      syncClaudeNativeProjection,
       removeRuntimeDir,
       log,
     });
 
     expect(syncOpenCodeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, operation: "uninstall" }));
     expect(syncCodexNativeProjection).toHaveBeenCalledWith(expect.objectContaining({ config: modelGateway, operation: "uninstall" }));
+    expect(syncClaudeNativeProjection).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledOnce();
     expect(uninstall).toHaveBeenCalledOnce();
     expect(removeRuntimeDir).toHaveBeenCalledWith(join(root, "runtime", "model-gateway"));
     expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ state: "uninstalled" });
+  });
+
+  it.each(["codex", "claude", "opencode"] as const)("keeps the listener running when %s projection restoration fails", async (failingClient) => {
+    root = await mkdtemp(join(tmpdir(), `kiln-model-gateway-uninstall-${failingClient}-failure-`));
+    const stop = vi.fn(async () => ({ state: "stopped" as const }));
+    const failure = new Error(`${failingClient} restore failed`);
+    const syncCodexNativeProjection = vi.fn(async () => {
+      if (failingClient === "codex") throw failure;
+      return { operation: "uninstall" as const, changed: true, targetPath: "config.toml", catalogPath: "catalog.json" };
+    });
+    const syncClaudeNativeProjection = vi.fn(async () => {
+      if (failingClient === "claude") throw failure;
+      return { operation: "uninstall" as const, changed: true, targetPaths: ["settings.json"] };
+    });
+    const syncOpenCodeNativeProjection = vi.fn(async () => {
+      if (failingClient === "opencode") throw failure;
+      return { operation: "uninstall" as const, changed: true, targetPath: "opencode.json" };
+    });
+
+    await expect(modelGatewayCommand(["uninstall", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({
+        start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), doctor: vi.fn(),
+        status: vi.fn(async () => ({ state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } })),
+      }),
+      createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "absent" as const })), install: vi.fn(), uninstall: vi.fn() }),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      syncCodexNativeProjection,
+      syncClaudeNativeProjection,
+      syncOpenCodeNativeProjection,
+      removeRuntimeDir: vi.fn(),
+      log: vi.fn(),
+    })).rejects.toThrow(`${failingClient} restore failed`);
+
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("restores projections without a principal secret when the listener is already stopped", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-uninstall-stopped-no-secret-"));
+    const stop = vi.fn();
+    const syncCodexNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: false, targetPath: "config.toml", catalogPath: "catalog.json" }));
+    const syncClaudeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: false, targetPaths: [] }));
+    const syncOpenCodeNativeProjection = vi.fn(async () => ({ operation: "uninstall" as const, changed: false, targetPath: "opencode.json" }));
+
+    await modelGatewayCommand(["uninstall", "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop, restart: vi.fn(), doctor: vi.fn(), status: vi.fn(async () => ({ state: "stopped" as const })) }),
+      createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "absent" as const })), install: vi.fn(), uninstall: vi.fn() }),
+      env: {},
+      syncCodexNativeProjection,
+      syncClaudeNativeProjection,
+      syncOpenCodeNativeProjection,
+      removeRuntimeDir: vi.fn(async () => undefined),
+      log: vi.fn(),
+    });
+
+    expect(syncCodexNativeProjection).toHaveBeenCalledOnce();
+    expect(syncClaudeNativeProjection).toHaveBeenCalledOnce();
+    expect(syncOpenCodeNativeProjection).toHaveBeenCalledOnce();
+    expect(stop).not.toHaveBeenCalled();
   });
 
   it("refuses exact uninstall when the scheduled task is foreign", async () => {
@@ -344,7 +523,7 @@ describe("modelGatewayCommand", () => {
     await modelGatewayCommand(["uninstall", "--json"], {
       readGlobalConfig: () => globalConfig,
       resolveGlobalConfigPath: () => join(root!, "config.yaml"),
-      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop: vi.fn(async () => ({ state: "foreign" as const, reason: "ownership-mismatch" as const })), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), status: vi.fn(async () => ({ state: "foreign" as const, reason: "ownership-mismatch" as const })), doctor: vi.fn() }),
       createAutostartAdapter: () => ({ status: vi.fn(async () => ({ state: "absent" as const })), install: vi.fn(), uninstall: vi.fn() }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       syncOpenCodeNativeProjection,
@@ -408,6 +587,29 @@ describe("modelGatewayCommand", () => {
     }));
   });
 
+  it("synchronizes a project-scoped Claude projection through the owned global listener", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-sync-claude-"));
+    const projectPath = join(root, "project");
+    const gatewayReady = { state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } };
+    const syncClaudeNativeProjection = vi.fn(async () => ({ operation: "install" as const, changed: true, targetPaths: [join(projectPath, ".claude", "settings.json")] }));
+
+    await modelGatewayCommand(["sync-native", "--client", "claude", "--project", projectPath, "--json"], {
+      readGlobalConfig: () => globalConfig,
+      resolveGlobalConfigPath: () => join(root!, "home", ".kiln", "config.yaml"),
+      createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => gatewayReady), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      syncClaudeNativeProjection,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      log: vi.fn(),
+    });
+
+    expect(syncClaudeNativeProjection).toHaveBeenCalledWith(expect.objectContaining({
+      config: modelGateway,
+      listener: gatewayReady.identity,
+      targetPath: join(projectPath, ".claude", "settings.json"),
+      operation: "install",
+    }));
+  });
+
   it("requires an explicit flag to adopt a pre-existing provider and forwards that authority", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-adopt-native-"));
     const gatewayReady = { state: "ready" as const, identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "owned", pid: 44, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 } };
@@ -457,7 +659,7 @@ describe("modelGatewayCommand", () => {
       resolveGlobalConfigPath: () => join(root!, "config.yaml"),
       createSupervisor: () => ({ start: vi.fn(), ensure, stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
       syncOpenCodeNativeProjection,
-      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      env: {},
       entrypoint: "cli.js",
       log: vi.fn(),
     });
@@ -467,9 +669,10 @@ describe("modelGatewayCommand", () => {
   });
 
   it("does not write a native projection when ensure is not ready", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-not-ready-"));
     const syncOpenCodeNativeProjection = vi.fn();
     await expect(modelGatewayCommand(["sync-native", "--client", "opencode"], {
-      readGlobalConfig: () => globalConfig, createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => ({ state: "foreign", reason: "identity-mismatch" })), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      readGlobalConfig: () => globalConfig, resolveGlobalConfigPath: () => join(root!, "config.yaml"), createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => ({ state: "foreign", reason: "identity-mismatch" })), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
       syncOpenCodeNativeProjection, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) }, entrypoint: "cli.js",
     })).rejects.toThrow("not owned and ready");
     expect(syncOpenCodeNativeProjection).not.toHaveBeenCalled();

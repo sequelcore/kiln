@@ -74,6 +74,33 @@ When troubleshooting:
 3. If a virtual model failed after ingress, inspect Kiln route admission and
    Runtime evidence for its `executionRouteId`.
 
+### Long-running requests and compaction
+
+The listener retains Bun's finite transport timeout through authentication and
+bounded request-body receipt. Only after authentication, concurrency admission,
+and bounded body receipt does the listener take ownership of the request
+lifetime and disable Bun's idle timeout. Subsequent JSON, protocol, or model
+validation can still return a bounded 4xx response. A valid
+`/responses/compact` call or a quiet response stream may then
+wait longer than Bun's default inactivity window without the local listener
+resetting the connection. Control routes, invalid credentials, overloaded
+ingress, and stalled or oversized bodies never receive the unbounded lifetime. Do not add
+a larger global idle timeout as an operational workaround; the global setting
+has a finite ceiling and would make unrelated requests share the same policy.
+
+Client disconnect remains the cancellation boundary. Kiln forwards that abort
+signal to the selected native Codex or virtual-model upstream request. If a
+client still reports `stream disconnected before completion` or
+`error decoding response body`:
+
+1. Confirm `kiln model-gateway doctor --json` reports the expected current
+   listener version and config digest; restart an older listener after upgrade.
+2. Confirm the listener process remained alive. A stable listener with an
+   upstream request ID points to provider or intervening transport failure, not
+   the former Bun idle-timeout defect.
+3. Correlate timestamps and upstream diagnostics without logging request bodies,
+   authorization headers, or the composite capability path segment.
+
 ## Lifecycle
 
 ```powershell
@@ -86,6 +113,37 @@ kiln model-gateway stop
 `start` is idempotent. `restart` first waits for graceful resource settlement
 and process exit, then launches the replacement. Every mutating command refuses
 a foreign listener or stale state whose PID is still alive.
+
+`stop` refuses while any listener-dependent Codex or Claude projection is
+installed. Those projections replace the harness transport URL with the Kiln
+loopback, so leaving one installed while stopping the listener would strand the
+active session and every subsequent request. Use `restart` when projections must
+stay active, or `uninstall` to restore native routing before stopping the
+service. The additive OpenCode projection has a separate native-provider
+fallback and is not a replacement transport authority.
+
+### Retained capacity incidents
+
+With the listener stopped, inspect post-fence work whose provider outcome is
+still unknown:
+
+```powershell
+kiln model-gateway capacity-incidents --json
+```
+
+The command opens the ledger read-only and returns every capacity-consuming
+account-only record in the `model-gateway-ingress/model-gateway` recovery
+domain, including `release-failed` and `leaked`. The projection contains only
+invocation, state, route, optional dispatch fence, and any existing
+unknown-settlement reason. Inspection does not claim a participant generation,
+advance a heartbeat, run recovery, expose account identities, or release
+capacity.
+
+There is intentionally no manual outcome flag or generic reconciliation
+command. A user-supplied status, timestamp, or `kiln://` string is not provider
+terminal evidence. If no authoritative terminal result exists, the incident
+remains `settlement-pending` and capacity-consuming. Do not edit the SQLite
+ledger or replace `unknown` with a guessed terminal outcome.
 
 ## Windows Autostart And Recovery
 
@@ -114,11 +172,17 @@ version and config digest.
 kiln model-gateway uninstall
 ```
 
-This command preflights ownership, stops only the exact owned listener, removes
-the owned additive OpenCode provider projection and scheduled task, and deletes
-only `~/.kiln/runtime/model-gateway`. It refuses foreign task or listener state.
-It does not modify global config, provider credentials, unmanaged harness-native
-fields, or the shared Runtime economic authority under
+This command checks task and listener ownership, restores the owned Codex,
+Claude, and additive OpenCode projections, and only then stops the exact owned
+listener. A projection drift or write failure therefore leaves the listener
+running instead of stranding a harness on a dead loopback. Claude project
+targets are registered in global projection state so uninstall can restore all
+owned projects regardless of the current working directory. The former
+project-local gateway ownership shape was migrated once for the sole operator
+and is not retained as a compatibility path. After restoration it removes the scheduled task
+and deletes only `~/.kiln/runtime/model-gateway`. It refuses foreign task or
+listener state and does not modify global config, provider credentials,
+unmanaged harness-native fields, or the shared Runtime economic authority under
 `~/.kiln/runtime/economic-authority`.
 
 To remove only automatic startup while leaving the service and runtime evidence

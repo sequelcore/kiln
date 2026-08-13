@@ -35,6 +35,14 @@ have all been verified.
 - Added deterministic CLI output contracts and provider-neutral benchmark,
   efficiency, cost, and verification evidence.
 - Added governed native developer-tool resolution for `rg`, `fd`, and `jq`.
+- Completed cross-harness integration across Codex, Claude Code, and OpenCode:
+  canonical route admission and lifecycle evidence, native picker and
+  control-plane projection, exact Claude entitlement and MCP proofs, a governed
+  Codex-to-OpenCode write, listener lifetime and cancellation ownership, and
+  recovery-safe native projection lifecycle. Retained provider outcomes remain
+  secret-free and fail closed; the historical dispatch-fenced OpenCode outcome
+  remains explicitly unknown and capacity-consuming because no authoritative
+  terminal evidence exists.
 
 Candidate details and unresolved promotion gates are recorded in
 [`docs/releases/3.0.0-beta.1.md`](releases/3.0.0-beta.1.md). The release

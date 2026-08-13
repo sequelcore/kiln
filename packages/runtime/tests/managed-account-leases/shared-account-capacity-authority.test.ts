@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import {
+  readAccountCapacityIncidents,
+  SqliteManagedAccountLeaseAuthority,
+} from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
 const roots: string[] = [];
 const authorities: SqliteManagedAccountLeaseAuthority[] = [];
@@ -127,6 +130,75 @@ describe("shared account capacity in managed authority", () => {
     expect(replacement.recoverAccountCapacity()).toHaveLength(1);
     expect(() => old.fenceAccountCapacityDispatch("gateway", "old-fence")).toThrow(/stale|ownership/i);
     expect(replacement.fenceAccountCapacityDispatch("gateway", "new-fence").state).toBe("dispatch-fenced");
+  });
+
+  it("reads retained account-only incidents without adopting ownership or exposing account identity", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
+    const path = join(root, "authority.sqlite"); let now = 1_000;
+    const gateway = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
+    const operator = createAuthority(path, "operator-session", "operator", () => now);
+    gateway.acquireAccountCapacity(capacityInput("gateway"));
+    gateway.fenceAccountCapacityDispatch("gateway", "gateway-fence");
+    gateway.settleAccountCapacity("gateway", "gateway-fence", {
+      kind: "unknown",
+      reason: "transport disconnected before terminal evidence",
+      observedAt: "2026-08-13T07:48:43.000Z",
+    });
+    operator.acquireAccountCapacity({
+      ...capacityInput("operator"),
+      candidates: [{ ...capacityInput("operator").candidates[0], capacityIdentity: "operator-account" }],
+    });
+    operator.fenceAccountCapacityDispatch("operator", "operator-fence");
+    gateway.close();
+    const database = new Database(path, { strict: true });
+    database.query("UPDATE account_leases SET lifecycle_state='leaked' WHERE runtime_invocation_id='gateway'").run();
+    const before = database.query<{ owner_generation: string }, []>(
+      "SELECT owner_generation FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get();
+    database.close();
+
+    const incidents = readAccountCapacityIncidents({
+      path,
+      participantKind: "model-gateway-ingress",
+      recoveryDomain: "gateway",
+    });
+    expect(incidents).toMatchObject([{
+      runtimeInvocationId: "gateway",
+      dispatchFenceId: "gateway-fence",
+      state: "leaked",
+      settlement: {
+        kind: "unknown",
+        reason: "transport disconnected before terminal evidence",
+      },
+    }]);
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]).not.toHaveProperty("ownerId");
+    expect(incidents[0]).not.toHaveProperty("accountRef");
+    expect(incidents[0]).not.toHaveProperty("capacityIdentity");
+    expect(incidents[0]).not.toHaveProperty("credentialRevisionId");
+    expect(incidents[0]).not.toHaveProperty("candidateRejections");
+    const afterDatabase = new Database(path, { readonly: true, strict: true });
+    const after = afterDatabase.query<{ owner_generation: string }, []>(
+      "SELECT owner_generation FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get();
+    afterDatabase.close();
+    expect(after).toEqual(before);
+
+    const corruptDatabase = new Database(path, { strict: true });
+    corruptDatabase.query("UPDATE account_leases SET settlement_json=? WHERE runtime_invocation_id='gateway'").run(
+      JSON.stringify({
+        kind: "unknown",
+        reason: "transport disconnected before terminal evidence",
+        observedAt: "2026-08-13T07:48:43.000Z",
+        credentialRevisionId: "must-not-project",
+      }),
+    );
+    corruptDatabase.close();
+    expect(() => readAccountCapacityIncidents({
+      path,
+      participantKind: "model-gateway-ingress",
+      recoveryDomain: "gateway",
+    })).toThrow(/settlement is corrupt/i);
   });
 
   it("fails closed when retained recovery state has a different configuration revision", () => {

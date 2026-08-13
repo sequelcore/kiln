@@ -21,7 +21,8 @@
   "scripts": {
     "build": "bun ../../scripts/clean-typescript-output.ts && tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --reporter=dot --silent=passed-only",
+    "test": "vitest run --reporter=dot --silent=passed-only && bun run test:model-gateway-projection-lock:bun",
+    "test:model-gateway-projection-lock:bun": "bun tests/config/global-native-projection-lock.bun.ts",
     "test:verbose": "vitest run --reporter=verbose",
     "test:profile": "vitest run --reporter=json --outputFile=../../.kiln/cli-vitest-profile.json",
     "test:live": "vitest run --config vitest.live.config.ts"

@@ -439,7 +439,7 @@ describe("syncNativePermissionProjections", () => {
     });
   });
 
-  it("keeps Codex routing separate while projecting the OpenCode and Claude gateways", async () => {
+  it("keeps Codex and Claude routing ownership separate while projecting the OpenCode gateway", async () => {
     selectModelGateway();
     const opencodePath = join(paths.homePath, ".config", "opencode", "opencode.json");
     const codexPath = join(paths.homePath, ".codex", "config.toml");
@@ -481,21 +481,8 @@ describe("syncNativePermissionProjections", () => {
     });
 
     const claude = readJson(join(paths.projectPath, ".claude", "settings.json"));
-    expect(claude).toMatchObject({
-      model: "claude-kiln-a",
-      env: {
-        ANTHROPIC_BASE_URL: "http://127.0.0.1:4910",
-        CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY: "1",
-        CLAUDE_CODE_ATTRIBUTION_HEADER: "0",
-        CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1",
-        CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING: "1",
-        CLAUDE_CODE_DISABLE_THINKING: "1",
-        CLAUDE_CODE_MAX_RETRIES: "0",
-        MAX_THINKING_TOKENS: "0",
-        DISABLE_INTERLEAVED_THINKING: "1",
-        DISABLE_PROMPT_CACHING: "1",
-      },
-    });
+    expect(claude).not.toHaveProperty("model");
+    expect(claude).not.toHaveProperty("env");
     expect(JSON.stringify(claude)).not.toContain("ANTHROPIC_AUTH_TOKEN");
     expect(asRecord(claude.env).OPERATOR_VALUE).toBeUndefined();
     const state = readJson(join(paths.projectPath, ".kiln", "install-state.json"));
@@ -503,10 +490,8 @@ describe("syncNativePermissionProjections", () => {
     expect(asRecord(asRecord(state.targets)["claude-settings"]).managedFields).toEqual(expect.arrayContaining([
       "permissions",
       "kiln.permissionSync",
-      "env.ANTHROPIC_BASE_URL",
-      "env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
-      "model",
     ]));
+    expect(asRecord(asRecord(state.targets)["claude-settings"]).managedFields).not.toContain("env.ANTHROPIC_BASE_URL");
   });
 
   it("uninstalls gateway providers without removing or rewriting native Codex and OpenCode choices", async () => {
@@ -546,7 +531,7 @@ describe("syncNativePermissionProjections", () => {
     expect(asRecord(opencode.provider).kiln).toBeUndefined();
   });
 
-  it("preserves unmanaged Claude settings and env fields while owning only gateway paths", async () => {
+  it("preserves unmanaged Claude settings and env fields without owning gateway routing", async () => {
     selectModelGateway();
     const claudePath = join(paths.projectPath, ".claude", "settings.json");
     mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
@@ -557,41 +542,36 @@ describe("syncNativePermissionProjections", () => {
     const claude = readJson(claudePath);
     expect(claude.theme).toBe("dark");
     expect(asRecord(claude.env).OPERATOR_VALUE).toBe("preserved");
-    expect(asRecord(claude.env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:4910");
+    expect(asRecord(claude.env).ANTHROPIC_BASE_URL).toBeUndefined();
   });
 
-  it("reports Claude gateway drift and uninstall removes only Kiln-owned fields", async () => {
+  it("does not treat an operator Claude gateway field as permission drift or remove it", async () => {
     selectModelGateway();
     const claudePath = join(paths.projectPath, ".claude", "settings.json");
     mkdirSync(join(paths.projectPath, ".claude"), { recursive: true });
-    writeFileSync(claudePath, JSON.stringify({ env: { OPERATOR_VALUE: "preserved" } }), "utf8");
+    writeFileSync(claudePath, JSON.stringify({ env: { OPERATOR_VALUE: "preserved", ANTHROPIC_BASE_URL: "http://127.0.0.1:9999" } }), "utf8");
     expect((await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).errors).toEqual([]);
-    const changed = readJson(claudePath);
-    asRecord(changed.env).ANTHROPIC_BASE_URL = "http://127.0.0.1:9999";
-    writeFileSync(claudePath, `${JSON.stringify(changed, null, 2)}\n`, "utf8");
 
-    const drifted = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
-    expect(drifted.claude).toBe(false);
-    expect(drifted.errors).toContain("Claude Code: managed field drift detected: env.ANTHROPIC_BASE_URL");
+    const resynced = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(resynced.claude).toBe(true);
+    expect(resynced.errors).toEqual([]);
     expect(asRecord(readJson(claudePath).env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9999");
 
-    const uninstall = uninstallNativeTargets(paths.projectPath, { target: "claude", force: true });
+    const uninstall = uninstallNativeTargets(paths.projectPath, { target: "claude" });
     expect(uninstall.errors).toEqual([]);
     const after = readJson(claudePath);
-    expect(after.model).toBeUndefined();
-    expect(asRecord(after.env).ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(asRecord(after.env).ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:9999");
     expect(asRecord(after.env).OPERATOR_VALUE).toBe("preserved");
   });
 
-  it("fails closed before native writes when Claude tokenEnv cannot be projected safely", async () => {
+  it("leaves Claude gateway token validation to the dedicated model gateway projection", async () => {
     selectModelGateway();
     selectedModelGateway = modelGatewayConfig((yaml) =>
       yaml.replace("tokenEnv: ANTHROPIC_AUTH_TOKEN", "tokenEnv: CLAUDE_GATEWAY_TOKEN"));
 
-    await expect(syncNativePermissionProjections(buildKilnYaml(), paths.projectPath)).rejects.toThrow("ANTHROPIC_AUTH_TOKEN");
-    expect(existsSync(join(paths.projectPath, ".claude", "settings.json"))).toBe(false);
-    expect(existsSync(join(paths.homePath, ".codex", "config.toml"))).toBe(false);
-    expect(existsSync(join(paths.homePath, ".config", "opencode", "opencode.json"))).toBe(false);
+    const result = await syncNativePermissionProjections(buildKilnYaml(), paths.projectPath);
+    expect(result.errors).toEqual([]);
+    expect(readJson(join(paths.projectPath, ".claude", "settings.json"))).not.toHaveProperty("env");
   });
 
   it("reports gateway provider drift without overwriting unmanaged native config", async () => {

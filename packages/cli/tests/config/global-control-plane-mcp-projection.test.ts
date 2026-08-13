@@ -38,7 +38,7 @@ describe("global control-plane MCP projection", () => {
     const userHome = temporaryRoot();
     const launch = syntheticLaunch(userHome);
     const paths = resolveGlobalControlPlaneMcpProjectionPaths(userHome);
-    const lockPath = join(paths.installStateDir, "global-control-plane-mcp.lock");
+    const lockPath = join(paths.installStateDir, "global-native-projections.lock");
     mkdirSync(lockPath, { recursive: true });
     writeFileSync(join(lockPath, "owner.json"), JSON.stringify({ token: "external-test-owner" }));
 
@@ -80,13 +80,13 @@ describe("global control-plane MCP projection", () => {
   it("fails closed without stealing an abandoned lifecycle lock", async () => {
     const userHome = temporaryRoot();
     const paths = resolveGlobalControlPlaneMcpProjectionPaths(userHome);
-    const lockPath = join(paths.installStateDir, "global-control-plane-mcp.lock");
+    const lockPath = join(paths.installStateDir, "global-native-projections.lock");
     mkdirSync(lockPath, { recursive: true });
     writeFileSync(join(lockPath, "owner.json"), JSON.stringify({ token: "abandoned-owner", pid: 1 }));
 
     await expect(syncGlobalControlPlaneMcpProjections({
       operation: "install", userHome, harnesses: ["codex"], lifecycleLockTimeoutMs: 15, lifecycleLockRetryMs: 2,
-    })).rejects.toThrow(/lifecycle lock.*manual/i);
+    })).rejects.toThrow(/projection lock.*remove.*confirming/i);
 
     expect(existsSync(lockPath)).toBe(true);
     expect(existsSync(paths.codex)).toBe(false);

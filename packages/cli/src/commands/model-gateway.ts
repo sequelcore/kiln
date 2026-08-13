@@ -8,6 +8,7 @@ import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
   ModelGatewaySupervisor,
+  readAccountCapacityIncidents,
   SqliteManagedAccountLeaseAuthority,
   WindowsModelGatewayAutostartAdapter,
   createModelGatewayExecutionRoutingPort,
@@ -20,6 +21,7 @@ import {
   type ModelGatewaySupervisorDoctor,
   type ModelGatewaySupervisorStatus,
   type ModelGatewayExecutionBundle,
+  type AccountCapacityIncident,
   type StartModelGatewayListenerOptions,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
@@ -28,8 +30,16 @@ import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-eco
 import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatewayProjectionResult } from "../config/global-opencode-model-gateway-projection.js";
 import {
   syncGlobalCodexModelGatewayProjection,
+  GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID,
   type CodexNativeCatalog,
 } from "../config/global-codex-model-gateway-projection.js";
+import {
+  hasGlobalClaudeModelGatewayProjection,
+  syncGlobalClaudeModelGatewayProjection,
+  type GlobalClaudeModelGatewayProjectionResult,
+} from "../config/global-claude-model-gateway-projection.js";
+import { readNativeProjectionInstallState } from "../config/native-projection-state.js";
+import { withGlobalNativeProjectionLock } from "../config/global-native-projection-lock.js";
 
 interface SupervisorSurface {
   start(): Promise<ModelGatewaySupervisorStatus>;
@@ -40,7 +50,6 @@ interface SupervisorSurface {
   doctor(): Promise<ModelGatewaySupervisorDoctor>;
 }
 interface AutostartSurface { install(launch: ModelGatewayLaunchDescriptor): Promise<ModelGatewayAutostartStatus>; uninstall(): Promise<ModelGatewayAutostartStatus>; status(): Promise<ModelGatewayAutostartStatus>; }
-
 interface ModelGatewayCommandDependencies {
   readonly startModelGatewayListener: (options: StartModelGatewayListenerOptions) => Promise<{ close(): Promise<void>; readonly shutdownRequested: Promise<void> }>;
   readonly inspectModelGatewayListener: typeof inspectModelGatewayListener;
@@ -57,7 +66,11 @@ interface ModelGatewayCommandDependencies {
   readonly registerShutdown: (close: () => Promise<void>, shutdownRequested: Promise<void>) => Promise<void>;
   readonly syncOpenCodeNativeProjection: typeof syncGlobalOpenCodeModelGatewayProjection;
   readonly syncCodexNativeProjection: typeof syncGlobalCodexModelGatewayProjection;
+  readonly syncClaudeNativeProjection: typeof syncGlobalClaudeModelGatewayProjection;
   readonly readCodexNativeCatalog: () => CodexNativeCatalog;
+  readonly hasListenerDependentNativeProjection: (installStateDir: string) => boolean;
+  readonly projectPath: string;
+  readonly readCapacityIncidents: (databasePath: string) => readonly AccountCapacityIncident[];
   readonly removeRuntimeDir: (path: string) => Promise<void>;
   readonly log: (message: string) => void;
 }
@@ -78,7 +91,18 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
   registerShutdown: registerProcessShutdown,
   syncOpenCodeNativeProjection: syncGlobalOpenCodeModelGatewayProjection,
   syncCodexNativeProjection: syncGlobalCodexModelGatewayProjection,
+  syncClaudeNativeProjection: syncGlobalClaudeModelGatewayProjection,
   readCodexNativeCatalog: readCodexNativeCatalog,
+  hasListenerDependentNativeProjection: (installStateDir) => (
+    Boolean(readNativeProjectionInstallState(installStateDir).targets[GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID])
+    || hasGlobalClaudeModelGatewayProjection(installStateDir)
+  ),
+  projectPath: process.cwd(),
+  readCapacityIncidents: (databasePath) => readAccountCapacityIncidents({
+      path: databasePath,
+      participantKind: "model-gateway-ingress",
+      recoveryDomain: "model-gateway",
+    }),
   removeRuntimeDir: (path) => rm(path, { recursive: true, force: true }),
   log: console.log,
 };
@@ -87,7 +111,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   const dependencies = { ...defaultDependencies, ...overrides };
   const subcommand = args[0];
   if (subcommand === "--help" || subcommand === "-h" || subcommand === undefined) { printHelp(dependencies.log); return; }
-  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native"]);
+  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native", "capacity-incidents"]);
   if (!supported.has(subcommand)) throw new Error(`Unknown model-gateway command '${subcommand}'.`);
   const flags = parseFlags(args.slice(1));
   if (flags.help) { printHelp(dependencies.log); return; }
@@ -96,6 +120,9 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   }
   if (flags.force && (subcommand !== "sync-native" || flags.uninstall)) {
     throw new Error("--force is valid only with sync-native install.");
+  }
+  if (flags.projectPath && subcommand !== "sync-native" && subcommand !== "uninstall") {
+    throw new Error("--project is valid only with sync-native or uninstall.");
   }
 
   if (subcommand === "serve" && flags.configPath) {
@@ -126,12 +153,18 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
 
   const globalConfig = dependencies.readGlobalConfig();
   const config = resolveGlobalModelGatewayConfig(globalConfig);
+  const globalDir = dirname(dependencies.resolveGlobalConfigPath());
+  const installStateDir = join(globalDir, "runtime", "native-projections");
+  const projectPath = resolve(flags.projectPath ?? dependencies.projectPath);
+  const claudeTargetPath = join(projectPath, ".claude", "settings.json");
   if (subcommand === "serve") {
     if (!flags.globalRuntime || !flags.instanceId) throw new Error("serve requires --config for development or the internal global runtime identity.");
     await serveGlobalRuntime(config, resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()), flags.instanceId, globalConfig, dependencies);
     return;
   }
-  const token = subcommand === "doctor" ? resolveOptionalHealthToken(config, dependencies.env) : resolveHealthToken(config, dependencies.env);
+  const token = ["doctor", "capacity-incidents", "uninstall"].includes(subcommand) || (subcommand === "sync-native" && flags.uninstall)
+    ? resolveOptionalHealthToken(config, dependencies.env)
+    : resolveHealthToken(config, dependencies.env);
   if (["start", "ensure", "restart"].includes(subcommand)) requireRuntimeSecrets(config, dependencies.env);
   const launch = resolveLaunchDescriptor(dependencies, config);
   const supervisor = dependencies.createSupervisor({
@@ -143,47 +176,66 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     inspect: (expected) => dependencies.inspectModelGatewayListener({ config, token, ...(expected ? { expected } : {}) }),
     requestShutdown: (identity) => requestModelGatewayShutdown({ config, token, identity }),
   });
+  if (subcommand === "capacity-incidents") {
+    if (globalConfig?.version !== "2") throw new Error("Model gateway capacity inspection requires global V2 execution authority.");
+    const status = await supervisor.status();
+    if (status.state !== "stopped") {
+      throw new Error("Model gateway capacity inspection requires a stopped model gateway.");
+    }
+    const incidents = dependencies.readCapacityIncidents(
+      resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()),
+    );
+    dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatCapacityIncidents(incidents));
+    return;
+  }
   if (subcommand === "uninstall") {
     const autostartStatus = await autostart.status();
     if (autostartStatus.state === "foreign") {
       printAutostartResult(autostartStatus, flags.json, dependencies.log);
       return;
     }
-    const stopped = await supervisor.stop();
-    if (stopped.state === "foreign") {
-      printResult(stopped, flags.json, dependencies.log);
-      return;
-    }
-    const globalDir = dirname(dependencies.resolveGlobalConfigPath());
-    await dependencies.syncOpenCodeNativeProjection({
-      config,
-      targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
-      installStateDir: join(globalDir, "runtime", "native-projections"),
-      operation: "uninstall",
+    const uninstalled = await withGlobalNativeProjectionLock(installStateDir, async (lock) => {
+      const runtimeStatus = await supervisor.status();
+      if (runtimeStatus.state === "foreign") {
+        printResult(runtimeStatus, flags.json, dependencies.log);
+        return false;
+      }
+      await dependencies.syncCodexNativeProjection({
+        config, env: dependencies.env, nativeCatalog: { models: [] },
+        targetPath: join(dirname(globalDir), ".codex", "config.toml"),
+        catalogPath: join(globalDir, "runtime", "native-projections", "codex-composite-models.json"),
+        installStateDir, operation: "uninstall", lock,
+      });
+      await dependencies.syncClaudeNativeProjection({ config, installStateDir, operation: "uninstall", lock });
+      await dependencies.syncOpenCodeNativeProjection({
+        config, targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
+        installStateDir, operation: "uninstall", lock,
+      });
+      if (runtimeStatus.state !== "stopped") {
+        const stopped = await supervisor.stop();
+        if (stopped.state === "foreign") {
+          printResult(stopped, flags.json, dependencies.log);
+          return false;
+        }
+      }
+      return true;
     });
-    await dependencies.syncCodexNativeProjection({
-      config,
-      env: dependencies.env,
-      nativeCatalog: { models: [] },
-      targetPath: join(dirname(globalDir), ".codex", "config.toml"),
-      catalogPath: join(globalDir, "runtime", "native-projections", "codex-composite-models.json"),
-      installStateDir: join(globalDir, "runtime", "native-projections"),
-      operation: "uninstall",
-    });
+    if (!uninstalled) return;
     if (autostartStatus.state === "installed") await autostart.uninstall();
     await dependencies.removeRuntimeDir(runtimeDir);
     dependencies.log(flags.json ? JSON.stringify({ state: "uninstalled" }) : "Model gateway: uninstalled");
     return;
   }
   if (subcommand === "sync-native") {
-    if (flags.client !== "opencode" && flags.client !== "codex") throw new Error("sync-native requires --client codex or --client opencode.");
-    const globalDir = dirname(dependencies.resolveGlobalConfigPath());
-    const ensured = flags.uninstall ? undefined : await supervisor.ensure();
-    if (ensured && ensured.state !== "ready") throw new Error("Model gateway is not owned and ready; native configuration was not modified.");
-    const operation = flags.uninstall ? "uninstall" : "install";
-    const installStateDir = join(globalDir, "runtime", "native-projections");
-    if (flags.client === "codex") {
-      const result = await dependencies.syncCodexNativeProjection({
+    if (flags.client !== "opencode" && flags.client !== "codex" && flags.client !== "claude") {
+      throw new Error("sync-native requires --client codex, --client claude, or --client opencode.");
+    }
+    await withGlobalNativeProjectionLock(installStateDir, async (lock) => {
+      const ensured = flags.uninstall ? undefined : await supervisor.ensure();
+      if (ensured && ensured.state !== "ready") throw new Error("Model gateway is not owned and ready; native configuration was not modified.");
+      const operation = flags.uninstall ? "uninstall" : "install";
+      if (flags.client === "codex") {
+        const result = await dependencies.syncCodexNativeProjection({
         config,
         ...(ensured ? { listener: ensured.identity } : {}),
         env: dependencies.env,
@@ -192,22 +244,46 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
         catalogPath: join(installStateDir, "codex-composite-models.json"),
         installStateDir,
         operation,
+        lock,
         ...(flags.adoptExisting ? { adoptExisting: true } : {}),
         ...(flags.force ? { force: true } : {}),
       });
-      printNativeSyncResult({ ...result, client: "Codex" }, flags.json, dependencies.log);
-    } else {
-      const result = await dependencies.syncOpenCodeNativeProjection({
+        printNativeSyncResult({ ...result, client: "Codex" }, flags.json, dependencies.log);
+      } else if (flags.client === "opencode") {
+        const result = await dependencies.syncOpenCodeNativeProjection({
         config,
         ...(ensured ? { listener: ensured.identity } : {}),
         targetPath: join(dirname(globalDir), ".config", "opencode", "opencode.json"),
         installStateDir,
         operation,
+        lock,
         ...(flags.adoptExisting ? { adoptExisting: true } : {}),
         ...(flags.force ? { force: true } : {}),
       });
-      printNativeSyncResult({ ...result, client: "OpenCode" }, flags.json, dependencies.log);
-    }
+        printNativeSyncResult({ ...result, client: "OpenCode" }, flags.json, dependencies.log);
+      } else {
+        const result = await dependencies.syncClaudeNativeProjection({
+        config,
+        ...(ensured ? { listener: ensured.identity } : {}),
+        targetPath: claudeTargetPath,
+        installStateDir,
+        operation,
+        lock,
+        ...(flags.adoptExisting ? { adoptExisting: true } : {}),
+        ...(flags.force ? { force: true } : {}),
+      });
+        printClaudeNativeSyncResult(result, flags.json, dependencies.log);
+      }
+    });
+    return;
+  }
+  if (subcommand === "stop") {
+    await withGlobalNativeProjectionLock(installStateDir, async () => {
+      if (dependencies.hasListenerDependentNativeProjection(installStateDir)) {
+        throw new Error("A listener-dependent native projection is installed; use restart to preserve service or uninstall to stop and restore native routing.");
+      }
+      printResult(await supervisor.stop(), flags.json, dependencies.log);
+    });
     return;
   }
   const result = subcommand === "doctor"
@@ -348,11 +424,12 @@ function resolveOptionalHealthToken(config: ModelGatewayConfig, env: Readonly<Re
   return config.principals.map((principal) => env[principal.tokenEnv]).find((value): value is string => !!value) ?? "";
 }
 
-function parseFlags(args: readonly string[]): { readonly configPath?: string; readonly json: boolean; readonly help: boolean; readonly globalRuntime: boolean; readonly instanceId?: string; readonly client?: string; readonly uninstall: boolean; readonly adoptExisting: boolean; readonly force: boolean } {
-  let configPath: string | undefined; let json = false; let help = false; let globalRuntime = false; let instanceId: string | undefined; let client: string | undefined; let uninstall = false; let adoptExisting = false; let force = false;
+function parseFlags(args: readonly string[]): { readonly configPath?: string; readonly projectPath?: string; readonly json: boolean; readonly help: boolean; readonly globalRuntime: boolean; readonly instanceId?: string; readonly client?: string; readonly uninstall: boolean; readonly adoptExisting: boolean; readonly force: boolean } {
+  let configPath: string | undefined; let projectPath: string | undefined; let json = false; let help = false; let globalRuntime = false; let instanceId: string | undefined; let client: string | undefined; let uninstall = false; let adoptExisting = false; let force = false;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--config") { const value = args[index + 1]; if (!value) throw new Error("--config requires a path."); configPath = value; index += 1; continue; }
+    if (arg === "--project") { const value = args[index + 1]; if (!value) throw new Error("--project requires a path."); projectPath = value; index += 1; continue; }
     if (arg === "--instance-id") { const value = args[index + 1]; if (!value) throw new Error("--instance-id requires a value."); instanceId = value; index += 1; continue; }
     if (arg === "--global-runtime") { globalRuntime = true; continue; }
     if (arg === "--client") { const value = args[index + 1]; if (!value) throw new Error("--client requires a value."); client = value; index += 1; continue; }
@@ -364,12 +441,24 @@ function parseFlags(args: readonly string[]): { readonly configPath?: string; re
     throw new Error(`Unknown model-gateway option '${arg}'.`);
   }
   if (adoptExisting && uninstall) throw new Error("--adopt-existing cannot be combined with --uninstall.");
-  return { ...(configPath === undefined ? {} : { configPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall, adoptExisting, force };
+  return { ...(configPath === undefined ? {} : { configPath }), ...(projectPath === undefined ? {} : { projectPath }), ...(instanceId === undefined ? {} : { instanceId }), ...(client === undefined ? {} : { client }), json, help, globalRuntime, uninstall, adoptExisting, force };
 }
 
 function printNativeSyncResult(result: GlobalOpenCodeModelGatewayProjectionResult & { readonly client?: string }, json: boolean, log: (message: string) => void): void {
   if (json) { log(JSON.stringify(result)); return; }
   log(`${result.client ?? "Native"} model gateway projection: ${result.operation}${result.changed ? "ed" : " unchanged"} (${result.targetPath})`);
+}
+
+function printClaudeNativeSyncResult(result: GlobalClaudeModelGatewayProjectionResult, json: boolean, log: (message: string) => void): void {
+  if (json) { log(JSON.stringify({ ...result, client: "Claude" })); return; }
+  log(`Claude model gateway projection: ${result.operation}${result.changed ? "ed" : " unchanged"} (${result.targetPaths.join(", ") || "no targets"})`);
+}
+
+function formatCapacityIncidents(incidents: readonly AccountCapacityIncident[]): string {
+  if (incidents.length === 0) return "Model gateway capacity incidents: none";
+  return incidents.map((incident) =>
+    `${incident.runtimeInvocationId}\t${incident.state}\t${incident.dispatchFenceId ?? "-"}\t${incident.route.providerId}/${incident.route.providerModelId}`
+  ).join("\n");
 }
 
 function readCodexNativeCatalog(): CodexNativeCatalog {
@@ -430,8 +519,9 @@ function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: 
 }
 
 function printHelp(log: (message: string) => void): void {
-  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native> [--json]\n");
-  log("Native provider: kiln model-gateway sync-native --client <codex|opencode> [--uninstall|--adopt-existing|--force]");
+  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native|capacity-incidents> [--json]\n");
+  log("Native provider: kiln model-gateway sync-native --client <codex|claude|opencode> [--project <path>] [--uninstall|--adopt-existing|--force]");
+  log("Inspection: kiln model-gateway capacity-incidents [--json] (gateway must be stopped)");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");
 }

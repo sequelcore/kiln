@@ -17,7 +17,8 @@ authenticated operator-session identity, scope, expiry, revocation, and session
 binding. Operator Runtime consumes that session while retaining route admission,
 economic commitment, credential, tool, and dispatch authority.
 
-It does not own harness-native provider authentication or evidence; Roadmap 04
+It does not own harness-native provider authentication or evidence; the stable
+[harness integration architecture](../architecture/surfaces/harness-integration-capabilities.md)
 owns harness adapters while Core and Runtime own provider-model evidence. It
 does not own Model Gateway network exposure or ingress security (see
 [Model Gateway architecture](../architecture/providers/model-gateway.md)), and

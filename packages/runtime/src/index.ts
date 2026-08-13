@@ -82,6 +82,7 @@ export type {
   ConfiguredExecutionAccountRuntimeOptions,
 } from "./managed-account-leases/configured-execution-account-runtime.js";
 export {
+  readAccountCapacityIncidents,
   SqliteManagedAccountLeaseAuthority,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 export {
@@ -139,6 +140,8 @@ export type {
   SharedAccountCapacityParticipantKind,
   AccountCapacityAcquireInput,
   AccountCapacityAcquireResult,
+  AccountCapacityIncident,
+  AccountCapacityIncidentInspectionOptions,
   AccountCapacityRecord,
   AccountCapacitySettlement,
 } from "./managed-account-leases/managed-account-lease-authority.js";

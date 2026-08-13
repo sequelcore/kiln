@@ -10,6 +10,7 @@ import {
 } from "../model-gateway/governed-one-round-invocation.js";
 import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "../model-gateway/governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "../model-gateway/replay-guard.js";
+import { claimModelGatewayRequestLifetime } from "../model-gateway/model-gateway-request-lifetime.js";
 import {
   OpenAIResponsesProtocolError,
   encodeSseEvent,
@@ -89,6 +90,7 @@ export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig
       releaseConcurrency = concurrency.acquire();
       if (releaseConcurrency === undefined) throw new ResponsesIngressError(429, "ingress_overloaded", "The Responses ingress is at capacity.");
       const boundedBody = await readBoundedBody(context.req.raw, maxBodyBytes);
+      claimModelGatewayRequestLifetime(context.req.raw);
       const rawBody = boundedBody.text;
       let decoded: unknown;
       try { decoded = JSON.parse(rawBody); }

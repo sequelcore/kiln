@@ -121,6 +121,15 @@ capacity-consuming and carry sanitized settlement or reconciliation evidence.
 They remain held until an authoritative settlement is recorded; startup recovery
 only classifies unresolved work conservatively and never fabricates a release.
 
+Model Gateway operations may open the ledger read-only and list every
+capacity-consuming account-only record in its recovery domain through a
+sanitized projection containing no account reference, capacity identity,
+credential revision, or candidate account. Inspection does not claim or change
+the participant generation and does not grant settlement authority. A terminal
+outcome must come from an admitted provider/runtime evidence source bound to the
+exact invocation and dispatch fence; operator text or a syntactically valid
+evidence URI is not sufficient to release capacity.
+
 Economic commitments are project-namespaced. Account capacity and affinity are
 shared across the managed-job and Gateway participants for the same configured
 capacity identity; neither participant may overwrite affinity or delete another

@@ -299,20 +299,24 @@ function liveAgentDefinition(): string {
 function assertLiveRoute(routeId: string): { readonly model: string } {
   const config = readGlobalConfig();
   const route = config?.managedAgents?.routes?.find((candidate) => candidate.id === routeId);
+  const executionRoute = route?.kind === "direct"
+    ? config?.executionCatalog?.routes.find((candidate) => candidate.id === route.executionRouteId)
+    : undefined;
   if (
     !route
     || route.kind !== "direct"
-    || route.provider !== "opencode-go"
-    || typeof route.model !== "string"
-    || route.model.trim().length === 0
+    || !executionRoute
+    || executionRoute.providerId !== "opencode-go"
+    || typeof executionRoute.providerModelId !== "string"
+    || executionRoute.providerModelId.trim().length === 0
+    || executionRoute.accountSelection.mode !== "automatic"
     || route.profiles?.includes("foundation-apply-approved-writes") !== true
     || route.tools?.writes !== true
     || route.tools?.network !== false
     || route.writeAuthority?.workspace.mode !== "apply-approved"
     || route.writeAuthority.approval.mode !== "required-before-apply"
-    || route.credentials?.mode !== "runtime-selected"
   ) {
     throw new Error("Live proof requires one account-leased opencode-go direct approved-write route.");
   }
-  return { model: route.model };
+  return { model: executionRoute.providerModelId };
 }

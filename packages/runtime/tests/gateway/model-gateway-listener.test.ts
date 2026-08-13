@@ -81,6 +81,7 @@ const executionCatalog = defineExecutionCatalog({
 
 const noCandidates = { resolve: async () => [] };
 const noDispatcher = { resolve: async () => { throw new Error("No dispatcher is available in this fixture."); } };
+const testLifetimeControl = { timeout: () => undefined };
 let authority: SqliteManagedAccountLeaseAuthority | undefined;
 
 function executionOptions() {
@@ -123,16 +124,80 @@ describe("startModelGatewayListener", () => {
     });
 
     expect(bound).toMatchObject({ hostname: "127.0.0.1", port: 4819 });
-    const health = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`, { headers: { authorization: `Bearer ${"b".repeat(32)}` } }));
+    const health = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`, { headers: { authorization: `Bearer ${"b".repeat(32)}` } }), testLifetimeControl);
     expect(health.status).toBe(200);
     expect(await health.json()).toMatchObject({ service: "kiln-model-gateway", status: "ready", instanceId: expect.any(String), port: 4819 });
-    const unmanagedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, { method: "POST", headers: { authorization: `Bearer ${"b".repeat(32)}` } }));
+    const unmanagedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, { method: "POST", headers: { authorization: `Bearer ${"b".repeat(32)}` } }), testLifetimeControl);
     expect(unmanagedShutdown.status).toBe(404);
-    const response = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }));
+    const response = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }), testLifetimeControl);
     expect(response.status).toBe(401);
     await Promise.all([runtime.close(), runtime.close()]);
     expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(true);
+  });
+
+  it("keeps the Bun idle timeout through authentication and body receipt, then owns admitted dispatch lifetime", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-listener-lifetime-"));
+    let bound: Parameters<NonNullable<Parameters<typeof startModelGatewayListener>[0]["listen"]>>[0] | undefined;
+    const runtime = await startModelGatewayListener({
+      ...executionOptions(),
+      config,
+      databasePath: join(root, "state.sqlite"),
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      listen: (input) => { bound = input; return { stop: () => undefined }; },
+    });
+
+    try {
+      const timeout = vi.fn();
+      const unauthenticated = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }), { timeout });
+      expect(unauthenticated.status).toBe(401);
+      expect(timeout).not.toHaveBeenCalled();
+
+      const oversized = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${"b".repeat(32)}`,
+          "content-type": "application/json",
+          "content-length": "2048",
+        },
+        body: "{}",
+      }), { timeout });
+      expect(oversized.status).toBe(413);
+      expect(oversized.headers.get("x-kiln-request-body-limit-bytes")).toBe("1024");
+      expect(await oversized.json()).toMatchObject({ error: { code: "request_too_large", max_body_bytes: 1024 } });
+      expect(timeout).not.toHaveBeenCalled();
+
+      let sendBody!: () => void;
+      const bodyReady = new Promise<void>((resolve) => { sendBody = resolve; });
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          await bodyReady;
+          controller.enqueue(new TextEncoder().encode("{}"));
+          controller.close();
+        },
+      });
+      const request = new Request("http://127.0.0.1:4819/v1/responses", {
+        method: "POST",
+        headers: { authorization: `Bearer ${"b".repeat(32)}`, "content-type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit);
+      const pending = bound!.fetch(request, { timeout });
+      await Promise.resolve();
+      expect(timeout).not.toHaveBeenCalled();
+      sendBody();
+      const response = await pending;
+
+      expect(response.status).toBe(400);
+      expect(timeout).toHaveBeenCalledOnce();
+      expect(timeout).toHaveBeenCalledWith(request, 0);
+    } finally {
+      await runtime.close();
+    }
   });
 
   it("awaits listener shutdown before closing durable state and shares idempotent completion", async () => {
@@ -173,13 +238,13 @@ describe("startModelGatewayListener", () => {
       listen: (input) => { bound = input; return { stop }; },
     });
     try {
-      const unauthenticated = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`));
+      const unauthenticated = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`), testLifetimeControl);
       expect(unauthenticated.status).toBe(401);
       expect(unauthenticated.headers.get("x-kiln-service")).toBe("model-gateway");
 
       const response = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_HEALTH_PATH}`, {
         headers: { authorization: `Bearer ${env.BEARER_TOKEN}` },
-      }));
+      }), testLifetimeControl);
       expect(response.status).toBe(200);
       const body = await response.json();
       expect(body).toEqual({
@@ -194,17 +259,17 @@ describe("startModelGatewayListener", () => {
       });
       expect(JSON.stringify(body).includes(env.BEARER_TOKEN)).toBe(false);
 
-      const unauthenticatedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, { method: "POST" }));
+      const unauthenticatedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, { method: "POST" }), testLifetimeControl);
       expect(unauthenticatedShutdown.status).toBe(401);
       const mismatchedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
         method: "POST",
         headers: { authorization: `Bearer ${env.BEARER_TOKEN}`, "x-kiln-instance-id": "other-instance" },
-      }));
+      }), testLifetimeControl);
       expect(mismatchedShutdown.status).toBe(409);
       const acceptedShutdown = await bound!.fetch(new Request(`http://127.0.0.1:4819${MODEL_GATEWAY_SHUTDOWN_PATH}`, {
         method: "POST",
         headers: { authorization: `Bearer ${env.BEARER_TOKEN}`, "x-kiln-instance-id": "instance-test" },
-      }));
+      }), testLifetimeControl);
       expect(acceptedShutdown.status).toBe(202);
       await runtime.shutdownRequested;
       expect(stop).not.toHaveBeenCalled();
@@ -256,8 +321,8 @@ describe("startModelGatewayListener", () => {
     };
     const runtime = await startModelGatewayListener({ ...executionOptions(), config: multi, databasePath: join(root, "state.sqlite"), env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32), ANTHROPIC_TOKEN: "a".repeat(32) }, listen: (input) => { bound = input; return { stop: () => undefined }; } });
     try {
-      expect((await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }))).status).toBe(401);
-      const models = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/models?limit=1000", { headers: { "x-api-key": "a".repeat(32) } }));
+      expect((await bound!.fetch(new Request("http://127.0.0.1:4819/v1/responses", { method: "POST", body: "{}" }), testLifetimeControl)).status).toBe(401);
+      const models = await bound!.fetch(new Request("http://127.0.0.1:4819/v1/models?limit=1000", { headers: { "x-api-key": "a".repeat(32) } }), testLifetimeControl);
       expect(models.status).toBe(200);
       expect(await models.json()).toEqual({ data: [{ id: "claude-kiln", display_name: "Claude Kiln" }] });
     } finally { await runtime.close(); }

@@ -38,6 +38,7 @@ import { resolveApps } from "./app-resolver.js";
 import type { ResolvedApp } from "./app-resolver.js";
 import { createGatewayApp } from "./gateway-routes.js";
 import { startModelGatewayListener } from "../model-gateway/model-gateway-listener.js";
+import type { ModelGatewayListenerFetch } from "../model-gateway/model-gateway-listener.js";
 import type {
   ModelGatewayExecutionCandidatePort,
   ModelGatewayExecutionRoutingPort,
@@ -158,7 +159,7 @@ export interface StartGatewayOptions {
    */
   readonly modelGatewayExecution?: ModelGatewayExecutionBundle;
   /** Test seam for the dedicated loopback model-gateway listener. */
-  readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: (request: Request) => Response | Promise<Response> }) => { stop(force?: boolean): void | Promise<void> };
+  readonly modelGatewayListener?: (input: { readonly hostname: "127.0.0.1"; readonly port: number; readonly fetch: ModelGatewayListenerFetch }) => { stop(force?: boolean): void | Promise<void> };
 }
 
 export interface ModelGatewayExecutionBundle {

@@ -18,6 +18,16 @@ export const KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_TESTS_ENV =
 export const KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE_ENV =
   "KILN_LIVE_CODEX_OAUTH_MANAGED_ACCOUNT_ROUTE";
 
+const CLAUDE_NON_ENTITLEMENT_ENVIRONMENT = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_CODE_SSE_PORT",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_USE_VERTEX",
+] as const;
+
 const PROVIDER_FLAGS = [
   KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_CLAUDE_TESTS_ENV,
@@ -41,6 +51,15 @@ export interface ManagedAgentLivePreflightResult {
   readonly enabledProviders: readonly string[];
   readonly environment: Readonly<Record<string, string>>;
   readonly message: string;
+}
+
+/** Keeps the Claude live proof on the operator's native claude.ai entitlement. */
+export function projectClaudeNativeEntitlementEnvironment(
+  env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const projected = { ...env };
+  for (const name of CLAUDE_NON_ENTITLEMENT_ENVIRONMENT) delete projected[name];
+  return projected;
 }
 
 export function evaluateManagedAgentLivePreflight(
@@ -89,6 +108,18 @@ export function evaluateManagedAgentLivePreflight(
         `Set at least one provider flag to 1: ${PROVIDER_FLAGS.join(", ")}.`,
       ].join(" "),
     };
+  }
+
+  if (enabledProviders.includes(KILN_LIVE_CLAUDE_TESTS_ENV)) {
+    const model = env[KILN_LIVE_CLAUDE_MODEL]?.trim();
+    if (!model || ["default", "sonnet", "opus", "haiku"].includes(model)) {
+      return {
+        ok: false,
+        enabledProviders,
+        environment: {},
+        message: `${KILN_LIVE_CLAUDE_MODEL} must name an explicit exact Claude catalog model for the authorized live proof.`,
+      };
+    }
   }
 
   return {

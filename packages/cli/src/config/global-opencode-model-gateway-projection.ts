@@ -14,6 +14,7 @@ import {
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
 } from "./native-projection-state.js";
+import { runGlobalNativeProjectionTransaction, type GlobalNativeProjectionLockToken } from "./global-native-projection-lock.js";
 
 export const GLOBAL_OPENCODE_MODEL_GATEWAY_TARGET_ID = "global-opencode-model-gateway";
 
@@ -23,7 +24,7 @@ export interface GlobalOpenCodeModelGatewayProjectionResult {
   readonly targetPath: string;
 }
 
-export async function syncGlobalOpenCodeModelGatewayProjection(input: {
+interface SyncGlobalOpenCodeModelGatewayProjectionInput {
   readonly config: ModelGatewayConfig;
   readonly listener?: ModelGatewayListenerIdentity;
   readonly targetPath: string;
@@ -31,7 +32,14 @@ export async function syncGlobalOpenCodeModelGatewayProjection(input: {
   readonly operation: "install" | "uninstall";
   readonly adoptExisting?: boolean;
   readonly force?: boolean;
-}): Promise<GlobalOpenCodeModelGatewayProjectionResult> {
+  readonly lock?: GlobalNativeProjectionLockToken;
+}
+
+export function syncGlobalOpenCodeModelGatewayProjection(input: SyncGlobalOpenCodeModelGatewayProjectionInput): Promise<GlobalOpenCodeModelGatewayProjectionResult> {
+  return runGlobalNativeProjectionTransaction(input.installStateDir, input.lock, () => syncGlobalOpenCodeModelGatewayProjectionUnlocked(input));
+}
+
+async function syncGlobalOpenCodeModelGatewayProjectionUnlocked(input: SyncGlobalOpenCodeModelGatewayProjectionInput): Promise<GlobalOpenCodeModelGatewayProjectionResult> {
   if (input.force && input.operation !== "install") {
     throw new Error("Forcing the OpenCode model gateway projection is valid only for owned install repair.");
   }

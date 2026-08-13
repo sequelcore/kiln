@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -17,6 +16,7 @@ import {
   writeNativeProjectionInstallState,
   type NativeProjectionInstallState,
 } from "./native-projection-state.js";
+import { withGlobalNativeProjectionLock } from "./global-native-projection-lock.js";
 
 export const GLOBAL_CONTROL_PLANE_MCP_ID = "kiln-control-plane";
 const ALL_HARNESSES = ["codex", "claude", "opencode"] as const;
@@ -203,71 +203,10 @@ async function withGlobalProjectionLifecycleLock<T>(
   input: Pick<SyncGlobalControlPlaneMcpProjectionsInput, "lifecycleLockTimeoutMs" | "lifecycleLockRetryMs">,
   action: () => Promise<T>,
 ): Promise<T> {
-  const timeoutMs = boundedLockOption(input.lifecycleLockTimeoutMs, 5_000, "lifecycleLockTimeoutMs", true);
-  const retryMs = boundedLockOption(input.lifecycleLockRetryMs, 25, "lifecycleLockRetryMs", false);
-  const lockPath = join(installStateDir, "global-control-plane-mcp.lock");
-  const ownerPath = join(lockPath, "owner.json");
-  const token = randomUUID();
-  const deadline = Date.now() + timeoutMs;
-  mkdirSync(installStateDir, { recursive: true, mode: 0o700 });
-
-  while (true) {
-    try {
-      mkdirSync(lockPath, { mode: 0o700 });
-      try {
-        writeFileSync(ownerPath, `${JSON.stringify({ token, pid: process.pid, acquiredAt: new Date().toISOString() })}\n`, {
-          encoding: "utf8",
-          flag: "wx",
-          mode: 0o600,
-        });
-      } catch (error) {
-        rmSync(lockPath, { recursive: true, force: true });
-        throw error;
-      }
-      break;
-    } catch (error) {
-      if (!isAlreadyExists(error)) throw error;
-      if (Date.now() >= deadline) {
-        throw new Error(`Global control-plane MCP lifecycle lock is held at ${lockPath}; inspect and remove it manually only after confirming no projection operation is active.`);
-      }
-      await delay(retryMs);
-    }
-  }
-
-  try {
-    return await action();
-  } finally {
-    const owner = readLockOwnerToken(ownerPath);
-    if (owner !== token) {
-      throw new Error(`Global control-plane MCP lifecycle lock ownership changed at ${lockPath}; refusing unsafe cleanup.`);
-    }
-    rmSync(lockPath, { recursive: true });
-  }
-}
-
-function boundedLockOption(value: number | undefined, fallback: number, name: string, allowZero: boolean): number {
-  const resolved = value ?? fallback;
-  if (!Number.isSafeInteger(resolved) || (allowZero ? resolved < 0 : resolved <= 0) || resolved > 60_000) {
-    throw new TypeError(`${name} must be a ${allowZero ? "non-negative" : "positive"} integer no greater than 60000.`);
-  }
-  return resolved;
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException)?.code === "EEXIST";
-}
-
-function readLockOwnerToken(ownerPath: string): string | undefined {
-  try {
-    const value: unknown = JSON.parse(readFileSync(ownerPath, "utf8"));
-    return isRecord(value) && typeof value.token === "string" ? value.token : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+  return withGlobalNativeProjectionLock(installStateDir, () => action(), {
+    ...(input.lifecycleLockTimeoutMs === undefined ? {} : { timeoutMs: input.lifecycleLockTimeoutMs }),
+    ...(input.lifecycleLockRetryMs === undefined ? {} : { retryMs: input.lifecycleLockRetryMs }),
+  });
 }
 
 function statusResult(

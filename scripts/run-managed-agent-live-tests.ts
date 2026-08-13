@@ -5,11 +5,11 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   KILN_LIVE_CODEX_MODEL,
   KILN_LIVE_CODEX_TESTS_ENV,
-  KILN_LIVE_CLAUDE_MODEL,
   KILN_LIVE_CLAUDE_TESTS_ENV,
   KILN_LIVE_OPENCODE_MODEL,
   KILN_LIVE_OPENCODE_TESTS_ENV,
   evaluateManagedAgentLivePreflight,
+  projectClaudeNativeEntitlementEnvironment,
 } from "./managed-agent-live-preflight.js";
 
 const detectedProviderFlags = detectLocalLiveProviderFlags();
@@ -22,16 +22,11 @@ if (!preflight.ok) {
 
 console.log(preflight.message);
 const childEnv = {
-  ...process.env,
+  ...(preflight.enabledProviders.includes(KILN_LIVE_CLAUDE_TESTS_ENV)
+    ? projectClaudeNativeEntitlementEnvironment(process.env)
+    : process.env),
   ...preflight.environment,
 };
-
-if (
-  preflight.enabledProviders.includes(KILN_LIVE_CLAUDE_TESTS_ENV)
-  && childEnv[KILN_LIVE_CLAUDE_MODEL] === undefined
-) {
-  childEnv[KILN_LIVE_CLAUDE_MODEL] = "default";
-}
 
 if (
   preflight.enabledProviders.includes(KILN_LIVE_CODEX_TESTS_ENV)
@@ -72,6 +67,7 @@ function hasOpenCodeCredential(): boolean {
 function hasClaudeCredential(): boolean {
   const result = spawnSync("claude", ["auth", "status", "--json"], {
     encoding: "utf8",
+    env: projectClaudeNativeEntitlementEnvironment(process.env),
     shell: false,
     windowsHide: true,
     timeout: 5_000,
