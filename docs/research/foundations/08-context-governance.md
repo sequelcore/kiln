@@ -104,6 +104,43 @@ Kiln needs explicit rules for:
 Those rules should be owned by context governance, even when they rely on
 memory or coordination inputs.
 
+## Transport Envelope Is Not Effective Context
+
+HTTP request admission and model context governance solve different problems.
+An ingress must accept the serialized history, tool schemas, metadata, and
+multimodal references produced by admitted clients while enforcing a hard raw
+and decoded byte ceiling against memory exhaustion and decompression bombs.
+The ceiling does not establish that every admitted request fits a selected
+model or that the model will use all of it reliably.
+
+Current first-party envelopes provide useful interoperability bounds rather
+than quality targets: Anthropic documents a 32 MiB Messages limit, while AWS
+Bedrock documents 25,000,000 bytes for `InvokeModel`. OpenAI does not publish a
+general Responses JSON byte ceiling in the searched documentation; Kiln's
+64 MiB Responses ceiling is therefore a local bounded transport policy aligned
+with current Codex client behavior and the repository's parser budget, not a
+claim about an OpenAI service limit.
+
+Long-context evaluations reinforce the separation. *Lost in the Middle* found
+position-sensitive degradation even for long-context models, and RULER found
+that effective context can be materially shorter than the advertised window.
+Kiln therefore preserves compaction and context selection as quality controls
+after transport admission succeeds.
+
+Sources, verified 2026-08-12:
+
+- [Anthropic API errors and request-size limits](https://platform.claude.com/docs/en/api/errors)
+- [Amazon Bedrock InvokeModel request contract](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html)
+- [RFC 9110, 413 Content Too Large](https://www.rfc-editor.org/rfc/rfc9110.html#name-413-content-too-large)
+- [Lost in the Middle](https://arxiv.org/abs/2307.03172)
+- [RULER](https://openreview.net/forum?id=kIoBbc76Sy)
+
+Repository comparison used current local snapshots of OpenAI Codex
+(`32329b289d05eb6a3f8e35c267ceb25ba46716a2`), which zstd-compresses eligible
+Responses requests and supports remote compaction, and `codex-router`
+(`91a64bc52bb913687845763e45c357b5d0635063`), which defaults to a 64 MiB
+bounded body and rejects decoded overflow.
+
 ## Risks / Misuse
 
 - over-injection will saturate the working set and reduce reliability

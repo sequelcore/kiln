@@ -318,8 +318,8 @@ function gatewayConfig(port: number): ModelGatewayConfig {
     port,
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "UNUSED" },
     surfaces: {
-      openAIResponses: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 },
-      anthropicMessages: { maxBodyBytes: 1024 * 1024, maxConcurrentRequests: 2 },
+      openAIResponses: { maxBodyBytes: 64 * 1024 * 1024, maxConcurrentRequests: 2 },
+      anthropicMessages: { maxBodyBytes: 32 * 1024 * 1024, maxConcurrentRequests: 2 },
     },
     principals: [
       principal("codex", "CODEX_GATEWAY_TOKEN"),

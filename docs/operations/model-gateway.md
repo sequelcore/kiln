@@ -23,6 +23,57 @@ kiln model-gateway doctor --json
 `ready` is valid only when the listener identity, PID, version, port, and config
 digest match owned state and `diagnostics` is empty.
 
+Use provider-aligned request envelopes in canonical config:
+
+```yaml
+modelGateway:
+  surfaces:
+    openAIResponses:
+      maxBodyBytes: 67108864 # 64 MiB; Codex tool schemas and compacted history
+      maxConcurrentRequests: 1
+    anthropicMessages:
+      maxBodyBytes: 33554432 # 32 MiB; direct Claude Messages maximum
+      maxConcurrentRequests: 1
+```
+
+These are hard byte ceilings, not targets. A 413 with
+`x-kiln-request-body-limit-bytes` came from Kiln; compact the session if the
+request also approaches the model's useful token budget. After changing the
+canonical config, restart and run `doctor` so the owned listener's config digest
+converges. Do not edit native Codex or Claude projections to change this limit.
+
+## Why Native Codex Requests Use The Kiln URL
+
+Kiln projects a composite base URL into Codex so one model selector can expose
+native Codex models and Kiln virtual models. The URL is a dispatch boundary,
+not proof that Kiln selected or executed the model.
+
+| Selected model ID | Listener action | Execution owner |
+| --- | --- | --- |
+| Native/default Codex model | Validate and forward to the Codex backend | Codex |
+| Kiln virtual model admitted to the principal | Resolve its configured `executionRouteId` | Kiln Runtime |
+
+For example, this URL shows that the request entered the composite listener:
+
+```text
+http://127.0.0.1:4819/.well-known/kiln/codex-composite/<capability>/v1/responses
+```
+
+It does not identify which branch was selected. Use the requested model ID to
+distinguish a native Codex turn from a Kiln virtual-model turn. Never publish or
+copy the capability segment from a real installation; treat it as local
+authentication material.
+
+When troubleshooting:
+
+1. If the response includes `x-kiln-request-body-limit-bytes`, Kiln rejected the
+   request before model dispatch. Reduce or compact the request, or review the
+   canonical ingress limit.
+2. If a native model request passed ingress and the upstream Codex backend
+   rejected it, use the upstream request ID and Codex diagnostics.
+3. If a virtual model failed after ingress, inspect Kiln route admission and
+   Runtime evidence for its `executionRouteId`.
+
 ## Lifecycle
 
 ```powershell

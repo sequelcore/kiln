@@ -94,13 +94,18 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
       return jsonError(404, "unsupported_composite_route");
     }
 
-    const encodedBody = Buffer.from(await request.arrayBuffer());
-    if (encodedBody.byteLength > maxBodyBytes) return jsonError(413, "request_too_large");
+    let encodedBody: Buffer;
+    try {
+      encodedBody = await readBoundedRequestBody(request, maxBodyBytes);
+    } catch (error) {
+      if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
+      throw error;
+    }
     let decodedBody: Buffer;
     try {
       decodedBody = decodeBody(encodedBody, request.headers.get("content-encoding"), maxBodyBytes);
     } catch (error) {
-      if (error instanceof CompositeRequestError) return jsonError(error.status, error.type);
+      if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
       throw error;
     }
     let requestedModel: string | undefined;
@@ -328,6 +333,32 @@ function decodeBody(encoded: Buffer, contentEncoding: string | null, maxBodyByte
   return decoded;
 }
 
+async function readBoundedRequestBody(request: Request, maxBodyBytes: number): Promise<Buffer> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && (!/^\d+$/u.test(declared) || Number(declared) > maxBodyBytes)) {
+    throw new CompositeRequestError(413, "request_too_large");
+  }
+  if (!request.body) return Buffer.alloc(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > maxBodyBytes) {
+        await reader.cancel();
+        throw new CompositeRequestError(413, "request_too_large");
+      }
+      chunks.push(part.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
+}
+
 function parseRequestObject(body: Buffer): Record<string, unknown> {
   let parsed: unknown;
   try { parsed = JSON.parse(body.toString("utf8")); }
@@ -348,6 +379,18 @@ function copyAllowedNativeHeaders(source: Headers): Headers {
 
 function jsonError(status: number, type: string): Response {
   return Response.json({ error: { type } }, { status });
+}
+
+function compositeError(error: CompositeRequestError, maxBodyBytes: number): Response {
+  if (error.type !== "request_too_large") return jsonError(error.status, error.type);
+  return Response.json({ error: {
+    type: error.type,
+    message: `The request body exceeds Kiln's configured ${maxBodyBytes}-byte limit.`,
+    max_body_bytes: maxBodyBytes,
+  } }, {
+    status: error.status,
+    headers: { "x-kiln-request-body-limit-bytes": String(maxBodyBytes) },
+  });
 }
 
 class CompositeRequestError extends Error {

@@ -211,7 +211,9 @@ modelGateway:
     hmacKeyEnv: KILN_MODEL_GATEWAY_REPLAY_HMAC_KEY
   surfaces:
     openAIResponses:
-      maxBodyBytes: 1048576
+      # 64 MiB raw JSON ceiling. Keep context compaction enabled separately;
+      # byte admission does not imply useful model context at this size.
+      maxBodyBytes: 67108864
       maxConcurrentRequests: 8
   principals:
     - tokenEnv: KILN_MODEL_GATEWAY_BEARER_TOKEN

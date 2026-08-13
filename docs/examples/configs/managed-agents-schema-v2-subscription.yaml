@@ -69,7 +69,8 @@ modelGateway:
     hmacKeyEnv: KILN_REPLAY_SECRET
   surfaces:
     openAIResponses:
-      maxBodyBytes: 1048576
+      # Matches Kiln's bounded OpenAI Responses envelope for Codex clients.
+      maxBodyBytes: 67108864
       maxConcurrentRequests: 1
   principals:
     - tokenEnv: KILN_RESPONSES_TOKEN

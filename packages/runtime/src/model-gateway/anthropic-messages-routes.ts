@@ -39,7 +39,7 @@ export interface AnthropicMessagesIngressConfig {
 }
 
 class MessagesIngressError extends Error {
-  constructor(readonly status: number, readonly type: string, readonly safeMessage: string) { super(safeMessage); }
+  constructor(readonly status: number, readonly type: string, readonly safeMessage: string, readonly maxBodyBytes?: number) { super(safeMessage); }
 }
 
 export function createAnthropicMessagesRoutes(config: AnthropicMessagesIngressConfig): Hono {
@@ -145,7 +145,7 @@ function deriveAffinity(configured: AnthropicMessagesResolvedVirtualModel["affin
 }
 async function readBounded(request: Request, maximum: number): Promise<{ readonly text: string; readonly sha256: string }> {
   const declared = request.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maximum)) throw new MessagesIngressError(413, "request_too_large", "The request body exceeds the supported limit.");
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maximum)) throw new MessagesIngressError(413, "request_too_large", `The request body exceeds Kiln's configured ${maximum}-byte limit.`, maximum);
   if (request.body === null) throw new MessagesIngressError(400, "invalid_request_error", "The request body is required.");
   const reader = request.body.getReader(); const decoder = new TextDecoder("utf-8", { fatal: true }); const hash = createHash("sha256");
   let text = ""; let total = 0;
@@ -154,7 +154,7 @@ async function readBounded(request: Request, maximum: number): Promise<{ readonl
       if (request.signal.aborted) throw new GovernedOneRoundInvocationError("aborted", "Request aborted.");
       const read = await reader.read(); if (read.done) break;
       total += read.value.byteLength;
-      if (total > maximum) { await reader.cancel(); throw new MessagesIngressError(413, "request_too_large", "The request body exceeds the supported limit."); }
+      if (total > maximum) { await reader.cancel(); throw new MessagesIngressError(413, "request_too_large", `The request body exceeds Kiln's configured ${maximum}-byte limit.`, maximum); }
       hash.update(read.value);
       try { text += decoder.decode(read.value, { stream: true }); } catch { throw new MessagesIngressError(400, "invalid_request_error", "The request body must be UTF-8 JSON."); }
     }
@@ -170,9 +170,9 @@ function requireJson(value: string | undefined): void { if (!value || !/^applica
 function resolvePositive(value: number | undefined, fallback: number, name: string, cap = 64 * 1024 * 1024): number { const selected = value ?? fallback; if (!Number.isSafeInteger(selected) || selected <= 0 || selected > cap) throw new TypeError(`${name} is invalid.`); return selected; }
 function limiter(maximum: number) { let active = 0; return { acquire(): (() => void) | undefined { if (active >= maximum) return undefined; active++; let released = false; return () => { if (!released) { released = true; active--; } }; } }; }
 function json(value: unknown, status = 200): Response { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" } }); }
-function errorResponse(status: number, type: string, message: string): Response { const response = json({ type: "error", error: { type, message } }, status); if (status === 401) response.headers.set("www-authenticate", "Bearer"); return response; }
+function errorResponse(status: number, type: string, message: string, maxBodyBytes?: number): Response { const response = json({ type: "error", error: { type, message, ...(maxBodyBytes === undefined ? {} : { max_body_bytes: maxBodyBytes }) } }, status); if (status === 401) response.headers.set("www-authenticate", "Bearer"); if (maxBodyBytes !== undefined) response.headers.set("x-kiln-request-body-limit-bytes", String(maxBodyBytes)); return response; }
 function safeError(error: unknown): Response {
-  if (error instanceof MessagesIngressError) return errorResponse(error.status, error.type, error.safeMessage);
+  if (error instanceof MessagesIngressError) return errorResponse(error.status, error.type, error.safeMessage, error.maxBodyBytes);
   if (error instanceof AnthropicMessagesProtocolError) return errorResponse(400, "invalid_request_error", "The Messages request is invalid.");
   if (error instanceof AnthropicMessagesModelTurnError) return errorResponse(422, "invalid_request_error", "The Messages response cannot be represented.");
   if (error instanceof GovernedOneRoundCommittedError) return errorResponse(409, "invalid_request_error", "committed_failure: the response must not be retried automatically.");

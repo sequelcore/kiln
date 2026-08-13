@@ -70,7 +70,7 @@ export interface OpenAIResponsesIngressConfig {
 }
 
 class ResponsesIngressError extends Error {
-  constructor(readonly status: number, readonly code: string, readonly safeMessage: string) { super(safeMessage); }
+  constructor(readonly status: number, readonly code: string, readonly safeMessage: string, readonly maxBodyBytes?: number) { super(safeMessage); }
 }
 
 export function createOpenAIResponsesRoutes(config: OpenAIResponsesIngressConfig): Hono {
@@ -227,7 +227,7 @@ function resolveBodyLimit(configured: number | undefined): number {
 
 async function readBoundedBody(request: Request, maximum: number): Promise<{ readonly text: string; readonly sha256: string }> {
   const declared = request.headers.get("content-length");
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maximum)) throw new ResponsesIngressError(413, "request_too_large", "The request body exceeds the supported limit.");
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maximum)) throw new ResponsesIngressError(413, "request_too_large", `The request body exceeds Kiln's configured ${maximum}-byte limit.`, maximum);
   if (request.body === null) throw new ResponsesIngressError(400, "invalid_json", "The request body is required.");
   const reader = request.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -237,7 +237,7 @@ async function readBoundedBody(request: Request, maximum: number): Promise<{ rea
     while (true) {
       if (request.signal.aborted) throw new GovernedOneRoundInvocationError("aborted", "Request aborted.");
       const read = await reader.read(); if (read.done) break; total += read.value.byteLength;
-      if (total > maximum) { await reader.cancel(); throw new ResponsesIngressError(413, "request_too_large", "The request body exceeds the supported limit."); }
+      if (total > maximum) { await reader.cancel(); throw new ResponsesIngressError(413, "request_too_large", `The request body exceeds Kiln's configured ${maximum}-byte limit.`, maximum); }
       hash.update(read.value);
       try { decoded += decoder.decode(read.value, { stream: true }); }
       catch { throw new ResponsesIngressError(400, "invalid_json", "The request body must be UTF-8 JSON."); }
@@ -322,7 +322,13 @@ function requireServerId(value: string, field: string): string {
 }
 
 function projectSafeError(error: unknown): Response {
-  if (error instanceof ResponsesIngressError) return safeJson(error.status, error.code, error.safeMessage, error.status === 401);
+  if (error instanceof ResponsesIngressError) {
+    const response = safeJson(error.status, error.code, error.safeMessage, error.status === 401, error.maxBodyBytes === undefined
+      ? undefined
+      : { max_body_bytes: error.maxBodyBytes });
+    if (error.maxBodyBytes !== undefined) response.headers.set("x-kiln-request-body-limit-bytes", String(error.maxBodyBytes));
+    return response;
+  }
   if (error instanceof OpenAIResponsesProtocolError) return safeJson(400, "invalid_request", "The Responses request is invalid.");
   if (error instanceof OpenAIResponsesModelTurnError) return safeJson(422, "unsupported_request", "The requested Responses capability is unavailable.");
   if (error instanceof GovernedOneRoundCommittedError) return safeJson(409, "committed_failure", "The committed response could not be completed and must not be retried automatically.");
@@ -336,8 +342,8 @@ function projectSafeError(error: unknown): Response {
   return safeJson(503, "service_unavailable", "The model route is temporarily unavailable.");
 }
 
-function safeJson(status: number, code: string, message: string, authenticate = false): Response {
-  return new Response(JSON.stringify({ error: { type: "invalid_request_error", code, message } }), {
+function safeJson(status: number, code: string, message: string, authenticate = false, details?: Record<string, unknown>): Response {
+  return new Response(JSON.stringify({ error: { type: "invalid_request_error", code, message, ...details } }), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", ...(authenticate ? { "www-authenticate": "Bearer" } : {}) },
   });

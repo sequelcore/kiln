@@ -188,6 +188,37 @@ describe("Codex composite router", () => {
     await expect(invalidEncoding.json()).resolves.toEqual({ error: { type: "invalid_content_encoding" } });
   });
 
+  it("rejects oversized composite bodies while streaming with actionable limit evidence", async () => {
+    const base = config();
+    const limited: ModelGatewayConfig = {
+      ...base,
+      surfaces: { openAIResponses: { ...base.surfaces.openAIResponses!, maxBodyBytes: 32 } },
+    };
+    const routed = createCodexCompositeFetch({
+      config: limited, env: { CODEX_GATEWAY_TOKEN: token }, canonicalFetch: vi.fn(),
+      nativeFetch: vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response()),
+    });
+    const chunks = [new TextEncoder().encode('{"model":"kiln/model-a","input":['), new Uint8Array(64)];
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) { const chunk = chunks.shift(); chunk ? controller.enqueue(chunk) : controller.close(); },
+      cancel() { cancelled = true; },
+    });
+
+    const response = await routed(new Request(compositeUrl(), {
+      method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half",
+    } as RequestInit & { duplex: "half" }));
+
+    expect(response.status).toBe(413);
+    expect(response.headers.get("x-kiln-request-body-limit-bytes")).toBe("32");
+    await expect(response.json()).resolves.toEqual({ error: {
+      type: "request_too_large",
+      message: "The request body exceeds Kiln's configured 32-byte limit.",
+      max_body_bytes: 32,
+    } });
+    expect(cancelled).toBe(true);
+  });
+
   it("leaves non-composite listener routes under their existing owner", async () => {
     const canonicalFetch = vi.fn(async () => new Response("canonical"));
     const routed = createCodexCompositeFetch({

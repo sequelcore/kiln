@@ -85,6 +85,11 @@ describe("Anthropic Messages authenticated loopback ingress", () => {
     const value = fixture({ maxBodyBytes: 32 });
     const response = await createAnthropicMessagesRoutes(value.config).request(messages());
     expect(response.status).toBe(413);
+    expect(response.headers.get("x-kiln-request-body-limit-bytes")).toBe("32");
+    await expect(response.json()).resolves.toMatchObject({ error: {
+      type: "request_too_large",
+      max_body_bytes: 32,
+    } });
     expect(value.execute).not.toHaveBeenCalled();
   });
 

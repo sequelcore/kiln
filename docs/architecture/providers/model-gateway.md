@@ -82,6 +82,20 @@ Messages fields remain rejected rather than silently degraded.
 
 ## Ingress Lifecycle
 
+Ingress byte limits are explicit availability and memory-safety controls, not
+model context-window controls. The OpenAI Responses surface admits at most 64
+MiB of raw JSON; Codex composite routing applies the same ceiling to both the
+wire body and each decoded representation so compressed requests cannot bypass
+the bound. The Anthropic Messages surface should be configured at no more than
+32 MiB, matching the direct API envelope. A 413 response identifies Kiln's
+configured limit in `x-kiln-request-body-limit-bytes` and `max_body_bytes`
+without logging request content.
+
+Clients still compact long histories according to model token and task-quality
+policy. A larger HTTP envelope is necessary for tool-rich coding-agent turns,
+but it neither expands a model context window nor proves that the model can use
+all admitted context effectively.
+
 One user-scoped supervisor owns the loopback listener, lifecycle state, lock,
 and optional Windows logon task. The Runtime-owned economic authority database
 is shared with the Operator Runtime under
@@ -115,6 +129,37 @@ Kiln config is canonical. Native configuration is a derived projection with
 ownership, backup, drift, adoption, sync, uninstall, and exact restore rules.
 Projection never becomes route or account authority, and it must not replace a
 native provider catalog, default, search setting, or unrelated user field.
+
+### Codex composite routing
+
+The Codex projection installs one loopback base URL under the authenticated
+`codex-composite` path. This gives Codex one model catalog containing both its
+native models and Kiln virtual models without changing which system owns each
+model:
+
+```text
+Codex client
+    |
+    v
+Kiln codex-composite listener
+    |-- native Codex model ID --> Codex backend
+    `-- Kiln virtual model ID --> canonical Kiln execution route
+```
+
+For a native Codex model ID, Kiln authenticates the composite capability,
+applies ingress safety limits, preserves only admitted native headers, and
+forwards the original request to the Codex backend. Kiln does not translate
+that turn into a Kiln execution route and does not change the selected native
+model. For a virtual model ID admitted to the projected principal, Kiln maps
+the request to that virtual model's canonical `executionRouteId`.
+
+This means selecting Codex's default model still sends the HTTP request through
+the local listener. A URL containing
+`127.0.0.1:<port>/.well-known/kiln/codex-composite/` identifies that transport
+path; it does not by itself mean that a Kiln virtual model was selected. Errors
+returned before forwarding, including Kiln's bounded-body 413, can therefore
+affect native Codex turns. Upstream responses and errors remain attributable to
+the Codex backend.
 
 ## Related Overlays
 

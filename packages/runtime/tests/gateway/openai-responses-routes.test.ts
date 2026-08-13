@@ -310,6 +310,11 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
       method: "POST", headers: { authorization: "Bearer valid-token", "content-type": "application/json" }, body: stream, duplex: "half",
     } as RequestInit & { duplex: "half" }));
     expect(response.status).toBe(413);
+    expect(response.headers.get("x-kiln-request-body-limit-bytes")).toBe("32");
+    await expect(response.json()).resolves.toMatchObject({ error: {
+      code: "request_too_large",
+      max_body_bytes: 32,
+    } });
     expect(fixture.execute).not.toHaveBeenCalled();
   });
 
