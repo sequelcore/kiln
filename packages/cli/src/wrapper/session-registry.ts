@@ -21,7 +21,7 @@ import {
   type HarnessPoolProviderId,
   type ManagedInvocationToolAttachment,
   type OperatorSurfaceController,
-  type RuntimeBudgetAdmissionPort,
+  type RuntimeSessionTurnBudgetAuthority,
   type RuntimeExecutionEnvelope,
   type CliDeliberationTransport,
 } from "@kilnai/runtime";
@@ -40,6 +40,7 @@ import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-pr
 import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
 import { assertNativeMcpProjectionCurrent } from "../config/native-mcp-projection-sync.js";
 import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
+import { createRuntimePermissionObservationStore } from "./runtime-permission-observation.js";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
 export type DirectApiProviderId =
@@ -178,7 +179,7 @@ export interface ProviderCreateConfig {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly runtimeExecutionMode?: "execute" | "plan";
-  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   /** Provider-neutral managed child result contract. */
   readonly structuredOutputSchema?: Readonly<Record<string, unknown>>;
@@ -198,6 +199,8 @@ export interface CreateDefaultRegistryOptions {
   readonly canonicalMcpServers?: readonly import("@kilnai/core").ResolvedMcpServer[];
   /** Canonical project root that owns native MCP projection state. */
   readonly canonicalMcpProjectPath?: string;
+  /** Canonical project root that owns path-free native runtime handoff evidence. */
+  readonly runtimePermissionObservationProjectPath?: string;
 }
 
 export interface ClaudeBackendConfig {
@@ -1093,7 +1096,7 @@ function createDirectProviderSession(
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
     ...(config.runtimeExecutionMode ? { runtimeExecutionMode: config.runtimeExecutionMode } : {}),
-    ...(config.budgetAdmission ? { budgetAdmission: config.budgetAdmission } : {}),
+    ...(config.sessionTurnBudget ? { sessionTurnBudget: config.sessionTurnBudget } : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),
     ...(config.canonicalMcpServers ? {
       mcpClients: config.canonicalMcpServers.map(createCanonicalMcpClient),
@@ -1127,6 +1130,9 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
   worktreeManager: WorktreeManager;
 } {
   const worktreeManager = new WorktreeManager(process.cwd());
+  const runtimePermissionObservationSink = options.runtimePermissionObservationProjectPath
+    ? createRuntimePermissionObservationStore({ projectPath: options.runtimePermissionObservationProjectPath })
+    : undefined;
   worktreeManager.pruneStale().catch((err: unknown) => {
     debug("pruneStale error:", err instanceof Error ? err.message : String(err));
   });
@@ -1191,6 +1197,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           harnessExecutable: config.harnessExecutable,
           harnessEvidence: config.harnessEvidence,
           privatePlanArtifactCapability: config.privatePlanArtifactCapability,
+          runtimePermissionObservationSink,
         });
         return createPooledHarnessSession(
           "claude-code",
@@ -1248,6 +1255,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           translationWarnings: translated.warnings,
           continuationSessionId: config.continuationSessionId,
           sessionLedgerOwner: config.sessionLedgerOwner,
+          runtimePermissionObservationSink,
         });
         return createPooledHarnessSession(
           "codex",
@@ -1298,6 +1306,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
           deliberationResolution: config.deliberationResolution,
           harnessExecutable: config.harnessExecutable,
           harnessEvidence: config.harnessEvidence,
+          runtimePermissionObservationSink,
         });
         // The admitted variant belongs to the ambient accountless catalog.
         // Do not substitute a pooled credential home after admission.

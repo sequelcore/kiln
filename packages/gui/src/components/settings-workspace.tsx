@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { ArrowLeft, Palette, Settings2, Wrench } from "lucide-react";
+import { ArrowLeft, Palette, Settings2, Wrench, Boxes } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -12,6 +12,12 @@ import { cn } from "@/lib/utils";
 import type { SettingsSection } from "./settings-navigation.js";
 
 const SETTINGS_SECTIONS = [
+  {
+    id: "available-models",
+    label: "Available models",
+    description: "Discovery and route readiness",
+    icon: Boxes,
+  },
   {
     id: "appearance",
     label: "Appearance",
@@ -40,11 +46,12 @@ export function SettingsWorkspace(props: {
   readonly sidebarWidth?: number;
   readonly appearance: ReactNode;
   readonly configuration: ReactNode;
+  readonly availableModels: ReactNode;
   readonly onSelectSection: (section: SettingsSection) => void;
   readonly onBack: () => void;
 }) {
   const activeSection = sectionDefinition(props.section);
-  const content = props.section === "appearance" ? props.appearance : props.configuration;
+  const content = props.section === "appearance" ? props.appearance : props.section === "configuration" ? props.configuration : props.availableModels;
   const sidebarStyle: CSSProperties | undefined = props.sidebarWidth
     ? { width: props.sidebarWidth, minWidth: props.sidebarWidth, maxWidth: props.sidebarWidth }
     : undefined;
@@ -104,7 +111,7 @@ export function SettingsWorkspace(props: {
           <Select
             value={props.section}
             onValueChange={(value) => {
-              if (value === "appearance" || value === "configuration") props.onSelectSection(value);
+              if (value === "appearance" || value === "configuration" || value === "available-models") props.onSelectSection(value);
             }}
           >
             <SelectTrigger size="sm" aria-label="Settings section" className="w-40 lg:hidden">

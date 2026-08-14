@@ -4,7 +4,7 @@ import type { KilnGlobalConfig } from "../../src/config/global-config.js";
  * Canonical schema-v2 global config: a runtime-selected `codex-standard`
  * managed route covered by a matching `executionCatalog.routes` economic
  * route. Shared by `managed-economic-policy-config.test.ts` (schema/runtime
- * validation of this shape) and `operator-project-managed-jobs-runtime-config.test.ts`
+ * validation of this shape) and `operator-project-agent-tasks-runtime-config.test.ts`
  * (the real native-harness composition boundary), so both exercise the exact
  * same valid fixture rather than two independently drifting copies.
  */
@@ -84,6 +84,21 @@ export function economicConfig(): KilnGlobalConfig {
         label: "Codex Standard",
         providerId: "codex-oauth",
         providerModelId: "gpt-5.6-codex",
+        dataClassification: "internal",
+        dataPolicyEvidence: {
+          providerId: "codex-oauth",
+          providerModelId: "gpt-5.6-codex",
+          dataUse: "not-used",
+          trainingPosture: "prohibited",
+          retention: { posture: "zero", days: 0 },
+          permittedMaximumClassification: "internal",
+          permittedClassifications: ["public", "internal"],
+          sourceIdentity: "fixture-privacy-policy",
+          sourceRevision: "rev-2026-08",
+          sourceDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          observedAt: "2026-08-01T00:00:00.000Z",
+          expiresAt: "2027-08-31T00:00:00.000Z",
+        },
         accountSelection: { mode: "automatic", accountPolicyId: "codex-standard-policy" },
         economics: {
           adapterCapabilityId: "codex-direct",

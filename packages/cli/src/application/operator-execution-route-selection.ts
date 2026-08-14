@@ -13,19 +13,20 @@ import type { OperatorExecutionRouteSelectionPort } from "@kilnai/runtime";
 import type { KilnGlobalConfig } from "../config/global-config.js";
 
 export function createOperatorExecutionRouteSelectionPort(input: {
-  readonly readConfig: () => KilnGlobalConfig | null;
+  readonly readConfigSnapshot: () => { readonly config: KilnGlobalConfig | null; readonly revision: string };
   readonly resolveAccountAvailability: (input: {
     readonly admission: ReturnType<typeof admitOperatorExecutionIntent>;
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>;
 }): OperatorExecutionRouteSelectionPort {
-  const catalog = (): ExecutionCatalog => {
-    const configured = input.readConfig()?.executionCatalog;
+  const catalog = (config: KilnGlobalConfig | null): ExecutionCatalog => {
+    const configured = config?.executionCatalog;
     if (!configured) return defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
     return defineExecutionCatalog(configured);
   };
-  const getCatalog = async (): Promise<ExecutionRouteCatalog> => projectCatalog(
-    catalog(), input.resolveAccountAvailability,
-  );
+  const getCatalog = async (): Promise<ExecutionRouteCatalog> => {
+    const snapshot = input.readConfigSnapshot();
+    return projectCatalog(catalog(snapshot.config), input.resolveAccountAvailability, snapshot.revision);
+  };
   return {
     getCatalog,
     admit: async (intent: ExecutionRouteSelectionIntent) => {
@@ -33,7 +34,7 @@ export function createOperatorExecutionRouteSelectionPort(input: {
       const rejected = rejectUnavailableExecutionRoute(projected, intent);
       if (rejected) return rejected;
       try {
-        const admitted = admitOperatorExecutionIntent(catalog(), intent);
+        const admitted = admitOperatorExecutionIntent(catalog(input.readConfigSnapshot().config), intent);
         return {
           ok: true,
           admission: {
@@ -74,6 +75,7 @@ async function projectCatalog(
   resolveAccountAvailability: (input: {
     readonly admission: ReturnType<typeof admitOperatorExecutionIntent>;
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>,
+  revision: string,
 ): Promise<ExecutionRouteCatalog> {
   const accountAvailabilityByRoute = new Map<string, readonly OperatorExecutionRouteAccountAvailability[]>();
   for (const route of catalog.routes) {
@@ -86,6 +88,7 @@ async function projectCatalog(
   }
   return {
     observedAt: new Date().toISOString(),
+    revision,
     routes: catalog.routes.map((route): ExecutionRouteCatalogEntry => {
       const selection = route.accountSelection;
       const configuredAccountIds = selection.mode === "automatic"

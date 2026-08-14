@@ -107,7 +107,7 @@ The repository already contains the core primitives:
 - `docs/architecture/core/work-governance.md` defines governed work items,
   execution attempts, evidence gates, verification results, and residual-risk
   closeout.
-- `docs/architecture/coordination/managed-agents.md` defines managed invocation capability
+- `docs/architecture/coordination/agent-tasks.md` defines durable task/run capability
   snapshots, lifecycle events, handoffs, diagnostics, resources, and replay.
 - `packages/gateway-contracts/src/operator-cockpit-projection.ts` projects
   timelines, managed invocations, tool summaries, resources, costs, and

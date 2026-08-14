@@ -31,18 +31,18 @@ import {
   type VerificationUsageReport,
 } from "../../efficiency/output-verification-allocation.js";
 import {
-  createAccountPolicyId,
-  createAccountRef,
-  defineModelGatewayAccountRejection,
-  defineModelGatewayAccountUsageEvidence,
-  type AccountPolicyId,
-  type AccountRef,
-  type ModelGatewayAccountRejection,
-  type ModelGatewayAccountSelection,
-  type ModelGatewayAccountUsageEvidence,
-  type ModelGatewayAffinityOutcome,
-  type ModelGatewayRoute,
-} from "../model-gateway/index.js";
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
+  defineExecutionAccountCapacityRejection,
+  defineExecutionAccountUsageEvidence,
+  type ExecutionAccountPolicyId,
+  type ExecutionAccountRef,
+  type ExecutionAccountCapacityRejection,
+  type ExecutionAccountCapacitySelection,
+  type ExecutionAccountUsageEvidence,
+  type ExecutionAccountAffinityOutcome,
+  type ProviderModelRouteIdentity,
+} from "../execution-routing/index.js";
 
 export * from "./write-authority.js";
 export * from "./read-authority.js";
@@ -140,7 +140,7 @@ export type ManagedAgentCredentialRoute =
   | {
     readonly mode: "account-leased";
     readonly routeId: string;
-    readonly accountPolicyId: AccountPolicyId;
+    readonly accountPolicyId: ExecutionAccountPolicyId;
   }
   | {
     readonly mode: "credentialless";
@@ -682,17 +682,17 @@ export function createManagedAccountAffinityKey(value: string): ManagedAccountAf
 
 export interface ManagedAccountLeaseEvidence {
   readonly leaseId: string;
-  readonly accountPolicyId: AccountPolicyId;
-  readonly accountRef: AccountRef;
-  readonly route: ModelGatewayRoute;
+  readonly accountPolicyId: ExecutionAccountPolicyId;
+  readonly accountRef: ExecutionAccountRef;
+  readonly route: ProviderModelRouteIdentity;
   readonly jobId: string;
   readonly runtimeInvocationId: string;
   readonly credentialRevisionId: string;
-  readonly selectionReason: ModelGatewayAccountSelection["reason"];
-  readonly candidateRejections: readonly ModelGatewayAccountRejection[];
+  readonly selectionReason: ExecutionAccountCapacitySelection["reason"];
+  readonly candidateRejections: readonly ExecutionAccountCapacityRejection[];
   /** Absent only when replaying lease evidence written before usage capture existed. */
-  readonly usageEvidence?: ModelGatewayAccountUsageEvidence;
-  readonly affinityOutcome?: ModelGatewayAffinityOutcome;
+  readonly usageEvidence?: ExecutionAccountUsageEvidence;
+  readonly affinityOutcome?: ExecutionAccountAffinityOutcome;
   readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
   readonly acquiredAt: string;
   readonly lifecycleState: ManagedAccountLeaseLifecycleState;
@@ -705,14 +705,14 @@ export interface ManagedAccountLeaseEvidenceInput {
   readonly leaseId: string;
   readonly accountPolicyId: string;
   readonly accountRef: string;
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity;
   readonly jobId: string;
   readonly runtimeInvocationId: string;
   readonly credentialRevisionId: string;
-  readonly selectionReason: ModelGatewayAccountSelection["reason"];
-  readonly candidateRejections?: readonly ModelGatewayAccountRejection[];
-  readonly usageEvidence?: ModelGatewayAccountUsageEvidence;
-  readonly affinityOutcome?: ModelGatewayAffinityOutcome;
+  readonly selectionReason: ExecutionAccountCapacitySelection["reason"];
+  readonly candidateRejections?: readonly ExecutionAccountCapacityRejection[];
+  readonly usageEvidence?: ExecutionAccountUsageEvidence;
+  readonly affinityOutcome?: ExecutionAccountAffinityOutcome;
   readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
   readonly acquiredAt: string;
   readonly lifecycleState: ManagedAccountLeaseLifecycleState;
@@ -725,7 +725,7 @@ export function defineManagedAccountLeaseEvidence(
   input: ManagedAccountLeaseEvidenceInput,
 ): ManagedAccountLeaseEvidence {
   const leaseId = requirePortableLeaseIdentifier(input.leaseId, "Managed account lease id is required");
-  const accountRef = requireCanonicalAccountReference(input.accountRef);
+  const accountRef = requireCanonicalExecutionAccountReference(input.accountRef);
   const acquiredAt = requireIsoTimestamp(input.acquiredAt, "Managed account lease acquired timestamp is required");
   const lifecycleState = requireManagedAccountLeaseLifecycleState(input.lifecycleState);
   const releasedAt = input.releasedAt === undefined
@@ -759,7 +759,7 @@ export function defineManagedAccountLeaseEvidence(
   requireManagedAccountLifecycleDiagnostics(input.lifecycleState, diagnosticUris, resourceUri);
   return {
     leaseId,
-    accountPolicyId: createAccountPolicyId(requirePortableLeaseIdentifier(
+    accountPolicyId: createExecutionAccountPolicyId(requirePortableLeaseIdentifier(
       input.accountPolicyId,
       "Managed account lease policy id is required",
     )),
@@ -772,12 +772,12 @@ export function defineManagedAccountLeaseEvidence(
     ),
     credentialRevisionId: input.credentialRevisionId,
     selectionReason: requireManagedAccountSelectionReason(input.selectionReason),
-    candidateRejections: (input.candidateRejections ?? []).map((rejection) => defineModelGatewayAccountRejection({
+    candidateRejections: (input.candidateRejections ?? []).map((rejection) => defineExecutionAccountCapacityRejection({
       ...rejection,
-      account: requireCanonicalAccountReference(rejection.account),
+      account: requireCanonicalExecutionAccountReference(rejection.account),
     })),
     ...(input.usageEvidence !== undefined
-      ? { usageEvidence: defineModelGatewayAccountUsageEvidence(input.usageEvidence) }
+      ? { usageEvidence: defineExecutionAccountUsageEvidence(input.usageEvidence) }
       : {}),
     ...(input.affinityOutcome !== undefined
       ? { affinityOutcome: requireManagedAccountAffinityOutcome(input.affinityOutcome) }
@@ -796,7 +796,7 @@ export function defineManagedAccountLeaseEvidence(
   };
 }
 
-function requireCanonicalAccountReference(value: string): AccountRef {
+function requireCanonicalExecutionAccountReference(value: string): ExecutionAccountRef {
   if (
     value.length === 0
     || value.length > 512
@@ -805,7 +805,7 @@ function requireCanonicalAccountReference(value: string): AccountRef {
   ) {
     throw new Error("Managed account lease account reference must be canonical");
   }
-  return createAccountRef(value);
+  return createExecutionAccountRef(value);
 }
 
 function requirePortableLeaseIdentifier(value: string, message: string): string {
@@ -867,7 +867,7 @@ function requireManagedAccountLifecycleDiagnostics(
   }
 }
 
-function requireManagedAccountRoute(route: ModelGatewayRoute): ModelGatewayRoute {
+function requireManagedAccountRoute(route: ProviderModelRouteIdentity): ProviderModelRouteIdentity {
   return {
     providerId: requireText(route.providerId, "Managed account lease provider id is required"),
     providerModelId: requireText(route.providerModelId, "Managed account lease provider model id is required"),
@@ -885,8 +885,8 @@ function requireManagedAccountLeaseLifecycleState(
 }
 
 function requireManagedAccountSelectionReason(
-  value: ModelGatewayAccountSelection["reason"],
-): ModelGatewayAccountSelection["reason"] {
+  value: ExecutionAccountCapacitySelection["reason"],
+): ExecutionAccountCapacitySelection["reason"] {
   if (value !== "existing-affinity" && value !== "least-pressure" && value !== "affinity-rebind") {
     throw new Error(`Unsupported managed account lease selection reason: ${String(value)}`);
   }
@@ -894,8 +894,8 @@ function requireManagedAccountSelectionReason(
 }
 
 function requireManagedAccountAffinityOutcome(
-  value: ModelGatewayAffinityOutcome,
-): ModelGatewayAffinityOutcome {
+  value: ExecutionAccountAffinityOutcome,
+): ExecutionAccountAffinityOutcome {
   if (value !== "honored" && value !== "missing" && value !== "rejected" && value !== "rebound") {
     throw new Error(`Unsupported managed account lease affinity outcome: ${String(value)}`);
   }
@@ -1889,7 +1889,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
     requireText(credentialRoute.routeId, "Managed invocation credential route id is required");
   } else if (credentialRoute.mode === "account-leased") {
     requireText(credentialRoute.routeId, "Managed invocation credential route id is required");
-    createAccountPolicyId(credentialRoute.accountPolicyId);
+    createExecutionAccountPolicyId(credentialRoute.accountPolicyId);
   } else if (credentialRoute.mode !== "credentialless") {
     throw new Error(`Unsupported managed invocation credential route mode: ${(credentialRoute as { readonly mode?: string }).mode ?? ""}`);
   }
@@ -1917,7 +1917,7 @@ function requireAuthority(input: ManagedAgentAuthorityProfile): ManagedAgentAuth
         ? {
           mode: "account-leased",
           routeId: requireText(credentialRoute.routeId, "Managed invocation credential route id is required"),
-          accountPolicyId: createAccountPolicyId(credentialRoute.accountPolicyId),
+          accountPolicyId: createExecutionAccountPolicyId(credentialRoute.accountPolicyId),
         }
       : { mode: "credentialless" },
     memoryScope: {

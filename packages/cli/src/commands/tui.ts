@@ -20,6 +20,7 @@ import {
 } from "../application/context-artifact-keys.js";
 import {
   readGlobalConfig,
+  readGlobalConfigSnapshot,
   resolveGlobalUiTheme,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -29,9 +30,9 @@ import { withWorkGovernanceContext } from "../application/work-governance-contex
 import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import {
-  createCliTranscriptBudgetUsageReader,
-  createRuntimeBudgetAdmissionFromGlobalConfig,
-} from "../application/runtime-budget-admission.js";
+  createCliTranscriptSessionTokenUsageReader,
+  createRuntimeSessionTurnBudgetFromGlobalConfig,
+} from "../application/session-turn-budget.js";
 import {
   createKilnRuntimeManagedInvocationAttachment,
   createManagedInvocationExecutionProofResolverRef,
@@ -128,7 +129,7 @@ import {
 import type {
   CliSessionFactoryContext,
   ManagedInvocationToolAttachment,
-  RuntimeBudgetAdmissionPort,
+  RuntimeSessionTurnBudgetAuthority,
   RuntimeSessionHydrator,
   OperatorTurnDispatchPort,
 } from "@kilnai/runtime";
@@ -164,7 +165,7 @@ interface TuiBootstrapOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: import("@kilnai/runtime").AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
-  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -450,7 +451,7 @@ export async function makeMultiProviderSessionFactory(
   builtinToolOptions?: DefaultBuiltinToolRegistryOptions,
   transcriptSurface: OperatorTranscriptSurface = "tui",
   managedInvocation?: ManagedInvocationToolAttachment,
-  budgetAdmission?: RuntimeBudgetAdmissionPort,
+  sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
 
@@ -577,7 +578,7 @@ export async function makeMultiProviderSessionFactory(
           ...(context?.operatorSurface ? { operatorSurface: context.operatorSurface } : {}),
           builtinToolOptions: sessionBuiltinToolOptions,
           ...(managedInvocationWithTranscriptSink ? { managedInvocation: managedInvocationWithTranscriptSink } : {}),
-          ...(budgetAdmission ? { budgetAdmission } : {}),
+          ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
         });
         activeSession = resumedSession;
         const capturedId = stableRuntimeSessionId ?? resumedSession.sessionId;
@@ -1067,7 +1068,7 @@ async function bootstrapGatewaySession(
     builtinToolOptions: options.builtinToolOptions,
     managedInvocation: options.managedInvocation,
     boundedWork: options.boundedWork,
-    budgetAdmission: options.budgetAdmission,
+    sessionTurnBudget: options.sessionTurnBudget,
     resumeSessionHydrator: options.resumeSessionHydrator,
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
@@ -1416,7 +1417,11 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const admittedMcpServers = mcpResolution.diagnostics.length === 0
     ? Object.values(mcpResolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted")
     : [];
-  const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
+  const { registry } = createDefaultRegistry({
+    canonicalMcpServers: admittedMcpServers,
+    canonicalMcpProjectPath: cwd,
+    runtimePermissionObservationProjectPath: cwd,
+  });
   const providerDisplayInfo = getProviderDisplayInfo(registry);
   const providerIds = providerDisplayInfo.map((entry) => entry.id);
   startupProfiler.mark("config-loaded", { projectPath: cwd });
@@ -1445,9 +1450,9 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     sessionStore,
     projectPath: cwd,
   });
-  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
+  const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(
     globalConfig,
-    createCliTranscriptBudgetUsageReader(transcriptStore),
+    createCliTranscriptSessionTokenUsageReader(transcriptStore),
   );
   const startupProviderIds = providerIds;
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
@@ -1561,7 +1566,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     builtinToolOptions,
     "tui",
     managedInvocationAttachment,
-    runtimeBudgetAdmission,
+    sessionTurnBudget,
   );
   startupProfiler.mark("session-manager-ready");
   if (startupModel) {
@@ -1576,7 +1581,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     cwd,
   });
   const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
-    readConfig: () => readGlobalConfig() ?? globalConfig,
+    readConfigSnapshot: () => {
+      const snapshot = readGlobalConfigSnapshot();
+      return { config: snapshot.config ?? globalConfig, revision: snapshot.revision };
+    },
     resolveAccountAvailability: operatorTurnComposition.resolveExecutionRouteAccountAvailability,
   });
   const bootstrap = await bootstrapTuiSession({
@@ -1591,7 +1599,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     builtinToolOptions,
     managedInvocation: managedInvocationForGateway,
     boundedWork: boundedWork.surface,
-    budgetAdmission: runtimeBudgetAdmission,
+    sessionTurnBudget,
     resumeSessionHydrator,
     operatorVoice,
     initialProviderDiscovery,

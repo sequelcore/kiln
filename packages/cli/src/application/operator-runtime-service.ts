@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { ManagedEconomicSettlement } from "@kilnai/core";
 import {
@@ -17,14 +18,14 @@ import {
   signOperatorSessionCredential,
   type ManagedEconomicCommitmentAcquireInput,
 } from "@kilnai/runtime";
-import { NativeHarnessMcpTools, type ManagedJobApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
+import { NativeHarnessMcpTools, type AgentTaskApplicationPort } from "../native-harness/native-harness-mcp-tools.js";
 import { createNativeHarnessInspectionService } from "./native-harness-inspection.js";
 import { readConfigStatusSnapshot } from "./config-status.js";
 import {
-  createOperatorProjectManagedJobApplicationComposition,
+  createOperatorProjectAgentTaskApplicationComposition,
   createOperatorGlobalManagedAccountComposition,
-  type OperatorProjectManagedJobApplicationComposition,
-} from "./operator-project-managed-jobs.js";
+  type OperatorProjectAgentTaskApplicationComposition,
+} from "./operator-project-agent-tasks.js";
 import {
   closeManagedAccountRuntimeComposition,
 } from "../config/managed-agent-routes.js";
@@ -102,8 +103,8 @@ export interface OperatorRuntimeServiceOptions {
   readonly resolveWorkspace?: (context: TrustedProcessContext) => TrustedWorkspaceResolution;
   readonly createComposition?: (options: {
     readonly projectPath: string;
-  }) => Promise<OperatorProjectManagedJobApplicationComposition>;
-  readonly registry?: ProjectRuntimeRegistry<OperatorProjectManagedJobApplicationComposition>;
+  }) => Promise<OperatorProjectAgentTaskApplicationComposition>;
+  readonly registry?: ProjectRuntimeRegistry<OperatorProjectAgentTaskApplicationComposition>;
   readonly sdkLoader?: () => Promise<OperatorRuntimeMcpSdk>;
   readonly userHome?: string;
 }
@@ -142,7 +143,7 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
         databasePath: globalEconomicAuthorityDatabasePath,
       });
     }
-    return createOperatorProjectManagedJobApplicationComposition({
+    return createOperatorProjectAgentTaskApplicationComposition({
       projectPath,
       ...(globalManagedAccountComposition ? { managedAccountComposition: globalManagedAccountComposition } : {}),
     });
@@ -488,6 +489,23 @@ export function createOperatorRuntimeService(options: OperatorRuntimeServiceOpti
   return { onSessionOpen, onMcpRequest, onApplicationRequest, close };
 }
 
+/**
+ * Durable AgentTask ownership binding. The project and native principal stay
+ * visible for diagnostics; the stable session identity is represented by its
+ * digest so the persisted caller remains within the portable identifier bound.
+ */
+export function deriveOperatorRuntimeCallerId(input: {
+  readonly projectRuntimeId: string;
+  readonly principal: OperatorRuntimePrincipal;
+  readonly sessionId: string;
+}): string {
+  const principalId = input.principal.kind === "native-harness"
+    ? input.principal.harness
+    : input.principal.surface;
+  const sessionDigest = createHash("sha256").update(input.sessionId, "utf8").digest("hex");
+  return `operator-session:${input.projectRuntimeId}:${input.principal.kind}:${principalId}:${sessionDigest}`;
+}
+
 function applicationSuccess(result: unknown): OperatorRuntimeApplicationResponse {
   return { schemaVersion: 1, status: "ok", result };
 }
@@ -502,7 +520,7 @@ function applicationError(
 async function handleMcpRequest(input: {
   readonly request: Request;
   readonly session: OperatorRuntimeSessionRecord;
-  readonly registry: ProjectRuntimeRegistry<OperatorProjectManagedJobApplicationComposition>;
+  readonly registry: ProjectRuntimeRegistry<OperatorProjectAgentTaskApplicationComposition>;
   readonly sdkLoader: () => Promise<OperatorRuntimeMcpSdk>;
   readonly requestId: string;
   readonly userHome?: string;
@@ -514,7 +532,7 @@ async function handleMcpRequest(input: {
     return unavailableResponse();
   }
 
-  const managedJobs = createLazyManagedJobPort(input.registry, input.session);
+  const agentTasks = createLazyAgentTaskPort(input.registry, input.session);
   const adapter = new NativeHarnessMcpTools({
     harness: requireNativeHarness(input.session.principal),
     inspection: createNativeHarnessInspectionService({
@@ -529,9 +547,13 @@ async function handleMcpRequest(input: {
         binding: input.session.binding,
       })).configuredAgents,
     }),
-    managedJobs,
+    agentTasks,
     requestIdentity: () => ({
-      callerId: `operator-project:${input.session.binding.projectRuntimeId}`,
+      callerId: deriveOperatorRuntimeCallerId({
+        projectRuntimeId: input.session.binding.projectRuntimeId,
+        principal: input.session.principal,
+        sessionId: input.session.sessionId,
+      }),
       requestId: input.requestId,
     }),
   });
@@ -560,11 +582,11 @@ async function handleMcpRequest(input: {
   }
 }
 
-function createLazyManagedJobPort(
-  registry: ProjectRuntimeRegistry<OperatorProjectManagedJobApplicationComposition>,
+function createLazyAgentTaskPort(
+  registry: ProjectRuntimeRegistry<OperatorProjectAgentTaskApplicationComposition>,
   session: OperatorRuntimeSessionRecord,
-): ManagedJobApplicationPort {
-  const application = async (): Promise<ManagedJobApplicationPort> =>
+): AgentTaskApplicationPort {
+  const application = async (): Promise<AgentTaskApplicationPort> =>
     (await registry.ensure({
       canonicalRoot: session.canonicalRoot,
       binding: session.binding,

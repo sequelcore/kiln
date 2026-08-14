@@ -4,7 +4,7 @@ vi.mock("../../src/config/global-config.js", () => ({
   mutateGlobalConfig: vi.fn(),
   defaultGlobalConfig: () => ({
     version: "2",
-    workerRouting: { defaultWorker: "claude", budgetAware: false },
+    workerRouting: { defaultWorker: "claude" },
     components: { include: ["baseline:core"] },
   }),
   resolveGlobalUiTheme: (config: { ui?: { theme?: string } } | null) => config?.ui?.theme,
@@ -57,7 +57,7 @@ describe("operator theme preferences", () => {
     });
     expect(mutateGlobalConfigMock.mock.calls[0]?.[0](null)).toEqual({
       version: "2",
-      workerRouting: { defaultWorker: "claude", budgetAware: false },
+      workerRouting: { defaultWorker: "claude" },
       components: { include: ["baseline:core"] },
       ui: { theme: "vesper" },
     });

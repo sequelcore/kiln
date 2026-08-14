@@ -78,6 +78,13 @@ export interface ModelGatewayConfig {
     readonly openAIResponses?: ModelGatewayHttpSurfaceConfig;
     readonly anthropicMessages?: ModelGatewayHttpSurfaceConfig;
   };
+  /** Codex composite ingress policy; only meaningful with a native Codex principal. */
+  readonly codexComposite?: ModelGatewayCodexCompositeConfig;
+}
+
+export interface ModelGatewayCodexCompositeConfig {
+  readonly maxQueuedRequests: number;
+  readonly queueTimeoutMs: number;
 }
 
 export interface ModelGatewayHttpSurfaceConfig {
@@ -216,6 +223,15 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
   }
   if (!Array.isArray(value.principals) || value.principals.length === 0) errors.push({ field: "modelGateway.principals", message: "must be non-empty" });
   const configuredIngresses = new Set((value.principals ?? []).map((principal) => principal.ingress));
+  const hasCodexComposite = (value.principals ?? []).some((principal) => principal.nativeHarness === "codex");
+  if (hasCodexComposite && !value.codexComposite) {
+    errors.push({ field: "modelGateway.codexComposite", message: "is required for a native Codex principal" });
+  } else if (!hasCodexComposite && value.codexComposite) {
+    errors.push({ field: "modelGateway.codexComposite", message: "requires a native Codex principal" });
+  } else if (value.codexComposite) {
+    bounded(value.codexComposite.maxQueuedRequests, 0, 4096, "modelGateway.codexComposite.maxQueuedRequests", errors, true);
+    bounded(value.codexComposite.queueTimeoutMs, 1, 300_000, "modelGateway.codexComposite.queueTimeoutMs", errors, true);
+  }
   if (responsesSurface && !configuredIngresses.has("openai-responses")) errors.push({ field: "modelGateway.surfaces.openAIResponses", message: "requires at least one openai-responses principal" });
   if (anthropicSurface && !configuredIngresses.has("anthropic-messages")) errors.push({ field: "modelGateway.surfaces.anthropicMessages", message: "requires at least one anthropic-messages principal" });
   const models = new Set<string>();

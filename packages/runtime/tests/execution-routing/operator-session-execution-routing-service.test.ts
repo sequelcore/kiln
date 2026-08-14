@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccountPolicyId, createAccountRef, defineExecutionCatalog, type ExecutionAccountCandidate } from "@kilnai/core";
+import { createExecutionAccountPolicyId, createExecutionAccountRef, defineExecutionCatalog, type ExecutionAccountAdmissionCandidate } from "@kilnai/core";
 import { OperatorSessionExecutionRoutingService } from "../../src/execution-routing/operator-session-execution-routing-service.js";
-import type { AccountCapacityAcquireInput, AccountCapacityRecord, ManagedAccountCandidateBinding } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import type { ExecutionAccountCapacityAuthority } from "../../src/index.js";
+import type { AccountCapacityAcquireInput, AccountCapacityRecord, ExecutionAccountCandidateBinding } from "../../src/execution-kernel/execution-account-capacity-authority.js";
+
+function acceptsExecutionAccountCapacityAuthority(authority: ExecutionAccountCapacityAuthority): void {
+  void authority;
+}
 
 const catalog = defineExecutionCatalog({
   accounts: [
@@ -9,23 +15,28 @@ const catalog = defineExecutionCatalog({
     { id: "work", providerId: "codex", credentialId: "credential-work", maxConcurrency: 2, reservedAffinitySlots: 0, economics: economics() },
   ],
   accountPolicies: [{ id: "codex-policy", accountIds: ["personal", "work"], strategy: "economic-least-pressure" }],
-  routes: [{ id: "terra", label: "Terra", providerId: "codex", providerModelId: "gpt-5.6-terra", accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" }, economics: routeEconomics() }],
+  routes: [{
+    id: "terra", label: "Terra", providerId: "codex", providerModelId: "gpt-5.6-terra",
+    dataClassification: "internal",
+    dataPolicyEvidence: { providerId: "codex", providerModelId: "gpt-5.6-terra", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
+    accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" }, economics: routeEconomics(),
+  }],
 });
 
 function economics() { return { capacityIdentity: "capacity", subscriptionClass: "subscription" as const, quotaClassId: "quota", creditPosture: "disabled" as const, overagePosture: "disabled" as const }; }
 function routeEconomics() { return { adapterCapabilityId: "cap", adapterCapabilityVersion: "1", authBillingChannel: "oauth", executionMode: "direct", serviceTier: "default", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled" as const, overagePosture: "disabled" as const, contextClass: "default", cacheClass: "none", priceEvidence: { kind: "subscription" as const, rateCardId: "card", rateCardRevision: "1", evidence: { sourceIdentity: "test-source", sourceRevision: "1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", validUntil: "2026-09-01T00:00:00.000Z", confidence: "high" as const, authority: "configured" as const } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } }; }
 
-function candidate(accountId: string, overrides: Partial<ExecutionAccountCandidate> = {}): ExecutionAccountCandidate {
+function candidate(accountId: string, overrides: Partial<ExecutionAccountAdmissionCandidate> = {}): ExecutionAccountAdmissionCandidate {
   return { accountId, safety: "eligible", health: "healthy", quota: "available", capacity: "available", economicCost: { atoms: "1", scale: 0, unit: "request", scheme: { kind: "currency" as const, currency: "USD" } }, pressure: 0, ...overrides };
 }
 
-function leaseBinding(accountId: string): ManagedAccountCandidateBinding {
+function leaseBinding(accountId: string): ExecutionAccountCandidateBinding {
   const route = { providerId: "codex", providerModelId: "gpt-5.6-terra", scope: "operator-session" };
-  return { candidate: { account: createAccountRef(`configured:${accountId}`), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: `codex:${accountId}`, credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 2, reservedAffinitySlots: 0 } };
+  return { candidate: { account: createExecutionAccountRef(`configured:${accountId}`), route, health: "healthy", leaseCapacity: "available", pressure: 0, reservedForNewWork: false }, capacityIdentity: `codex:${accountId}`, credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy", freshness: "missing" }, capacity: { maxConcurrency: 2, reservedAffinitySlots: 0 } };
 }
 
 function acquiredRecord(): AccountCapacityRecord {
-  return { leaseId: "lease", runtimeInvocationId: "turn-1", accountPolicyId: createAccountPolicyId("codex-policy"), accountRef: createAccountRef("configured:personal"), route: { providerId: "codex", providerModelId: "gpt-5.6-terra", scope: "operator-session" }, capacityIdentity: "codex:personal", credentialRevisionId: "a".repeat(64), state: "held", selectionReason: "least-pressure", candidateRejections: [] };
+  return { leaseId: "lease", runtimeInvocationId: "turn-1", accountPolicyId: createExecutionAccountPolicyId("codex-policy"), accountRef: createExecutionAccountRef("configured:personal"), route: { providerId: "codex", providerModelId: "gpt-5.6-terra", scope: "operator-session" }, capacityIdentity: "codex:personal", credentialRevisionId: "a".repeat(64), state: "held", selectionReason: "least-pressure", candidateRejections: [] };
 }
 
 function service(overrides: Record<string, unknown> = {}) {
@@ -49,6 +60,20 @@ function service(overrides: Record<string, unknown> = {}) {
 }
 
 describe("OperatorSessionExecutionRoutingService", () => {
+  it("exposes a provider-neutral capacity authority structurally satisfied by the SQLite authority", () => {
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path: ":memory:",
+      participantKind: "operator-session",
+      recoveryDomain: "structural-contract-test",
+      configurationRevision: "test",
+    });
+    try {
+      acceptsExecutionAccountCapacityAuthority(authority);
+    } finally {
+      authority.close();
+    }
+  });
+
   it("admits automatic selection in Core, leases before resolving a credential, then fences before dispatch", async () => {
     const { routing, authority, events, dispatch } = service();
 
@@ -106,10 +131,10 @@ describe("OperatorSessionExecutionRoutingService", () => {
       acquireAccountCapacity: vi.fn((input: AccountCapacityAcquireInput) =>
         input.candidates[0] === personal
           ? { status: "unavailable" as const, rejections: [] }
-          : { status: "acquired" as const, record: { ...acquiredRecord(), accountRef: createAccountRef("configured:work"), capacityIdentity: "codex:work" }, replay: false },
+          : { status: "acquired" as const, record: { ...acquiredRecord(), accountRef: createExecutionAccountRef("configured:work"), capacityIdentity: "codex:work" }, replay: false },
       ),
       releaseAccountCapacityPreFence: vi.fn(() => acquiredRecord()),
-      fenceAccountCapacityDispatch: vi.fn(() => ({ ...acquiredRecord(), accountRef: createAccountRef("configured:work"), capacityIdentity: "codex:work", state: "dispatch-fenced" as const, dispatchFenceId: "turn-1:dispatch" })),
+      fenceAccountCapacityDispatch: vi.fn(() => ({ ...acquiredRecord(), accountRef: createExecutionAccountRef("configured:work"), capacityIdentity: "codex:work", state: "dispatch-fenced" as const, dispatchFenceId: "turn-1:dispatch" })),
       settleAccountCapacity: vi.fn(() => ({ ...acquiredRecord(), state: "released" as const })),
     };
     const dispatch = vi.fn(async () => "done");

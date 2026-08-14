@@ -6,7 +6,7 @@
 // factories used to attach it to a runtime session, and the economic
 // candidate collection surface (collectManagedEconomicCandidates and its
 // committed-request/candidate types, consumed directly by CLI config and by
-// managed-jobs) are public.
+// agent tasks) are public.
 export {
   MANAGED_AGENT_CANCEL_CAPABILITY,
   MANAGED_AGENT_CANCEL_TOOL,

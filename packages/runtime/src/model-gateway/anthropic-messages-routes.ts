@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ModelDeliberationCapabilities, ModelGatewayRoute } from "@kilnai/core";
+import type { ModelDeliberationCapabilities, ProviderModelRouteIdentity } from "@kilnai/core";
 import { Hono } from "hono";
 import {
   GovernedOneRoundCommittedError,
@@ -7,7 +7,7 @@ import {
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundBudgetEvidence,
   type GovernedOneRoundInvocationPorts,
-} from "./governed-one-round-invocation.js";
+} from "../execution-kernel/governed-one-round-invocation.js";
 import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "./replay-guard.js";
 import { claimModelGatewayRequestLifetime } from "./model-gateway-request-lifetime.js";
@@ -19,7 +19,7 @@ export interface AnthropicMessagesTrustedPrincipal {
   readonly scopes: readonly string[]; readonly budgetEvidence: GovernedOneRoundBudgetEvidence;
 }
 export interface AnthropicMessagesResolvedVirtualModel {
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   readonly capabilities: ReadonlySet<AnthropicMessagesModelTurnCapability>;
   readonly deliberation?: ModelDeliberationCapabilities;
   readonly affinity: { readonly continuity: "none" } | { readonly continuity: "prefer" | "require"; readonly scope: "session" | "turn"; readonly allowRebind?: boolean };

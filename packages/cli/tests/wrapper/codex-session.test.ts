@@ -1,9 +1,24 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
-import { CodexSession } from "../../src/wrapper/codex-session.js";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SessionStore } from "../../src/wrapper/session-store.js";
+import { CodexSession, requiresCodexCliProcessTransport } from "../../src/wrapper/codex-session.js";
 import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
+import type { CodexSdkPort } from "../../src/wrapper/codex-sdk-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { defineDeliberationLevelId, type ExecutionSessionEvent } from "@kilnai/core";
+
+function permissionWriter(onRequest: (profile: string) => void | Promise<void>) {
+  return {
+    recordRequested: async (draft: any) => {
+      await onRequest(draft.profile);
+      return { schema: "kiln.runtime-permission-evidence", version: 2, kind: "requested", harness: draft.harness, sessionDigest: "a".repeat(64), targetId: `${draft.harness}-target`, projectionDigest: "b".repeat(64), effectivePolicyDigest: "c".repeat(64), profile: draft.profile, source: "runtime-request", proof: "inferred", requestedAt: draft.requestedAt.toISOString() } as const;
+    },
+    recordObserved: async (requested: any, input: any) => ({ ...requested, kind: "observed", requestDigest: "d".repeat(64), source: "runtime-observation", proof: input.proof, observedAt: input.observedAt.toISOString(), verifiedAt: input.observedAt.toISOString() }),
+  } as any;
+}
 
 vi.mock("@kilnai/core", () => ({
   CODEX_DEFAULT_MODEL: "gpt-5.4",
@@ -134,11 +149,172 @@ function baseConfig(overrides: Partial<CodexSessionConfig> = {}): CodexSessionCo
   return {
     task: "Fix the login bug",
     cwd: process.cwd(),
+    // Existing process-transport characterization tests name their required
+    // capability explicitly. Normal SDK behavior has dedicated tests below.
+    ephemeral: true,
     ...overrides,
   };
 }
 
+function sdkPort(events: readonly object[], calls: { readonly start: ReturnType<typeof vi.fn>; readonly resume: ReturnType<typeof vi.fn>; readonly run: ReturnType<typeof vi.fn> }): CodexSdkPort {
+  const thread = {
+    id: null,
+    runStreamed: calls.run.mockResolvedValue({ events: (async function* () { for (const event of events) yield event; })() }),
+  };
+  calls.start.mockReturnValue(thread);
+  calls.resume.mockReturnValue(thread);
+  return { startThread: calls.start, resumeThread: calls.resume };
+}
+
 describe("CodexSession implements IKilnSession", () => {
+  it("uses the official SDK port for normal sessions and never spawns the CLI transport", async () => {
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const events = await collectEvents(new CodexSession(baseConfig({
+      ephemeral: false,
+      sdkPort: sdkPort([
+        { type: "thread.started", thread_id: "sdk-thread" },
+        { type: "turn.started" },
+        { type: "item.completed", item: { id: "message", type: "agent_message", text: "Done" } },
+        { type: "turn.completed", usage: { input_tokens: 7, cached_input_tokens: 2, cache_write_input_tokens: 0, output_tokens: 3, reasoning_output_tokens: 0 } },
+      ], calls),
+    })).run({ prompt: "test" }));
+    expect(calls.start).toHaveBeenCalledOnce();
+    expect(calls.run).toHaveBeenCalledOnce();
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(events).toContainEqual({ type: "text_delta", content: "Done" });
+    expect(events).toContainEqual(expect.objectContaining({ type: "cost_update", inputTokens: 7, outputTokens: 3 }));
+  });
+
+  it("records runtime permission evidence before the first SDK effect and blocks it when evidence fails", async () => {
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const order: string[] = [];
+    calls.start.mockImplementation(() => { order.push("sdk"); return { id: null, runStreamed: calls.run }; });
+    const port: CodexSdkPort = { startThread: calls.start, resumeThread: calls.resume };
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, sdkPort: port, runtimePermissionObservationSink: permissionWriter(() => { order.push("sink"); }) })).run({ prompt: "test" }));
+    expect(order).toEqual(["sink", "sdk"]);
+    const blocked = { start: vi.fn(), resume: vi.fn() };
+    await expect(collectEvents(new CodexSession(baseConfig({ ephemeral: false, sdkPort: blocked as CodexSdkPort, runtimePermissionObservationSink: permissionWriter(() => { throw new Error("evidence unavailable"); }) })).run({ prompt: "test" }))).rejects.toThrow("evidence unavailable");
+    expect(blocked.start).not.toHaveBeenCalled();
+  });
+
+  it("passes only official SDK thread and turn options for normal execution", async () => {
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const directory = await mkdtemp(join(tmpdir(), "kiln-sdk-schema-"));
+    const schema = join(directory, "result.json");
+    await writeFile(schema, JSON.stringify({ type: "object", properties: { answer: { type: "string" } } }), "utf8");
+    const port = sdkPort([{ type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } }], calls);
+    const controller = new AbortController();
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, model: "gpt-5.6-sol", sandboxMode: "workspace-write", approvalMode: "never", addDir: "C:/shared", outputSchema: schema, deliberationResolution: { selectedLevel: defineDeliberationLevelId("high") }, sdkPort: port })).run({ prompt: "test", abortSignal: controller.signal }));
+    expect(calls.start).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-sol", sandboxMode: "workspace-write", approvalPolicy: "never", workingDirectory: process.cwd(), additionalDirectories: ["C:/shared"], modelReasoningEffort: "high" }));
+    expect(calls.run).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ outputSchema: { type: "object", properties: { answer: { type: "string" } } }, signal: expect.any(AbortSignal) }));
+  });
+
+  it("rejects malformed output schema before the SDK effect", async () => {
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const directory = await mkdtemp(join(tmpdir(), "kiln-sdk-invalid-schema-"));
+    const schema = join(directory, "invalid.json");
+    await writeFile(schema, "not-json", "utf8");
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, outputSchema: schema, sdkPort: sdkPort([], calls) })).run({ prompt: "test" }));
+    expect(calls.start).toHaveBeenCalledOnce();
+    expect(calls.run).not.toHaveBeenCalled();
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it("routes only SDK-unrepresentable public switches to explicit CLI transport", () => {
+    expect(requiresCodexCliProcessTransport({ ephemeral: true })).toBe(true);
+    expect(requiresCodexCliProcessTransport({ profile: "operator" })).toBe(true);
+    expect(requiresCodexCliProcessTransport({ localProvider: "ollama" })).toBe(true);
+    expect(requiresCodexCliProcessTransport({ outputSchema: "schema.json" })).toBe(false);
+  });
+
+  it("relays caller abort to the official SDK turn signal", async () => {
+    let sdkSignal: AbortSignal | undefined;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const port: CodexSdkPort = {
+      startThread: () => ({ id: null, runStreamed: async (_input, options) => { sdkSignal = options?.signal; return { events: (async function* () { await pending; yield { type: "turn.completed" as const, usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } }; })() }; } }),
+      resumeThread: () => { throw new Error("unexpected resume"); },
+    };
+    const controller = new AbortController();
+    const collecting = collectEvents(new CodexSession(baseConfig({ ephemeral: false, sdkPort: port })).run({ prompt: "test", abortSignal: controller.signal }));
+    await vi.waitFor(() => expect(sdkSignal).toBeDefined());
+    controller.abort();
+    expect(sdkSignal?.aborted).toBe(true);
+    release();
+    await collecting;
+  });
+
+  it("starts a fresh official SDK thread when no stored provider thread exists", async () => {
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const port = sdkPort([{ type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } }], calls);
+    const session = new CodexSession(baseConfig({ ephemeral: false, sdkPort: port }));
+    await collectEvents(session.run({ prompt: "test" }));
+    expect(calls.start).toHaveBeenCalledOnce();
+    expect(calls.resume).not.toHaveBeenCalled();
+  });
+
+  it("resumes the exact stored provider thread through the official SDK and exposes its started identity", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kiln-sdk-resume-"));
+    await new SessionStore(directory).append({ sessionId: "prior-kiln-session", provider: "codex", task: "prior", completedAt: new Date().toISOString(), cost: 0, projectPath: directory, providerThread: { provider: "codex", nativeSessionId: "codex-thread-42" } });
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const port = sdkPort([{ type: "thread.started", thread_id: "codex-thread-42" }, { type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } }], calls);
+    const session = new CodexSession(baseConfig({ ephemeral: false, cwd: directory, continuationSessionId: "prior-kiln-session", sdkPort: port }));
+    await collectEvents(session.run({ prompt: "continue" }));
+    expect(calls.resume).toHaveBeenCalledWith("codex-thread-42", expect.any(Object));
+    expect(calls.start).not.toHaveBeenCalled();
+    expect(session.providerSessionId).toBe("codex-thread-42");
+  });
+
+  it("settles a successful SDK turn once so its provider thread can continue", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kiln-sdk-success-ledger-"));
+    const firstCalls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const firstPort = sdkPort([
+      { type: "thread.started", thread_id: "codex-success-thread" },
+      { type: "turn.completed", usage: { input_tokens: 1, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } },
+    ], firstCalls);
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, runtimeSessionId: "successful-sdk-session", cwd: directory, sdkPort: firstPort })).run({ prompt: "start" }));
+    expect(await new SessionStore(directory).findProviderThread("successful-sdk-session", "codex")).toEqual({ provider: "codex", nativeSessionId: "codex-success-thread" });
+
+    const resumedCalls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const resumedPort = sdkPort([{ type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } }], resumedCalls);
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, cwd: directory, continuationSessionId: "successful-sdk-session", sdkPort: resumedPort })).run({ prompt: "continue" }));
+    expect(resumedCalls.resume).toHaveBeenCalledWith("codex-success-thread", expect.any(Object));
+    expect(resumedCalls.start).not.toHaveBeenCalled();
+  });
+
+  it("does not write the successful SDK ledger when the host owns it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kiln-sdk-host-ledger-"));
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, runtimeSessionId: "host-owned-sdk-session", cwd: directory, sessionLedgerOwner: "host", sdkPort: sdkPort([
+      { type: "thread.started", thread_id: "host-owned-thread" },
+      { type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } },
+    ], calls) })).run({ prompt: "start" }));
+    expect(await new SessionStore(directory).findProviderThread("host-owned-sdk-session", "codex")).toBeUndefined();
+  });
+  it("records exact spawn permission args immediately before spawn and blocks spawn on sink failure", async () => {
+    const order: string[] = [];
+    const { proc, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockImplementationOnce(() => {
+      order.push("spawn");
+      return proc;
+    });
+    const session = new CodexSession(baseConfig({
+      approvalMode: "never",
+      sandboxMode: "workspace-write",
+      runtimePermissionObservationSink: permissionWriter((profile) => { order.push(`sink:${profile}`); }),
+    }));
+    const next = session.run({ prompt: "test" }).next();
+    await vi.waitFor(() => expect(order).toEqual(["sink:workspace-write", "spawn"]));
+    resolveExit(0);
+    await next.catch(() => undefined);
+
+    const spawnCount = mockSpawn.mock.calls.length;
+    await expect(collectEvents(new CodexSession(baseConfig({
+      runtimePermissionObservationSink: permissionWriter(() => { throw new Error("evidence unavailable"); }),
+    })).run({ prompt: "test" }))).rejects.toThrow("evidence unavailable");
+    expect(mockSpawn).toHaveBeenCalledTimes(spawnCount);
+  });
+
   it("declares implements IKilnSession", () => {
     const session: IKilnSession = new CodexSession(baseConfig());
     expect(session).toBeDefined();
@@ -436,6 +612,8 @@ describe("CodexSession.run() JSONL parsing", () => {
     }));
     const collectPromise = collectEvents(session.run({ prompt: "Inspect the repo" }));
 
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledOnce());
+
     emitLine({ type: "thread.started", thread_id: "t1" });
     emitLine({ type: "turn.started" });
     emitLine({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5 } });
@@ -447,6 +625,19 @@ describe("CodexSession.run() JSONL parsing", () => {
     const spawnArgs = spawnCall?.[1] as string[] | undefined;
     expect(spawnArgs).toBeDefined();
     expect(spawnArgs).toContain("--ephemeral");
+  });
+
+  it("bounds explicit CLI transport stderr in its terminal error", async () => {
+    const { proc, resolveExit } = makeMockProc();
+    vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
+    const collectPromise = collectEvents(new CodexSession(baseConfig({ ephemeral: true })).run({ prompt: "test" }));
+    await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledOnce());
+    proc.stderr.emit("data", Buffer.from("x".repeat(9000)));
+    resolveExit(1);
+    const events = await collectPromise;
+    const error = events.find((event) => event.type === "error");
+    expect(error).toMatchObject({ type: "error" });
+    expect((error as { message: string }).message.length).toBeLessThanOrEqual(4099);
   });
 
   it("run() appends --profile with the configured profile name", async () => {

@@ -46,13 +46,13 @@ describe("managed account invocation boundary", () => {
       invoke,
     };
     const request = defineManagedAgentInvocationRequest({
-      invocationId: "managed-job-0001",
+      invocationId: "agent-task-0001",
       agentId: "reviewer",
       parentSessionId: "parent-session",
       parentTurnId: "parent-turn",
       profile: "foundation-readonly-plan",
       requestedBy: "operator",
-      requestSource: "managed-job",
+      requestSource: "agent-task",
       providerRoute: { providerId: "opencode", model: "sonic", surface: "direct-provider" },
       adapterKind: "direct",
       executionMode: "direct-provider",

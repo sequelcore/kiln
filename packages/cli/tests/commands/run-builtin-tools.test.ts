@@ -201,32 +201,14 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     capabilities: new Map(),
     toolAuthority: new Map(),
   })),
-  RuntimeBudgetAdmissionService: class MockRuntimeBudgetAdmissionService {
-    constructor(private readonly options: {
-      readonly policy: { readonly enabled: boolean };
-      readonly usageReader?: (input: {
-        readonly providerId: string;
-        readonly subject: "runtime-session-turn";
-        readonly sessionId: string;
-      }) => Promise<unknown>;
-    }) {}
+  RuntimeSessionTurnBudgetService: class MockRuntimeSessionTurnBudgetService {
+    constructor(private readonly policy: { readonly tokenLimit: number }, private readonly usageReader: (sessionId: string) => Promise<unknown>) {}
 
-    async admit(request: {
-      readonly subject: "runtime-session-turn";
-      readonly sessionId: string;
-      readonly routeCandidates: readonly { readonly providerId: string }[];
-    }) {
+    async admit(sessionId: string) {
       return {
-        status: this.options.policy.enabled ? "admitted" : "admitted",
-        reason: this.options.policy.enabled ? "route-within-budget" : "budget-disabled",
-        admittedRoutes: request.routeCandidates,
-        usageSnapshots: this.options.usageReader
-          ? [await this.options.usageReader({
-              providerId: request.routeCandidates[0]?.providerId ?? "unknown",
-              subject: request.subject,
-              sessionId: request.sessionId,
-            })]
-          : [],
+        status: "admitted",
+        reason: "observed-below-limit",
+        observation: await this.usageReader(sessionId),
       };
     }
   },
@@ -763,15 +745,7 @@ describe("run command builtin tool wiring", () => {
   it("keeps routing budget admission out of parallel fan-out and preserves session lineage", async () => {
     readGlobalConfigMock.mockReturnValue({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.5", "codex-route"),
-      workerRouting: {
-        budgetAware: true,
-        budget: {
-          codex: {
-            dailyTokenCeiling: 100,
-            onCeiling: "stop",
-          },
-        },
-      },
+      sessionTurnBudget: { tokenLimit: 100, action: "stop" },
     });
 
     await runCommand({
@@ -786,7 +760,7 @@ describe("run command builtin tool wiring", () => {
       throw new Error("Expected parallel fan-out lifecycle input.");
     }
 
-    expect(input).not.toHaveProperty("budgetAdmission");
+    expect(input).not.toHaveProperty("sessionTurnBudget");
     expect(input.callerIdentity).toEqual({
       kind: "kiln-runtime",
       surface: "run",
@@ -796,37 +770,21 @@ describe("run command builtin tool wiring", () => {
     expect(input.orchestrationRequest.orchestrationId).toContain(input.orchestrationRequest.parentSessionId);
   });
 
-  it("projects runtime-owned budget admission into normal run sessions", async () => {
+  it("projects runtime-owned session token observation into normal run sessions", async () => {
     readGlobalConfigMock.mockReturnValue({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.5", "codex-route"),
-      workerRouting: {
-        budgetAware: true,
-        budget: {
-          codex: {
-            dailyTokenCeiling: 100,
-            onCeiling: "stop",
-          },
-        },
-      },
+      sessionTurnBudget: { tokenLimit: 100, action: "stop" },
     });
 
     await runCommand(APP_CONFIG, "budgeted run", {});
 
     const sessionConfig = runWiringMocks.capturedSessionConfigs[0] as {
-      readonly budgetAdmission?: {
-        admit(input: {
-          subject: "runtime-session-turn";
-          sessionId: string;
-          routeCandidates: readonly { providerId: string }[];
-        }): Promise<{ readonly status: string }>;
+      readonly sessionTurnBudget?: {
+        admit(sessionId: string): Promise<{ readonly status: string }>;
       };
     };
-    expect(sessionConfig.budgetAdmission).toBeDefined();
-    await expect(sessionConfig.budgetAdmission?.admit({
-      subject: "runtime-session-turn",
-      sessionId: "next-session",
-      routeCandidates: [{ providerId: "codex-oauth" }],
-    })).resolves.toMatchObject({
+    expect(sessionConfig.sessionTurnBudget).toBeDefined();
+    await expect(sessionConfig.sessionTurnBudget?.admit("next-session")).resolves.toMatchObject({
       status: "admitted",
     });
   });

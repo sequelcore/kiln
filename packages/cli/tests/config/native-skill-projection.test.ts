@@ -375,7 +375,7 @@ describe("native-skill-projection", () => {
     expect(dirs.has("repo-context-review")).toBe(false);
   });
 
-  it("ignores legacy flat skill files", () => {
+  it("admits safe flat skills and lets project flat files override user flat duplicates", () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
     const projectDir = join(projectPath, ".kiln", "skills");
@@ -392,8 +392,75 @@ describe("native-skill-projection", () => {
     });
 
     const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig);
-    expect(sources.has(canonicalSkillKey("BuildTools"))).toBe(false);
+    expect(sources.get(canonicalSkillKey("BuildTools"))).toMatchObject({
+      skillName: "buildtools",
+      sourceIdentity: "project:buildtools",
+      files: [{ fileName: "project.md", content: "---\nname: buildtools\ndescription: project\n---\n" }],
+    });
     expect(sources.has(canonicalSkillKey("../escape"))).toBe(false);
+  });
+
+  it("lets a project flat skill override a user canonical directory", () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const userSkillDir = join(globalDir, "planner");
+    const projectFile = join(projectDir, "planner.md");
+    fsMocks.files.set(join(userSkillDir, "SKILL.md"), PLANNER_SKILL);
+    fsMocks.files.set(projectFile, "---\nname: planner\ndescription: project flat\n---\n");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true)];
+      if (targetPath === userSkillDir) return [dirent("SKILL.md", false)];
+      if (targetPath === projectDir) return [dirent("planner.md", false)];
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+
+    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
+
+    expect(source).toMatchObject({
+      sourceIdentity: "project:planner",
+      files: [{ fileName: "planner.md", content: "---\nname: planner\ndescription: project flat\n---\n" }],
+    });
+  });
+
+  it("lets a project canonical directory override a user flat skill", () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const projectDir = join(projectPath, ".kiln", "skills");
+    const userFile = join(globalDir, "planner.md");
+    const projectSkillDir = join(projectDir, "planner");
+    fsMocks.files.set(userFile, "---\nname: planner\ndescription: user flat\n---\n");
+    fsMocks.files.set(join(projectSkillDir, "SKILL.md"), PLANNER_SKILL);
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner.md", false)];
+      if (targetPath === projectDir) return [dirent("planner", true)];
+      if (targetPath === projectSkillDir) return [dirent("SKILL.md", false)];
+      throw new Error(`Unexpected path: ${targetPath}`);
+    });
+
+    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
+
+    expect(source).toMatchObject({
+      sourceIdentity: "project:planner",
+      sourceDir: projectSkillDir,
+    });
+  });
+
+  it("prefers a canonical directory over a flat skill in the same origin", () => {
+    const projectPath = "/workspace/project";
+    const globalDir = join("/home/tester", ".kiln", "skills");
+    const skillDir = join(globalDir, "planner");
+    fsMocks.files.set(join(skillDir, "SKILL.md"), PLANNER_SKILL);
+    fsMocks.files.set(join(globalDir, "planner.md"), "---\nname: planner\ndescription: flat\n---\n");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      if (targetPath === globalDir) return [dirent("planner", true), dirent("planner.md", false)];
+      if (targetPath === skillDir) return [dirent("SKILL.md", false)];
+      throw new Error("ENOENT");
+    });
+
+    const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
+
+    expect(source).toMatchObject({ sourceIdentity: "user:planner", sourceDir: skillDir });
   });
 
   it("ignores unsafe flat frontmatter names without touching harness roots", async () => {

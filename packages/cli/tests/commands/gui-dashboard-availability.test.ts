@@ -192,7 +192,10 @@ const guiSessionMocks = vi.hoisted(() => ({
   loadSessionDetail: vi.fn(async () => guiSessionMocks.detail),
 }));
 
-vi.mock("@kilnai/runtime", () => ({
+vi.mock("@kilnai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/runtime")>();
+  return {
+  ...actual,
   getProjectContextArtifactCache: vi.fn().mockResolvedValue({}),
   createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
     toolDefinitions: [],
@@ -260,7 +263,8 @@ vi.mock("@kilnai/runtime", () => ({
     authState: "authenticated",
   }),
   startGuiGateway: gatewayHarness.startGuiGateway,
-}));
+  };
+});
 
 vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
   createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
@@ -284,6 +288,7 @@ vi.mock("@kilnai/core", async (importOriginal) => {
 vi.mock("../../src/config/global-config.js", () => ({
   defaultGlobalConfig: configMocks.defaultGlobalConfig,
   readGlobalConfig: configMocks.readGlobalConfig,
+  readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
   resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,
   resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
   resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,

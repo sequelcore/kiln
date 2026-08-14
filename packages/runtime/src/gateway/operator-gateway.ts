@@ -16,7 +16,7 @@ export type OnContinueSession = (sessionId: string, routeId?: string) => void | 
 
 type BaseOperatorSessionTransportOptions<Payload> = Omit<Pick<
   TuiGatewayOptions,
-  "sessionManager" | "systemPrompt" | "onClear" | "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "contextArtifactCache" | "artifactStore" | "voiceConfig" | "sttAdapter" | "ttsAdapter" | "eventBus" | "executionMode" | "managedInvocation" | "budgetAdmission"
+  "sessionManager" | "systemPrompt" | "onClear" | "executionRouteSelection" | "operatorTurnDispatcher" | "operatorTurnExecutionBridge" | "contextArtifactCache" | "artifactStore" | "voiceConfig" | "sttAdapter" | "ttsAdapter" | "eventBus" | "executionMode" | "managedInvocation" | "sessionTurnBudget"
 >, "operatorTurnDispatcher"> & {
   readonly operatorTurnDispatcher: OperatorTurnDispatchPort<Payload, OperatorTurnDispatchResult>;
   readonly operatorTurnExecutionBridge: OperatorSessionExecutionBridge<any, Payload, OperatorTurnDispatchResult>;

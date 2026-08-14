@@ -39,6 +39,8 @@ const executionCatalog = defineExecutionCatalog({
     label: "Codex route",
     providerId: "codex-oauth",
     providerModelId: "model",
+    dataClassification: "internal",
+    dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "model", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-09-01T00:00:00.000Z" },
     accountSelection: { mode: "automatic", accountPolicyId: "account-policy" },
     economics: {
       adapterCapabilityId: "text",

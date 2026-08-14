@@ -1,5 +1,7 @@
 # Synthetic, parser-validated schema-v2 example. Replace all provider, account,
 # model, price, and evidence values with current facts before operational use.
+# The synthetic data-policy source is `synthetic-example-data-policy@2026-08-13`;
+# its digest is the SHA-256 of that exact stable identifier and revision.
 version: "2"
 
 managedAgents:
@@ -70,6 +72,20 @@ executionCatalog:
       label: Codex Standard
       providerId: codex-oauth
       providerModelId: gpt-5.6-codex
+      dataClassification: internal
+      dataPolicyEvidence:
+        providerId: codex-oauth
+        providerModelId: gpt-5.6-codex
+        dataUse: not-used
+        trainingPosture: prohibited
+        retention: { posture: zero, days: 0 }
+        permittedMaximumClassification: internal
+        permittedClassifications: [public, internal]
+        sourceIdentity: synthetic-example-data-policy
+        sourceRevision: 2026-08-13
+        sourceDigest: sha256:cb3cd1035ca5a545be87f2934c14080e683427ea271cbc4928209484ce00577b
+        observedAt: 2026-08-13T00:00:00Z
+        expiresAt: 2026-09-01T00:00:00Z
       accountSelection:
         mode: automatic
         accountPolicyId: codex-standard-policy

@@ -56,11 +56,11 @@ describe("SqliteManagedWriteApprovalAuthority", () => {
     const issued = approvals.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2026-08-09T20:05:00.000Z" });
 
     expect(issued).toMatchObject({ approvalId: expect.stringMatching(/^managed-write-approval:/u), state: "issued" });
-    const consumed = approvals.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-1" });
-    expect(consumed).toMatchObject({ approvalId: issued.approvalId, state: "consumed", consumedBy: "managed-job:job-1" });
-    expect(approvals.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-1" })).toEqual(consumed);
+    const consumed = approvals.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-1" });
+    expect(consumed).toMatchObject({ approvalId: issued.approvalId, state: "consumed", consumedBy: "agent-task:job-1" });
+    expect(approvals.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-1" })).toEqual(consumed);
     expectErrorCode(
-      () => approvals.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-2" }),
+      () => approvals.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-2" }),
       "approval_replayed",
     );
     approvals.close();
@@ -78,7 +78,7 @@ describe("SqliteManagedWriteApprovalAuthority", () => {
     const issued = approvals.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2026-08-09T20:05:00.000Z" });
 
     expectErrorCode(
-      () => approvals.consume({ approvalId: issued.approvalId, binding: binding(overrides), consumerId: "managed-job:job-1" }),
+      () => approvals.consume({ approvalId: issued.approvalId, binding: binding(overrides), consumerId: "agent-task:job-1" }),
       "approval_binding_mismatch",
     );
     expect(approvals.inspect(issued.approvalId)?.state).toBe("issued");
@@ -91,14 +91,14 @@ describe("SqliteManagedWriteApprovalAuthority", () => {
     const expired = approvals.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2026-08-09T20:01:00.000Z" });
     now = Date.parse("2026-08-09T20:01:01.000Z");
     expectErrorCode(
-      () => approvals.consume({ approvalId: expired.approvalId, binding: binding(), consumerId: "managed-job:job-1" }),
+      () => approvals.consume({ approvalId: expired.approvalId, binding: binding(), consumerId: "agent-task:job-1" }),
       "approval_expired",
     );
 
     const revoked = approvals.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2026-08-09T20:05:00.000Z" });
     approvals.revoke({ approvalId: revoked.approvalId, projectId: "project-approval-test" });
     expectErrorCode(
-      () => approvals.consume({ approvalId: revoked.approvalId, binding: binding(), consumerId: "managed-job:job-1" }),
+      () => approvals.consume({ approvalId: revoked.approvalId, binding: binding(), consumerId: "agent-task:job-1" }),
       "approval_revoked",
     );
     approvals.close();
@@ -110,13 +110,13 @@ describe("SqliteManagedWriteApprovalAuthority", () => {
     const path = join(root, "approvals.sqlite");
     const first = new SqliteManagedWriteApprovalAuthority({ path, now: () => Date.parse("2026-08-09T20:00:00.000Z") });
     const issued = first.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2026-08-09T20:05:00.000Z" });
-    first.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-1" });
+    first.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-1" });
     first.close();
 
     const restarted = new SqliteManagedWriteApprovalAuthority({ path, now: () => Date.parse("2026-08-09T20:01:00.000Z") });
-    expect(restarted.inspect(issued.approvalId)).toMatchObject({ state: "consumed", consumedBy: "managed-job:job-1" });
+    expect(restarted.inspect(issued.approvalId)).toMatchObject({ state: "consumed", consumedBy: "agent-task:job-1" });
     expectErrorCode(
-      () => restarted.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-2" }),
+      () => restarted.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-2" }),
       "approval_replayed",
     );
     restarted.close();
@@ -131,8 +131,8 @@ describe("SqliteManagedWriteApprovalAuthority", () => {
     const issued = first.issue({ binding: binding(), approverId: "operator-1", expiresAt: "2099-08-09T20:05:00.000Z" });
 
     const results = await Promise.allSettled([
-      Promise.resolve().then(() => first.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-1" })),
-      Promise.resolve().then(() => second.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "managed-job:job-2" })),
+      Promise.resolve().then(() => first.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-1" })),
+      Promise.resolve().then(() => second.consume({ approvalId: issued.approvalId, binding: binding(), consumerId: "agent-task:job-2" })),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")[0]).toMatchObject({ reason: { code: "approval_replayed" } });

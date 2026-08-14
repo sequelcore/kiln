@@ -68,6 +68,8 @@ export interface TrustedExecutionClassificationInput {
   readonly enforcement: TrustedExecutionEnforcement;
   readonly authorization: TrustedExecutionAuthorization;
   readonly semanticLoss: readonly string[];
+  /** Evidence-bound limitations retain their identity; acceptance never changes this classification. */
+  readonly semanticLimitations?: readonly { readonly id: string }[];
   readonly observation: "complete" | "partial" | "failed";
 }
 
@@ -110,7 +112,7 @@ export function classifyTrustedExecutionIntegrity(
     classification = "partial-observation";
   } else if (evidence.some((item) => item.freshness === "stale")) {
     classification = "stale-evidence";
-  } else if (input.semanticLoss.length > 0) {
+  } else if (input.semanticLoss.length > 0 || (input.semanticLimitations?.length ?? 0) > 0) {
     classification = "unsupported-semantic-translation";
   } else if (input.effectiveRuntime?.proof === "contradictory"
     || (effectiveIsProven && input.effectiveRuntime?.profile !== input.desired.profile)) {

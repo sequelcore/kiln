@@ -130,7 +130,7 @@ single-package fixtures pass on supported platforms.
 
 Status: Queued behind Slice 3.
 
-Expose the same read-only evidence to agent tools and managed jobs. Record the
+Expose the same read-only evidence to agent tools and Agent Tasks. Record the
 profile/evidence used so admitted skills can consume facts without duplicating policy.
 
 Exit gate: tools do not recompute policy independently; tool results identify

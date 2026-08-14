@@ -40,8 +40,8 @@ import type {
   ModelGatewayExecutionCandidatePort,
   ModelGatewayExecutionRoutingPort,
 } from "../model-gateway/model-gateway-ingress.js";
-import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
-import type { GovernedOneRoundDispatcherResolver } from "../model-gateway/governed-one-round-invocation.js";
+import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
+import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { RuntimeMultimodalDelegationRoute } from "../session/runtime-session-orchestrator.types.js";
 import { createDefaultRuntimeMultimodalTransformRoutes } from "../session/runtime-multimodal-transforms.js";
@@ -160,7 +160,7 @@ export interface ModelGatewayExecutionBundle {
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
-  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
+  readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
 }
 
 export async function closeGatewayResources(actions: readonly (() => void | Promise<void>)[]): Promise<void> {

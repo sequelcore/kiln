@@ -90,10 +90,10 @@ Governed work graphs, managed children, and cost/lease accounting.
   Deterministic topology selection, governed work graphs, bounded runtime
   scheduling, per-child route identity, dependency handoffs, independent
   review, failure semantics, and cross-surface projection.
-- [`coordination/managed-agents.md`](coordination/managed-agents.md)
-  Provider-neutral managed child invocation, admission, authority profiles,
-  lifecycle tools, parallel orchestration, leases, resource projection, remote
-  harness routes, write evidence, terminal events, and replay invariants.
+- [`coordination/agent-tasks.md`](coordination/agent-tasks.md)
+  Durable Agent Tasks and their single Agent Runs: admission, route and
+  authority evidence, native-harness boundaries, recovery, MCP projection, and
+  replay invariants.
 - [`coordination/managed-account-leases.md`](coordination/managed-account-leases.md)
   Atomic managed economic commitment, account-backed and accountless capacity,
   dispatch fencing, recovery, reconciliation, and sanitized evidence.

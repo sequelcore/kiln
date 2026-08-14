@@ -14,7 +14,7 @@ This track continues from the completed native projection foundation, which
 closed with defer/no-promotion status and remains canonical in
 `docs/architecture/surfaces/native-operator-surface.md`. Near-term startup latency
 doctrine is canonicalized in `docs/architecture/provider-model-discovery.md`,
-`docs/architecture/coordination/managed-agents.md`, `docs/guides/gui/gui.md`, and
+`docs/architecture/coordination/agent-tasks.md`, `docs/guides/gui/gui.md`, and
 `docs/guides/tui.md`. Rust optimization is a separate implementation track
 owned by Roadmap 09; benchmark validation is one phase of this native surface
 roadmap, not the whole roadmap.
@@ -143,7 +143,7 @@ belong to Roadmap 09 or a dedicated approved Rust optimization roadmap/ADR.
   `docs/architecture/surfaces/native-operator-surface.md`.
 - Startup and provider readiness evidence is canonical in
   `docs/architecture/provider-model-discovery.md`,
-  `docs/architecture/coordination/managed-agents.md`, `docs/guides/gui/gui.md`, and
+  `docs/architecture/coordination/agent-tasks.md`, `docs/guides/gui/gui.md`, and
   `docs/guides/tui.md`.
 - Any future native benchmark claim must be backed by equivalent browser and
   native runner admission, approved workload fixtures, and reproducible

@@ -1435,7 +1435,7 @@ describe("operator event presentation", () => {
         agentProfile: "architecture-reviewer",
         skills: ["ddd-review"],
         contextMode: "isolated",
-        task: "Inspect docs/architecture/managed-agents.md.",
+        task: "Inspect docs/architecture/coordination/agent-tasks.md.",
         summary: "Inspect managed agents architecture doc",
       },
       metadata: {
@@ -1466,7 +1466,7 @@ describe("operator event presentation", () => {
         agentProfile: "architecture-reviewer",
         skills: ["ddd-review"],
         contextMode: "isolated",
-        task: "Inspect docs/architecture/managed-agents.md.",
+        task: "Inspect docs/architecture/coordination/agent-tasks.md.",
         summary: "Inspect managed agents architecture doc",
       },
       outputSummary: JSON.stringify({
@@ -1544,7 +1544,7 @@ describe("operator event presentation", () => {
       { label: "Context mode", value: "isolated" },
       { label: "Agent profile", value: "architecture-reviewer" },
       { label: "Skills", value: "ddd-review" },
-      { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
+      { label: "Task", value: "Inspect docs/architecture/coordination/agent-tasks.md." },
       { label: "Summary", value: "Inspect managed agents architecture doc" },
     ]);
     expect(completed.summary).toBe("foundation-readonly-plan via codex-oauth/gpt-5.4-mini (direct-provider) · Inspection completed.");
@@ -1585,7 +1585,7 @@ describe("operator event presentation", () => {
       { label: "Invocation ID", value: "inv-1" },
       { label: "Parent turn", value: "session-1:turn:7" },
       { label: "Child session", value: "child-session-1" },
-      { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
+      { label: "Task", value: "Inspect docs/architecture/coordination/agent-tasks.md." },
       { label: "Summary", value: "Inspect managed agents architecture doc" },
     ]);
     expect(completed.details).not.toContainEqual({ label: "Provider Route", value: "Structured value" });

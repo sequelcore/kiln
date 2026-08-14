@@ -6,14 +6,24 @@ const mocks = vi.hoisted(() => ({
   plan: vi.fn(),
   finalize: vi.fn(),
   revoke: vi.fn(),
+  acceptLimitation: vi.fn(),
+  revokeLimitation: vi.fn(),
   createInterface: vi.fn(),
   answers: [] as Array<string | null>,
+  projectRoot: process.cwd(),
 }));
 vi.mock("../../src/config/global-config.js", () => ({ readGlobalConfig: () => mocks.config }));
+vi.mock("../../src/application/project-root-resolver.js", () => ({ resolveProjectRoot: () => ({ rootPath: mocks.projectRoot }) }));
 vi.mock("@kilnai/core", () => ({
+  OPENCODE_NO_FILESYSTEM_SANDBOX: {
+    id: "opencode.no-filesystem-sandbox",
+    reviewAfter: "2026-11-13T00:00:00.000Z",
+  },
+  acceptTrustedExecutionSemanticLimitation: mocks.acceptLimitation,
   finalizeTrustedExecutionGrant: mocks.finalize,
   planTrustedExecutionGrant: mocks.plan,
   revokeTrustedExecutionGrant: mocks.revoke,
+  revokeTrustedExecutionSemanticLimitation: mocks.revokeLimitation,
 }));
 vi.mock("node:readline", () => ({ default: { createInterface: mocks.createInterface } }));
 
@@ -53,6 +63,7 @@ describe("trust command", () => {
 
   beforeEach(() => {
     mocks.config = { identity: { name: "operator" } };
+    mocks.projectRoot = process.cwd();
     setInteractive();
   });
 
@@ -188,5 +199,29 @@ describe("trust command", () => {
     await trustCommand(["revoke", "codex"]);
 
     expect(log).toHaveBeenCalledWith(expect.stringMatching(/^Trusted-execution grant revoked for/));
+  });
+
+  it("requires explicit noninteractive limitation identity and typed basename", async () => {
+    setInteractive(false, false);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await trustCommand(["accept-limitation", "--harness", "opencode", "--limitation", "opencode.no-filesystem-sandbox"]);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("requires --operator and --confirm"));
+    expect(mocks.acceptLimitation).not.toHaveBeenCalled();
+  });
+
+  it("records an exact OpenCode limitation acceptance without changing grants", async () => {
+    setInteractive(false, false);
+    mocks.acceptLimitation.mockReturnValue({ acceptedBy: "operator", reviewAfter: "2026-11-13T00:00:00.000Z" });
+    await trustCommand(["accept-limitation", "--harness", "opencode", "--limitation", "opencode.no-filesystem-sandbox", "--operator", "operator", "--confirm", basename(process.cwd())]);
+    expect(mocks.acceptLimitation).toHaveBeenCalledOnce();
+    expect(mocks.finalize).not.toHaveBeenCalled();
+  });
+
+  it("binds limitation acceptance to the canonical project root, not a working subdirectory", async () => {
+    setInteractive(false, false);
+    mocks.projectRoot = `${process.cwd()}/canonical-root`;
+    mocks.acceptLimitation.mockReturnValue({ acceptedBy: "operator", reviewAfter: "2026-11-13T00:00:00.000Z" });
+    await trustCommand(["accept-limitation", "--harness", "opencode", "--limitation", "opencode.no-filesystem-sandbox", "--operator", "operator", "--confirm", "canonical-root"]);
+    expect(mocks.acceptLimitation).toHaveBeenCalledWith(expect.objectContaining({ projectPath: mocks.projectRoot }));
   });
 });

@@ -7,7 +7,7 @@ import type {
   ManagedEconomicEvidenceIdentity,
   ManagedEconomicSettlement,
 } from "../cost/managed-route-economics.js";
-import type { ModelGatewayAccountRejectionReason } from "../agents/model-gateway/index.js";
+import type { ExecutionAccountCapacityRejectionReason } from "../agents/execution-routing/index.js";
 
 import type {
   ManagedAgentAdapterKind,
@@ -592,7 +592,7 @@ export type SessionManagedEconomicLifecycleTransition =
   | "denied" | "held" | "dispatch-fenced" | "settlement-pending"
   | "release-failed" | "leaked" | "released";
 
-export type SessionManagedEconomicAccountSelectionRejectionReason = ModelGatewayAccountRejectionReason;
+export type SessionManagedEconomicAccountSelectionRejectionReason = ExecutionAccountCapacityRejectionReason;
 
 export type SessionManagedEconomicLocalCapacityRejectionReason =
   | "route-capacity-exhausted"

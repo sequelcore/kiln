@@ -8,6 +8,13 @@ import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.j
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { defineDeliberationLevelId, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
 
+function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {
+  return {
+    recordRequested: async (draft: any) => { await onRequest(draft.profile); return { schema: "kiln.runtime-permission-evidence", version: 2, kind: "requested", harness: draft.harness, sessionDigest: "a".repeat(64), targetId: "opencode-config", projectionDigest: "b".repeat(64), effectivePolicyDigest: "c".repeat(64), profile: draft.profile, source: "runtime-request", proof: "inferred", requestedAt: draft.requestedAt.toISOString() } as const; },
+    recordObserved: async (requested: any, input: any) => { onObserved?.(); return { ...requested, kind: "observed", requestDigest: "d".repeat(64), source: "runtime-observation", proof: input.proof, observedAt: input.observedAt.toISOString(), verifiedAt: input.observedAt.toISOString() }; },
+  } as any;
+}
+
 const createOpencodeClient = vi.fn();
 const viRuntime = vi as typeof vi & { mocked?: <T>(item: T) => T };
 if (typeof viRuntime.mocked !== "function") {
@@ -237,6 +244,7 @@ describe("OpenCodeSession.run() integration", () => {
   function makeMockClient(sessionId: string, events: MockEvent[], cost = 0, stopReason?: string) {
     return {
       session: {
+        get: vi.fn().mockResolvedValue({ data: { id: sessionId } }),
         create: vi.fn().mockResolvedValue({ data: { id: sessionId } }),
         update: vi.fn().mockResolvedValue({ data: { id: sessionId } }),
         prompt: vi.fn().mockResolvedValue({ data: { info: { cost, stopReason } } }),
@@ -409,6 +417,39 @@ describe("OpenCodeSession.run() integration", () => {
       { throwOnError: true },
     );
     expect(mock.config.update.mock.calls.some(([call]) => call?.config?.permission !== undefined)).toBe(false);
+  });
+
+  it("records the exact effective rules before every SDK effect and blocks all SDK calls on sink failure", async () => {
+    const mock = makeMockClient("ses_observed", [], 0.001);
+    const order: string[] = [];
+    mock.session.update.mockImplementationOnce(async () => {
+      order.push("update");
+      return { data: { id: "ses_observed" } };
+    });
+    vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
+    const session = new OpenCodeSession(baseConfig({
+      permissionDefault: "allow",
+      sandboxMode: "danger-full-access",
+      nativeRules: {
+        tools: [{ tool: "Edit", action: "deny" }],
+        commands: [],
+        fileGovernance: { denyGlobs: [], askGlobs: [], allowGlobs: [] },
+      },
+      runtimePermissionObservationSink: permissionWriter((profile) => { order.push(`request:${profile}`); }, () => order.push("observed")),
+    }));
+    for await (const _event of session.run({ prompt: "test" })) { /* consume */ }
+    expect(order).toEqual(["request:restricted", "update", "observed"]);
+    const createdRules = mock.session.create.mock.calls[0]?.[0]?.permission;
+    const updatedRules = mock.session.update.mock.calls[0]?.[0]?.permission;
+    expect(createdRules).toBe(updatedRules);
+
+    const clientFactoryCallCount = vi.mocked(createOpencodeClient).mock.calls.length;
+    const events: ExecutionSessionEvent[] = [];
+    for await (const event of new OpenCodeSession(baseConfig({
+      runtimePermissionObservationSink: permissionWriter(() => { throw new Error("evidence unavailable"); }),
+    })).run({ prompt: "test" })) events.push(event);
+    expect(vi.mocked(createOpencodeClient)).toHaveBeenCalledTimes(clientFactoryCallCount);
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "error", message: expect.stringContaining("evidence unavailable") })]));
   });
 
   it("run() appends deterministic translated constraint instructions into prompt payload", async () => {

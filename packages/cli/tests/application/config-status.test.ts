@@ -22,6 +22,10 @@ import {
 } from "../../src/config/native-projection-state.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 import { defaultKilnYaml, writeKilnYaml } from "../../src/kiln-yaml.js";
+import {
+  createRuntimePermissionObservationStore,
+  deriveCodexRuntimePermissionRequest,
+} from "../../src/wrapper/runtime-permission-observation.js";
 
 let tempDir: string;
 
@@ -435,7 +439,6 @@ describe("config-status", () => {
         }),
       ),
     );
-
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
 
     expect(snapshot.projections).toEqual(expect.arrayContaining([
@@ -634,7 +637,18 @@ describe("config-status", () => {
       ),
     );
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+    const observedAt = new Date("2026-07-01T15:02:00.000Z");
+    const runtimeStore = createRuntimePermissionObservationStore({ projectPath: tempDir });
+    const requested = await runtimeStore.recordRequested(
+      deriveCodexRuntimePermissionRequest({
+        sessionId: "portable-test-session",
+        approvalMode: "never",
+        sandboxMode: "danger-full-access",
+        requestedAt: observedAt,
+      }),
+    );
+    await runtimeStore.recordObserved(requested, { observedAt, proof: "inferred" });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, now: observedAt });
 
     expect(snapshot.projections).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -642,6 +656,12 @@ describe("config-status", () => {
         permissionIntegrity: expect.objectContaining({
           harness: "codex",
           classification: "effective-policy-unproven",
+          effectiveRuntime: expect.objectContaining({
+            profile: "trusted-full-access",
+            source: "runtime-observation",
+            proof: "inferred",
+            freshness: "current",
+          }),
         }),
       }),
     ]));

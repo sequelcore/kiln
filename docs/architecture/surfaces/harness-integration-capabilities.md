@@ -68,13 +68,13 @@ authority owner.
   are direct providers, not Codex or OpenCode native-harness routes.
 - **Harness adapter (or bridge)**: a thin transport translation between a
   native harness and Kiln application ports. It never owns route policy,
-  permissions, credentials, or managed-agent lifecycle.
+  permissions, credentials, or Agent Task lifecycle.
 - **Kiln tool**: an admitted Kiln operation with a named application owner,
   declared read/write authority, stable result contract, and evidence.
-- **Managed agent**: a child execution admitted by Kiln's managed-invocation
-  contract. It is not a native collaboration worker; the MCP bridge exposes it
-  only through the governed managed-job submit, status, result, cancel, and
-  replay operations.
+- **Agent Task**: a durable request for bounded Kiln-governed work. Its one
+  **Agent Run** is the committed attempt. It is not a native collaboration
+  worker; the MCP bridge exposes only governed task submit, status, result,
+  cancel, and replay operations.
 - **Invocation route**: the requested provider or harness execution path;
   **resolved route** is the route Kiln admitted after policy and evidence
   checks.
@@ -113,17 +113,18 @@ from the child process working directory, resolves the canonical adopted root,
 and validates its `.kiln/kiln.yaml`; neither MCP tools nor command arguments may
 select a project. The runtime maps no-argument read-only operations to the
 CLI application's canonical status, resolved-governance, and harness
-capability query owners. It also exposes managed-job submit, status, result,
+capability query owners. It also exposes Agent Task submit, status, result,
 cancel, and replay operations through the canonical Runtime application owner.
-It does not invoke `codex exec`, `opencode run`, or another native CLI process;
-managed work uses admitted Kiln direct-provider routes.
+It does not invoke `codex exec`, `opencode run`, or another native CLI process.
+Native harnesses may keep their own loops, tools, and workers while using an
+admitted Kiln Model Gateway route; MCP is not their subagent transport.
 
 Native-harness MCP connections are session-owned, but Runtime authority is not.
 Multiple Codex threads, Claude Code processes, and OpenCode instances may start
 independent stdio bridges concurrently. They authenticate over exact-loopback
 Streamable HTTP to one global Operator Runtime supervisor. That supervisor
 lazily creates one isolated project Runtime per canonical project identity, so
-sessions for the same project share managed-job, economic-lease, recovery, and
+sessions for the same project share Agent Task, economic-lease, recovery, and
 provider-routing authority while different projects remain isolated. Stdio is
 only the harness compatibility boundary; it never composes project Runtime
 authority locally. If the supervisor or authenticated session is unavailable,
@@ -155,7 +156,7 @@ observed capability disappear. Conversely, governance returns an
 malformed, and capability inspection returns observed fields with
 `availability: unresolved` when bridge or capability proof is incomplete.
 Only authority-dependent decisions fail closed; diagnostics remain available to
-explain how to repair the boundary. Managed-job operations validate bounded
+explain how to repair the boundary. Agent Task operations validate bounded
 inputs, caller ownership, governance, configured agent profile, route
 eligibility, and persisted lifecycle evidence before acting.
 

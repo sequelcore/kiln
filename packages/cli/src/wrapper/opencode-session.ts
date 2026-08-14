@@ -22,6 +22,10 @@ import { debug } from "./debug.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
 import { resolveNativeCliExecutable } from "./native-cli-executable.js";
+import {
+  deriveOpenCodeRuntimePermissionRequest,
+  type RuntimePermissionObservationWriter,
+} from "./runtime-permission-observation.js";
 
 interface OpencodeClientShape {
   session: {
@@ -158,6 +162,7 @@ export interface OpenCodeSessionConfig {
   /** Discovery-bound binary for managed routes; ambient resolution is forbidden when set. */
   readonly harnessExecutable?: string;
   readonly harnessEvidence?: { readonly executable: string; readonly version: string };
+  readonly runtimePermissionObservationSink?: RuntimePermissionObservationWriter;
 }
 
 const OPENCODE_SANDBOX_WARNING =
@@ -596,6 +601,14 @@ export class OpenCodeSession implements IKilnSession {
     }
 
     try {
+      const permissionRules = toSessionPermissionRules(this._config);
+      const permissionRequest = this._config.runtimePermissionObservationSink
+        ? await this._config.runtimePermissionObservationSink.recordRequested(deriveOpenCodeRuntimePermissionRequest({
+        sessionId: this.sessionId,
+        permissionRules,
+        requestedAt: new Date(),
+        ...(this._config.harnessEvidence ? { runtimeVersion: { kind: "executable" as const, version: this._config.harnessEvidence.version } } : {}),
+      })) : undefined;
       let baseUrl: string;
       const isResumingTurn = this._resolvedBaseUrl !== null && this._remoteSessionId !== null;
 
@@ -671,7 +684,7 @@ export class OpenCodeSession implements IKilnSession {
           this._remoteSessionId = getResult.data!.id;
         } else {
           const createResult = await client.session.create(
-            { directory: cwd, permission: toSessionPermissionRules(this._config) },
+            { directory: cwd, permission: permissionRules },
             { throwOnError: true },
           );
           this._remoteSessionId = createResult.data!.id;
@@ -682,10 +695,15 @@ export class OpenCodeSession implements IKilnSession {
         {
           sessionID: this._remoteSessionId!,
           directory: cwd,
-          permission: toSessionPermissionRules(this._config),
+          permission: permissionRules,
         },
         { throwOnError: true },
       );
+      if (permissionRequest) await this._config.runtimePermissionObservationSink!.recordObserved(permissionRequest, {
+        observedAt: new Date(),
+        proof: "inferred",
+        ...(this._config.harnessEvidence ? { runtimeVersion: { kind: "executable", version: this._config.harnessEvidence.version } } : {}),
+      });
 
       this._eventAbortController = new AbortController();
       const eventStreamPromise = client.global.event({

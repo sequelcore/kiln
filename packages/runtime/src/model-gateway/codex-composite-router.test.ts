@@ -13,6 +13,7 @@ function config(): ModelGatewayConfig {
     port: 4910,
     replay: { ttlMs: 1_000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
     surfaces: { openAIResponses: { maxBodyBytes: 1_024 * 1_024, maxConcurrentRequests: 1 } },
+    codexComposite: { maxQueuedRequests: 2, queueTimeoutMs: 1_000 },
     principals: [{
       tokenEnv: "CODEX_GATEWAY_TOKEN",
       ingress: "openai-responses",
@@ -116,6 +117,95 @@ describe("Codex composite router", () => {
     expect(headers.get("x-codex-installation-id")).toBe("install-a");
     expect(headers.has("cookie")).toBe(false);
     expect(headers.has("x-api-key")).toBe(false);
+  });
+
+  it("holds ingress capacity until an upstream response body is cancelled", async () => {
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const nativeFetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controllers.push(controller); },
+    })));
+    const routed = createCodexCompositeFetch({
+      config: config(), env: { CODEX_GATEWAY_TOKEN: token }, canonicalFetch: vi.fn(), nativeFetch,
+    });
+    const request = () => new Request(compositeUrl(), {
+      method: "POST", headers: { authorization: "Bearer native-oauth", "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.6-sol", input: [] }),
+    });
+
+    const first = await routed(request());
+    const second = routed(request());
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(nativeFetch).toHaveBeenCalledOnce();
+
+    await first.body!.cancel();
+    const secondResponse = await second;
+    expect(nativeFetch).toHaveBeenCalledTimes(2);
+    await secondResponse.body!.cancel();
+    expect(controllers).toHaveLength(2);
+  });
+
+  it("releases ingress capacity when an upstream response body completes or errors", async () => {
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const nativeFetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controllers.push(controller); },
+    })));
+    const routed = createCodexCompositeFetch({
+      config: config(), env: { CODEX_GATEWAY_TOKEN: token }, canonicalFetch: vi.fn(), nativeFetch,
+    });
+    const request = () => new Request(compositeUrl(), {
+      method: "POST", headers: { authorization: "Bearer native-oauth", "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.6-sol", input: [] }),
+    });
+
+    const completed = await routed(request());
+    const queuedAfterCompletion = routed(request());
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(nativeFetch).toHaveBeenCalledOnce();
+    controllers[0]!.close();
+    await completed.text();
+    const errored = await queuedAfterCompletion;
+    const queuedAfterError = routed(request());
+    controllers[1]!.error(new Error("upstream closed"));
+    await expect(errored.text()).rejects.toThrow("upstream closed");
+    const finalResponse = await queuedAfterError;
+    expect(nativeFetch).toHaveBeenCalledTimes(3);
+    await finalResponse.body!.cancel();
+  });
+
+  it("releases ingress capacity when the caller aborts an unread response body", async () => {
+    const nativeFetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({})));
+    const routed = createCodexCompositeFetch({
+      config: config(), env: { CODEX_GATEWAY_TOKEN: token }, canonicalFetch: vi.fn(), nativeFetch,
+    });
+    const abort = new AbortController();
+    const request = (signal?: AbortSignal) => new Request(compositeUrl(), {
+      method: "POST", signal, headers: { authorization: "Bearer native-oauth", "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.6-sol", input: [] }),
+    });
+
+    await routed(request(abort.signal));
+    const queued = routed(request());
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(nativeFetch).toHaveBeenCalledOnce();
+    abort.abort();
+    const response = await queued;
+    expect(nativeFetch).toHaveBeenCalledTimes(2);
+    await response.body!.cancel();
+  });
+
+  it("releases ingress capacity immediately for a response without a body", async () => {
+    const nativeFetch = vi.fn(async () => new Response(null, { status: 204 }));
+    const routed = createCodexCompositeFetch({
+      config: config(), env: { CODEX_GATEWAY_TOKEN: token }, canonicalFetch: vi.fn(), nativeFetch,
+    });
+    const request = () => new Request(compositeUrl(), {
+      method: "POST", headers: { authorization: "Bearer native-oauth", "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.6-sol", input: [] }),
+    });
+
+    await routed(request());
+    await routed(request());
+    expect(nativeFetch).toHaveBeenCalledTimes(2);
   });
 
   it("compacts virtual history through a governed summarization turn", async () => {

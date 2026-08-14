@@ -14,6 +14,7 @@ import {
   listOperatorCommands,
   type ExecutionRouteCatalog,
   type ExecutionRouteCatalogEntry,
+  type AvailableModelCatalog,
   type GuiProviderCatalogStatus,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
@@ -141,6 +142,7 @@ export async function startTui(
 
   const providerInfoById = new Map(providerDisplayInfo.map((entry) => [entry.id, entry]));
   let executionRouteCatalog = executionRouteCatalogRef?.current ?? { routes: [] };
+  let availableModels: AvailableModelCatalog | null = null;
   let routeIds = executionRouteCatalog.routes.map((route) => route.routeId);
   const routeGroups = () => [{ title: "Execution routes", routes: routeIds }];
 
@@ -148,7 +150,7 @@ export async function startTui(
     routeIndex: 0,
     providerIndex: 0,
     accountOverrideIndex: 0,
-    mode: "providers" as "providers" | "accounts" | "auth-key" | "auth-confirm",
+    mode: "providers" as "providers" | "available-models" | "accounts" | "auth-key" | "auth-confirm",
     authKeyBuffer: "",
   };
   let providerDiscovery = providerDiscoveryRef?.current ?? [];
@@ -677,6 +679,22 @@ export async function startTui(
       return;
     }
 
+    if (routePickerState.mode === "available-models") {
+      executionRoutePicker.mode = "routes";
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(" Available Models (read-only) ")}`;
+      const entries = availableModels?.entries ?? [];
+      const labels = entries.length > 0
+        ? entries.map((entry) => `${entry.providerId}/${entry.providerModelId} - ${entry.discoveryState}, ${entry.eligibilityState}, ${entry.configuredState}`)
+        : ["No current Runtime model evidence."];
+      for (const [index, label] of labels.entries()) {
+        const row = makePickerRow(`available-model-${index}`, label, false, currentTheme.accent, currentTheme.textMuted, "");
+        scrollContent.add(row);
+        executionRoutePicker.rows.push(row);
+      }
+      executionRoutePicker.hint.content = t`${fg(currentTheme.textMuted)("a back to routes  r refresh  Esc cancel")}`;
+      return;
+    }
+
     if (routePickerState.mode === "providers") {
       executionRoutePicker.mode = "routes";
       executionRoutePicker.title.content = t`${fg(currentTheme.accent)(" Select Execution Route ")}`;
@@ -896,6 +914,7 @@ export async function startTui(
       const catalog = (session as unknown as {
         executionRouteCatalog?: ExecutionRouteCatalog;
       }).executionRouteCatalog;
+      availableModels = (session as unknown as { availableModels?: AvailableModelCatalog }).availableModels ?? availableModels;
       if (!catalog || !Array.isArray(catalog.routes) || catalog.routes.length === 0) return;
       const selectedRouteId = executionRouteCatalog.routes[routePickerState.routeIndex]?.routeId
         ?? catalog.routes.find((route) => route.providerId === state.currentProvider)?.routeId;
@@ -1489,6 +1508,7 @@ export async function startTui(
       }
 
       if (key.sequence === "\r" || key.sequence === "\n") {
+        if (routePickerState.mode === "available-models") return;
         if (routePickerState.mode === "providers") {
           const selectedRoute = getCurrentRoute();
           const selectedProvider = selectedRoute?.providerId ?? "";
@@ -1563,6 +1583,13 @@ export async function startTui(
 
       if (routePickerState.mode === "providers" && key.name === "r") {
         void refreshExecutionRoutesFromPicker();
+        return;
+      }
+
+      if ((routePickerState.mode === "providers" || routePickerState.mode === "available-models") && key.name === "a") {
+        routePickerState.mode = routePickerState.mode === "providers" ? "available-models" : "providers";
+        renderExecutionRoutePicker();
+        executionRoutePicker.scrollBox.scrollTo(0);
         return;
       }
 

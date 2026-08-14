@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { createAccountRef } from "@kilnai/core";
+import { createExecutionAccountRef } from "@kilnai/core";
 import { SqliteManagedAccountLeaseAuthority } from "@kilnai/runtime";
 import { validateGlobalConfig } from "../../src/config/global-config.js";
 import {
@@ -52,7 +52,7 @@ function economicRoutingResolution() {
   return [{
     lease: {
       candidate: {
-        account: createAccountRef("configured:codex-account:fixture"),
+        account: createExecutionAccountRef("configured:codex-account:fixture"),
         route: { providerId: "codex-oauth", providerModelId: "gpt-5.6-codex", scope: "economic:codex-standard" },
         health: "healthy" as const,
         leaseCapacity: "available" as const,
@@ -210,7 +210,7 @@ describe("managed economic policy config", () => {
       closeManagedAccountRuntimeComposition(cwd);
 
       const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
-      expect(restarted.authority.createManagedJobCommitmentRecoveryPort().query({
+      expect(restarted.authority.createAgentTaskCommitmentRecoveryPort().query({
         jobId: "job-held", economicAttemptId: "economic-attempt:held-001",
       })).toBe("absent");
       await expect(acquireRecoveryFixture(restarted, "job-next", "economic-attempt:held-002"))
@@ -230,7 +230,7 @@ describe("managed economic policy config", () => {
       closeManagedAccountRuntimeComposition(cwd);
 
       const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
-      expect(restarted.authority.createManagedJobCommitmentRecoveryPort().query({
+      expect(restarted.authority.createAgentTaskCommitmentRecoveryPort().query({
         jobId: "job-fenced", economicAttemptId: "economic-attempt:fenced-001",
       })).toBe("dispatch-fenced");
       await expect(acquireRecoveryFixture(restarted, "job-next", "economic-attempt:fenced-002"))

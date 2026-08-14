@@ -12,5 +12,5 @@ with the simplest workflow that can satisfy the task and its evidence gates.
 | Discover, author, and project reusable procedures | [Skill system](skills.md) |
 
 For canonical lifecycle and authority contracts, see
-[Managed agents](../../architecture/coordination/managed-agents.md) and
+[Agent Tasks and Agent Runs](../../architecture/coordination/agent-tasks.md) and
 [Work governance](../../architecture/core/work-governance.md).

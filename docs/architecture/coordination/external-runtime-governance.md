@@ -8,7 +8,7 @@ authority, approval, evidence, recovery, and replay contracts. Vendor identity
 and tool names do not create special governance paths.
 
 This document is the canonical owner for external-runtime governance. Managed
-child lifecycle remains owned by [Managed Agent Invocation](managed-agents.md),
+child lifecycle remains owned by [Agent Tasks and Agent Runs](agent-tasks.md),
 work closeout remains owned by [Work Governance](../core/work-governance.md), and human
 presentation remains owned by [Operator Surfaces](../surfaces/operator-surfaces.md).
 

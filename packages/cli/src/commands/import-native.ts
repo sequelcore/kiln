@@ -265,7 +265,6 @@ function mergeImportedGlobalConfig(
   const workerRouting = {
     ...base.workerRouting,
     defaultWorker: imported.provider,
-    budgetAware: base.workerRouting?.budgetAware ?? false,
   };
   const workerModels = imported.model
     ? { ...base.workerModels, [imported.provider]: imported.model }

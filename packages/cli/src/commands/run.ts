@@ -91,9 +91,9 @@ import {
 } from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import {
-  createCliTranscriptBudgetUsageReader,
-  createRuntimeBudgetAdmissionFromGlobalConfig,
-} from "../application/runtime-budget-admission.js";
+  createCliTranscriptSessionTokenUsageReader,
+  createRuntimeSessionTurnBudgetFromGlobalConfig,
+} from "../application/session-turn-budget.js";
 import {
   createKilnRuntimeCallerIdentity,
   createKilnRuntimeManagedInvocationAttachment,
@@ -136,7 +136,7 @@ import {
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
   ManagedInvocationToolOptions,
-  RuntimeBudgetUsageReader,
+  RuntimeSessionTokenUsageReader,
 } from "@kilnai/runtime";
 import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
@@ -800,7 +800,7 @@ export class RunCommandExitError extends Error {
 export interface RunCommandExecutionOptions {
   readonly exitOnFailure?: boolean;
   readonly globalConfig?: KilnGlobalConfig | null;
-  readonly budgetUsageReader?: RuntimeBudgetUsageReader;
+  readonly sessionTokenUsageReader?: RuntimeSessionTokenUsageReader;
   readonly parallelWorkerLineage?: RunCommandParallelWorkerLineage;
 }
 
@@ -1083,7 +1083,11 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const runtimeAppConfig = appendAgentInstructionsToSystemPrompt(identityAppConfig, resolvedAgent);
-  const { registry, worktreeManager } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
+  const { registry, worktreeManager } = createDefaultRegistry({
+    canonicalMcpServers: admittedMcpServers,
+    canonicalMcpProjectPath: cwd,
+    runtimePermissionObservationProjectPath: cwd,
+  });
   const contextArtifactCache: ContextArtifactCache = await getProjectContextArtifactCache(cwd);
   const manager = new SessionManager(config, runtimeAppConfig, contextArtifactCache, worktreeManager);
   let continuationSessionId: string | undefined;
@@ -1112,8 +1116,8 @@ export async function runCommand(
   const continuedMeta = continuationSessionId
     ? await transcriptStore.readMeta(continuationSessionId)
     : null;
-  const budgetUsageReader = executionOptions.budgetUsageReader ?? createCliTranscriptBudgetUsageReader(transcriptStore);
-  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(globalConfig, budgetUsageReader);
+  const sessionTokenUsageReader = executionOptions.sessionTokenUsageReader ?? createCliTranscriptSessionTokenUsageReader(transcriptStore);
+  const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(globalConfig, sessionTokenUsageReader);
   const resumeStrategyFeedback = continuationSessionId
     ? await inferResumeStrategyFeedback(transcriptStore, preferredProvider)
     : undefined;
@@ -1456,7 +1460,7 @@ export async function runCommand(
         ...executionOptions,
         exitOnFailure: false,
         globalConfig,
-        budgetUsageReader,
+        sessionTokenUsageReader,
         parallelWorkerLineage: resolveParallelWorkerLineage({
           parentSessionId: sessionId,
           parentTurnId: `${sessionId}:workers`,
@@ -1518,7 +1522,7 @@ export async function runCommand(
     managedInvocation: managedInvocationWithTranscriptSink,
     boundedWork: boundedWork.surface,
     runtimeExecutionMode: flags.plan ? "plan" as const : "execute" as const,
-    ...(runtimeBudgetAdmission ? { budgetAdmission: runtimeBudgetAdmission } : {}),
+    ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
     model: effectiveModel,
     requestedAuthority: flags.requestedAuthority,
     ...(admittedMcpServers.length > 0 ? { canonicalMcpServers: admittedMcpServers } : {}),

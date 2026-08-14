@@ -1123,7 +1123,7 @@ function assertConsumedWriteApproval(
     || !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/u.test(approval.approvalId)
     || approval.consumerId !== request.invocationId
     || !Number.isFinite(Date.parse(approval.consumedAt))
-    || binding.jobId !== request.invocationId.replace(/^managed-job:/u, "")
+    || request.invocationId !== `agent-task:${binding.jobId}`
     || binding.callerId !== request.requestedBy
     || binding.configuredAgentProfileId !== request.agentId
     || binding.admissionProfileId !== request.profile

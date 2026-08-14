@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsConfigurationRouteImport } from './routes/settings.configuration'
+import { Route as SettingsAvailableModelsRouteImport } from './routes/settings.available-models'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -29,6 +30,11 @@ const SettingsConfigurationRoute = SettingsConfigurationRouteImport.update({
   path: '/configuration',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsAvailableModelsRoute = SettingsAvailableModelsRouteImport.update({
+  id: '/available-models',
+  path: '/available-models',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: '/appearance',
   path: '/appearance',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/available-models': typeof SettingsAvailableModelsRoute
   '/settings/configuration': typeof SettingsConfigurationRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/available-models': typeof SettingsAvailableModelsRoute
   '/settings/configuration': typeof SettingsConfigurationRoute
 }
 export interface FileRoutesById {
@@ -52,6 +60,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/available-models': typeof SettingsAvailableModelsRoute
   '/settings/configuration': typeof SettingsConfigurationRoute
 }
 export interface FileRouteTypes {
@@ -60,14 +69,21 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/settings/appearance'
+    | '/settings/available-models'
     | '/settings/configuration'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/settings/appearance' | '/settings/configuration'
+  to:
+    | '/'
+    | '/settings'
+    | '/settings/appearance'
+    | '/settings/available-models'
+    | '/settings/configuration'
   id:
     | '__root__'
     | '/'
     | '/settings'
     | '/settings/appearance'
+    | '/settings/available-models'
     | '/settings/configuration'
   fileRoutesById: FileRoutesById
 }
@@ -99,6 +115,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsConfigurationRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/available-models': {
+      id: '/settings/available-models'
+      path: '/available-models'
+      fullPath: '/settings/available-models'
+      preLoaderRoute: typeof SettingsAvailableModelsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/appearance': {
       id: '/settings/appearance'
       path: '/appearance'
@@ -111,11 +134,13 @@ declare module '@tanstack/react-router' {
 
 interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsAvailableModelsRoute: typeof SettingsAvailableModelsRoute
   SettingsConfigurationRoute: typeof SettingsConfigurationRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsAvailableModelsRoute: SettingsAvailableModelsRoute,
   SettingsConfigurationRoute: SettingsConfigurationRoute,
 }
 

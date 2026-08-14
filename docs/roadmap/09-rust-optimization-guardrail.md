@@ -34,7 +34,7 @@ packaging substrate; it must not become a second Kiln.
 ## Ownership
 
 Bun/TypeScript retains control-plane semantics, routing, authority, memory,
-configuration, managed jobs, approvals, gateway contracts, and surfaces. Native
+configuration, Agent Tasks, approvals, gateway contracts, and surfaces. Native
 modules may implement narrow replaceable kernels behind TypeScript-owned ports.
 
 Bun/TypeScript remains the owner for: runtime policy and orchestration;

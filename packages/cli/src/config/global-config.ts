@@ -66,9 +66,9 @@ export interface KilnExecutionRoutingConfig {
   readonly defaultRouteId: string;
 }
 
-export interface KilnWorkerRoutingBudgetConfig {
-  readonly dailyTokenCeiling?: number | null;
-  readonly onCeiling?: "fallback" | "stop";
+export interface KilnSessionTurnBudgetConfig {
+  readonly tokenLimit: number;
+  readonly action: "stop";
 }
 
 export interface KilnWorkerRoutingRouteConfig {
@@ -81,8 +81,6 @@ export interface KilnWorkerRoutingConfig {
   readonly defaultWorker?: string;
   readonly fallback?: string;
   readonly routes?: readonly KilnWorkerRoutingRouteConfig[];
-  readonly budgetAware?: boolean;
-  readonly budget?: Record<string, KilnWorkerRoutingBudgetConfig>;
 }
 
 /** Per-native-worker model defaults; distinct from executionCatalog routes. */
@@ -130,6 +128,7 @@ export interface KilnGlobalConfig {
   readonly executionCatalog?: KilnExecutionCatalog;
   readonly executionRouting?: KilnExecutionRoutingConfig;
   readonly workerRouting?: KilnWorkerRoutingConfig;
+  readonly sessionTurnBudget?: KilnSessionTurnBudgetConfig;
   readonly permissions?: KilnYamlPermissions;
   readonly mcp?: KilnYamlMcp;
   readonly hooks?: KilnHooksConfig;
@@ -163,6 +162,7 @@ const ROOT_FIELDS = fieldNamesOf<KilnGlobalConfig>({
   executionCatalog: true,
   executionRouting: true,
   workerRouting: true,
+  sessionTurnBudget: true,
   permissions: true,
   mcp: true,
   hooks: true,
@@ -556,6 +556,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateExecutionCatalog(config.executionCatalog, config.executionRouting);
   validateExecutionRouting(config.executionRouting, config.executionCatalog);
   validateWorkerRouting(config.workerRouting);
+  validateSessionTurnBudget(config.sessionTurnBudget);
   validateComponents(config.components);
   validateOperatorVoice(config.operatorVoice);
   validateManagedAgents(config.managedAgents, config.operatorVoice as VoiceConfig | undefined);
@@ -849,13 +850,17 @@ function validateExecutionCatalog(value: unknown, routing: unknown): void {
   value.routes.forEach((route, index) => {
     const path = `executionCatalog.routes[${index}]`;
     if (!isRecord(route)) throw new KilnYamlError(`${path} must be an object`);
-    rejectUnknownFields(route, ["id", "label", "providerId", "providerModelId", "accountSelection", "economics"], path);
+    rejectUnknownFields(route, ["id", "label", "providerId", "providerModelId", "accountSelection", "dataClassification", "dataPolicyEvidence", "economics"], path);
     validateCanonicalId(route.id, `${path}.id`);
     if (routeIds.has(route.id)) throw new KilnYamlError(`${path}.id must be unique`);
     routeIds.add(route.id);
     validateRequiredNonEmptyString(route, "label", `${path}.label`);
     validateCanonicalId(route.providerId, `${path}.providerId`);
     validateRequiredNonEmptyString(route, "providerModelId", `${path}.providerModelId`);
+    if (!["public", "internal", "confidential", "restricted"].includes(String(route.dataClassification))) {
+      throw new KilnYamlError(`${path}.dataClassification is invalid`);
+    }
+    validateExecutionRouteDataPolicyEvidence(route.dataPolicyEvidence, `${path}.dataPolicyEvidence`);
     validateRouteAccountSelection(route.accountSelection, path, route.providerId, accounts, policies);
     validateExecutionRouteEconomics(route.economics, `${path}.economics`);
   });
@@ -864,6 +869,37 @@ function validateExecutionCatalog(value: unknown, routing: unknown): void {
   } catch (error) {
     throw new KilnYamlError(`Invalid executionCatalog: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+/** Atomically reads validated global configuration and its optimistic-write revision. */
+export function readGlobalConfigSnapshot(): { readonly config: KilnGlobalConfig | null; readonly revision: string } {
+  const configPath = resolveGlobalConfigPath();
+  const raw = existsSync(configPath) ? readFileSync(configPath, "utf-8") : null;
+  return { config: parseGlobalConfigRaw(raw), revision: globalConfigRevision(raw) };
+}
+
+function validateExecutionRouteDataPolicyEvidence(value: unknown, path: string): void {
+  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
+  rejectUnknownFields(value, [
+    "providerId", "providerModelId", "dataUse", "trainingPosture", "retention",
+    "permittedMaximumClassification", "permittedClassifications", "sourceIdentity", "sourceRevision",
+    "sourceDigest", "observedAt", "expiresAt",
+  ], path);
+  validateCanonicalId(value.providerId, `${path}.providerId`);
+  validateRequiredNonEmptyString(value, "providerModelId", `${path}.providerModelId`);
+  if (value.dataUse !== "not-used" && value.dataUse !== "service-operation") throw new KilnYamlError(`${path}.dataUse is invalid`);
+  if (value.trainingPosture !== "prohibited" && value.trainingPosture !== "permitted") throw new KilnYamlError(`${path}.trainingPosture is invalid`);
+  if (!isRecord(value.retention)) throw new KilnYamlError(`${path}.retention must be an object`);
+  rejectUnknownFields(value.retention, ["posture", "days"], `${path}.retention`);
+  if (value.retention.posture !== "zero" && value.retention.posture !== "bounded") throw new KilnYamlError(`${path}.retention.posture is invalid`);
+  if (!Number.isSafeInteger(value.retention.days) || Number(value.retention.days) < 0) throw new KilnYamlError(`${path}.retention.days is invalid`);
+  if (!["public", "internal", "confidential", "restricted"].includes(String(value.permittedMaximumClassification))) throw new KilnYamlError(`${path}.permittedMaximumClassification is invalid`);
+  if (!Array.isArray(value.permittedClassifications) || value.permittedClassifications.length === 0) throw new KilnYamlError(`${path}.permittedClassifications must be a non-empty array`);
+  validateCanonicalId(value.sourceIdentity, `${path}.sourceIdentity`);
+  validateCanonicalId(value.sourceRevision, `${path}.sourceRevision`);
+  if (typeof value.sourceDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value.sourceDigest)) throw new KilnYamlError(`${path}.sourceDigest must be a sha256 digest`);
+  validateRequiredNonEmptyString(value, "observedAt", `${path}.observedAt`);
+  validateRequiredNonEmptyString(value, "expiresAt", `${path}.expiresAt`);
 }
 
 function validateExecutionAccountEconomics(value: unknown, path: string): void {
@@ -971,21 +1007,21 @@ function validateExecutionRouting(value: unknown, executionCatalog: unknown): vo
 function validateWorkerRouting(value: unknown): void {
   if (value === undefined) return;
   if (!isRecord(value)) throw new KilnYamlError("workerRouting must be an object");
-  rejectUnknownFields(value, ["defaultWorker", "fallback", "routes", "budgetAware", "budget"], "workerRouting");
+  rejectUnknownFields(value, ["defaultWorker", "fallback", "routes"], "workerRouting");
   if (value.defaultWorker !== undefined && typeof value.defaultWorker !== "string") throw new KilnYamlError("workerRouting.defaultWorker must be a string");
   if (value.fallback !== undefined && typeof value.fallback !== "string") throw new KilnYamlError("workerRouting.fallback must be a string");
   if (value.routes !== undefined) {
     if (!Array.isArray(value.routes)) throw new KilnYamlError("workerRouting.routes must be an array");
     value.routes.forEach((route, index) => validateWorkerRoutingRoute(route, index));
   }
-  if (value.budgetAware !== undefined && typeof value.budgetAware !== "boolean") throw new KilnYamlError("workerRouting.budgetAware must be a boolean");
-  if (value.budget === undefined) return;
-  if (!isRecord(value.budget)) throw new KilnYamlError("workerRouting.budget must be an object");
-  for (const [engineId, budget] of Object.entries(value.budget)) {
-    if (!isRecord(budget)) throw new KilnYamlError(`workerRouting.budget.${engineId} must be an object`);
-    if (budget.dailyTokenCeiling !== undefined && budget.dailyTokenCeiling !== null && typeof budget.dailyTokenCeiling !== "number") throw new KilnYamlError(`workerRouting.budget.${engineId}.dailyTokenCeiling must be a number or null`);
-    if (budget.onCeiling !== undefined && budget.onCeiling !== "fallback" && budget.onCeiling !== "stop") throw new KilnYamlError(`workerRouting.budget.${engineId}.onCeiling must be \"fallback\" or \"stop\"`);
-  }
+}
+
+function validateSessionTurnBudget(value: unknown): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError("sessionTurnBudget must be an object");
+  rejectUnknownFields(value, ["tokenLimit", "action"], "sessionTurnBudget");
+  if (!Number.isSafeInteger(value.tokenLimit) || (value.tokenLimit as number) <= 0) throw new KilnYamlError("sessionTurnBudget.tokenLimit must be a positive safe integer");
+  if (value.action !== "stop") throw new KilnYamlError("sessionTurnBudget.action must be \"stop\"");
 }
 
 function validateWorkerRoutingRoute(value: unknown, index: number): void {

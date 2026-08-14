@@ -92,5 +92,5 @@ Canonical references:
 - `docs/research/22-canonical-mcp-integration-2026.md`
 - `docs/architecture/config-projection.md`
 - `docs/architecture/tooling/tool-execution.md`
-- `docs/architecture/coordination/managed-agents.md`
+- `docs/architecture/coordination/agent-tasks.md`
 - `docs/architecture/surfaces/app-gateway-runtime.md`

@@ -11,6 +11,7 @@ import {
   presentOperatorSessionEvent,
   projectVoiceAudioOutputParts,
   type ExecutionRouteCatalog,
+  type AvailableModelCatalog,
   type ExecutionRouteSelectionIntent,
   type GuiProviderDiscoveryResult,
   type GuiProviderModelDiscoveryProjection,
@@ -261,6 +262,9 @@ export class GatewaySession implements SessionLike {
   private readonly userId: string;
   private _planMode = false;
   private _executionRouteCatalog: ExecutionRouteCatalog = { routes: [] };
+  private _availableModels: AvailableModelCatalog | null = null;
+
+  get availableModels(): AvailableModelCatalog | null { return this._availableModels; }
 
   get planMode(): boolean {
     return this._planMode;
@@ -272,6 +276,7 @@ export class GatewaySession implements SessionLike {
     models?: Record<string, string[]>,
     providerDiscovery?: readonly GuiProviderDiscoveryResult[],
     providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
+    availableModels?: AvailableModelCatalog,
   ) => void) | null = null;
 
   /** Pending queue items for the current turn. Set while a turn is in flight. */
@@ -310,6 +315,7 @@ export class GatewaySession implements SessionLike {
       models?: Record<string, string[]>,
       providerDiscovery?: readonly GuiProviderDiscoveryResult[],
       providerModelDiscovery?: GuiProviderModelDiscoveryProjection,
+      availableModels?: AvailableModelCatalog,
     ) => void,
   ) {
     this.userId = `kiln-tui-${randomUUID()}`;
@@ -650,13 +656,15 @@ export class GatewaySession implements SessionLike {
       });
     } else if (frame.type === "welcome") {
       this._executionRouteCatalog = frame.executionRouteCatalog;
-      this.onWelcome?.(frame.executionRouteCatalog);
+      this._availableModels = frame.availableModels;
+      this.onWelcome?.(frame.executionRouteCatalog, undefined, undefined, undefined, frame.availableModels);
       if ("executionMode" in frame) {
         this._planMode = frame.executionMode === "plan";
       }
     } else if (frame.type === "execution_routes_refreshed") {
       this._executionRouteCatalog = frame.executionRouteCatalog;
-      this.onWelcome?.(frame.executionRouteCatalog);
+      this._availableModels = frame.availableModels;
+      this.onWelcome?.(frame.executionRouteCatalog, undefined, undefined, undefined, frame.availableModels);
       this.executionRouteRefreshCallbacks?.resolve();
     } else if (frame.type === "provider_auth_started") {
       const pending = this.providerAuthCallbacks;
@@ -695,6 +703,7 @@ export class GatewaySession implements SessionLike {
         frame.models,
         frame.providerDiscovery,
         frame.providerModelDiscovery,
+        ...(frame.availableModels ? [frame.availableModels] : []),
       );
       const pending = this.providerAuthCallbacks;
       if (pending && frame.provider === pending.provider && frame.requestId === pending.requestId) {

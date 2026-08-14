@@ -39,7 +39,7 @@ describe("import-native command helpers", () => {
       engines: {
         claude: { enabled: true, billing: "subscription" },
       },
-      workerRouting: { defaultWorker: "claude", budgetAware: false },
+      workerRouting: { defaultWorker: "claude" },
       permissions: {
         approval: "never",
         tools: [{ tool: "Read", action: "allow" }],
@@ -70,7 +70,7 @@ describe("import-native command helpers", () => {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: true },
       },
-      workerRouting: { defaultWorker: "codex", budgetAware: false },
+      workerRouting: { defaultWorker: "codex" },
       permissions: {
         approval: "on-request",
         sandbox: "workspace-write",

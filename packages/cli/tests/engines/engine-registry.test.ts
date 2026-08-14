@@ -16,11 +16,6 @@ const baseConfig: KilnGlobalConfig = {
   workerRouting: {
     defaultWorker: "codex",
     fallback: "opencode",
-    budgetAware: true,
-    budget: {
-      codex: { dailyTokenCeiling: 100, onCeiling: "fallback" },
-      opencode: { dailyTokenCeiling: null },
-    },
   },
 };
 
@@ -60,25 +55,6 @@ describe("EngineRegistry", () => {
     expect(availability.get("opencode")).toBe(true);
   });
 
-  it("resolves fallback when budget-aware routing crosses the ceiling", () => {
-    const route = resolveEngineRoute(baseConfig, {
-      getDailyTokensUsed: (engineId) => engineId === "codex" ? 150 : 0,
-    });
-
-    expect(route).toEqual({
-      worker: "opencode",
-      reason: "budget-ceiling",
-      defaultWorker: "codex",
-      fallback: "opencode",
-      budget: {
-        engineId: "codex",
-        tokensUsed: 150,
-        ceiling: 100,
-        withinBudget: false,
-      },
-    });
-  });
-
   it("resolves fallback when default worker is unavailable", () => {
     const route = resolveEngineRoute(baseConfig, {
       isEngineAvailable: (engineId) => engineId !== "codex",
@@ -109,13 +85,8 @@ describe("EngineRegistry", () => {
     expect(route.fallback).toBe("openrouter");
   });
 
-  it("keeps default worker when budget awareness is disabled", () => {
-    const route = resolveEngineRoute({
-      ...baseConfig,
-      workerRouting: { ...baseConfig.workerRouting, budgetAware: false },
-    }, {
-      getDailyTokensUsed: () => 150,
-    });
+  it("keeps the default worker when it is available", () => {
+    const route = resolveEngineRoute(baseConfig);
 
     expect(route.worker).toBe("codex");
     expect(route.reason).toBe("default");

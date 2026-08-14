@@ -659,7 +659,7 @@ When at least one healthy route exists, runtime tool projection exposes
 `managed_agent.invoke`. Missing or unhealthy routes fail closed with operator
 diagnostics. Surfaces do not decide their own child-agent provider list.
 
-Budget-aware routing config projects only into normal runtime-session-turn
+`sessionTurnBudget`, when configured, projects only into normal session pre-turn
 budget admission. CLI surfaces may supply `routing.budget` and a live usage
 reader, but they do not evaluate that policy locally. Policy-bearing managed
 children instead use the configured managed economic policy and Runtime's

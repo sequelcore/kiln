@@ -56,7 +56,7 @@ completion. A child agent does not inherit unrestricted parent authority.
 
 See [Coordination](architecture/coordination/coordination.md),
 [work governance](architecture/core/work-governance.md), and
-[managed agents](architecture/coordination/managed-agents.md).
+[Agent Tasks and Agent Runs](architecture/coordination/agent-tasks.md).
 
 ## Safety and authority
 

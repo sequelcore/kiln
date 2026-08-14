@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurn } from "@kilnai/core";
+import { createExecutionAccountRef, type OneRoundModelDispatchInput, type ModelTurn } from "@kilnai/core";
 import {
   CodexOAuthModelTurnDispatcher,
   CodexOAuthModelTurnError,
   CODEX_OAUTH_RESPONSES_ENDPOINT,
   encodeCodexOAuthResponsesRequest,
-} from "../../src/model-gateway/codex-oauth-model-turn-dispatcher.js";
+} from "../../src/execution-kernel/provider-adapters/codex-oauth-model-turn-dispatcher.js";
 
-const account = createAccountRef("account-fixture");
+const account = createExecutionAccountRef("account-fixture");
 const route = { providerId: "codex-oauth", providerModelId: "gpt-5-codex", scope: "direct" };
 const raw = "*** Begin Patch\r\n+ fixture\r\n*** End Patch";
 
@@ -42,7 +42,7 @@ function richTurn(): ModelTurn {
   };
 }
 
-function dispatchInput(turn: ModelTurn = richTurn(), overrides: Partial<ModelGatewayOneRoundDispatchInput> = {}): ModelGatewayOneRoundDispatchInput {
+function dispatchInput(turn: ModelTurn = richTurn(), overrides: Partial<OneRoundModelDispatchInput> = {}): OneRoundModelDispatchInput {
   return { account, route, sessionId: "session-fixture", turn, ...overrides };
 }
 
@@ -121,7 +121,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
     ];
     const fetchFn = vi.fn(async () => sseResponse(frames, { requestId: "req_safe_1", chunkSize: 3, crlf: true }));
     const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret", chatgptAccountId: "chat-account" }, fetch: fetchFn });
-    const result = await dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createAccountRef("account-fixture") }));
+    const result = await dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createExecutionAccountRef("account-fixture") }));
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const [url, init] = fetchFn.mock.calls[0]!;
     expect(url).toBe(CODEX_OAUTH_RESPONSES_ENDPOINT);
@@ -148,7 +148,7 @@ describe("CodexOAuthModelTurnDispatcher", () => {
 
   it("rejects binding and capability errors without fetching", async () => {
     const fetchFn = vi.fn(); const dispatcher = new CodexOAuthModelTurnDispatcher({ account, credential: { accessToken: "token-secret" }, fetch: fetchFn as typeof fetch });
-    await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createAccountRef("other") }))).rejects.toMatchObject({ code: "account-mismatch" });
+    await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { account: createExecutionAccountRef("other") }))).rejects.toMatchObject({ code: "account-mismatch" });
     await expect(dispatcher.dispatchOneRound(dispatchInput(richTurn(), { route: { ...route, providerId: "other" } }))).rejects.toMatchObject({ code: "route-mismatch" });
     await expect(dispatcher.dispatchOneRound(dispatchInput({ history: [{ role: "assistant", parts: [{ type: "image", source: { kind: "url", url: "https://example.test/a" } }] }] }))).rejects.toMatchObject({ code: "unsupported-capability" });
     expect(fetchFn).not.toHaveBeenCalled();

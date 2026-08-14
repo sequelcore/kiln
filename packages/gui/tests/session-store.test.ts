@@ -758,7 +758,7 @@ describe("session-store", () => {
           agentProfile: "architecture-reviewer",
           skills: ["ddd-review"],
           contextMode: "isolated",
-          task: "Inspect docs/architecture/managed-agents.md.",
+          task: "Inspect docs/architecture/coordination/agent-tasks.md.",
           summary: "Inspect managed agents architecture doc",
         },
       },

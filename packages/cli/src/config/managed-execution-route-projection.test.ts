@@ -38,6 +38,8 @@ const catalog = defineExecutionCatalog({
     label: "Terra",
     providerId: "codex-oauth",
     providerModelId: "gpt-5.6-terra",
+    dataClassification: "internal",
+    dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
     accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" },
     economics: {
       adapterCapabilityId: "adapter",

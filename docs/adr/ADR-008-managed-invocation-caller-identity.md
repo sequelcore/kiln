@@ -67,5 +67,5 @@ Professional acceptance requires tests proving:
 
 Canonical architecture references:
 
-- `docs/architecture/coordination/managed-agents.md`
+- `docs/architecture/coordination/agent-tasks.md`
 - `docs/architecture/harness-integration-capabilities.md`

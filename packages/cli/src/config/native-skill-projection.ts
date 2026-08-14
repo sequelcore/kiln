@@ -95,6 +95,8 @@ interface SkillProjectionSource {
   readonly skillName: string;
   readonly sourceIdentity: string;
   readonly visibility: "implicit" | "explicit-only";
+  readonly origin: "project" | "user" | "builtin";
+  readonly representation: "directory" | "flat" | "builtin";
   readonly sourceDir?: string;
   readonly files?: readonly {
     readonly fileName: string;
@@ -108,36 +110,110 @@ export function discoverSkillProjectionSources(
   userHome = os.homedir(),
 ): Map<string, SkillProjectionSource> {
   const discovered = new Map<string, SkillProjectionSource>();
-  for (const [directoryName, sourceDir] of discoverSkillDirs(projectPath, userHome)) {
-    const skillName = readSkillDirectoryName(sourceDir) ?? directoryName;
-    if (!isSafeProjectionPathComponent(skillName)) continue;
-    const origin = resolveProjectionPathWithin(
-      join(projectPath, ".kiln", "skills"),
-      sourceDir,
-    ) ? "project" : "user";
-    const visibility = resolveSkillVisibility(skillName, skillConfig);
-    if (visibility === "disabled") continue;
-    discovered.set(canonicalSkillKey(skillName), {
-      skillName,
-      visibility,
-      sourceIdentity: `${origin}:${canonicalSkillKey(skillName)}`,
-      sourceDir,
-    });
+  const roots = [
+    { origin: "user" as const, dir: join(userHome, ".kiln", "skills") },
+    { origin: "project" as const, dir: join(projectPath, ".kiln", "skills") },
+  ];
+
+  for (const { origin, dir } of roots) {
+    for (const [directoryName, sourceDir] of discoverSkillDirsAt(dir)) {
+      const skillName = readSkillDirectoryName(sourceDir) ?? directoryName;
+      if (!isSafeProjectionPathComponent(skillName)) continue;
+      const visibility = resolveSkillVisibility(skillName, skillConfig);
+      if (visibility === "disabled") continue;
+      resolveSkillProjectionCandidate(discovered, {
+        skillName,
+        visibility,
+        origin,
+        representation: "directory",
+        sourceIdentity: `${origin}:${canonicalSkillKey(skillName)}`,
+        sourceDir,
+      });
+    }
+    for (const [fileName, sourceFile] of discoverFlatSkillFiles(dir)) {
+      try {
+        const skillName = loadSkillMdIndex(sourceFile).name;
+        if (!isSafeProjectionPathComponent(skillName)) continue;
+        const visibility = resolveSkillVisibility(skillName, skillConfig);
+        if (visibility === "disabled") continue;
+        resolveSkillProjectionCandidate(discovered, {
+          skillName,
+          visibility,
+          origin,
+          representation: "flat",
+          sourceIdentity: `${origin}:${canonicalSkillKey(skillName)}`,
+          files: [{ fileName, content: normalizeProjectedSkillFileContent(fileName, readFileSync(sourceFile)) }],
+        });
+      } catch {
+        // Invalid flat skill files are outside the admitted projection set.
+      }
+    }
   }
   for (const skill of resolveKilnCoreBuiltinSkills(skillConfig?.builtin)) {
     if (!isSafeProjectionPathComponent(skill.name)) continue;
     const visibility = resolveSkillVisibility(skill.name, skillConfig);
     if (visibility === "disabled") continue;
-    if (!discovered.has(canonicalSkillKey(skill.name))) {
-      discovered.set(canonicalSkillKey(skill.name), {
-        skillName: skill.name,
-        visibility,
-        sourceIdentity: `builtin:${canonicalSkillKey(skill.name)}`,
-        files: [{ fileName: "SKILL.md", content: renderSkillMarkdown(skill) }],
-      });
-    }
+    resolveSkillProjectionCandidate(discovered, {
+      skillName: skill.name,
+      visibility,
+      origin: "builtin",
+      representation: "builtin",
+      sourceIdentity: `builtin:${canonicalSkillKey(skill.name)}`,
+      files: [{ fileName: "SKILL.md", content: renderSkillMarkdown(skill) }],
+    });
   }
   return discovered;
+}
+
+function resolveSkillProjectionCandidate(
+  discovered: Map<string, SkillProjectionSource>,
+  candidate: SkillProjectionSource,
+): void {
+  const key = canonicalSkillKey(candidate.skillName);
+  const existing = discovered.get(key);
+  if (!existing || isPreferredSkillProjectionCandidate(candidate, existing)) {
+    discovered.set(key, candidate);
+  }
+}
+
+function isPreferredSkillProjectionCandidate(
+  candidate: SkillProjectionSource,
+  existing: SkillProjectionSource,
+): boolean {
+  const originPrecedence = { builtin: 0, user: 1, project: 2 } as const;
+  if (candidate.origin !== existing.origin) {
+    return originPrecedence[candidate.origin] > originPrecedence[existing.origin];
+  }
+  // Within one origin, the canonical directory form is authoritative over a flat file.
+  return candidate.representation === "directory" && existing.representation === "flat";
+}
+
+function discoverSkillDirsAt(root: string): readonly [string, string][] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .flatMap((entry) => {
+        const sourceDir = join(root, entry.name);
+        return entry.isDirectory() && isCanonicalSkillDirectory(sourceDir, entry.name)
+          ? [[entry.name, sourceDir] as [string, string]]
+          : [];
+      });
+  } catch {
+    return [];
+  }
+}
+
+function discoverFlatSkillFiles(root: string): readonly [string, string][] {
+  try {
+    return readdirSync(root, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .flatMap((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".md")
+        && isSafeProjectionPathComponent(entry.name)
+        ? [[entry.name, join(root, entry.name)] as [string, string]]
+        : []);
+  } catch {
+    return [];
+  }
 }
 
 export function discoverOpenCodeDeniedSkillNames(

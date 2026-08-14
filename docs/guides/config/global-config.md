@@ -482,7 +482,7 @@ invocation may request a profile, skills, and context mode:
 Use managed_agent.invoke with profile foundation-readonly-plan,
 providerRoute.providerId codex-oauth, agentProfile architecture-reviewer,
 skills ["ddd-boundary-review"], and contextMode isolated.
-Task: inspect docs/architecture/coordination/managed-agents.md and report architectural
+Task: inspect docs/architecture/coordination/agent-tasks.md and report architectural
 risks. Do not modify files.
 ```
 
@@ -566,7 +566,7 @@ decision.
 Unconfigured builtin agents are therefore absent from the schema-v2 managed
 catalog. A project or global definition, including an override with the same
 name as a builtin, is admitted only with a valid `economicPolicyId`.
-Policy agents are exposed to native managed-job submission through the current
+Policy agents are exposed to native Agent Task submission through the current
 managed-invocation record. Its `dispatch.kind` branch persists either an
 economic commitment or exact native-harness identity. The economic branch persists the
 policy id/revision, normalized narrowing constraints, governance evidence,

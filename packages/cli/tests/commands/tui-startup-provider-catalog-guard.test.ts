@@ -257,7 +257,10 @@ vi.mock("@kilnai/tui", () => ({
   GatewaySession: class {},
 }));
 
-vi.mock("@kilnai/runtime", () => ({
+vi.mock("@kilnai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/runtime")>();
+  return {
+  ...actual,
   getProjectContextArtifactCache: runtimeMocks.getProjectContextArtifactCache,
   createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
     toolDefinitions: [],
@@ -335,7 +338,8 @@ vi.mock("@kilnai/runtime", () => ({
   createProviderCatalogService: runtimeMocks.createProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
   startTuiGateway: runtimeMocks.startTuiGateway,
-}));
+  };
+});
 
 vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
   createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
@@ -344,6 +348,7 @@ vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: configMocks.readGlobalConfig,
+  readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
   resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
   resolveGlobalDefaultProvider: (config: typeof configMocks.globalConfig) => {
     if (!config) return undefined;

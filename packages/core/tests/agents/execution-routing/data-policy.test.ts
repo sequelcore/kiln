@@ -1,0 +1,92 @@
+import { describe, expect, it } from "vitest";
+import {
+  decideExecutionRouteDataPolicy,
+  defineExecutionRouteDataPolicyEvidence,
+  type ExecutionRouteDataPolicyEvidence,
+} from "../../../src/agents/execution-routing/data-policy.js";
+import { defineExecutionCatalog } from "../../../src/agents/execution-routing/index.js";
+
+const evidence = (): ExecutionRouteDataPolicyEvidence => ({
+  providerId: "provider-a",
+  providerModelId: "model-a",
+  dataUse: "not-used",
+  trainingPosture: "prohibited",
+  retention: { posture: "zero", days: 0 },
+  permittedMaximumClassification: "confidential",
+  permittedClassifications: ["public", "internal", "confidential"],
+  sourceIdentity: "provider-privacy",
+  sourceRevision: "2026-08",
+  sourceDigest: `sha256:${"a".repeat(64)}`,
+  observedAt: "2026-08-01T00:00:00.000Z",
+  expiresAt: "2026-08-31T00:00:00.000Z",
+});
+
+describe("ExecutionRoute data policy", () => {
+  it("requires policy evidence on every canonical execution route", () => {
+    const economicEvidence = {
+      sourceIdentity: "fixture-source", sourceRevision: "revision-1",
+      sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-01-01T00:00:00.000Z",
+      validUntil: "2026-12-31T00:00:00.000Z", confidence: "high" as const, authority: "configured" as const,
+    };
+    expect(() => defineExecutionCatalog({
+      accounts: [{
+        id: "account-a", providerId: "provider-a", credentialId: "credential-a",
+        maxConcurrency: 1, reservedAffinitySlots: 0,
+        economics: { capacityIdentity: "capacity-a", subscriptionClass: "subscription", quotaClassId: "quota-a", creditPosture: "disabled", overagePosture: "disabled" },
+      }],
+      accountPolicies: [],
+      routes: [{
+        id: "route-a",
+        label: "Route A",
+        providerId: "provider-a",
+        providerModelId: "model-a",
+        dataClassification: "internal",
+        accountSelection: { mode: "exact", accountId: "account-a" },
+        economics: {
+          adapterCapabilityId: "adapter-a", adapterCapabilityVersion: "v1", authBillingChannel: "subscription",
+          executionMode: "direct", serviceTier: "standard", rateCardBasis: "subscription",
+          envelopeSemantics: "request", fallbackPosture: "disabled", overagePosture: "disabled",
+          contextClass: "default", cacheClass: "default",
+          priceEvidence: { kind: "subscription", rateCardId: "rate-a", rateCardRevision: "v1", evidence: economicEvidence },
+          auxiliaryCharges: [], executionEnvelope: { limits: [] },
+        },
+      } as never],
+    })).toThrow(/dataPolicyEvidence/u);
+  });
+
+  it("admits exact current route evidence within the configured classification", () => {
+    expect(decideExecutionRouteDataPolicy({
+      evidence: evidence(), providerId: "provider-a", providerModelId: "model-a",
+      requestedClassification: "confidential", now: new Date("2026-08-15T00:00:00.000Z"),
+    })).toEqual(expect.objectContaining({ status: "admitted", freshness: "current", reason: "policy-admitted" }));
+  });
+
+  it.each([
+    ["missing", undefined, "missing-evidence"],
+    ["expired", { ...evidence(), expiresAt: "2026-08-14T00:00:00.000Z" }, "expired-evidence"],
+    ["expiry boundary", evidence(), "expired-evidence"],
+    ["provider drift", { ...evidence(), providerId: "provider-b" }, "provider-mismatch"],
+    ["model drift", { ...evidence(), providerModelId: "model-b" }, "model-mismatch"],
+    ["classification widening", { ...evidence(), permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"] }, "classification-not-permitted"],
+  ])("denies %s before execution", (_case, policy, reason) => {
+    expect(decideExecutionRouteDataPolicy({
+      evidence: policy, providerId: "provider-a", providerModelId: "model-a",
+      requestedClassification: "confidential",
+      now: new Date(_case === "expiry boundary" ? "2026-08-31T00:00:00.000Z" : "2026-08-15T00:00:00.000Z"),
+    })).toEqual(expect.objectContaining({ status: "denied", reason }));
+  });
+
+  it("denies malformed evidence passed from an untyped persistence boundary", () => {
+    expect(decideExecutionRouteDataPolicy({
+      evidence: { ...evidence(), sourceDigest: "raw" } as never,
+      providerId: "provider-a", providerModelId: "model-a", requestedClassification: "internal",
+      now: new Date("2026-08-15T00:00:00.000Z"),
+    })).toEqual({ status: "denied", freshness: "invalid", reason: "malformed-evidence" });
+  });
+
+  it("rejects malformed evidence at the canonical definition boundary", () => {
+    expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), sourceDigest: "raw" })).toThrow("sourceDigest");
+    expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), retention: { posture: "zero", days: 1 } })).toThrow("retention");
+    expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), permittedClassifications: ["public", "confidential"] })).toThrow("downward-closed");
+  });
+});

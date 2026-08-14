@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   adoptManagedEconomicSnapshot,
-  createAccountRef,
+  createExecutionAccountRef,
   digestManagedEconomicValue,
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicPriceEvidence,
@@ -132,7 +132,7 @@ function accountSnapshot(): ManagedEconomicAdoptedSnapshot {
 function accountCapacity(adopted = accountSnapshot()) {
   const route = { providerId: "provider", providerModelId: "model", scope: "economic:route-direct" };
   const candidate = {
-    candidate: { account: createAccountRef("configured:account-a"), route, health: "healthy" as const,
+    candidate: { account: createExecutionAccountRef("configured:account-a"), route, health: "healthy" as const,
       leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false },
     capacityIdentity: "account-a", credentialRevisionId: "a".repeat(64),
     usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
@@ -365,7 +365,7 @@ describe("managed economic commitment authority", () => {
     const authority = create();
     const first = authority.acquireCommitment(input());
     if (first.status !== "committed") throw new Error("Expected a commitment.");
-    const inspect = authority.createManagedJobReplayInspectionPort();
+    const inspect = authority.createAgentTaskReplayInspectionPort();
     expect(inspect.inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" })).toMatchObject({
       evidenceVersion: 1, status: "held", policyId: "policy", policyRevision: "revision-1",
       policyDigest: `sha256:${"1".repeat(64)}`, commitmentId: first.record.commitment.commitmentId,
@@ -402,7 +402,7 @@ describe("managed economic commitment authority", () => {
     const database = new Database(join(roots.at(-1)!, "authority.sqlite"), { strict: true });
     database.query("UPDATE economic_commitments SET decision_json=? WHERE job_id=?").run(JSON.stringify({ decision: { kind: "selected" }, authorityRejections: [] }), "job-a");
     database.close();
-    expect(() => authority.createManagedJobReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
+    expect(() => authority.createAgentTaskReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
       .toThrow(/unprojectable/u);
   });
 
@@ -419,7 +419,7 @@ describe("managed economic commitment authority", () => {
     corrupted.reservation.selectedIdentity.account.credentialRevision = "revision-secret";
     database.query("UPDATE economic_commitments SET commitment_json=? WHERE job_id=?").run(JSON.stringify(corrupted), "job-a");
     database.close();
-    expect(() => authority.createManagedJobReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
+    expect(() => authority.createAgentTaskReplayInspectionPort().inspect({ jobId: "job-a", economicAttemptId: "economic-attempt-a" }))
       .toThrow(/unprojectable/u);
   });
 
@@ -570,7 +570,7 @@ describe("managed economic commitment authority", () => {
 
     const restarted = createAt(path, "owner-b", () => 2_000);
     expect(restarted.recoverCommitments()).toMatchObject([{ state: "held" }]);
-    expect(restarted.createManagedJobCommitmentRecoveryPort().query({
+    expect(restarted.createAgentTaskCommitmentRecoveryPort().query({
       jobId: "job-a", economicAttemptId: "economic-attempt-a",
     })).toBe("committed");
     expect(restarted.releaseCommitmentPreFence("job-a", "economic-attempt-a").state).toBe("released");
@@ -618,7 +618,7 @@ describe("managed economic commitment authority", () => {
     expect(restarted.recoverCommitments()).toMatchObject([{
       state: "settlement-pending", settlement: { kind: "pending", dispatchFenceId: "fence-a" },
     }]);
-    expect(restarted.createManagedJobCommitmentRecoveryPort().query({
+    expect(restarted.createAgentTaskCommitmentRecoveryPort().query({
       jobId: "job-a", economicAttemptId: "economic-attempt-a",
     })).toBe("dispatch-fenced");
     expect(() => restarted.releaseCommitmentPreFence("job-a", "economic-attempt-a"))

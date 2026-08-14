@@ -178,7 +178,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         buildSystemPrompt: identityAppConfig.buildSystemPrompt ?? defaultBuildSystemPrompt,
       };
     }
-    const { registry, worktreeManager } = createDefaultRegistry();
+    const { registry, worktreeManager } = createDefaultRegistry({
+      runtimePermissionObservationProjectPath: cwd,
+    });
     const benchmarkCleanupRegistry = new CleanupRegistry();
     const boundedWork = benchmarkWorkspace.kind === "repository"
       ? createProjectBoundedWorkAuthority(cwd, {

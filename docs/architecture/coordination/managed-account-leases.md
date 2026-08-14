@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Managed economic commitment binds one admitted managed job to one immutable
+Managed economic commitment binds one admitted Agent Task to one immutable
 economic route decision before provider effects begin. Runtime owns the local
 SQLite authority for route reservations, account selection when applicable,
 dispatch fencing, release, recovery, and reconciliation. Job JSON is a durable
 projection of that authority, not a second commitment store.
 
-This boundary is shared by managed jobs and Model Gateway ingress. One
+This boundary is shared by Agent Tasks and Model Gateway ingress. One
 user-scoped physical SQLite ledger is the sole writer for account capacity and
 affinity. Economic commitments are project-namespaced within that ledger, so a
 project cannot consume or recover another project's work.
@@ -29,15 +29,15 @@ set, price evidence, rate schedules, and complete snapshot. Reordered object
 keys cannot change a digest. A later config read or clock value cannot rewrite
 the adopted decision basis.
 
-Managed-job V10 is the only persisted representation. Its discriminated
+The current persisted representation is Agent Task v13 with one Agent Run. Its
 `dispatch.kind` is either `economic` or `native-harness`. The economic branch
 durably creates a namespaced `economicAttemptId` and `adoptedDecisionAt` before
 adoption or commitment. The native-harness branch stores only its exact
 credentialless route/provider/model, stable versioned route acknowledgement,
 and optional Runtime dispatch fence; it never creates an economic policy,
-account, quota, price, candidate, reservation, or settlement record. V9 is
-migrated once to V10 to preserve operator evidence; pre-V9
-records fail closed and are never upgraded by inference.
+account, quota, price, candidate, reservation, or settlement record. The only
+legacy reader is the labeled one-time v12 local-state migration described in
+[Agent Tasks and Agent Runs](agent-tasks.md).
 
 ## Atomic Commitment
 
@@ -131,25 +131,22 @@ exact invocation and dispatch fence; operator text or a syntactically valid
 evidence URI is not sufficient to release capacity.
 
 Economic commitments are project-namespaced. Account capacity and affinity are
-shared across the managed-job and Gateway participants for the same configured
+shared across the Agent Task and Gateway participants for the same configured
 capacity identity; neither participant may overwrite affinity or delete another
 participant's live reservation.
 
 ## Recovery
 
-Startup first recovers the SQLite authority and then recovers managed jobs.
+Startup first recovers the SQLite authority and then recovers Agent Tasks.
 Economic recovery queries the exact `(jobId, economicAttemptId)`:
 
-- `absent` may be committed from the persisted V10 economic intent;
-- a historical V6 held commitment from the interim no-dispatch path is released
-  directly from its durable job and economic-attempt identity without
-  re-adopting config;
+- `absent` may be committed from the persisted v13 economic intent;
 - a dispatch-fenced, settlement-pending, release-failed, or leaked commitment
   remains conservatively fenced; and
 - conflicting identity or revision evidence fails closed.
 
 Native-harness recovery does not query or recreate an economic commitment. Any
-queued or dispatch-fenced native-harness job found after restart becomes
+queued or dispatch-fenced native-harness task found after restart becomes
 `interrupted`; Runtime never silently redispatches work whose external process
 state cannot be proven.
 

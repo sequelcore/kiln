@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createAccountRef,
+  createExecutionAccountRef,
   type AgentResponse,
   type CreateMessageOptions,
-  type ModelGatewayOneRoundDispatchInput,
+  type OneRoundModelDispatchInput,
   type ModelTurn,
   type ProviderAdapter,
 } from "@kilnai/core";
 import {
   ProviderAdapterOneRoundDispatcher,
   ProviderAdapterOneRoundError,
-} from "../../src/model-gateway/provider-adapter-one-round-dispatcher.js";
+} from "../../src/execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
 
-const account = createAccountRef("configured:account-a:revision-a");
+const account = createExecutionAccountRef("configured:account-a:revision-a");
 
 function turn(overrides: Partial<ModelTurn> = {}): ModelTurn {
   return {
@@ -30,7 +30,7 @@ function turn(overrides: Partial<ModelTurn> = {}): ModelTurn {
   };
 }
 
-function input(value = turn()): ModelGatewayOneRoundDispatchInput {
+function input(value = turn()): OneRoundModelDispatchInput {
   return {
     account,
     route: { providerId: "anthropic", providerModelId: "claude-test", scope: "virtual:model" },
@@ -171,7 +171,7 @@ describe("ProviderAdapterOneRoundDispatcher", () => {
     const provider = adapter();
     const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
     await expect(dispatcher.dispatchOneRound({ ...input(), route: { ...input().route, providerId: "openai" } })).rejects.toMatchObject({ code: "route-mismatch" });
-    await expect(dispatcher.dispatchOneRound({ ...input(), account: createAccountRef("other") })).rejects.toMatchObject({ code: "account-mismatch" });
+    await expect(dispatcher.dispatchOneRound({ ...input(), account: createExecutionAccountRef("other") })).rejects.toMatchObject({ code: "account-mismatch" });
     expect(provider.createMessage).not.toHaveBeenCalled();
   });
 });

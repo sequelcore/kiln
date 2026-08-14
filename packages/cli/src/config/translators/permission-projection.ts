@@ -1,4 +1,4 @@
-import type { TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import { classifyTrustedExecutionIntegrity, type TrustedExecutionAuthorizationRecord, type TrustedExecutionSemanticLimitation } from "@kilnai/core";
 import { type TrustedExecutionIntegrity, TrustedExecutionIntegritySchema } from "@kilnai/gateway-contracts";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import type { BackendConfig } from "../../wrapper/session-registry.js";
@@ -21,6 +21,7 @@ export interface PermissionProjectionIntegrityInput {
   readonly policy: KilnPermissionPolicy;
   readonly translated: BackendConfig;
   readonly semanticLoss?: readonly string[];
+  readonly semanticLimitations?: readonly TrustedExecutionSemanticLimitation[];
   readonly enforcement: TrustedExecutionIntegrity["enforcement"];
   readonly recommendation?: string;
   readonly now?: Date;
@@ -80,44 +81,57 @@ export function createPermissionProjectionIntegrity(
     ),
     ...(input.semanticLoss ?? []),
   ];
-  const classification: TrustedExecutionIntegrity["classification"] =
-    semanticLoss.length > 0 ? "unsupported-semantic-translation" : "effective-policy-unproven";
+  const authorization =
+    profile === "trusted-full-access" && input.storedAuthorization?.profile === "trusted-full-access"
+      ? input.storedAuthorization.authorization
+      : {
+          status: "unavailable" as const,
+          revocable: true,
+          reason:
+            profile === "trusted-full-access"
+              ? "operator-local-trusted-authorization-not-attached-to-native-projection"
+              : "authorization-not-required-for-narrower-policy",
+        };
+  const desired = {
+    profile,
+    source: "operator-local-config" as const,
+    observedAt,
+    verifiedAt: observedAt,
+    freshness: "current" as const,
+    proof: "proven" as const,
+  };
+  const persistedNative = {
+    profile,
+    source: "native-config" as const,
+    observedAt,
+    verifiedAt: observedAt,
+    freshness: "current" as const,
+    proof: "proven" as const,
+    projectionOwnership: "kiln-managed" as const,
+  };
+  const classification = classifyTrustedExecutionIntegrity({
+    harness: input.harness,
+    desired,
+    persistedNative,
+    enforcement: input.enforcement,
+    authorization,
+    semanticLoss,
+    semanticLimitations: input.semanticLimitations,
+    observation: "complete",
+  }).classification;
 
   return TrustedExecutionIntegritySchema.parse({
     harness: input.harness,
-    desired: {
-      profile,
-      source: "operator-local-config",
-      observedAt,
-      verifiedAt: observedAt,
-      freshness: "current",
-      proof: "proven",
-    },
-    persistedNative: {
-      profile,
-      source: "native-config",
-      observedAt,
-      verifiedAt: observedAt,
-      freshness: "current",
-      proof: "proven",
-      projectionOwnership: "kiln-managed",
-    },
+    desired,
+    persistedNative,
     enforcement: input.enforcement,
-    authorization:
-      profile === "trusted-full-access" && input.storedAuthorization?.profile === "trusted-full-access"
-        ? input.storedAuthorization.authorization
-        : {
-            status: "unavailable",
-            revocable: true,
-            reason:
-              profile === "trusted-full-access"
-                ? "operator-local-trusted-authorization-not-attached-to-native-projection"
-                : "authorization-not-required-for-narrower-policy",
-          },
+    authorization,
     semanticLoss,
+    semanticLimitations: input.semanticLimitations ?? [],
+    limitationAcceptances: [],
     classification,
     recommendation: input.recommendation ?? defaultProjectionRecommendation(input.translated, semanticLoss),
-    remediationRequiresApproval: profile === "trusted-full-access" || semanticLoss.length > 0,
+    remediationRequiresApproval: profile === "trusted-full-access" || semanticLoss.length > 0 || (input.semanticLimitations?.length ?? 0) > 0,
     lastVerifiedAt: observedAt,
   });
 }

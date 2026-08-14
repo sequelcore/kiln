@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
+import type {
+  ManagedWriteApprovalBinding,
+  ManagedWriteApprovalReceipt,
+  ManagedWriteApprovalState,
+} from "./contracts.js";
+
+export type { ManagedWriteApprovalBinding, ManagedWriteApprovalReceipt, ManagedWriteApprovalState } from "./contracts.js";
 
 export const SQLITE_MANAGED_WRITE_APPROVAL_SCHEMA_VERSION = 1 as const;
 
-export type ManagedWriteApprovalState = "issued" | "revoked" | "consumed";
 export type ManagedWriteApprovalErrorCode =
   | "approval_not_found"
   | "approval_expired"
@@ -11,35 +17,6 @@ export type ManagedWriteApprovalErrorCode =
   | "approval_replayed"
   | "approval_binding_mismatch";
 
-/** All fields are stable identities or digests; raw scope and effect data never enter this store. */
-export interface ManagedWriteApprovalBinding {
-  readonly projectId: string;
-  readonly jobId: string;
-  readonly callerId: string;
-  readonly workItemFingerprint: string;
-  readonly configuredAgentProfileId: string;
-  readonly admissionProfileId: "foundation-apply-approved-writes";
-  readonly routeId: string;
-  readonly providerId: string;
-  readonly model: string;
-  readonly adapterCapabilityId: string;
-  readonly adapterCapabilityVersion: string;
-  readonly authorityDigest: string;
-  readonly effectDigest: string;
-  readonly revisionDigest: string;
-}
-
-export interface ManagedWriteApprovalReceipt {
-  readonly approvalId: string;
-  readonly state: ManagedWriteApprovalState;
-  readonly binding: ManagedWriteApprovalBinding;
-  readonly issuedAt: string;
-  readonly expiresAt: string;
-  readonly approverId: string;
-  readonly revokedAt?: string;
-  readonly consumedAt?: string;
-  readonly consumedBy?: string;
-}
 
 export interface SqliteManagedWriteApprovalAuthorityOptions {
   readonly path: string;

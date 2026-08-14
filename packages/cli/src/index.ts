@@ -82,10 +82,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     "external-engagement": "Inspect and report governed external evidence sources",
     skill: "Manage skills (list, install, publish)",
     auth: "Authenticate subscription-backed providers (codex login/status/logout)",
-    trust: "Grant or revoke local trusted execution for a native harness",
+    trust: "Grant/revoke trusted execution or explicitly accept/revoke a native limitation",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Preview or sync explicit native projection targets (--target, --all, --dry-run)",
-    route: "Print the resolved worker route from global engine routing config",
+    route: "Print the resolved worker route or inspect current available models (route available)",
     "import-native": "Import supported native engine config into Kiln global config (codex, opencode)",
     uninstall: "Remove Kiln-managed native projections without deleting unmanaged native settings",
     tools:
@@ -378,7 +378,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "route") {
     const { routeCommand } = await import("./commands/route.js");
-    routeCommand();
+    await routeCommand({}, args.slice(1));
     return;
   }
 

@@ -1,12 +1,12 @@
-import type { ManagedJobRecord, ManagedJobReplayQuery, ManagedJobResultQuery } from "@kilnai/runtime";
+import type { AgentTaskRecord, AgentTaskReplayQuery, AgentTaskResultQuery } from "@kilnai/runtime";
 import { type AccountUsageInspectionService, createAccountUsageInspectionService } from "../application/account-usage-inspection.js";
-import type { OperatorProjectManagedJobApplicationPort } from "../application/operator-project-managed-jobs.js";
+import type { OperatorProjectAgentTaskApplicationPort } from "../application/operator-project-agent-tasks.js";
 import type { HarnessIntegrationId } from "../config/harness-integration-capabilities.js";
 import { createNativeHarnessInspectionService, type NativeHarnessInspectionService } from "../application/native-harness-inspection.js";
 
 const INSPECTION_TOOL_NAMES = ["kiln_status_inspect", "kiln_work_governance_inspect", "kiln_capability_inspect", "kiln_account_usage_inspect"] as const;
-const MANAGED_JOB_TOOL_NAMES = ["kiln_managed_agent_invoke", "kiln_managed_agent_status", "kiln_managed_agent_result", "kiln_managed_agent_cancel", "kiln_managed_agent_replay"] as const;
-const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...MANAGED_JOB_TOOL_NAMES] as const;
+const AGENT_TASK_TOOL_NAMES = ["kiln_agent_task_submit", "kiln_agent_task_status", "kiln_agent_task_result", "kiln_agent_task_cancel", "kiln_agent_task_replay"] as const;
+const TOOL_NAMES = [...INSPECTION_TOOL_NAMES, ...AGENT_TASK_TOOL_NAMES] as const;
 
 export type NativeHarnessMcpToolName = (typeof TOOL_NAMES)[number];
 
@@ -30,7 +30,7 @@ export function nativeHarnessMcpToolCatalog(): readonly NativeHarnessMcpToolDefi
 }
 
 /** The canonical application boundary. The MCP adapter must not reimplement it. */
-export type ManagedJobApplicationPort = OperatorProjectManagedJobApplicationPort;
+export type AgentTaskApplicationPort = OperatorProjectAgentTaskApplicationPort;
 type NativeHarnessId = HarnessIntegrationId;
 
 /** Trusted harness identity, supplied by composition rather than MCP arguments. */
@@ -49,7 +49,7 @@ export interface NativeHarnessMcpCallResult {
 export interface NativeHarnessMcpToolsOptions {
   readonly harness: NativeHarnessId;
   readonly inspection?: NativeHarnessInspectionService;
-  readonly managedJobs?: ManagedJobApplicationPort;
+  readonly agentTasks?: AgentTaskApplicationPort;
   readonly requestIdentity?: () => NativeHarnessMcpRequestIdentity;
   readonly accountUsage?: AccountUsageInspectionService;
 }
@@ -57,16 +57,16 @@ export interface NativeHarnessMcpToolsOptions {
 export class NativeHarnessMcpTools {
   private readonly harness: NativeHarnessId;
   private readonly inspection: NativeHarnessInspectionService;
-  private managedJobs: ManagedJobApplicationPort | undefined;
-  private readonly requestIdentity: () => NativeHarnessMcpRequestIdentity;
+  private agentTasks: AgentTaskApplicationPort | undefined;
+  private readonly requestIdentity: (() => NativeHarnessMcpRequestIdentity) | undefined;
   private requestSequence = 0;
   private readonly accountUsage: AccountUsageInspectionService;
 
   constructor(options: NativeHarnessMcpToolsOptions) {
     this.harness = options.harness;
     this.inspection = options.inspection ?? createNativeHarnessInspectionService({ harness: options.harness });
-    this.managedJobs = options.managedJobs;
-    this.requestIdentity = options.requestIdentity ?? (() => ({ callerId: `${options.harness}-native-harness` }));
+    this.agentTasks = options.agentTasks;
+    this.requestIdentity = options.requestIdentity;
     this.accountUsage = options.accountUsage ?? createAccountUsageInspectionService();
   }
 
@@ -76,16 +76,19 @@ export class NativeHarnessMcpTools {
 
   async callTool(name: string, args: unknown): Promise<NativeHarnessMcpCallResult> {
     const identity = this.trustedIdentity();
-    const requestId = identity.requestId ?? `${this.harness}-control-plane-mcp-${++this.requestSequence}`;
-    if (MANAGED_JOB_TOOL_NAMES.includes(name as (typeof MANAGED_JOB_TOOL_NAMES)[number])) {
-      return this.callManagedJobTool(name as (typeof MANAGED_JOB_TOOL_NAMES)[number], args, identity, requestId);
+    const requestId = identity?.requestId ?? `${this.harness}-control-plane-mcp-${++this.requestSequence}`;
+    if (AGENT_TASK_TOOL_NAMES.includes(name as (typeof AGENT_TASK_TOOL_NAMES)[number])) {
+      if (!identity) {
+        return this.error("KILN_AGENT_TASK_IDENTITY_UNAVAILABLE", "The trusted native-harness session identity is unavailable.", "Reopen the authenticated native-harness session before using AgentTask operations.", requestId);
+      }
+      return this.callAgentTaskTool(name as (typeof AGENT_TASK_TOOL_NAMES)[number], args, identity, requestId);
     }
     if (!isEmptyObject(args)) {
       return this.error("KILN_TOOL_INVALID_REQUEST", "This read-only Kiln inspection tool does not accept arguments.", "Remove request arguments and retry.", requestId);
     }
     if (!INSPECTION_TOOL_NAMES.includes(name as (typeof INSPECTION_TOOL_NAMES)[number])) {
       if (isMutationOperation(name)) {
-        return this.error("KILN_TOOL_READ_ONLY", "Managed-agent invocation and configuration mutation are not admitted on this tool surface.", "Use an approved Kiln operator surface for a separately admitted mutation or invocation.", requestId);
+        return this.error("KILN_TOOL_READ_ONLY", "Agent-task submission and configuration mutation are not admitted on this tool surface.", "Use an approved Kiln operator surface for a separately admitted mutation or invocation.", requestId);
       }
       return this.error("KILN_TOOL_UNSUPPORTED", "This Kiln native-harness operation is unsupported.", "Use one of the discovered read-only Kiln inspection tools.", requestId);
     }
@@ -104,46 +107,47 @@ export class NativeHarnessMcpTools {
     return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value, isError: true };
   }
 
-  private trustedIdentity(): NativeHarnessMcpRequestIdentity {
+  private trustedIdentity(): NativeHarnessMcpRequestIdentity | undefined {
+    if (!this.requestIdentity) return undefined;
     try {
       const identity = this.requestIdentity();
       if (!isIdentifier(identity.callerId)) throw new Error("invalid trusted identity");
       return identity;
     } catch {
-      return { callerId: `${this.harness}-native-harness-unresolved` };
+      return undefined;
     }
   }
 
-  private async callManagedJobTool(name: (typeof MANAGED_JOB_TOOL_NAMES)[number], args: unknown, identity: NativeHarnessMcpRequestIdentity, requestId: string): Promise<NativeHarnessMcpCallResult> {
-    if (!this.managedJobs) return this.error("KILN_MANAGED_JOBS_UNAVAILABLE", "The managed-job application owner is unavailable.", "Restart the native harness after the managed-job application boundary is configured.", requestId);
+  private async callAgentTaskTool(name: (typeof AGENT_TASK_TOOL_NAMES)[number], args: unknown, identity: NativeHarnessMcpRequestIdentity, requestId: string): Promise<NativeHarnessMcpCallResult> {
+    if (!this.agentTasks) return this.error("KILN_AGENT_TASKS_UNAVAILABLE", "The agent-task application owner is unavailable.", "Restart the native harness after the agent-task application boundary is configured.", requestId);
     try {
-      if (name === "kiln_managed_agent_invoke") {
-        const job = await this.managedJobs.accept(this.invokeRequest(args, identity), {
+      if (name === "kiln_agent_task_submit") {
+        const job = await this.agentTasks.accept(this.invokeRequest(args, identity), {
           kind: "external-harness",
           harness: this.harness,
           attachmentId: `native-harness:${this.harness}:${identity.callerId}`,
           evidenceId: requestId,
         });
-        return this.managedJobSuccess(name, job, identity, requestId);
+        return this.agentTaskSuccess(name, job, identity, requestId);
       }
       const jobId = this.statusRequest(args);
-      if (name === "kiln_managed_agent_status") {
-        const job = await this.managedJobs.getStatus({ callerId: identity.callerId }, jobId);
-        return this.managedJobSuccess(name, job, identity, requestId);
+      if (name === "kiln_agent_task_status") {
+        const job = await this.agentTasks.getStatus({ callerId: identity.callerId }, jobId);
+        return this.agentTaskSuccess(name, job, identity, requestId);
       }
-      if (name === "kiln_managed_agent_cancel") {
-        const job = await this.managedJobs.cancel({ callerId: identity.callerId }, jobId);
-        return this.managedJobSuccess(name, job, identity, requestId);
+      if (name === "kiln_agent_task_cancel") {
+        const job = await this.agentTasks.cancel({ callerId: identity.callerId }, jobId);
+        return this.agentTaskSuccess(name, job, identity, requestId);
       }
-      if (name === "kiln_managed_agent_replay") {
-        const replay = await this.managedJobs.getReplay({ callerId: identity.callerId }, jobId);
-        return this.managedJobReplaySuccess(replay, identity, requestId);
+      if (name === "kiln_agent_task_replay") {
+        const replay = await this.agentTasks.getReplay({ callerId: identity.callerId }, jobId);
+        return this.agentTaskReplaySuccess(replay, identity, requestId);
       }
-      const result = await this.managedJobs.getResult({ callerId: identity.callerId }, jobId);
-      return this.managedJobResultSuccess(result, identity, requestId);
+      const result = await this.agentTasks.getResult({ callerId: identity.callerId }, jobId);
+      return this.agentTaskResultSuccess(result, identity, requestId);
     } catch (error) {
       const code = applicationCode(error);
-      return this.error(code, "The managed-job application request was not accepted.", operatorActionFor(code), requestId);
+      return this.error(code, "The agent-task application request was not accepted.", operatorActionFor(code), requestId);
     }
   }
 
@@ -167,7 +171,7 @@ export class NativeHarnessMcpTools {
     return args.jobId.trim();
   }
 
-  private managedJobSuccess(name: (typeof MANAGED_JOB_TOOL_NAMES)[number], job: ManagedJobRecord, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
+  private agentTaskSuccess(name: (typeof AGENT_TASK_TOOL_NAMES)[number], job: AgentTaskRecord, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
     const dispatch = job.dispatch.kind === "economic"
       ? {
           kind: "economic" as const,
@@ -184,8 +188,8 @@ export class NativeHarnessMcpTools {
           dispatchFenceId: job.dispatch.dispatchFenceId,
     };
     const structuredContent = {
-      operation: name === "kiln_managed_agent_invoke" ? "managed-agent-invoke" : name === "kiln_managed_agent_cancel" ? "managed-agent-cancel" : "managed-agent-status",
-      ...(name === "kiln_managed_agent_invoke"
+      operation: name === "kiln_agent_task_submit" ? "agent-task-submit" : name === "kiln_agent_task_cancel" ? "agent-task-cancel" : "agent-task-status",
+      ...(name === "kiln_agent_task_submit"
         ? { accepted: true, completionChannel: "status-result-replay" as const }
         : {}),
       job: {
@@ -195,6 +199,7 @@ export class NativeHarnessMcpTools {
         admissionProfileId: job.admissionProfileId,
         dispatch,
         ...(job.result ? { routeId: job.result.routeId } : {}),
+        ...(job.result?.dataPolicyProof ? { dataPolicyProof: structuredClone(job.result.dataPolicyProof) } : {}),
         governanceSource: job.governanceSource,
         createdAt: job.createdAt,
         observedAt: job.updatedAt,
@@ -211,9 +216,9 @@ export class NativeHarnessMcpTools {
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
 
-  private managedJobResultSuccess(result: ManagedJobResultQuery, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
+  private agentTaskResultSuccess(result: AgentTaskResultQuery, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
     const structuredContent = {
-      operation: "managed-agent-result",
+      operation: "agent-task-result",
       result: {
         jobId: result.jobId,
         availability: result.availability,
@@ -225,6 +230,7 @@ export class NativeHarnessMcpTools {
         ...(result.completedAt ? { completedAt: result.completedAt } : {}),
         ...(result.provenance ? { provenance: result.provenance } : {}),
         ...(result.handoff ? { handoff: result.handoff } : {}),
+        ...(result.dataPolicyProof ? { dataPolicyProof: structuredClone(result.dataPolicyProof) } : {}),
         ...(result.diagnostic ? { diagnostic: { code: result.diagnostic, operatorAction: operatorActionFor(result.diagnostic) } } : {}),
         ...(result.failureEvidence ? { failureEvidence: result.failureEvidence } : {}),
       },
@@ -238,9 +244,9 @@ export class NativeHarnessMcpTools {
     return { content: [{ type: "text", text: JSON.stringify(structuredContent) }], structuredContent };
   }
 
-  private managedJobReplaySuccess(replay: ManagedJobReplayQuery, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
+  private agentTaskReplaySuccess(replay: AgentTaskReplayQuery, identity: NativeHarnessMcpRequestIdentity, requestId: string): NativeHarnessMcpCallResult {
     const structuredContent = {
-      operation: "managed-agent-replay",
+      operation: "agent-task-replay",
       replay: {
         jobId: replay.jobId,
         availability: replay.availability,
@@ -252,6 +258,7 @@ export class NativeHarnessMcpTools {
         lifecycle: replay.lifecycle,
         resultAvailability: replay.resultAvailability,
         dispatch: replay.dispatch,
+        ...(replay.dataPolicyProof ? { dataPolicyProof: structuredClone(replay.dataPolicyProof) } : {}),
         ...(replay.diagnostic ? { diagnostic: { code: replay.diagnostic, operatorAction: operatorActionFor(replay.diagnostic) } } : {}),
         ...(replay.failureEvidence ? { failureEvidence: replay.failureEvidence } : {}),
       },
@@ -277,16 +284,16 @@ function descriptionFor(name: NativeHarnessMcpToolName): string {
   if (name === "kiln_work_governance_inspect") return "Read the resolved Kiln work-governance policy. Read-only; cannot start or update work.";
   if (name === "kiln_capability_inspect") return "Read native harness capability availability from canonical Kiln status. Read-only; cannot invoke managed agents.";
   if (name === "kiln_account_usage_inspect") return "Read sanitized account usage and eligible virtual routes. Read-only; cannot select credentials or mutate routing policy.";
-  if (name === "kiln_managed_agent_invoke") return "Submit bounded managed work through the canonical Kiln managed-job application boundary.";
-  if (name === "kiln_managed_agent_status") return "Read canonical lifecycle status for one managed-job identifier.";
-  if (name === "kiln_managed_agent_result") return "Read the bounded canonical Runtime result handoff for one authorized managed-job identifier.";
-  if (name === "kiln_managed_agent_cancel") return "Cancel one authorized active managed job through its Runtime owner.";
-  return "Replay canonical lifecycle evidence for one authorized managed-job identifier.";
+  if (name === "kiln_agent_task_submit") return "Submit bounded managed work through the canonical Kiln agent-task application boundary.";
+  if (name === "kiln_agent_task_status") return "Read canonical lifecycle status for one agent-task identifier.";
+  if (name === "kiln_agent_task_result") return "Read the bounded canonical Runtime result handoff for one authorized agent-task identifier.";
+  if (name === "kiln_agent_task_cancel") return "Cancel one authorized active agent-task through its Runtime owner.";
+  return "Replay canonical lifecycle evidence for one authorized agent-task identifier.";
 }
 
 function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown> {
   if (INSPECTION_TOOL_NAMES.includes(name as (typeof INSPECTION_TOOL_NAMES)[number])) return emptyObjectSchema();
-  if (name === "kiln_managed_agent_invoke") {
+  if (name === "kiln_agent_task_submit") {
     return {
       type: "object",
       additionalProperties: false,
@@ -307,7 +314,7 @@ function inputSchemaFor(name: NativeHarnessMcpToolName): Record<string, unknown>
 }
 
 function annotationsFor(name: NativeHarnessMcpToolName): Record<string, boolean> {
-  if (name === "kiln_managed_agent_invoke" || name === "kiln_managed_agent_cancel") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  if (name === "kiln_agent_task_submit" || name === "kiln_agent_task_cancel") return { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   return { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 }
 
@@ -332,9 +339,9 @@ function applicationCode(error: unknown): string {
 }
 function operatorActionFor(code: string): string {
   const actions: Record<string, string> = {
-    invalid_request: "Provide only valid bounded managed-job fields.",
+    invalid_request: "Provide only valid bounded agent-task fields.",
     project_identity_unavailable: "Restore the trusted project composition boundary.",
-    unknown_job: "Verify the managed-job identifier.",
+    unknown_job: "Verify the agent-task identifier.",
     idempotency_conflict: "Use a new idempotency key for different managed work.",
     "identity-revision-conflict": "Restore the exact admitted policy, candidate, snapshot, and rate-card revisions for this attempt.",
     governance_unavailable: "Restore authoritative Kiln governance evidence.",
@@ -342,8 +349,8 @@ function operatorActionFor(code: string): string {
     admission_denied: "Review the authoritative work-governance policy.",
     profile_unavailable: "Choose a configured admitted agent.",
     route_unavailable: "Restore the configured policy candidate set and current eligibility evidence.",
-    job_persistence_unavailable: "Restore the managed-job store and retry safely.",
-    job_persistence_corrupt: "Repair the managed-job store before retrying.",
+    job_persistence_unavailable: "Restore the agent-task store and retry safely.",
+    job_persistence_corrupt: "Repair the agent-task store before retrying.",
     economic_commitment_unavailable: "Wait until the configured economic commitment authority is available.",
     provider_rejected: "Review the Runtime managed-agent admission diagnostic.",
     provider_timeout: "Review the configured managed-agent timeout.",

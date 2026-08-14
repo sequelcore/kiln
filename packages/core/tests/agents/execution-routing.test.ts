@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   admitOperatorExecutionIntent,
   defineExecutionCatalog,
-  selectExecutionAccountCandidate,
-  type ExecutionAccountCandidate,
+  selectAdmittedExecutionAccount,
+  type ExecutionAccountAdmissionCandidate,
 } from "../../src/agents/execution-routing/index.js";
 import { createManagedEconomicAmountFromDecimal } from "../../src/cost/managed-route-economics.js";
 
@@ -54,6 +54,21 @@ const routeEconomics = {
   executionEnvelope: { limits: [cost("1")] },
 };
 
+const dataPolicyEvidence = (providerId: string, providerModelId: string) => ({
+  providerId,
+  providerModelId,
+  dataUse: "not-used" as const,
+  trainingPosture: "prohibited" as const,
+  retention: { posture: "zero" as const, days: 0 },
+  permittedMaximumClassification: "confidential" as const,
+  permittedClassifications: ["public", "internal", "confidential"] as const,
+  sourceIdentity: "fixture-privacy-policy",
+  sourceRevision: "fixture-revision-1",
+  sourceDigest: `sha256:${"b".repeat(64)}` as const,
+  observedAt: "2026-01-01T00:00:00.000Z",
+  expiresAt: "2026-12-31T00:00:00.000Z",
+});
+
 function catalog() {
   return defineExecutionCatalog({
     accounts: [
@@ -70,6 +85,8 @@ function catalog() {
         providerId: "codex-oauth",
         label: "Terra",
         providerModelId: "codex/gpt-5.6-terra",
+        dataClassification: "confidential",
+        dataPolicyEvidence: dataPolicyEvidence("codex-oauth", "codex/gpt-5.6-terra"),
         accountSelection: { mode: "automatic", accountPolicyId: "codex-automatic" },
         economics: routeEconomics,
       },
@@ -78,6 +95,8 @@ function catalog() {
         providerId: "codex-oauth",
         label: "Terra Work",
         providerModelId: "codex/gpt-5.6-terra",
+        dataClassification: "confidential",
+        dataPolicyEvidence: dataPolicyEvidence("codex-oauth", "codex/gpt-5.6-terra"),
         accountSelection: { mode: "exact", accountId: "work" },
         economics: routeEconomics,
       },
@@ -87,8 +106,8 @@ function catalog() {
 
 function candidate(
   accountId: string,
-  overrides: Partial<ExecutionAccountCandidate> = {},
-): ExecutionAccountCandidate {
+  overrides: Partial<ExecutionAccountAdmissionCandidate> = {},
+): ExecutionAccountAdmissionCandidate {
   return {
     accountId,
     safety: "eligible",
@@ -176,7 +195,7 @@ describe("execution routing", () => {
 
   it("rejects safety, health, exhausted or unknown quota, and capacity before ranking economic candidates", () => {
     const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
-    const selected = selectExecutionAccountCandidate(admission, [
+    const selected = selectAdmittedExecutionAccount(admission, [
       candidate("work", { safety: "ineligible", economicCost: cost("0") }),
       candidate("personal", { health: "unhealthy", economicCost: cost("0") }),
       candidate("work", { quota: "exhausted", economicCost: cost("0") }),
@@ -198,22 +217,22 @@ describe("execution routing", () => {
 
   it("rejects candidates with invalid managed economic costs", () => {
     const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
-    const invalidCost = { ...cost("1"), atoms: "not-canonical" } as ExecutionAccountCandidate["economicCost"];
+    const invalidCost = { ...cost("1"), atoms: "not-canonical" } as ExecutionAccountAdmissionCandidate["economicCost"];
 
-    expect(() => selectExecutionAccountCandidate(admission, [
+    expect(() => selectAdmittedExecutionAccount(admission, [
       candidate("work", { safety: "ineligible", economicCost: invalidCost }),
     ])).toThrow(/economicCost/u);
   });
 
   it("orders automatic candidates by cost, pressure, then account id deterministically", () => {
     const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra" });
-    const selected = selectExecutionAccountCandidate(admission, [
+    const selected = selectAdmittedExecutionAccount(admission, [
       candidate("work", { economicCost: cost("1.00"), pressure: 2 }),
       candidate("personal", { economicCost: cost("1"), pressure: 1 }),
     ]);
 
     expect(selected).toMatchObject({ kind: "selected", accountId: "personal" });
-    const tie = selectExecutionAccountCandidate(admission, [
+    const tie = selectAdmittedExecutionAccount(admission, [
       candidate("work"),
       candidate("personal"),
     ]);
@@ -222,7 +241,7 @@ describe("execution routing", () => {
 
   it("never falls back from an exact selection", () => {
     const admission = admitOperatorExecutionIntent(catalog(), { routeId: "terra-work" });
-    const selected = selectExecutionAccountCandidate(admission, [
+    const selected = selectAdmittedExecutionAccount(admission, [
       candidate("work", { health: "unhealthy" }),
       candidate("personal"),
     ]);

@@ -495,7 +495,7 @@ The built-in skill ids are:
 | `security-scope-review` | Trace authority, untrusted data, credentials, and consequential effects to enforcement evidence. | `adversarial-reviewer`, `reviewer` |
 | `managed-agent-risk-review` | Audit delegated identity, attenuated authority, lifecycle settlement, evidence, and honest replay limits. | `architect`, `reviewer` |
 | `research-workflow` | Research external or provided evidence with claim-bound sources, explicit methods, contradiction handling, and calibrated uncertainty. | `researcher`, scoped research work |
-| `kiln-control-plane-workflow` | Discover and sequence admitted Kiln inspection and managed-job tools without widening Runtime authority. | Any agent explicitly operating Kiln through a discovered control-plane surface |
+| `kiln-control-plane-workflow` | Discover and sequence admitted Kiln inspection and Agent Task tools without widening Runtime authority. | Any agent explicitly operating Kiln through a discovered control-plane surface |
 | `benchmark-readiness-review` | Judge benchmark validity, reproducibility, comparability, and tiered claim readiness. | `researcher`, `reviewer` |
 | `config-projection-review` | Review canonical intent, projection ownership, provenance, drift, and safe convergence. | `scout`, `architect` |
 | `action-first-communication` | Order outcomes, findings, state, and corrective actions without unsafe or invented brevity. | Any explicitly configured agent |

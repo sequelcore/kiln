@@ -1,5 +1,4 @@
 import type {
-  BudgetAdmissionRouteCandidate,
   ContentPart,
   EventBus,
   ProviderRequestToolMaterializationDecisionEvidence,
@@ -79,6 +78,12 @@ const GOVERNED_WORK_ITEM_SETUP_TOOLS = new Set([
   "work_item.list",
   "work_item.update",
 ]);
+
+class SessionTurnBudgetDenied extends Error {
+  constructor(readonly message: string) {
+    super(message);
+  }
+}
 
 interface GovernedWorkMaterializationProgress {
   readonly requiredWorkItemCount: number;
@@ -269,16 +274,31 @@ export class RuntimeSessionOrchestrator {
       governedContext,
       perCallConfig?.temporalContext,
     );
-    const routing = await resolveRuntimeSessionRouting(
-      this.deps,
-      session,
-      userParts,
-      systemManifest.finalPrompt,
-      this._tools,
-      perCallConfig,
-      (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
-      (sessionId, route) => this.telemetry.emitMultimodalRouted(sessionId, route),
-    );
+    let routing: RuntimeSessionRoutingResolution;
+    try {
+      routing = await resolveRuntimeSessionRouting(
+        this.deps,
+        session,
+        userParts,
+        systemManifest.finalPrompt,
+        this._tools,
+        perCallConfig,
+        (sessionId, decision) => this.telemetry.emitModelRouted(sessionId, decision),
+        (sessionId, route) => this.telemetry.emitMultimodalRouted(sessionId, route),
+        async (sessionId) => this.assertSessionTurnBudget(sessionId),
+      );
+    } catch (error) {
+      if (!(error instanceof SessionTurnBudgetDenied)) {
+        throw error;
+      }
+      session.addUserMessage(userParts);
+      return this.finalizeSessionTurnBudgetDenial({
+        session,
+        denial: error,
+        toolExecutions: [],
+        preLlmEscalation: escalation,
+      });
+    }
 
     const admittedUserParts = routing.transformedUserParts ?? userParts;
     session.addUserMessage(admittedUserParts);
@@ -328,7 +348,6 @@ export class RuntimeSessionOrchestrator {
       systemManifest,
       routing.invocationSystem,
     );
-    const budgetRouteModel = routing.routingDecision?.model ?? this.model;
     let projectedRoundTools = routing.effectiveTools;
     let pendingMaterializationDecisions: readonly ProviderRequestToolMaterializationDecisionEvidence[] = [];
 
@@ -352,28 +371,16 @@ export class RuntimeSessionOrchestrator {
         session.addUserMessage(textParts(correction));
       }
       throwIfRuntimeTurnAborted(perCallConfig?.abortSignal);
-      const budgetAdmission = await this.checkBudget(session.id, {
-        providerId: routing.routingDecision?.provider ?? routing.effectiveProvider.name,
-        ...(budgetRouteModel ? { model: budgetRouteModel } : {}),
-      });
-      if (!budgetAdmission.allowed) {
-        const parts = textParts(budgetAdmission.message ?? "Budget admission denied.");
-        return finalizeRuntimeSessionResponse({
-          deps: this.deps,
+      const sessionTurnBudget = await this.checkBudget(session.id);
+      if (!sessionTurnBudget.allowed) {
+        return this.finalizeSessionTurnBudgetDenial({
           session,
-          parts,
-          usage: {
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-          },
-          usageTotals: this.telemetry.snapshot(),
-          providerRequests: this.telemetry.requestSnapshot(),
+          denial: new SessionTurnBudgetDenied(
+            sessionTurnBudget.message ?? "Session token observation denied.",
+          ),
           toolExecutions,
           routingDecision: toPublicRoutingDecision(routing.routingDecision),
           preLlmEscalation: escalation,
-          outcome: "failed",
         });
       }
 
@@ -731,6 +738,20 @@ export class RuntimeSessionOrchestrator {
       throw new KilnError("A2A_INVALID_REQUEST", "Runtime tool loop ended without an explicit tool-round budget");
     }
     session.addUserMessage(toolRoundBudgetFinalizationPrompt(toolRoundBudget.max));
+    try {
+      await this.assertSessionTurnBudget(session.id);
+    } catch (error) {
+      if (!(error instanceof SessionTurnBudgetDenied)) {
+        throw error;
+      }
+      return this.finalizeSessionTurnBudgetDenial({
+        session,
+        denial: error,
+        toolExecutions,
+        routingDecision: toPublicRoutingDecision(routing.routingDecision),
+        preLlmEscalation: escalation,
+      });
+    }
     const fallback = await requestRuntimeSessionFallbackResponse(
       routing.effectiveProvider,
       invocationPromptManifest,
@@ -823,6 +844,20 @@ export class RuntimeSessionOrchestrator {
     readonly abortSignal?: AbortSignal;
     readonly providerTransport?: PerCallToolConfig["providerTransport"];
   }): Promise<OrchestrateResult> {
+    try {
+      await this.assertSessionTurnBudget(input.session.id);
+    } catch (error) {
+      if (!(error instanceof SessionTurnBudgetDenied)) {
+        throw error;
+      }
+      return this.finalizeSessionTurnBudgetDenial({
+        session: input.session,
+        denial: error,
+        toolExecutions: input.toolExecutions,
+        routingDecision: toPublicRoutingDecision(input.routing.routingDecision),
+        preLlmEscalation: input.preLlmEscalation,
+      });
+    }
     const fallback = await requestRuntimeSessionFallbackResponse(
       input.routing.effectiveProvider,
       input.invocationPromptManifest,
@@ -869,28 +904,55 @@ export class RuntimeSessionOrchestrator {
 
   private async checkBudget(
     sessionId: string,
-    routeCandidate: BudgetAdmissionRouteCandidate,
   ): Promise<{ readonly allowed: boolean; readonly message?: string }> {
-    if (!this.deps.budgetAdmission) {
+    if (!this.deps.sessionTurnBudget) {
       return { allowed: true };
     }
     try {
-      const decision = await this.deps.budgetAdmission.admit({
-        subject: "runtime-session-turn",
-        sessionId,
-        routeCandidates: [routeCandidate],
-      });
+      const decision = await this.deps.sessionTurnBudget.admit(sessionId);
       if (decision.status === "denied") {
         const message = decision.message ?? decision.reason;
-        this.telemetry.emitError(sessionId, message);
         return { allowed: false, message };
       }
       return { allowed: true };
     } catch (error) {
-      const message = `Budget admission failed: ${errorToMessage(error)}`;
-      this.telemetry.emitError(sessionId, message);
+      const message = `Session token budget observation failed: ${errorToMessage(error)}`;
       return { allowed: false, message };
     }
+  }
+
+  private async assertSessionTurnBudget(sessionId: string): Promise<void> {
+    const admission = await this.checkBudget(sessionId);
+    if (!admission.allowed) {
+      throw new SessionTurnBudgetDenied(admission.message ?? "Session token observation denied.");
+    }
+  }
+
+  private finalizeSessionTurnBudgetDenial(input: {
+    readonly session: RuntimeSession;
+    readonly denial: SessionTurnBudgetDenied;
+    readonly toolExecutions: readonly ToolExecutionSummary[];
+    readonly routingDecision?: OrchestrateResult["routingDecision"];
+    readonly preLlmEscalation?: EscalationSignal;
+  }): Promise<OrchestrateResult> {
+    this.telemetry.emitError(input.session.id, input.denial.message);
+    return finalizeRuntimeSessionResponse({
+      deps: this.deps,
+      session: input.session,
+      parts: textParts(input.denial.message),
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      usageTotals: this.telemetry.snapshot(),
+      providerRequests: this.telemetry.requestSnapshot(),
+      toolExecutions: input.toolExecutions,
+      routingDecision: input.routingDecision,
+      preLlmEscalation: input.preLlmEscalation,
+      outcome: "failed",
+    });
   }
 
   private detectRepeatedInvalidToolAttempt(

@@ -26,6 +26,7 @@ describe("managed invocation execution proof resolver", () => {
         resourceUris: ["kiln://artifacts/child/handoff"],
         memoryWriteProposalUris: [],
       },
+      candidateCaptureRoot: "/workspace/managed-child",
     });
   });
 });
@@ -36,6 +37,9 @@ function snapshot(lifecycleState: "running" | "completed") {
     parentSessionId: "session-1",
     lifecycleState,
     request: {
+      authority: {
+        workingDirectory: { path: "/workspace/managed-child" },
+      },
       executionScope: {
         kind: "work_item",
         goalRunId: "goal-1",

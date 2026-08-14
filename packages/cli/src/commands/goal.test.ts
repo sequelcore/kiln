@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GoalRun, PlanSubmissionInput, WorkItem } from "@kilnai/core";
-import { PlanStateStore } from "@kilnai/core";
+import { adoptBoundedWorkContractRevision, PlanStateStore } from "@kilnai/core";
 import { goalCommand, loadGoalSnapshotFromTranscript } from "./goal.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 
@@ -304,11 +304,14 @@ async function appendPlanAnalysis(
 }
 
 function makeGoal(input: { readonly id: string }): GoalRun {
+  const boundedWorkContractRevision = boundedWorkRevision(input.id, ["work-1"], "Finish Slice 10 CLI goal commands.");
   return {
     id: input.id,
     objective: "Finish Slice 10 CLI goal commands.",
     ownerSessionId: "session-1",
     source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
+    boundedWorkContractRevision,
+    boundedWorkContractRevisionHistory: [boundedWorkContractRevision],
     status: "active",
     workItemIds: ["work-1"],
     authorityEnvelope: {
@@ -333,6 +336,22 @@ function makeGoal(input: { readonly id: string }): GoalRun {
     updatedAt: "2026-05-12T21:00:00.000Z",
     sequence: 1,
   };
+}
+
+function boundedWorkRevision(goalId: string, workItemIds: readonly string[], objective: string) {
+  return adoptBoundedWorkContractRevision({
+    accountingLineageId: goalId,
+    adoptedAt: "2026-05-12T21:00:00.000Z",
+    adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalId}` },
+    contract: {
+      schema: "kiln.bounded-work-contract/v1",
+      intent: { objective, acceptanceCriteria: ["focused tests pass"], nonGoals: [] },
+      scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect", "modify_source", "run_verification"], permittedSurfaces: ["cli"], allowedRoots: ["packages/cli"], deniedRoots: [], refactorAuthority: "scoped", migrationAuthority: "none", dependencyAuthority: "none" },
+      limits: { maxExecutionAttempts: 10, maxManagedInvocations: 10, maxConcurrentManagedInvocations: 3, maxChildDepth: 2, maxReviewRounds: 3, maxRemediationRounds: 3 },
+      tripwires: {},
+      policy: { scopeExpansion: "approval_required", budgetExhaustion: "pause", minimumHarnessCapability: "authoritative" },
+    },
+  });
 }
 
 function makeWorkItem(input: { readonly id: string }): WorkItem {

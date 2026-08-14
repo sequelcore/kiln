@@ -245,9 +245,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
       config.upgradeWebSocket(() => ({
         onOpen(_event: Event, ws: WSContext) {
           const selectedRuntime = resolveAppGatewayGuiRuntime(config);
+          const availableModels = { observedAt: new Date().toISOString(), entries: [] } as const;
           ws.send(JSON.stringify({
             type: "welcome",
             executionRouteCatalog: { routes: [] },
+            availableModels,
             executionMode: "execute",
             domainLabel: selectedRuntime?.loadedApp.name ?? "app-gateway",
             authorityStatus: { effective: "unknown", completeness: "partial" },
@@ -280,9 +282,11 @@ export function createGatewayApp(config: GatewayServerConfig): Hono {
             return;
           }
           if (frame.type === "refresh_execution_routes") {
+            const availableModels = { observedAt: new Date().toISOString(), entries: [] } as const;
             ws.send(JSON.stringify({
               type: "execution_routes_refreshed",
               executionRouteCatalog: { routes: [] },
+              availableModels,
             } satisfies GuiInboundFrame));
             return;
           }

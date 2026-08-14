@@ -9,14 +9,15 @@ import {
 import type { OperatorRuntimeHarness, OperatorSessionClaims } from "@kilnai/gateway-contracts";
 import {
   createOperatorRuntimeService,
+  deriveOperatorRuntimeCallerId,
   type OperatorRuntimeMcpRequest,
   type OperatorRuntimeSessionOpenInput,
   type OperatorRuntimeService,
 } from "../../src/application/operator-runtime-service.js";
 import type {
   OperatorProjectManagedAgentSummary,
-  OperatorProjectManagedJobApplicationComposition,
-} from "../../src/application/operator-project-managed-jobs.js";
+  OperatorProjectAgentTaskApplicationComposition,
+} from "../../src/application/operator-project-agent-tasks.js";
 import { resolveTrustedWorkspace } from "../../src/application/trusted-workspace-resolution.js";
 
 const SECRET = new TextEncoder().encode("operator-runtime-service-test-secret-32-bytes");
@@ -172,11 +173,11 @@ describe("createOperatorRuntimeService", () => {
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
       "kiln_account_usage_inspect",
-      "kiln_managed_agent_invoke",
-      "kiln_managed_agent_status",
-      "kiln_managed_agent_result",
-      "kiln_managed_agent_cancel",
-      "kiln_managed_agent_replay",
+      "kiln_agent_task_submit",
+      "kiln_agent_task_status",
+      "kiln_agent_task_result",
+      "kiln_agent_task_cancel",
+      "kiln_agent_task_replay",
     ]);
     expect(createComposition).not.toHaveBeenCalled();
     await service.close();
@@ -300,9 +301,10 @@ describe("createOperatorRuntimeService", () => {
     expect(createComposition).toHaveBeenCalledTimes(1);
     expect(createComposition).toHaveBeenCalledWith({ projectPath: project.canonicalRoot });
     expect(callers).toEqual([
-      `operator-project:${project.binding.projectRuntimeId}`,
-      `operator-project:${project.binding.projectRuntimeId}`,
+      expect.stringContaining(`${project.binding.projectRuntimeId}:native-harness:codex:`),
+      expect.stringContaining(`${project.binding.projectRuntimeId}:native-harness:claude:`),
     ]);
+    expect(callers[0]).not.toBe(callers[1]);
     expect(await codexResponse.text()).toContain("operator-runtime:codex-session:");
     expect(await claudeResponse.text()).toContain("operator-runtime:claude-session:");
     await service.close();
@@ -329,12 +331,43 @@ describe("createOperatorRuntimeService", () => {
     await service.close();
   });
 
+  it("binds submit and every AgentTask query operation to the authenticated project principal session", async () => {
+    const project = adoptedProject("caller-binding");
+    const callers: string[] = [];
+    const createComposition = vi.fn(async () => composition(vi.fn(), (callerId) => callers.push(callerId)));
+    const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
+    const codex = await openClaims(service, project, "codex", "codex-caller-session");
+    const claude = await openClaims(service, project, "claude", "claude-caller-session");
+    const operations = [
+      ["kiln_agent_task_submit", { objective: "inspect", configuredAgentProfileId: "scout", idempotencyKey: "submit-1" }],
+      ["kiln_agent_task_status", { jobId: "job-1" }],
+      ["kiln_agent_task_result", { jobId: "job-1" }],
+      ["kiln_agent_task_cancel", { jobId: "job-1" }],
+      ["kiln_agent_task_replay", { jobId: "job-1" }],
+    ] as const;
+
+    for (const [name, args] of operations) {
+      await service.onMcpRequest(mcpInput(codex, "tools/call", { name, arguments: args }));
+    }
+    for (const [name, args] of operations.slice(1)) {
+      await service.onMcpRequest(mcpInput(claude, "tools/call", { name, arguments: args }));
+    }
+
+    const codexCaller = deriveOperatorRuntimeCallerId({ projectRuntimeId: project.binding.projectRuntimeId, principal: codex.principal, sessionId: codex.sessionId });
+    const claudeCaller = deriveOperatorRuntimeCallerId({ projectRuntimeId: project.binding.projectRuntimeId, principal: claude.principal, sessionId: claude.sessionId });
+    expect(callers).toEqual([codexCaller, codexCaller, codexCaller, codexCaller, codexCaller, claudeCaller, claudeCaller, claudeCaller, claudeCaller]);
+    expect(codexCaller).not.toBe(claudeCaller);
+    expect(codexCaller).toContain(`${project.binding.projectRuntimeId}:native-harness:codex:`);
+    expect(claudeCaller).toContain(`${project.binding.projectRuntimeId}:native-harness:claude:`);
+    await service.close();
+  });
+
   it("replaces stale project governance before serving the new binding and ignores a late old claim", async () => {
     const project = adoptedProject("binding-replacement");
     const firstClose = vi.fn(async () => undefined);
     const secondClose = vi.fn(async () => undefined);
     const createComposition = vi
-      .fn<(_: { readonly projectPath: string }) => Promise<OperatorProjectManagedJobApplicationComposition>>()
+      .fn<(_: { readonly projectPath: string }) => Promise<OperatorProjectAgentTaskApplicationComposition>>()
       .mockResolvedValueOnce(composition(firstClose))
       .mockResolvedValueOnce(composition(secondClose));
     const service = createOperatorRuntimeService({
@@ -372,7 +405,7 @@ describe("createOperatorRuntimeService", () => {
     const first = composition(firstClose);
     const oldGetStatus = vi.fn(() => pendingOldStatus.promise);
     const createComposition = vi
-      .fn<(_: { readonly projectPath: string }) => Promise<OperatorProjectManagedJobApplicationComposition>>()
+      .fn<(_: { readonly projectPath: string }) => Promise<OperatorProjectAgentTaskApplicationComposition>>()
       .mockResolvedValueOnce({
         ...first,
         application: { ...first.application, getStatus: oldGetStatus },
@@ -509,7 +542,7 @@ describe("createOperatorRuntimeService", () => {
 
   it("waits for an in-flight operator application request before final close", async () => {
     const project = adoptedProject("final-close-application-in-flight");
-    const pendingComposition = deferred<OperatorProjectManagedJobApplicationComposition>();
+    const pendingComposition = deferred<OperatorProjectAgentTaskApplicationComposition>();
     const closeOwner = vi.fn(async () => undefined);
     const service = createOperatorRuntimeService({
       sessionSecret: SECRET,
@@ -737,26 +770,41 @@ function mcpInput(claims: OperatorSessionClaims, method: string, params?: Record
 }
 
 function managedStatusInput(claims: OperatorSessionClaims): OperatorRuntimeMcpRequest {
-  return mcpInput(claims, "tools/call", { name: "kiln_managed_agent_status", arguments: { jobId: "job-1" } });
+  return mcpInput(claims, "tools/call", { name: "kiln_agent_task_status", arguments: { jobId: "job-1" } });
 }
 
 function composition(
   close = vi.fn(),
   observeCaller?: (callerId: string) => void,
   configuredAgents: readonly OperatorProjectManagedAgentSummary[] = [],
-): OperatorProjectManagedJobApplicationComposition {
+): OperatorProjectAgentTaskApplicationComposition {
   const unavailable = async (): Promise<never> => { throw Object.assign(new Error("unavailable"), { code: "unknown_job" }); };
   return {
-    service: {} as OperatorProjectManagedJobApplicationComposition["service"],
+  service: {} as OperatorProjectAgentTaskApplicationComposition["service"],
     application: {
-      accept: unavailable,
+      accept: async (value) => {
+        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+          const callerId = (value as Record<string, unknown>).callerId;
+          if (typeof callerId === "string") observeCaller?.(callerId);
+        }
+        return unavailable();
+      },
       getStatus: async (identity) => {
         observeCaller?.(identity.callerId);
         return unavailable();
       },
-      getResult: unavailable,
-      cancel: unavailable,
-      getReplay: unavailable,
+      getResult: async (identity) => {
+        observeCaller?.(identity.callerId);
+        return unavailable();
+      },
+      cancel: async (identity) => {
+        observeCaller?.(identity.callerId);
+        return unavailable();
+      },
+      getReplay: async (identity) => {
+        observeCaller?.(identity.callerId);
+        return unavailable();
+      },
     },
     configuredAgents,
     close,

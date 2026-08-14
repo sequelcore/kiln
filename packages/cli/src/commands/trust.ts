@@ -1,11 +1,16 @@
+import { basename } from "node:path";
 import readline from "node:readline";
 import {
+  OPENCODE_NO_FILESYSTEM_SANDBOX,
+  acceptTrustedExecutionSemanticLimitation,
   finalizeTrustedExecutionGrant,
   planTrustedExecutionGrant,
+  revokeTrustedExecutionSemanticLimitation,
   revokeTrustedExecutionGrant,
   type TrustedExecutionHarness,
 } from "@kilnai/core";
 import { readGlobalConfig } from "../config/global-config.js";
+import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
 const HARNESSES = ["codex", "claude-code", "opencode"] as const;
 function harness(value: string | undefined): TrustedExecutionHarness | undefined {
@@ -28,8 +33,60 @@ async function ask(prompt: string): Promise<string> {
   return result;
 }
 
+function option(args: readonly string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
+}
+
+async function limitationCommand(args: readonly string[]): Promise<void> {
+  const action = args[0];
+  const target = option(args, "--harness");
+  const limitation = option(args, "--limitation");
+  const explicitOperator = option(args, "--operator");
+  const confirmation = option(args, "--confirm");
+  const projectPath = resolveProjectRoot().rootPath;
+  const projectName = basename(projectPath);
+  if ((action !== "accept-limitation" && action !== "revoke-limitation") || target !== "opencode"
+    || limitation !== OPENCODE_NO_FILESYSTEM_SANDBOX.id) {
+    console.error("Usage: kiln trust <accept-limitation|revoke-limitation> --harness opencode --limitation opencode.no-filesystem-sandbox [--operator <id> --confirm <project-basename>]");
+    process.exitCode = 1;
+    return;
+  }
+  let operatorId = explicitOperator;
+  let confirmed = confirmation === projectName;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    if (!operatorId || !confirmed) {
+      console.error("Non-interactive limitation acceptance requires --operator and --confirm with the exact project directory name.");
+      process.exitCode = 1;
+      return;
+    }
+  } else {
+    operatorId ??= readGlobalConfig()?.identity?.name;
+    if (!operatorId) {
+      console.error("Set your operator identity first: kiln config set --global identity.name <name>");
+      process.exitCode = 1;
+      return;
+    }
+    if (!confirmed) confirmed = (await ask(`Type the project directory name (\`${projectName}\`) to confirm: `)) === projectName;
+    if (!confirmed) { process.exitCode = 1; return; }
+  }
+  const now = new Date().toISOString();
+  if (action === "accept-limitation") {
+    const acceptance = acceptTrustedExecutionSemanticLimitation({
+      projectPath, descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX, acceptedBy: operatorId!, acceptedAt: now,
+      reviewAfter: OPENCODE_NO_FILESYSTEM_SANDBOX.reviewAfter,
+    });
+    console.log(`OpenCode limitation accepted by ${acceptance.acceptedBy} until ${acceptance.reviewAfter}.`);
+    return;
+  }
+  console.log(revokeTrustedExecutionSemanticLimitation({ projectPath, descriptor: OPENCODE_NO_FILESYSTEM_SANDBOX, revokedBy: operatorId!, revokedAt: now })
+    ? "OpenCode limitation acceptance revoked."
+    : "No current OpenCode limitation acceptance exists for this project.");
+}
+
 export async function trustCommand(args: readonly string[]): Promise<void> {
   const action = args[0];
+  if (action === "accept-limitation" || action === "revoke-limitation") return limitationCommand(args);
   const target = harness(args[1]);
   if ((action !== "grant" && action !== "revoke") || !target) {
     console.error("Usage: kiln trust <grant|revoke> <codex|claude-code|opencode> [--full-access]");
@@ -48,7 +105,7 @@ export async function trustCommand(args: readonly string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const projectPath = process.cwd();
+  const projectPath = resolveProjectRoot().rootPath;
   if (action === "revoke") {
     const result = revokeTrustedExecutionGrant(target, projectPath, {
       operatorId,

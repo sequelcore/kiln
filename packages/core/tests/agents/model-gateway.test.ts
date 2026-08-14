@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
-  advanceAttemptCommit,
-  createAccountRef,
-  createAccountPolicyId,
-  createAttemptCommit,
-  reassignAttemptAccount,
-  reserveAccountForNewWork,
-  selectModelGatewayAccount,
-  type AccountRef,
-  type ModelGatewayAccountCandidate,
-  type ModelGatewayRoute,
-  dispatchModelGatewayOneRound,
-  type ModelGatewayOneRoundDispatchInput,
+  advanceExecutionAttempt,
+  createExecutionAccountRef,
+  createExecutionAccountPolicyId,
+  createExecutionAttempt,
+  selectExecutionCapacityAccount,
+  type ExecutionAccountRef,
+  type ExecutionAccountCapacityCandidate,
+  type ProviderModelRouteIdentity,
+} from "../../src/agents/execution-routing/index.js";
+import {
+  dispatchOneModelRound,
+  type OneRoundModelDispatchInput,
   validateModelTurn,
   validateModelTurnResult,
   type ModelTurnResult,
-} from "../../src/agents/model-gateway/index.js";
+} from "../../src/agents/execution-routing/index.js";
 import { isSameProviderModelRoute } from "../../src/agents/provider-model-evidence.js";
 import { KNOWN_DELIBERATION_LEVEL_IDS } from "../../src/agents/deliberation-policy.js";
 
-const route = (scope = "default"): ModelGatewayRoute => ({
+const route = (scope = "default"): ProviderModelRouteIdentity => ({
   providerId: "fixture-provider",
   providerModelId: "fixture-model",
   scope,
@@ -27,9 +27,9 @@ const route = (scope = "default"): ModelGatewayRoute => ({
 
 const candidate = (
   id: string,
-  options: Partial<Omit<ModelGatewayAccountCandidate, "account" | "route">> = {},
-): ModelGatewayAccountCandidate => ({
-  account: createAccountRef(id),
+  options: Partial<Omit<ExecutionAccountCapacityCandidate, "account" | "route">> = {},
+): ExecutionAccountCapacityCandidate => ({
+  account: createExecutionAccountRef(id),
   route: route(),
   health: "healthy",
   leaseCapacity: "available",
@@ -38,35 +38,35 @@ const candidate = (
   ...options,
 });
 
-describe("model gateway account selection", () => {
+describe("execution account capacity selection", () => {
   it("creates one canonical opaque account policy identity", () => {
-    expect(createAccountPolicyId(" managed-codex ")).toBe("managed-codex");
-    expect(() => createAccountPolicyId("   ")).toThrow("AccountPolicyId must not be empty");
+    expect(createExecutionAccountPolicyId(" managed-codex ")).toBe("managed-codex");
+    expect(() => createExecutionAccountPolicyId("   ")).toThrow("ExecutionAccountPolicyId must not be empty");
   });
 
   it("prefers a healthy compatible existing affinity over a lower-pressure un-affined account", () => {
-    const selected = selectModelGatewayAccount({
+    const selected = selectExecutionCapacityAccount({
       route: route(),
-      affinity: { account: createAccountRef("account-b"), route: route() },
+      affinity: { account: createExecutionAccountRef("account-b"), route: route() },
       work: "existing",
       candidates: [candidate("account-a", { pressure: 0 }), candidate("account-b", { pressure: 10 })],
     });
 
-    expect(selected).toMatchObject({ selected: { account: createAccountRef("account-b"), reason: "existing-affinity" } });
+    expect(selected).toMatchObject({ selected: { account: createExecutionAccountRef("account-b"), reason: "existing-affinity" } });
   });
 
   it("selects the least pressured eligible account and breaks pressure ties by opaque account identity", () => {
-    const selected = selectModelGatewayAccount({
+    const selected = selectExecutionCapacityAccount({
       route: route(),
       work: "new",
       candidates: [candidate("account-c", { pressure: 2 }), candidate("account-b", { pressure: 1 }), candidate("account-a", { pressure: 1 })],
     });
 
-    expect(selected).toMatchObject({ selected: { account: createAccountRef("account-a"), reason: "least-pressure" } });
+    expect(selected).toMatchObject({ selected: { account: createExecutionAccountRef("account-a"), reason: "least-pressure" } });
   });
 
   it("retains deterministic rejection evidence when another candidate is selected", () => {
-    const selected = selectModelGatewayAccount({
+    const selected = selectExecutionCapacityAccount({
       route: route(),
       work: "new",
       candidates: [
@@ -77,19 +77,19 @@ describe("model gateway account selection", () => {
 
     expect(selected).toEqual({
       selected: {
-        account: createAccountRef("account-a"),
+        account: createExecutionAccountRef("account-a"),
         route: route(),
         reason: "least-pressure",
       },
       rejections: [{
-        account: createAccountRef("account-b"),
+        account: createExecutionAccountRef("account-b"),
         reason: "unhealthy",
       }],
     });
   });
 
   it("rejects duplicate account snapshots instead of depending on input ordering", () => {
-    expect(() => selectModelGatewayAccount({
+    expect(() => selectExecutionCapacityAccount({
       route: route(),
       work: "new",
       candidates: [candidate("account-a", { pressure: 1 }), candidate(" account-a ", { pressure: 2 })],
@@ -97,34 +97,34 @@ describe("model gateway account selection", () => {
   });
 
   it("canonicalizes account references so whitespace cannot create a second identity", () => {
-    expect(createAccountRef(" account-a ")).toBe(createAccountRef("account-a"));
-    expect(() => createAccountRef("   ")).toThrow("AccountRef must not be empty");
+    expect(createExecutionAccountRef(" account-a ")).toBe(createExecutionAccountRef("account-a"));
+    expect(() => createExecutionAccountRef("   ")).toThrow("ExecutionAccountRef must not be empty");
   });
 
   it("keeps accounts reserved for new work unavailable to unrelated new work while allowing their matching affinity", () => {
     const reserved = candidate("account-a", { reservedForNewWork: true });
 
-    expect(selectModelGatewayAccount({ route: route(), work: "new", candidates: [reserved] })).toEqual({
+    expect(selectExecutionCapacityAccount({ route: route(), work: "new", candidates: [reserved] })).toEqual({
       selected: undefined,
-      rejections: [{ account: createAccountRef("account-a"), reason: "reserved-for-new-work" }],
+      rejections: [{ account: createExecutionAccountRef("account-a"), reason: "reserved-for-new-work" }],
     });
-    expect(selectModelGatewayAccount({
+    expect(selectExecutionCapacityAccount({
       route: route(),
       work: "existing",
-      affinity: { account: createAccountRef("account-a"), route: route() },
+      affinity: { account: createExecutionAccountRef("account-a"), route: route() },
       candidates: [reserved],
-    })).toMatchObject({ selected: { account: createAccountRef("account-a"), reason: "existing-affinity" } });
+    })).toMatchObject({ selected: { account: createExecutionAccountRef("account-a"), reason: "existing-affinity" } });
   });
 
   it("rejects exhausted lease capacity for both new and existing-affinity work", () => {
     const exhausted = candidate("account-a", { leaseCapacity: "unavailable" });
 
-    expect(selectModelGatewayAccount({ route: route(), work: "new", candidates: [exhausted] }))
+    expect(selectExecutionCapacityAccount({ route: route(), work: "new", candidates: [exhausted] }))
       .toMatchObject({ rejections: [{ account: "account-a", reason: "lease-conflict" }] });
-    expect(selectModelGatewayAccount({
+    expect(selectExecutionCapacityAccount({
       route: route(),
       work: "existing",
-      affinity: { account: createAccountRef("account-a"), route: route() },
+      affinity: { account: createExecutionAccountRef("account-a"), route: route() },
       candidates: [exhausted],
     })).toMatchObject({
       rejections: [{ account: "account-a", reason: "lease-conflict" }],
@@ -133,8 +133,8 @@ describe("model gateway account selection", () => {
   });
 
   it("fails closed when existing work's affinity is unavailable instead of silently rebinding", () => {
-    const affinity = { account: createAccountRef("account-a"), route: route() };
-    const result = selectModelGatewayAccount({
+    const affinity = { account: createExecutionAccountRef("account-a"), route: route() };
+    const result = selectExecutionCapacityAccount({
       route: route(),
       work: "existing",
       affinity,
@@ -149,8 +149,8 @@ describe("model gateway account selection", () => {
   });
 
   it("requires an explicit policy to rebind existing work and records why it was rebound", () => {
-    const affinity = { account: createAccountRef("account-a"), route: route() };
-    const result = selectModelGatewayAccount({
+    const affinity = { account: createExecutionAccountRef("account-a"), route: route() };
+    const result = selectExecutionCapacityAccount({
       route: route(),
       work: "existing",
       affinity,
@@ -159,19 +159,19 @@ describe("model gateway account selection", () => {
     });
 
     expect(result).toEqual({
-      selected: { account: createAccountRef("account-b"), route: route(), reason: "affinity-rebind" },
-      rejections: [{ account: createAccountRef("account-a"), reason: "unhealthy" }],
+      selected: { account: createExecutionAccountRef("account-b"), route: route(), reason: "affinity-rebind" },
+      rejections: [{ account: createExecutionAccountRef("account-a"), reason: "unhealthy" }],
       affinity: {
         requested: affinity,
         outcome: "rebound",
         reason: "unhealthy",
-        reboundTo: createAccountRef("account-b"),
+        reboundTo: createExecutionAccountRef("account-b"),
       },
     });
   });
 
   it("returns explicit, deterministic rejection evidence rather than silently falling back", () => {
-    const result = selectModelGatewayAccount({
+    const result = selectExecutionCapacityAccount({
       route: route(),
       work: "new",
       candidates: [
@@ -184,49 +184,37 @@ describe("model gateway account selection", () => {
     expect(result).toEqual({
       selected: undefined,
       rejections: [
-        { account: createAccountRef("account-a"), reason: "incompatible-route" },
-        { account: createAccountRef("account-b"), reason: "reserved-for-new-work" },
-        { account: createAccountRef("account-c"), reason: "unhealthy" },
+        { account: createExecutionAccountRef("account-a"), reason: "incompatible-route" },
+        { account: createExecutionAccountRef("account-b"), reason: "reserved-for-new-work" },
+        { account: createExecutionAccountRef("account-c"), reason: "unhealthy" },
       ],
     });
   });
 
-  it("creates a new-work reservation only for an eligible selection", () => {
-    const result = reserveAccountForNewWork({ route: route(), work: "new", candidates: [candidate("account-a")] });
-
-    expect(result).toEqual({ account: createAccountRef("account-a"), route: route() });
-  });
-
-  it("rejects invalid exported selection and reservation inputs at the domain boundary", () => {
-    expect(() => selectModelGatewayAccount({ route: route(), work: "existing", candidates: [] }))
+  it("rejects invalid exported selection inputs at the domain boundary", () => {
+    expect(() => selectExecutionCapacityAccount({ route: route(), work: "existing", candidates: [] }))
       .toThrow("Existing work requires an affinity");
-    expect(() => selectModelGatewayAccount({
+    expect(() => selectExecutionCapacityAccount({
       route: route(),
       work: "new",
       candidates: [candidate("account-a", { pressure: -1 })],
     })).toThrow("pressure must be a non-negative finite number");
-    expect(() => selectModelGatewayAccount({
+    expect(() => selectExecutionCapacityAccount({
       route: { providerId: "fixture-provider", providerModelId: "", scope: "default" },
       work: "new",
       candidates: [],
     })).toThrow("route.providerModelId must not be empty");
-    expect(() => selectModelGatewayAccount({
+    expect(() => selectExecutionCapacityAccount({
       route: route(),
       work: "new",
-      candidates: [{ ...candidate("account-a"), account: " account-a " as AccountRef }],
+      candidates: [{ ...candidate("account-a"), account: " account-a " as ExecutionAccountRef }],
     })).toThrow("candidates[0].account must be canonical");
-    expect(() => selectModelGatewayAccount({
+    expect(() => selectExecutionCapacityAccount({
       route: route(),
       work: "existing",
-      affinity: { account: createAccountRef("account-a"), route: route("other") },
+      affinity: { account: createExecutionAccountRef("account-a"), route: route("other") },
       candidates: [],
     })).toThrow("affinity.route must match route");
-    expect(() => reserveAccountForNewWork({
-      route: route(),
-      work: "existing",
-      affinity: { account: createAccountRef("account-a"), route: route() },
-      candidates: [],
-    })).toThrow("New-work reservations require work: new");
   });
 
   it("uses one route identity equality rule across core consumers", () => {
@@ -235,44 +223,32 @@ describe("model gateway account selection", () => {
   });
 });
 
-describe("AttemptCommit", () => {
-  const accountA = createAccountRef("account-a");
-  const accountB = createAccountRef("account-b");
+describe("ExecutionAttempt", () => {
+  const accountA = createExecutionAccountRef("account-a");
 
   it("only permits the planned -> leased -> dispatching -> committed -> terminal sequence", () => {
-    const planned = createAttemptCommit({ attemptId: "attempt-1", account: accountA });
-    const leased = advanceAttemptCommit(planned, "leased");
-    const dispatching = advanceAttemptCommit(leased, "dispatching");
-    const committed = advanceAttemptCommit(dispatching, "committed");
-    const terminal = advanceAttemptCommit(committed, "succeeded");
+    const planned = createExecutionAttempt({ attemptId: "attempt-1", account: accountA });
+    const leased = advanceExecutionAttempt(planned, "leased");
+    const dispatching = advanceExecutionAttempt(leased, "dispatching");
+    const committed = advanceExecutionAttempt(dispatching, "committed");
+    const terminal = advanceExecutionAttempt(committed, "succeeded");
 
     expect([planned.phase, leased.phase, dispatching.phase, committed.phase, terminal.phase])
       .toEqual(["planned", "leased", "dispatching", "committed", "succeeded"]);
-    expect(() => advanceAttemptCommit(planned, "committed")).toThrow("Invalid AttemptCommit transition");
-    expect(() => advanceAttemptCommit(terminal, "leased")).toThrow("Invalid AttemptCommit transition");
-  });
-
-  it("allows account failover only before dispatch might have produced provider effects", () => {
-    const planned = createAttemptCommit({ attemptId: "attempt-1", account: accountA });
-    const leased = advanceAttemptCommit(planned, "leased");
-    const dispatching = advanceAttemptCommit(leased, "dispatching");
-
-    expect(reassignAttemptAccount(leased, accountB)).toMatchObject({ account: accountB, phase: "leased" });
-    expect(() => reassignAttemptAccount(dispatching, accountB)).toThrow("cannot change accounts after dispatching");
-    expect(() => reassignAttemptAccount(advanceAttemptCommit(dispatching, "committed"), accountB))
-      .toThrow("cannot change accounts after committed");
+    expect(() => advanceExecutionAttempt(planned, "committed")).toThrow("Invalid ExecutionAttempt transition");
+    expect(() => advanceExecutionAttempt(terminal, "leased")).toThrow("Invalid ExecutionAttempt transition");
   });
 
   it("permits explicit pre-commit failure and cancellation terminal states", () => {
-    const planned = createAttemptCommit({ attemptId: "attempt-precommit", account: accountA });
-    const leased = advanceAttemptCommit(planned, "leased");
+    const planned = createExecutionAttempt({ attemptId: "attempt-precommit", account: accountA });
+    const leased = advanceExecutionAttempt(planned, "leased");
 
-    expect(advanceAttemptCommit(planned, "failed").phase).toBe("failed");
-    expect(advanceAttemptCommit(leased, "cancelled").phase).toBe("cancelled");
+    expect(advanceExecutionAttempt(planned, "failed").phase).toBe("failed");
+    expect(advanceExecutionAttempt(leased, "cancelled").phase).toBe("cancelled");
   });
 
   it("rejects blank attempt identifiers at the exported creation boundary", () => {
-    expect(() => createAttemptCommit({ attemptId: " ", account: accountA })).toThrow("attemptId must not be empty");
+    expect(() => createExecutionAttempt({ attemptId: " ", account: accountA })).toThrow("attemptId must not be empty");
   });
 });
 
@@ -297,12 +273,12 @@ describe("caller-owned one-round dispatcher", () => {
 
   it("calls exactly once and preserves custom tool input byte-for-byte", async () => {
     let calls = 0;
-    const input: ModelGatewayOneRoundDispatchInput = {
-      account: createAccountRef("account-a"), route: route(), sessionId: "session-1",
+    const input: OneRoundModelDispatchInput = {
+      account: createExecutionAccountRef("account-a"), route: route(), sessionId: "session-1",
       turn,
     };
 
-    const received = await dispatchModelGatewayOneRound({
+    const received = await dispatchOneModelRound({
       dispatchOneRound: async (received) => {
         calls += 1;
         expect(received).toBe(input);
@@ -317,13 +293,13 @@ describe("caller-owned one-round dispatcher", () => {
 
   it("rejects denied deliberation before the one-round dispatcher", async () => {
     let calls = 0;
-    await expect(dispatchModelGatewayOneRound({
+    await expect(dispatchOneModelRound({
       dispatchOneRound: async () => {
         calls += 1;
         return result;
       },
     }, {
-      account: createAccountRef("account-a"),
+      account: createExecutionAccountRef("account-a"),
       route: route(),
       sessionId: "session-denied",
       turn: {
@@ -344,15 +320,15 @@ describe("caller-owned one-round dispatcher", () => {
   });
 
   it("rejects undeclared or wrong-kind provider tool calls after the single dispatch", async () => {
-    const input: ModelGatewayOneRoundDispatchInput = {
-      account: createAccountRef("account-a"), route: route(), sessionId: "session-1", turn,
+    const input: OneRoundModelDispatchInput = {
+      account: createExecutionAccountRef("account-a"), route: route(), sessionId: "session-1", turn,
     };
     let calls = 0;
-    await expect(dispatchModelGatewayOneRound({ dispatchOneRound: async () => {
+    await expect(dispatchOneModelRound({ dispatchOneRound: async () => {
       calls += 1;
       return { ...result, parts: [{ type: "tool-call", call: { ...customCall, name: "undeclared" } }] };
     } }, input)).rejects.toThrow("declared");
-    await expect(dispatchModelGatewayOneRound({ dispatchOneRound: async () => {
+    await expect(dispatchOneModelRound({ dispatchOneRound: async () => {
       calls += 1;
       return {
         ...result,

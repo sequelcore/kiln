@@ -50,7 +50,7 @@ describe("managed-agent command", () => {
       { createRegistry: (() => undefined) as never },
       "approve-write",
       ["job-000000001", "--yes", "--expires-in-seconds", "300", "--project", root],
-      { createManagedJobComposition: factory, clock: () => new Date("2026-08-09T00:00:00.000Z") },
+      { createAgentTaskComposition: factory, clock: () => new Date("2026-08-09T00:00:00.000Z") },
     );
 
     expect(factory).toHaveBeenCalledWith({ projectPath: root });
@@ -65,13 +65,13 @@ describe("managed-agent command", () => {
     const config = { createRegistry: (() => undefined) as never };
 
     await expect(managedAgentCommand(config, "approve-write", ["job-000000001"], {
-      projectPath: root, createManagedJobComposition: factory,
+      projectPath: root, createAgentTaskComposition: factory,
     })).rejects.toThrow("--yes");
     await expect(managedAgentCommand(config, "approve-write", ["job-000000001", "--yes", "--expires-in-seconds", "0"], {
-      projectPath: root, createManagedJobComposition: factory,
+      projectPath: root, createAgentTaskComposition: factory,
     })).rejects.toThrow("expires-in-seconds");
     await expect(managedAgentCommand(config, "approve-write", ["job-000000001", "--yes", "--unknown"], {
-      projectPath: root, createManagedJobComposition: factory,
+      projectPath: root, createAgentTaskComposition: factory,
     })).rejects.toThrow("Unknown approve-write option");
     expect(factory).not.toHaveBeenCalled();
   });

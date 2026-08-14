@@ -1733,6 +1733,108 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("rejects execution route creation before reading the catalog without the existing operator capability", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const getCatalog = vi.fn(async () => ({ routes: [] }));
+    const createExecutionRoute = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        workingDirectory: distDir,
+        getSnapshot: async () => ({ } as never),
+        discoverOperatorProviders: async () => [],
+        executionRouteSelection: { getCatalog } as never,
+        createExecutionRoute,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({ type: "execution_route_create", requestId: "request-unauthorized" }),
+      }), wsCtx);
+
+      expect(getCatalog).not.toHaveBeenCalled();
+      expect(createExecutionRoute).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({
+        type: "execution_route_create_result",
+        requestId: "request-unauthorized",
+        status: "rejected",
+        code: "EXECUTION_ROUTE_CREATE_DENIED",
+      });
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes an authenticated execution route create through the handler boundary", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    const getCatalog = vi.fn(async () => ({ routes: [] }));
+    const createExecutionRoute = vi.fn();
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
+        port: port ?? 4810,
+        stop,
+      })),
+    });
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        workingDirectory: distDir,
+        getSnapshot: async () => ({ } as never),
+        discoverOperatorProviders: async () => [],
+        executionRouteSelection: { getCatalog } as never,
+        createExecutionRoute,
+        operatorTransport: {
+          sessionManager: {
+            factory: vi.fn() as never,
+            getProvider: () => "",
+            setProvider: vi.fn(),
+            getModel: () => "",
+            setModel: vi.fn(),
+          },
+        },
+      });
+      const token = gateway.operatorTerminalCapability;
+      expect(token).toEqual(expect.any(String));
+      const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1", operatorToken: token! });
+      await handlers.onMessage!(new MessageEvent("message", {
+        data: JSON.stringify({ type: "execution_route_create", requestId: "request-authenticated" }),
+      }), wsCtx);
+
+      expect(getCatalog).toHaveBeenCalledTimes(1);
+      expect(createExecutionRoute).not.toHaveBeenCalled();
+      expect(JSON.parse(mockWs.send.mock.calls[0]![0] as string)).toMatchObject({
+        type: "execution_route_create_result",
+        requestId: "request-authenticated",
+        status: "rejected",
+        code: "EXECUTION_ROUTE_CREATE_DENIED",
+      });
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("refreshes the execution-route catalog on request without reconnecting", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

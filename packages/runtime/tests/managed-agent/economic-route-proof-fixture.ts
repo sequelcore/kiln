@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   adoptManagedEconomicSnapshot,
-  createAccountRef,
+  createExecutionAccountRef,
   digestManagedEconomicValue,
   type CanonicalSessionEvent,
   type ManagedEconomicAmount,
@@ -252,7 +252,7 @@ export function createEconomicRouteProofAdoption(input: EconomicRouteProofInput)
       route: accountRoute,
       candidates: [{
         candidate: {
-          account: createAccountRef(`configured:${input.providerId}-account`),
+          account: createExecutionAccountRef(`configured:${input.providerId}-account`),
           route: accountRoute,
           health: "healthy" as const,
           leaseCapacity: "available" as const,

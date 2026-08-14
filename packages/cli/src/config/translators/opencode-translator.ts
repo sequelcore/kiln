@@ -1,4 +1,4 @@
-import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
+import { describeTrustedExecutionEnforcement, OPENCODE_NO_FILESYSTEM_SANDBOX, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
 import type { KilnYaml } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import { type OpenCodeNativeRules, translatePermission } from "../../wrapper/session-registry.js";
@@ -118,6 +118,7 @@ export function translateOpenCodePermissionProjection(input: {
           cfg.permissionDefault === "allow"
             ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
             : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
+        semanticLimitations: [OPENCODE_NO_FILESYSTEM_SANDBOX],
         enforcement: describeTrustedExecutionEnforcement({
           harness: "opencode",
           permissionDefault: cfg.permissionDefault,
@@ -147,6 +148,7 @@ export function translateOpenCodePermissionProjection(input: {
         cfg.permissionDefault === "allow"
           ? ["OpenCode allow resolves permission prompts but does not provide filesystem sandbox enforcement."]
           : ["OpenCode permission rules do not provide filesystem sandbox enforcement."],
+      semanticLimitations: [OPENCODE_NO_FILESYSTEM_SANDBOX],
       enforcement: describeTrustedExecutionEnforcement({
         harness: "opencode",
         permissionDefault: cfg.permissionDefault,

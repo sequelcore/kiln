@@ -19,7 +19,10 @@ import {
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import type { RuntimeMultimodalTransformRoute } from "../../src/session/runtime-session-orchestrator.types.js";
+import type {
+  RuntimeMultimodalDelegationRoute,
+  RuntimeMultimodalTransformRoute,
+} from "../../src/session/runtime-session-orchestrator.types.js";
 
 function makeProvider(name = "mock"): ProviderAdapter {
   return {
@@ -185,6 +188,50 @@ function makeAuxiliaryVisionRoute(): AuxiliaryModalityRoute {
         supportsDocuments: false,
       },
       degradationBehavior: [],
+    },
+  };
+}
+
+function makeVisionDelegationRoute(adapter: ManagedAgentRuntimeAdapter): RuntimeMultimodalDelegationRoute {
+  return {
+    route: makeAuxiliaryVisionRoute(),
+    adapter,
+    profile: "foundation-readonly-plan",
+    requestedAuthority: "read_only",
+    providerRoute: {
+      providerId: "openai",
+      surface: "cli-harness",
+      model: "gpt-4o",
+    },
+    observedRuntimeAuthority: {
+      approval: "on-request",
+      sandbox: "read-only",
+      source: "runtime-observation",
+      proof: "proven",
+      observedAt: "2026-07-02T08:00:00.000Z",
+      validUntil: "2099-01-01T00:00:00.000Z",
+    },
+    authority: {
+      authorityProfileId: "authority:managed-vision:readonly",
+      permissionProfile: "read-only",
+      toolAuthority: {
+        allowedToolNames: ["read"],
+        writeAllowed: false,
+        networkAllowed: false,
+      },
+      workingDirectory: {
+        path: "C:/workspace/kiln",
+        mode: "read-only",
+      },
+      timeoutMs: 120000,
+      credentialRoute: {
+        mode: "runtime-selected",
+        routeId: "credential-route:managed-vision",
+      },
+      memoryScope: {
+        scope: { kind: "project", id: "kiln" },
+        access: "read-only",
+      },
     },
   };
 }
@@ -792,6 +839,76 @@ describe("RuntimeSessionOrchestrator model routing", () => {
         artifactUris: ["kiln://runtime/session-artifact/0"],
       },
     });
+  });
+
+  it("returns a terminal failure without invoking a denied multimodal delegation", async () => {
+    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn(), clear: vi.fn() };
+    const managedAdapter = makeManagedAdapter();
+    const sessionTurnBudget = {
+      admit: vi.fn().mockResolvedValue({
+        status: "denied",
+        reason: "observed-at-or-above-limit",
+        action: "stop",
+        message: "Delegation denied by the session limit.",
+      }),
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      eventBus,
+      sessionTurnBudget,
+      multimodalDelegationRoutes: [makeVisionDelegationRoute(managedAdapter)],
+    });
+    const session = makeSession();
+
+    const result = await orchestrator.processMessage(session, [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(result).toMatchObject({
+      outcome: "failed",
+      inputTokens: 0,
+      outputTokens: 0,
+      parts: textParts("Delegation denied by the session limit."),
+    });
+    expect(result.routingDecision).toBeUndefined();
+    expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(1);
+    expect(managedAdapter.invoke).not.toHaveBeenCalled();
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
+    expect(eventBus.emit.mock.calls.filter(
+      (call: unknown[]) => (call[0] as { type: string; message?: string }).type === "error"
+        && (call[0] as { message?: string }).message === "Delegation denied by the session limit.",
+    )).toHaveLength(1);
+    expect(session.conversationHistory[0]?.role).toBe("user");
+  });
+
+  it("admits a multimodal delegation exactly once immediately before invoking it", async () => {
+    const managedAdapter = makeManagedAdapter();
+    const sessionTurnBudget = {
+      admit: vi.fn().mockResolvedValue({
+        status: "admitted",
+        reason: "observed-below-limit",
+        observation: { observedTokens: 1, source: "test" },
+      }),
+    };
+    const orchestrator = new RuntimeSessionOrchestrator({
+      provider: defaultProvider,
+      model: "deepseek-chat",
+      sessionTurnBudget,
+      multimodalDelegationRoutes: [makeVisionDelegationRoute(managedAdapter)],
+    });
+
+    await orchestrator.processMessage(makeSession(), [
+      { type: "text", text: "Describe this image." },
+      { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+
+    expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(1);
+    expect(managedAdapter.invoke).toHaveBeenCalledTimes(1);
+    expect(sessionTurnBudget.admit.mock.invocationCallOrder[0])
+      .toBeLessThan((managedAdapter.invoke as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]!);
+    expect(defaultProvider.createMessage).not.toHaveBeenCalled();
   });
 
   it("applies a governed OCR transform before invoking a text-only provider", async () => {

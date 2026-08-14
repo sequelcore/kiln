@@ -1,8 +1,8 @@
-import { createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import { createExecutionAccountRef, type OneRoundModelDispatchInput, type ModelTurnResult } from "@kilnai/core";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { describe, expect, it, vi } from "vitest";
 import { createAnthropicMessagesRoutes, type AnthropicMessagesIngressConfig } from "../../src/model-gateway/anthropic-messages-routes.js";
-import type { GovernedOneRoundInvocationPorts } from "../../src/model-gateway/governed-one-round-invocation.js";
+import type { GovernedOneRoundInvocationPorts } from "../../src/execution-kernel/governed-one-round-invocation.js";
 import { InMemoryModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 
 const principal = { tenantId: "tenant", applicationId: "app", callerId: "claude", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted" as const, evidenceId: "budget" } };
@@ -10,10 +10,10 @@ const route = { providerId: "codex-oauth", providerModelId: "upstream", scope: "
 const admission = { routeId: "claude-route", providerId: route.providerId, providerModelId: route.providerModelId, accountSelection: { mode: "exact" as const, accountId: "account", source: "route" as const } };
 const result: ModelTurnResult = { parts: [{ type: "text", text: "PROBE_OK" }], usage: { inputTokens: 4, outputTokens: 2, cacheReadTokens: 1, cacheWriteTokens: 0 }, stopReason: "completed" };
 
-function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?: (input: ModelGatewayOneRoundDispatchInput) => Promise<ModelTurnResult> } = {}) {
+function fixture(overrides: Partial<AnthropicMessagesIngressConfig> & { execute?: (input: OneRoundModelDispatchInput) => Promise<ModelTurnResult> } = {}) {
   const execute = vi.fn(overrides.execute ?? (async () => result));
   const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `anthropic-test-${crypto.randomUUID()}`, configurationRevision: "test" });
-  const candidate = vi.fn(async (input) => ({ admission, candidates: [{ candidate: { accountId: "account", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }));
+  const candidate = vi.fn(async (input) => ({ admission, candidates: [{ candidate: { accountId: "account", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] }));
   const invocationPorts: GovernedOneRoundInvocationPorts = {
     candidateCatalog: { list: candidate }, accountCapacityAuthority: authority,
     attemptEvidence: { record: async () => undefined }, dispatcherResolver: { resolve: async () => ({ dispatchOneRound: execute }) },

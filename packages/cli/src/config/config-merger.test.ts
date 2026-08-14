@@ -71,7 +71,7 @@ describe("config-merger", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
-      workerRouting: { defaultWorker: "codex", budgetAware: false },
+      workerRouting: { defaultWorker: "codex" },
       workerModels: { codex: "gpt-5.4" },
       permissions: { approval: "never", sandbox: "workspace-write" },
       mcp: { servers: { shared: { type: "stdio", command: "srv" } } },
@@ -193,7 +193,7 @@ describe("config-merger", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
-      workerRouting: { defaultWorker: "codex", budgetAware: false },
+      workerRouting: { defaultWorker: "codex" },
       workerModels: { codex: "gpt-5.4" },
     };
     const projectConfig: KilnYaml = {
@@ -295,7 +295,7 @@ describe("config-merger", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
-      workerRouting: { defaultWorker: "codex", budgetAware: false },
+      workerRouting: { defaultWorker: "codex" },
       workerModels: { default: "claude-opus-4-7", codex: "gpt-5.4" },
       permissions: { approval: "on-request", sandbox: "read-only" },
       mcp: { servers: { one: { type: "stdio", command: "one" } } },
@@ -403,7 +403,7 @@ describe("config-merger", () => {
     const globalConfig: KilnGlobalConfig = {
       version: "1",
       engines: { claude: { enabled: true, billing: "subscription" } },
-      workerRouting: { defaultWorker: "claude", budgetAware: false },
+      workerRouting: { defaultWorker: "claude" },
     };
 
     expect(globalToKilnYaml(globalConfig)).toEqual({

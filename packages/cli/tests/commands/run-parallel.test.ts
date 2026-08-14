@@ -164,11 +164,10 @@ describe("runParallelWorkers", () => {
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
-  it("does not use runtime-session budget policy as managed worker route authority", async () => {
+  it("does not use session token observation as managed worker route authority", async () => {
     const managedInvocation = createManagedInvocation();
-    const budgetUsageReader = vi.fn(async ({ providerId }: { readonly providerId: string }) => ({
-      providerId,
-      tokensUsed: 11,
+    const sessionTokenUsageReader = vi.fn(async () => ({
+      observedTokens: 11,
       source: "test-meter",
     }));
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -181,14 +180,14 @@ describe("runParallelWorkers", () => {
       2,
       managedInvocation,
       {
-        globalConfig: budgetAwareGlobalConfig(),
+        globalConfig: sessionTurnBudgetGlobalConfig(),
         exitOnFailure: false,
-        budgetUsageReader,
+        sessionTokenUsageReader,
       },
     );
 
     expect(managedInvocation.invocationService?.list()).toHaveLength(2);
-    expect(budgetUsageReader).not.toHaveBeenCalled();
+    expect(sessionTokenUsageReader).not.toHaveBeenCalled();
   });
 
   it("denies worker fan-out before launching children when managed lifecycle route selection is ambiguous", async () => {
@@ -435,7 +434,7 @@ function createManagedInvocation(input: {
   };
 }
 
-function budgetAwareGlobalConfig() {
+function sessionTurnBudgetGlobalConfig() {
   return {
     version: "1",
     engines: {
@@ -443,15 +442,7 @@ function budgetAwareGlobalConfig() {
         enabled: true,
       },
     },
-    workerRouting: {
-      budgetAware: true,
-      budget: {
-        codex: {
-          dailyTokenCeiling: 10,
-          onCeiling: "stop",
-        },
-      },
-    },
+    sessionTurnBudget: { tokenLimit: 10, action: "stop" },
   } as const;
 }
 
