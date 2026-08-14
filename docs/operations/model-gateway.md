@@ -284,6 +284,32 @@ Recovery proof consists of stopping the service, running the owned task (or
 logging into a fresh operator session), and observing `ready` with the expected
 version and config digest.
 
+### Temporary Bun 1.3.14 crash mitigation
+
+Bun 1.3.14 can terminate a long-running localhost HTTP proxy on Windows with a
+native segmentation fault instead of a JavaScript exception. Kiln reproduced
+that failure signature while operating the Model Gateway; it matches the
+upstream [Bun Windows proxy incident](https://github.com/oven-sh/bun/issues/32585).
+A native Bun panic or `bun.report` URL means the listener process exited. It is
+not an application-level provider error and cannot be recovered inside the
+same process.
+
+An exact, checksum-verified Bun canary binary may be used as a temporary,
+operator-local mitigation when the supported stable release still contains the
+defect. Keep it isolated under Kiln runtime ownership and point only the owned
+Model Gateway startup task at that exact binary. Do not replace the workstation
+Bun installation, depend on the moving `canary` alias, or require users to
+perform a manual canary upgrade.
+
+This mitigation is not the public installation contract. Before a general
+Windows release, Kiln must either require a stable Bun version containing the
+upstream fix or install and verify an exact Kiln-owned runtime automatically.
+Setup and `doctor` must reject a known-incompatible runtime rather than leaving
+operators to discover the crash through disconnected sessions. Once a fixed
+stable release is admitted, regenerate the owned startup task against that
+stable runtime and retire the temporary binary through the normal upgrade
+flow.
+
 ## Exact uninstall
 
 ```bash
