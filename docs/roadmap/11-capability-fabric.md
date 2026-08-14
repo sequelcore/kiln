@@ -88,6 +88,9 @@ result-contract evidence. Adapter availability alone is never authority.
   approvals, cancellation, replay safety, and content-free audit evidence.
 - Provide the same capability semantics through CLI, GUI, TUI, SDK, Codex,
   Claude, and OpenCode V2 even when their wire representations differ.
+- Provide one portable operator-question lifecycle for clarification and
+  decision elicitation, with correlated pause, answer, cancellation, expiry,
+  and resume semantics across every admitted surface.
 - Measure correctness, latency, cost, context reduction, and tool-selection
   quality before promoting defaults.
 
@@ -131,6 +134,8 @@ No adapter may become a second capability-selection or policy authority.
 - Structured delegation to a model or harness that owns a required modality.
 - Cross-surface progress, approval, provenance, result, and artifact
   projection.
+- Bounded operator-question requests and responses for single choice, multiple
+  choice, freeform, optional, conditional, and resumable clarification flows.
 - Vertical proofs for web search, vision, image generation, and presentation
   rendering.
 
@@ -153,6 +158,10 @@ No adapter may become a second capability-selection or policy authority.
   private results in catalog or audit evidence.
 - No automatic execution of destructive capabilities without their owning
   approval authority.
+- No shared React component tree or assumption that a GUI control is portable
+  to terminal or native harness surfaces.
+- No conversion of an ordinary questionnaire answer into durable approval for
+  a consequential effect.
 
 ## Dependencies And Decisions
 
@@ -177,6 +186,14 @@ No adapter may become a second capability-selection or policy authority.
 - A capability implemented by another model is represented as agent-backed
   delegation with explicit executor provenance, not as a fabricated local
   tool implementation.
+- Operator questions and approvals are distinct contracts. A question obtains
+  information or preference; approval authorizes an exact proposed effect
+  under its owning authority. A surface may present both in one workflow, but
+  it cannot merge their evidence or lifecycle.
+- shadcn Questionnaire is a candidate GUI presentation primitive, not a Core
+  or Runtime dependency. Its own contract deliberately leaves persistence,
+  transport, branching, cancellation, and containing-surface behavior to the
+  host, which matches Kiln's boundary.
 
 ## Ordered Slices
 
@@ -326,10 +343,90 @@ formats may differ, but capability identity and terminal evidence must remain
 equivalent. Add operator controls for implementation preference, cost ceiling,
 network posture, approval, and disablement through canonical configuration.
 
+Add a shared operator-question contract before any surface-specific
+implementation. It binds the request, ordered questions, answer modes,
+validation revision, session and turn identity, lifecycle state, and correlated
+response without carrying a view tree. Runtime owns pause, durable correlation,
+expiry, cancellation, and resume; a skill may decide what to ask but cannot own
+transport or continuation state.
+
+Promote interaction surfaces in this order:
+
+1. stabilize the complete GUI flow as the product reference, using an admitted
+   accessible component such as shadcn Questionnaire where it fits;
+2. recreate each stable interaction in TUI-native controls with behavioral and
+   evidence parity rather than attempting to port React components or visual
+   layout;
+3. map the same contract to native Codex, Claude, and OpenCode controls when
+   their exact admitted versions expose them; and
+4. produce a typed pause for a surface that cannot collect the requested input
+   without semantic loss.
+
+GUI-first is a promotion sequence, not an ownership exception. Runtime and the
+shared contracts remain authoritative throughout. The GUI is considered stable
+only after its keyboard, accessibility, narrow-layout, persistence, resume,
+cancel, validation, error, and correlation behavior passes the shared
+conformance fixtures. TUI and native adapters then reuse those fixtures while
+presenting interaction appropriate to their environment.
+
 Acceptance: web search, vision analysis, and presentation workflows pass
 cross-surface conformance fixtures; no surface recomputes capability policy;
 operator status shows the actual executor rather than implying native model
-support.
+support; a clarification flow started by the same canonical request can pause
+and resume through GUI, TUI, and every supported native harness with equivalent
+answers and terminal state; an ordinary answer never satisfies an approval
+requirement.
+
+### Slice 8 - Capability-Aware Orchestration Promotion
+
+Status: Blocked on Slices 3 through 7 and stable work-governance contracts.
+
+Replace the current orchestration assumption that a parent first chooses
+direct work or a worker with a capability-first decision. The parent declares
+the outcome and required capability. Runtime resolves the admitted
+implementation and returns one of these execution shapes:
+
+- a portable or hosted tool callable in the current session;
+- a harness-native tool owned and executed by the active harness;
+- a governed local implementation;
+- an agent-backed capability requiring an Agent Task;
+- a remote agent-backed capability requiring A2A; or
+- a typed missing-capability pause.
+
+Direct tool execution and delegation are not interchangeable. If the admitted
+implementation is available in the current execution boundary, orchestration
+must not create a child merely because another model or harness originally
+owned the capability. If the implementation is agent-backed, orchestration
+must preserve the bounded child contract, attenuated authority, lifecycle,
+artifact, and adoption rules. The parent remains the accountable conductor and
+closer in both cases.
+
+Update the canonical work-governance decision, handoff contracts, native
+instruction projections, `orchestration-workflow`, and
+`kiln-control-plane-workflow` only after the executable resolver is current.
+The skills teach how to consume the resolved decision; they never inspect the
+catalog to choose an implementation, select a route or model, widen authority,
+or simulate a missing tool. Remove obsolete worker-first and managed-job
+vocabulary in the same slice rather than preserving aliases or parallel
+procedures.
+
+Roadmap 06 owns progressive disclosure of the updated procedural text. This
+slice owns its semantics and conformance with executable orchestration. A skill
+projection cannot become the mechanism that grants a model access to a
+capability.
+
+Acceptance: equivalent tasks exercise direct portable, harness-native,
+agent-backed local, and A2A-backed implementations through one capability
+request; no path double-delegates, reselects an implementation after admission,
+or fabricates child evidence; missing capability produces the exact typed pause;
+the parent correlates and adopts the result or artifact using canonical
+lifecycle evidence; all admitted harnesses consume the same procedure without
+surface-local routing logic.
+
+Recovery: procedural projections are updated only after the new Runtime and
+work-governance contracts pass cross-surface conformance. Projection failure
+leaves executable authority unchanged and reports drift; there is no fallback
+to the former workflow or tool names.
 
 ## Promotion Gates
 
@@ -357,8 +454,17 @@ support.
   events, and durable public evidence.
 - Agent-backed capabilities preserve executor attribution and attenuated
   authority.
+- Work governance and orchestration consume the canonical capability decision;
+  they do not independently choose tools, implementations, routes, models, or
+  workers.
+- `orchestration-workflow`, `kiln-control-plane-workflow`, native instruction
+  projections, and executable work contracts use one current capability-first
+  lifecycle vocabulary with no retained worker-first or managed-job procedure.
 - Cross-surface conformance proves equivalent semantics without requiring
   identical wire payloads.
+- GUI reference stability precedes TUI and native interaction promotion;
+  downstream surfaces reproduce behavior and evidence, not React components or
+  GUI layout.
 - Independent security, architecture, provider-contract, and findings-first
   reviews have no unresolved high or medium findings.
 
@@ -394,6 +500,10 @@ support.
 - The experimental OpenCode V2 ChatGPT web-search plugin demonstrates
   provider-backed search while remaining explicitly experimental:
   <https://github.com/neriousy/opencode-chatgpt-websearch>.
+- shadcn Questionnaire provides controlled, resumable, conditional,
+  keyboard-accessible multi-step question flows while explicitly leaving
+  persistence, transport, branching, and cancellation to the containing host:
+  <https://ui.shadcn.com/docs/components/base/questionnaire>.
 - Stable Kiln ownership boundaries are documented in
   [Model Gateway](../architecture/providers/model-gateway.md),
   [Agent Tasks](../architecture/coordination/agent-tasks.md),
@@ -420,8 +530,15 @@ The track-level evidence set must include:
 - tool selection and malformed-call recovery evals;
 - permission, data, network, budget, cancellation, and replay negatives;
 - local Agent Task and remote A2A delegation settlement;
+- direct-versus-agent-backed orchestration selection, missing-capability pause,
+  child lifecycle, result adoption, and no-double-delegation conformance;
+- current orchestration and control-plane skill projections across Codex,
+  Claude, OpenCode V2, and Kiln-owned surfaces;
 - cross-model artifact lineage and restore tests;
 - CLI, GUI, TUI, SDK, Codex, Claude, and OpenCode V2 parity;
+- operator-question pause, validation, answer, skip, cancel, expiry, resume,
+  and approval-separation conformance, promoted GUI first and then reproduced
+  in TUI and native harness interactions;
 - end-to-end `web.search`, `vision.analyze`, and presentation workflows.
 
 ## Completion Criteria
@@ -431,6 +548,10 @@ discover only relevant capabilities, invoke a portable tool or governed
 specialist without restating context, and continue with a correlated typed
 result or artifact. Kiln reports the actual executor, permissions, cost,
 provenance, and terminal outcome. Stable contracts and operations are promoted
-to architecture and guides, experimental research paths are removed, and this
+to architecture and guides. Work governance and the projected orchestration
+skills consume the same capability-first execution decision, so moving between
+direct, native, portable, local-agent, and remote-agent implementations does
+not require the operator or parent model to reconstruct the workflow.
+Experimental research paths and superseded procedures are removed, and this
 roadmap closes or splits only when no duplicated owner or unnamed residual
 remains.

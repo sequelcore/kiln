@@ -34,6 +34,7 @@ roadmap reorganization.
 | 4 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
 | 5 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
 | 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Resolve exact Codex, Claude, and OpenCode V2 tool contracts before defining the shared catalog. |
+| 7 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
 
 ## Dependency Rules
 
@@ -44,8 +45,15 @@ roadmap reorganization.
 - `10` owns native surface promotion and remains sequenced behind stable release,
   gateway, and benchmark evidence.
 - `11` owns cross-harness capability discovery, deferred tool search, portable
-  execution, and agent-backed capabilities. It reuses `06` progressive
-  disclosure and existing Agent Task/A2A authority instead of duplicating them.
+  execution, agent-backed capabilities, and the portable operator-question
+  lifecycle. It reuses `06` progressive disclosure and existing Agent Task/A2A
+  authority instead of duplicating them. Interaction promotion is GUI-first,
+  then behaviorally equivalent in TUI and native harnesses; GUI components are
+  never shared execution authority.
+- `12` owns configuration discoverability, desired intent, effective-value
+  explanation, governed mutation, activation planning, and cross-surface
+  settings parity. It consumes `11` capability identities but never owns
+  capability eligibility or execution.
 
 GUI execution presentation is canonical in
 [`docs/architecture/gui-execution-presentation.md`](../architecture/surfaces/gui-execution-presentation.md).
