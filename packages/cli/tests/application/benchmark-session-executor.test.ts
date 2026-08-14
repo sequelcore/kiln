@@ -148,6 +148,28 @@ vi.mock("../../src/application/bounded-work-authority-composition.js", () => ({
   createProjectBoundedWorkAuthority: benchmarkExecutorMocks.createProjectBoundedWorkAuthority,
 }));
 
+vi.mock("../../src/application/canonical-run-session-dispatcher.js", () => ({
+  createCanonicalRunSessionDispatcher: vi.fn((input: {
+    readonly catalog: { readonly routes: readonly { readonly id: string; readonly providerId: string; readonly providerModelId: string }[] };
+    readonly routeId: string;
+    readonly routeEvidence?: object;
+  }) => ({
+    dispatch: (payload: object) => {
+      const route = input.catalog.routes.find((candidate) => candidate.id === input.routeId)!;
+      return benchmarkExecutorMocks.runSession({
+        ...payload,
+        routeCandidates: [{
+          routeId: route.id,
+          provider: route.providerId,
+          model: route.providerModelId,
+          ...(input.routeEvidence ?? {}),
+        }],
+      });
+    },
+    close: vi.fn(),
+  })),
+}));
+
 vi.mock("../../src/application/session-hooks.js", () => ({
   SessionHooks: class SessionHooks {},
 }));
@@ -442,7 +464,7 @@ describe("createBenchmarkSessionExecutor", () => {
 
   it("runs declared synthetic fixtures without loading project context from the repository root", async () => {
     const repositoryRoot = resolveProjectRoot().rootPath;
-    const fixturePath = "packages/core/evals/fixtures/model-roster-v1";
+    const fixturePath = "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation";
     const expectedWorkspace = join(repositoryRoot, ...fixturePath.split("/"));
     const priorManagedResolutionCount = benchmarkExecutorMocks.resolveManagedInvocationToolOptions.mock.calls.length;
     const priorIdentityContextCount = benchmarkExecutorMocks.withGlobalIdentityContext.mock.calls.length;
@@ -453,7 +475,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const result = await executor("Inspect only the fixture.", makeBenchmarkContext({
       id: "synthetic-fixture",
       input: "Inspect only the fixture.",
-      metadata: { workspaceFixture: fixturePath },
+      metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
     }));
 
     expect(benchmarkExecutorMocks.getProjectContextArtifactCache).toHaveBeenCalledWith(expectedWorkspace);
@@ -485,7 +507,7 @@ describe("createBenchmarkSessionExecutor", () => {
   });
 
   it("runs write profiles only in a disposable strict direct-provider lease", async () => {
-    const fixturePath = "packages/core/evals/fixtures/model-roster-v1";
+    const fixturePath = "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation";
     benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
       makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
@@ -519,7 +541,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const result = await executor("Fix the fixture.", makeBenchmarkContext({
       id: "backend-write",
       input: "Fix the fixture.",
-      metadata: { workspaceFixture: fixturePath },
+      metadata: { workspaceFixture: fixturePath, benchmarkCaseId: "idempotent-reservation" },
     }, {
       id: "kiln-model-roster-backend-write",
       authorityProfile: "foundation-apply-approved-writes",
@@ -548,11 +570,9 @@ describe("createBenchmarkSessionExecutor", () => {
     });
   });
 
-  it("rejects non-Kiln-executable routes for write profiles before execution", async () => {
+  it("rejects write profiles without a configured V2 execution route before execution", async () => {
     const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
-    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
-      makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
-    );
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue({});
     const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
 
     await expect(executor("Fix the fixture.", makeBenchmarkContext({
@@ -562,7 +582,7 @@ describe("createBenchmarkSessionExecutor", () => {
     }, {
       id: "kiln-model-roster-backend-write",
       authorityProfile: "foundation-apply-approved-writes",
-    }))).rejects.toThrow("require explicit Kiln-executable direct-provider routes");
+    }))).rejects.toThrow("require a configured Kiln V2 execution route");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
@@ -598,8 +618,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        provider: "codex-oauth",
-        model: "benchmark-model",
+        routeId: "benchmark-codex",
         deliberationLevel: "high",
       },
     });
@@ -663,8 +682,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        provider: "anthropic",
-        model: "claude-sonnet-5",
+        routeId: "benchmark-anthropic",
         deliberationLevel: "low",
       },
     });
@@ -699,8 +717,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        provider: "codex-oauth",
-        model: "unknown-model",
+        routeId: "benchmark-unknown",
         deliberationLevel: "high",
       },
     });
@@ -759,6 +776,7 @@ describe("createBenchmarkSessionExecutor", () => {
     }));
 
     expect(result.output).toBe("fallback answer");
+    expect(result.trial).toEqual({ status: "valid" });
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("Provider codex failed"));
@@ -800,6 +818,7 @@ describe("createBenchmarkSessionExecutor", () => {
     }));
 
     expect(result.output).toBe("failed partial");
+    expect(result.trial).toEqual({ status: "invalid", reason: "route-unavailable" });
     expect(result.metadata).toMatchObject({
       sessionSucceeded: false,
       policyViolations: ["Provider failed"],
@@ -807,6 +826,34 @@ describe("createBenchmarkSessionExecutor", () => {
     });
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
+  });
+
+  it("records canonical account-capacity denial as an invalid infrastructure trial", async () => {
+    const error = new Error("sensitive account details must not escape");
+    error.name = "OperatorSessionExecutionRoutingError";
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
+    );
+    benchmarkExecutorMocks.runSession.mockRejectedValueOnce(error);
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+
+    const result = await executor("Fix the fixture.", makeBenchmarkContext({
+      id: "backend-account-unavailable",
+      input: "Fix the fixture.",
+      metadata: {
+        workspaceFixture: "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation",
+        benchmarkCaseId: "idempotent-reservation",
+      },
+    }, {
+      id: "kiln-model-roster-backend-write",
+      authorityProfile: "foundation-apply-approved-writes",
+    }));
+
+    expect(result.trial).toEqual({ status: "invalid", reason: "account-route-unavailable" });
+    expect(result.metadata?.diagnostics).toEqual([
+      "Canonical execution account route was unavailable before provider dispatch.",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("sensitive account details");
   });
 
   it("keeps timeout-shaped failures out of stdout while preserving the scored session output", async () => {

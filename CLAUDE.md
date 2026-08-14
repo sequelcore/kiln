@@ -5,7 +5,7 @@ projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
 sourceProfiles: sequel-engineering
 generator: repo-shims-v1
-contentHash: sha256:d447c750f019557c264fc0383be7270afe943eb7481fd5078accd6644a9181ba
+contentHash: sha256:031e2fcec72680f4a2ccf6caab5b772e5950f271e7b2b8972374a13e577dbedd
 -->
 # Claude Project Guidance
 
@@ -18,7 +18,7 @@ contentHash: sha256:d447c750f019557c264fc0383be7270afe943eb7481fd5078accd6644a91
 - Default provider: codex-oauth
 - Default model: gpt-5.6-sol
 - Max depth: 3
-- Parallel workers: 1
+- Parallel workers: 3
 
 ## Adopted Project Context
 

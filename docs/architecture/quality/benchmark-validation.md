@@ -65,6 +65,8 @@ measurement surfaces, not operator personalization profiles:
 | `kiln-managed-frontend-team` | `managed-team` | Specialist composition, dependency handoffs, independent route evidence, and the evidence required for a later paired team-versus-individual comparison. | tau-style workflows |
 | `kiln-managed-coding-agent` | `managed-coding` | Bounded coding with approved authority, tests, rollback evidence, and replayable handoff. | Terminal-Bench, SWE-bench-style tracks |
 | `kiln-safety-agent` | `safety` | Prompt-injection resistance, policy preservation, and utility. | AgentDojo |
+| `kiln-model-roster-backend-write` | `backend-write` | Route-specific backend implementation reliability in isolated workspaces with fixed out-of-process tests. | Internal roster promotion only |
+| `kiln-model-roster-frontend-render` | `frontend-render` | Route-specific React interaction, focus, accessibility, screenshot, and diff reliability in an isolated browser verifier. | Internal roster promotion only |
 
 Each profile declares:
 
@@ -116,6 +118,32 @@ projection, tool metadata capture, and config hashing. Internal baseline scorers
 structural evidence checks, not hidden LLM judges: they score only Kiln-observed
 evidence such as tool calls, route identity, handoff output, policy violations,
 latency, and cost.
+
+### Write-route promotion protocol
+
+The two model-roster write profiles use protocol version 2. Version 1 datasets
+and fixtures are removed rather than treated as comparable history. Promotion
+requires eight distinct cases and five valid trials per case. A valid trial is a
+completed provider execution whose fixed verifier can judge the candidate; an
+infrastructure or route failure is retained as an invalid trial and is not
+converted into a semantic model failure. The runner retries only cases that
+still lack valid coverage, up to two invalid retries per required trial.
+
+`passRate` is pass^1 over valid trials. `passAtK` is pass^k: the fraction of
+cases whose five valid trials all pass. Both carry Wilson 95% intervals.
+Promotion requires `passRate >= 0.80`, `passAtK >= 0.75`, complete valid-trial
+coverage, and `invalidTrialRate <= 0.10`. Correctness verification, diff
+integrity, and execution integrity are admission scorers. Tool trajectory,
+latency, and cost remain diagnostics and cannot veto an otherwise correct
+candidate or rescue an incorrect one.
+
+Write benchmarks require an explicit configured execution-route id. The
+benchmark dispatcher uses the same canonical route admission, account lease,
+credential binding, dispatch fence, and settlement path as operator runs.
+Provider/model flags that could name one route while executing another are not
+accepted. A newly claimed operator-session capacity generation recovers stale
+pre-dispatch capacity before admitting new work; post-dispatch unknown outcomes
+remain retained for reconciliation.
 
 The baseline artifact set is intentionally typed. `artifactUris` remains the
 flat URI list for report tables, while `evidenceArtifacts` preserves the

@@ -82,6 +82,20 @@ function evidenceArtifacts(): readonly { readonly kind: string; readonly uri: st
   }));
 }
 
+function reliabilityEvidence(profile: typeof KILN_BENCHMARK_PROFILES[number]) {
+  return {
+    datasetItemCount: profile.minimumDatasetItems,
+    passRate: 1,
+    passRateInterval: { confidence: 0.95, lower: 0.9, upper: 1 },
+    passAtK: 1,
+    passAtKInterval: { confidence: 0.95, lower: 0.7, upper: 1 },
+    validTrialCount: profile.minimumDatasetItems * profile.minimumK,
+    invalidTrialCount: 0,
+    invalidTrialRate: 0,
+    incompleteItemIds: [],
+  } as const;
+}
+
 function artifactIdFromUri(uri: string): string {
   const match = uri.match(/^kiln:\/\/artifacts\/benchmark-baselines\/(artifact_\d+)\/content$/u);
   if (!match) {
@@ -131,7 +145,7 @@ describe("benchmarkCommand", () => {
           datasetName: "tool-internal",
           datasetVersion: "2026-05-08",
           k: profile.minimumK,
-          passAtK: profile.minimumPassAtK,
+          ...reliabilityEvidence(profile),
           scorers: profile.requiredScorers,
           artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
           evidenceArtifacts: evidenceArtifacts(),
@@ -165,7 +179,7 @@ describe("benchmarkCommand", () => {
           datasetName: "kiln-tool-agent-v1",
           datasetVersion: "1",
           k: profile.minimumK,
-          passAtK: 1,
+          ...reliabilityEvidence(profile),
           scorers: profile.requiredScorers,
           artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
           evidenceArtifacts: evidenceArtifacts(),
@@ -219,7 +233,7 @@ describe("benchmarkCommand", () => {
         datasetName: "git-bytes",
         datasetVersion: "1",
         k: profile.minimumK,
-        passAtK: 1,
+        ...reliabilityEvidence(profile),
         scorers: profile.requiredScorers,
         artifactUris: evidenceArtifacts().map((artifact) => artifact.uri),
         evidenceArtifacts: evidenceArtifacts(),
@@ -702,6 +716,7 @@ describe("benchmarkCommand", () => {
       metadata: { expectedToolCalls: [{ name: "status" }] },
     }) + "\n", "utf-8");
     const observedLevels: Array<string | undefined> = [];
+    const observedRoutes: Array<string | undefined> = [];
 
     await benchmarkCommand(
       MOCK_APP_CONFIG,
@@ -711,13 +726,13 @@ describe("benchmarkCommand", () => {
         "--dataset", datasetPath,
         "--k", "1",
         "--output", outputPath,
-        "--provider", "codex",
-        "--model", "benchmark-model",
+        "--route", "benchmark-codex",
         "--deliberation-level-sweep", "low,luna-max",
       ],
       {
         createExecuteItem: (flags) => {
           observedLevels.push(flags.deliberationLevel);
+          observedRoutes.push(flags.routeId);
           return async () => ({
             output: "status",
             durationMs: 10,
@@ -750,6 +765,7 @@ describe("benchmarkCommand", () => {
       readonly runs: readonly { readonly deliberationLevel: string }[];
     };
     expect(observedLevels).toEqual(["low", "luna-max"]);
+    expect(observedRoutes).toEqual(["benchmark-codex", "benchmark-codex"]);
     expect(written.baseline).toBeUndefined();
     expect(written.runs.map((run) => run.deliberationLevel)).toEqual(["low", "luna-max"]);
     expect(written.baselines).toHaveLength(2);
@@ -773,7 +789,7 @@ describe("benchmarkCommand", () => {
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
       ...base,
       "--deliberation-level", "high",
-    ])).rejects.toThrow("require explicit --provider and --model");
+    ])).rejects.toThrow("require explicit --route identity");
   });
 
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {

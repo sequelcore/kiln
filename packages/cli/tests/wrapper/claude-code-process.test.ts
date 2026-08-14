@@ -83,6 +83,48 @@ function pendingQueryFixture() {
 }
 
 describe("ClaudeSession implements IKilnSession", () => {
+  it("does not let ambient Anthropic API credentials override the native Claude subscription", async () => {
+    const previousApiKey = process.env.ANTHROPIC_API_KEY;
+    const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+    process.env.ANTHROPIC_API_KEY = "synthetic-ambient-api-key";
+    process.env.ANTHROPIC_AUTH_TOKEN = "synthetic-ambient-auth-token";
+    try {
+      expect(process.env.ANTHROPIC_API_KEY).toBe("synthetic-ambient-api-key");
+      expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("synthetic-ambient-auth-token");
+      (mockedQuery as unknown as { mockImplementationOnce: (implementation: (input: unknown) => unknown) => void })
+        .mockImplementationOnce((input: unknown) => {
+          const env = (input as { options?: { env?: Record<string, string | undefined> } }).options?.env;
+          expect(env).not.toHaveProperty("ANTHROPIC_API_KEY");
+          expect(env).not.toHaveProperty("ANTHROPIC_AUTH_TOKEN");
+          return (async function* () {
+            yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+          })();
+        });
+
+      await collectEvents(new ClaudeSession(baseConfig()).run({ prompt: "test" }));
+    } finally {
+      if (previousApiKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = previousApiKey;
+      if (previousAuthToken === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+      else process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
+    }
+  });
+
+  it("retains an Anthropic credential supplied explicitly to the Claude session", async () => {
+    (mockedQuery as unknown as { mockImplementationOnce: (implementation: (input: unknown) => unknown) => void })
+      .mockImplementationOnce((input: unknown) => {
+        const env = (input as { options?: { env?: Record<string, string | undefined> } }).options?.env;
+        expect(env?.ANTHROPIC_API_KEY).toBe("synthetic-explicit-api-key");
+        return (async function* () {
+          yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+        })();
+      });
+
+    await collectEvents(new ClaudeSession(baseConfig({
+      env: { ANTHROPIC_API_KEY: "synthetic-explicit-api-key" },
+    })).run({ prompt: "test" }));
+  });
+
   it("fails before Agent SDK transport when invocation communication is not exactly representable", async () => {
     const queryCallCount = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
     const session = new ClaudeSession(baseConfig({

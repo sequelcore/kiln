@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import type {
   AdmittedExecutionRoute,
   ExecutionCatalog,
@@ -35,6 +36,7 @@ export function createOperatorTurnDispatchComposition<Payload, Result>(input: {
   readonly cwd: string;
   readonly credentialRootDir?: string;
 }): OperatorTurnDispatchComposition<Payload, Result> {
+  mkdirSync(join(input.cwd, ".kiln", "runtime"), { recursive: true });
   const authority = createOperatorSessionAccountCapacityAuthority({
     path: join(input.cwd, ".kiln", "runtime", "operator-session-account-capacity.sqlite"),
   });

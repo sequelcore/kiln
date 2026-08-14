@@ -16,6 +16,20 @@ const REQUIRED_EVIDENCE_ARTIFACTS: readonly BenchmarkEvidenceArtifactKind[] = [
   "result",
 ];
 
+function reliabilityEvidence(profile: typeof KILN_BENCHMARK_PROFILES[number]) {
+  return {
+    datasetItemCount: profile.minimumDatasetItems,
+    passRate: 1,
+    passRateInterval: { confidence: 0.95 as const, lower: 0.9, upper: 1 },
+    passAtK: 1,
+    passAtKInterval: { confidence: 0.95 as const, lower: 0.7, upper: 1 },
+    validTrialCount: profile.minimumDatasetItems * profile.minimumK,
+    invalidTrialCount: 0,
+    invalidTrialRate: 0,
+    incompleteItemIds: [],
+  };
+}
+
 describe("generateBenchmarkPublicReport", () => {
   it("renders readiness, baselines, artifacts, and limitations", () => {
     const profile = KILN_BENCHMARK_PROFILES[0]!;
@@ -29,7 +43,7 @@ describe("generateBenchmarkPublicReport", () => {
         datasetName: "kiln-tool-agent-v1",
         datasetVersion: "1",
         k: profile.minimumK,
-        passAtK: 1,
+        ...reliabilityEvidence(profile),
         scorers: profile.requiredScorers,
         artifactUris: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => `kiln://artifacts/benchmark-baselines/${kind}/content`),
         evidenceArtifacts: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({
@@ -58,7 +72,7 @@ describe("generateBenchmarkPublicReport", () => {
       datasetName: "verified-dataset",
       datasetVersion: "1",
       k: profile.minimumK,
-      passAtK: 1,
+      ...reliabilityEvidence(profile),
       scorers: profile.requiredScorers,
       artifactUris: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => `kiln://artifacts/verified/${kind}`),
       evidenceArtifacts: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({

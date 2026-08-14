@@ -293,7 +293,9 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
 export function createOperatorSessionAccountCapacityAuthority(
   options: Omit<SqliteManagedAccountLeaseAuthorityOptions, "participantKind">,
 ): SqliteManagedAccountLeaseAuthority {
-  return new SqliteManagedAccountLeaseAuthority({ ...options, participantKind: "operator-session" });
+  const authority = new SqliteManagedAccountLeaseAuthority({ ...options, participantKind: "operator-session" });
+  authority.recoverAccountCapacity();
+  return authority;
 }
 
 function accountPolicyId(admission: AdmittedExecutionRoute) {

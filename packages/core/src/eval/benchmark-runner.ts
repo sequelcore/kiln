@@ -73,6 +73,8 @@ export class BenchmarkBaselineRunner {
         },
       },
       k: this.options.k,
+      admissionScorers: this.options.profile.admissionScorers,
+      maxInvalidAttempts: this.options.profile.maxInvalidAttempts,
     }).run();
 
     const evidenceArtifacts = this.putEvidenceArtifacts(namespace, consistency);
@@ -113,9 +115,17 @@ export class BenchmarkBaselineRunner {
       profileId: this.options.profile.id,
       profileVersion: this.options.profile.version,
       datasetName: this.options.dataset.name,
+      datasetItemCount: this.options.dataset.items.length,
       datasetVersion: this.options.datasetVersion,
       k: this.options.k,
+      passRate: consistency.passRate,
+      passRateInterval: consistency.passRateInterval,
       passAtK: consistency.passAtK,
+      passAtKInterval: consistency.passAtKInterval,
+      validTrialCount: consistency.validTrialCount,
+      invalidTrialCount: consistency.invalidTrialCount,
+      invalidTrialRate: consistency.invalidTrialRate,
+      incompleteItemIds: consistency.incompleteItemIds,
       scorers: this.options.scorers.map((scorer) => scorer.name),
       artifactUris: allEvidenceArtifacts.map((artifact) => artifact.uri),
       evidenceArtifacts: allEvidenceArtifacts,
@@ -157,6 +167,7 @@ export class BenchmarkBaselineRunner {
         kind: "diagnostics",
         title: "diagnostic evidence",
         value: collectResultEvidence(consistency, (result) => ({
+          trial: result.trial,
           diagnostics: readArrayMetadata(result, "diagnostics"),
           policyViolations: readArrayMetadata(result, "policyViolations"),
           routeFailures: readArrayMetadata(result, "routeFailures"),

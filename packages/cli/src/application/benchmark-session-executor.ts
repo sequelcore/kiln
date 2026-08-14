@@ -10,6 +10,7 @@ import {
   SandboxPolicy,
   WorkItemStore,
   createSessionBuiltinToolOptions,
+  defineExecutionCatalog,
   defineDeliberationLevelId,
   mapProviderModelRouteErrorToOutcome,
 } from "@kilnai/core";
@@ -61,6 +62,7 @@ import { resolveManagedInvocationToolOptions } from "../config/managed-agent-rou
 import { createOperatorSurfaceEconomicAuthority } from "./operator-surface-economic-authority.js";
 import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
+import { createCanonicalRunSessionDispatcher } from "./canonical-run-session-dispatcher.js";
 import { createNonHumanRunOutputSink } from "./run-output.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
@@ -92,9 +94,7 @@ const WRITE_BENCHMARK_PROFILE_IDS = new Set([
 const WRITE_BENCHMARK_TOOLS = ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"] as const;
 
 export interface BenchmarkSessionExecutorFlags {
-  readonly provider?: string;
-  readonly model?: string;
-  readonly apiKey?: string;
+  readonly routeId?: string;
   readonly skipGitRepoCheck?: boolean;
   readonly deliberationLevel?: string;
 }
@@ -132,23 +132,24 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           input,
         ].join("\n")
       : input;
-    const mode = resolveMode(options.flags);
+    const mode: SessionMode = "cli-wrapper";
     const globalConfig = readGlobalConfig();
     const projectConfig = benchmarkWorkspace.kind === "repository"
       ? readKilnYaml(join(repositoryRoot, ".kiln"))
       : undefined;
     const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
-    const configuredRouteCandidates = resolveExecutionRouteCandidates({ globalConfig });
-    if (writeMode && (configuredRouteCandidates.length === 0
-      || configuredRouteCandidates.some((candidate) => !isDirectApiProvider(candidate.provider)))) {
-      throw new Error("Benchmark write profiles require explicit Kiln-executable direct-provider routes.");
+    const configuredRouteCandidates = resolveExecutionRouteCandidates({
+      globalConfig,
+      routeId: options.flags?.routeId,
+    });
+    if (writeMode && configuredRouteCandidates.length === 0) {
+      throw new Error("Benchmark write profiles require a configured Kiln V2 execution route.");
     }
     const preferredProvider = configuredRouteCandidates[0]?.provider;
     const effectiveModel = configuredRouteCandidates[0]?.model;
     const permissionPolicy = writeMode ? BENCHMARK_WRITE_POLICY : BENCHMARK_POLICY;
     const wrapperConfig = {
       mode,
-      apiKey: options.flags?.apiKey,
       provider: preferredProvider,
       permissionPolicy,
     };
@@ -205,9 +206,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       preferredProvider,
       undefined,
     );
-    const env = buildEnv(wrapperConfig);
+    const env: Record<string, string> = {};
     deliberationResolutionPromise ??= resolveBenchmarkDeliberation({
-      flags: options.flags,
+      requestedLevel: options.flags?.deliberationLevel,
+      provider: preferredProvider,
+      model: effectiveModel,
       env,
     });
     const deliberationResolution = await deliberationResolutionPromise;
@@ -293,6 +296,19 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
     const sessionId = randomUUID();
+    const canonicalDispatcher = configuredRouteCandidates.length > 0 && globalConfig?.executionCatalog
+      ? createCanonicalRunSessionDispatcher({
+          catalog: defineExecutionCatalog(globalConfig.executionCatalog),
+          cwd,
+          authorityStateRoot: repositoryRoot,
+          executionId: sessionId,
+          routeId: configuredRouteCandidates[0]!.routeId,
+          ...(executionDeliberation
+            ? { routeEvidence: { deliberationResolution: executionDeliberation } }
+            : {}),
+        })
+      : undefined;
+    benchmarkCleanupRegistry.register(async () => canonicalDispatcher?.close());
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
       managedInvocationWithService ? {
@@ -325,7 +341,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       },
     );
     const runOutput = createNonHumanRunOutputSink();
-    const result = await runSession({
+    const runInput = {
       registry,
       cleanupRegistry: benchmarkCleanupRegistry,
       manager,
@@ -334,7 +350,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         preferredProvider,
         requiresMcp: preferredProvider === undefined,
       },
-      routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
       sessionConfig,
       permissionPolicy,
       sessionId,
@@ -356,7 +371,13 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         },
       } : {}),
       output: runOutput,
-    }).finally(async () => {
+    };
+    const result = await (canonicalDispatcher
+      ? canonicalDispatcher.dispatch(runInput)
+      : runSession({
+          ...runInput,
+          routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
+        })).finally(async () => {
       await benchmarkCleanupRegistry.runAll();
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
@@ -366,11 +387,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     }
     workspaceChanges = writeLease?.collectChanges();
     if (context.profile.id === "kiln-model-roster-backend-write" && writeLease) {
-      observedVerification = await verifyBackendBenchmarkLease({ lease: writeLease });
+      observedVerification = await verifyBackendBenchmarkLease({
+        lease: writeLease,
+        benchmarkCaseId: context.item.metadata?.benchmarkCaseId,
+      });
       workspaceChanges = observedVerification.changes;
     }
     if (context.profile.id === "kiln-model-roster-frontend-render" && writeLease) {
-      observedVerification = await verifyFrontendBenchmarkLease({ lease: writeLease });
+      observedVerification = await verifyFrontendBenchmarkLease({
+        lease: writeLease,
+        benchmarkCaseId: context.item.metadata?.benchmarkCaseId,
+      });
       workspaceChanges = observedVerification.changes;
     }
     await recordDirectRouteHealth(configuredRouteCandidates, result.attempts, result.lastError);
@@ -388,6 +415,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       costUsd: result.finalCostUsd,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      trial: result.successfulProviderId
+        ? { status: "valid" }
+        : { status: "invalid", reason: "route-unavailable" },
       metadata: {
         activeAgentId: context.profile.id,
         providerId: result.successfulProviderId,
@@ -416,6 +446,25 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ...(observedVerification ? { observedVerification } : {}),
       },
     };
+    } catch (error) {
+      if (!(error instanceof Error) || error.name !== "OperatorSessionExecutionRoutingError") throw error;
+      return {
+        output: "",
+        durationMs: Date.now() - startedAt,
+        costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        trial: { status: "invalid", reason: "account-route-unavailable" },
+        metadata: {
+          activeAgentId: context.profile.id,
+          sessionSucceeded: false,
+          diagnostics: ["Canonical execution account route was unavailable before provider dispatch."],
+          benchmarkWorkspaceKind: benchmarkWorkspace.kind,
+          benchmarkContextKind: benchmarkWorkspace.kind === "synthetic-fixture" ? "sanitized" : "repository",
+          ...(benchmarkWorkspace.fixturePath ? { workspaceFixture: benchmarkWorkspace.fixturePath } : {}),
+          ...(workspaceFixtureHash ? { workspaceFixtureHash } : {}),
+        },
+      };
     } finally {
       try {
         writeLease?.verifyCanonicalUnchanged();
@@ -427,13 +476,15 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
 }
 
 async function resolveBenchmarkDeliberation(input: {
-  readonly flags?: BenchmarkSessionExecutorFlags;
+  readonly requestedLevel?: string;
+  readonly provider?: string;
+  readonly model?: string;
   readonly env: Readonly<Record<string, string>>;
 }): Promise<DeliberationResolution> {
-  const requested = input.flags?.deliberationLevel;
+  const requested = input.requestedLevel;
   if (!requested) return resolveConfiguredDeliberation({});
-  const provider = input.flags?.provider;
-  const model = input.flags?.model;
+  const provider = input.provider;
+  const model = input.model;
   if (!provider || !model) {
     throw new Error("Benchmark deliberation requires explicit provider and model identity.");
   }
@@ -504,27 +555,6 @@ function closeBuiltinResources(options: {
   } catch {
     // fail-open cleanup
   }
-}
-
-function resolveMode(flags: BenchmarkSessionExecutorFlags | undefined): SessionMode {
-  if (flags?.apiKey && flags.provider) return "byok";
-  if (flags?.apiKey) return "api-key";
-  return "cli-wrapper";
-}
-
-function buildEnv(config: {
-  readonly mode: SessionMode;
-  readonly apiKey?: string;
-  readonly provider?: ProviderId;
-}): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (config.mode === "api-key" && config.apiKey) {
-    env.ANTHROPIC_API_KEY = config.apiKey;
-  }
-  if (config.mode === "byok" && config.provider && config.apiKey) {
-    env[`${config.provider.toUpperCase()}_API_KEY`] = config.apiKey;
-  }
-  return env;
 }
 
 async function recordDirectRouteHealth(

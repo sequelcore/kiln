@@ -1,6 +1,6 @@
 // Eval bounded context -- evaluation framework
 
-export type { EvalInput, EvalScore, Scorer, ScorerLLM, DatasetItem, Dataset, ExperimentTokenUsage, ExperimentResult, Experiment } from "./types.js";
+export type { EvalInput, EvalScore, Scorer, ScorerLLM, DatasetItem, Dataset, ExperimentTokenUsage, ExperimentTrial, ExperimentResult, Experiment } from "./types.js";
 export { ExactMatchScorer } from "./scorers/exact-match-scorer.js";
 export { ContainsScorer } from "./scorers/contains-scorer.js";
 export { JsonValidityScorer } from "./scorers/json-validity-scorer.js";
@@ -105,6 +105,7 @@ export { generateBenchmarkPublicReport } from "./benchmark-report.js";
 export type { BenchmarkPublicReport, BenchmarkPublicReportInput } from "./benchmark-report.js";
 export type {
   BenchmarkBaselineResult,
+  BenchmarkProportionInterval,
   BenchmarkEvidenceArtifact,
   BenchmarkEvidenceArtifactKind,
   BenchmarkProfile,

@@ -18,6 +18,7 @@ Public claims require the evidence gates defined there.
 - [OpenCode Go Catalog and Roster Reassessment](routes/26-opencode-go-roster-2026.md)
 - [Write and Render Route Admission](routes/27-write-and-render-route-admission-2026.md)
 - [Claude Model Route Validation](routes/28-claude-model-route-validation-2026.md)
+- [Subscription Model Team Reassessment](routes/29-subscription-model-team-2026.md)
 
 ## Smoke Reports
 

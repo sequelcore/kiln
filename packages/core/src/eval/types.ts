@@ -50,7 +50,13 @@ export interface ExperimentResult {
   readonly durationMs: number;
   readonly costUsd?: number;
   readonly tokenUsage: ExperimentTokenUsage;
+  readonly trial: ExperimentTrial;
   readonly metadata?: Record<string, unknown>;
+}
+
+export interface ExperimentTrial {
+  readonly status: "valid" | "invalid";
+  readonly reason?: string;
 }
 
 export interface Experiment {

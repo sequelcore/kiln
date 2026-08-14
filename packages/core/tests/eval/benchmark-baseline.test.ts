@@ -30,8 +30,16 @@ function baselineFor(profileId: string, overrides: Partial<BenchmarkBaselineResu
     profileId: profile.id,
     profileVersion: profile.version,
     datasetName: `${profile.id}-internal`,
+    datasetItemCount: profile.minimumDatasetItems,
     k: profile.minimumK,
+    passRate: profile.minimumPassRate,
+    passRateInterval: { confidence: 0.95, lower: 0.7, upper: 0.9 },
     passAtK: profile.minimumPassAtK,
+    passAtKInterval: { confidence: 0.95, lower: 0.6, upper: 0.9 },
+    validTrialCount: profile.minimumDatasetItems * profile.minimumK,
+    invalidTrialCount: 0,
+    invalidTrialRate: 0,
+    incompleteItemIds: [],
     scorers: profile.requiredScorers,
     artifactUris: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => `kiln://artifacts/eval/${profile.id}/${kind}`),
     evidenceArtifacts: REQUIRED_EVIDENCE_ARTIFACTS.map((kind) => ({
@@ -72,15 +80,64 @@ describe("benchmark baseline readiness", () => {
       ]),
     });
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster-backend-write")).toMatchObject({
-      version: "1",
+      version: "2",
       authorityProfile: "foundation-apply-approved-writes",
+      minimumDatasetItems: 8,
+      admissionScorers: ["test-verification", "diff-integrity", "execution-integrity"],
       requiredScorers: expect.arrayContaining(["test-verification", "diff-integrity", "execution-integrity"]),
     });
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-model-roster-frontend-render")).toMatchObject({
-      version: "1",
+      version: "2",
       authorityProfile: "foundation-apply-approved-writes",
+      minimumDatasetItems: 8,
+      admissionScorers: ["render-verification", "frontend-diff-integrity", "execution-integrity"],
       requiredScorers: expect.arrayContaining(["render-verification", "frontend-diff-integrity"]),
     });
+  });
+
+  it("blocks undersized, incomplete, or infrastructure-dominated baselines", () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster-backend-write")!;
+    const report = evaluateBenchmarkReadiness({
+      profiles: [profile],
+      baselines: [baselineFor(profile.id, {
+        datasetItemCount: 1,
+        validTrialCount: 4,
+        invalidTrialCount: 2,
+        invalidTrialRate: 2 / 6,
+        incompleteItemIds: ["backend-order-reservation"],
+      })],
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.profileReadiness[0]?.issues).toEqual(expect.arrayContaining([
+      "dataset requires at least 8 items",
+      "valid trial coverage requires 40 trials",
+      "invalid trial rate 0.3333333333333333 exceeds 0.1",
+      "incomplete valid trials for: backend-order-reservation",
+    ]));
+  });
+
+  it("fails closed on internally inconsistent statistical evidence", () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster-backend-write")!;
+    const report = evaluateBenchmarkReadiness({
+      profiles: [profile],
+      baselines: [baselineFor(profile.id, {
+        datasetItemCount: 8.5,
+        passRate: 1.1,
+        passRateInterval: { confidence: 0.95, lower: 0.9, upper: 0.8 },
+        validTrialCount: 40,
+        invalidTrialCount: 10,
+        invalidTrialRate: 0.1,
+      })],
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.profileReadiness[0]?.issues).toEqual(expect.arrayContaining([
+      "datasetItemCount must be a non-negative integer",
+      "passRate must be between 0 and 1",
+      "passRateInterval must be an ordered 95% interval between 0 and 1",
+      "invalidTrialRate does not match valid and invalid trial counts",
+    ]));
   });
 
   it("blocks profiles with no reproducible internal baseline", () => {

@@ -42,13 +42,16 @@ const ENGINE_COMMANDS: Readonly<Record<string, string>> = {
   opencode: "opencode",
 };
 
+const DEFAULT_ENGINE_PROBE_TIMEOUT_MS = 2_000;
+const CLAUDE_COLD_START_RETRY_TIMEOUT_MS = 8_000;
+
 export class EngineRegistry {
   private readonly runner: EngineProbeRunner;
-  private readonly timeoutMs: number;
+  private readonly timeoutMs: number | undefined;
 
   constructor(options: EngineRegistryOptions = {}) {
     this.runner = options.runner ?? defaultProbeRunner;
-    this.timeoutMs = options.timeoutMs ?? 2_000;
+    this.timeoutMs = options.timeoutMs;
   }
 
   probe(engineId: string, enabled = true): EngineProbeResult {
@@ -66,7 +69,14 @@ export class EngineRegistry {
       return { engineId, enabled: false, available: false, command, reason: "disabled" };
     }
 
-    const result = this.runner(command, ["--version"], this.timeoutMs);
+    const timeoutMs = this.timeoutMs ?? DEFAULT_ENGINE_PROBE_TIMEOUT_MS;
+    let result = this.runner(command, ["--version"], timeoutMs);
+    // Claude Code can exceed the normal probe window on a cold Windows start.
+    // Retry only a genuine timeout: healthy starts and every other failure keep
+    // the fast two-second path, while the retry remains strictly bounded.
+    if (this.timeoutMs === undefined && engineId === "claude" && isProbeTimeout(result.error)) {
+      result = this.runner(command, ["--version"], CLAUDE_COLD_START_RETRY_TIMEOUT_MS);
+    }
     if (result.status === 0) {
       return { engineId, enabled: true, available: true, command };
     }
@@ -84,6 +94,12 @@ export class EngineRegistry {
       .filter(([, engine]) => engine.enabled === true)
       .map(([engineId, engine]) => this.probe(engineId, engine.enabled === true));
   }
+}
+
+function isProbeTimeout(error: unknown): boolean {
+  return error instanceof Error
+    && "code" in error
+    && (error as Error & { readonly code?: unknown }).code === "ETIMEDOUT";
 }
 
 export function resolveEngineAvailabilityMap(

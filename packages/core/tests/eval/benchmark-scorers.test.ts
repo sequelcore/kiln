@@ -197,14 +197,15 @@ describe("createBenchmarkProfileScorers", () => {
     const diff = scorers.find((scorer) => scorer.name === "diff-integrity")!;
     const metadata = {
       observedVerification: {
-        verifierId: "kiln.backend-write.order-reservation",
-        verifierVersion: "1",
+        verifierId: "kiln.backend-write.v2",
+        verifierVersion: "2",
+        benchmarkCaseId: "idempotent-reservation",
         status: "passed",
         testDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         violations: [],
         changes: {
           changed: [{
-            path: "src/order-service.mjs",
+            path: "src/solution.mjs",
             beforeHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             afterHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           }],
@@ -263,19 +264,20 @@ describe("createBenchmarkProfileScorers", () => {
     const diff = scorers.find((scorer) => scorer.name === "frontend-diff-integrity")!;
     const metadata = {
       observedVerification: {
-        verifierId: "kiln.frontend-render.order-queue",
-        verifierVersion: "1",
+        verifierId: "kiln.frontend-render.v2",
+        verifierVersion: "2",
+        benchmarkCaseId: "modal-focus",
         status: "passed",
         violations: [],
         runner: {
           kind: "docker-playwright",
-          image: "kiln/frontend-benchmark-verifier:1",
+          image: "kiln/frontend-benchmark-verifier:2",
           imageId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           sourceDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         },
         changes: {
           changed: [{
-            path: "src/OrderQueue.jsx",
+            path: "src/Challenge.jsx",
             beforeHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
             afterHash: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
           }],

@@ -186,7 +186,8 @@ Inspect benchmark contracts and write local evidence artifacts:
 kiln benchmark profiles
 kiln benchmark readiness --baseline ./.kiln/benchmarks/tool.json
 kiln benchmark run-internal --profile kiln-tool-agent --output ./.kiln/benchmarks/tool.json
-kiln benchmark run-internal --profile kiln-tool-agent --provider codex --model gpt-5.5 --deliberation-level-sweep low,medium,high --output ./.kiln/benchmarks/deliberation.json
+kiln benchmark run-internal --profile kiln-model-roster-backend-write --route opencode-go-glm53 --k 5 --output ./.kiln/benchmarks/glm53-backend.json
+kiln benchmark run-internal --profile kiln-tool-agent --route codex-terra --deliberation-level-sweep low,medium,high --output ./.kiln/benchmarks/deliberation.json
 ```
 
 `run-internal` writes one benchmark JSON status document to stdout and stores
@@ -194,8 +195,8 @@ the full baseline artifact at `--output`. Per-item session output is routed
 through the non-human run-output contract so assistant deltas, tool notices, and
 provider fallback notices do not pollute stdout.
 
-Deliberation comparisons require an explicit provider/model pair. Use
-`--deliberation-level <id>` for one fixed level or
+Route and deliberation comparisons require an explicit configured execution
+route. Use `--deliberation-level <id>` for one fixed level or
 `--deliberation-level-sweep <comma-list>` for a paired comparison. Every member
 has a distinct reproducibility hash and capability-backed resolution evidence;
 no level name receives a provider-neutral experimental exception.

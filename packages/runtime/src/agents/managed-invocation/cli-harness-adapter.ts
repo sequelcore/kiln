@@ -64,7 +64,7 @@ export interface ManagedCliHarnessAdapterConfig {
   readonly privatePlanArtifactCapability?: {
     readonly capabilityId: "claude-code-private-plan-artifacts-v1";
     readonly harness: "claude-code";
-    readonly version: "2.1.220" | "2.1.226";
+    readonly version: "2.1.220" | "2.1.226" | "2.1.229";
     readonly relativeDirectory: "plans";
   };
 }

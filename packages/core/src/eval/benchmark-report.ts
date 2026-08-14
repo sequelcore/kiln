@@ -84,13 +84,16 @@ function renderMarkdown(input: {
       ? input.publicationReadiness.issues.map((issue) => `- ${issue}`)
       : ["- none"]),
     "",
-    "| Profile | Dataset | k | pass^k | Scorers | Artifacts |",
-    "| --- | --- | ---: | ---: | --- | --- |",
+    "| Profile | Dataset | Items | Valid / invalid | pass¹ (95% CI) | k | pass^k (95% CI) | Scorers | Artifacts |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ...input.baselines.map((baseline) => [
       baseline.profileId,
       `${baseline.datasetName}@${baseline.datasetVersion}`,
+      String(baseline.datasetItemCount),
+      `${baseline.validTrialCount} / ${baseline.invalidTrialCount}`,
+      formatMetric(baseline.passRate, baseline.passRateInterval),
       String(baseline.k),
-      baseline.passAtK.toFixed(3),
+      formatMetric(baseline.passAtK, baseline.passAtKInterval),
       baseline.scorers.join(", "),
       baseline.artifactUris.join(", "),
     ].map(escapeTableCell).join(" | ")).map((row) => `| ${row} |`),
@@ -109,6 +112,13 @@ function renderMarkdown(input: {
     ...(input.limitations.length > 0 ? input.limitations.map((limitation) => `- ${limitation}`) : ["- none declared"]),
     "",
   ].join("\n");
+}
+
+function formatMetric(
+  value: number,
+  interval: { readonly lower: number; readonly upper: number },
+): string {
+  return `${value.toFixed(3)} [${interval.lower.toFixed(3)}, ${interval.upper.toFixed(3)}]`;
 }
 
 function missingPublicationReadiness(): VerifiedEfficiencyPublicationReadiness {

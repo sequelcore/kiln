@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_226,
+  CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_229,
   CLAUDE_PRIVATE_PLAN_ARTIFACT_LOCK_FILE,
   createClaudePrivatePlanArtifactTracker,
   resolveClaudePrivatePlanArtifactCapability,
@@ -16,6 +17,7 @@ describe("Claude private plan artifact capability", () => {
   it("admits only the exact observed Claude Code version", () => {
     expect(resolveClaudePrivatePlanArtifactCapability("2.1.220")).toBe(CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY);
     expect(resolveClaudePrivatePlanArtifactCapability("2.1.226")).toBe(CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_226);
+    expect(resolveClaudePrivatePlanArtifactCapability("2.1.229")).toBe(CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_229);
     expect(resolveClaudePrivatePlanArtifactCapability("2.1.226")).toMatchObject({
       capabilityId: "claude-code-private-plan-artifacts-v1",
       harness: "claude-code",

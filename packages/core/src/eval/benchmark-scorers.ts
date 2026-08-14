@@ -67,14 +67,16 @@ class BackendTestVerificationScorer implements Scorer {
   async score(input: EvalInput): Promise<EvalScore> {
     const verification = readRecord(input.metadata?.observedVerification);
     const tests = readRecord(verification?.tests);
-    const valid = verification?.verifierId === "kiln.backend-write.order-reservation"
-      && verification.verifierVersion === "1"
+    const valid = verification?.verifierId === "kiln.backend-write.v2"
+      && verification.verifierVersion === "2"
+      && typeof verification.benchmarkCaseId === "string"
+      && verification.benchmarkCaseId.length > 0
       && verification.status === "passed"
       && isSha256(verification.testDigest)
       && Array.isArray(verification.violations)
       && verification.violations.length === 0
       && tests?.exitCode === 0
-      && tests.passed === 4
+      && isPositiveNumber(tests.passed)
       && tests.failed === 0
       && tests.timedOut === false;
     return valid
@@ -93,7 +95,7 @@ class BackendDiffIntegrityScorer implements Scorer {
     const added = readRecordArray(changes?.added);
     const deleted = readRecordArray(changes?.deleted);
     const valid = changed.length === 1
-      && changed[0]?.path === "src/order-service.mjs"
+      && changed[0]?.path === "src/solution.mjs"
       && isSha256(changed[0]?.beforeHash)
       && isSha256(changed[0]?.afterHash)
       && changed[0]?.beforeHash !== changed[0]?.afterHash
@@ -115,18 +117,20 @@ class FrontendRenderVerificationScorer implements Scorer {
     const assertions = readRecord(render?.assertions);
     const accessibility = readRecord(render?.accessibility);
     const screenshot = readRecord(verification?.screenshot);
-    const valid = verification?.verifierId === "kiln.frontend-render.order-queue"
-      && verification.verifierVersion === "1"
+    const valid = verification?.verifierId === "kiln.frontend-render.v2"
+      && verification.verifierVersion === "2"
+      && typeof verification.benchmarkCaseId === "string"
+      && verification.benchmarkCaseId.length > 0
       && verification.status === "passed"
       && Array.isArray(verification.violations)
       && verification.violations.length === 0
       && runner?.kind === "docker-playwright"
-      && runner.image === "kiln/frontend-benchmark-verifier:1"
+      && runner.image === "kiln/frontend-benchmark-verifier:2"
       && isSha256(runner.imageId)
       && isSha256(runner.sourceDigest)
       && typeof render?.browserVersion === "string"
       && render.browserVersion.length > 0
-      && Object.values(assertions ?? {}).length === 8
+      && Object.values(assertions ?? {}).length > 0
       && Object.values(assertions ?? {}).every((value) => value === true)
       && accessibility?.engine === "axe-core"
       && accessibility.version === "4.12.1"
@@ -151,7 +155,7 @@ class FrontendDiffIntegrityScorer implements Scorer {
     const added = readRecordArray(changes?.added);
     const deleted = readRecordArray(changes?.deleted);
     const valid = changed.length === 1
-      && changed[0]?.path === "src/OrderQueue.jsx"
+      && changed[0]?.path === "src/Challenge.jsx"
       && isSha256(changed[0]?.beforeHash)
       && isSha256(changed[0]?.afterHash)
       && changed[0]?.beforeHash !== changed[0]?.afterHash

@@ -19,7 +19,7 @@ vi.mock("../application/run-session.js", () => ({
   runSession: runSessionMock,
 }));
 
-import { createCanonicalRunSessionDispatcher } from "./run.js";
+import { createCanonicalRunSessionDispatcher } from "../application/canonical-run-session-dispatcher.js";
 
 describe("createCanonicalRunSessionDispatcher", () => {
   beforeEach(() => {

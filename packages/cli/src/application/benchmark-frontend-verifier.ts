@@ -8,13 +8,17 @@ import type {
   BenchmarkWriteWorkspaceChanges,
   BenchmarkWriteWorkspaceLease,
 } from "./benchmark-write-workspace.js";
+import {
+  requireFrontendBenchmarkCaseId,
+  type FrontendBenchmarkCaseId,
+} from "./benchmark-frontend-cases.js";
 
-export const FRONTEND_VERIFIER_ID = "kiln.frontend-render.order-queue";
-export const FRONTEND_VERIFIER_VERSION = "1";
-export const FRONTEND_VERIFIER_IMAGE = "kiln/frontend-benchmark-verifier:1";
-export const FRONTEND_VERIFIER_IMAGE_ID = "sha256:dbac9bef7a818c11a1c1e0602504481b5692c2a7c635203f6559fb870dd615f4";
-export const FRONTEND_VERIFIER_SOURCE_DIGEST = "sha256:cd5af36b07b603762a5b910d58cd9db6906e2659045c0a3d4896cf423809ed30";
-export const FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS = ["src/OrderQueue.jsx"] as const;
+export const FRONTEND_VERIFIER_ID = "kiln.frontend-render.v2";
+export const FRONTEND_VERIFIER_VERSION = "2";
+export const FRONTEND_VERIFIER_IMAGE = "kiln/frontend-benchmark-verifier:2";
+export const FRONTEND_VERIFIER_IMAGE_ID = "sha256:6e47ed0acc1539a33d94538ed120551c37548e85705bd07f5903e06437fc407a";
+export const FRONTEND_VERIFIER_SOURCE_DIGEST = "sha256:9cd6d6e0bb0b711e9e37aa3eb7e0fa263ed0758f0b4d50232725fed0f1a9a18f";
+export const FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS = ["src/Challenge.jsx"] as const;
 const FRONTEND_VERIFIER_TIMEOUT_MS = 60_000;
 const MAX_PROCESS_OUTPUT_BYTES = 1_048_576;
 const MAX_SCREENSHOT_BYTES = 2_097_152;
@@ -41,6 +45,7 @@ export interface FrontendVerifierRunner {
 export interface FrontendBenchmarkVerification {
   readonly verifierId: typeof FRONTEND_VERIFIER_ID;
   readonly verifierVersion: typeof FRONTEND_VERIFIER_VERSION;
+  readonly benchmarkCaseId: FrontendBenchmarkCaseId;
   readonly status: "passed" | "failed";
   readonly violations: readonly string[];
   readonly changes: BenchmarkWriteWorkspaceChanges;
@@ -63,15 +68,17 @@ export interface FrontendBenchmarkVerification {
 
 export async function verifyFrontendBenchmarkLease(input: {
   readonly lease: BenchmarkWriteWorkspaceLease;
+  readonly benchmarkCaseId: unknown;
   readonly runner?: FrontendVerifierRunner;
 }): Promise<FrontendBenchmarkVerification> {
+  const benchmarkCaseId = requireFrontendBenchmarkCaseId(input.benchmarkCaseId);
   const changes = input.lease.collectChanges();
   const scopeViolations = validateAllowedChanges(changes);
   const runner = input.runner ?? DOCKER_RUNNER;
   const image = await runner.inspectImage();
   assertImageEvidence(image);
   if (scopeViolations.length > 0) {
-    return failedVerification(changes, image, scopeViolations);
+    return failedVerification(changes, image, scopeViolations, benchmarkCaseId);
   }
 
   const outputRoot = await mkdtemp(join(tmpdir(), "kiln-frontend-verifier-"));
@@ -79,11 +86,12 @@ export async function verifyFrontendBenchmarkLease(input: {
   try {
     const processResult = await runner.run(
       containerName,
-      buildFrontendVerifierDockerArgs(containerName, input.lease.rootPath, outputRoot),
+      buildFrontendVerifierDockerArgs(containerName, input.lease.rootPath, outputRoot, benchmarkCaseId),
     );
     const report = await readJsonRecord(join(outputRoot, "report.json"));
     const screenshot = await readScreenshotEvidence(join(outputRoot, "screenshot.png"), report);
     const reportPassed = report?.status === "passed"
+      && report.benchmarkCaseId === benchmarkCaseId
       && readRecord(report.accessibility)?.violationCount === 0
       && Object.values(readRecord(report.assertions) ?? {}).every((value) => value === true);
     const violations = [
@@ -95,6 +103,7 @@ export async function verifyFrontendBenchmarkLease(input: {
     return {
       verifierId: FRONTEND_VERIFIER_ID,
       verifierVersion: FRONTEND_VERIFIER_VERSION,
+      benchmarkCaseId,
       status: violations.length === 0 ? "passed" : "failed",
       violations,
       changes,
@@ -113,6 +122,7 @@ export function buildFrontendVerifierDockerArgs(
   containerName: string,
   workspaceRoot: string,
   outputRoot: string,
+  benchmarkCaseId: FrontendBenchmarkCaseId,
 ): readonly string[] {
   return [
     "run", "--rm", "--pull", "never", "--name", containerName,
@@ -120,6 +130,7 @@ export function buildFrontendVerifierDockerArgs(
     "--security-opt", "no-new-privileges", "--pids-limit", "256",
     "--memory", "1g", "--cpus", "2", "--shm-size", "1g",
     "--tmpfs", "/tmp:rw,nosuid,size=256m",
+    "--env", `KILN_BENCHMARK_CASE=${benchmarkCaseId}`,
     "--volume", `${workspaceRoot}:/workspace:ro`,
     "--volume", `${outputRoot}:/output:rw`,
     FRONTEND_VERIFIER_IMAGE_ID,
@@ -163,10 +174,12 @@ function failedVerification(
   changes: BenchmarkWriteWorkspaceChanges,
   image: FrontendVerifierImageEvidence,
   violations: readonly string[],
+  benchmarkCaseId: FrontendBenchmarkCaseId,
 ): FrontendBenchmarkVerification {
   return {
     verifierId: FRONTEND_VERIFIER_ID,
     verifierVersion: FRONTEND_VERIFIER_VERSION,
+    benchmarkCaseId,
     status: "failed",
     violations,
     changes,

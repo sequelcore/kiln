@@ -260,6 +260,12 @@ export class ClaudeSession implements IKilnSession {
     }
 
     const env: Record<string, string | undefined> = { ...process.env };
+    // Native Claude harness routes use the operator's Claude Code login. An
+    // ambient API credential from a parent/provider process must not silently
+    // replace that subscription identity. Explicit session env below remains
+    // authoritative when an API-backed Claude session is intentionally built.
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_AUTH_TOKEN;
     if (this.config.env) Object.assign(env, this.config.env);
     if (options.env) Object.assign(env, options.env);
 

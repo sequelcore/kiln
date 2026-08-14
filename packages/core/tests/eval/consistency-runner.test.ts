@@ -107,11 +107,12 @@ describe("ConsistencyRunner", () => {
     expect(() => new ConsistencyRunner({ runner: createRunner(dataset, 1.0), k: 0 })).toThrow(KilnError);
   });
 
-  it("handles empty dataset with passAtK = 1.0", async () => {
+  it("fails closed for an empty dataset", async () => {
     const emptyDataset: Dataset = { name: "empty", items: [] };
     const cr = new ConsistencyRunner({ runner: createRunner(emptyDataset, 1.0), k: 3 });
     const result = await cr.run();
-    expect(result.passAtK).toBe(1.0);
+    expect(result.passAtK).toBe(0);
+    expect(result.passRate).toBe(0);
     expect(result.itemResults).toHaveLength(0);
   });
 
@@ -132,5 +133,153 @@ describe("ConsistencyRunner", () => {
       expect(item.passCount).toBe(3);
       expect(item.totalRuns).toBe(3);
     }
+  });
+
+  it("reports pass^1 separately from pass^k", async () => {
+    let callCount = 0;
+    const scorer: Scorer = {
+      name: "correctness",
+      async score() {
+        callCount += 1;
+        return { name: "correctness", score: callCount === 4 ? 0 : 1 };
+      },
+    };
+    const runner = new ExperimentRunner({
+      scorers: [scorer],
+      dataset: { name: "one-item", items: [{ id: "only", input: "q" }] },
+      experimentName: "test-exp",
+      generateOutput: async () => ({
+        output: "r",
+        durationMs: 1,
+        costUsd: 0,
+        inputTokens: 1,
+        outputTokens: 1,
+      }),
+    });
+
+    const result = await new ConsistencyRunner({ runner, k: 5 }).run();
+
+    expect(result.passRate).toBe(0.8);
+    expect(result.passAtK).toBe(0);
+    expect(result.validTrialCount).toBe(5);
+    expect(result.passRateInterval).toMatchObject({ confidence: 0.95 });
+    expect(result.passRateInterval.lower).toBeLessThan(0.8);
+    expect(result.passRateInterval.upper).toBeGreaterThan(0.8);
+  });
+
+  it("retries invalid infrastructure trials without scoring them as semantic failures", async () => {
+    let runCount = 0;
+    const runner = {
+      run: async () => {
+        runCount += 1;
+        return {
+          name: "test-exp",
+          datasetName: "one-item",
+          scorers: ["correctness"],
+          startedAt: "2026-08-14T00:00:00.000Z",
+          completedAt: "2026-08-14T00:00:01.000Z",
+          results: [{
+            itemId: "only",
+            output: "r",
+            scores: [{ name: "correctness", score: runCount === 1 ? 0 : 1 }],
+            durationMs: 1,
+            costUsd: 0,
+            tokenUsage: { inputTokens: 1, outputTokens: 1 },
+            trial: runCount === 1
+              ? { status: "invalid" as const, reason: "provider unavailable" }
+              : { status: "valid" as const },
+          }],
+        };
+      },
+    };
+
+    const result = await new ConsistencyRunner({ runner, k: 2, maxInvalidAttempts: 1 }).run();
+
+    expect(result.runs).toHaveLength(3);
+    expect(result.validTrialCount).toBe(2);
+    expect(result.invalidTrialCount).toBe(1);
+    expect(result.passRate).toBe(1);
+    expect(result.passAtK).toBe(1);
+    expect(result.incompleteItemIds).toEqual([]);
+  });
+
+  it("retries only items that still lack valid trials", async () => {
+    const requested: Array<readonly string[] | undefined> = [];
+    const runner = new ExperimentRunner({
+      scorers: [{ name: "correctness", score: async () => ({ name: "correctness", score: 1 }) }],
+      dataset: { name: "two-items", items: [{ id: "ready", input: "a" }, { id: "retry", input: "b" }] },
+      experimentName: "test-exp",
+      generateOutput: async (_input, item) => ({
+        output: "ok",
+        durationMs: 1,
+        costUsd: 0,
+        inputTokens: 1,
+        outputTokens: 1,
+        trial: item.id === "retry" && requested.length === 1
+          ? { status: "invalid" as const, reason: "capacity" }
+          : { status: "valid" as const },
+      }),
+    });
+    const originalRun = runner.run.bind(runner);
+    runner.run = async (itemIds) => {
+      requested.push(itemIds);
+      return originalRun(itemIds);
+    };
+
+    const result = await new ConsistencyRunner({ runner, k: 1, maxInvalidAttempts: 1 }).run();
+
+    expect(requested).toEqual([undefined, ["retry"]]);
+    expect(result.runs[1]?.results.map((entry) => entry.itemId)).toEqual(["retry"]);
+    expect(result.validTrialCount).toBe(2);
+    expect(result.invalidTrialCount).toBe(1);
+  });
+
+  it("reports incomplete items when the invalid-trial retry budget is exhausted", async () => {
+    const runner = {
+      run: async () => ({
+        name: "test-exp",
+        datasetName: "one-item",
+        scorers: ["correctness"],
+        startedAt: "2026-08-14T00:00:00.000Z",
+        results: [{
+          itemId: "only",
+          output: "",
+          scores: [{ name: "correctness", score: 0 }],
+          durationMs: 1,
+          costUsd: 0,
+          tokenUsage: { inputTokens: 0, outputTokens: 0 },
+          trial: { status: "invalid" as const, reason: "route timeout" },
+        }],
+      }),
+    };
+
+    const result = await new ConsistencyRunner({ runner, k: 2, maxInvalidAttempts: 1 }).run();
+
+    expect(result.validTrialCount).toBe(0);
+    expect(result.invalidTrialCount).toBe(3);
+    expect(result.incompleteItemIds).toEqual(["only"]);
+    expect(result.passRate).toBe(0);
+    expect(result.passAtK).toBe(0);
+  });
+
+  it("uses only admission scorers to determine semantic success", async () => {
+    const runner = new ExperimentRunner({
+      scorers: [{ name: "correctness", score: async () => ({ name: "correctness", score: 1 }) }, {
+        name: "efficiency",
+        score: async () => ({ name: "efficiency", score: 0 }),
+      }],
+      dataset: { name: "one-item", items: [{ id: "only", input: "q" }] },
+      experimentName: "test-exp",
+      generateOutput: async () => ({ output: "r", durationMs: 1, costUsd: 0, inputTokens: 1, outputTokens: 1 }),
+    });
+
+    const result = await new ConsistencyRunner({
+      runner,
+      k: 2,
+      admissionScorers: ["correctness"],
+    }).run();
+
+    expect(result.passRate).toBe(1);
+    expect(result.passAtK).toBe(1);
   });
 });

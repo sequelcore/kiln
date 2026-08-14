@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,54 +8,17 @@ import type {
   BenchmarkWriteWorkspaceChanges,
   BenchmarkWriteWorkspaceLease,
 } from "./benchmark-write-workspace.js";
+import {
+  requireBackendBenchmarkCase,
+  type BackendBenchmarkCaseId,
+} from "./benchmark-backend-cases.js";
 
-export const BACKEND_VERIFIER_ID = "kiln.backend-write.order-reservation";
-export const BACKEND_VERIFIER_VERSION = "1";
+export const BACKEND_VERIFIER_ID = "kiln.backend-write.v2";
+export const BACKEND_VERIFIER_VERSION = "2";
 export const BACKEND_VERIFIER_IMAGE = "node:24.15.0-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f";
-export const BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS = ["src/order-service.mjs"] as const;
+export const BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS = ["src/solution.mjs"] as const;
 const VERIFIER_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 1_048_576;
-
-const HIDDEN_TEST_SOURCE = String.raw`import test from "node:test";
-import assert from "node:assert/strict";
-import { reserveStock } from "/workspace/src/order-service.mjs";
-
-test("reserves a positive integer quantity", () => {
-  const state = { stock: { kiln: 5 }, reservations: {} };
-  const result = reserveStock(state, "kiln", 2, "req-1");
-  assert.deepEqual(result, { sku: "kiln", quantity: 2, remaining: 3, requestId: "req-1" });
-  assert.equal(state.stock.kiln, 3);
-});
-
-test("rejects invalid quantities without mutation", () => {
-  for (const quantity of [0, -1, 1.5, Number.NaN]) {
-    const state = { stock: { kiln: 5 }, reservations: {} };
-    assert.throws(() => reserveStock(state, "kiln", quantity, "req-invalid"), /positive integer/i);
-    assert.equal(state.stock.kiln, 5);
-    assert.deepEqual(state.reservations, {});
-  }
-});
-
-test("rejects unknown and insufficient stock without mutation", () => {
-  const unknown = { stock: { kiln: 5 }, reservations: {} };
-  assert.throws(() => reserveStock(unknown, "missing", 1, "req-missing"), /unknown sku/i);
-  assert.deepEqual(unknown, { stock: { kiln: 5 }, reservations: {} });
-  const insufficient = { stock: { kiln: 1 }, reservations: {} };
-  assert.throws(() => reserveStock(insufficient, "kiln", 2, "req-large"), /insufficient stock/i);
-  assert.deepEqual(insufficient, { stock: { kiln: 1 }, reservations: {} });
-});
-
-test("replays the same request idempotently", () => {
-  const state = { stock: { kiln: 5 }, reservations: {} };
-  const first = reserveStock(state, "kiln", 2, "req-repeat");
-  const second = reserveStock(state, "kiln", 2, "req-repeat");
-  assert.deepEqual(second, first);
-  assert.equal(state.stock.kiln, 3);
-  assert.equal(Object.keys(state.reservations).length, 1);
-});
-`;
-
-export const BACKEND_VERIFIER_TEST_DIGEST = `sha256:${createHash("sha256").update(HIDDEN_TEST_SOURCE).digest("hex")}`;
 
 export interface BackendVerifierProcessResult {
   readonly exitCode: number;
@@ -72,6 +35,7 @@ export interface BackendVerifierRunner {
 export interface BackendBenchmarkVerification {
   readonly verifierId: typeof BACKEND_VERIFIER_ID;
   readonly verifierVersion: typeof BACKEND_VERIFIER_VERSION;
+  readonly benchmarkCaseId: BackendBenchmarkCaseId;
   readonly status: "passed" | "failed";
   readonly testDigest: string;
   readonly runner: {
@@ -93,29 +57,32 @@ export interface BackendBenchmarkVerification {
 
 export async function verifyBackendBenchmarkLease(input: {
   readonly lease: BenchmarkWriteWorkspaceLease;
+  readonly benchmarkCaseId: unknown;
   readonly runner?: BackendVerifierRunner;
 }): Promise<BackendBenchmarkVerification> {
+  const benchmarkCase = requireBackendBenchmarkCase(input.benchmarkCaseId);
   const changes = input.lease.collectChanges();
-  const violations = validateAllowedChanges(changes);
+  const violations = validateAllowedChanges(changes, benchmarkCase.allowedChangedPath);
   if (violations.length > 0) {
-    return failedScopeVerification(changes, violations);
+    return failedScopeVerification(changes, violations, benchmarkCase);
   }
   const verifierRoot = await mkdtemp(join(tmpdir(), "kiln-backend-verifier-"));
   const testPath = join(verifierRoot, "hidden.test.mjs");
   const containerName = `kiln-backend-verifier-${randomUUID()}`;
   const runner = input.runner ?? DOCKER_RUNNER;
   try {
-    await writeFile(testPath, HIDDEN_TEST_SOURCE, "utf8");
+    await writeFile(testPath, benchmarkCase.hiddenTestSource, "utf8");
     const result = await runner.run(containerName, buildBackendVerifierDockerArgs(containerName, input.lease.rootPath, verifierRoot));
     const counts = parseTapCounts(result.stdout);
-    const status = !result.timedOut && result.exitCode === 0 && counts.passed === 4 && counts.failed === 0
+    const status = !result.timedOut && result.exitCode === 0 && counts.passed === benchmarkCase.testCount && counts.failed === 0
       ? "passed"
       : "failed";
     return {
       verifierId: BACKEND_VERIFIER_ID,
       verifierVersion: BACKEND_VERIFIER_VERSION,
+      benchmarkCaseId: benchmarkCase.id,
       status,
-      testDigest: BACKEND_VERIFIER_TEST_DIGEST,
+      testDigest: benchmarkCase.testDigest,
       runner: {
         kind: "docker",
         image: BACKEND_VERIFIER_IMAGE,
@@ -138,8 +105,8 @@ export async function verifyBackendBenchmarkLease(input: {
   }
 }
 
-function validateAllowedChanges(changes: BenchmarkWriteWorkspaceChanges): readonly string[] {
-  const allowed = new Set<string>(BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS);
+function validateAllowedChanges(changes: BenchmarkWriteWorkspaceChanges, allowedChangedPath: string): readonly string[] {
+  const allowed = new Set<string>([allowedChangedPath]);
   const paths = [
     ...changes.changed.map((entry) => entry.path),
     ...changes.added.map((entry) => entry.path),
@@ -158,12 +125,14 @@ function validateAllowedChanges(changes: BenchmarkWriteWorkspaceChanges): readon
 function failedScopeVerification(
   changes: BenchmarkWriteWorkspaceChanges,
   violations: readonly string[],
+  benchmarkCase: ReturnType<typeof requireBackendBenchmarkCase>,
 ): BackendBenchmarkVerification {
   return {
     verifierId: BACKEND_VERIFIER_ID,
     verifierVersion: BACKEND_VERIFIER_VERSION,
+    benchmarkCaseId: benchmarkCase.id,
     status: "failed",
-    testDigest: BACKEND_VERIFIER_TEST_DIGEST,
+    testDigest: benchmarkCase.testDigest,
     runner: {
       kind: "docker",
       image: BACKEND_VERIFIER_IMAGE,

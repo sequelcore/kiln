@@ -22,6 +22,13 @@ export const CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_226 = Object.freeze({
   relativeDirectory: "plans",
 } as const);
 
+export const CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_229 = Object.freeze({
+  capabilityId: "claude-code-private-plan-artifacts-v1",
+  harness: "claude-code",
+  version: "2.1.229",
+  relativeDirectory: "plans",
+} as const);
+
 /**
  * Explicitly admitted Claude Code versions. Keep this list exact: a new
  * executable version needs fresh artifact-location evidence before admission.
@@ -29,6 +36,7 @@ export const CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_226 = Object.freeze({
 export const CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITIES = Object.freeze([
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_226,
+  CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY_2_1_229,
 ] as const);
 
 /** The lock lives beside the admitted plans directory, never in a generic home. */

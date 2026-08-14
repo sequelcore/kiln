@@ -49,11 +49,9 @@ import { SessionHooks } from "../application/session-hooks.js";
 import { runSession } from "../application/run-session.js";
 import type {
   RunSessionAttemptResult,
-  RunSessionOptions,
-  RunSessionResult,
   RunSessionRouteCandidate,
 } from "../application/run-session.js";
-import { createOperatorTurnDispatchComposition } from "../application/operator-turn-dispatch-composition.js";
+import { createCanonicalRunSessionDispatcher } from "../application/canonical-run-session-dispatcher.js";
 import {
   buildRunJsonOutputEnvelope,
   computeDelegationCapabilityGap,
@@ -117,7 +115,6 @@ import {
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
-  fingerprintOperatorTurnIntent,
   ProviderModelRouteHealthStore,
   discoverGuiCliOperatorModels,
   discoverGuiDirectProviderModelDiscovery,
@@ -586,63 +583,6 @@ function applyDeliberationPolicyToRouteCandidates(input: {
 
 function formatRouteCandidate(candidate: RunSessionRouteCandidate): string {
   return candidate.model ? `${candidate.provider}/${candidate.model}` : candidate.provider;
-}
-
-type CanonicalRunSessionPayload = Omit<RunSessionOptions, "routeCandidates">;
-
-interface CanonicalRunSessionDispatcher {
-  readonly dispatch: (payload: CanonicalRunSessionPayload) => Promise<RunSessionResult>;
-  readonly close: () => void;
-}
-
-/**
- * Binds CLI run to the same fenced operator-session authority used by the
- * other operator surfaces. The callback receives the post-fence credential
- * and passes exactly one bound candidate into the existing session pipeline.
- */
-export function createCanonicalRunSessionDispatcher(input: {
-  readonly catalog: ReturnType<typeof defineExecutionCatalog>;
-  readonly cwd: string;
-  readonly executionId: string;
-  readonly routeId: string;
-}): CanonicalRunSessionDispatcher {
-  const composition = createOperatorTurnDispatchComposition<CanonicalRunSessionPayload, RunSessionResult>({
-    catalog: input.catalog,
-    cwd: input.cwd,
-  });
-  composition.bridge.bind(async ({ admission, binding, credential, payload }) => {
-    const provider = admission.providerId as ProviderId;
-    if (!isDirectApiProvider(provider)) {
-      throw new Error(`Execution route '${admission.routeId}' resolved to an unsupported direct provider.`);
-    }
-    return runSession({
-      ...payload,
-      routeCandidates: [{
-        provider,
-        model: admission.providerModelId,
-        credentialBinding: {
-          routeId: binding.routeId,
-          accountId: binding.accountId,
-          credentialId: binding.credentialId,
-          credentialRevision: binding.credentialRevision,
-        },
-        executionCredential: credential,
-      }],
-    });
-  });
-
-  return {
-    dispatch: (payload) => {
-      const intent = { routeId: input.routeId };
-      return composition.dispatcher.dispatchTurn({
-        executionId: input.executionId,
-        intentFingerprint: fingerprintOperatorTurnIntent({ executionId: input.executionId, intent }),
-        intent,
-        payload,
-      }).then(({ result }) => result);
-    },
-    close: composition.close,
-  };
 }
 
 function appendAgentInstructionsToSystemPrompt(

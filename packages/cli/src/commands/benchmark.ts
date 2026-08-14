@@ -34,9 +34,9 @@ import {
   BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
   BACKEND_VERIFIER_ID,
   BACKEND_VERIFIER_IMAGE,
-  BACKEND_VERIFIER_TEST_DIGEST,
   BACKEND_VERIFIER_VERSION,
 } from "../application/benchmark-backend-verifier.js";
+import { BACKEND_BENCHMARK_CASES } from "../application/benchmark-backend-cases.js";
 import {
   FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS,
   FRONTEND_VERIFIER_ID,
@@ -45,6 +45,7 @@ import {
   FRONTEND_VERIFIER_SOURCE_DIGEST,
   FRONTEND_VERIFIER_VERSION,
 } from "../application/benchmark-frontend-verifier.js";
+import { FRONTEND_BENCHMARK_CASE_IDS } from "../application/benchmark-frontend-cases.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../application/benchmark-workspace.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 
@@ -108,7 +109,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--provider <id> --model <id>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--route <execution-route-id>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
@@ -355,7 +356,7 @@ async function runInternalBenchmark(
         workspaceFixtures,
         benchmarkContext: workspaceFixtures.length > 0 ? {
           mode: writeProfile
-            ? "sanitized-disposable-write-v1"
+            ? "sanitized-disposable-write-v2"
             : "sanitized-synthetic-v1",
           postRunFixtureVerification: true,
         } : { mode: "repository-worktree-v1" },
@@ -371,7 +372,11 @@ async function runInternalBenchmark(
             id: BACKEND_VERIFIER_ID,
             version: BACKEND_VERIFIER_VERSION,
             image: BACKEND_VERIFIER_IMAGE,
-            hiddenTestDigest: BACKEND_VERIFIER_TEST_DIGEST,
+            cases: Object.values(BACKEND_BENCHMARK_CASES).map((entry) => ({
+              id: entry.id,
+              hiddenTestDigest: entry.testDigest,
+              testCount: entry.testCount,
+            })),
             allowedChangedPaths: BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
           },
         } : {}),
@@ -387,10 +392,10 @@ async function runInternalBenchmark(
             viewport: { width: 1280, height: 720 },
             reducedMotion: "reduce",
             accessibilityEngine: "axe-core@4.12.1",
+            cases: FRONTEND_BENCHMARK_CASE_IDS,
           },
         } : {}),
-        provider: readFlag(args, "--provider"),
-        model: readFlag(args, "--model"),
+        executionRouteId: executorFlags.routeId ?? "configured-default",
         deliberationLevel: deliberationLevel ?? "provider-default",
         deliberationMode: deliberationMembers.length > 1
           ? "sweep"
@@ -575,8 +580,16 @@ function parseBaseline(value: unknown): BenchmarkBaselineResult {
     profileId: requireString(record.profileId, "profileId"),
     profileVersion: requireString(record.profileVersion, "profileVersion"),
     datasetName: requireString(record.datasetName, "datasetName"),
+    datasetItemCount: requireNumber(record.datasetItemCount, "datasetItemCount"),
     k: requireNumber(record.k, "k"),
+    passRate: requireNumber(record.passRate, "passRate"),
+    passRateInterval: requireProportionInterval(record.passRateInterval, "passRateInterval"),
     passAtK: requireNumber(record.passAtK, "passAtK"),
+    passAtKInterval: requireProportionInterval(record.passAtKInterval, "passAtKInterval"),
+    validTrialCount: requireNumber(record.validTrialCount, "validTrialCount"),
+    invalidTrialCount: requireNumber(record.invalidTrialCount, "invalidTrialCount"),
+    invalidTrialRate: requireNumber(record.invalidTrialRate, "invalidTrialRate"),
+    incompleteItemIds: requireStringArray(record.incompleteItemIds, "incompleteItemIds"),
     scorers: requireStringArray(record.scorers, "scorers"),
     artifactUris: requireStringArray(record.artifactUris, "artifactUris"),
     evidenceArtifacts: requireEvidenceArtifacts(record.evidenceArtifacts),
@@ -651,11 +664,27 @@ function readExecutorFlags(
   deliberationLevel?: string,
 ): BenchmarkSessionExecutorFlags {
   return {
-    provider: readFlag(args, "--provider"),
-    model: readFlag(args, "--model"),
-    apiKey: readFlag(args, "--api-key"),
+    routeId: readFlag(args, "--route"),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
+  };
+}
+
+function requireProportionInterval(
+  value: unknown,
+  field: string,
+): { readonly confidence: 0.95; readonly lower: number; readonly upper: number } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`benchmark baseline field '${field}' must be an interval object.`);
+  }
+  const record = value as Record<string, unknown>;
+  if (record.confidence !== 0.95) {
+    throw new Error(`benchmark baseline field '${field}.confidence' must be 0.95.`);
+  }
+  return {
+    confidence: 0.95,
+    lower: requireNumber(record.lower, `${field}.lower`),
+    upper: requireNumber(record.upper, `${field}.upper`),
   };
 }
 
@@ -674,8 +703,8 @@ function readDeliberationLevelMembers(args: readonly string[]): readonly (string
   if (new Set(requested).size !== requested.length) {
     throw new Error("--deliberation-level-sweep must not contain duplicate levels.");
   }
-  if (requested[0] !== undefined && (!readFlag(args, "--provider") || !readFlag(args, "--model"))) {
-    throw new Error("deliberation-level benchmarks require explicit --provider and --model route identity.");
+  if (requested[0] !== undefined && !readFlag(args, "--route")) {
+    throw new Error("deliberation-level benchmarks require explicit --route identity.");
   }
   return requested;
 }
@@ -694,7 +723,13 @@ function parsePositiveInteger(value: string, flag: string): number {
 
 function defaultDatasetPath(profileId: string): string {
   const currentDir = dirname(fileURLToPath(import.meta.url));
-  return join(currentDir, "..", "..", "..", "core", "evals", "benchmark", `${profileId}-v1.jsonl`);
+  const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === profileId);
+  if (!profile) throw new Error(`Unknown benchmark profile '${profileId}'.`);
+  const datasetVersion = profile.surface === "model-roster-backend-write"
+    || profile.surface === "model-roster-frontend-render"
+    ? profile.version
+    : "1";
+  return join(currentDir, "..", "..", "..", "core", "evals", "benchmark", `${profileId}-v${datasetVersion}.jsonl`);
 }
 
 function datasetNameFromPath(path: string): string {

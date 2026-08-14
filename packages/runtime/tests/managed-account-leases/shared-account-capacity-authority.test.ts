@@ -10,6 +10,7 @@ import {
   readAccountOutcomeIncidents,
   SqliteManagedAccountLeaseAuthority,
 } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import { createOperatorSessionAccountCapacityAuthority } from "../../src/execution-routing/operator-session-execution-routing-service.js";
 
 const roots: string[] = [];
 const authorities: SqliteManagedAccountLeaseAuthority[] = [];
@@ -71,6 +72,29 @@ function runProcess(command: string, args: readonly string[], env: NodeJS.Proces
 }
 
 describe("shared account capacity in managed authority", () => {
+  it("recovers retained operator-session capacity when the canonical factory claims a new generation", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const previous = createAuthority(path, "operator-session", "operator-factory-recovery");
+    expect(previous.acquireAccountCapacity(capacityInput("abandoned-operator-turn")).status).toBe("acquired");
+    previous.close();
+    authorities.splice(authorities.indexOf(previous), 1);
+
+    const current = createOperatorSessionAccountCapacityAuthority({
+      path,
+      recoveryDomain: "operator-factory-recovery",
+      ownerId: "replacement-operator-session",
+      configurationRevision: "rev-1",
+      ownerStaleMs: 10,
+    });
+    authorities.push(current);
+
+    expect(current.acquireAccountCapacity(capacityInput("replacement-operator-turn"))).toMatchObject({
+      status: "acquired",
+    });
+  });
+
   it("shares physical maxConcurrency across recovery participants and credential revisions", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-"));
     roots.push(root);

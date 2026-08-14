@@ -1,4 +1,6 @@
 version: "1"
+maxDepth: 3
+parallelWorkers: 3
 contextGovernance:
   turnBudget: 12000
 web:

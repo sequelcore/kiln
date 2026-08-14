@@ -9,6 +9,7 @@ export interface GenerateOutputResult {
   readonly costUsd: number;
   readonly inputTokens: number;
   readonly outputTokens: number;
+  readonly trial?: { readonly status: "valid" | "invalid"; readonly reason?: string };
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -22,11 +23,13 @@ export interface ExperimentRunnerConfig {
 export class ExperimentRunner {
   constructor(private readonly config: ExperimentRunnerConfig) {}
 
-  async run(): Promise<Experiment> {
+  async run(itemIds?: readonly string[]): Promise<Experiment> {
     const startedAt = new Date().toISOString();
     const results: ExperimentResult[] = [];
+    const selected = itemIds === undefined ? undefined : new Set(itemIds);
 
     for (const item of this.config.dataset.items) {
+      if (selected && !selected.has(item.id)) continue;
       const generated = await this.config.generateOutput(item.input, item);
 
       const evalInput: EvalInput = {
@@ -63,6 +66,7 @@ export class ExperimentRunner {
           inputTokens: generated.inputTokens,
           outputTokens: generated.outputTokens,
         },
+        trial: generated.trial ?? { status: "valid" },
         metadata: evalInput.metadata,
       });
     }

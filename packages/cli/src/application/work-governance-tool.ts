@@ -1974,10 +1974,19 @@ function boundedWorkContractSchema(): Record<string, unknown> {
 function boundedWorkContractAuthoritySchema(): Record<string, unknown> {
   return {
     type: "object",
-    oneOf: [
-      { properties: { kind: { const: "operator" }, actorId: { type: "string", minLength: 1 }, decisionId: { type: "string", minLength: 1 } }, required: ["kind", "actorId", "decisionId"], additionalProperties: false },
-      { properties: { kind: { const: "approved_plan" }, planId: { type: "string", minLength: 1 }, planDigest: { type: "string", minLength: 1 } }, required: ["kind", "planId", "planDigest"], additionalProperties: false },
-    ],
+    properties: {
+      kind: {
+        type: "string",
+        enum: ["operator", "approved_plan"],
+        description: "Authority source. Runtime validates the exact fields required by the selected kind.",
+      },
+      actorId: { type: "string", minLength: 1, description: "Required only when kind is operator." },
+      decisionId: { type: "string", minLength: 1, description: "Required only when kind is operator." },
+      planId: { type: "string", minLength: 1, description: "Required only when kind is approved_plan." },
+      planDigest: { type: "string", minLength: 1, description: "Required only when kind is approved_plan." },
+    },
+    required: ["kind"],
+    additionalProperties: false,
   };
 }
 
@@ -2000,13 +2009,25 @@ function readBoundedWorkContract(value: unknown): BoundedWorkContract | undefine
 
 function readBoundedWorkContractAuthority(value: unknown): BoundedWorkAdoptionAuthority | undefined {
   if (!isRecord(value)) return undefined;
-  if (value.kind === "operator" && readText(value.actorId) && readText(value.decisionId)) {
+  if (value.kind === "operator"
+    && hasExactKeys(value, ["kind", "actorId", "decisionId"])
+    && readText(value.actorId)
+    && readText(value.decisionId)) {
     return { kind: "operator", actorId: readText(value.actorId)!, decisionId: readText(value.decisionId)! };
   }
-  if (value.kind === "approved_plan" && readText(value.planId) && readText(value.planDigest)) {
+  if (value.kind === "approved_plan"
+    && hasExactKeys(value, ["kind", "planId", "planDigest"])
+    && readText(value.planId)
+    && readText(value.planDigest)) {
     return { kind: "approved_plan", planId: readText(value.planId)!, planDigest: readText(value.planDigest)! };
   }
   return undefined;
+}
+
+function hasExactKeys(value: Record<string, unknown>, expectedKeys: readonly string[]): boolean {
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === expectedKeys.length
+    && actualKeys.every((key) => expectedKeys.includes(key));
 }
 
 function readAcceptanceEvidence(

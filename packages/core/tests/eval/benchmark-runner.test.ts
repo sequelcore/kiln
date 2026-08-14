@@ -159,6 +159,12 @@ describe("BenchmarkBaselineRunner", () => {
         }),
       ]),
     });
+    const diagnosticsArtifact = artifactStore.get("benchmark-baselines", "artifact_3")?.content;
+    expect(diagnosticsArtifact?.type === "json" ? diagnosticsArtifact.value : undefined).toMatchObject({
+      evidence: expect.arrayContaining([
+        expect.objectContaining({ trial: { status: "valid" } }),
+      ]),
+    });
     const cacheTopologyArtifact = artifactStore.get("benchmark-baselines", "artifact_7")?.content;
     expect(cacheTopologyArtifact).toMatchObject({
       type: "json",

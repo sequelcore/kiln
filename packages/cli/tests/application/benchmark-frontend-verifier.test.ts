@@ -13,7 +13,8 @@ import {
 import { createBenchmarkWriteWorkspaceLease } from "../../src/application/benchmark-write-workspace.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 
-const FIXTURE = "packages/core/evals/fixtures/model-roster-frontend-render-v1";
+const FIXTURE = "packages/core/evals/fixtures/model-roster-frontend-render-v2";
+const CASE_ID = "modal-focus";
 const IMAGE_ID = FRONTEND_VERIFIER_IMAGE_ID;
 
 describe("verifyFrontendBenchmarkLease", () => {
@@ -36,12 +37,13 @@ describe("verifyFrontendBenchmarkLease", () => {
 
   it("accepts only complete isolated render, interaction, axe, and screenshot evidence", async () => {
     const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
-    await writeFile(join(lease.rootPath, "src", "OrderQueue.jsx"), "export function OrderQueue() { return null; }\n", "utf8");
+    await writeFile(join(lease.rootPath, "src", "Challenge.jsx"), "export function Challenge() { return null; }\n", "utf8");
     const runner = passingRunner();
     try {
-      const result = await verifyFrontendBenchmarkLease({ lease, runner });
+      const result = await verifyFrontendBenchmarkLease({ lease, runner, benchmarkCaseId: CASE_ID });
       expect(result).toMatchObject({
         status: "passed",
+        benchmarkCaseId: CASE_ID,
         violations: [],
         runner: {
           kind: "docker-playwright",
@@ -51,7 +53,7 @@ describe("verifyFrontendBenchmarkLease", () => {
           network: "none",
           rootFilesystem: "read-only",
         },
-        changes: { changed: [expect.objectContaining({ path: "src/OrderQueue.jsx" })], added: [], deleted: [] },
+        changes: { changed: [expect.objectContaining({ path: "src/Challenge.jsx" })], added: [], deleted: [] },
         screenshot: { sha256: expect.stringMatching(/^sha256:/u), bytes: expect.any(Number), base64: expect.any(String) },
       });
       const args = vi.mocked(runner.run).mock.calls[0]?.[1] ?? [];
@@ -59,6 +61,7 @@ describe("verifyFrontendBenchmarkLease", () => {
       expect(args).toContain("none");
       expect(args).toContain("--read-only");
       expect(args).toContain("no-new-privileges");
+      expect(args).toContain(`KILN_BENCHMARK_CASE=${CASE_ID}`);
       expect(args.at(-1)).toBe(FRONTEND_VERIFIER_IMAGE_ID);
       expect(args.some((arg) => arg.endsWith(":/workspace:ro"))).toBe(true);
       expect(args.some((arg) => arg.endsWith(":/output:rw"))).toBe(true);
@@ -72,7 +75,7 @@ describe("verifyFrontendBenchmarkLease", () => {
     await writeFile(join(lease.rootPath, "styles.css"), "tampered", "utf8");
     const runner = passingRunner();
     try {
-      await expect(verifyFrontendBenchmarkLease({ lease, runner })).resolves.toMatchObject({
+      await expect(verifyFrontendBenchmarkLease({ lease, runner, benchmarkCaseId: CASE_ID })).resolves.toMatchObject({
         status: "failed",
         violations: [expect.stringContaining("outside the admitted scope: styles.css")],
       });
@@ -84,15 +87,15 @@ describe("verifyFrontendBenchmarkLease", () => {
 
   it("rejects a mutable or stale verifier image identity", async () => {
     const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
-    await writeFile(join(lease.rootPath, "src", "OrderQueue.jsx"), "export function OrderQueue() { return null; }\n", "utf8");
+    await writeFile(join(lease.rootPath, "src", "Challenge.jsx"), "export function Challenge() { return null; }\n", "utf8");
     const runner = passingRunner();
     vi.mocked(runner.inspectImage).mockResolvedValueOnce({
       imageId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST,
-      version: "1",
+      version: "2",
     });
     try {
-      await expect(verifyFrontendBenchmarkLease({ lease, runner })).rejects.toThrow("exact admitted image ID");
+      await expect(verifyFrontendBenchmarkLease({ lease, runner, benchmarkCaseId: CASE_ID })).rejects.toThrow("exact admitted image ID");
       expect(runner.run).not.toHaveBeenCalled();
     } finally {
       lease.cleanup();
@@ -102,7 +105,7 @@ describe("verifyFrontendBenchmarkLease", () => {
 
 function passingRunner(): FrontendVerifierRunner {
   return {
-    inspectImage: vi.fn(async () => ({ imageId: IMAGE_ID, sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST, version: "1" })),
+    inspectImage: vi.fn(async () => ({ imageId: IMAGE_ID, sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST, version: "2" })),
     run: vi.fn(async (_containerName, args) => {
       const outputMount = args.find((arg) => arg.endsWith(":/output:rw"));
       if (!outputMount) throw new Error("missing output mount");
@@ -112,6 +115,7 @@ function passingRunner(): FrontendVerifierRunner {
       await writeFile(join(outputRoot, "screenshot.png"), screenshot);
       await writeFile(join(outputRoot, "report.json"), JSON.stringify({
         status: "passed",
+        benchmarkCaseId: CASE_ID,
         browserVersion: "Chrome/140",
         assertions: {
           heading: true,

@@ -192,13 +192,17 @@ describe("work-governance-tool", () => {
     expect(result?.output).toContain('"browser QA screenshot or interaction proof"');
   });
 
-  it("uses explicit property types for strict provider governance tool schemas", () => {
+  it("uses explicit shapes without provider-rejected oneOf keywords for governance tools", () => {
     const missingTypes: string[] = [];
+    const unsupportedOneOf: string[] = [];
     const walk = (schema: unknown, path: string): void => {
       if (!schema || typeof schema !== "object") {
         return;
       }
       const record = schema as Record<string, unknown>;
+      if ("oneOf" in record) {
+        unsupportedOneOf.push(path);
+      }
       const properties = record["properties"];
       if (properties && typeof properties === "object" && !Array.isArray(properties)) {
         for (const [propertyName, propertySchema] of Object.entries(properties as Record<string, unknown>)) {
@@ -229,6 +233,11 @@ describe("work-governance-tool", () => {
         }
       }
       walk(items, `${path}.items`);
+      for (const keyword of ["oneOf", "anyOf", "allOf"] as const) {
+        const branches = record[keyword];
+        if (!Array.isArray(branches)) continue;
+        branches.forEach((branch, index) => walk(branch, `${path}.${keyword}[${index}]`));
+      }
     };
 
     for (const tool of createWorkGovernanceTools(policy)) {
@@ -236,6 +245,7 @@ describe("work-governance-tool", () => {
     }
 
     expect(missingTypes).toEqual([]);
+    expect(unsupportedOneOf).toEqual([]);
   });
 
   it("keeps managed invocation handoff runtime-owned during execution finish", () => {
@@ -1967,6 +1977,55 @@ describe("work-governance-tool", () => {
       id: "work-goal-linked",
       status: "in_progress",
     });
+  });
+
+  it("rejects mixed contract-authority variants at the runtime authority boundary", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore,
+      goalRunStore,
+      ownerSessionId: "session-current",
+    });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-mixed-authority",
+        summary: "Reject ambiguous adoption authority.",
+        workflowProfile: "verification-heavy",
+        triggers: ["verification-heavy"],
+        expectedEvidence: ["tests"],
+      },
+    });
+
+    const result = await goalTool?.execute({
+      name: "goal.create",
+      input: {
+        id: "goal-mixed-authority",
+        objective: "Reject ambiguous adoption authority.",
+        operatorTurnId: "turn-mixed-authority",
+        workItemIds: ["work-mixed-authority"],
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        authorityReason: "Synthetic boundary regression.",
+        workflowProfile: "verification-heavy",
+        boundedWorkContract: boundedWorkContract("Reject ambiguous adoption authority.", ["work-mixed-authority"]),
+        contractAuthority: {
+          kind: "operator",
+          actorId: "test-operator",
+          decisionId: "operator-decision",
+          planId: "must-not-coexist",
+          planDigest: "sha256:synthetic",
+        },
+      },
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(result?.output).toContain("contractAuthority");
+    expect(goalRunStore.get("goal-mixed-authority")).toBeUndefined();
   });
 
   it("rejects goal-level route and agent-profile ownership in the same route policy", async () => {

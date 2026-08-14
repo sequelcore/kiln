@@ -1,5 +1,31 @@
 export function toStrictToolSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  assertStrictSchemaSupported(schema, "$", new WeakSet<object>());
   return transformSchemaForStrictMode(schema);
+}
+
+function assertStrictSchemaSupported(value: unknown, path: string, seen: WeakSet<object>): void {
+  if (!value || typeof value !== "object") return;
+  if (seen.has(value)) return;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertStrictSchemaSupported(entry, `${path}[${index}]`, seen));
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(record, "oneOf")) {
+    throw new TypeError(`OpenAI strict tool schema does not support "oneOf" at ${path}.`);
+  }
+  for (const [key, entry] of Object.entries(record)) {
+    assertStrictSchemaSupported(entry, schemaPath(path, key), seen);
+  }
+}
+
+function schemaPath(parent: string, key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(key)
+    ? `${parent}.${key}`
+    : `${parent}[${JSON.stringify(key)}]`;
 }
 
 function transformSchemaForStrictMode(schema: Record<string, unknown>): Record<string, unknown> {

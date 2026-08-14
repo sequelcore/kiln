@@ -32,6 +32,36 @@ describe("EngineRegistry", () => {
     expect(runner).toHaveBeenCalledWith("opencode", ["--version"], 2_000);
   });
 
+  it("retries only a timed-out Claude Code cold start with a bounded window", () => {
+    const timeout = Object.assign(new Error("timed out"), { code: "ETIMEDOUT" });
+    const runner = vi.fn<EngineProbeRunner>()
+      .mockReturnValueOnce({ status: null, error: timeout })
+      .mockReturnValueOnce({ status: 0 });
+    const registry = new EngineRegistry({ runner });
+
+    expect(registry.probe("claude").available).toBe(true);
+    expect(runner).toHaveBeenNthCalledWith(1, "claude", ["--version"], 2_000);
+    expect(runner).toHaveBeenNthCalledWith(2, "claude", ["--version"], 8_000);
+  });
+
+  it("honors an explicit probe timeout for every harness", () => {
+    const runner = vi.fn<EngineProbeRunner>(() => ({ status: 0 }));
+    const registry = new EngineRegistry({ runner, timeoutMs: 750 });
+
+    registry.probe("claude");
+
+    expect(runner).toHaveBeenCalledWith("claude", ["--version"], 750);
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a non-timeout Claude failure", () => {
+    const runner = vi.fn<EngineProbeRunner>(() => ({ status: 1, error: new Error("not authenticated") }));
+    const registry = new EngineRegistry({ runner });
+
+    expect(registry.probe("claude")).toMatchObject({ available: false, reason: "not authenticated" });
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
   it("marks binary failures unavailable", () => {
     const registry = new EngineRegistry({
       runner: () => ({ status: 1, error: new Error("not found") }),
