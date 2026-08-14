@@ -22,6 +22,10 @@ import {
   type ReleasePlan,
   type ReleaseTarball,
 } from "./release.js";
+import {
+  assertModelGatewayHostReleaseArtifact,
+  assertModelGatewayHostReleaseBundle,
+} from "./model-gateway-host-artifact.js";
 
 const execFile = promisify(execFileCallback);
 const repositoryRoot = resolve(import.meta.dirname, "..", "..");
@@ -99,6 +103,7 @@ async function buildWorkspace(): Promise<void> {
 }
 
 async function validate(): Promise<void> {
+  await assertModelGatewayHostReleaseArtifact(join(packagesRoot, "model-gateway-host-win32-x64"));
   const records = await discoverPackages(packagesRoot);
   const explicitRef = stringOption("--ref") ?? process.env.RELEASE_REF;
   const identity = explicitRef
@@ -112,6 +117,7 @@ async function validate(): Promise<void> {
 }
 
 async function pack(): Promise<void> {
+  await assertModelGatewayHostReleaseArtifact(join(packagesRoot, "model-gateway-host-win32-x64"));
   const records = await discoverPackages(packagesRoot);
   const explicitRef =
     stringOption("--ref") ??
@@ -351,6 +357,7 @@ async function preflight(bundle: ReleaseBundle): Promise<Map<string, RegistryPac
 async function publish(): Promise<void> {
   assertTrustedPublishingEnvironment(process.env);
   const bundle = await readBundle();
+  assertModelGatewayHostReleaseBundle(bundle);
   const states = await preflight(bundle);
   for (const pkg of bundle.packages) {
     const tarball = bundle.tarballs.find((candidate) => candidate.name === pkg.name)!;

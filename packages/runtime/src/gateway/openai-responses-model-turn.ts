@@ -10,6 +10,7 @@ import {
   type ModelTurnMessage,
   type ModelTurnResult,
 } from "@kilnai/core";
+import { CODEX_RESPONSES_COMPATIBILITY } from "./codex-responses-compatibility.js";
 import {
   createResponsesStreamState,
   type OpenAIResponsesRequest,
@@ -69,7 +70,7 @@ export interface OpenAIResponsesProjectionOmission {
   readonly code: "cache-write-tokens-not-representable";
   readonly field: "usage.cacheWriteTokens";
   readonly value: number;
-  readonly protocolVersion: "codex-0.144.5";
+  readonly protocolVersion: typeof CODEX_RESPONSES_COMPATIBILITY.revision;
 }
 
 /** Array-compatible so existing SSE writers keep working while closeout can record omissions. */
@@ -292,7 +293,7 @@ export function mapModelTurnResultToOpenAIResponsesEvents(input: {
   const usage = input.result.usage;
   events.push(stream.completed({ input_tokens: usage.inputTokens, input_tokens_details: { cached_tokens: usage.cacheReadTokens }, output_tokens: usage.outputTokens, total_tokens: usage.inputTokens + usage.outputTokens }));
   const omissions: readonly OpenAIResponsesProjectionOmission[] = Object.freeze(usage.cacheWriteTokens > 0
-    ? [Object.freeze({ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: usage.cacheWriteTokens, protocolVersion: "codex-0.144.5" })]
+    ? [Object.freeze({ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: usage.cacheWriteTokens, protocolVersion: CODEX_RESPONSES_COMPATIBILITY.revision })]
     : []);
   return Object.assign(events, { omissions }) as OpenAIResponsesEventProjection;
 }

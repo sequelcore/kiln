@@ -272,8 +272,9 @@ bun packages/cli/src/index.ts model-gateway autostart-status
 
 The installed current-user task starts `model-gateway ensure` at logon, runs at
 least privilege, ignores duplicate starts, and has no scheduler execution time
-limit. Run `install-autostart` again after changing the installed CLI entrypoint
-or version; the ownership digest makes this an exact update. Then run:
+limit. Normal `start`, `ensure`, `restart`, and native sync converge an already
+owned task to the current exact launch descriptor. They preserve an absent task
+as operator intent; automatic convergence never enables autostart.
 
 ```bash
 bun packages/cli/src/index.ts model-gateway restart
@@ -284,7 +285,7 @@ Recovery proof consists of stopping the service, running the owned task (or
 logging into a fresh operator session), and observing `ready` with the expected
 version and config digest.
 
-### Temporary Bun 1.3.14 crash mitigation
+### Kiln-owned Model Gateway host
 
 Bun 1.3.14 can terminate a long-running localhost HTTP proxy on Windows with a
 native segmentation fault instead of a JavaScript exception. Kiln reproduced
@@ -294,21 +295,50 @@ A native Bun panic or `bun.report` URL means the listener process exited. It is
 not an application-level provider error and cannot be recovered inside the
 same process.
 
-An exact, checksum-verified Bun canary binary may be used as a temporary,
-operator-local mitigation when the supported stable release still contains the
-defect. Keep it isolated under Kiln runtime ownership and point only the owned
-Model Gateway startup task at that exact binary. Do not replace the workstation
-Bun installation, depend on the moving `canary` alias, or require users to
-perform a manual canary upgrade.
+The persistent Gateway does not inherit whichever Bun happens to launch the
+CLI. Kiln resolves one content-addressed host under
+`~/.kiln/runtime/model-gateway-hosts/<sha256>/`, verifies its bytes, exact
+version, and revision on every resolution, and records that immutable identity
+in supervisor state and the autostart digest. It never falls back to `PATH`, a
+moving canary alias, or a network download during listener startup.
 
-This mitigation is not the public installation contract. Before a general
-Windows release, Kiln must either require a stable Bun version containing the
-upstream fix or install and verify an exact Kiln-owned runtime automatically.
-Setup and `doctor` must reject a known-incompatible runtime rather than leaving
-operators to discover the crash through disconnected sessions. Once a fixed
-stable release is admitted, regenerate the owned startup task against that
-stable runtime and retire the temporary binary through the normal upgrade
-flow.
+The current Windows admission is the exact upstream build
+`1.4.0-canary.1+1cf8af0a1`, used only while no stable release fixes the incident.
+Source development can adopt the already verified operator-local mitigation
+once, copying it into the content-addressed store without deleting the source.
+Published Kiln distributions must supply those same verified bytes as a
+platform artifact; users do not install or upgrade a canary manually. A release
+must fail rather than ship without its admitted host artifact.
+
+The present source-only Windows state is deliberately narrower: it can migrate
+the operator's existing verified mitigation, but a clean checkout without that
+source cannot start the Gateway. The release validator, packager, and publisher
+all fail closed until the platform package and its exact tarball are present.
+
+When Bun publishes a stable fix, the release changes the admitted host identity.
+Kiln verifies the replacement, drains the exact owned listener, starts and
+proves readiness with the replacement, and updates an already owned logon task.
+Only after state and task no longer reference the temporary artifact may the
+old operator-local mitigation be removed.
+
+### Codex compatibility and Desktop history
+
+Codex native installation inspects one exact executable for both `--version`
+and its bundled model catalog. Version `0.147.0` is currently admitted for the
+Runtime wire contract `codex-0.147.0`; an unsupported or malformed version is
+rejected before the listener starts and before Codex configuration changes.
+The `@openai/codex-sdk` dependency used by Kiln-managed sessions is a separate
+client integration and is not wire-protocol authority.
+
+Codex Desktop currently has an upstream custom-provider history defect:
+[openai/codex#28957](https://github.com/openai/codex/issues/28957). It can hide
+threads created through `model_provider = "kiln"` from the sidebar even though
+the threads remain in Codex storage. The Responses Gateway cannot repair that
+UI because thread listing belongs to Codex app-server, not `/v1/responses`.
+Kiln therefore keeps the truthful `kiln` provider identity, never rewrites
+Codex SQLite, and reports the limitation as degraded visibility rather than
+data loss. Kiln GUI/TUI history remains provider-neutral and continues to list
+canonical Kiln sessions.
 
 ## Exact uninstall
 

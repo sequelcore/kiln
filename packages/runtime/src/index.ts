@@ -191,8 +191,8 @@ export {
   createCodexCompositeFetch,
   type CodexCompositeFetchOptions,
 } from "./model-gateway/codex-composite-router.js";
-export { ModelGatewaySupervisor, nodeModelGatewayProcessAdapter } from "./model-gateway/model-gateway-supervisor.js";
-export type { ModelGatewayLaunchDescriptor, ModelGatewayProcessAdapter, ModelGatewayRuntimeState, ModelGatewaySpawnDescriptor, ModelGatewaySupervisorDoctor, ModelGatewaySupervisorStatus } from "./model-gateway/model-gateway-supervisor.js";
+export { ModelGatewaySupervisor, nodeModelGatewayProcessAdapter, validateModelGatewayHostIdentity } from "./model-gateway/model-gateway-supervisor.js";
+export type { ModelGatewayHostIdentity, ModelGatewayHostRuntimeKind, ModelGatewayHostSource, ModelGatewayLaunchDescriptor, ModelGatewayProcessAdapter, ModelGatewayRuntimeState, ModelGatewaySpawnDescriptor, ModelGatewaySupervisorDoctor, ModelGatewaySupervisorStatus } from "./model-gateway/model-gateway-supervisor.js";
 export { WindowsModelGatewayAutostartAdapter, createModelGatewayAutostartDigest } from "./model-gateway/model-gateway-autostart.js";
 export type { ModelGatewayAutostartStatus, ModelGatewayTaskSchedulerResult } from "./model-gateway/model-gateway-autostart.js";
 export type {
@@ -247,6 +247,11 @@ export type {
 } from "./execution-kernel/governed-one-round-invocation.js";
 export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
+export {
+  CODEX_RESPONSES_COMPATIBILITY,
+  evaluateCodexResponsesNativeClient,
+  type CodexResponsesNativeClientCompatibility,
+} from "./gateway/codex-responses-compatibility.js";
 export {
   OPENAI_RESPONSES_PROTOCOL_LIMITS,
   OpenAIResponsesProtocolError,

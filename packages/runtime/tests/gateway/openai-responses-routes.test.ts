@@ -90,6 +90,36 @@ function request(payload: unknown = body(), headers: Record<string, string> = {}
 }
 
 describe("OpenAI Responses authenticated loopback ingress", () => {
+  it("dispatches a real-shaped synthetic Codex failed-tool continuation", async () => {
+    const fixture = config();
+    const metadata = {
+      tool: { name: "shell", status: "failed", exit_code: 1 },
+      continuation: { kind: "tool_result", retryable: false },
+    };
+    const response = await createOpenAIResponsesRoutes(fixture.value).request(request(body({
+      input: [
+        { type: "message", role: "assistant", content: "The command failed; inspect its output.", internal_chat_message_metadata_passthrough: metadata },
+        { type: "function_call", id: "fc_failed", call_id: "call_failed", name: "shell", arguments: "{\"command\":\"exit 1\"}", status: "completed", internal_chat_message_metadata_passthrough: metadata },
+        { type: "function_call_output", call_id: "call_failed", output: "Process exited with code 1", status: "completed", internal_chat_message_metadata_passthrough: metadata },
+        { type: "message", role: "user", content: "Continue without retrying the command." },
+      ],
+      tools: [{ type: "function", name: "shell", parameters: { type: "object" } }],
+    })));
+
+    expect(response.status).toBe(200);
+    expect(fixture.execute).toHaveBeenCalledWith(expect.objectContaining({
+      turn: expect.objectContaining({
+        history: [
+          { role: "assistant", parts: [{ type: "text", text: "The command failed; inspect its output." }] },
+          { role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", id: "call_failed", name: "shell", input: { kind: "json-object", value: { command: "exit 1" } } } }] },
+          { role: "user", parts: [{ type: "tool-result", callId: "call_failed", content: [{ type: "text", text: "Process exited with code 1" }] }] },
+          { role: "user", parts: [{ type: "text", text: "Continue without retrying the command." }] },
+        ],
+      }),
+    }));
+    expect(JSON.stringify(fixture.execute.mock.calls[0]?.[0].turn)).not.toContain("internal_chat_message_metadata_passthrough");
+  });
+
   it("rejects an identical in-flight replay, then replays the completed SSE with the same response id", async () => {
     const replayGuard = new InMemoryModelGatewayReplayGuard({ hmacKey: "synthetic-route-test-key-with-32-bytes" });
     let finish!: () => void;

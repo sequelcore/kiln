@@ -12,8 +12,16 @@ current project name and `@kilnai/*` package coordinates are provisional.
 You need:
 
 - Git;
-- Bun 1.3.14, matching `packageManager` in the root `package.json` and CI; and
+- Bun 1.3.14, matching `packageManager` in the root `package.json` and CI, for
+  repository commands and short-lived CLI execution; and
 - a shell on Windows, macOS, or Linux.
+
+The persistent Model Gateway does not inherit that ambient Bun as its service
+host. The current source-only Windows preview can adopt the operator's one
+already-verified mitigation into a Kiln-owned content-addressed store. This is
+an operator-local migration, not an installation step for future users. Public
+packaging is blocked until Kiln carries the exact platform artifact itself;
+operators do not replace their workstation Bun or install a moving canary.
 
 Provider-backed execution has additional credentials and harness requirements,
 but they are not needed for this tutorial.

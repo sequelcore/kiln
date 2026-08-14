@@ -6,11 +6,23 @@ import {
 } from "../../src/index.js";
 
 const launch: ModelGatewayLaunchDescriptor = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   command: "C:\\Program Files\\Bun\\bun.exe",
   args: ["C:\\Kiln Dev\\packages\\cli\\dist\\index.js", "model-gateway", "ensure", "argument with spaces", "quote\"value"],
   mode: "local-dev",
   version: "3.0.0-test",
+  host: {
+    schemaVersion: 1,
+    runtimeKind: "bun",
+    version: "3.0.0-test",
+    revision: "test-revision",
+    provenance: "synthetic-test-fixture",
+    sha256: "a".repeat(64),
+    platform: "win32",
+    arch: "x64",
+    packageName: "@kilnai/model-gateway-host-win32-x64",
+    source: "repository",
+  },
   requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"],
 };
 
@@ -66,6 +78,20 @@ describe("WindowsModelGatewayAutostartAdapter", () => {
     const adapter = createAdapter({ run });
     await expect(adapter.install(launch)).resolves.toEqual({ state: "installed", digest });
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("changes the task identity when exact host provenance changes", () => {
+    expect(createModelGatewayAutostartDigest({
+      ...launch,
+      host: { ...launch.host, revision: "different-revision", sha256: "b".repeat(64) },
+    })).not.toBe(createModelGatewayAutostartDigest(launch));
+  });
+
+  it("permits a host runtime version independent of the gateway application version", () => {
+    expect(() => createModelGatewayAutostartDigest({
+      ...launch,
+      host: { ...launch.host, version: "1.3.14" },
+    })).not.toThrow();
   });
 
   it("never replaces or deletes a foreign task", async () => {

@@ -6,6 +6,7 @@ import type { ModelGatewayConfig } from "@kilnai/core";
 import {
   ModelGatewaySupervisor,
   createModelGatewayConfigDigest,
+  validateModelGatewayHostIdentity,
   type ModelGatewayProcessAdapter,
   type ModelGatewayListenerInspection,
 } from "../../src/index.js";
@@ -39,7 +40,7 @@ describe("ModelGatewaySupervisor", () => {
       windowsHide: true,
     }), expect.any(Object));
     const state = await supervisor.readState();
-    expect(state).toMatchObject({ schemaVersion: 1, instanceId: "instance-a", pid: 222, launch: { version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] } });
+    expect(state).toMatchObject({ schemaVersion: 2, instanceId: "instance-a", pid: 222, launch: { schemaVersion: 2, version: "3.0.0-test", host: hostIdentity, requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] } });
     expect(JSON.stringify(state)).not.toContain("secret-value");
   });
 
@@ -65,14 +66,14 @@ describe("ModelGatewaySupervisor", () => {
       .mockResolvedValue({ state: "ready", identity: identity("instance-a", 222) });
     const supervisor = createSupervisor(root, inspect, processAdapter, () => "instance-a");
     await writeFile(join(root, "state.json"), `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       instanceId: "instance-old",
       pid: 111,
       port: 4819,
       version: "3.0.0-test",
       configDigest: "f".repeat(64),
       startedAt: "2026-08-12T00:00:00.000Z",
-      launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
+      launch: { schemaVersion: 2, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", host: hostIdentity, requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
     }, null, 2)}\n`, "utf8");
 
     await expect(supervisor.ensure()).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-a", pid: 222 } });
@@ -134,6 +135,53 @@ describe("ModelGatewaySupervisor", () => {
     expect(processAdapter.spawn).toHaveBeenCalledOnce();
   });
 
+  it("converges an exact owned v1 listener by stopping it before persisting v2 state", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-v1-"));
+    const oldIdentity = { ...identity("instance-v1", 111) };
+    const inspect = vi.fn()
+      .mockResolvedValueOnce({ state: "ready", identity: oldIdentity })
+      .mockResolvedValueOnce({ state: "ready", identity: oldIdentity })
+      .mockResolvedValueOnce({ state: "stopped" })
+      .mockResolvedValue({ state: "ready", identity: identity("instance-a", 222) });
+    const supervisor = createSupervisor(root, inspect, adapter({ spawnPid: 222 }), () => "instance-a");
+    await writeFile(join(root, "state.json"), `${JSON.stringify({
+      schemaVersion: 1, instanceId: "instance-v1", pid: 111, port: 4819, version: "3.0.0-test",
+      configDigest: createModelGatewayConfigDigest(config), startedAt: "2026-08-12T00:00:00.000Z",
+      launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
+    })}\n`, "utf8");
+
+    await expect(supervisor.ensure()).resolves.toMatchObject({ state: "ready", identity: { instanceId: "instance-a", pid: 222 } });
+    await expect(supervisor.readState()).resolves.toMatchObject({ schemaVersion: 2, instanceId: "instance-a", launch: { host: hostIdentity } });
+  });
+
+  it("fails closed for malformed v1 state", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-invalid-v1-"));
+    const supervisor = createSupervisor(root, vi.fn(async () => ({ state: "stopped" })), adapter({ spawnPid: 222 }));
+    await writeFile(join(root, "state.json"), JSON.stringify({ schemaVersion: 1 }), "utf8");
+
+    await expect(supervisor.ensure()).rejects.toThrow("unsupported or invalid");
+  });
+
+  it("rejects a host identity without a canonical SHA-256", () => {
+    expect(() => validateModelGatewayHostIdentity({ ...hostIdentity, sha256: "not-a-sha" })).toThrow("Invalid model gateway host identity");
+  });
+
+  it("reports the desired and observed host identities when state host provenance drifts", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-supervisor-host-drift-"));
+    const observedHost = { ...hostIdentity, revision: "prior-revision", sha256: "b".repeat(64) };
+    await writeFile(join(root, "state.json"), `${JSON.stringify({
+      schemaVersion: 2, instanceId: "instance-old", pid: 111, port: 4819, version: "3.0.0-test",
+      configDigest: createModelGatewayConfigDigest(config), startedAt: "2026-08-12T00:00:00.000Z",
+      launch: { schemaVersion: 2, command: "bun", args: ["cli.js"], mode: "local-dev", version: "3.0.0-test", host: observedHost, requiredEnvNames: [] },
+    })}\n`, "utf8");
+    const supervisor = createSupervisor(root, vi.fn(async () => ({ state: "stopped" })), adapter({ spawnPid: 222 }));
+
+    await expect(supervisor.doctor()).resolves.toMatchObject({
+      host: { desired: hostIdentity, observed: observedHost },
+      diagnostics: expect.arrayContaining(["state-host-drift", "stale-state"]),
+    });
+  });
+
   function identity(instanceId: string, pid: number) {
     return { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId, pid, version: "3.0.0-test", configDigest: createModelGatewayConfigDigest(config), port: 4819 };
   }
@@ -151,7 +199,7 @@ function createSupervisor(
     runtimeDir: root,
     version: "3.0.0-test",
     env: { REPLAY_SECRET: "secret-value".repeat(3), BEARER_TOKEN: "secret-value".repeat(3) },
-    launch: { schemaVersion: 1, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
+    launch: { schemaVersion: 2, command: "bun", args: ["cli.js", "model-gateway", "serve", "--global-runtime"], mode: "local-dev", version: "3.0.0-test", host: hostIdentity, requiredEnvNames: ["BEARER_TOKEN", "REPLAY_SECRET"] },
     inspect,
     requestShutdown: async () => ({ state: "accepted" }),
     processAdapter,
@@ -159,6 +207,19 @@ function createSupervisor(
     wait,
   });
 }
+
+const hostIdentity = {
+  schemaVersion: 1 as const,
+  runtimeKind: "bun" as const,
+  version: "3.0.0-test",
+  revision: "test-revision",
+  provenance: "synthetic-test-fixture",
+  sha256: "a".repeat(64),
+  platform: "win32",
+  arch: "x64",
+  packageName: "@kilnai/model-gateway-host-win32-x64",
+  source: "repository" as const,
+};
 
 function adapter(input: { spawnPid: number }): ModelGatewayProcessAdapter {
   return {

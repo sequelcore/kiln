@@ -72,6 +72,15 @@ that hosted tool, records degraded compatibility evidence, and preserves the
 remaining caller-owned tools. Unknown fields, values, and required route
 capabilities still fail closed.
 
+The admitted Codex wire revision is owned by one Runtime compatibility
+contract. Revision `codex-0.147.0` names the exact verified native client
+version and the bounded input-item fields it emits. Caller metadata admitted on
+`message`, `function_call`, and `function_call_output` is preserved only while
+parsing the caller request and deliberately omitted from protocol-neutral model
+history. Other unknown siblings still fail closed. `@openai/codex-sdk` version
+numbers describe Kiln-managed SDK execution and do not automatically admit a
+native Responses wire revision.
+
 Anthropic Messages ingress admits the current Claude Code caller shape without
 turning harness metadata into downstream provider identity. The official
 `metadata.user_id` field is bounded and validated, then omitted because Kiln
@@ -141,6 +150,15 @@ economic evidence, and unmanaged native state remain unchanged. Operator
 commands and recovery procedure
 are documented in [Model Gateway Operations](../../operations/model-gateway.md).
 
+The persistent listener runs on a Kiln-owned, content-addressed host artifact,
+not on ambient `PATH` Bun. Host version, revision, provenance, SHA-256,
+platform, architecture, and package identity are part of the launch/state
+contract and the autostart digest. Exact legacy state is converged once through
+the owned graceful lifecycle; malformed or foreign state is never adopted. The
+currently admitted preview artifact is Windows x64 only. Other platforms fail
+explicitly until their own immutable artifacts are admitted; startup never
+downloads a runtime or silently falls back to `PATH`.
+
 ## Native Projection
 
 Kiln config is canonical. Native configuration is a derived projection with
@@ -191,6 +209,14 @@ path; it does not by itself mean that a Kiln virtual model was selected. Errors
 returned before forwarding, including Kiln's bounded-body 413, can therefore
 affect native Codex turns. Upstream responses and errors remain attributable to
 the Codex backend.
+
+Codex thread discovery and resume are not Responses Gateway operations. Codex
+app-server v2 owns `thread/list` and `thread/resume`; a bounded continuity proof
+lists without a provider filter and may resume an exact thread ID with explicit
+provider identity, while omitting titles, turns, and working directories from
+its result. Kiln does not spoof `model_provider = "openai"`, proxy app-server,
+or edit Codex storage to compensate for Desktop UI limitations. Canonical Kiln
+session history remains independent of the active provider.
 
 Composite capacity is Runtime ingress capacity, separate from provider,
 execution-account, and managed-agent capacity. Capability-path authentication

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { dirname, win32 } from "node:path";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import type { ModelGatewayLaunchDescriptor } from "./model-gateway-supervisor.js";
+import { validateModelGatewayHostIdentity, type ModelGatewayLaunchDescriptor } from "./model-gateway-supervisor.js";
 
 const OWNERSHIP_PREFIX = "kiln:model-gateway-autostart:v1:";
 
@@ -94,6 +94,7 @@ export function createModelGatewayAutostartDigest(launch: ModelGatewayLaunchDesc
     mode: launch.mode,
     version: launch.version,
     requiredEnvNames: [...new Set(launch.requiredEnvNames)].sort(),
+    host: launch.host,
   }), "utf8").digest("hex");
 }
 
@@ -149,7 +150,8 @@ function quoteWindowsArgument(value: string): string {
 }
 
 function validateLaunch(value: ModelGatewayLaunchDescriptor): void {
-  if (value.schemaVersion !== 1 || !value.command || !value.version || !["installed", "local-dev"].includes(value.mode)) throw new Error("Invalid model gateway autostart launch descriptor.");
+  if (value.schemaVersion !== 2 || !value.command || !value.version || !["installed", "local-dev"].includes(value.mode)) throw new Error("Invalid model gateway autostart launch descriptor.");
+  validateModelGatewayHostIdentity(value.host);
   requireSafeField(value.command, "Task Scheduler executable");
   value.args.forEach((argument) => requireSafeField(argument, "Task Scheduler argument"));
   if (value.requiredEnvNames.some((name) => !/^[A-Z_][A-Z0-9_]*$/.test(name))) throw new Error("Invalid model gateway autostart environment name.");

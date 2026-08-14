@@ -82,6 +82,27 @@ describe("OpenAI Responses to ModelTurn anti-corruption mapping", () => {
     expect(mapOpenAIResponsesRequestToModelTurn(request).maxOutputTokens).toBe(4096);
   });
 
+  it("omits Codex-only chat metadata from the protocol-neutral ModelTurn", () => {
+    const request = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [
+        { type: "message", role: "assistant", content: "Tool failed.", internal_chat_message_metadata_passthrough: { state: "failed" } },
+        { type: "function_call", call_id: "call-failed", name: "shell", arguments: "{}", internal_chat_message_metadata_passthrough: { state: "failed" } },
+        { type: "function_call_output", call_id: "call-failed", output: "exit 1", internal_chat_message_metadata_passthrough: { state: "failed" } },
+      ],
+      stream: true,
+      store: false,
+    });
+
+    const turn = mapOpenAIResponsesRequestToModelTurn(request);
+    expect(JSON.stringify(turn)).not.toContain("internal_chat_message_metadata_passthrough");
+    expect(turn.history).toEqual([
+      { role: "assistant", parts: [{ type: "text", text: "Tool failed." }] },
+      { role: "assistant", parts: [{ type: "tool-call", call: { kind: "function", id: "call-failed", name: "shell", input: { kind: "json-object", value: {} } } }] },
+      { role: "user", parts: [{ type: "tool-result", callId: "call-failed", content: [{ type: "text", text: "exit 1" }] }] },
+    ]);
+  });
+
   it("preserves namespace identity for grouped Codex function tools and calls", () => {
     const request = parseOpenAIResponsesRequest({
       model: "synthetic-model",
@@ -201,7 +222,7 @@ describe("ModelTurnResult to Responses SSE", () => {
     ]);
     expect(events.find((event) => event.type === "response.custom_tool_call_input.done")?.input).toBe(rawCustomInput);
     expect(events.at(-1)?.response.usage).toEqual({ input_tokens: 8, input_tokens_details: { cached_tokens: 2 }, output_tokens: 5, total_tokens: 13 });
-    expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 1, protocolVersion: "codex-0.144.5" }]);
+    expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 1, protocolVersion: "codex-0.147.0" }]);
     expect((events.at(-1)?.response as { output: unknown[] }).output.map((item: any) => item.type)).toEqual(["reasoning", "message", "function_call", "custom_tool_call"]);
   });
 
@@ -219,7 +240,7 @@ describe("ModelTurnResult to Responses SSE", () => {
       verbosity: "low", degradation: ["reasoning-encrypted-content"], output: ["reasoning", "message", "function_call", "custom_tool_call"],
       usage: { input_tokens: 12, input_tokens_details: { cached_tokens: 4 }, output_tokens: 6, total_tokens: 18 },
     });
-    expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 2, protocolVersion: "codex-0.144.5" }]);
+    expect(events.omissions).toEqual([{ code: "cache-write-tokens-not-representable", field: "usage.cacheWriteTokens", value: 2, protocolVersion: "codex-0.147.0" }]);
   });
 
   it("projects namespace identity back onto Responses function-call events", () => {

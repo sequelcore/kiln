@@ -1,4 +1,6 @@
-/** Pure, clean-room boundary for the Codex CLI 0.144.5 Responses wire subset. */
+import { CODEX_RESPONSES_COMPATIBILITY } from "./codex-responses-compatibility.js";
+
+/** Pure, clean-room boundary for the Runtime-owned Codex Responses wire subset. */
 export const OPENAI_RESPONSES_PROTOCOL_LIMITS = {
   maxStringLength: 65_536,
   maxMessageContentLength: 262_144,
@@ -133,6 +135,22 @@ function validJson(value: unknown, label: string): void {
   }
 }
 
+function allowsInternalChatMessageMetadataPassthrough(type: string): boolean {
+  return (CODEX_RESPONSES_COMPATIBILITY.internalChatMessageMetadataPassthroughInputItemTypes as readonly string[]).includes(type);
+}
+
+function withInternalChatMessageMetadataPassthrough(type: string, fields: readonly string[]): readonly string[] {
+  return allowsInternalChatMessageMetadataPassthrough(type)
+    ? [...fields, "internal_chat_message_metadata_passthrough"]
+    : fields;
+}
+
+function validateInternalChatMessageMetadataPassthrough(item: RecordValue, type: string): void {
+  if (item.internal_chat_message_metadata_passthrough === undefined) return;
+  const label = `${type}.internal_chat_message_metadata_passthrough`;
+  portable(dataObject(item.internal_chat_message_metadata_passthrough, label), label);
+}
+
 function validateContent(content: unknown, role: string): void {
   if (typeof content === "string") { boundedString(content, "message content", OPENAI_RESPONSES_PROTOCOL_LIMITS.maxMessageContentLength); return; }
   const parts = array(content, "message content"); if (parts.length === 0) fail("message content must not be empty");
@@ -178,12 +196,10 @@ function validateInputItem(value: unknown, callIds: Map<string, CallRecord>): vo
   const item = dataObject(value, "input item"); const type = boundedString(item.type, "input item.type");
   if (!INPUT_TYPES.has(type)) fail("unsupported input item type");
   if (type === "message") {
-    noUnknown(item, ["type", "id", "role", "content", "status", "phase", "internal_chat_message_metadata_passthrough"], "message");
+    noUnknown(item, withInternalChatMessageMetadataPassthrough(type, ["type", "id", "role", "content", "status", "phase"]), "message");
     const role = oneOf(item.role, ["user", "developer", "assistant"], "message.role"); validateContent(item.content, role);
     optionalString(item.id, "message.id"); optionalString(item.status, "message.status"); optionalString(item.phase, "message.phase");
-    if (item.internal_chat_message_metadata_passthrough !== undefined) {
-      portable(dataObject(item.internal_chat_message_metadata_passthrough, "message.internal_chat_message_metadata_passthrough"), "message.internal_chat_message_metadata_passthrough");
-    }
+    validateInternalChatMessageMetadataPassthrough(item, type);
     return;
   }
   if (type === "reasoning") {
@@ -196,7 +212,7 @@ function validateInputItem(value: unknown, callIds: Map<string, CallRecord>): vo
 
   if (CALL_TYPES.has(type)) {
     const callId = boundedString(item.call_id, `${type}.call_id`); optionalString(item.id, `${type}.id`);
-    if (type === "function_call") { noUnknown(item, ["type", "id", "call_id", "name", "arguments", "status", "namespace"], type); boundedString(item.name, `${type}.name`); validJson(item.arguments, `${type}.arguments`); optionalString(item.namespace, `${type}.namespace`); registerCall(callIds, callId, "function"); }
+    if (type === "function_call") { noUnknown(item, withInternalChatMessageMetadataPassthrough(type, ["type", "id", "call_id", "name", "arguments", "status", "namespace"]), type); boundedString(item.name, `${type}.name`); validJson(item.arguments, `${type}.arguments`); optionalString(item.namespace, `${type}.namespace`); validateInternalChatMessageMetadataPassthrough(item, type); registerCall(callIds, callId, "function"); }
     else if (type === "custom_tool_call") { noUnknown(item, ["type", "id", "call_id", "name", "input", "status", "namespace"], type); boundedString(item.name, `${type}.name`); boundedString(item.input, `${type}.input`); optionalString(item.namespace, `${type}.namespace`); registerCall(callIds, callId, "custom"); }
     else if (type === "local_shell_call") { noUnknown(item, ["type", "id", "call_id", "action", "status"], type); portable(dataObject(item.action, `${type}.action`), `${type}.action`); registerCall(callIds, callId, "function"); }
     else { noUnknown(item, ["type", "id", "call_id", "arguments", "execution", "status"], type); portable(dataObject(item.arguments, `${type}.arguments`), `${type}.arguments`); oneOf(item.execution, ["client"], `${type}.execution`); registerCall(callIds, callId, "tool_search"); }
@@ -204,7 +220,7 @@ function validateInputItem(value: unknown, callIds: Map<string, CallRecord>): vo
   }
 
   const callId = boundedString(item.call_id, `${type}.call_id`); optionalString(item.id, `${type}.id`);
-  if (type === "function_call_output") { noUnknown(item, ["type", "id", "call_id", "output", "status"], type); requireCall(callIds, callId, "function", type); validateContent(item.output, "user"); }
+  if (type === "function_call_output") { noUnknown(item, withInternalChatMessageMetadataPassthrough(type, ["type", "id", "call_id", "output", "status"]), type); requireCall(callIds, callId, "function", type); validateContent(item.output, "user"); validateInternalChatMessageMetadataPassthrough(item, type); }
   else if (type === "custom_tool_call_output") { noUnknown(item, ["type", "id", "call_id", "output", "status", "name"], type); requireCall(callIds, callId, "custom", type); validateContent(item.output, "user"); optionalString(item.name, `${type}.name`); }
   else { noUnknown(item, ["type", "id", "call_id", "status", "execution", "tools"], type); requireCall(callIds, callId, "tool_search", type); oneOf(item.execution, ["client"], `${type}.execution`); optionalString(item.status, `${type}.status`); portable(array(item.tools, `${type}.tools`), `${type}.tools`); }
 }

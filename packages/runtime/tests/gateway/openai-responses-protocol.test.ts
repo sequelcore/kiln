@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CODEX_RESPONSES_COMPATIBILITY } from "../../src/gateway/codex-responses-compatibility.js";
 import {
   OPENAI_RESPONSES_PROTOCOL_LIMITS,
   OpenAIResponsesProtocolError,
@@ -44,6 +45,53 @@ describe("parseOpenAIResponsesRequest", () => {
   it("preserves the supported current Codex request semantics without adapter mapping", () => {
     const parsed = parseOpenAIResponsesRequest(request);
     expect(parsed).toEqual(request);
+  });
+
+  it("admits only the Codex 0.147 metadata passthrough items as detached input", () => {
+    const metadata = { tool: { status: "failed", exit_code: 1 }, retryable: false };
+    const source = {
+      ...request,
+      input: [
+        { type: "message", role: "assistant", content: "The tool failed.", internal_chat_message_metadata_passthrough: metadata },
+        { type: "function_call", call_id: "call_failed", name: "shell", arguments: "{\"command\":\"false\"}", internal_chat_message_metadata_passthrough: structuredClone(metadata) },
+        { type: "function_call_output", call_id: "call_failed", output: "Process exited with code 1", internal_chat_message_metadata_passthrough: structuredClone(metadata) },
+      ],
+    };
+
+    const parsed = parseOpenAIResponsesRequest(source);
+    expect(CODEX_RESPONSES_COMPATIBILITY).toEqual({
+      revision: "codex-0.147.0",
+      verifiedNativeClientVersions: ["0.147.0"],
+      internalChatMessageMetadataPassthroughInputItemTypes: ["message", "function_call", "function_call_output"],
+    });
+    expect(Object.isFrozen(CODEX_RESPONSES_COMPATIBILITY)).toBe(true);
+    expect(Object.isFrozen(CODEX_RESPONSES_COMPATIBILITY.internalChatMessageMetadataPassthroughInputItemTypes)).toBe(true);
+    expect(parsed.input).toEqual(source.input);
+    expect(parsed.input).not.toBe(source.input);
+    metadata.tool.status = "completed";
+    expect((parsed.input[0] as any).internal_chat_message_metadata_passthrough.tool.status).toBe("failed");
+  });
+
+  it.each([
+    [{ type: "reasoning", summary: [], internal_chat_message_metadata_passthrough: {} }, "reasoning contains unsupported field"],
+    [{ type: "custom_tool_call", call_id: "custom", name: "patch", input: "x", internal_chat_message_metadata_passthrough: {} }, "custom_tool_call contains unsupported field"],
+    [{ type: "message", role: "user", content: "hi", unexpected_sibling: true }, "message contains unsupported field"],
+    [{ type: "function_call", call_id: "fn", name: "lookup", arguments: "{}", unexpected_sibling: true }, "function_call contains unsupported field"],
+    [{ type: "function_call_output", call_id: "fn", output: "done", unexpected_sibling: true }, "function_call_output contains unsupported field"],
+  ])("rejects metadata outside the contract and unknown siblings: %s", (item, diagnostic) => {
+    expect(() => parseOpenAIResponsesRequest({ ...request, input: [item] })).toThrow(diagnostic);
+  });
+
+  it("rejects nonportable admitted metadata", () => {
+    expect(() => parseOpenAIResponsesRequest({
+      ...request,
+      input: [{
+        type: "message",
+        role: "user",
+        content: "hi",
+        internal_chat_message_metadata_passthrough: { callback: () => undefined },
+      }],
+    })).toThrow("contains a non-portable value");
   });
 
   it("accepts missing custom format only at the wire parser boundary", () => {

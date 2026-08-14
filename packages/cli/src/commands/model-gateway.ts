@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -23,6 +22,8 @@ import {
   type ModelGatewayExecutionBundle,
   type AccountOutcomeIncident,
   type StartModelGatewayListenerOptions,
+  evaluateCodexResponsesNativeClient,
+  type CodexResponsesNativeClientCompatibility,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
 import { readGlobalConfig, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
@@ -31,7 +32,6 @@ import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatew
 import {
   syncGlobalCodexModelGatewayProjection,
   GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID,
-  type CodexNativeCatalog,
 } from "../config/global-codex-model-gateway-projection.js";
 import {
   hasGlobalClaudeModelGatewayProjection,
@@ -40,6 +40,11 @@ import {
 } from "../config/global-claude-model-gateway-projection.js";
 import { readNativeProjectionInstallState } from "../config/native-projection-state.js";
 import { withGlobalNativeProjectionLock } from "../config/global-native-projection-lock.js";
+import { inspectCodexNativeClient, type CodexNativeClientInspection } from "../application/codex-native-client-inspection.js";
+import { evaluateCodexDesktopHistoryCompatibility } from "../application/codex-desktop-history-compatibility.js";
+import { expectedModelGatewayHost, resolveModelGatewayHost, type ResolvedModelGatewayHost } from "../application/model-gateway-host.js";
+import { runCodexAppServerThreadContinuity } from "../application/codex-app-server-thread-continuity.js";
+import type { CodexThreadContinuityProof } from "../application/codex-thread-continuity.js";
 
 interface SupervisorSurface {
   start(): Promise<ModelGatewaySupervisorStatus>;
@@ -61,14 +66,16 @@ interface ModelGatewayCommandDependencies {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly version: string;
   readonly pid: number;
-  readonly execPath: string;
   readonly entrypoint: string;
   readonly registerShutdown: (close: () => Promise<void>, shutdownRequested: Promise<void>) => Promise<void>;
   readonly syncOpenCodeNativeProjection: typeof syncGlobalOpenCodeModelGatewayProjection;
   readonly syncCodexNativeProjection: typeof syncGlobalCodexModelGatewayProjection;
   readonly syncClaudeNativeProjection: typeof syncGlobalClaudeModelGatewayProjection;
-  readonly readCodexNativeCatalog: () => CodexNativeCatalog;
+  readonly inspectCodexNativeClient: () => CodexNativeClientInspection;
+  readonly resolveModelGatewayHost: (runtimeDir: string) => Promise<ResolvedModelGatewayHost>;
+  readonly runCodexThreadContinuity: (executable: string) => Promise<CodexThreadContinuityProof>;
   readonly hasListenerDependentNativeProjection: (installStateDir: string) => boolean;
+  readonly hasCodexNativeProjection: (installStateDir: string) => boolean;
   readonly projectPath: string;
   readonly readOutcomeIncidents: (databasePath: string) => readonly AccountOutcomeIncident[];
   readonly removeRuntimeDir: (path: string) => Promise<void>;
@@ -86,16 +93,20 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
   env: process.env,
   version: pkg.version,
   pid: process.pid,
-  execPath: process.execPath,
   entrypoint: process.argv[1] ?? "",
   registerShutdown: registerProcessShutdown,
   syncOpenCodeNativeProjection: syncGlobalOpenCodeModelGatewayProjection,
   syncCodexNativeProjection: syncGlobalCodexModelGatewayProjection,
   syncClaudeNativeProjection: syncGlobalClaudeModelGatewayProjection,
-  readCodexNativeCatalog: readCodexNativeCatalog,
+  inspectCodexNativeClient,
+  resolveModelGatewayHost: (runtimeDir) => resolveModelGatewayHost({ runtimeDir }),
+  runCodexThreadContinuity: (executable) => runCodexAppServerThreadContinuity({ executable }),
   hasListenerDependentNativeProjection: (installStateDir) => (
     Boolean(readNativeProjectionInstallState(installStateDir).targets[GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID])
     || hasGlobalClaudeModelGatewayProjection(installStateDir)
+  ),
+  hasCodexNativeProjection: (installStateDir) => Boolean(
+    readNativeProjectionInstallState(installStateDir).targets[GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID],
   ),
   projectPath: process.cwd(),
   readOutcomeIncidents: (databasePath) => readAccountOutcomeIncidents({
@@ -111,7 +122,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   const dependencies = { ...defaultDependencies, ...overrides };
   const subcommand = args[0];
   if (subcommand === "--help" || subcommand === "-h" || subcommand === undefined) { printHelp(dependencies.log); return; }
-  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native", "outcome-incidents"]);
+  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native", "outcome-incidents", "thread-continuity"]);
   if (!supported.has(subcommand)) throw new Error(`Unknown model-gateway command '${subcommand}'.`);
   const flags = parseFlags(args.slice(1));
   if (flags.help) { printHelp(dependencies.log); return; }
@@ -132,6 +143,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   if (subcommand !== "serve" && (flags.configPath || flags.globalRuntime || flags.instanceId)) throw new Error(`${subcommand} resolves modelGateway only from the global Kiln config.`);
 
   const runtimeDir = join(dirname(dependencies.resolveGlobalConfigPath()), "runtime", "model-gateway");
+  const hostRuntimeDir = join(dirname(dependencies.resolveGlobalConfigPath()), "runtime");
   const autostart = dependencies.createAutostartAdapter({ runtimeDir, userId: dependencies.userId });
   if (subcommand === "uninstall-autostart" || subcommand === "autostart-status") {
     const result = subcommand === "uninstall-autostart" ? await autostart.uninstall() : await autostart.status();
@@ -146,7 +158,8 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
       return;
     }
     const config = resolveGlobalModelGatewayConfig(dependencies.readGlobalConfig());
-    const result = await autostart.install(resolveAutostartLaunchDescriptor(dependencies, config));
+    const host = await dependencies.resolveModelGatewayHost(hostRuntimeDir);
+    const result = await autostart.install(resolveAutostartLaunchDescriptor(dependencies, config, host));
     printAutostartResult(result, flags.json, dependencies.log);
     return;
   }
@@ -162,11 +175,29 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     await serveGlobalRuntime(config, resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()), flags.instanceId, globalConfig, dependencies);
     return;
   }
-  const token = ["doctor", "outcome-incidents", "uninstall"].includes(subcommand) || (subcommand === "sync-native" && flags.uninstall)
+  if (subcommand === "outcome-incidents") {
+    if (globalConfig?.version !== "2") throw new Error("Model gateway outcome inspection requires global V2 execution authority.");
+    const incidents = dependencies.readOutcomeIncidents(resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()));
+    dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatOutcomeIncidents(incidents));
+    return;
+  }
+  const codexPreflight = subcommand === "sync-native" && flags.client === "codex" && !flags.uninstall
+    ? assertCompatibleCodexNativeClient(dependencies.inspectCodexNativeClient())
+    : undefined;
+  if (subcommand === "thread-continuity") {
+    const inspection = assertCompatibleCodexNativeClient(dependencies.inspectCodexNativeClient());
+    const proof = await dependencies.runCodexThreadContinuity(inspection.executable);
+    dependencies.log(flags.json ? JSON.stringify(proof) : formatThreadContinuityProof(proof));
+    return;
+  }
+  const token = ["doctor", "uninstall"].includes(subcommand) || (subcommand === "sync-native" && flags.uninstall)
     ? resolveOptionalHealthToken(config, dependencies.env)
     : resolveHealthToken(config, dependencies.env);
   if (["start", "ensure", "restart"].includes(subcommand)) requireRuntimeSecrets(config, dependencies.env);
-  const launch = resolveLaunchDescriptor(dependencies, config);
+  const host = subcommand === "uninstall" || (subcommand === "sync-native" && flags.uninstall)
+    ? expectedModelGatewayHost(hostRuntimeDir)
+    : await dependencies.resolveModelGatewayHost(hostRuntimeDir);
+  const launch = resolveLaunchDescriptor(dependencies, config, host);
   const supervisor = dependencies.createSupervisor({
     config,
     runtimeDir,
@@ -176,14 +207,6 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     inspect: (expected) => dependencies.inspectModelGatewayListener({ config, token, ...(expected ? { expected } : {}) }),
     requestShutdown: (identity) => requestModelGatewayShutdown({ config, token, identity }),
   });
-  if (subcommand === "outcome-incidents") {
-    if (globalConfig?.version !== "2") throw new Error("Model gateway outcome inspection requires global V2 execution authority.");
-    const incidents = dependencies.readOutcomeIncidents(
-      resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()),
-    );
-    dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatOutcomeIncidents(incidents));
-    return;
-  }
   if (subcommand === "uninstall") {
     const autostartStatus = await autostart.status();
     if (autostartStatus.state === "foreign") {
@@ -229,13 +252,14 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     await withGlobalNativeProjectionLock(installStateDir, async (lock) => {
       const ensured = flags.uninstall ? undefined : await supervisor.ensure();
       if (ensured && ensured.state !== "ready") throw new Error("Model gateway is not owned and ready; native configuration was not modified.");
+      if (ensured) await convergeOwnedAutostart(autostart, resolveAutostartLaunchDescriptor(dependencies, config, host));
       const operation = flags.uninstall ? "uninstall" : "install";
       if (flags.client === "codex") {
         const result = await dependencies.syncCodexNativeProjection({
         config,
         ...(ensured ? { listener: ensured.identity } : {}),
         env: dependencies.env,
-        nativeCatalog: operation === "install" ? dependencies.readCodexNativeCatalog() : { models: [] },
+        nativeCatalog: codexPreflight?.nativeCatalog ?? { models: [] },
         targetPath: join(dirname(globalDir), ".codex", "config.toml"),
         catalogPath: join(installStateDir, "codex-composite-models.json"),
         installStateDir,
@@ -283,8 +307,11 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     return;
   }
   const result = subcommand === "doctor"
-    ? await supervisor.doctor()
+    ? await composeModelGatewayDoctor(supervisor, dependencies, installStateDir)
     : await supervisor[subcommand as "start" | "ensure" | "stop" | "restart" | "status"]();
+  if (["start", "ensure", "restart"].includes(subcommand) && "state" in result && result.state === "ready") {
+    await convergeOwnedAutostart(autostart, resolveAutostartLaunchDescriptor(dependencies, config, host));
+  }
   printResult(result, flags.json, dependencies.log);
 }
 
@@ -386,21 +413,22 @@ function createModelGatewayExecutionConfigurationRevision(globalConfig: KilnGlob
     .digest("hex");
 }
 
-function resolveLaunchDescriptor(dependencies: ModelGatewayCommandDependencies, config: ModelGatewayConfig): ModelGatewayLaunchDescriptor {
+function resolveLaunchDescriptor(dependencies: ModelGatewayCommandDependencies, config: ModelGatewayConfig, host: ResolvedModelGatewayHost): ModelGatewayLaunchDescriptor {
   if (!dependencies.entrypoint) throw new Error("Cannot resolve the versioned Kiln CLI entrypoint for model gateway launch.");
   const mode = /(?:^|[\\/])(?:packages[\\/]cli[\\/]src|src)[\\/].*\.ts$/i.test(dependencies.entrypoint) ? "local-dev" : "installed";
   return {
-    schemaVersion: 1,
-    command: dependencies.execPath,
+    schemaVersion: 2,
+    command: host.executable,
     args: [dependencies.entrypoint, "model-gateway", "serve", "--global-runtime"],
     mode,
     version: dependencies.version,
     requiredEnvNames: [...new Set([config.replay.hmacKeyEnv, ...config.principals.map((principal) => principal.tokenEnv)])].sort(),
+    host: host.host,
   };
 }
 
-function resolveAutostartLaunchDescriptor(dependencies: ModelGatewayCommandDependencies, config: ModelGatewayConfig): ModelGatewayLaunchDescriptor {
-  const launch = resolveLaunchDescriptor(dependencies, config);
+function resolveAutostartLaunchDescriptor(dependencies: ModelGatewayCommandDependencies, config: ModelGatewayConfig, host: ResolvedModelGatewayHost): ModelGatewayLaunchDescriptor {
+  const launch = resolveLaunchDescriptor(dependencies, config, host);
   return { ...launch, args: [dependencies.entrypoint, "model-gateway", "ensure"] };
 }
 
@@ -463,28 +491,58 @@ function formatOutcomeIncidents(incidents: readonly AccountOutcomeIncident[]): s
   ).join("\n");
 }
 
-function readCodexNativeCatalog(): CodexNativeCatalog {
-  let output: string;
-  try {
-    output = execFileSync("codex", ["debug", "models", "--bundled"], {
-      encoding: "utf8",
-      timeout: 30_000,
-      maxBuffer: 32 * 1024 * 1024,
-      windowsHide: true,
-    });
-  } catch (error) {
-    throw new Error(`Codex native model catalog could not be inspected: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  let parsed: unknown;
-  try { parsed = JSON.parse(output); }
-  catch { throw new Error("Codex native model catalog was not valid JSON."); }
-  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { models?: unknown }).models)) {
-    throw new Error("Codex native model catalog was empty or malformed.");
-  }
-  return parsed as CodexNativeCatalog;
+function formatThreadContinuityProof(proof: CodexThreadContinuityProof): string {
+  const providers = Object.entries(proof.providerCounts).map(([provider, count]) => `${provider}:${count}`).join(", ") || "none";
+  return `Codex thread continuity: ${proof.itemsRead} threads across ${proof.pagesRead} pages; providers: ${providers}${proof.truncated ? "; truncated" : ""}`;
 }
 
-function printResult(result: ModelGatewaySupervisorStatus | ModelGatewaySupervisorDoctor, json: boolean, log: (message: string) => void): void {
+interface ModelGatewayComposedDoctor extends ModelGatewaySupervisorDoctor {
+  readonly nativeClients: readonly [{
+    readonly harness: "codex";
+    readonly observedVersion?: string;
+    readonly compatibility: CodexResponsesNativeClientCompatibility;
+    readonly desktopHistory: ReturnType<typeof evaluateCodexDesktopHistoryCompatibility>;
+  }];
+}
+
+function assertCompatibleCodexNativeClient(inspection: CodexNativeClientInspection): CodexNativeClientInspection {
+  const compatibility = evaluateCodexResponsesNativeClient(inspection.version);
+  if (compatibility.status !== "compatible") {
+    throw new Error(`Codex ${inspection.version} is not admitted for ${compatibility.protocolRevision}; expected ${compatibility.supportedVersions.join(", ")}.`);
+  }
+  return inspection;
+}
+
+async function composeModelGatewayDoctor(
+  supervisor: SupervisorSurface,
+  dependencies: ModelGatewayCommandDependencies,
+  installStateDir: string,
+): Promise<ModelGatewaySupervisorDoctor | ModelGatewayComposedDoctor> {
+  const doctor = await supervisor.doctor();
+  if (!dependencies.hasCodexNativeProjection(installStateDir)) return doctor;
+  let inspection: CodexNativeClientInspection | undefined;
+  try { inspection = dependencies.inspectCodexNativeClient(); } catch { inspection = undefined; }
+  const compatibility = evaluateCodexResponsesNativeClient(inspection?.version);
+  const desktopHistory = evaluateCodexDesktopHistoryCompatibility({ modelProvider: "kiln" });
+  if (desktopHistory.status === "not-applicable") throw new Error("Codex Desktop history compatibility invariant failed.");
+  return {
+    ...doctor,
+    diagnostics: [...doctor.diagnostics, ...(compatibility.status === "compatible" ? [] : [`codex-native-${compatibility.status}`]), desktopHistory.diagnostic],
+    nativeClients: [{
+      harness: "codex",
+      ...(inspection ? { observedVersion: inspection.version } : {}),
+      compatibility,
+      desktopHistory,
+    }],
+  };
+}
+
+async function convergeOwnedAutostart(autostart: AutostartSurface, desired: ModelGatewayLaunchDescriptor): Promise<void> {
+  const current = await autostart.status();
+  if (current.state === "installed") await autostart.install(desired);
+}
+
+function printResult(result: ModelGatewaySupervisorStatus | ModelGatewaySupervisorDoctor | ModelGatewayComposedDoctor, json: boolean, log: (message: string) => void): void {
   if (json) { log(JSON.stringify(result)); return; }
   if ("diagnostics" in result) { log(`Model gateway doctor: ${result.status.state}; diagnostics: ${result.diagnostics.join(", ") || "none"}`); return; }
   if (result.state === "ready") { log(`Model gateway: ready (pid ${result.identity.pid}, instance ${result.identity.instanceId}, port ${result.identity.port})`); return; }
@@ -521,9 +579,10 @@ function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: 
 }
 
 function printHelp(log: (message: string) => void): void {
-  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native|outcome-incidents> [--json]\n");
+  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native|outcome-incidents|thread-continuity> [--json]\n");
   log("Native provider: kiln model-gateway sync-native --client <codex|claude|opencode> [--project <path>] [--uninstall|--adopt-existing|--force]");
   log("Inspection: kiln model-gateway outcome-incidents [--json]");
+  log("Continuity: kiln model-gateway thread-continuity [--json]");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");
 }
