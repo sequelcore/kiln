@@ -23,9 +23,9 @@ import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import {
-  createOperatorProjectManagedJobApplicationComposition,
-  type OperatorProjectManagedJobApplicationComposition,
-} from "../application/operator-project-managed-jobs.js";
+  createOperatorProjectAgentTaskApplicationComposition,
+  type OperatorProjectAgentTaskApplicationComposition,
+} from "../application/operator-project-agent-tasks.js";
 
 export interface ManagedAgentCommandOptions {
   readonly projectPath?: string;
@@ -34,9 +34,9 @@ export interface ManagedAgentCommandOptions {
   readonly controlTimeoutMs?: number;
   readonly webSocketFactory?: ManagedAgentGatewayWebSocketFactory;
   readonly clock?: () => Date;
-  readonly createManagedJobComposition?: (input: {
+  readonly createAgentTaskComposition?: (input: {
     readonly projectPath: string;
-  }) => Promise<OperatorProjectManagedJobApplicationComposition>;
+  }) => Promise<OperatorProjectAgentTaskApplicationComposition>;
 }
 
 export interface ManagedAgentGatewaySocket {
@@ -495,7 +495,7 @@ async function approveManagedWrite(
   const now = options.clock?.() ?? new Date();
   if (Number.isNaN(now.getTime())) throw new Error("Use a valid CLI clock for approve-write.");
   const expiresAt = new Date(now.getTime() + parsed.expiresInSeconds * 1_000).toISOString();
-  const createComposition = options.createManagedJobComposition ?? createOperatorProjectManagedJobApplicationComposition;
+  const createComposition = options.createAgentTaskComposition ?? createOperatorProjectAgentTaskApplicationComposition;
   const composition = await createComposition({ projectPath });
   try {
     const job = await composition.application.approveWrite(parsed.jobId, expiresAt);

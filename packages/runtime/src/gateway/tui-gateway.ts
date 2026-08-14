@@ -16,7 +16,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import { RuntimeSessionOrchestrator } from "../session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../session/runtime-session-orchestrator.js";
-import type { RuntimeBudgetAdmissionPort } from "../session/runtime-budget-admission.js";
+import type { RuntimeSessionTurnBudgetAuthority } from "../session/session-turn-budget-authority.js";
 import { SessionRegistry } from "../session/persistence/session-registry.js";
 import {
   textParts,
@@ -71,6 +71,7 @@ import {
   resolveGuiOperatorDiscoveryResults,
 } from "./gui-provider-models.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
+import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import type {
   RuntimeTurnApprovalTransition,
@@ -143,7 +144,7 @@ export interface TuiGatewayOptions {
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
-  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -246,6 +247,7 @@ export function deriveTuiDoneAuthorityStatus(
 
 export function buildTuiWelcomeFramePayload(input: {
   readonly executionRouteCatalog: ExecutionRouteCatalog;
+  readonly availableModels: import("@kilnai/gateway-contracts").AvailableModelCatalog;
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -254,6 +256,7 @@ export function buildTuiWelcomeFramePayload(input: {
 }): {
   readonly type: "welcome";
   readonly executionRouteCatalog: ExecutionRouteCatalog;
+  readonly availableModels: import("@kilnai/gateway-contracts").AvailableModelCatalog;
   readonly providerModelDiscovery: GuiProviderModelDiscoveryProjection;
   readonly models: Record<string, string[]>;
   readonly providerDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -263,6 +266,7 @@ export function buildTuiWelcomeFramePayload(input: {
   return {
     type: "welcome",
     executionRouteCatalog: input.executionRouteCatalog,
+    availableModels: input.availableModels,
     providerModelDiscovery: input.providerModelDiscovery,
     models: input.models,
     ...(input.providerDiscovery ? { providerDiscovery: input.providerDiscovery } : {}),
@@ -463,7 +467,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
     provider: executor,
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
-    ...(options.budgetAdmission ? { budgetAdmission: options.budgetAdmission } : {}),
+    ...(options.sessionTurnBudget ? { sessionTurnBudget: options.sessionTurnBudget } : {}),
   });
   const sessionRegistry = new SessionRegistry();
   const voiceSynthesisSources = new Map<string, { readonly parts: readonly ContentPart[]; readonly sessionId: string }>();
@@ -606,9 +610,12 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
               activeModelCapabilities,
             ),
           );
+          const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
+          const providerModelDiscovery = projectGuiProviderModelDiscovery(currentDiscovery);
           ws.send(JSON.stringify(buildTuiWelcomeFramePayload({
-            executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
-            providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
+            executionRouteCatalog,
+            availableModels: projectAvailableModelCatalogForExecutionRoutes({ discovery: providerModelDiscovery, executionRouteCatalog }),
+            providerModelDiscovery,
             models: currentModels,
             providerDiscovery: currentDiscovery,
             executionMode: options.executionMode ?? "execute",
@@ -646,9 +653,13 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
             }
 
             if (frame.type === "refresh_execution_routes") {
+              const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
               ws.send(JSON.stringify({
                 type: "execution_routes_refreshed",
-                executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
+                executionRouteCatalog,
+                availableModels: projectAvailableModelCatalogForExecutionRoutes({
+                  discovery: projectGuiProviderModelDiscovery(readDiscovery()), executionRouteCatalog,
+                }),
               }));
               return;
             }
@@ -716,6 +727,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 reason: providerDiscovery?.reason,
                 modelCount: projectGuiOperatorModels(currentDiscovery)[auth.provider]?.length ?? 0,
               });
+              const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
               ws.send(JSON.stringify({
                 type: "provider_auth_completed",
                 provider: auth.provider,
@@ -723,7 +735,10 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
-                executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
+                executionRouteCatalog,
+                availableModels: projectAvailableModelCatalogForExecutionRoutes({
+                  discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
+                }),
               }));
               return;
             }

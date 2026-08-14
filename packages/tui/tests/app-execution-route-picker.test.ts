@@ -12,6 +12,7 @@ const harness = vi.hoisted(() => ({
   switchExecutionRoute: vi.fn(),
   authenticateProvider: vi.fn(),
   sendMessage: vi.fn(),
+  routePicker: null as { title: { content: string }; rows: Array<{ content: string }> } | null,
 }));
 
 vi.mock("../src/state.js", async () => {
@@ -118,13 +119,15 @@ vi.mock("../src/ui.js", () => ({
       },
       scrollChildIntoView: () => undefined,
     };
-    return {
+    const picker = {
       rows: [] as Array<{ id?: string; content: string; destroy: () => void }>,
       scrollBox,
       title: { content: "" },
       hint: { content: "" },
       mode: "routes",
     };
+    harness.routePicker = picker;
+    return picker;
   },
   destroyExecutionRoutePicker: () => undefined,
 }));
@@ -329,6 +332,7 @@ describe("TUI execution-route picker", () => {
     harness.switchExecutionRoute.mockReset();
     harness.authenticateProvider.mockReset();
     harness.sendMessage.mockReset();
+    harness.routePicker = null;
   });
 
   it("cycles requested turn authority and exposes it to the next sent turn", async () => {
@@ -659,6 +663,25 @@ describe("TUI execution-route picker", () => {
       harness.renderer?.destroy();
       void startPromise.catch(() => undefined);
     }
+  });
+
+  it("opens the Runtime Available Models read-only view from the route picker without selecting", async () => {
+    const createSession = vi.fn(async () => ({
+      run: async function* () {}, dispose: vi.fn(), executionRouteCatalog: ROUTE_CATALOG,
+      availableModels: { observedAt: "2026-08-13T18:00:00.000Z", entries: [{ providerId: "provider", providerRouteId: "provider:direct", providerModelId: "model", discoveryState: "observed", eligibilityState: "eligible", availabilityState: "available", configuredState: "unconfigured", configuredRouteRefs: [], reasonCodes: ["discovery-observed"] }] },
+      switchExecutionRoute: harness.switchExecutionRoute,
+    }));
+    const startPromise = startTui(createSession, [{ id: "claude", group: "subscription", models: ["claude-sonnet-4-6"], free: false }], "claude", "kiln", TEST_THEME);
+    try {
+      await waitForTuiReady();
+      emitText("/route"); emitKey("\r", "return"); await flushUi();
+      emitKey("a", "a"); await flushUi();
+      expect(harness.routePicker?.title.content).toContain("Available Models (read-only)");
+      expect(harness.routePicker?.rows.some((row) => row.content.includes("provider/model"))).toBe(true);
+      emitKey("\r", "return"); await flushUi();
+      expect(harness.switchExecutionRoute).not.toHaveBeenCalled();
+      expect(harness.state?.executionRoutePickerOpen).toBe(true);
+    } finally { harness.renderer?.destroy(); void startPromise.catch(() => undefined); }
   });
 
   it("shows a route-catalog loader and blocks selection while refresh is in flight", async () => {

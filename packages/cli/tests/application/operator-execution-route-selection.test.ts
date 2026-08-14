@@ -16,7 +16,7 @@ describe("operator execution route selection", () => {
       return accountAvailability.current;
     });
     const port = createOperatorExecutionRouteSelectionPort({
-      readConfig: economicConfig,
+      readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
       resolveAccountAvailability,
     });
 
@@ -48,7 +48,7 @@ describe("operator execution route selection", () => {
     ["provider-unavailable", ["provider-unavailable"]],
   ] as const)("projects sanitized %s account evidence through admission", async (_name, reasonCodes) => {
     const port = createOperatorExecutionRouteSelectionPort({
-      readConfig: economicConfig,
+      readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
       resolveAccountAvailability: async () => [{ accountId: "codex-account", available: false, reasonCodes }],
     });
 
@@ -61,7 +61,7 @@ describe("operator execution route selection", () => {
     "fails closed when quota evidence is %s",
     async (reasonCode) => {
       const port = createOperatorExecutionRouteSelectionPort({
-        readConfig: economicConfig,
+        readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
         resolveAccountAvailability: async () => [{
           accountId: "codex-account",
           available: false,

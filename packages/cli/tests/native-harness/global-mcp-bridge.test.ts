@@ -63,11 +63,11 @@ describe("global MCP bridge", () => {
       "kiln_work_governance_inspect",
       "kiln_capability_inspect",
       "kiln_account_usage_inspect",
-      "kiln_managed_agent_invoke",
-      "kiln_managed_agent_status",
-      "kiln_managed_agent_result",
-      "kiln_managed_agent_cancel",
-      "kiln_managed_agent_replay",
+      "kiln_agent_task_submit",
+      "kiln_agent_task_status",
+      "kiln_agent_task_result",
+      "kiln_agent_task_cancel",
+      "kiln_agent_task_replay",
     ]);
     await handle.close();
     deferred.resolve(READY);

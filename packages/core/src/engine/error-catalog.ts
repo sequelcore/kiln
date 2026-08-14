@@ -356,6 +356,13 @@ export function getErrorSuggestion(
         docUrl: docUrl(code),
       };
 
+    case "A2A_TIMEOUT":
+      return {
+        suggestion:
+          "The remote A2A operation exceeded its deadline. Retry or increase the configured delegation timeout.",
+        docUrl: docUrl(code),
+      };
+
     case "A2A_CLIENT_FAILED":
       return {
         suggestion:

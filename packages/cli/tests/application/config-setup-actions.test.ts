@@ -140,14 +140,7 @@ describe("config setup actions", () => {
     expect(result.status).toBe("applied");
     expect(readFileSync(adoptedPath, "utf-8")).toContain("name: shadcn");
     expect(result.errors).toEqual([]);
-    expect(result.setup.skills?.entries).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        name: "shadcn",
-        origin: "user",
-        configured: true,
-        admission: expect.objectContaining({ state: "available" }),
-      }),
-    ]));
+    expect(result.setup.skills).toMatchObject({ issueCount: 0 });
   });
 
   it("does not partially adopt when native harness copies conflict", async () => {

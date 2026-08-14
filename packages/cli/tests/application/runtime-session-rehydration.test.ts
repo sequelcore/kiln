@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  adoptBoundedWorkContractRevision,
   extractText,
   GoalRunStore,
   reconstructWorkItemsFromSessionEvents,
@@ -125,11 +126,14 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       updatedAt: "2026-05-08T00:00:02.000Z",
       sequence: 1,
     };
+    const boundedWorkContractRevision = boundedWorkRevision("goal-1", ["work-1"], "Continue governed GUI workflow");
     const goal = {
       id: "goal-1",
       objective: "Continue governed GUI workflow",
       ownerSessionId: sessionId,
       planId: "plan-1",
+      boundedWorkContractRevision,
+      boundedWorkContractRevisionHistory: [boundedWorkContractRevision],
       status: "active",
       workItemIds: ["work-1"],
       authorityEnvelope: {
@@ -347,3 +351,19 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
     });
   });
 });
+
+function boundedWorkRevision(goalId: string, workItemIds: readonly string[], objective: string) {
+  return adoptBoundedWorkContractRevision({
+    accountingLineageId: goalId,
+    adoptedAt: "2026-05-08T00:00:02.000Z",
+    adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalId}` },
+    contract: {
+      schema: "kiln.bounded-work-contract/v1",
+      intent: { objective, acceptanceCriteria: ["focused tests pass"], nonGoals: [] },
+      scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect", "modify_source", "run_verification"], permittedSurfaces: ["gui"], allowedRoots: ["packages/gui"], deniedRoots: [], refactorAuthority: "scoped", migrationAuthority: "none", dependencyAuthority: "none" },
+      limits: { maxExecutionAttempts: 10, maxManagedInvocations: 10, maxConcurrentManagedInvocations: 3, maxChildDepth: 2, maxReviewRounds: 3, maxRemediationRounds: 3 },
+      tripwires: {},
+      policy: { scopeExpansion: "approval_required", budgetExhaustion: "pause", minimumHarnessCapability: "authoritative" },
+    },
+  });
+}

@@ -28,6 +28,7 @@ const EMPTY_PROVIDER_MODEL_DISCOVERY: Extract<GuiInboundFrame, { type: "welcome"
   entries: [],
 };
 const EMPTY_EXECUTION_ROUTE_CATALOG = { routes: [] } as const;
+const EMPTY_AVAILABLE_MODELS = { observedAt: "2026-07-01T00:00:00.000Z", entries: [] } as const;
 
 // Track created WebSocket instances for testing
 let wsInstances: MockWebSocket[] = [];
@@ -1313,6 +1314,7 @@ describe("GuiWsClient", () => {
           json: {
             type: "welcome",
             executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
+            availableModels: EMPTY_AVAILABLE_MODELS,
             providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
@@ -1322,6 +1324,7 @@ describe("GuiWsClient", () => {
           expected: {
             type: "welcome",
             executionRouteCatalog: EMPTY_EXECUTION_ROUTE_CATALOG,
+            availableModels: EMPTY_AVAILABLE_MODELS,
             providerModelDiscovery: EMPTY_PROVIDER_MODEL_DISCOVERY,
             greeting: "Welcome!",
             models: { openai: ["gpt-4"] },
@@ -1345,6 +1348,14 @@ describe("GuiWsClient", () => {
             routeId: "claude-sonnet",
             requestId: "route-switch-1",
           },
+        },
+        {
+          json: { type: "execution_route_create_result", requestId: "create-1", status: "rejected", code: "EXECUTION_ROUTE_CREATE_DENIED", message: "Current evidence changed." },
+          expected: { type: "execution_route_create_result", requestId: "create-1", status: "rejected", code: "EXECUTION_ROUTE_CREATE_DENIED", message: "Current evidence changed." },
+        },
+        {
+          json: { type: "execution_route_create_result", requestId: "create-2", status: "committed-refresh-failed", code: "EXECUTION_ROUTE_COMMITTED_REFRESH_FAILED", message: "Committed; refresh required.", revision: `sha256:${"d".repeat(64)}` },
+          expected: { type: "execution_route_create_result", requestId: "create-2", status: "committed-refresh-failed", code: "EXECUTION_ROUTE_COMMITTED_REFRESH_FAILED", message: "Committed; refresh required.", revision: `sha256:${"d".repeat(64)}` },
         },
         {
           json: {

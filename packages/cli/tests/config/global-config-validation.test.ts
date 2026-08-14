@@ -49,12 +49,12 @@ describe("validateGlobalConfig root fields", () => {
     expect(() => validateGlobalConfig({ ...baseConfig(), models: {} })).toThrow(/Unknown global config field: models/u);
   });
 
-  it("accepts explicit native worker fields", () => {
+  it("rejects retired worker routing budget fields", () => {
     expect(() => validateGlobalConfig({
       ...baseConfig(),
       workerRouting: { defaultWorker: "codex", budgetAware: true },
       workerModels: { codex: "gpt-5.6-terra" },
-    })).not.toThrow();
+    })).toThrow(/budgetAware/u);
   });
 });
 

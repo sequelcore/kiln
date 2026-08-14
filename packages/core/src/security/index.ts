@@ -26,6 +26,16 @@ export {
 } from "./trusted-execution-authorization-store.js";
 export type { TrustedExecutionEnforcementInput } from "./trusted-execution-enforcement.js";
 export { describeTrustedExecutionEnforcement } from "./trusted-execution-enforcement.js";
+export type { TrustedExecutionLimitationAcceptance, TrustedExecutionSemanticLimitation } from "./trusted-execution-semantic-limitation.js";
+export {
+  OPENCODE_NO_FILESYSTEM_SANDBOX,
+  TRUSTED_EXECUTION_SEMANTIC_LIMITATIONS,
+  acceptTrustedExecutionSemanticLimitation,
+  readTrustedExecutionSemanticLimitationAcceptance,
+  revokeTrustedExecutionSemanticLimitation,
+  validateTrustedExecutionLimitationAcceptance,
+  validateTrustedExecutionSemanticLimitation,
+} from "./trusted-execution-semantic-limitation.js";
 export type { TrustedExecutionGrantPlan } from "./trusted-execution-grant.js";
 export {
   finalizeTrustedExecutionGrant,

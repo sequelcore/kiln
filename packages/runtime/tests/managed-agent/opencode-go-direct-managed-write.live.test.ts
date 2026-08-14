@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { createOperatorProjectManagedJobApplicationComposition } from "../../../cli/src/application/operator-project-managed-jobs.js";
+import { createOperatorProjectAgentTaskApplicationComposition } from "../../../cli/src/application/operator-project-agent-tasks.js";
 import { readGlobalConfig } from "../../../cli/src/config/global-config.js";
 import {
   KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV,
@@ -73,7 +73,7 @@ describeManagedAgentProviderLive(
         const routeId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
           || "opencode-go-critical-approved-write";
         const liveRoute = assertLiveRoute(routeId);
-        const composition = await createOperatorProjectManagedJobApplicationComposition({
+        const composition = await createOperatorProjectAgentTaskApplicationComposition({
           projectPath: workspace.workspaceRoot,
         });
         try {
@@ -119,7 +119,7 @@ describeManagedAgentProviderLive(
           expect(status).toMatchObject({
             state: "succeeded",
             result: { routeId, providerId: "opencode-go" },
-            writeApproval: { state: "consumed", consumedBy: `managed-job:${accepted.id}` },
+            writeApproval: { state: "consumed", consumedBy: `agent-task:${accepted.id}` },
           });
           expect(result).toMatchObject({
             availability: "available",

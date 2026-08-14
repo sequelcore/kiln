@@ -182,6 +182,17 @@ const TrustedExecutionEvidenceSchema = z.object({
   proof: z.enum(TRUSTED_EXECUTION_PROOF_STATUSES),
   projectionOwnership: z.enum(["kiln-managed", "operator-owned", "unmanaged"]).optional(),
 });
+const TrustedExecutionSemanticLimitationSchema = z.object({
+  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/),
+  harness: z.enum(KILN_SETUP_HARNESSES), message: z.string().min(1), sourceUrl: z.string().url(),
+  upstreamRevision: z.string().regex(/^[a-f0-9]{40}$/), sourceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  observedAt: z.string().datetime(), reviewAfter: z.string().datetime(),
+}).refine((value) => Date.parse(value.reviewAfter) > Date.parse(value.observedAt), "reviewAfter must follow observedAt");
+const TrustedExecutionLimitationAcceptanceSchema = z.object({
+  limitationId: z.string().min(1), harness: z.enum(KILN_SETUP_HARNESSES), sourceUrl: z.string().url(),
+  upstreamRevision: z.string().regex(/^[a-f0-9]{40}$/), sourceDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  acceptedBy: z.string().min(1), acceptedAt: z.string().datetime(), reviewAfter: z.string().datetime(), revocable: z.literal(true),
+});
 
 export const TrustedExecutionIntegritySchema = z.object({
   harness: z.enum(KILN_SETUP_HARNESSES),
@@ -204,6 +215,8 @@ export const TrustedExecutionIntegritySchema = z.object({
     reason: z.string().optional(),
   }),
   semanticLoss: z.array(z.string()),
+  semanticLimitations: z.array(TrustedExecutionSemanticLimitationSchema),
+  limitationAcceptances: z.array(TrustedExecutionLimitationAcceptanceSchema),
   classification: z.enum(TRUSTED_EXECUTION_CLASSIFICATIONS),
   recommendation: z.string(),
   remediationRequiresApproval: z.boolean(),
@@ -235,6 +248,13 @@ export const TrustedExecutionIntegritySchema = z.object({
     });
   }
   const trustedAuthorization = trustedExecutionAuthorizationIsComplete(value.authorization);
+  const acceptedLimitationIds = new Set(value.limitationAcceptances.flatMap((acceptance) => {
+    const descriptor = value.semanticLimitations.find((candidate) => candidate.id === acceptance.limitationId);
+    return descriptor && descriptor.harness === acceptance.harness && descriptor.sourceUrl === acceptance.sourceUrl
+      && descriptor.upstreamRevision === acceptance.upstreamRevision && descriptor.sourceDigest === acceptance.sourceDigest
+      && Date.parse(acceptance.reviewAfter) <= Date.parse(descriptor.reviewAfter) ? [acceptance.limitationId] : [];
+  }));
+  if (value.limitationAcceptances.length !== acceptedLimitationIds.size) context.addIssue({ code: z.ZodIssueCode.custom, path: ["limitationAcceptances"], message: "Limitation acceptance must exactly bind a current descriptor" });
   if (value.authorization.status === "authorized" && !trustedAuthorization) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -270,6 +290,7 @@ export const TrustedExecutionIntegritySchema = z.object({
     || !persistedNativeMatchesDesired
     || !sessionOverrideMatchesDesired
     || value.semanticLoss.length > 0
+    || value.semanticLimitations.length > 0
     || (value.desired.profile === "trusted-full-access" && !trustedAuthorization)
     || (persistedNativeBroadensDesired && !trustedAuthorization)
   )) {
@@ -278,6 +299,10 @@ export const TrustedExecutionIntegritySchema = z.object({
       path: ["classification"],
       message: "Current verified state requires fresh matching runtime proof and valid trusted authorization",
     });
+  }
+  if (value.semanticLimitations.length > 0 && !value.remediationRequiresApproval
+    && acceptedLimitationIds.size !== value.semanticLimitations.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["remediationRequiresApproval"], message: "Unaccepted, expired, or mismatched limitations require remediation" });
   }
 });
 

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   brotliDecompressSync,
   gunzipSync,
@@ -44,6 +44,7 @@ const MODEL_ROUTED_PATHS = new Set(["/v1/responses", "/v1/responses/compact"]);
 const COMPACTION_SUMMARY_PROMPT = "Create a concise checkpoint summary that preserves the task, decisions, completed work, current state, blockers, and exact next actions for another coding agent. Do not continue the task.";
 const MAX_COMPACTION_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MAX_RETAINED_USER_TEXT_CHARS = 80_000;
+// Queue waiters retain only their Request stream; bodies are read only after admission.
 
 export interface CodexCompositeFetchOptions {
   readonly config: ModelGatewayConfig;
@@ -51,6 +52,20 @@ export interface CodexCompositeFetchOptions {
   readonly canonicalFetch: (request: Request) => Response | Promise<Response>;
   readonly nativeFetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   readonly nativeBaseUrl?: string;
+  readonly ingressCapacityEvidence?: { record(evidence: CodexCompositeIngressCapacityEvidence): Promise<void> };
+}
+
+export type CodexCompositeRequestClass = "responses" | "compact" | "search" | "image-edits" | "image-generations";
+export interface CodexCompositeIngressCapacityEvidence {
+  readonly occurredAt: string;
+  readonly correlationId: string;
+  readonly requestClass: CodexCompositeRequestClass;
+  readonly outcome: "queue-full" | "queue-timeout";
+  readonly origin: "ingress";
+  readonly phase: "pre-dispatch";
+  readonly retryable: true;
+  readonly retryAfterSeconds: number;
+  readonly waitMs: number;
 }
 
 export function createCodexCompositeCapability(principalToken: string): string {
@@ -75,9 +90,19 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
   const prefix = `${CODEX_COMPOSITE_PATH_PREFIX}/${capability}`;
   const virtualModelIds = new Set(principal.virtualModelIds);
   const virtualModels = new Map(options.config.virtualModels.map((model) => [model.id, model]));
-  const maxBodyBytes = options.config.surfaces.openAIResponses?.maxBodyBytes;
-  if (!maxBodyBytes) throw new Error("Codex composite routing requires the OpenAI Responses surface.");
-  const concurrency = createCompositeConcurrencyLimiter(options.config.surfaces.openAIResponses?.maxConcurrentRequests ?? 1);
+  const surface = options.config.surfaces.openAIResponses;
+  if (!surface) throw new Error("Codex composite routing requires the OpenAI Responses surface.");
+  const maxBodyBytes = surface.maxBodyBytes;
+  const backpressure = options.config.codexComposite;
+  if (!backpressure) throw new Error("Codex composite routing requires codexComposite ingress policy.");
+  const capacityByClass = new Map<CodexCompositeRequestClass, CompositeBackpressure>();
+  for (const requestClass of COMPOSITE_REQUEST_CLASSES) {
+    capacityByClass.set(requestClass, new CompositeBackpressure(
+      surface.maxConcurrentRequests,
+      backpressure.maxQueuedRequests,
+      backpressure.queueTimeoutMs,
+    ));
+  }
   const nativeFetch = options.nativeFetch ?? fetch;
   const nativeBaseUrl = (options.nativeBaseUrl ?? CODEX_NATIVE_BASE_URL).replace(/\/+$/u, "");
 
@@ -96,104 +121,236 @@ export function createCodexCompositeFetch(options: CodexCompositeFetchOptions): 
       return jsonError(404, "unsupported_composite_route");
     }
 
-    const releaseConcurrency = concurrency.acquire();
-    if (!releaseConcurrency) return jsonError(429, "composite_ingress_overloaded");
-    let encodedBody: Buffer;
-    try {
-      encodedBody = await readBoundedRequestBody(request, maxBodyBytes);
-    } catch (error) {
-      releaseConcurrency();
-      if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
-      throw error;
-    }
-    claimModelGatewayRequestLifetime(request);
-    try {
-    let decodedBody: Buffer;
-    try {
-      decodedBody = decodeBody(encodedBody, request.headers.get("content-encoding"), maxBodyBytes);
-    } catch (error) {
-      if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
-      throw error;
-    }
-    let requestedModel: string | undefined;
-    let parsed: Record<string, unknown> | undefined;
-    if (MODEL_ROUTED_PATHS.has(routePath)) {
+    const requestClass = classifyCompositeRequest(routePath);
+    const correlationId = randomUUID();
+    const admission = await capacityByClass.get(requestClass)!.acquire(request.signal);
+    if (admission.kind !== "acquired") {
+      const retryAfterSeconds = Math.max(1, Math.ceil(backpressure.queueTimeoutMs / 1_000));
       try {
-        parsed = parseRequestObject(decodedBody);
+        await options.ingressCapacityEvidence?.record({
+          occurredAt: new Date().toISOString(), correlationId, requestClass,
+          outcome: admission.kind, origin: "ingress", phase: "pre-dispatch",
+          retryable: true, retryAfterSeconds, waitMs: admission.waitMs,
+        });
+      } catch {
+        // Capacity evidence is observability; it must never replace the stable ingress response.
+      }
+      return ingressCapacityError(admission.kind, correlationId, retryAfterSeconds);
+    }
+    let releaseOnFailure = true;
+    try {
+      let encodedBody: Buffer;
+      try {
+        encodedBody = await readBoundedRequestBody(request, maxBodyBytes);
       } catch (error) {
-        if (error instanceof CompositeRequestError) return jsonError(error.status, error.type);
+        if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
         throw error;
       }
-      if (typeof parsed.model !== "string" || parsed.model.length === 0) {
-        return jsonError(400, "model_required");
+      let decodedBody: Buffer;
+      try {
+        decodedBody = decodeBody(encodedBody, request.headers.get("content-encoding"), maxBodyBytes);
+      } catch (error) {
+        if (error instanceof CompositeRequestError) return compositeError(error, maxBodyBytes);
+        throw error;
       }
-      requestedModel = parsed.model;
-    }
-
-    if (requestedModel && virtualModelIds.has(requestedModel)) {
-      const virtualModel = virtualModels.get(requestedModel);
-      if (!virtualModel) return jsonError(422, "virtual_model_not_configured");
-      const normalized = normalizeVirtualRequest(parsed!, virtualModel);
-      const headers = new Headers(request.headers);
-      headers.set("authorization", `Bearer ${principalToken}`);
-      headers.set("content-type", "application/json");
-      headers.delete("content-encoding");
-      headers.delete("content-length");
-      const canonicalUrl = new URL(request.url);
-      canonicalUrl.pathname = "/v1/responses";
-      canonicalUrl.search = "";
-      if (routePath === "/v1/responses/compact") {
+      let requestedModel: string | undefined;
+      let parsed: Record<string, unknown> | undefined;
+      if (MODEL_ROUTED_PATHS.has(routePath)) {
         try {
-          return await compactVirtualRequest({
-            request: normalized,
-            canonicalUrl,
-            headers,
-            canonicalFetch: options.canonicalFetch,
-            signal: request.signal,
-          });
+          parsed = parseRequestObject(decodedBody);
         } catch (error) {
           if (error instanceof CompositeRequestError) return jsonError(error.status, error.type);
           throw error;
         }
+        if (typeof parsed.model !== "string" || parsed.model.length === 0) {
+          return jsonError(400, "model_required");
+        }
+        requestedModel = parsed.model;
       }
-      return await options.canonicalFetch(new Request(canonicalUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(normalized),
-        signal: request.signal,
-      }));
-    }
 
-    const authorization = request.headers.get("authorization");
-    if (!authorization?.startsWith("Bearer ")) return jsonError(401, "native_authentication_required");
-    const headers = copyAllowedNativeHeaders(request.headers);
-    const upstreamPath = routePath.replace(/^\/v1(?=\/|$)/u, "");
-    const search = routePath === "/v1/alpha/search" && url.searchParams.get("source") === "codex"
-      ? "?source=codex"
-      : "";
-    return await nativeFetch(`${nativeBaseUrl}${upstreamPath}${search}`, {
-      method: "POST",
-      headers,
-      body: Uint8Array.from(encodedBody),
-      signal: request.signal,
-    });
+      if (!requestedModel || !virtualModelIds.has(requestedModel)) {
+        const authorization = request.headers.get("authorization");
+        if (!authorization?.startsWith("Bearer ")) return jsonError(401, "native_authentication_required");
+      }
+      claimModelGatewayRequestLifetime(request);
+
+      let response: Response;
+      if (requestedModel && virtualModelIds.has(requestedModel)) {
+        const virtualModel = virtualModels.get(requestedModel);
+        if (!virtualModel) return jsonError(422, "virtual_model_not_configured");
+        const normalized = normalizeVirtualRequest(parsed!, virtualModel);
+        const headers = new Headers(request.headers);
+        headers.set("authorization", `Bearer ${principalToken}`);
+        headers.set("content-type", "application/json");
+        headers.delete("content-encoding");
+        headers.delete("content-length");
+        const canonicalUrl = new URL(request.url);
+        canonicalUrl.pathname = "/v1/responses";
+        canonicalUrl.search = "";
+        if (routePath === "/v1/responses/compact") {
+          try {
+            response = await compactVirtualRequest({
+              request: normalized,
+              canonicalUrl,
+              headers,
+              canonicalFetch: options.canonicalFetch,
+              signal: request.signal,
+            });
+          } catch (error) {
+            if (error instanceof CompositeRequestError) return jsonError(error.status, error.type);
+            throw error;
+          }
+        } else {
+          response = await options.canonicalFetch(new Request(canonicalUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(normalized),
+            signal: request.signal,
+          }));
+        }
+      } else {
+        const headers = copyAllowedNativeHeaders(request.headers);
+        const upstreamPath = routePath.replace(/^\/v1(?=\/|$)/u, "");
+        const search = routePath === "/v1/alpha/search" && url.searchParams.get("source") === "codex"
+          ? "?source=codex"
+          : "";
+        response = await nativeFetch(`${nativeBaseUrl}${upstreamPath}${search}`, {
+          method: "POST",
+          headers,
+          body: Uint8Array.from(encodedBody),
+          signal: request.signal,
+        });
+      }
+      releaseOnFailure = false;
+      return retainResponseCapacity(response, admission.release, request.signal);
     } finally {
-      releaseConcurrency();
+      if (releaseOnFailure) admission.release();
     }
   };
 }
 
-function createCompositeConcurrencyLimiter(maximum: number): { acquire(): (() => void) | undefined } {
-  if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new TypeError("Codex composite maxConcurrentRequests is invalid.");
-  let active = 0;
-  return {
-    acquire() {
-      if (active >= maximum) return undefined;
-      active += 1;
-      let released = false;
-      return () => { if (!released) { released = true; active -= 1; } };
-    },
+const COMPOSITE_REQUEST_CLASSES: readonly CodexCompositeRequestClass[] = ["responses", "compact", "search", "image-edits", "image-generations"];
+function classifyCompositeRequest(path: string): CodexCompositeRequestClass {
+  if (path === "/v1/responses") return "responses";
+  if (path === "/v1/responses/compact") return "compact";
+  if (path === "/v1/alpha/search") return "search";
+  if (path === "/v1/images/edits") return "image-edits";
+  return "image-generations";
+}
+
+function retainResponseCapacity(response: Response, release: () => void, signal: AbortSignal): Response {
+  const upstreamBody = response.body;
+  if (!upstreamBody) {
+    release();
+    return response;
+  }
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let released = false;
+  const finish = () => {
+    if (released) return;
+    released = true;
+    signal.removeEventListener("abort", finish);
+    release();
   };
+  const body = new ReadableStream<Uint8Array>({
+    start() {
+      reader = upstreamBody.getReader();
+      signal.addEventListener("abort", finish, { once: true });
+      if (signal.aborted) finish();
+    },
+    async pull(controller) {
+      try {
+        const part = await reader!.read();
+        if (part.done) {
+          controller.close();
+          finish();
+        } else {
+          controller.enqueue(part.value);
+        }
+      } catch (error) {
+        controller.error(error);
+        finish();
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader!.cancel(reason);
+      } finally {
+        finish();
+      }
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+type CapacityAdmission =
+  | { readonly kind: "acquired"; readonly release: () => void }
+  | { readonly kind: "queue-full" | "queue-timeout"; readonly waitMs: number };
+type CapacityWaiter = {
+  startedAt: number;
+  resolve: (value: CapacityAdmission) => void;
+  signal: AbortSignal;
+  timeout: ReturnType<typeof setTimeout>;
+  abort: () => void;
+};
+class CompositeBackpressure {
+  readonly #queue: CapacityWaiter[] = [];
+  #active = 0;
+  constructor(readonly maximum: number, readonly maxQueued: number, readonly timeoutMs: number) {
+    if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new TypeError("Codex composite maxConcurrentRequests is invalid.");
+    if (!Number.isSafeInteger(maxQueued) || maxQueued < 0) throw new TypeError("Codex composite maxQueuedRequests is invalid.");
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError("Codex composite queueTimeoutMs is invalid.");
+  }
+  async acquire(signal: AbortSignal): Promise<CapacityAdmission> {
+    if (signal.aborted) throw signal.reason ?? new DOMException("The request was aborted.", "AbortError");
+    if (this.#active < this.maximum) {
+      this.#active += 1;
+      return { kind: "acquired", release: this.#release() };
+    }
+    if (this.#queue.length >= this.maxQueued) return { kind: "queue-full", waitMs: 0 };
+    return new Promise<CapacityAdmission>((resolve, reject) => {
+      const startedAt = Date.now();
+      const waiter = {} as CapacityWaiter;
+      const remove = () => {
+        const index = this.#queue.indexOf(waiter);
+        if (index >= 0) this.#queue.splice(index, 1);
+      };
+      waiter.startedAt = startedAt;
+      waiter.resolve = resolve;
+      waiter.signal = signal;
+      waiter.abort = () => {
+        clearTimeout(waiter.timeout);
+        remove();
+        reject(signal.reason ?? new DOMException("The request was aborted.", "AbortError"));
+      };
+      waiter.timeout = setTimeout(() => {
+        signal.removeEventListener("abort", waiter.abort);
+        remove();
+        resolve({ kind: "queue-timeout", waitMs: Date.now() - startedAt });
+      }, this.timeoutMs);
+      signal.addEventListener("abort", waiter.abort, { once: true });
+      this.#queue.push(waiter);
+    });
+  }
+  #release(): () => void {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const waiter = this.#queue.shift();
+      if (waiter) {
+        clearTimeout(waiter.timeout);
+        waiter.signal.removeEventListener("abort", waiter.abort);
+        waiter.resolve({ kind: "acquired", release: this.#release() });
+      } else {
+        this.#active -= 1;
+      }
+    };
+  }
 }
 
 async function compactVirtualRequest(input: {
@@ -403,6 +560,31 @@ function copyAllowedNativeHeaders(source: Headers): Headers {
 
 function jsonError(status: number, type: string): Response {
   return Response.json({ error: { type } }, { status });
+}
+
+function ingressCapacityError(
+  outcome: "queue-full" | "queue-timeout",
+  correlationId: string,
+  retryAfterSeconds: number,
+): Response {
+  const code = outcome === "queue-full" ? "ingress_queue_full" : "ingress_queue_timeout";
+  return Response.json({ error: {
+    type: code,
+    code,
+    origin: "ingress",
+    phase: "pre-dispatch",
+    retryable: true,
+    retry_after_seconds: retryAfterSeconds,
+    correlation_id: correlationId,
+  } }, {
+    status: 503,
+    headers: {
+      "retry-after": String(retryAfterSeconds),
+      "x-kiln-error-origin": "ingress",
+      "x-kiln-error-phase": "pre-dispatch",
+      "x-kiln-correlation-id": correlationId,
+    },
+  });
 }
 
 function compositeError(error: CompositeRequestError, maxBodyBytes: number): Response {

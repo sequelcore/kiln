@@ -121,6 +121,8 @@ function trustedIntegrity(overrides: Partial<TrustedExecutionIntegrity> = {}): T
       revocable: true,
     },
     semanticLoss: [],
+    semanticLimitations: [],
+    limitationAcceptances: [],
     classification: "runtime-policy-mismatch",
     recommendation: "Reconcile Codex runtime authority with the operator-selected trusted profile before unattended execution.",
     remediationRequiresApproval: true,
@@ -211,6 +213,8 @@ describe("KilnProjectionTargetSnapshotSchema", () => {
         },
         authorization: { status: "unavailable", revocable: true },
         semanticLoss: [],
+        semanticLimitations: [],
+        limitationAcceptances: [],
         classification: "effective-policy-unproven",
         recommendation: "Verify effective runtime authority.",
         remediationRequiresApproval: true,
@@ -420,6 +424,8 @@ describe("TrustedExecutionIntegritySchema", () => {
         revocable: true,
       },
       semanticLoss: [],
+      semanticLimitations: [],
+      limitationAcceptances: [],
       classification: "runtime-policy-mismatch",
       recommendation: "Start a new Codex session with Full Access and verify its effective runtime policy.",
       remediationRequiresApproval: true,
@@ -427,6 +433,22 @@ describe("TrustedExecutionIntegritySchema", () => {
     };
 
     expect(TrustedExecutionIntegritySchema.parse(integrity)).toEqual(integrity);
+  });
+
+  it("rejects limitation acceptance that does not exactly bind the descriptor", () => {
+    const integrity = trustedIntegrity({
+      semanticLimitations: [{
+        id: "opencode.no-filesystem-sandbox", harness: "opencode", message: "No sandbox.",
+        sourceUrl: "https://example.test/SECURITY.md", upstreamRevision: "a".repeat(40),
+        sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-13T00:00:00.000Z", reviewAfter: "2026-11-13T00:00:00.000Z",
+      }],
+      limitationAcceptances: [{
+        limitationId: "opencode.no-filesystem-sandbox", harness: "opencode", sourceUrl: "https://example.test/SECURITY.md",
+        upstreamRevision: "c".repeat(40), sourceDigest: `sha256:${"b".repeat(64)}`,
+        acceptedBy: "operator", acceptedAt: "2026-08-13T01:00:00.000Z", reviewAfter: "2026-11-13T00:00:00.000Z", revocable: true,
+      }],
+    });
+    expect(() => TrustedExecutionIntegritySchema.parse(integrity)).toThrow();
   });
 
   it("rejects a UI selection presented as proven runtime authority", () => {

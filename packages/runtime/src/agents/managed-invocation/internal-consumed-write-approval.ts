@@ -1,7 +1,7 @@
 import type {
   ManagedWriteApprovalBinding,
   ManagedWriteApprovalReceipt,
-} from "../../managed-write-approvals/sqlite-managed-write-approval-authority.js";
+} from "../../managed-write-approvals/contracts.js";
 
 declare const consumedWriteApprovalBrand: unique symbol;
 

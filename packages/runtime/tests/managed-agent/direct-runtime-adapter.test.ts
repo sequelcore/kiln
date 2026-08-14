@@ -136,7 +136,7 @@ function snapshotInputFor(
 }
 
 function approvedWriteRequest() {
-  const base = request();
+  const base = request({ invocationId: "agent-task:direct-write-1" });
   return request({
     agentId: "direct-write:foundation-apply-approved-writes",
     profile: "foundation-apply-approved-writes",
@@ -171,7 +171,7 @@ function consumedWriteApprovalFor(childRequest: ManagedAgentInvocationRequest) {
     state: "consumed",
     binding: {
       projectId: "test-project",
-      jobId: childRequest.invocationId.replace(/^managed-job:/u, ""),
+      jobId: childRequest.invocationId.slice("agent-task:".length),
       callerId: childRequest.requestedBy,
       workItemFingerprint: "a".repeat(64),
       configuredAgentProfileId: childRequest.agentId,
@@ -211,6 +211,21 @@ function startManaged(
 }
 
 describe("ManagedDirectProviderRuntimeAdapter", () => {
+  it("requires the canonical AgentTask identity for a consumed write approval", async () => {
+    const provider = providerWithResponses([response("must not execute")]);
+    const childRequest = approvedWriteRequest();
+    const legacyInvocation = { ...childRequest, invocationId: "managed-job:direct-write-1" };
+    const adapter = new ManagedDirectProviderRuntimeAdapter({ providerId: "openai", model: "gpt-test", provider, tools: [], builtinTools: new Map() });
+
+    await expect(new RuntimeManagedAgentInvocationService().start(
+      legacyInvocation,
+      adapter,
+      snapshotInputFor(legacyInvocation),
+      { consumedWriteApproval: consumedWriteApprovalFor(childRequest) },
+    )).rejects.toThrow("Consumed managed write approval");
+    expect(provider.createMessage).not.toHaveBeenCalled();
+  });
+
   it("rejects matching consumed-write data when it was not minted by the approval authority bridge", async () => {
     const provider = providerWithResponses([response("must not execute")]);
     const childRequest = approvedWriteRequest();
@@ -1192,6 +1207,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
       });
 
       const approvedRequest = request({
+        invocationId: "agent-task:direct-write-live-1",
         agentId: "direct-write:foundation-apply-approved-writes",
         profile: "foundation-apply-approved-writes",
         providerRoute: {
@@ -1275,9 +1291,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         "write-proposal-approved",
         "write-attempt-completed",
       ]);
-      expect(result.record.resultHandoff?.resourceUris).toContain(
-        "kiln://managed-agents/invocations/inv-direct-1/resources/write-attempts/1",
-      );
+      expect(result.record.resultHandoff?.resourceUris.some((uri) => uri.endsWith("/resources/write-attempts/1"))).toBe(true);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }

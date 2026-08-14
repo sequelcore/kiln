@@ -2047,7 +2047,7 @@ describe("Transcript", () => {
               input: {
                 profile: "foundation-readonly-plan",
                 providerRoute: { providerId: "codex-oauth" },
-                task: "Inspect docs/architecture/managed-agents.md.",
+                task: "Inspect docs/architecture/coordination/agent-tasks.md.",
               },
             },
             presentationDetails: [
@@ -2063,7 +2063,7 @@ describe("Transcript", () => {
               { label: "Authority", value: "authority:codex-oauth-readonly:foundation-readonly-plan" },
               { label: "Invocation ID", value: "managed-1" },
               { label: "Child session", value: "child-session-1" },
-              { label: "Task", value: "Inspect docs/architecture/managed-agents.md." },
+              { label: "Task", value: "Inspect docs/architecture/coordination/agent-tasks.md." },
             ],
           },
           messageEntry("2", "assistant", "", true),

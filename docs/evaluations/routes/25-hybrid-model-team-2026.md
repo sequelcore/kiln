@@ -247,7 +247,7 @@ weekly credits do not carry over.
 
 The subscription is attractive for an operator's interactive work, especially
 at $19 to test K3/K2.7 or $39 when speed and 1M context are demonstrated needs.
-It is not automatically suitable for Kiln managed jobs. Kimi's own guidance
+It is not automatically suitable for Kiln Agent Tasks. Kimi's own guidance
 says the membership is for personal interactive use and prohibits
 non-interactive automation; one support page lists only selected supported
 tools while the current community guidelines also name OpenCode. That

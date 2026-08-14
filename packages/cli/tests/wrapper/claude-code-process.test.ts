@@ -17,6 +17,13 @@ import {
 import { resolveCommunicationIntent, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
+function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {
+  return {
+    recordRequested: async (draft: any) => { await onRequest(draft.profile); return { schema: "kiln.runtime-permission-evidence", version: 2, kind: "requested", harness: draft.harness, sessionDigest: "a".repeat(64), targetId: "claude-settings", projectionDigest: "b".repeat(64), effectivePolicyDigest: "c".repeat(64), profile: draft.profile, source: "runtime-request", proof: "inferred", requestedAt: draft.requestedAt.toISOString() } as const; },
+    recordObserved: async (requested: any, input: any) => { onObserved?.(); return { ...requested, kind: "observed", requestDigest: "d".repeat(64), source: "runtime-observation", proof: input.proof, observedAt: input.observedAt.toISOString(), verifiedAt: input.observedAt.toISOString() }; },
+  } as any;
+}
+
 function baseConfig(overrides: Partial<ClaudeSessionConfig> = {}): ClaudeSessionConfig {
   return {
     task: "Fix the login bug",
@@ -110,6 +117,30 @@ describe("ClaudeSession implements IKilnSession", () => {
     const call = calls.at(-1)?.[0] as { options?: { systemPrompt?: { append?: string } } } | undefined;
     expect(call?.options?.systemPrompt?.append).toContain("Respond using locale 'es-MX'");
     expect(call?.options?.systemPrompt?.append).toContain("verification");
+  });
+
+  it("records the exact permission handoff immediately before query and blocks query on sink failure", async () => {
+    const order: string[] = [];
+    (mockedQuery as unknown as { mockImplementationOnce: (fn: () => unknown) => void }).mockImplementationOnce(() => {
+      order.push("query");
+      return queryFixture([{ type: "result", subtype: "success", total_cost_usd: 0, is_error: false }]).query;
+    });
+    const sink = permissionWriter((profile) => { order.push(`request:${profile}`); }, () => order.push("observed"));
+    await collectEvents(new ClaudeSession(baseConfig({
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
+      runtimePermissionObservationSink: sink,
+    })).run({ prompt: "test", cwd: process.cwd() }));
+    expect(order).toEqual(["request:trusted-full-access", "query"]);
+
+    const queryCallCount = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
+    const failedEvents = await collectEvents(new ClaudeSession(baseConfig({
+      runtimePermissionObservationSink: permissionWriter(() => { throw new Error("evidence unavailable"); }),
+    })).run({ prompt: "test", cwd: process.cwd() }));
+    expect(failedEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "error", message: "evidence unavailable" }),
+    ]));
+    expect((mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls).toHaveLength(queryCallCount);
   });
 
   it("lowers an evidence-backed admitted deliberation level to the Agent SDK effort option", async () => {

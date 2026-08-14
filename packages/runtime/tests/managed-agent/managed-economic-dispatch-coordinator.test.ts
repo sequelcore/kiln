@@ -796,7 +796,7 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         },
       });
       prepared.registerEconomicSettlement(Promise.resolve(settlement));
-      await vi.waitFor(() => expect(authority.createManagedJobReplayInspectionPort().inspect({ jobId, economicAttemptId }))
+      await vi.waitFor(() => expect(authority.createAgentTaskReplayInspectionPort().inspect({ jobId, economicAttemptId }))
         .toMatchObject({ evidenceVersion: 1, status: "released", selectedRoute: { routeId: "route-opencode" } }));
       expect(session.sessionEvents.map((event) => event.kind)).toEqual([
         "managed_economic_lifecycle", "managed_economic_lifecycle", "managed_economic_lifecycle",

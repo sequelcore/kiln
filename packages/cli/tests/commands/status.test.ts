@@ -239,10 +239,6 @@ describe("statusCommand", () => {
       workerRouting: {
         defaultWorker: "codex",
         fallback: "opencode",
-        budgetAware: true,
-        budget: {
-          codex: { dailyTokenCeiling: 100 },
-        },
       },
     });
 
@@ -253,7 +249,6 @@ describe("statusCommand", () => {
           { engineId: "opencode", enabled: true, available: true },
         ],
       },
-      getDailyTokensUsed: (engineId) => engineId === "codex" ? 125 : 0,
     });
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");

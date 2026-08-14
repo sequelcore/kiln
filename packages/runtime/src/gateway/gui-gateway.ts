@@ -45,6 +45,8 @@ import {
 } from "./gui-provider-models.js";
 import { guiOutboundMessageParts } from "./gui-frame-parts.js";
 import { createProviderCatalogService } from "./provider-catalog-service.js";
+import { projectAvailableModelCatalogForExecutionRoutes } from "./available-model-catalog-projector.js";
+import { executionRouteCreateDeniedResult, handleExecutionRouteCreate } from "./execution-route-create-handler.js";
 import { startProviderAuthRequest } from "./provider-auth.js";
 import {
   buildAttachedRuntimePerCallToolConfig,
@@ -159,6 +161,7 @@ export interface StartGuiGatewayOptions {
   readonly updateThemePreference?: (theme: string) => Promise<void> | void;
   /** Route selection is the only operator execution-selection authority. */
   readonly executionRouteSelection?: OperatorExecutionRouteSelectionPort;
+  readonly createExecutionRoute?: (request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, evidence: import("./execution-route-create-handler.js").ExecutionRouteCreationDiscoveryEvidence) => Promise<{ readonly status: "created" | "committed-refresh-failed"; readonly revision: string }>;
   readonly onConnectionCountChange?: (count: number) => void;
   readonly onManagedWindowClose?: () => void;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
@@ -678,6 +681,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       boundedWork: options.boundedWork,
       communicationIntentCandidates: options.communicationIntentCandidates,
       executionRouteSelection: options.executionRouteSelection,
+      createExecutionRoute: options.createExecutionRoute,
       operatorTerminalCapability,
       operatorTerminalService,
       goalController: options.goalController,
@@ -704,9 +708,13 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
           activeConnections += 1;
           updateConnectionCount(activeConnections);
           const guiAuthorityStatus = deriveGuiAuthorityStatusFromPerCallConfig(buildGuiPerCallToolConfig());
+          const executionRouteCatalog = await options.executionRouteSelection?.getCatalog() ?? { routes: [] };
           ws.send(JSON.stringify({
             type: "welcome",
-            executionRouteCatalog: await options.executionRouteSelection?.getCatalog() ?? { routes: [] },
+            executionRouteCatalog,
+            availableModels: projectAvailableModelCatalogForExecutionRoutes({
+              discovery: projectGuiProviderModelDiscovery([]), executionRouteCatalog,
+            }),
             executionMode: "execute",
             workingDirectory: options.workingDirectory,
             domainLabel: options.domainLabel,
@@ -786,6 +794,7 @@ function wireOperatorTransport(
     boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
     communicationIntentCandidates?: readonly CommunicationIntentCandidate[];
     executionRouteSelection?: OperatorExecutionRouteSelectionPort;
+    createExecutionRoute?: (request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, evidence: import("./execution-route-create-handler.js").ExecutionRouteCreationDiscoveryEvidence) => Promise<{ readonly status: "created" | "committed-refresh-failed"; readonly revision: string }>;
     onReady: (wsUrl: string) => void;
     onSocketOpen?: () => void;
     onSocketClose?: () => void;
@@ -818,7 +827,7 @@ function wireOperatorTransport(
     provider: executor,
     eventBus,
     builtinTools: builtinToolSurface.callBuiltinTools,
-    ...(input.transport.budgetAdmission ? { budgetAdmission: input.transport.budgetAdmission } : {}),
+    ...(input.transport.sessionTurnBudget ? { sessionTurnBudget: input.transport.sessionTurnBudget } : {}),
   });
   const sessionRegistry = new SessionRegistry();
 
@@ -984,6 +993,9 @@ function wireOperatorTransport(
           ws.send(JSON.stringify({
             type: "welcome",
             executionRouteCatalog: catalog,
+            availableModels: projectAvailableModelCatalogForExecutionRoutes({
+              discovery: projectGuiProviderModelDiscovery(discovery), executionRouteCatalog: catalog,
+            }),
             executionMode: input.transport.executionMode ?? "execute",
             workingDirectory: input.transport.workingDirectory,
             domainLabel: input.transport.domainLabel,
@@ -1041,7 +1053,30 @@ function wireOperatorTransport(
               ws.send(JSON.stringify({
                 type: "execution_routes_refreshed",
                 executionRouteCatalog,
+                availableModels: projectAvailableModelCatalogForExecutionRoutes({
+                  discovery: projectGuiProviderModelDiscovery(discovery), executionRouteCatalog,
+                }),
               } satisfies GuiInboundFrame));
+              return;
+            }
+
+            if (frame.type === "execution_route_create") {
+              if (!terminalAuthorized) {
+                ws.send(JSON.stringify(executionRouteCreateDeniedResult(frame) satisfies GuiInboundFrame));
+                return;
+              }
+              const currentCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
+              const responseFrames = await handleExecutionRouteCreate({
+                operatorAuthorized: terminalAuthorized,
+                frame,
+                discovery: projectGuiProviderModelDiscovery(discovery),
+                executionRouteCatalog: currentCatalog,
+                createExecutionRoute: input.createExecutionRoute,
+                readExecutionRouteCatalog: async () => input.executionRouteSelection?.getCatalog() ?? { routes: [] },
+              });
+              for (const responseFrame of responseFrames) {
+                ws.send(JSON.stringify(responseFrame satisfies GuiInboundFrame));
+              }
               return;
             }
 
@@ -1108,6 +1143,7 @@ function wireOperatorTransport(
                 reason: providerDiscovery?.reason,
                 modelCount: projectGuiOperatorModels(currentDiscovery)[auth.provider]?.length ?? 0,
               });
+              const executionRouteCatalog = await input.executionRouteSelection?.getCatalog() ?? { routes: [] };
               ws.send(JSON.stringify({
                 type: "provider_auth_completed",
                 provider: auth.provider,
@@ -1115,7 +1151,10 @@ function wireOperatorTransport(
                 providerModelDiscovery: projectGuiProviderModelDiscovery(currentDiscovery),
                 models: projectGuiOperatorModels(currentDiscovery),
                 providerDiscovery: currentDiscovery,
-                executionRouteCatalog: await input.executionRouteSelection?.getCatalog() ?? { routes: [] },
+                executionRouteCatalog,
+                availableModels: projectAvailableModelCatalogForExecutionRoutes({
+                  discovery: projectGuiProviderModelDiscovery(currentDiscovery), executionRouteCatalog,
+                }),
               } satisfies GuiInboundFrame));
               return;
             }

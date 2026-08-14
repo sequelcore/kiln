@@ -20,6 +20,7 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
     clearStoredContinuationTarget();
     set({
       executionRouteCatalog: frame.executionRouteCatalog,
+      availableModels: frame.availableModels,
       activeRouteId: frame.activeRouteId ?? null,
       authorityStatus: frame.authorityStatus ?? state.authorityStatus,
       planMode,
@@ -42,9 +43,16 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
   },
 
   onExecutionRoutesRefreshed: (frame) => {
-    set({ executionRouteCatalog: frame.executionRouteCatalog, providerCatalogStatus: "ready", providerCatalogError: null });
+    set({ executionRouteCatalog: frame.executionRouteCatalog, availableModels: frame.availableModels, providerCatalogStatus: "ready", providerCatalogError: null });
     const restore = resolveStoredExecutionRouteSelectionRestore(get());
     if (restore) get().selectExecutionRoute(restore.routeId, restore.accountOverrideId);
+  },
+
+  onExecutionRouteCreateResult: (frame) => {
+    set({
+      executionRouteCreationResult: frame,
+      ...(frame.status === "created" ? { executionRouteCatalog: frame.executionRouteCatalog, availableModels: frame.availableModels } : {}),
+    });
   },
 
   onExecutionRouteChanged: (frame) => {
@@ -94,7 +102,7 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
     const state = get();
     if (state.providerAuthTarget?.requestId !== frame.requestId || state.providerAuthTarget.provider !== frame.provider) return;
     if (state.providerAuthTimeoutId) clearTimeout(state.providerAuthTimeoutId);
-    set({ providers: normalizeProviderDescriptors(frame.providers ?? state.providers), providerDiscovery: frame.providerDiscovery ?? state.providerDiscovery, providerModelDiscovery: frame.providerModelDiscovery, executionRouteCatalog: frame.executionRouteCatalog, providerCatalogStatus: "ready", providerCatalogError: null, providerAuthenticating: false, providerAuthTarget: null, providerAuthMessage: null, providerAuthDetails: null, providerAuthTimeoutId: null, providerOperationFailure: null });
+    set({ providers: normalizeProviderDescriptors(frame.providers ?? state.providers), providerDiscovery: frame.providerDiscovery ?? state.providerDiscovery, providerModelDiscovery: frame.providerModelDiscovery, availableModels: frame.availableModels, executionRouteCatalog: frame.executionRouteCatalog, providerCatalogStatus: "ready", providerCatalogError: null, providerAuthenticating: false, providerAuthTarget: null, providerAuthMessage: null, providerAuthDetails: null, providerAuthTimeoutId: null, providerOperationFailure: null });
   },
   onProviderAuthFailed: (frame) => {
     const state = get();

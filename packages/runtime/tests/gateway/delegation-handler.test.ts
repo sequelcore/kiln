@@ -2,12 +2,32 @@ import { describe, it, expect, vi } from "vitest";
 import type { ProviderAdapter } from "@kilnai/core";
 import type { AppDelegation } from "@kilnai/core";
 import { textParts } from "@kilnai/core";
+import { Message, Task } from "@a2a-js/sdk";
 import {
+  executeA2ADelegation,
   executeDelegation,
   validateResponseSchema,
   type DelegationRegistry,
   type DelegationTarget,
 } from "../../src/gateway/delegation-handler.js";
+import { A2ATimeoutError, type A2AClientPort } from "../../src/a2a/a2a-client.js";
+
+function a2aClientReturning(response: Message | Task): A2AClientPort {
+  return {
+    discoverAgent: vi.fn(),
+    sendMessage: vi.fn().mockResolvedValue(response),
+    cancelTask: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function a2aUserMessage(): Message {
+  return Message.fromJSON({
+    kind: "message",
+    messageId: "request-1",
+    role: "ROLE_USER",
+    parts: [{ kind: "text", text: "Estimate complexity" }],
+  });
+}
 
 function makeMockProvider(
   content = '{"recommendation":"use TypeScript"}',
@@ -75,10 +95,12 @@ describe("executeDelegation", () => {
 
     expect("tokenUsage" in result).toBe(true);
     const success = result as import("@kilnai/core").AppDelegationResult;
-    expect(success.tokenUsage.inputTokens).toBe(200);
-    expect(success.tokenUsage.outputTokens).toBe(100);
-    expect(success.tokenUsage.cacheReadTokens).toBe(50);
-    expect(success.tokenUsage.cacheWriteTokens).toBe(10);
+    expect(success.tokenUsage).toEqual({
+      inputTokens: 200,
+      outputTokens: 100,
+      cacheReadTokens: 50,
+      cacheWriteTokens: 10,
+    });
   });
 
   it("result includes durationMs > 0", async () => {
@@ -282,3 +304,250 @@ describe("validateResponseSchema", () => {
     expect(result.errors).toHaveLength(0);
   });
 });
+
+describe("executeA2ADelegation", () => {
+  it("extracts structured data from a completed v1 Task without inventing usage", async () => {
+    const task = Task.fromJSON({
+      id: "task-1",
+      contextId: "context-1",
+      status: { state: "TASK_STATE_COMPLETED" },
+      artifacts: [{ artifactId: "artifact-1", parts: [{ kind: "data", data: { recommendation: "ship" } }] }],
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(task),
+    );
+
+    expect(result).toMatchObject({ result: { recommendation: "ship" } });
+    expect(result).not.toHaveProperty("tokenUsage");
+  });
+
+  it("extracts structured data from a direct v1 Message", async () => {
+    const message = Message.fromJSON({
+      kind: "message",
+      messageId: "response-1",
+      role: "ROLE_AGENT",
+      parts: [{ kind: "data", data: { answer: 42 } }],
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(message),
+    );
+
+    expect(result).toMatchObject({ result: { answer: 42 } });
+  });
+
+  it("rejects non-completed v1 task states", async () => {
+    const task = Task.fromJSON({
+      id: "task-1",
+      contextId: "context-1",
+      status: { state: "TASK_STATE_REJECTED", message: { kind: "message", messageId: "status-1", role: "ROLE_AGENT", parts: [{ kind: "text", text: "Not supported" }] } },
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(task),
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain("TASK_STATE_REJECTED");
+  });
+
+  it("attempts cancellation before reporting a non-completed Task", async () => {
+    const task = Task.fromJSON({
+      id: "task-working",
+      contextId: "context-1",
+      status: { state: "TASK_STATE_WORKING" },
+    });
+    const events: string[] = [];
+    const client: A2AClientPort = {
+      discoverAgent: vi.fn(),
+      sendMessage: vi.fn().mockResolvedValue(task),
+      cancelTask: vi.fn().mockImplementation(async () => { events.push("cancel"); }),
+    };
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      client,
+    );
+    events.push("reported");
+
+    expect(events).toEqual(["cancel", "reported"]);
+    expect(client.cancelTask).toHaveBeenCalledWith("https://agent.example", "task-working", 5_000);
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+  });
+
+  it("preserves the primary task-state diagnosis when best-effort cancellation fails", async () => {
+    const task = Task.fromJSON({
+      id: "task-working",
+      contextId: "context-1",
+      status: { state: "TASK_STATE_WORKING" },
+    });
+    const client = a2aClientReturning(task);
+    vi.mocked(client.cancelTask).mockRejectedValue(new Error("credential=secret"));
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      client,
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain("TASK_STATE_WORKING");
+    expect("message" in result && result.message).not.toContain("secret");
+  });
+
+  it("maps the typed A2A timeout to TIMEOUT without parsing its message", async () => {
+    const client = a2aClientReturning(Message.fromJSON({
+      kind: "message",
+      messageId: "unused",
+      role: "ROLE_AGENT",
+      parts: [{ kind: "text", text: "unused" }],
+    }));
+    vi.mocked(client.sendMessage).mockRejectedValue(
+      new A2ATimeoutError("a deliberately changed timeout description"),
+    );
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage(), timeout: 5 },
+      "app-a",
+      client,
+    );
+
+    expect(result).toMatchObject({ code: "TIMEOUT", message: "A2A delegation timed out" });
+  });
+
+  it("rejects a completed Task with no artifact data", async () => {
+    const task = Task.fromJSON({
+      id: "task-1",
+      contextId: "context-1",
+      status: { state: "TASK_STATE_COMPLETED" },
+      artifacts: [],
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(task),
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain("no extractable output");
+  });
+
+  it("rejects oversized part collections", async () => {
+    const message = Message.fromJSON({
+      kind: "message",
+      messageId: "response-1",
+      role: "ROLE_AGENT",
+      parts: Array.from({ length: 65 }, (_, index) => ({ kind: "text", text: `part-${index}` })),
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(message),
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain("part limit");
+  });
+
+  it("rejects a malformed part without content", async () => {
+    const message = Message.fromJSON({
+      kind: "message",
+      messageId: "response-1",
+      role: "ROLE_AGENT",
+      parts: [{}],
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(message),
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain("malformed part");
+  });
+
+  it("rejects cyclic structured data without leaking serialization details", async () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const message = Message.fromJSON({
+      kind: "message",
+      messageId: "response-1",
+      role: "ROLE_AGENT",
+      parts: [{ kind: "data", data: cyclic }],
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(message),
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toBe("A2A response data exceeds structural limits");
+  });
+
+  it("rejects deeply nested and oversized structured data", async () => {
+    let deep: Record<string, unknown> = {};
+    for (let depth = 0; depth < 40; depth += 1) deep = { child: deep };
+    const message = Message.fromJSON({
+      kind: "message",
+      messageId: "response-1",
+      role: "ROLE_AGENT",
+      parts: [{ kind: "data", data: deep }],
+    });
+
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(message),
+    );
+
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toBe("A2A response data exceeds structural limits");
+  });
+
+  it.each([
+    ["deep text JSON", JSON.stringify(nestedObject(40)), "structural limits"],
+    ["over-node text JSON", JSON.stringify(Object.fromEntries(Array.from({ length: 10 }, (_, group) => [`g${group}`, Array.from({ length: 1_000 }, (_, item) => ({ item }))]))), "structural limits"],
+    ["over-entry text JSON", JSON.stringify(Object.fromEntries(Array.from({ length: 1_025 }, (_, item) => [`k${item}`, item]))), "structural limits"],
+  ])("rejects %s before returning parsed text", async (_name, text, expected) => {
+    const message = Message.fromJSON({ kind: "message", messageId: "response-1", role: "ROLE_AGENT", parts: [{ kind: "text", text }] });
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a",
+      a2aClientReturning(message),
+    );
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain(expected);
+  });
+
+  it("rejects excessive artifacts without flattening their parts", async () => {
+    const task = Task.fromJSON({
+      id: "task-1", contextId: "context-1", status: { state: "TASK_STATE_COMPLETED" },
+      artifacts: Array.from({ length: 17 }, (_, index) => ({ artifactId: `artifact-${index}`, parts: [{ kind: "data", data: { index } }] })),
+    });
+    const result = await executeA2ADelegation(
+      { type: "a2a", agentUrl: "https://agent.example", message: a2aUserMessage() },
+      "app-a", a2aClientReturning(task),
+    );
+    expect(result).toMatchObject({ code: "PROVIDER_ERROR" });
+    expect("message" in result && result.message).toContain("artifact limit");
+  });
+});
+
+function nestedObject(depth: number): Record<string, unknown> {
+  let value: Record<string, unknown> = {};
+  for (let index = 0; index < depth; index += 1) value = { child: value };
+  return value;
+}

@@ -35,7 +35,8 @@ export interface AppDelegationResult {
   readonly fromApp: string;
   readonly toApp: string;
   readonly result: Record<string, unknown>;
-  readonly tokenUsage: DelegationTokenUsage;
+  /** Present only when the delegated provider reports usage. */
+  readonly tokenUsage?: DelegationTokenUsage;
   readonly durationMs: number;
 }
 

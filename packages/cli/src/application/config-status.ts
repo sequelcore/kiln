@@ -74,6 +74,8 @@ import { projectMcpServer, type NativeMcpHarness } from "../config/native-mcp-pr
 import { readMcpRuntimeState } from "../config/mcp-runtime-state.js";
 import { createMcpCredentialAccess } from "../config/mcp-credentials.js";
 import type { RouteAdmissionDecision } from "@kilnai/core";
+import { assembleRuntimePermissionIntegrity } from "../config/permission-integrity-assembler.js";
+import { createRuntimePermissionObservationStore } from "../wrapper/runtime-permission-observation.js";
 
 export interface ReadConfigStatusOptions {
   readonly projectPath?: string;
@@ -125,6 +127,7 @@ export async function readConfigStatusSnapshot(
 ): Promise<KilnConfigStatusSnapshot> {
   const root = resolveProjectRoot({ explicitPath: options.projectPath });
   const rootPath = root.rootPath;
+  const now = options.now ?? new Date();
   const errors: string[] = [];
   const globalState = readGlobalConfigState();
   const projectState = readProjectConfigState(rootPath);
@@ -143,6 +146,7 @@ export async function readConfigStatusSnapshot(
     errors,
     effectiveConfig ?? undefined,
     options.userHome ?? homedir(),
+    now,
   );
   const permissionIntegrity = aggregatePermissionIntegrity(projectionState.projections);
   const shouldReadSkillCatalog = options.view === undefined || options.view === "skills" || options.view === "setup";
@@ -169,7 +173,7 @@ export async function readConfigStatusSnapshot(
 
   const snapshot: KilnConfigStatusSnapshot = {
     evidenceVersion: KILN_STATUS_EVIDENCE_VERSION,
-    generatedAt: (options.now ?? new Date()).toISOString(),
+    generatedAt: now.toISOString(),
     project: {
       rootPath,
       projectName: root.projectName,
@@ -392,6 +396,7 @@ async function readProjectionSnapshots(
   errors: string[],
   effectiveConfig?: KilnYaml,
   userHome?: string,
+  now = new Date(),
 ): Promise<{
   readonly projections: readonly KilnProjectionTargetSnapshot[];
   readonly repoShims: readonly KilnRepoShimProjectionSnapshot[];
@@ -400,6 +405,7 @@ async function readProjectionSnapshots(
   const projections: KilnProjectionTargetSnapshot[] = [];
   const repoShimSnapshots: KilnRepoShimProjectionSnapshot[] = [];
   const globalInstructionShimSnapshots: KilnGlobalInstructionShimSetupSnapshot[] = [];
+  const runtimeObservationStore = createRuntimePermissionObservationStore({ projectPath });
 
   try {
     const repoShims = await readRepoShimProjectionStatuses(projectPath);
@@ -469,12 +475,26 @@ async function readProjectionSnapshots(
       const safeHarnessPath = isNativeHarnessFileProjectionPath(target, userHome ?? homedir());
       const routeIntegrity = safeHarnessPath ? readNativeRouteIntegrity(target, effectiveConfig) : undefined;
       const status = safeHarnessPath ? readNativeProjectionStatus(target) : "drifted";
+      const permissionIntegrity = target.permissionIntegrity
+        ? assembleRuntimePermissionIntegrity({
+            integrity: target.permissionIntegrity,
+            evidence: await runtimeObservationStore.readLatestExact({
+              harness: target.permissionIntegrity.harness,
+              targetId: target.targetId,
+              projectionDigest: target.contentHash,
+            }),
+            targetId: target.targetId,
+            projectionDigest: target.contentHash,
+            projectPath,
+            now,
+          })
+        : undefined;
       projections.push({
         targetId: target.targetId,
         path: target.filePath,
         kind: "native",
         status,
-        ...(target.permissionIntegrity ? { permissionIntegrity: permissionIntegrityForProjectionStatus(target.permissionIntegrity, status) } : {}),
+        ...(permissionIntegrity ? { permissionIntegrity: permissionIntegrityForProjectionStatus(permissionIntegrity, status) } : {}),
         ...(routeIntegrity ? { routeIntegrity } : {}),
         managedFieldCount: target.managedFields.length,
         updatedAt: target.updatedAt,

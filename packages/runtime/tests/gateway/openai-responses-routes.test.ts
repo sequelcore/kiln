@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccountRef, type ModelGatewayOneRoundDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import { createExecutionAccountRef, type OneRoundModelDispatchInput, type ModelTurnResult } from "@kilnai/core";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import {
@@ -12,7 +12,7 @@ import {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
   type GovernedOneRoundInvocationPorts,
-} from "../../src/model-gateway/governed-one-round-invocation.js";
+} from "../../src/execution-kernel/governed-one-round-invocation.js";
 import { InMemoryModelGatewayReplayGuard, type ModelGatewayReplayGuard } from "../../src/model-gateway/replay-guard.js";
 
 const route = { providerId: "fixture-provider", providerModelId: "fixture-model", scope: "fixture" };
@@ -42,7 +42,7 @@ function body(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 }
 
 type ConfigOverrides = Partial<OpenAIResponsesIngressConfig> & {
-  readonly execute?: (input: ModelGatewayOneRoundDispatchInput) => Promise<{ readonly result: ModelTurnResult }>;
+  readonly execute?: (input: OneRoundModelDispatchInput) => Promise<{ readonly result: ModelTurnResult }>;
   readonly predispatch?: () => Promise<void>;
 };
 
@@ -52,7 +52,7 @@ function config(overrides: ConfigOverrides = {}) {
   const authority = new SqliteManagedAccountLeaseAuthority({ path: ":memory:", participantKind: "model-gateway-ingress", recoveryDomain: `openai-test-${crypto.randomUUID()}`, configurationRevision: "test" });
   const catalog = vi.fn(async (input) => {
     await predispatch?.();
-    return { admission, candidates: [{ candidate: { accountId: "account-1", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createAccountRef("account-1"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] };
+    return { admission, candidates: [{ candidate: { accountId: "account-1", safety: "eligible" as const, health: "healthy" as const, quota: "available" as const, capacity: "available" as const, economicCost: { atoms: "0", scale: 0, unit: "request", scheme: { kind: "unit" as const } }, pressure: 0 }, lease: { candidate: { account: createExecutionAccountRef("account-1"), route: input.route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false }, capacityIdentity: "configured:fixture:account", credentialRevisionId: "a".repeat(64), usageEvidence: { health: "healthy" as const, freshness: "missing" as const }, capacity: { maxConcurrency: 10, reservedAffinitySlots: 0 } } }] };
   });
   const evidence = vi.fn(async () => undefined);
   const affinityRead = vi.fn(async () => undefined);

@@ -1,4 +1,4 @@
-import type { ModelGatewayRoute, ModelTurn, ModelTurnResult } from "@kilnai/core";
+import type { ProviderModelRouteIdentity, ModelTurn, ModelTurnResult } from "@kilnai/core";
 import {
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
@@ -6,7 +6,7 @@ import {
   type GovernedOneRoundBudgetEvidence,
   type GovernedOneRoundInvocationPorts,
   invokeGovernedOneRound,
-} from "./governed-one-round-invocation.js";
+} from "../execution-kernel/governed-one-round-invocation.js";
 import type { ModelGatewayReplayDecision, ModelGatewayReplayGuard } from "./replay-guard.js";
 
 /** Protocol-neutral compatibility evidence retained by the model-gateway authority. */
@@ -20,7 +20,7 @@ export interface ModelGatewayCompatibilityEvidence {
   readonly applicationId: string;
   readonly callerId: string;
   readonly requestedModel: string;
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   readonly required: readonly string[];
   readonly optionalRequested: readonly string[];
   readonly unavailableOptional: readonly string[];
@@ -44,7 +44,7 @@ export interface GovernedIngressExecutorInput<T> {
   readonly protocol: ModelGatewayIngressId;
   readonly rawBody: string;
   readonly identity: { readonly tenantId: string; readonly applicationId: string; readonly callerId: string; readonly sessionId: string; readonly turnId: string };
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   readonly affinity: GovernedOneRoundAffinityPolicy;
   readonly authority: GovernedOneRoundAuthorityEvidence;
   readonly budget: GovernedOneRoundBudgetEvidence;

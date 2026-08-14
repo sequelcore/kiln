@@ -113,7 +113,8 @@ stdio bridge. The bridge derives the adopted project from its working
 directory and authenticates to one global loopback Operator Runtime. Sessions
 for the same project share one lazy project Runtime; different projects remain
 isolated. This provides Kiln inspection, sanitized account-usage inspection,
-and managed-agent tools without starting the HTTP Model Gateway.
+and bounded control-plane tools without starting the HTTP Model Gateway. It
+does not run a harness's native subagents or tools.
 
 The bridge also publishes a compact server-level instruction component shared
 with the `kiln-control-plane-workflow` built-in. The server instruction covers
@@ -141,9 +142,11 @@ the operation without creating a second authority or widening the information
 available to model context. Otherwise, keep the workflow on an operator
 surface. Native harnesses discover safe configured-agent identities and
 eligibility through `kiln_capability_inspect`; that projection does not expose
-route configuration. See
-[Managed Agents](../../architecture/coordination/managed-agents.md) for the
-current managed-job projection and its field-level boundaries.
+route configuration. Agent Task operations are exactly `kiln_agent_task_submit`,
+`kiln_agent_task_status`, `kiln_agent_task_result`, `kiln_agent_task_cancel`,
+and `kiln_agent_task_replay`. See
+[Agent Tasks and Agent Runs](../../architecture/coordination/agent-tasks.md) for
+the current task projection and its field-level boundaries.
 
 The distinct identity does not overwrite an operator's existing `kiln tools
 --mcp` server. Projection rejects reserved-id collisions, malformed native
@@ -154,7 +157,8 @@ treated as runtime authority.
 ## Runtime surfaces
 
 Direct-provider, CLI, GUI, and TUI sessions create Kiln-owned clients and do not
-depend on native files. Managed routes admit MCP only when
+depend on native files. MCP is a consultation/configuration/tool surface, not a
+required subagent transport. Managed routes admit MCP only when
 `managedAgents.routes[].tools.allowed` contains the qualified selector. App
 Gateway `app.yaml` contains canonical server ids only:
 

@@ -1830,10 +1830,10 @@ function validateManagedEconomicAdoptedRoute(
   ) {
     throw new ManagedEconomicValidationError("admitted identity does not match adopted route identity");
   }
-  const adoptedAccountPolicyId = admittedIdentity.accountPolicy.kind === "account-bound"
+  const adoptedExecutionAccountPolicyId = admittedIdentity.accountPolicy.kind === "account-bound"
     ? admittedIdentity.accountPolicy.accountPolicyId
     : null;
-  if (route.accountPolicyId !== adoptedAccountPolicyId) {
+  if (route.accountPolicyId !== adoptedExecutionAccountPolicyId) {
     throw new ManagedEconomicValidationError("admitted account policy does not match adopted route account policy");
   }
 

@@ -134,7 +134,7 @@ Continue by concern:
 - [Memory](architecture/context/memory.md)
 - [Safety](architecture/safety/safety.md)
 - [Coordination](architecture/coordination/coordination.md)
-- [Managed agents](architecture/coordination/managed-agents.md)
+- [Agent Tasks and Agent Runs](architecture/coordination/agent-tasks.md)
 - [Tool execution](architecture/tooling/tool-execution.md)
 - [Operator surfaces](architecture/surfaces/operator-surfaces.md)
 - [Model Gateway](architecture/providers/model-gateway.md)

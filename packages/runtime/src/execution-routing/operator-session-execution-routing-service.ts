@@ -1,27 +1,25 @@
 import {
   admitOperatorExecutionIntent,
-  createAccountPolicyId,
-  selectExecutionAccountCandidate,
+  createExecutionAccountPolicyId,
+  selectAdmittedExecutionAccount,
   type AdmittedExecutionRoute,
-  type ExecutionAccountCandidate,
+  type ExecutionAccountAdmissionCandidate,
   type ExecutionCatalog,
   type ExecutionSessionBindingEvidence,
   type OperatorExecutionIntent,
 } from "@kilnai/core";
 import type {
-  AccountCapacityAcquireInput,
-  AccountCapacityAcquireResult,
   AccountCapacityRecord,
-  AccountCapacitySettlement,
-  ManagedAccountCandidateBinding,
-  SqliteManagedAccountLeaseAuthorityOptions,
-} from "../managed-account-leases/managed-account-lease-authority.js";
+  ExecutionAccountCandidateBinding,
+} from "../execution-kernel/execution-account-capacity-authority.js";
+import type { SqliteManagedAccountLeaseAuthorityOptions } from "../managed-account-leases/managed-account-lease-authority.js";
 import { SqliteManagedAccountLeaseAuthority } from "../managed-account-leases/managed-account-lease-authority.js";
+import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
 
 /** Candidate evidence is prepared without resolving credential material or constructing a provider adapter. */
 export interface OperatorSessionExecutionCandidate {
-  readonly candidate: ExecutionAccountCandidate;
-  readonly lease: ManagedAccountCandidateBinding;
+  readonly candidate: ExecutionAccountAdmissionCandidate;
+  readonly lease: ExecutionAccountCandidateBinding;
 }
 
 export interface OperatorSessionExecutionCandidatePort {
@@ -31,6 +29,7 @@ export interface OperatorSessionExecutionCandidatePort {
 export interface OperatorSessionCredentialPort<Credential> {
   /** Called only after the durable account-capacity dispatch fence succeeds. */
   resolve(input: {
+    readonly routeId: string;
     readonly accountId: string;
     readonly credentialId: string;
     readonly lease: AccountCapacityRecord;
@@ -44,22 +43,11 @@ export interface OperatorSessionResolvedCredential<Credential> {
   readonly credentialRevisionId: string;
 }
 
-export interface OperatorSessionAccountCapacityAuthority {
-  acquireAccountCapacity(input: AccountCapacityAcquireInput): AccountCapacityAcquireResult;
-  releaseAccountCapacityPreFence(runtimeInvocationId: string): AccountCapacityRecord;
-  fenceAccountCapacityDispatch(runtimeInvocationId: string, dispatchFenceId: string): AccountCapacityRecord;
-  settleAccountCapacity(
-    runtimeInvocationId: string,
-    dispatchFenceId: string,
-    settlement: AccountCapacitySettlement,
-  ): AccountCapacityRecord;
-}
-
 export interface OperatorSessionExecutionRoutingServiceOptions<Credential, Payload, Result> {
   readonly catalog: ExecutionCatalog;
   readonly candidates: OperatorSessionExecutionCandidatePort;
   /** Must be a SqliteManagedAccountLeaseAuthority configured with participantKind: operator-session. */
-  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
+  readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly credentials: OperatorSessionCredentialPort<Credential>;
   /** Adapter construction and the existing session/orchestrator pipeline are composition-owned. */
   readonly dispatch: OperatorSessionExecutionDispatch<Credential, Payload, Result>;
@@ -147,6 +135,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     let credential: Credential;
     try {
       const resolved = await this.#options.credentials.resolve({
+        routeId: admission.routeId,
         accountId: account.id,
         credentialId: account.credentialId,
         lease: fenced,
@@ -226,7 +215,7 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
   ): ExecutionCatalog["accounts"][number] {
     const excludedAccountIds = new Set<string>();
     while (true) {
-      const selection = selectExecutionAccountCandidate(
+      const selection = selectAdmittedExecutionAccount(
         admission,
         candidates
           .filter(({ candidate }) => !excludedAccountIds.has(candidate.accountId))
@@ -282,9 +271,9 @@ export class OperatorSessionExecutionRoutingService<Credential = unknown, Payloa
     ) {
       throw new OperatorSessionExecutionRoutingError("The selected account lease binding does not match the admitted operator route.");
     }
-    const expectedAccountRefPrefix = `configured:${selected.candidate.accountId}`;
+    const expectedExecutionAccountRefPrefix = `configured:${selected.candidate.accountId}`;
     const accountRef = selected.lease.candidate.account;
-    if (accountRef !== expectedAccountRefPrefix && !accountRef.startsWith(`${expectedAccountRefPrefix}:`)) {
+    if (accountRef !== expectedExecutionAccountRefPrefix && !accountRef.startsWith(`${expectedExecutionAccountRefPrefix}:`)) {
       throw new OperatorSessionExecutionRoutingError("The selected account lease binding does not belong to the logical account candidate.");
     }
   }
@@ -308,7 +297,7 @@ export function createOperatorSessionAccountCapacityAuthority(
 }
 
 function accountPolicyId(admission: AdmittedExecutionRoute) {
-  return createAccountPolicyId(
+  return createExecutionAccountPolicyId(
     admission.accountSelection.mode === "automatic"
       ? admission.accountSelection.accountPolicyId
       : `execution-route:${admission.routeId}`,

@@ -3510,31 +3510,26 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
   describe("budget checking", () => {
     it("blocks before the first provider round when budget is exhausted", async () => {
       const provider = makeProvider();
-      const budgetAdmission = {
+      const sessionTurnBudget = {
         admit: vi.fn().mockResolvedValue({
           status: "denied",
-          reason: "all-routes-over-budget",
-          missingCapabilities: ["budget.route.within_ceiling"],
-          routeDecisions: [],
-          usageSnapshots: [],
-          message: "All route candidates are over their configured budget ceilings.",
+          reason: "observed-at-or-above-limit",
+          action: "stop",
+          message: "Observed session tokens reached the limit.",
         }),
       };
 
       const orchestrator = new RuntimeSessionOrchestrator({
         provider,
-        budgetAdmission,
+        sessionTurnBudget,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("do work"));
 
-      expect(budgetAdmission.admit).toHaveBeenCalledWith(expect.objectContaining({
-        subject: "runtime-session-turn",
-        routeCandidates: [expect.objectContaining({ providerId: "mock" })],
-      }));
+      expect(sessionTurnBudget.admit).toHaveBeenCalledWith(expect.any(String));
       expect(provider.createMessage).not.toHaveBeenCalled();
       expect(result.parts.map((part) => "text" in part ? part.text : "").join(""))
-        .toContain("All route candidates are over their configured budget ceilings.");
+        .toContain("Observed session tokens reached the limit.");
     });
 
     it("breaks the tool loop when budget is exhausted after an admitted first round", async () => {
@@ -3569,15 +3564,15 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
       };
 
       let budgetCheckCount = 0;
-      const budgetAdmission = {
+      const sessionTurnBudget = {
         admit: vi.fn().mockImplementation(() => {
           budgetCheckCount++;
           return {
             status: budgetCheckCount < 2 ? "admitted" : "denied",
-            reason: budgetCheckCount < 2 ? "route-within-budget" : "all-routes-over-budget",
+            reason: budgetCheckCount < 2 ? "observed-below-limit" : "observed-at-or-above-limit",
             ...(budgetCheckCount < 2
-              ? { admittedRoutes: [{ providerId: "mock" }], usageSnapshots: [] }
-              : { missingCapabilities: ["budget.route.within_ceiling"], routeDecisions: [], usageSnapshots: [] }),
+              ? { observation: { observedTokens: 1, source: "test" } }
+              : { action: "stop", message: "session limit reached" }),
           };
         }),
       };
@@ -3589,17 +3584,139 @@ describe("RuntimeSessionOrchestrator - Tool Execution Enhancements", () => {
         provider,
         tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
         builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("ok")]]),
-        budgetAdmission,
+        sessionTurnBudget,
         eventBus,
       });
 
       const result = await orchestrator.processMessage(makeSession(), textParts("do work"));
 
-      expect(budgetAdmission.admit).toHaveBeenCalledTimes(2);
-      expect(result.parts.map((part) => "text" in part ? part.text : "").join("")).toContain("all-routes-over-budget");
+      expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(2);
+      expect(result.parts.map((part) => "text" in part ? part.text : "").join("")).toContain("session limit reached");
       expect(emitSpy.mock.calls.some((call) =>
-        call[0].type === "error" && JSON.stringify(call[0]).includes("all-routes-over-budget")
+        call[0].type === "error" && JSON.stringify(call[0]).includes("session limit reached")
       )).toBe(true);
+    });
+
+    it("denies tool-budget finalization without losing prior effect evidence", async () => {
+      const provider = makeProvider(1);
+      const sessionTurnBudget = {
+        admit: vi.fn()
+          .mockResolvedValueOnce({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "test" } })
+          .mockResolvedValueOnce({ status: "denied", reason: "observed-at-or-above-limit", action: "stop", message: "Finalization denied." }),
+      };
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        executionEnvelope: { toolRounds: { max: 1 } },
+        sessionTurnBudget,
+        eventBus,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(result).toMatchObject({ outcome: "failed", inputTokens: 100, outputTokens: 50 });
+      expect(result.parts).toEqual(textParts("Finalization denied."));
+      expect(result.providerRequests).toHaveLength(1);
+      expect(result.toolExecutions).toHaveLength(1);
+      expect(provider.createMessage).toHaveBeenCalledTimes(1);
+      expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(2);
+      expect(emitSpy.mock.calls.filter((call) =>
+        call[0].type === "error" && call[0].message === "Finalization denied."
+      )).toHaveLength(1);
+    });
+
+    it("denies repeated-tool-failure finalization without invoking its fallback", async () => {
+      let providerCallCount = 0;
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(() => {
+          providerCallCount += 1;
+          return {
+            parts: textParts("retrying"),
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            toolCalls: [{ id: `tc-${providerCallCount}`, name: "get_data", input: {} }],
+            stopReason: "tool_use",
+          };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const sessionTurnBudget = {
+        admit: vi.fn()
+          .mockResolvedValueOnce({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "test" } })
+          .mockResolvedValueOnce({ status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 2, source: "test" } })
+          .mockResolvedValueOnce({ status: "denied", reason: "observed-at-or-above-limit", action: "stop", message: "Failure finalization denied." }),
+      };
+      const eventBus = new EventBus(100);
+      const emitSpy = vi.spyOn(eventBus, "emit");
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue({ output: "deterministic failure", isError: true })]]),
+        sessionTurnBudget,
+        eventBus,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(result).toMatchObject({ outcome: "failed", inputTokens: 200, outputTokens: 100 });
+      expect(result.parts).toEqual(textParts("Failure finalization denied."));
+      expect(result.providerRequests).toHaveLength(2);
+      expect(result.toolExecutions).toHaveLength(2);
+      expect(provider.createMessage).toHaveBeenCalledTimes(2);
+      expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(3);
+      expect(emitSpy.mock.calls.filter((call) =>
+        call[0].type === "error" && call[0].message === "Failure finalization denied."
+      )).toHaveLength(1);
+    });
+
+    it("admits exactly once immediately before every provider effect in a finalized multi-round turn", async () => {
+      let providerCallCount = 0;
+      const provider: ProviderAdapter = {
+        name: "mock",
+        createMessage: vi.fn().mockImplementation(({ tools }: { tools?: readonly ToolDefinition[] }) => {
+          providerCallCount += 1;
+          return tools
+            ? {
+                parts: textParts("using tool"), inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0,
+                toolCalls: [{ id: `tc-${providerCallCount}`, name: "get_data", input: {} }], stopReason: "tool_use",
+              }
+            : {
+                parts: textParts("bounded final"), inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0,
+                toolCalls: [], stopReason: "end_turn",
+              };
+        }),
+        streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
+      };
+      const sessionTurnBudget = {
+        admit: vi.fn().mockResolvedValue({
+          status: "admitted", reason: "observed-below-limit", observation: { observedTokens: 1, source: "test" },
+        }),
+      };
+      const orchestrator = new RuntimeSessionOrchestrator({
+        provider,
+        tools: [{ name: "get_data", description: "Gets data", inputSchema: {}, tags: new Set() }],
+        builtinTools: new Map([["get_data", vi.fn().mockResolvedValue("result")]]),
+        executionEnvelope: { toolRounds: { max: 2 } },
+        sessionTurnBudget,
+      });
+
+      const result = await orchestrator.processMessage(makeSession(), textParts("fetch data"));
+
+      expect(result.parts).toEqual(textParts("bounded final"));
+      expect(provider.createMessage).toHaveBeenCalledTimes(3);
+      expect(sessionTurnBudget.admit).toHaveBeenCalledTimes(3);
+      const admissionOrder = sessionTurnBudget.admit.mock.invocationCallOrder;
+      const providerOrder = (provider.createMessage as ReturnType<typeof vi.fn>).mock.invocationCallOrder;
+      for (let index = 0; index < providerOrder.length; index += 1) {
+        expect(admissionOrder[index]).toBeLessThan(providerOrder[index]!);
+        if (index > 0) expect(admissionOrder[index]).toBeGreaterThan(providerOrder[index - 1]!);
+      }
     });
   });
 

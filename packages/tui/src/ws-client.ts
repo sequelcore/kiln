@@ -8,6 +8,7 @@ import type {
   GuiProviderAuthCompleted,
   GuiProviderAuthFailed,
   ExecutionRouteCatalog,
+  AvailableModelCatalog,
   ExecutionRouteChangeFailed,
   ExecutionRouteChanged,
   ExecutionRouteSelectionIntent,
@@ -85,6 +86,7 @@ export type TuiInboundFrame =
   | {
       type: "welcome";
       executionRouteCatalog: ExecutionRouteCatalog;
+      availableModels: AvailableModelCatalog;
       greeting?: string;
       executionMode?: OperatorExecutionMode;
     }
@@ -110,6 +112,7 @@ export type TuiInboundFrame =
   | {
       type: "execution_routes_refreshed";
       executionRouteCatalog: ExecutionRouteCatalog;
+      availableModels: AvailableModelCatalog;
     }
   | ExecutionRouteChanged
   | ExecutionRouteChangeFailed

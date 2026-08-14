@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { ProviderModelRouteIdentity, ModelTurnResult } from "@kilnai/core";
 import {
   abandonModelGatewayReplayClaim,
   commitModelGatewayReplayClaim,
@@ -8,9 +9,7 @@ import {
   type ModelGatewayReplayClaim,
   type ModelGatewayReplayFence,
   type ModelGatewayReplayKey,
-  type ModelGatewayRoute,
-  type ModelTurnResult,
-} from "@kilnai/core";
+} from "./replay-claim.js";
 
 export const MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION = "kiln-replay-v1";
 
@@ -22,7 +21,7 @@ export interface ModelGatewayReplayFingerprintInput {
   readonly callerId: string;
   readonly sessionId: string;
   readonly turnId: string;
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity;
   readonly toolExecutionMode: string;
   readonly affinityKey?: string;
 }

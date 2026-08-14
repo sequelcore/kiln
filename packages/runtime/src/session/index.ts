@@ -1,13 +1,11 @@
 export { RuntimeSession } from "./runtime-session.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
-export { RuntimeBudgetAdmissionService } from "./runtime-budget-admission.js";
+export { RuntimeSessionTurnBudgetService } from "./session-turn-budget-authority.js";
 export type {
-  RuntimeBudgetAdmissionPort,
-  RuntimeBudgetAdmissionServiceOptions,
-  RuntimeBudgetUsageReader,
-  RuntimeBudgetUsageReaderInput,
-} from "./runtime-budget-admission.js";
+  RuntimeSessionTokenUsageReader,
+  RuntimeSessionTurnBudgetAuthority,
+} from "./session-turn-budget-authority.js";
 export { collectRuntimeFeedbackEvidence } from "./session-feedback-evidence.js";
 export {
   deriveGovernedTurnOutcome,

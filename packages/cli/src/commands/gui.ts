@@ -4,7 +4,10 @@ import { join } from "node:path";
 import type { KilnAppConfig } from "../config.js";
 import {
   readGlobalConfig,
+  readGlobalConfigSnapshot,
+  mutateGlobalConfig,
 } from "../config/global-config.js";
+import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
@@ -12,9 +15,9 @@ import { withWorkGovernanceContext } from "../application/work-governance-contex
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
 import {
-  createCliTranscriptBudgetUsageReader,
-  createRuntimeBudgetAdmissionFromGlobalConfig,
-} from "../application/runtime-budget-admission.js";
+  createCliTranscriptSessionTokenUsageReader,
+  createRuntimeSessionTurnBudgetFromGlobalConfig,
+} from "../application/session-turn-budget.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
@@ -61,6 +64,9 @@ import {
   withManagedInvocationService,
   type GuiDashboardSnapshot,
   type GuiProviderDescriptor,
+  projectAvailableModelCatalogForExecutionRoutes,
+  projectGuiProviderModelDiscovery,
+  resolveGuiOperatorDiscoveryResults,
 } from "@kilnai/runtime";
 import {
   createOperatorTurnDispatchComposition,
@@ -149,7 +155,11 @@ export async function guiCommand(
   const port = flags.port ?? 4810;
   const guiPort = flags.guiPort ?? 5183;
   const sessionStore = new SessionStore(cwd);
-  const { registry } = createDefaultRegistry({ canonicalMcpServers: admittedMcpServers });
+  const { registry } = createDefaultRegistry({
+    canonicalMcpServers: admittedMcpServers,
+    canonicalMcpProjectPath: cwd,
+    runtimePermissionObservationProjectPath: cwd,
+  });
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the GUI.");
@@ -163,9 +173,9 @@ export async function guiCommand(
     sessionStore,
     projectPath: cwd,
   });
-  const runtimeBudgetAdmission = createRuntimeBudgetAdmissionFromGlobalConfig(
+  const sessionTurnBudget = createRuntimeSessionTurnBudgetFromGlobalConfig(
     globalConfig,
-    createCliTranscriptBudgetUsageReader(transcriptStore),
+    createCliTranscriptSessionTokenUsageReader(transcriptStore),
   );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
@@ -262,7 +272,7 @@ export async function guiCommand(
     builtinToolOptions,
     "gui",
     managedInvocationAttachment,
-    runtimeBudgetAdmission,
+    sessionTurnBudget,
     resolveConfiguredCommunication({
       global: globalConfig.communication,
       project: projectConfig?.communication,
@@ -285,7 +295,10 @@ export async function guiCommand(
     cwd,
   });
   const executionRouteSelection = createOperatorExecutionRouteSelectionPort({
-    readConfig: () => readGlobalConfig() ?? globalConfig,
+    readConfigSnapshot: () => {
+      const snapshot = readGlobalConfigSnapshot();
+      return { config: snapshot.config ?? globalConfig, revision: snapshot.revision };
+    },
     resolveAccountAvailability: operatorTurnComposition.resolveExecutionRouteAccountAvailability,
   });
   let gateway: GuiGateway | undefined;
@@ -336,6 +349,22 @@ export async function guiCommand(
     workspaceExplorer,
     updateThemePreference: (theme) => persistGuiThemePreference(theme, globalConfig),
     executionRouteSelection,
+    createExecutionRoute: async (request, admittedEvidence) => {
+      const result = await createCurrentExecutionRoute({
+        request,
+        admittedEvidence,
+        resolveCurrentEvidence: async () => {
+          const snapshot = readGlobalConfigSnapshot();
+          if (!snapshot.config?.executionCatalog) throw new Error("Execution catalog is unavailable.");
+          const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
+          const executionRouteCatalog = await executionRouteSelection.getCatalog();
+          return { catalog: projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog }), executionCatalog: snapshot.config.executionCatalog, revision: snapshot.revision };
+        },
+        mutateGlobalConfig,
+        refreshExecutionRoutes: async () => { await executionRouteSelection.getCatalog(); },
+      });
+      return { status: result.status, revision: result.revision };
+    },
     onConnectionCountChange: managedWindowShutdownMonitor.onConnectionCountChange,
     onManagedWindowClose: managedWindowShutdownMonitor.onManagedWindowClose,
     initialOperatorDiscovery,
@@ -385,7 +414,7 @@ export async function guiCommand(
       executionMode: flags.plan ? "plan" : "execute",
       managedInvocation: managedInvocationForGateway,
       operatorTimeZone: runtimeAppConfig.operatorTimeZone,
-      budgetAdmission: runtimeBudgetAdmission,
+      sessionTurnBudget,
       workingDirectory: cwd,
       domainLabel: bootstrapContext.domainLabel,
     },

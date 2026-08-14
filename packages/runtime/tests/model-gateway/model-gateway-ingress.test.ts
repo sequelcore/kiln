@@ -41,6 +41,8 @@ const catalog: ExecutionCatalog = defineExecutionCatalog({
     label: "Fixture route",
     providerId: "codex-oauth",
     providerModelId: "gpt-test",
+    dataClassification: "internal",
+    dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "gpt-test", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2027-01-01T00:00:00.000Z" },
     accountSelection: { mode: "exact", accountId: "account" },
     economics: {
       adapterCapabilityId: "fixture-adapter",
@@ -141,7 +143,7 @@ describe("createModelGatewayIngress", () => {
         principal: { tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted", evidenceId: "budget" } },
         requestedModel: "model",
       });
-      expect(response?.route).toEqual({ providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:model" });
+      expect(response?.route).toEqual({ routeId: "route", providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:model" });
       const listed = await handle.openAIResponses!.invocationPorts.candidateCatalog.list({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         route: response!.route,
@@ -149,9 +151,40 @@ describe("createModelGatewayIngress", () => {
         budget: { status: "admitted", evidenceId: "budget" },
       });
       expect(listed.admission.routeId).toBe("route");
-      expect(candidates.resolve).toHaveBeenCalledWith(expect.objectContaining({ admission: expect.objectContaining({ routeId: "route" }) }));
+      expect(candidates.resolve).toHaveBeenCalledWith(expect.objectContaining({
+        admission: expect.objectContaining({ routeId: "route" }),
+        route: expect.objectContaining({ routeId: "route" }),
+      }));
     } finally {
       handle.close();
     }
+  });
+
+  it("selects the exact route id when duplicate provider/model identities exist and denies route-id drift", async () => {
+    const duplicate = defineExecutionCatalog({ ...catalog, routes: [catalog.routes[0]!, { ...catalog.routes[0]!, id: "route-other", label: "Other" }] });
+    const sharedAuthority = authority();
+    authorities.push(sharedAuthority);
+    const candidates: ModelGatewayExecutionCandidatePort = { resolve: vi.fn(async () => []) };
+    const handle = await createModelGatewayIngress({
+      config: config("route-other"), executionCatalog: duplicate,
+      executionRouting: createModelGatewayExecutionRoutingPort(duplicate), executionCandidates: candidates,
+      executionDispatcher: noDispatcher, accountCapacityAuthority: sharedAuthority, databasePath: ":memory:", env,
+    });
+    try {
+      const resolved = await handle.openAIResponses!.resolveVirtualModel({
+        principal: { tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidence: { status: "admitted", evidenceId: "budget" } },
+        requestedModel: "model",
+      });
+      await expect(handle.openAIResponses!.invocationPorts.candidateCatalog.list({
+        identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
+        route: resolved!.route, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
+        budget: { status: "admitted", evidenceId: "budget" },
+      })).resolves.toMatchObject({ admission: { routeId: "route-other" } });
+      await expect(handle.openAIResponses!.invocationPorts.candidateCatalog.list({
+        identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "drift" },
+        route: { ...resolved!.route, routeId: "route" }, authority: { status: "admitted", capabilityId: "invoke", scopes: ["model.invoke"] },
+        budget: { status: "admitted", evidenceId: "budget" },
+      })).rejects.toThrow(/unavailable/u);
+    } finally { handle.close(); }
   });
 });

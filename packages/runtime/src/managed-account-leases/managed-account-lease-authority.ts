@@ -2,80 +2,55 @@ import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync } from "node:fs";
 import {
-  createAccountPolicyId,
-  createAccountRef,
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
   createManagedAccountAffinityKey,
-  defineModelGatewayAccountRejection,
-  defineModelGatewayAccountUsageEvidence,
-  selectModelGatewayAccount,
-  type AccountPolicyId,
-  type AccountRef,
+  defineExecutionAccountCapacityRejection,
+  defineExecutionAccountUsageEvidence,
+  selectExecutionCapacityAccount,
+  type ExecutionAccountPolicyId,
+  type ExecutionAccountRef,
   type ManagedAccountAffinityCommitOutcome,
   type ManagedAccountAffinityKey,
   type ManagedAccountAffinityPolicy,
   type ManagedAccountLeaseEvidence,
-  type ModelGatewayAccountCandidate,
-  type ModelGatewayAffinity,
-  type ModelGatewayRoute,
+  type ExecutionAccountCapacityCandidate,
+  type ExecutionAccountAffinity,
+  type ProviderModelRouteIdentity,
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicAdoptedSnapshotExpectation,
   type ManagedEconomicAmount,
   type ManagedEconomicCommitment,
   type ManagedEconomicExecutionAlternative,
-  type ManagedEconomicQuotaEvidence,
   type ManagedEconomicSelectionDecision,
   type ManagedEconomicSettlement,
   type ManagedEconomicEvidenceIdentity,
-  type ModelGatewayAccountUsageEvidence,
   type SessionManagedEconomicRejection,
   validateManagedEconomicSettlement,
-  type ExecutionAccountEconomicsConfig,
   selectManagedEconomicExecutionAlternative,
   validateManagedEconomicAdoptedSnapshot,
 } from "@kilnai/core";
 import { projectManagedEconomicDenialRejections } from "./managed-economic-denial-rejections.js";
 import type { ManagedAgentProviderRoute } from "@kilnai/core";
-
-export interface ManagedAccountCandidateBinding {
-  readonly candidate: ModelGatewayAccountCandidate;
-  /** Stable configured account identity used for capacity across credential revisions. */
-  readonly capacityIdentity: string;
-  readonly credentialRevisionId: string;
-  readonly usageEvidence: ModelGatewayAccountUsageEvidence;
-  readonly accountEconomics?: ExecutionAccountEconomicsConfig;
-  readonly quotaEvidence?: ManagedEconomicQuotaEvidence | null;
-  readonly capacity: {
-    readonly maxConcurrency: number;
-    readonly reservedAffinitySlots: number;
-  };
-}
-
-/** Secret-free current capacity observation for a configured account binding. */
-export interface ManagedAccountCapacityObservation {
-  readonly account: AccountRef;
-  readonly capacityIdentity: string;
-  readonly leaseCapacity: "available" | "unavailable";
-  readonly reservedForNewWork: boolean;
-}
-
-export type ManagedAccountAffinityRequest =
-  | { readonly continuity: "none" }
-  | {
-      readonly continuity: "prefer" | "require";
-      readonly scope: "session" | "turn";
-      readonly allowRebind?: boolean;
-      readonly key: ManagedAccountAffinityKey;
-    };
+import type {
+  AccountCapacityAcquireInput,
+  AccountCapacityAcquireResult,
+  AccountCapacityRecord,
+  AccountCapacitySettlement,
+  ExecutionAccountAffinityRequest,
+  ExecutionAccountCandidateBinding,
+  ExecutionAccountCapacityObservation,
+} from "../execution-kernel/execution-account-capacity-authority.js";
 
 export interface ManagedAccountCandidateResolution {
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity;
   readonly affinityPolicy: ManagedAccountAffinityPolicy;
-  readonly candidates: readonly ManagedAccountCandidateBinding[];
+  readonly candidates: readonly ExecutionAccountCandidateBinding[];
 }
 
 export interface ManagedAccountCandidatePort {
   resolve(input: {
-    readonly accountPolicyId: AccountPolicyId;
+    readonly accountPolicyId: ExecutionAccountPolicyId;
     readonly providerRoute: ManagedAgentProviderRoute;
   }): Promise<ManagedAccountCandidateResolution>;
 }
@@ -249,9 +224,9 @@ export class SqliteManagedAccountLeaseAuthority {
     );
     this.#now = options.now ?? Date.now;
     this.#ownerStaleMs = options.ownerStaleMs ?? 30000;
-    this.#participantKind = options.participantKind ?? "managed-job-runtime";
+    this.#participantKind = options.participantKind ?? "agent-task-runtime";
     this.#recoveryDomain = requireCanonicalText(
-      options.recoveryDomain ?? "managed-jobs",
+      options.recoveryDomain ?? "agent-tasks",
       "Managed account recovery domain is required.",
     );
     this.#configurationRevision = requireCanonicalText(
@@ -278,9 +253,9 @@ export class SqliteManagedAccountLeaseAuthority {
         owner_id TEXT NOT NULL, owner_generation TEXT NOT NULL, heartbeat INTEGER NOT NULL,
         config_revision TEXT NOT NULL, PRIMARY KEY(participant_kind,recovery_domain)
       );`);
+      this.#migrateLeaseSchema();
       this.#claimOwner();
       ownerClaimed = true;
-      this.#migrateLeaseSchema();
       this.#db.exec(`
         CREATE TABLE IF NOT EXISTS account_leases (
           lease_id TEXT PRIMARY KEY,
@@ -341,9 +316,9 @@ export class SqliteManagedAccountLeaseAuthority {
    * rechecks it transactionally when a lease is acquired.
    */
   observeCandidateCapacity(
-    candidates: readonly ManagedAccountCandidateBinding[],
+    candidates: readonly ExecutionAccountCandidateBinding[],
     work: "new" | "existing" = "new",
-  ): readonly ManagedAccountCapacityObservation[] {
+  ): readonly ExecutionAccountCapacityObservation[] {
     if (this.#closed) throw new Error("Managed account lease authority is closed.");
     return candidates.map((binding) => {
       const candidate = this.#candidateWithCurrentCapacity(binding, work);
@@ -372,9 +347,9 @@ export class SqliteManagedAccountLeaseAuthority {
   }
 
   #candidateWithCurrentCapacity(
-    binding: ManagedAccountCandidateBinding,
+    binding: ExecutionAccountCandidateBinding,
     work: "new" | "existing",
-  ): ModelGatewayAccountCandidate {
+  ): ExecutionAccountCapacityCandidate {
     validateCandidateBinding(binding);
     const placeholders = CAPACITY_CONSUMING_STATES.map(() => "?").join(",");
     const counts = this.#db
@@ -400,23 +375,23 @@ export class SqliteManagedAccountLeaseAuthority {
   }
 
   #resolveAffinity(input: {
-    readonly route: ModelGatewayRoute;
-    readonly affinityRequest: ManagedAccountAffinityRequest;
-    readonly candidates: readonly ManagedAccountCandidateBinding[];
+    readonly route: ProviderModelRouteIdentity;
+    readonly affinityRequest: ExecutionAccountAffinityRequest;
+    readonly candidates: readonly ExecutionAccountCandidateBinding[];
   }):
     | {
         readonly status: "ready";
         readonly work: "new" | "existing";
         readonly key?: ManagedAccountAffinityKey;
         readonly expectedCapacityIdentity: string | null;
-        readonly accountAffinity?: ModelGatewayAffinity;
+        readonly accountAffinity?: ExecutionAccountAffinity;
         readonly allowRebind: boolean;
       }
     | {
         readonly status: "unavailable";
         readonly result: {
           readonly status: "unavailable";
-          readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"];
+          readonly rejections: ReturnType<typeof selectExecutionCapacityAccount>["rejections"];
         };
       } {
     if (input.affinityRequest.continuity === "none") {
@@ -465,7 +440,7 @@ export class SqliteManagedAccountLeaseAuthority {
         key,
         expectedCapacityIdentity: affinity.capacity_identity,
         accountAffinity: {
-          account: missingAffinityAccountRef(affinity.capacity_identity),
+          account: missingAffinityExecutionAccountRef(affinity.capacity_identity),
           route: input.route,
         },
         allowRebind: input.affinityRequest.allowRebind === true,
@@ -545,9 +520,9 @@ export class SqliteManagedAccountLeaseAuthority {
   }
 
   #economicAffinityResolution(
-    route: ModelGatewayRoute,
-    affinityRequest: ManagedAccountAffinityRequest,
-    candidates: readonly ManagedAccountCandidateBinding[],
+    route: ProviderModelRouteIdentity,
+    affinityRequest: ExecutionAccountAffinityRequest,
+    candidates: readonly ExecutionAccountCandidateBinding[],
   ) {
     return this.#resolveAffinity({
       route,
@@ -651,22 +626,22 @@ export class SqliteManagedAccountLeaseAuthority {
     commitmentId: string,
     selected: ManagedEconomicExecutionAlternative,
     account: {
-      readonly binding: ManagedAccountCandidateBinding;
+      readonly binding: ExecutionAccountCandidateBinding;
       readonly resolution: {
         readonly status: "ready";
         readonly work: "new" | "existing";
         readonly key?: ManagedAccountAffinityKey;
         readonly expectedCapacityIdentity: string | null;
       };
-      readonly selection: Exclude<ReturnType<typeof selectModelGatewayAccount>["selected"], undefined>;
-      readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"];
+      readonly selection: Exclude<ReturnType<typeof selectExecutionCapacityAccount>["selected"], undefined>;
+      readonly rejections: ReturnType<typeof selectExecutionCapacityAccount>["rejections"];
     },
   ): string {
     if (selected.identity.account.kind !== "account-bound") {
       throw new Error("Managed economic account lease requires an account-bound selected identity.");
     }
     const leaseId = randomUUID();
-    const route = economicModelGatewayRoute(selected.identity.route);
+    const route = economicProviderModelRouteIdentity(selected.identity.route);
     const acquiredAt = new Date(this.#now()).toISOString();
     this.#db
       .query(
@@ -693,7 +668,7 @@ export class SqliteManagedAccountLeaseAuthority {
         acquiredAt,
         account.selection.reason,
         JSON.stringify(account.rejections),
-        JSON.stringify(defineModelGatewayAccountUsageEvidence(account.binding.usageEvidence)),
+        JSON.stringify(defineExecutionAccountUsageEvidence(account.binding.usageEvidence)),
         null,
         account.resolution.work === "existing" ? "affinity" : "new",
         JSON.stringify([`kiln://managed-accounts/leases/${encodeURIComponent(leaseId)}`]),
@@ -842,12 +817,78 @@ export class SqliteManagedAccountLeaseAuthority {
         CREATE INDEX IF NOT EXISTS economic_commitments_route_state
         ON economic_commitments(selected_route_id, state);
       `);
+          this.#migrateLegacyAgentTaskCapacityIdentity(version);
           this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
         })
         .immediate();
     } finally {
       this.#db.exec("PRAGMA foreign_keys=ON;");
     }
+  }
+
+  #migrateLegacyAgentTaskCapacityIdentity(openedVersion: number): void {
+    if (openedVersion >= SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) return;
+    const legacyParticipant = this.#db
+      .query<{ heartbeat: number }, [string, string]>(
+        "SELECT heartbeat FROM participants WHERE participant_kind=? AND recovery_domain=?",
+      )
+      .get(LEGACY_AGENT_TASK_PARTICIPANT_KIND, LEGACY_AGENT_TASK_RECOVERY_DOMAIN);
+    const legacyLeaseCount = this.#db
+      .query<{ count: number }, [string, string]>(
+        "SELECT COUNT(*) count FROM account_leases WHERE participant_kind=? AND recovery_domain=?",
+      )
+      .get(LEGACY_AGENT_TASK_PARTICIPANT_KIND, LEGACY_AGENT_TASK_RECOVERY_DOMAIN)?.count ?? 0;
+    if (!legacyParticipant && legacyLeaseCount === 0) return;
+    const destinationParticipant = this.#db
+      .query<{ present: number }, [string, string]>(
+        "SELECT 1 present FROM participants WHERE participant_kind=? AND recovery_domain=?",
+      )
+      .get(AGENT_TASK_PARTICIPANT_KIND, AGENT_TASK_RECOVERY_DOMAIN);
+    const destinationLeaseCount = this.#db
+      .query<{ count: number }, [string, string]>(
+        "SELECT COUNT(*) count FROM account_leases WHERE participant_kind=? AND recovery_domain=?",
+      )
+      .get(AGENT_TASK_PARTICIPANT_KIND, AGENT_TASK_RECOVERY_DOMAIN)?.count ?? 0;
+    if (destinationParticipant || destinationLeaseCount > 0) {
+      throw new Error("Legacy agent-task capacity identity conflicts with an existing destination identity.");
+    }
+    if (legacyParticipant && legacyParticipant.heartbeat > this.#now() - this.#ownerStaleMs) {
+      throw new Error("Legacy agent-task capacity identity still has a live owner.");
+    }
+    if (legacyParticipant) {
+      const changed = this.#db
+        .query(
+          "UPDATE participants SET participant_kind=?,recovery_domain=? WHERE participant_kind=? AND recovery_domain=?",
+        )
+        .run(
+          AGENT_TASK_PARTICIPANT_KIND,
+          AGENT_TASK_RECOVERY_DOMAIN,
+          LEGACY_AGENT_TASK_PARTICIPANT_KIND,
+          LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
+        );
+      if (changed.changes !== 1) throw new Error("Legacy agent-task capacity participant migration was lost.");
+    }
+    this.#db
+      .query(
+        "UPDATE account_leases SET participant_kind=?,recovery_domain=? WHERE participant_kind=? AND recovery_domain=?",
+      )
+      .run(
+        AGENT_TASK_PARTICIPANT_KIND,
+        AGENT_TASK_RECOVERY_DOMAIN,
+        LEGACY_AGENT_TASK_PARTICIPANT_KIND,
+        LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
+      );
+    const remaining = this.#db
+      .query<{ count: number }, [string, string, string, string]>(
+        "SELECT (SELECT COUNT(*) FROM participants WHERE participant_kind=? AND recovery_domain=?) + (SELECT COUNT(*) FROM account_leases WHERE participant_kind=? AND recovery_domain=?) count",
+      )
+      .get(
+        LEGACY_AGENT_TASK_PARTICIPANT_KIND,
+        LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
+        LEGACY_AGENT_TASK_PARTICIPANT_KIND,
+        LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
+      )?.count ?? 0;
+    if (remaining !== 0) throw new Error("Legacy agent-task capacity identity migration did not converge.");
   }
 
   acquireCommitment(input: ManagedEconomicCommitmentAcquireInput): ManagedEconomicCommitmentAcquireResult {
@@ -884,17 +925,17 @@ export class SqliteManagedAccountLeaseAuthority {
       const accountSelections = new Map<
         string,
         {
-          readonly binding: ManagedAccountCandidateBinding;
+          readonly binding: ExecutionAccountCandidateBinding;
           readonly resolution: {
             readonly status: "ready";
             readonly work: "new" | "existing";
             readonly key?: ManagedAccountAffinityKey;
             readonly expectedCapacityIdentity: string | null;
-            readonly accountAffinity?: ModelGatewayAffinity;
+            readonly accountAffinity?: ExecutionAccountAffinity;
             readonly allowRebind: boolean;
           };
-          readonly selection: Exclude<ReturnType<typeof selectModelGatewayAccount>["selected"], undefined>;
-          readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"];
+          readonly selection: Exclude<ReturnType<typeof selectExecutionCapacityAccount>["selected"], undefined>;
+          readonly rejections: ReturnType<typeof selectExecutionCapacityAccount>["rejections"];
         }
       >();
       const alternatives: ManagedEconomicExecutionAlternative[] = [];
@@ -929,7 +970,7 @@ export class SqliteManagedAccountLeaseAuthority {
           });
           continue;
         }
-        const route = local.route ?? economicModelGatewayRoute(adopted.route);
+        const route = local.route ?? economicProviderModelRouteIdentity(adopted.route);
         const affinityRequest = local.affinityRequest ?? {
           continuity: "none" as const,
         };
@@ -943,7 +984,7 @@ export class SqliteManagedAccountLeaseAuthority {
           });
           continue;
         }
-        const selection = selectModelGatewayAccount({
+        const selection = selectExecutionCapacityAccount({
           route,
           work: resolution.work,
           ...(resolution.accountAffinity ? { affinity: resolution.accountAffinity } : {}),
@@ -1240,7 +1281,7 @@ export class SqliteManagedAccountLeaseAuthority {
     });
   }
 
-  createManagedJobCommitmentRecoveryPort(): ManagedEconomicCommitmentRecoveryPort {
+  createAgentTaskCommitmentRecoveryPort(): ManagedEconomicCommitmentRecoveryPort {
     return {
       query: ({ jobId, economicAttemptId }) => {
         this.#heartbeat();
@@ -1251,7 +1292,7 @@ export class SqliteManagedAccountLeaseAuthority {
     };
   }
 
-  createManagedJobReplayInspectionPort(): ManagedEconomicReplayInspectionPort {
+  createAgentTaskReplayInspectionPort(): ManagedEconomicReplayInspectionPort {
     return {
       inspect: ({ jobId, economicAttemptId }) =>
         this.#transaction(() => {
@@ -1493,7 +1534,7 @@ export class SqliteManagedAccountLeaseAuthority {
           status: "unavailable",
           rejections: affinity.result.rejections,
         };
-      const selected = selectModelGatewayAccount({
+      const selected = selectExecutionCapacityAccount({
         route: input.route,
         work: affinity.work,
         ...(affinity.accountAffinity ? { affinity: affinity.accountAffinity } : {}),
@@ -1524,7 +1565,7 @@ export class SqliteManagedAccountLeaseAuthority {
           new Date(this.#now()).toISOString(),
           selected.selected.reason,
           JSON.stringify(selected.rejections),
-          JSON.stringify(defineModelGatewayAccountUsageEvidence(binding.usageEvidence)),
+          JSON.stringify(defineExecutionAccountUsageEvidence(binding.usageEvidence)),
           null,
           affinity.work === "existing" ? "affinity" : "new",
           JSON.stringify([`kiln://managed-accounts/leases/${encodeURIComponent(leaseId)}`]),
@@ -1805,9 +1846,9 @@ export class SqliteManagedAccountLeaseAuthority {
 
 export interface ManagedEconomicRouteCapacity {
   readonly routeId: string;
-  readonly route?: ModelGatewayRoute;
-  readonly affinityRequest?: ManagedAccountAffinityRequest;
-  readonly candidates?: readonly ManagedAccountCandidateBinding[];
+  readonly route?: ProviderModelRouteIdentity;
+  readonly affinityRequest?: ExecutionAccountAffinityRequest;
+  readonly candidates?: readonly ExecutionAccountCandidateBinding[];
 }
 
 export interface ManagedEconomicCommitmentAcquireInput {
@@ -1845,9 +1886,9 @@ export interface ManagedEconomicAccountLeaseEvidence {
   readonly commitmentId: string;
   readonly jobId: string;
   readonly economicAttemptId: string;
-  readonly accountPolicyId: AccountPolicyId;
-  readonly accountRef: ModelGatewayAccountCandidate["account"];
-  readonly route: ModelGatewayRoute;
+  readonly accountPolicyId: ExecutionAccountPolicyId;
+  readonly accountRef: ExecutionAccountCapacityCandidate["account"];
+  readonly route: ProviderModelRouteIdentity;
   readonly capacityIdentity: string;
   readonly credentialRevisionId: string;
   readonly selectionReason: ManagedAccountLeaseEvidence["selectionReason"];
@@ -1866,7 +1907,7 @@ export type ManagedEconomicAuthorityRejection =
   | {
       readonly stage: "account-selection";
       readonly routeId: string;
-      readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"];
+      readonly rejections: ReturnType<typeof selectExecutionCapacityAccount>["rejections"];
     }
   | {
       readonly stage: "local-capacity";
@@ -1887,46 +1928,9 @@ export interface ManagedEconomicAuthorityDecisionEvidence {
 
 /** Participants are intentionally named by the recovery protocol they own, not by a UI surface. */
 export type SharedAccountCapacityParticipantKind =
-  | "managed-job-runtime"
+  | "agent-task-runtime"
   | "model-gateway-ingress"
   | "operator-session";
-
-/** Account-only capacity is intentionally separate from #34 commitments. */
-export interface AccountCapacityAcquireInput {
-  readonly runtimeInvocationId: string;
-  readonly intentFingerprint: string;
-  readonly accountPolicyId: AccountPolicyId;
-  readonly route: ModelGatewayRoute;
-  readonly candidates: readonly ManagedAccountCandidateBinding[];
-  readonly affinityRequest?: ManagedAccountAffinityRequest;
-}
-
-export type AccountCapacityAcquireResult =
-  | {
-      readonly status: "acquired";
-      readonly record: AccountCapacityRecord;
-      readonly replay: boolean;
-    }
-  | {
-      readonly status: "unavailable";
-      readonly rejections: ReturnType<typeof selectModelGatewayAccount>["rejections"];
-    }
-  | { readonly status: "conflict"; readonly reason: "idempotency-conflict" };
-
-export interface AccountCapacityRecord {
-  readonly leaseId: string;
-  readonly runtimeInvocationId: string;
-  readonly accountPolicyId: AccountPolicyId;
-  readonly accountRef: AccountRef;
-  readonly route: ModelGatewayRoute;
-  readonly capacityIdentity: string;
-  readonly credentialRevisionId: string;
-  readonly state: "held" | "dispatch-fenced" | "settlement-pending" | "released";
-  readonly selectionReason: ManagedAccountLeaseEvidence["selectionReason"];
-  readonly candidateRejections: ManagedAccountLeaseEvidence["candidateRejections"];
-  readonly affinityCommitOutcome?: ManagedAccountAffinityCommitOutcome;
-  readonly dispatchFenceId?: string;
-}
 
 export interface AccountCapacityIncident {
   readonly runtimeInvocationId: string;
@@ -1936,20 +1940,7 @@ export interface AccountCapacityIncident {
   readonly settlement?: Extract<AccountCapacitySettlement, { readonly kind: "unknown" }>;
 }
 
-/** Deliberately secret-free gateway settlement evidence. */
-export type AccountCapacitySettlement =
-  | {
-      readonly kind: "completed";
-      readonly outcome: "success" | "provider-error" | "cancelled";
-      readonly observedAt: string;
-    }
-  | {
-      readonly kind: "unknown";
-      readonly reason: string;
-      readonly observedAt: string;
-    };
-
-/** Read-only authority evidence safe to expose through managed-job replay. */
+/** Read-only authority evidence safe to expose through agent-task replay. */
 export type ManagedEconomicReplayEvidence =
   | {
       readonly evidenceVersion: 1;
@@ -2033,7 +2024,11 @@ export interface ManagedEconomicCommitmentRecoveryPort {
   query(input: { readonly jobId: string; readonly economicAttemptId: string }): ManagedEconomicCommitmentRecoveryState;
 }
 
-const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 3;
+const AGENT_TASK_PARTICIPANT_KIND = "agent-task-runtime";
+const AGENT_TASK_RECOVERY_DOMAIN = "agent-tasks";
+const LEGACY_AGENT_TASK_PARTICIPANT_KIND = "managed-job-runtime";
+const LEGACY_AGENT_TASK_RECOVERY_DOMAIN = "managed-jobs";
+const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 4;
 const ECONOMIC_CAPACITY_CONSUMING_STATES = [
   "held",
   "dispatch-fenced",
@@ -2042,7 +2037,7 @@ const ECONOMIC_CAPACITY_CONSUMING_STATES = [
   "leaked",
 ] as const;
 
-function economicModelGatewayRoute(route: ManagedEconomicExecutionAlternative["identity"]["route"]): ModelGatewayRoute {
+function economicProviderModelRouteIdentity(route: ManagedEconomicExecutionAlternative["identity"]["route"]): ProviderModelRouteIdentity {
   return {
     providerId: route.providerId,
     providerModelId: route.modelId,
@@ -2341,19 +2336,19 @@ function reservationAmounts(
   return alternative.worstCaseReservation.kind === "exact" ? [alternative.worstCaseReservation.amount] : [];
 }
 
-function missingAffinityAccountRef(capacityIdentity: string): AccountRef {
+function missingAffinityExecutionAccountRef(capacityIdentity: string): ExecutionAccountRef {
   const digest = createHash("sha256")
     .update("kiln-missing-managed-account-affinity-v1:")
     .update(capacityIdentity)
     .digest("hex");
-  return createAccountRef(`configured:missing-affinity:${digest}`);
+  return createExecutionAccountRef(`configured:missing-affinity:${digest}`);
 }
 
-function validateCandidateBinding(binding: ManagedAccountCandidateBinding): void {
-  createAccountRef(binding.candidate.account);
+function validateCandidateBinding(binding: ExecutionAccountCandidateBinding): void {
+  createExecutionAccountRef(binding.candidate.account);
   requireCanonicalText(binding.capacityIdentity, "Managed account capacity identity is required.");
   requireRoute(binding.candidate.route);
-  const usageEvidence = defineModelGatewayAccountUsageEvidence(binding.usageEvidence);
+  const usageEvidence = defineExecutionAccountUsageEvidence(binding.usageEvidence);
   if (usageEvidence.health === "unhealthy" && binding.candidate.health !== "unhealthy") {
     throw new TypeError("Managed account candidate health cannot contradict unhealthy usage evidence.");
   }
@@ -2386,7 +2381,7 @@ function validateCandidateBinding(binding: ManagedAccountCandidateBinding): void
   }
 }
 
-function requireRoute(route: ModelGatewayRoute): void {
+function requireRoute(route: ProviderModelRouteIdentity): void {
   requireCanonicalText(route.providerId, "Managed account route provider id is required.");
   requireCanonicalText(route.providerModelId, "Managed account route model id is required.");
   requireCanonicalText(route.scope, "Managed account route scope is required.");
@@ -2434,8 +2429,8 @@ function economicLeaseEvidenceFromRow(row: LeaseRow, commitment: CommitmentRow):
     commitmentId: row.commitment_id,
     jobId: row.job_id,
     economicAttemptId: row.economic_attempt_id,
-    accountPolicyId: createAccountPolicyId(row.account_policy_id),
-    accountRef: createAccountRef(row.account_ref),
+    accountPolicyId: createExecutionAccountPolicyId(row.account_policy_id),
+    accountRef: createExecutionAccountRef(row.account_ref),
     route: {
       providerId: row.provider_id,
       providerModelId: row.model_id,
@@ -2477,7 +2472,7 @@ function parseCandidateRejections(value: string): ManagedAccountLeaseEvidence["c
     if (typeof rejection.account !== "string" || typeof rejection.reason !== "string") {
       throw new Error("Managed account lease candidate rejection evidence is corrupt.");
     }
-    return defineModelGatewayAccountRejection({
+    return defineExecutionAccountCapacityRejection({
       account: rejection.account,
       reason: rejection.reason,
     });
@@ -2503,8 +2498,8 @@ function accountCapacityRecord(row: LeaseRow): AccountCapacityRecord {
   return {
     leaseId: row.lease_id,
     runtimeInvocationId: row.runtime_invocation_id,
-    accountPolicyId: createAccountPolicyId(row.account_policy_id),
-    accountRef: createAccountRef(row.account_ref),
+    accountPolicyId: createExecutionAccountPolicyId(row.account_policy_id),
+    accountRef: createExecutionAccountRef(row.account_ref),
     route: {
       providerId: row.provider_id,
       providerModelId: row.model_id,

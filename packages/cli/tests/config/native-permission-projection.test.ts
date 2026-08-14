@@ -76,6 +76,7 @@ apps: []
 modelGateway:
   port: 4910
   replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_KEY }
+  codexComposite: { maxQueuedRequests: 4, queueTimeoutMs: 1000 }
   surfaces:
     openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }
     anthropicMessages: { maxBodyBytes: 1024, maxConcurrentRequests: 2 }

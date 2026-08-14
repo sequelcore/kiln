@@ -38,7 +38,7 @@ Kiln project evidence:
 - `docs/architecture/surfaces/runtime-surfaces.md`
 - `docs/architecture/surfaces/operator-surfaces.md`
 - `docs/architecture/surfaces/inspectable-agent-work.md`
-- `docs/architecture/coordination/managed-agents.md`
+- `docs/architecture/coordination/agent-tasks.md`
 - `docs/architecture/surfaces/native-operator-surface.md`
 - Relevant code in `packages/core`, `packages/runtime`, `packages/gateway-contracts`,
   `packages/cli`, `packages/tui`, `packages/gui`, and `packages/native`.

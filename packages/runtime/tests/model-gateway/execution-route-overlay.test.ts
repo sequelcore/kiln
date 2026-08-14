@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectExecutionAccountCandidate, type AdmittedExecutionRoute, type ExecutionAccountCandidate } from "@kilnai/core";
+import { selectAdmittedExecutionAccount, type AdmittedExecutionRoute, type ExecutionAccountAdmissionCandidate } from "@kilnai/core";
 
 describe("model gateway execution-route overlay", () => {
   it("selects only canonical execution candidates admitted for the referenced route", () => {
@@ -9,7 +9,7 @@ describe("model gateway execution-route overlay", () => {
       providerModelId: "model",
       accountSelection: { mode: "automatic", accountPolicyId: "policy", eligibleAccountIds: ["account-a"] },
     };
-    const candidate: ExecutionAccountCandidate = {
+    const candidate: ExecutionAccountAdmissionCandidate = {
       accountId: "account-a",
       safety: "eligible",
       health: "healthy",
@@ -18,6 +18,6 @@ describe("model gateway execution-route overlay", () => {
       economicCost: { atoms: "1", scale: 0, unit: "request", scheme: { kind: "unit" } },
       pressure: 0,
     };
-    expect(selectExecutionAccountCandidate(admission, [candidate])).toMatchObject({ kind: "selected", accountId: "account-a" });
+    expect(selectAdmittedExecutionAccount(admission, [candidate])).toMatchObject({ kind: "selected", accountId: "account-a" });
   });
 });

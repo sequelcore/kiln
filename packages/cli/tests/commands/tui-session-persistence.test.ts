@@ -156,7 +156,10 @@ vi.mock("@kilnai/tui", () => ({
   themes: { "phosphor": {} },
   kilnDark: {},
 }));
-vi.mock("@kilnai/runtime", () => ({
+vi.mock("@kilnai/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@kilnai/runtime")>();
+  return {
+  ...actual,
   startTuiGateway: mockStartTuiGateway,
   getProjectContextArtifactCache: mockGetProjectContextArtifactCache,
   createAttachedRuntimeBuiltinToolSurface: vi.fn(() => ({
@@ -246,7 +249,8 @@ vi.mock("@kilnai/runtime", () => ({
   projectGuiProviderModelDiscovery: mockProjectGuiProviderModelDiscovery,
   createProviderCatalogService: mockCreateProviderCatalogService,
   providerRequiresSelectedModelMessage: (provider: string) => `Provider '${provider}' requires a selected model.`,
-}));
+  };
+});
 vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
   createOperatorTurnDispatchComposition: operatorCompositionMocks.create,
   resolveOperatorContinuationBinding: operatorCompositionMocks.resolveContinuation,
@@ -258,6 +262,7 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
 }));
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
+  readGlobalConfigSnapshot: vi.fn(() => ({ config: mockGlobalConfig.value, revision: `sha256:${"a".repeat(64)}` })),
   resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
   resolveGlobalDefaultProvider: () => undefined,
   resolveGlobalDefaultModel: () => undefined,
@@ -568,7 +573,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { registry } = makeRegistry();
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
-    const budgetAdmission = { admit: vi.fn() };
+    const sessionTurnBudget = { admit: vi.fn() };
 
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
@@ -581,7 +586,7 @@ describe("makeMultiProviderSessionFactory", () => {
       undefined,
       "tui",
       undefined,
-      budgetAdmission,
+      sessionTurnBudget,
     );
     const session = factory("sys", "/p");
 
@@ -589,7 +594,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
     expect(registry.createSession).toHaveBeenCalledWith(
       "claude",
-      expect.objectContaining({ budgetAdmission }),
+      expect.objectContaining({ sessionTurnBudget }),
     );
   });
 

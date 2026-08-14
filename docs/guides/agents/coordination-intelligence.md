@@ -101,5 +101,5 @@ verification and adoption.
   not opinions and must not be summarized as successful work.
 
 See [Coordination](../../architecture/coordination/coordination.md),
-[Managed Agents](../../architecture/coordination/managed-agents.md), and
+[Agent Tasks and Agent Runs](../../architecture/coordination/agent-tasks.md), and
 [Work Governance](../../architecture/core/work-governance.md).

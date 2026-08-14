@@ -12,6 +12,14 @@ const codexExecution = {
   revision: "b".repeat(64),
 };
 
+const dataPolicyEvidence = (expiresAt = "2026-12-31T00:00:00.000Z") => ({
+  providerId: "codex-oauth", providerModelId: "gpt-test", dataUse: "not-used" as const,
+  trainingPosture: "prohibited" as const, retention: { posture: "zero" as const, days: 0 },
+  permittedMaximumClassification: "internal" as const, permittedClassifications: ["public", "internal"] as const,
+  sourceIdentity: "fixture-privacy", sourceRevision: "revision-1", sourceDigest: `sha256:${"d".repeat(64)}` as const,
+  observedAt: "2026-01-01T00:00:00.000Z", expiresAt,
+});
+
 const catalog = defineExecutionCatalog({
   accounts: [
     {
@@ -37,12 +45,75 @@ const catalog = defineExecutionCatalog({
     label: "Codex route",
     providerId: "codex-oauth",
     providerModelId: "gpt-test",
+    dataClassification: "internal",
+    dataPolicyEvidence: dataPolicyEvidence(),
     accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" },
     economics: routeEconomics(),
   }],
 });
 
 describe("ConfiguredExecutionAccountRuntime", () => {
+  it("preserves the selected route id when two routes share provider, model, and accounts", async () => {
+    const duplicateCatalog = defineExecutionCatalog({
+      ...catalog,
+      routes: [catalog.routes[0]!, { ...catalog.routes[0]!, id: "codex-route-alternate", label: "Alternate" }],
+    });
+    const codexPool = pool([codexExecution]);
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog: duplicateCatalog, codexPool, now: () => new Date("2026-08-15T00:00:00.000Z"),
+    });
+    const admission = admitOperatorExecutionIntent(duplicateCatalog, { routeId: "codex-route-alternate" });
+    const [selected] = await runtime.operatorSessionCandidates.resolve({ admission });
+    if (!selected) throw new Error("fixture candidate missing");
+    await expect(runtime.operatorSessionCredentials.resolve({
+      routeId: admission.routeId,
+      accountId: "account-a", credentialId: "credential-a",
+      lease: {
+        leaseId: "lease-duplicate", runtimeInvocationId: "turn-duplicate", accountPolicyId: "codex-policy" as never,
+        accountRef: selected.lease.candidate.account, route: selected.lease.candidate.route,
+        capacityIdentity: selected.lease.capacityIdentity, credentialRevisionId: selected.lease.credentialRevisionId,
+        state: "dispatch-fenced", selectionReason: "least-pressure", candidateRejections: [], dispatchFenceId: "turn-duplicate:dispatch",
+      },
+    })).resolves.toMatchObject({ credentialId: "credential-a" });
+  });
+
+  it("denies expired evidence before account listing or usage lookup", async () => {
+    const codexPool = pool([codexExecution]);
+    const expiredCatalog = defineExecutionCatalog({
+      ...catalog,
+      routes: catalog.routes.map((route) => ({ ...route, dataPolicyEvidence: dataPolicyEvidence("2026-08-01T00:00:00.000Z") })),
+    });
+    const runtime = new ConfiguredExecutionAccountRuntime({ catalog: expiredCatalog, codexPool, now: () => new Date("2026-08-15T00:00:00.000Z") });
+    const admission = admitOperatorExecutionIntent(expiredCatalog, { routeId: "codex-route" });
+    await expect(runtime.operatorSessionCandidates.resolve({ admission })).rejects.toThrow(/expired-evidence/u);
+    expect(codexPool.listExecutionAccounts).not.toHaveBeenCalled();
+    expect(codexPool.listUsage).not.toHaveBeenCalled();
+  });
+
+  it("denies before any credential pool lookup or credential resolution", async () => {
+    const codexPool = pool([codexExecution]);
+    const expiredCatalog = defineExecutionCatalog({
+      ...catalog,
+      routes: catalog.routes.map((route) => ({ ...route, dataPolicyEvidence: dataPolicyEvidence("2026-08-01T00:00:00.000Z") })),
+    });
+    const runtime = new ConfiguredExecutionAccountRuntime({
+      catalog: expiredCatalog, codexPool, now: () => new Date("2026-08-15T00:00:00.000Z"),
+    });
+    await expect(runtime.operatorSessionCredentials.resolve({
+      routeId: "codex-route",
+      accountId: "account-a", credentialId: "credential-a",
+      lease: {
+        leaseId: "lease-denied", runtimeInvocationId: "turn-denied", accountPolicyId: "codex-policy" as never,
+        accountRef: "configured:synthetic" as never,
+        route: { providerId: "codex-oauth", providerModelId: "gpt-test", scope: "operator-session" },
+        capacityIdentity: "codex-capacity-a", credentialRevisionId: "synthetic", state: "dispatch-fenced",
+        selectionReason: "least-pressure", candidateRejections: [], dispatchFenceId: "turn-denied:dispatch",
+      },
+    })).rejects.toThrow(/expired-evidence/u);
+    expect(codexPool.listExecutionAccounts).not.toHaveBeenCalled();
+    expect(codexPool.resolveExecutionCredential).not.toHaveBeenCalled();
+  });
+
   it("projects canonical accounts into operator and Gateway candidate ports without resolving credentials", async () => {
     const codexPool = pool([codexExecution]);
     const runtime = new ConfiguredExecutionAccountRuntime({
@@ -67,7 +138,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     });
     const gateway = await runtime.modelGatewayCandidates.resolve({
       admission,
-      route: { providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:overlay" },
+      route: { routeId: "codex-route", providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:overlay" },
     });
     expect(gateway[0]?.lease.candidate.route.scope).toBe("virtual:overlay");
     expect(codexPool.resolveExecutionCredential).not.toHaveBeenCalled();
@@ -85,7 +156,11 @@ describe("ConfiguredExecutionAccountRuntime", () => {
 
     await expect(runtime.modelGatewayCandidates.resolve({
       admission,
-      route: { providerId: "openai", providerModelId: "gpt-test", scope: "virtual:overlay" },
+      route: { routeId: "codex-route", providerId: "openai", providerModelId: "gpt-test", scope: "virtual:overlay" },
+    })).rejects.toThrow(/does not match/u);
+    await expect(runtime.modelGatewayCandidates.resolve({
+      admission,
+      route: { routeId: "other-route", providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:overlay" },
     })).rejects.toThrow(/does not match/u);
   });
 
@@ -97,7 +172,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       now: () => new Date("2026-08-11T12:00:00.000Z"),
     });
     const admission = admitOperatorExecutionIntent(catalog, { routeId: "codex-route" });
-    const route = { providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:codex" };
+    const route = { routeId: "codex-route", providerId: "codex-oauth", providerModelId: "gpt-test", scope: "virtual:codex" };
     const candidates = await runtime.modelGatewayCandidates.resolve({ admission, route });
     const authority = new SqliteManagedAccountLeaseAuthority({
       path: ":memory:",
@@ -118,6 +193,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       await expect(runtime.modelGatewayDispatchers.resolve({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         accountId: "account-a",
+        routeId: "codex-route",
         route,
         lease: acquired.record,
       })).rejects.toThrow("dispatch-fenced");
@@ -126,6 +202,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
       await expect(runtime.modelGatewayDispatchers.resolve({
         identity: { tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn" },
         accountId: "account-a",
+        routeId: "codex-route",
         route,
         lease: fenced,
       })).resolves.toMatchObject({ dispatchOneRound: expect.any(Function) });
@@ -174,6 +251,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
     };
 
     await expect(runtime.operatorSessionCredentials.resolve({
+      routeId: "codex-route",
       accountId: "account-a",
       credentialId: "credential-a",
       lease,

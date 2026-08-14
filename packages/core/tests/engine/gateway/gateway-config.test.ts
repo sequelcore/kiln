@@ -51,6 +51,7 @@ describe("GatewayConfig model gateway overlay", () => {
 
     expect(parsed).toMatchObject({
       port: 4801,
+      surfaces: { openAIResponses: { maxConcurrentRequests: 4 } },
       virtualModels: [{
         id: "codex",
         executionRouteId: "codex-standard",
@@ -59,6 +60,11 @@ describe("GatewayConfig model gateway overlay", () => {
     });
     expect(parsed && "accounts" in parsed).toBe(false);
     expect(JSON.stringify(parsed)).not.toContain("providerModelId");
+  });
+
+  it("rejects composite-only queue settings from shared HTTP surfaces", () => {
+    const yaml = overlayGatewayYaml.replace("maxConcurrentRequests: 4", "maxConcurrentRequests: 4, maxQueuedRequests: 8");
+    expect(() => parseGatewayYaml(yaml)).toThrow(/maxQueuedRequests/);
   });
 
   it.each([
@@ -94,8 +100,10 @@ describe("GatewayConfig model gateway overlay", () => {
     const yaml = overlayGatewayYaml
       .replace("capabilities: [text, function-tools]", "capabilities: [text, reasoning-controls]")
       .replace("affinity: { continuity: none }", "affinity: { continuity: prefer, scope: session, allowRebind: true }\n      deliberation: { levels: [low, high], defaultLevel: high, supportsAdaptive: true, evidenceRevision: rev-1 }")
-      .replace("virtualModelIds: [codex]", "virtualModelIds: [codex], nativeHarness: codex");
+      .replace("virtualModelIds: [codex]", "virtualModelIds: [codex], nativeHarness: codex")
+      .replace("  surfaces:", "  codexComposite: { maxQueuedRequests: 8, queueTimeoutMs: 30000 }\n  surfaces:");
     expect(parseGatewayYaml(yaml).modelGateway).toMatchObject({
+      codexComposite: { maxQueuedRequests: 8, queueTimeoutMs: 30000 },
       principals: [{ nativeHarness: "codex" }],
       virtualModels: [{
         executionRouteId: "codex-standard",
@@ -103,6 +111,13 @@ describe("GatewayConfig model gateway overlay", () => {
         affinity: { continuity: "prefer", scope: "session", allowRebind: true },
       }],
     });
+  });
+
+  it("requires queue policy only for a native Codex composite", () => {
+    const codex = overlayGatewayYaml.replace("virtualModelIds: [codex]", "virtualModelIds: [codex], nativeHarness: codex");
+    expect(() => parseGatewayYaml(codex)).toThrow(/codexComposite/);
+    const nonCodex = overlayGatewayYaml.replace("  surfaces:", "  codexComposite: { maxQueuedRequests: 8, queueTimeoutMs: 30000 }\n  surfaces:");
+    expect(() => parseGatewayYaml(nonCodex)).toThrow(/codexComposite/);
   });
 
   it("supports a standalone overlay and rejects unknown or unpreserved fields", () => {

@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createAccountPolicyId,
-  createAccountRef,
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
   defineExecutionCatalog,
-  type ExecutionAccountCandidate,
+  type ExecutionAccountAdmissionCandidate,
 } from "@kilnai/core";
 import {
   OperatorSessionExecutionRoutingService,
   type AccountCapacityAcquireInput,
   type AccountCapacityRecord,
-  type ManagedAccountCandidateBinding,
+  type ExecutionAccountCandidateBinding,
 } from "../../src/index.js";
 import {
   fingerprintOperatorTurnIntent,
@@ -44,6 +44,8 @@ const catalog = defineExecutionCatalog({
       label: "Terra",
       providerId: "codex",
       providerModelId: "gpt-5.6-terra",
+      dataClassification: "internal",
+      dataPolicyEvidence: { providerId: "codex", providerModelId: "gpt-5.6-terra", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
       accountSelection: { mode: "automatic", accountPolicyId: "codex-policy" },
       economics: routeEconomics(),
     },
@@ -52,6 +54,8 @@ const catalog = defineExecutionCatalog({
       label: "Luna",
       providerId: "codex",
       providerModelId: "gpt-5.6-luna",
+      dataClassification: "internal",
+      dataPolicyEvidence: { providerId: "codex", providerModelId: "gpt-5.6-luna", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"c".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", expiresAt: "2027-08-31T00:00:00.000Z" },
       accountSelection: { mode: "exact", accountId: "work" },
       economics: routeEconomics(),
     },
@@ -100,7 +104,7 @@ function routeEconomics() {
   };
 }
 
-function candidate(accountId: string, overrides: Partial<ExecutionAccountCandidate> = {}): ExecutionAccountCandidate {
+function candidate(accountId: string, overrides: Partial<ExecutionAccountAdmissionCandidate> = {}): ExecutionAccountAdmissionCandidate {
   return {
     accountId,
     safety: "eligible",
@@ -118,10 +122,10 @@ function candidate(accountId: string, overrides: Partial<ExecutionAccountCandida
   };
 }
 
-function leaseBinding(accountId: string, model = "gpt-5.6-terra"): ManagedAccountCandidateBinding {
+function leaseBinding(accountId: string, model = "gpt-5.6-terra"): ExecutionAccountCandidateBinding {
   return {
     candidate: {
-      account: createAccountRef(`configured:${accountId}`),
+      account: createExecutionAccountRef(`configured:${accountId}`),
       route: { providerId: "codex", providerModelId: model, scope: "operator-session" },
       health: "healthy",
       leaseCapacity: "available",
@@ -139,8 +143,8 @@ function acquiredRecord(accountId = "personal", model = "gpt-5.6-terra"): Accoun
   return {
     leaseId: "lease",
     runtimeInvocationId: "turn-1",
-    accountPolicyId: createAccountPolicyId("codex-policy"),
-    accountRef: createAccountRef(`configured:${accountId}`),
+    accountPolicyId: createExecutionAccountPolicyId("codex-policy"),
+    accountRef: createExecutionAccountRef(`configured:${accountId}`),
     route: { providerId: "codex", providerModelId: model, scope: "operator-session" },
     capacityIdentity: `codex:${accountId}`,
     credentialRevisionId: revision,
@@ -151,7 +155,7 @@ function acquiredRecord(accountId = "personal", model = "gpt-5.6-terra"): Accoun
 }
 
 function dispatcher(overrides: {
-  readonly candidates?: readonly { readonly candidate: ExecutionAccountCandidate; readonly lease: ManagedAccountCandidateBinding }[];
+  readonly candidates?: readonly { readonly candidate: ExecutionAccountAdmissionCandidate; readonly lease: ExecutionAccountCandidateBinding }[];
   readonly order?: string[];
 } = {}) {
   const order = overrides.order ?? [];

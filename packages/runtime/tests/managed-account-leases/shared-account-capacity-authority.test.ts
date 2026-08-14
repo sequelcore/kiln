@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
-import { createAccountRef } from "@kilnai/core";
+import { createExecutionAccountRef } from "@kilnai/core";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ afterEach(() => {
 
 function createAuthority(
   path: string,
-  kind: "managed-job-runtime" | "model-gateway-ingress" | "operator-session",
+  kind: "agent-task-runtime" | "model-gateway-ingress" | "operator-session",
   domain = kind,
   now = () => Date.now(),
 ) {
@@ -41,7 +41,7 @@ function capacityInput(id: string, revision = "a".repeat(64)) {
     accountPolicyId: "policy",
     route,
     candidates: [{
-      candidate: { account: createAccountRef("configured:account"), route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false },
+      candidate: { account: createExecutionAccountRef("configured:account"), route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false },
       capacityIdentity: "stable-account",
       credentialRevisionId: revision,
       usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
@@ -75,7 +75,7 @@ describe("shared account capacity in managed authority", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-"));
     roots.push(root);
     const path = join(root, "authority.sqlite");
-    const managed = createAuthority(path, "managed-job-runtime");
+    const managed = createAuthority(path, "agent-task-runtime");
     const gateway = createAuthority(path, "model-gateway-ingress");
 
     expect(gateway.acquireAccountCapacity(capacityInput("gateway")).status).toBe("acquired");
@@ -243,6 +243,67 @@ describe("shared account capacity in managed authority", () => {
     database.close();
     const replacement = createAuthority(path, "model-gateway-ingress", "gateway");
     expect(() => replacement.recoverAccountCapacity()).toThrow(/unsupported consuming state leaked/i);
+  });
+
+  it("atomically migrates exact legacy agent-task capacity identity without losing retained recovery evidence", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-agent-task-migration-")); roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const bootstrap = new SqliteManagedAccountLeaseAuthority({
+      path, ownerId: "bootstrap", now: () => 1_000, ownerStaleMs: 10, configurationRevision: "rev-1",
+    });
+    bootstrap.acquireAccountCapacity(capacityInput("legacy-capacity"));
+    bootstrap.close();
+
+    const before = new Database(path, { strict: true });
+    before.query("UPDATE account_leases SET participant_kind='managed-job-runtime', recovery_domain='managed-jobs' WHERE runtime_invocation_id='legacy-capacity'").run();
+    before.query("INSERT INTO participants(participant_kind,recovery_domain,owner_id,owner_generation,heartbeat,config_revision) VALUES(?,?,?,?,?,?)")
+      .run("managed-job-runtime", "managed-jobs", "legacy-owner", "legacy-generation", 0, "rev-1");
+    before.exec("PRAGMA user_version=3;");
+    const retainedEvidence = before.query<{ usage_evidence: string; diagnostic_uris: string }, []>(
+      "SELECT usage_evidence,diagnostic_uris FROM account_leases WHERE runtime_invocation_id='legacy-capacity'",
+    ).get()!;
+    before.close();
+
+    const reopened = new SqliteManagedAccountLeaseAuthority({
+      path, ownerId: "new-owner", now: () => 1_000, ownerStaleMs: 10, configurationRevision: "rev-1",
+    });
+    authorities.push(reopened);
+    expect(reopened.recoverAccountCapacity()).toMatchObject([{ runtimeInvocationId: "legacy-capacity", state: "held" }]);
+    expect(readAccountCapacityIncidents({ path, participantKind: "agent-task-runtime", recoveryDomain: "agent-tasks" }))
+      .toMatchObject([{ runtimeInvocationId: "legacy-capacity", state: "held" }]);
+
+    const after = new Database(path, { readonly: true, strict: true });
+    expect(after.query<{ count: number }, []>("SELECT COUNT(*) count FROM participants WHERE participant_kind='managed-job-runtime' AND recovery_domain='managed-jobs'").get()?.count).toBe(0);
+    expect(after.query<{ count: number }, []>("SELECT COUNT(*) count FROM account_leases WHERE participant_kind='managed-job-runtime' AND recovery_domain='managed-jobs'").get()?.count).toBe(0);
+    expect(after.query<{ usage_evidence: string; diagnostic_uris: string; participant_kind: string; recovery_domain: string }, []>(
+      "SELECT usage_evidence,diagnostic_uris,participant_kind,recovery_domain FROM account_leases WHERE runtime_invocation_id='legacy-capacity'",
+    ).get()).toEqual({ ...retainedEvidence, participant_kind: "agent-task-runtime", recovery_domain: "agent-tasks" });
+    after.close();
+  });
+
+  it("fails closed without changing rows when legacy and destination participant keys collide", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-agent-task-conflict-")); roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const bootstrap = new SqliteManagedAccountLeaseAuthority({ path, ownerId: "bootstrap", now: () => 1_000, ownerStaleMs: 10, configurationRevision: "rev-1" });
+    bootstrap.acquireAccountCapacity(capacityInput("legacy-conflict"));
+    bootstrap.close();
+    const database = new Database(path, { strict: true });
+    database.query("UPDATE account_leases SET participant_kind='managed-job-runtime', recovery_domain='managed-jobs' WHERE runtime_invocation_id='legacy-conflict'").run();
+    database.query("INSERT INTO participants(participant_kind,recovery_domain,owner_id,owner_generation,heartbeat,config_revision) VALUES(?,?,?,?,?,?)")
+      .run("managed-job-runtime", "managed-jobs", "legacy-owner", "legacy-generation", 0, "rev-1");
+    database.query("INSERT INTO participants(participant_kind,recovery_domain,owner_id,owner_generation,heartbeat,config_revision) VALUES(?,?,?,?,?,?)")
+      .run("agent-task-runtime", "agent-tasks", "destination-owner", "destination-generation", 0, "rev-1");
+    database.exec("PRAGMA user_version=3;");
+    database.close();
+
+    expect(() => new SqliteManagedAccountLeaseAuthority({ path, ownerId: "new-owner", now: () => 1_000, ownerStaleMs: 10, configurationRevision: "rev-1" }))
+      .toThrow(/legacy agent-task capacity identity conflicts/i);
+    const after = new Database(path, { readonly: true, strict: true });
+    expect(after.query<{ participant_kind: string; recovery_domain: string }, []>(
+      "SELECT participant_kind,recovery_domain FROM account_leases WHERE runtime_invocation_id='legacy-conflict'",
+    ).get()).toEqual({ participant_kind: "managed-job-runtime", recovery_domain: "managed-jobs" });
+    expect(after.query<{ count: number }, []>("SELECT COUNT(*) count FROM participants WHERE participant_kind IN ('managed-job-runtime','agent-task-runtime')").get()?.count).toBe(2);
+    after.close();
   });
 
   it("allows exactly one final-slot winner across real Bun processes", async () => {

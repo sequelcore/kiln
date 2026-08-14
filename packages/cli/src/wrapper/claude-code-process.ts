@@ -36,6 +36,10 @@ import {
   type ClaudePrivatePlanArtifactCapability,
 } from "./claude-private-plan-artifacts.js";
 import { resolveNativeCommunication } from "../config/native-communication-capabilities.js";
+import {
+  deriveClaudeRuntimePermissionRequest,
+  type RuntimePermissionObservationWriter,
+} from "./runtime-permission-observation.js";
 
 type Options = import("@anthropic-ai/claude-agent-sdk").Options;
 type Query = import("@anthropic-ai/claude-agent-sdk").Query;
@@ -104,6 +108,7 @@ export interface ClaudeSessionConfig {
   };
   /** Enabled only by the version-proven Claude read-only plan route. */
   readonly privatePlanArtifactCapability?: ClaudePrivatePlanArtifactCapability;
+  readonly runtimePermissionObservationSink?: RuntimePermissionObservationWriter;
 }
 
 function derivePermissionPolicy(
@@ -397,6 +402,14 @@ export class ClaudeSession implements IKilnSession {
     });
 
     try {
+      const permissionRequest = this.config.runtimePermissionObservationSink
+        ? await this.config.runtimePermissionObservationSink.recordRequested(deriveClaudeRuntimePermissionRequest({
+        sessionId: this.sessionId,
+        permissionMode: this.config.permissionMode ?? "default",
+        allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
+        requestedAt: new Date(),
+        ...(this.config.harnessEvidence ? { runtimeVersion: { kind: "executable" as const, version: this.config.harnessEvidence.version } } : {}),
+      })) : undefined;
       queryInstance = query({
         prompt: userPrompt,
         options: sdkOptions,
@@ -408,6 +421,11 @@ export class ClaudeSession implements IKilnSession {
           initializedModel = normalizedOptionalText(message.model);
           initializedHarnessVersion = normalizedOptionalText(message.claude_code_version);
           this._observedHarnessVersion = initializedHarnessVersion;
+          if (permissionRequest) await this.config.runtimePermissionObservationSink!.recordObserved(permissionRequest, {
+            observedAt: new Date(),
+            proof: "inferred",
+            ...(initializedHarnessVersion ? { runtimeVersion: { kind: "executable", version: initializedHarnessVersion } } : {}),
+          });
           if (Array.isArray(message.tools)) {
             this._capabilities.supportedTools = [...message.tools];
           }

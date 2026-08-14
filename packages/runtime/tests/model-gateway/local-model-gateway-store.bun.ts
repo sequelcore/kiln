@@ -13,6 +13,7 @@ import { startGateway } from "../../src/gateway/gateway-server.js";
 import { CredentialWatcher } from "../../src/agents/credential-pool/credential-watcher.js";
 import { WebhookDedup } from "../../src/gateway/webhook-dedup.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
+import { Database } from "bun:sqlite";
 
 const secret = "synthetic-file-backed-replay-secret-32-bytes";
 const fingerprint = { rawBody: "{}", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", sessionId: "session", turnId: "turn", route: { providerId: "codex-oauth", providerModelId: "model", scope: "virtual:model" }, toolExecutionMode: "caller-owned" };
@@ -21,7 +22,7 @@ const evidence = { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest
 const executionCatalog = defineExecutionCatalog({
   accounts: [{ id: "account", providerId: "codex-oauth", credentialId: "credential", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "account-capacity", subscriptionClass: "subscription", quotaClassId: "quota", creditPosture: "disabled", overagePosture: "disabled" } }],
   accountPolicies: [],
-  routes: [{ id: "route", label: "Model", providerId: "codex-oauth", providerModelId: "model", accountSelection: { mode: "exact", accountId: "account" }, economics: { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v1", authBillingChannel: "oauth-subscription", executionMode: "responses-api", serviceTier: "standard", rateCardBasis: "configured", envelopeSemantics: "configured-upper-bound", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider-cache", priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "v1", evidence }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
+  routes: [{ id: "route", label: "Model", providerId: "codex-oauth", providerModelId: "model", dataClassification: "internal", dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "model", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-11T00:00:00.000Z", expiresAt: "2027-08-11T00:00:00.000Z" }, accountSelection: { mode: "exact", accountId: "account" }, economics: { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v1", authBillingChannel: "oauth-subscription", executionMode: "responses-api", serviceTier: "standard", rateCardBasis: "configured", envelopeSemantics: "configured-upper-bound", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider-cache", priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "v1", evidence }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
 });
 const gatewayConfig: ModelGatewayConfig = { port: 4901, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, executionRouteId: "route", capabilities: ["text"], affinity: { continuity: "none" } }] };
 const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: async () => [] };
@@ -64,6 +65,19 @@ async function main(): Promise<void> {
     const replay = reopened.claim(key);
     if (replay.kind !== "replay-completed" || replay.value.responseId !== completed.responseId) throw new Error("Completed replay did not survive file-backed reopen.");
     reopened.close(); reopened.close();
+
+    const capacityPath = join(root, "ingress-capacity.sqlite");
+    const capacityStore = store(capacityPath);
+    await capacityStore.ingressCapacityEvidence.record({
+      occurredAt: "2026-08-13T00:00:00.000Z", correlationId: "request-1", requestClass: "responses",
+      outcome: "queue-timeout", origin: "ingress", phase: "pre-dispatch", retryable: true,
+      retryAfterSeconds: 1, waitMs: 1000,
+    });
+    capacityStore.close();
+    const capacityDb = new Database(capacityPath, { readonly: true, strict: true });
+    const capacityPayload = capacityDb.query<{ payload: string }, []>("SELECT payload FROM ingress_capacity_evidence").get();
+    capacityDb.close();
+    if (!capacityPayload || JSON.parse(capacityPayload.payload).outcome !== "queue-timeout") throw new Error("Ingress capacity evidence was not durable.");
 
     const claimedPath = join(root, "claimed-crash.sqlite");
     await spawnCrash("claimed", claimedPath);

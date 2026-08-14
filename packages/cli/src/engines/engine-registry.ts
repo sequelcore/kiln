@@ -20,19 +20,11 @@ export interface EngineProbeResult {
   readonly reason?: string;
 }
 
-export interface EngineBudgetStatus {
-  readonly engineId: string;
-  readonly tokensUsed: number;
-  readonly ceiling: number | null;
-  readonly withinBudget: boolean;
-}
-
 export interface EngineRouteResolution {
   readonly worker: string | undefined;
-  readonly reason: "default" | "budget-ceiling" | "missing-default" | "unavailable";
+  readonly reason: "default" | "missing-default" | "unavailable";
   readonly defaultWorker?: string;
   readonly fallback?: string;
-  readonly budget?: EngineBudgetStatus;
 }
 
 export interface EngineRegistryOptions {
@@ -41,7 +33,6 @@ export interface EngineRegistryOptions {
 }
 
 export interface EngineRouteContext {
-  readonly getDailyTokensUsed?: (engineId: string) => number;
   readonly isEngineAvailable?: (engineId: string) => boolean;
 }
 
@@ -105,22 +96,6 @@ export function resolveEngineAvailabilityMap(
   return new Map(registry.probeAll(config).map((engine) => [engine.engineId, engine.available]));
 }
 
-export function getEngineBudgetStatus(
-  config: KilnGlobalConfig,
-  engineId: string,
-  context: EngineRouteContext = {},
-): EngineBudgetStatus {
-  const budget = config.workerRouting?.budget?.[engineId];
-  const ceiling = budget?.dailyTokenCeiling ?? null;
-  const tokensUsed = context.getDailyTokensUsed?.(engineId) ?? 0;
-  return {
-    engineId,
-    tokensUsed,
-    ceiling,
-    withinBudget: ceiling === null || tokensUsed <= ceiling,
-  };
-}
-
 export function resolveEngineRoute(
   config: KilnGlobalConfig,
   context: EngineRouteContext = {},
@@ -141,20 +116,6 @@ export function resolveEngineRoute(
       defaultWorker,
       fallback,
     };
-  }
-
-  if (config.workerRouting?.budgetAware === true) {
-    const budget = getEngineBudgetStatus(config, defaultWorker, context);
-    if (!budget.withinBudget && fallback) {
-      return {
-        worker: fallback,
-        reason: "budget-ceiling",
-        defaultWorker,
-        fallback,
-        budget,
-      };
-    }
-    return { worker: defaultWorker, reason: "default", defaultWorker, fallback, budget };
   }
 
   return { worker: defaultWorker, reason: "default", defaultWorker, fallback };

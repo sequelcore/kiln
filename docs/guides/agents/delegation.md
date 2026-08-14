@@ -95,12 +95,13 @@ capabilities:
 ### A2A Execution Flow
 
 1. Validates that `agentUrl` is present.
-2. Constructs an `A2AMessage` from `a2aMessage` (if provided) or wraps `delegation.task` as a text part.
-3. Sends the task via `A2AClient.sendTask()` with the configured timeout.
-4. If the remote task completes, extracts the result from the first artifact's first part (data or text).
-5. Returns `PROVIDER_ERROR` if the task ends in a non-completed state or no extractable data is present.
+2. Constructs an official A2A v1 `Message` from `a2aMessage` (if provided) or wraps `delegation.task` as a v1 text part.
+3. Discovers `/.well-known/agent-card.json` through the official SDK and negotiates one of the transports declared by the Agent Card.
+4. Calls the v1 `sendMessage` operation with an `AbortSignal` enforcing the configured timeout.
+5. Handles either a direct `Message` response or a completed `Task`, then extracts a bounded, validated data/text part.
+6. Returns `PROVIDER_ERROR` if the task is not completed or the response is malformed, oversized, or has no extractable output.
 
-Kiln uses `A2AClient` for outbound A2A delegation to external agents. The client sends tasks via JSON-RPC 2.0 to remote A2A-compliant agents.
+Kiln uses `@a2a-js/sdk` v1 for Agent Card discovery, transport negotiation, and outbound messages. The deprecated v0.3 compatibility layer is not enabled. A2A responses do not include `tokenUsage` unless a future remote contract reports real usage; Kiln does not synthesize zero values.
 
 ## Internal Routes
 

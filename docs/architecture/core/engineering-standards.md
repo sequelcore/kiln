@@ -30,7 +30,7 @@ everywhere in this repository:
 - A published version number is not a reason to preserve anything.
 
 One boundary survives: the operator's durable local state under `.kiln/` and
-`~/.kiln/` — managed-job records, SQLite authorities, credentials, and config.
+`~/.kiln/` — Agent Task records, SQLite authorities, credentials, and config.
 That data exists on a real machine, so a schema change needs either a forward
 migration or an explicit recorded decision to discard it. That is data
 migration, and it is decided per change by the operator; it is never a reason to

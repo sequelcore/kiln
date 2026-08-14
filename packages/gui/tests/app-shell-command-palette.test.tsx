@@ -634,7 +634,7 @@ describe("AppShell command palette and telemetry regressions", () => {
     });
   });
 
-  it("applies the fresh dashboard execution-route catalog to the route store", async () => {
+  it("does not let the dashboard overwrite the canonical WebSocket execution-route catalog", async () => {
     dashboardQueryResult = {
       data: {
         ...dashboardData,
@@ -660,7 +660,7 @@ describe("AppShell command palette and telemetry regressions", () => {
 
     await waitFor(() => {
       expect(useSessionStore.getState().executionRouteCatalog.routes).toEqual([
-        expect.objectContaining({ routeId: "openai-gpt", availability: "available" }),
+        expect.objectContaining({ routeId: "codex-default", availability: "available" }),
       ]);
     });
   });

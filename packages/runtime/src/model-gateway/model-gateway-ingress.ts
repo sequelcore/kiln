@@ -7,7 +7,7 @@ import {
   type ModelGatewayConfig,
   type ExecutionCatalog,
   type AdmittedExecutionRoute,
-  type ModelGatewayRoute,
+  type ProviderModelRouteIdentity,
   type OperatorExecutionIntent,
 } from "@kilnai/core";
 import type {
@@ -16,13 +16,13 @@ import type {
 } from "../gateway/openai-responses-routes.js";
 import type { AnthropicMessagesIngressConfig, AnthropicMessagesTrustedPrincipal } from "./anthropic-messages-routes.js";
 import { LocalModelGatewayStore } from "./local-model-gateway-store.js";
-import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
+import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
 import { admitOperatorExecutionIntent } from "@kilnai/core";
 import type {
   GovernedOneRoundCandidate,
   GovernedOneRoundDispatcherResolver,
   GovernedOneRoundInvocationPorts,
-} from "./governed-one-round-invocation.js";
+} from "../execution-kernel/governed-one-round-invocation.js";
 
 export interface ModelGatewayExecutionRoutingPort {
   admit(intent: OperatorExecutionIntent): AdmittedExecutionRoute;
@@ -32,7 +32,7 @@ export interface ModelGatewayExecutionCandidatePort {
   resolve(input: {
     readonly admission: AdmittedExecutionRoute;
     /** Protocol-neutral route identity used by the shared lease authority. */
-    readonly route: ModelGatewayRoute;
+    readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   }): Promise<readonly GovernedOneRoundCandidate[]>;
 }
 
@@ -52,7 +52,7 @@ export interface ModelGatewayIngressOptions {
   /** Post-fence provider dispatch owned by Runtime composition. */
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
   /** Shared account-capacity authority; ingress does not create or close it. */
-  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
+  readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly databasePath: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
@@ -60,7 +60,7 @@ export interface ModelGatewayIngressHandle {
   readonly openAIResponses?: OpenAIResponsesIngressConfig;
   readonly anthropicMessages?: AnthropicMessagesIngressConfig;
   readonly store: LocalModelGatewayStore;
-  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
+  readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   close(): void;
 }
 
@@ -123,6 +123,7 @@ export async function createModelGatewayIngress(
           model,
           admission,
           route: {
+            routeId: admission.routeId,
             providerId: admission.providerId,
             providerModelId: admission.providerModelId,
             scope: `virtual:${model.id}`,
@@ -137,6 +138,7 @@ export async function createModelGatewayIngress(
         return { admission: findAdmission(route), candidates: [] };
       const admitted = [...routes.values()].find(
         (entry) =>
+          entry.route.routeId === route.routeId &&
           entry.route.providerId === route.providerId &&
           entry.route.providerModelId === route.providerModelId &&
           entry.route.scope === route.scope,
@@ -149,10 +151,11 @@ export async function createModelGatewayIngress(
       };
     },
   };
-  function findAdmission(route: { readonly providerId: string; readonly providerModelId: string; readonly scope: string }): AdmittedExecutionRoute {
+  function findAdmission(route: { readonly routeId: string; readonly providerId: string; readonly providerModelId: string; readonly scope: string }): AdmittedExecutionRoute {
     const admitted = [...routes.values()].find(
       (entry) =>
-        entry.route.providerId === route.providerId
+        entry.route.routeId === route.routeId
+        && entry.route.providerId === route.providerId
         && entry.route.providerModelId === route.providerModelId
         && entry.route.scope === route.scope,
     );
@@ -164,6 +167,7 @@ export async function createModelGatewayIngress(
       const { route, accountId } = input;
       const admittedModel = [...routes.values()].find(
         (entry) =>
+          entry.route.routeId === input.routeId &&
           entry.route.providerId === route.providerId &&
           entry.route.providerModelId === route.providerModelId &&
           entry.route.scope === route.scope,

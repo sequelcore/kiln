@@ -160,7 +160,7 @@ remain projections; canonical user and project skills live under
 
 `kiln-control-plane-workflow` is useful only when a session exposes the
 governed Kiln control-plane operations. It teaches discovery, inspection,
-idempotent managed-job submission, and lifecycle reconciliation. It does not
+idempotent Agent Task submission, and lifecycle reconciliation. It does not
 install or authorize MCP, mirror the CLI, choose routes or credentials, or use
 shell as a fallback for an unavailable operation. The same compact critical
 instructions are projected through MCP server initialization; Core remains the

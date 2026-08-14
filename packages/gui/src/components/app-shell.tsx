@@ -98,6 +98,7 @@ import { AppearanceSettingsPanel } from "./appearance-settings-panel.js";
 import { SettingsWorkspace } from "./settings-workspace.js";
 import type { SettingsSection } from "./settings-navigation.js";
 import { SetupPanel } from "./setup-panel.js";
+import { AvailableModelsPanel } from "./available-models-panel.js";
 
 const CommandPalette = lazy(async () => {
   const module = await import("./command-palette.js");
@@ -361,7 +362,11 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const markProviderCatalogRefreshing = useSessionStore((state) => state.markProviderCatalogRefreshing);
   const markProviderCatalogError = useSessionStore((state) => state.markProviderCatalogError);
   const onWelcome = useSessionStore((state) => state.onWelcome);
+  const availableModels = useSessionStore((state) => state.availableModels);
+  const executionRouteCreationResult = useSessionStore((state) => state.executionRouteCreationResult);
+  const outboundSend = useSessionStore((state) => state.outboundSend);
   const onExecutionRoutesRefreshed = useSessionStore((state) => state.onExecutionRoutesRefreshed);
+  const onExecutionRouteCreateResult = useSessionStore((state) => state.onExecutionRouteCreateResult);
   const onSessionEvent = useSessionStore((state) => state.onSessionEvent);
   const onDone = useSessionStore((state) => state.onDone);
   const onTurnCancelResult = useSessionStore((state) => state.onTurnCancelResult);
@@ -676,6 +681,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
       onProviderAuthCompleted,
       onProviderAuthFailed,
       onExecutionRoutesRefreshed,
+      onExecutionRouteCreateResult,
       onExecConfirmed,
       onActivityPhase,
       onInteractiveUseUpdated,
@@ -804,15 +810,6 @@ function useAppShellRuntimeView(props: AppShellProps) {
       }
     }
   }, [dashboardQuery.error, markProviderCatalogError, providerCatalogStatus]);
-
-  useEffect(() => {
-    if (!dashboardQuery.error && dashboardQuery.data) {
-      onExecutionRoutesRefreshed({
-        type: "execution_routes_refreshed",
-        executionRouteCatalog: dashboardQuery.data.executionRouteCatalog,
-      });
-    }
-  }, [dashboardQuery.data, dashboardQuery.error, onExecutionRoutesRefreshed]);
 
   useEffect(() => {
     const nodes = memoryLatticeQuery.data?.snapshot?.nodes ?? [];
@@ -1103,6 +1100,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
                 actionFeedback={setupActionFeedback}
               />
             )}
+            availableModels={<AvailableModelsPanel catalog={availableModels} catalogRevision={executionRouteCatalog.revision} creationResult={executionRouteCreationResult} send={outboundSend} />}
           />
         ) : (
           <>

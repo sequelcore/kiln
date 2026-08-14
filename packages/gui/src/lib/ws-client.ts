@@ -12,6 +12,8 @@ import {
   ContextUsageProjectionSchema,
   CommunicationIntentSchema,
   EffectivePromptObservationSchema,
+  AvailableModelCatalogSchema,
+  ExecutionRouteCreateResultSchema,
   ExecutionRouteCatalogSchema,
   ExecutionRouteReasonCodeSchema,
   ExecutionRouteRepairActionSchema,
@@ -728,6 +730,7 @@ const GuiInboundFrameSchema = z.union([
   z.object({
     type: z.literal("welcome"),
     executionRouteCatalog: ExecutionRouteCatalogSchema,
+    availableModels: AvailableModelCatalogSchema,
     greeting: z.string().optional(),
     activeRouteId: z.string().optional(),
     activeProvider: z.string().optional(),
@@ -772,6 +775,7 @@ const GuiInboundFrameSchema = z.union([
     providerDiscovery: z.array(GuiProviderDiscoveryResultSchema),
     providers: z.array(GuiProviderDescriptorSchema).optional(),
     executionRouteCatalog: ExecutionRouteCatalogSchema,
+    availableModels: AvailableModelCatalogSchema,
   }),
   z.object({
     type: z.literal("provider_auth_failed"),
@@ -779,7 +783,8 @@ const GuiInboundFrameSchema = z.union([
     requestId: z.string().trim().min(1),
     message: z.string(),
   }),
-  z.object({ type: z.literal("execution_routes_refreshed"), executionRouteCatalog: ExecutionRouteCatalogSchema }),
+  z.object({ type: z.literal("execution_routes_refreshed"), executionRouteCatalog: ExecutionRouteCatalogSchema, availableModels: AvailableModelCatalogSchema }),
+  ExecutionRouteCreateResultSchema,
   z.object({ type: z.literal("execution_route_changed"), routeId: z.string().trim().min(1), requestId: z.string().trim().min(1), providerId: z.string().optional(), providerModelId: z.string().optional() }),
   z.object({ type: z.literal("execution_route_change_failed"), routeId: z.string().trim().min(1), requestId: z.string().trim().min(1), reasonCode: ExecutionRouteReasonCodeSchema, reason: z.string(), repairActions: z.array(ExecutionRouteRepairActionSchema) }),
   z.object({

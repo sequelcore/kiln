@@ -71,7 +71,7 @@ The common lifecycle executor:
    child requests, while blocking dependents of failed children;
 7. builds typed completed, partial, or failed orchestration evidence.
 
-Normal `runtime-session-turn` budget admission is not managed-child route
+Normal session pre-turn token observation is not managed-child route
 authority. Managed orchestration uses the same atomic economic commitment,
 dispatch fence, and settlement authority as a single managed invocation.
 

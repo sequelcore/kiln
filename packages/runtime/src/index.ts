@@ -91,7 +91,6 @@ export {
   OperatorSessionExecutionRoutingService,
 } from "./execution-routing/operator-session-execution-routing-service.js";
 export type {
-  OperatorSessionAccountCapacityAuthority,
   OperatorSessionCommittedExecution,
   OperatorSessionCommittedExecutionEvidence,
   OperatorSessionCredentialPort,
@@ -103,6 +102,25 @@ export type {
   OperatorSessionExecutionRoutingServiceOptions,
   OperatorSessionResolvedCredential,
 } from "./execution-routing/operator-session-execution-routing-service.js";
+export {
+  ExecutionRouteDataPolicyAuthority,
+  ExecutionRouteDataPolicyDeniedError,
+} from "./execution-routing/execution-route-data-policy-authority.js";
+export type {
+  ExecutionRouteDataPolicyIdentity,
+  SanitizedExecutionRouteDataPolicyDecision,
+  SanitizedExecutionRouteDataPolicyEvidence,
+} from "./execution-routing/execution-route-data-policy-authority.js";
+export type {
+  AccountCapacityAcquireInput,
+  AccountCapacityAcquireResult,
+  AccountCapacityRecord,
+  AccountCapacitySettlement,
+  ExecutionAccountCapacityAuthority,
+  ExecutionAccountAffinityRequest,
+  ExecutionAccountCandidateBinding,
+  ExecutionAccountCapacityObservation,
+} from "./execution-kernel/execution-account-capacity-authority.js";
 export {
   OperatorSessionExecutionBridge,
   OperatorTurnDispatcher,
@@ -117,11 +135,8 @@ export type {
   OperatorTurnTuiDispatchPayload,
 } from "./execution-routing/operator-turn-dispatcher.js";
 export type {
-  ManagedAccountCandidateBinding,
-  ManagedAccountCapacityObservation,
   ManagedAccountCandidatePort,
   ManagedAccountCandidateResolution,
-  ManagedAccountAffinityRequest,
   ManagedEconomicAccountLeaseEvidence,
   ManagedEconomicCommitmentAcquireInput,
   ManagedEconomicCommitmentAcquireResult,
@@ -138,26 +153,18 @@ export type {
   ManagedEconomicRouteCapacity,
   SqliteManagedAccountLeaseAuthorityOptions,
   SharedAccountCapacityParticipantKind,
-  AccountCapacityAcquireInput,
-  AccountCapacityAcquireResult,
   AccountCapacityIncident,
   AccountCapacityIncidentInspectionOptions,
-  AccountCapacityRecord,
-  AccountCapacitySettlement,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 
 export {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
   invokeGovernedOneRound,
-} from "./model-gateway/governed-one-round-invocation.js";
+} from "./execution-kernel/governed-one-round-invocation.js";
 export type {
   GovernedOneRoundCandidate,
-} from "./model-gateway/governed-one-round-invocation.js";
-export {
-  InMemoryModelGatewayReplayGuard,
-  MODEL_GATEWAY_REPLAY_FINGERPRINT_VERSION,
-} from "./model-gateway/replay-guard.js";
+} from "./execution-kernel/governed-one-round-invocation.js";
 export { LocalModelGatewayStore } from "./model-gateway/local-model-gateway-store.js";
 export { GovernedIngressCommittedExecutionError, executeGovernedIngress } from "./model-gateway/governed-ingress-executor.js";
 export type { GovernedIngressExecution, GovernedIngressExecutorInput, ModelGatewayCompatibilityEvidence, ModelGatewayIngressId } from "./model-gateway/governed-ingress-executor.js";
@@ -196,34 +203,27 @@ export type {
   ModelGatewayShutdownResult,
   StartModelGatewayListenerOptions,
 } from "./model-gateway/model-gateway-listener.js";
-export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
-export type { ProviderAdapterOneRoundDispatcherOptions, ProviderAdapterOneRoundErrorCode } from "./model-gateway/provider-adapter-one-round-dispatcher.js";
+export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from "./execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
+export type { ProviderAdapterOneRoundDispatcherOptions, ProviderAdapterOneRoundErrorCode } from "./execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
 export { createAnthropicMessagesRoutes } from "./model-gateway/anthropic-messages-routes.js";
 export type { AnthropicMessagesIngressConfig, AnthropicMessagesObservedCorrelation, AnthropicMessagesResolvedVirtualModel, AnthropicMessagesTrustedPrincipal } from "./model-gateway/anthropic-messages-routes.js";
 export { ANTHROPIC_MESSAGES_PROTOCOL_LIMITS, ANTHROPIC_MESSAGES_VERSION, AnthropicMessagesProtocolError, encodeAnthropicMessagesSseEvent, parseAnthropicMessagesRequest } from "./model-gateway/anthropic-messages-protocol.js";
 export type { AnthropicMessagesRequest, AnthropicMessagesSseEvent } from "./model-gateway/anthropic-messages-protocol.js";
 export { AnthropicMessagesModelTurnError, inspectAnthropicMessagesCapabilities, mapAnthropicMessagesRequestToModelTurn, mapModelTurnResultToAnthropicMessagesEvents } from "./model-gateway/anthropic-messages-model-turn.js";
 export type { AnthropicMessagesModelTurnCapability } from "./model-gateway/anthropic-messages-model-turn.js";
-export type {
-  InMemoryModelGatewayReplayGuardOptions,
-  ModelGatewayReplayCompletedValue,
-  ModelGatewayReplayDecision,
-  ModelGatewayReplayFingerprintInput,
-  ModelGatewayReplayGuard,
-} from "./model-gateway/replay-guard.js";
 export {
   CODEX_OAUTH_SSE_LIMITS,
   CODEX_OAUTH_RESPONSES_ENDPOINT,
   CodexOAuthModelTurnDispatcher,
   CodexOAuthModelTurnError,
   encodeCodexOAuthResponsesRequest,
-} from "./model-gateway/codex-oauth-model-turn-dispatcher.js";
+} from "./execution-kernel/provider-adapters/codex-oauth-model-turn-dispatcher.js";
 export type {
   CodexOAuthModelTurnDispatcherOptions,
   CodexOAuthModelTurnErrorCode,
   CodexOAuthResolvedCredential,
   CodexOAuthSseLimits,
-} from "./model-gateway/codex-oauth-model-turn-dispatcher.js";
+} from "./execution-kernel/provider-adapters/codex-oauth-model-turn-dispatcher.js";
 export type {
   GovernedOneRoundAffinityPolicy,
   GovernedOneRoundAttemptEvidence,
@@ -242,7 +242,7 @@ export type {
   GovernedOneRoundInvocationPorts,
   GovernedOneRoundInvocationResult,
   GovernedOneRoundToolExecutionMode,
-} from "./model-gateway/governed-one-round-invocation.js";
+} from "./execution-kernel/governed-one-round-invocation.js";
 export { createGatewayApp } from "./gateway/gateway-routes.js";
 export type { LoadedApp, GatewayServerConfig } from "./gateway/gateway-routes.js";
 export {
@@ -505,9 +505,11 @@ export {
 } from "./managed-write-approvals/sqlite-managed-write-approval-authority.js";
 export type {
   ManagedWriteApprovalBinding,
-  ManagedWriteApprovalErrorCode,
   ManagedWriteApprovalReceipt,
   ManagedWriteApprovalState,
+} from "./managed-write-approvals/contracts.js";
+export type {
+  ManagedWriteApprovalErrorCode,
   SqliteManagedWriteApprovalAuthorityOptions,
 } from "./managed-write-approvals/sqlite-managed-write-approval-authority.js";
 export {
@@ -515,51 +517,53 @@ export {
   digestManagedEconomicCandidateProfileAuthority,
 } from "./agents/managed-invocation/index.js";
 export {
-  MANAGED_JOB_SCHEMA_VERSION,
-  MANAGED_JOB_RECOVERY_POLICY,
-  FilesystemManagedJobStore,
-  InMemoryManagedJobStore,
-  ManagedJobApplicationError,
-  ManagedJobApplicationService,
-  ManagedJobExecutionFailure,
-} from "./managed-jobs/index.js";
+  AGENT_TASK_SCHEMA_VERSION,
+  AGENT_TASK_RECOVERY_POLICY,
+  FilesystemAgentTaskStore,
+  InMemoryAgentTaskStore,
+  AgentTaskApplicationError,
+  AgentTaskApplicationService,
+  AgentTaskExecutionFailure,
+} from "./agent-tasks/index.js";
 export type {
-  ManagedJobDiagnosticCode,
-  ManagedJobCommitmentRecoveryPort,
-  ManagedJobCommitmentRecoveryState,
-  ManagedJobEconomicAdoption,
-  ManagedJobEconomicAdoptionPort,
-  ManagedJobEconomicReplay,
-  ManagedJobEconomicReplayPort,
-  ManagedJobEconomicCommitmentPort,
-  ManagedJobExecutionContext,
-  ManagedJobExecutionFailureClassification,
-  ManagedJobFailureEvidence,
-  ManagedJobGovernanceEvidence,
-  ManagedJobGovernancePort,
-  ManagedJobProfile,
-  ManagedJobNativeHarnessAcknowledgement,
-  ManagedJobNativeHarnessFenceResult,
-  ManagedJobNativeHarnessExecutionPort,
-  ManagedJobNativeDeliberationResolution,
-  ManagedJobNativeHarnessProfile,
-  ManagedJobNativeHarnessRoute,
-  ManagedJobProfilePort,
-  ManagedJobProjectPort,
-  ManagedJobLifecycleEntry,
-  ManagedJobRecord,
-  ManagedJobReplayQuery,
-  ManagedJobRoutePort,
-  ManagedJobResult,
-  ManagedJobResultAvailability,
-  ManagedJobResultQuery,
-  ManagedJobRouteResolutionContext,
-  ManagedJobState,
-  ManagedJobStore,
-  ManagedJobSubmission,
-  TrustedManagedJobQueryContext,
-  TrustedManagedJobProject,
-} from "./managed-jobs/index.js";
+  AgentTaskDiagnosticCode,
+  AgentTaskDataPolicyProof,
+  AgentTaskCommitmentRecoveryPort,
+  AgentTaskCommitmentRecoveryState,
+  AgentTaskEconomicAdoption,
+  AgentTaskEconomicAdoptionPort,
+  AgentTaskEconomicReplay,
+  AgentTaskEconomicReplayPort,
+  AgentTaskEconomicCommitmentPort,
+  AgentTaskEconomicFenceResult,
+  AgentTaskExecutionContext,
+  AgentTaskExecutionFailureClassification,
+  AgentTaskFailureEvidence,
+  AgentTaskGovernanceEvidence,
+  AgentTaskGovernancePort,
+  AgentTaskProfile,
+  AgentTaskNativeHarnessAcknowledgement,
+  AgentTaskNativeHarnessFenceResult,
+  AgentTaskNativeHarnessExecutionPort,
+  AgentTaskNativeDeliberationResolution,
+  AgentTaskNativeHarnessProfile,
+  AgentTaskNativeHarnessRoute,
+  AgentTaskProfilePort,
+  AgentTaskProjectPort,
+  AgentTaskLifecycleEntry,
+  AgentTaskRecord,
+  AgentTaskReplayQuery,
+  AgentTaskRoutePort,
+  AgentTaskResult,
+  AgentTaskResultAvailability,
+  AgentTaskResultQuery,
+  AgentTaskRouteResolutionContext,
+  AgentTaskState,
+  AgentTaskStore,
+  AgentTaskSubmission,
+  TrustedAgentTaskQueryContext,
+  TrustedAgentTaskProject,
+} from "./agent-tasks/index.js";
 export type {
   ProviderCatalogClassification,
   ProviderCatalogEvidence,
@@ -803,7 +807,7 @@ export type {
 export {
   RuntimeSession,
   RuntimeSessionOrchestrator,
-  RuntimeBudgetAdmissionService,
+  RuntimeSessionTurnBudgetService,
   collectRuntimeFeedbackEvidence,
   deriveGovernedTurnOutcome,
   deriveGovernedTurnOutcomeFromToolRecords,
@@ -828,10 +832,8 @@ export {
 } from "./session/index.js";
 export type {
   RuntimeSessionConfig,
-  RuntimeBudgetAdmissionPort,
-  RuntimeBudgetAdmissionServiceOptions,
-  RuntimeBudgetUsageReader,
-  RuntimeBudgetUsageReaderInput,
+  RuntimeSessionTokenUsageReader,
+  RuntimeSessionTurnBudgetAuthority,
   GovernedTurnOutcomeToolRecord,
   RuntimeFeedbackEvidenceCollectorInput,
   ProjectRuntimeLifecycleAttributionAllocationsInput,
@@ -1010,3 +1012,8 @@ export type {
   SqliteBoundedWorkAuthorityOptions,
 } from "./work-governance/index.js";
 
+export {
+  projectAvailableModelCatalog,
+  projectAvailableModelCatalogForExecutionRoutes,
+} from "./gateway/available-model-catalog-projector.js";
+export type { AvailableModelConfiguredRouteIdentity } from "./gateway/available-model-catalog-projector.js";

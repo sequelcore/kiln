@@ -73,7 +73,7 @@ parity claim:
 | Concern | Kiln managed | Codex | Claude Code | OpenCode |
 | --- | --- | --- | --- | --- |
 | Selection | governed recommendation and admission | native metadata and explicit invocation | native metadata and slash invocation | native `skill` tool |
-| Child work | managed-job lifecycle when admitted | native delegation varies by session | native agents/tasks vary by session | native agents/tasks vary by session |
+| Child work | Agent Task lifecycle when admitted | native delegation varies by session | native agents/tasks vary by session | native agents/tasks vary by session |
 | Search/retrieval | admitted governed primitives | configured native/plugin/MCP capability | model, region, permission, and integration dependent | provider, tool, or MCP dependent |
 | Visibility | canonical policy plus evidence | per-skill configuration | frontmatter invocation controls | stable 1.18.16 cannot preserve explicit-only direct invocation |
 | Authority and terminal truth | executable Kiln contracts | native harness policy only | native harness policy only | native harness policy only |

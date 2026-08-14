@@ -1,4 +1,22 @@
 export type {
+  AvailableModelAvailabilityState,
+  AvailableModelCatalog,
+  AvailableModelCatalogEntry,
+  AvailableModelConfiguredRouteRef,
+  AvailableModelConfiguredState,
+  AvailableModelDiscoveryState,
+  AvailableModelEligibilityState,
+  AvailableModelReasonCode,
+} from "./available-models.js";
+export {
+  AVAILABLE_MODEL_REASON_CODES,
+  AvailableModelCatalogEntrySchema,
+  AvailableModelCatalogSchema,
+} from "./available-models.js";
+export { ExecutionRouteCreateResultSchema, ExecutionRouteCreationRequestSchema } from "./execution-route-creation.js";
+export type { ExecutionRouteCreateResult, ExecutionRouteCreationRequest } from "./execution-route-creation.js";
+
+export type {
   KilnConfigAppliedWrite,
   KilnConfigApplyResult,
   KilnConfigChangeApproval,

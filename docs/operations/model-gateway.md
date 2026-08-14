@@ -97,6 +97,9 @@ Use provider-aligned request envelopes in canonical config:
 
 ```yaml
 modelGateway:
+  codexComposite: # required only with a nativeHarness: codex principal
+    maxQueuedRequests: 32
+    queueTimeoutMs: 30000
   surfaces:
     openAIResponses:
       maxBodyBytes: 67108864 # 64 MiB; Codex tool schemas and compacted history
@@ -111,6 +114,19 @@ These are hard byte ceilings, not targets. A 413 with
 request also approaches the model's useful token budget. After changing the
 canonical config, restart and run `doctor` so the owned listener's config digest
 converges. Do not edit native Codex or Claude projections to change this limit.
+
+For Codex composite requests, the adapter-owned `codexComposite` policy creates
+a bounded FIFO queue before the router reads or decodes the body. This prevents
+queued requests from amplifying application memory use; only admitted requests
+can hold the configured body buffer. Queue-full and queue-timeout responses are HTTP 503 with
+`origin: ingress`, `phase: pre-dispatch`, a retry hint, and a correlation ID;
+they are local pressure, never a provider rate limit. An HTTP 429 forwarded by
+the composite remains an upstream Codex response.
+
+Route class and capability-path validation happen before the queue. Native
+authorization and model-body validation happen after admission, so malformed or
+unauthenticated traffic can occupy only a bounded ingress wait slot and never
+causes body decoding or upstream dispatch.
 
 ## Why native Codex requests use the Kiln URL
 

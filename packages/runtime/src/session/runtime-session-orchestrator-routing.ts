@@ -104,6 +104,7 @@ export async function resolveRuntimeSessionRouting(
     readonly artifactUris: readonly string[];
     readonly decision: ReturnType<typeof planMultimodalRoute>;
   }) => void,
+  beforeMultimodalDelegation?: (sessionId: string) => Promise<void>,
 ): Promise<RuntimeSessionRoutingResolution> {
   const hasBuiltins = (deps.builtinTools?.size ?? 0) > 0;
   const hasMcp = (deps.mcpClients?.length ?? 0) > 0;
@@ -294,6 +295,7 @@ export async function resolveRuntimeSessionRouting(
     delegationRoutes: deps.multimodalDelegationRoutes ?? [],
     transformRoutes: deps.multimodalTransformRoutes ?? [],
     emitDecision: (route) => emitMultimodalRouted?.(session.id, route),
+    beforeDelegation: async () => { await beforeMultimodalDelegation?.(session.id); },
   });
   const delegatedMultimodalResult = multimodalEffect?.delegatedMultimodalResult;
 
@@ -341,6 +343,7 @@ async function resolveRuntimeMultimodalRoute(input: {
     readonly artifactUris: readonly string[];
     readonly decision: ReturnType<typeof planMultimodalRoute>;
   }) => void;
+  readonly beforeDelegation?: () => Promise<void>;
 }): Promise<RuntimeMultimodalRouteEffect | undefined> {
   const requirements = multimodalRequirements(input.currentUserParts, input.messages);
   if (!requirements) {
@@ -383,6 +386,7 @@ async function resolveRuntimeMultimodalRoute(input: {
       artifactUris: requirements.artifacts.map((artifact) => artifact.uri),
       decision,
     });
+    await input.beforeDelegation?.();
     return {
       delegatedMultimodalResult: await invokeManagedMultimodalDelegation({
         session: input.session,

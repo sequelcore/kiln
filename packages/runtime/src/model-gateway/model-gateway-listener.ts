@@ -9,8 +9,8 @@ import type {
   ModelGatewayExecutionRoutingPort,
 } from "./model-gateway-ingress.js";
 import type { ExecutionCatalog } from "@kilnai/core";
-import type { OperatorSessionAccountCapacityAuthority } from "../execution-routing/operator-session-execution-routing-service.js";
-import type { GovernedOneRoundDispatcherResolver } from "./governed-one-round-invocation.js";
+import type { ExecutionAccountCapacityAuthority } from "../execution-kernel/execution-account-capacity-authority.js";
+import type { GovernedOneRoundDispatcherResolver } from "../execution-kernel/governed-one-round-invocation.js";
 import pkg from "../../package.json" with { type: "json" };
 import { createCodexCompositeFetch } from "./codex-composite-router.js";
 import {
@@ -49,7 +49,7 @@ export interface StartModelGatewayListenerOptions {
   readonly executionRouting: ModelGatewayExecutionRoutingPort;
   readonly executionCandidates: ModelGatewayExecutionCandidatePort;
   readonly executionDispatcher: GovernedOneRoundDispatcherResolver;
-  readonly accountCapacityAuthority: OperatorSessionAccountCapacityAuthority;
+  readonly accountCapacityAuthority: ExecutionAccountCapacityAuthority;
   readonly databasePath: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly identity?: ModelGatewayListenerIdentityInput;
@@ -111,7 +111,12 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
     const listenerFetch = options.config.principals.some(
       (principal) => principal.ingress === "openai-responses" && principal.nativeHarness === "codex",
     )
-      ? createCodexCompositeFetch({ config: options.config, env, canonicalFetch: modelApp.fetch })
+      ? createCodexCompositeFetch({
+          config: options.config,
+          env,
+          canonicalFetch: modelApp.fetch,
+          ingressCapacityEvidence: handle.store.ingressCapacityEvidence,
+        })
       : modelApp.fetch;
     const lifetimeOwnedFetch = ownModelGatewayRequestLifetime(listenerFetch);
     listener = options.listen

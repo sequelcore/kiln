@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
-import type { ModelGatewayRoute } from "@kilnai/core";
+import type { ProviderModelRouteIdentity } from "@kilnai/core";
 import {
   GovernedOneRoundCommittedError,
   GovernedOneRoundInvocationError,
   type GovernedOneRoundAffinityPolicy,
   type GovernedOneRoundBudgetEvidence,
   type GovernedOneRoundInvocationPorts,
-} from "../model-gateway/governed-one-round-invocation.js";
+} from "../execution-kernel/governed-one-round-invocation.js";
 import { executeGovernedIngress, GovernedIngressCommittedExecutionError, type ModelGatewayCompatibilityEvidence } from "../model-gateway/governed-ingress-executor.js";
 import type { ModelGatewayReplayGuard } from "../model-gateway/replay-guard.js";
 import { claimModelGatewayRequestLifetime } from "../model-gateway/model-gateway-request-lifetime.js";
@@ -40,7 +40,7 @@ export interface OpenAIResponsesTrustedPrincipal {
 }
 
 export interface OpenAIResponsesResolvedVirtualModel {
-  readonly route: ModelGatewayRoute;
+  readonly route: ProviderModelRouteIdentity & { readonly routeId: string };
   readonly capabilities: ReadonlySet<OpenAIResponsesModelTurnCapability>;
   readonly affinity:
     | { readonly continuity: "none" }

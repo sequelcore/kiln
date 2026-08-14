@@ -127,7 +127,7 @@ function resolveEnvValue(value: string): string {
 
 function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): ModelGatewayConfig | undefined {
   if (!isRecord(rawValue)) { errors.push({ field: "modelGateway", message: "must be an object" }); return undefined; }
-  rejectUnknown(rawValue, ["port", "replay", "principals", "virtualModels", "surfaces"], "modelGateway", errors);
+  rejectUnknown(rawValue, ["port", "replay", "principals", "virtualModels", "surfaces", "codexComposite"], "modelGateway", errors);
   const replay = isRecord(rawValue.replay) ? rawValue.replay : {};
   rejectUnknown(replay, ["ttlMs", "maxEntries", "hmacKeyEnv"], "modelGateway.replay", errors);
   const rawSurfaces = isRecord(rawValue.surfaces) ? rawValue.surfaces : {};
@@ -151,6 +151,15 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
       anthropicMessages = { maxBodyBytes: num(rawAnthropic.maxBodyBytes), maxConcurrentRequests: num(rawAnthropic.maxConcurrentRequests) };
     }
   }
+  const rawCodexComposite = rawValue.codexComposite;
+  let codexComposite: ModelGatewayConfig["codexComposite"];
+  if (rawCodexComposite !== undefined) {
+    if (!isRecord(rawCodexComposite)) errors.push({ field: "modelGateway.codexComposite", message: "must be an object" });
+    else {
+      rejectUnknown(rawCodexComposite, ["maxQueuedRequests", "queueTimeoutMs"], "modelGateway.codexComposite", errors);
+      codexComposite = { maxQueuedRequests: num(rawCodexComposite.maxQueuedRequests), queueTimeoutMs: num(rawCodexComposite.queueTimeoutMs) };
+    }
+  }
   const principals = Array.isArray(rawValue.principals) ? rawValue.principals.map((entry, index) => {
     const raw = isRecord(entry) ? entry : {};
     rejectUnknown(raw, ["tokenEnv", "ingress", "tenantId", "applicationId", "callerId", "capabilityId", "scopes", "budgetEvidenceId", "virtualModelIds", "nativeHarness"], `modelGateway.principals[${index}]`, errors);
@@ -169,7 +178,7 @@ function mapModelGateway(rawValue: unknown, errors: GatewayValidationError[]): M
     if (affinity.allowRebind !== undefined && typeof affinity.allowRebind !== "boolean") errors.push({ field: `modelGateway.virtualModels[${index}].affinity.allowRebind`, message: "must be a boolean" });
     return { id: str(raw.id), ...(raw.displayName === undefined ? {} : { displayName: str(raw.displayName) }), ...(raw.contextTokens === undefined ? {} : { contextTokens: num(raw.contextTokens) }), ...(raw.outputTokens === undefined ? {} : { outputTokens: num(raw.outputTokens) }), ...(raw.baseInstructions === undefined ? {} : { baseInstructions: str(raw.baseInstructions) }), executionRouteId: str(raw.executionRouteId), capabilities: strings(raw.capabilities) as ModelGatewayConfig["virtualModels"][number]["capabilities"], ...(deliberation ? { deliberation: { levels: strings(deliberation.levels), ...(deliberation.defaultLevel === undefined ? {} : { defaultLevel: str(deliberation.defaultLevel) }), supportsAdaptive: deliberation.supportsAdaptive === true, evidenceRevision: str(deliberation.evidenceRevision) } } : {}), affinity: { continuity: str(affinity.continuity) as "none", ...(typeof affinity.scope === "string" ? { scope: affinity.scope as "session" } : {}), ...(typeof affinity.allowRebind === "boolean" ? { allowRebind: affinity.allowRebind } : {}) } };
   }) : [];
-  return { port: num(rawValue.port), replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}), ...(anthropicMessages ? { anthropicMessages } : {}) } };
+  return { port: num(rawValue.port), replay: { ttlMs: num(replay.ttlMs), maxEntries: num(replay.maxEntries), hmacKeyEnv: str(replay.hmacKeyEnv) }, principals, virtualModels, surfaces: { ...(openAIResponses ? { openAIResponses } : {}), ...(anthropicMessages ? { anthropicMessages } : {}) }, ...(codexComposite ? { codexComposite } : {}) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

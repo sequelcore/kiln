@@ -8,14 +8,13 @@ import {
 } from "node:crypto";
 import {
   validateModelTurnResult,
-  type ModelGatewayReplayFence,
-  type ModelGatewayReplayKey,
-  type ModelGatewayRoute,
+  type ProviderModelRouteIdentity,
 } from "@kilnai/core";
+import type { ModelGatewayReplayFence, ModelGatewayReplayKey } from "./replay-claim.js";
 import type {
   GovernedOneRoundAttemptEvidence,
   GovernedOneRoundAttemptEvidenceSink,
-} from "./governed-one-round-invocation.js";
+} from "../execution-kernel/governed-one-round-invocation.js";
 import type {
   ModelGatewayReplayCompletedValue,
   ModelGatewayReplayDecision,
@@ -23,6 +22,7 @@ import type {
   ModelGatewayReplayGuard,
 } from "./replay-guard.js";
 import type { ModelGatewayCompatibilityEvidence } from "./governed-ingress-executor.js";
+import type { CodexCompositeIngressCapacityEvidence } from "./codex-composite-router.js";
 
 export interface LocalModelGatewayStoreOptions {
   readonly path: string;
@@ -47,6 +47,10 @@ export class LocalModelGatewayStore
   readonly compatibilityEvidence = {
     record: (evidence: ModelGatewayCompatibilityEvidence) =>
       this.recordCompatibility(evidence),
+  };
+  readonly ingressCapacityEvidence = {
+    record: (evidence: CodexCompositeIngressCapacityEvidence) =>
+      this.recordIngressCapacity(evidence),
   };
   readonly #db: Database;
   readonly #now: () => number;
@@ -81,7 +85,7 @@ export class LocalModelGatewayStore
     this.#db = new Database(options.path, { create: true, strict: true });
     try {
       this.#db.exec(
-        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS attempt_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS compatibility_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS route_cooldowns (route_key TEXT PRIMARY KEY, cooldown_until INTEGER NOT NULL, reason TEXT NOT NULL); CREATE TABLE IF NOT EXISTS replay (fingerprint TEXT PRIMARY KEY, status TEXT NOT NULL, fence TEXT NOT NULL, expires_at INTEGER, ciphertext BLOB, nonce BLOB, tag BLOB);",
+        "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS attempt_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS compatibility_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS ingress_capacity_evidence (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL); CREATE TABLE IF NOT EXISTS route_cooldowns (route_key TEXT PRIMARY KEY, cooldown_until INTEGER NOT NULL, reason TEXT NOT NULL); CREATE TABLE IF NOT EXISTS replay (fingerprint TEXT PRIMARY KEY, status TEXT NOT NULL, fence TEXT NOT NULL, expires_at INTEGER, ciphertext BLOB, nonce BLOB, tag BLOB);",
       );
       this.#db.query("DELETE FROM replay WHERE status='claimed'").run();
       this.#db
@@ -216,7 +220,7 @@ export class LocalModelGatewayStore
     });
   }
   coolRoute(
-    route: ModelGatewayRoute,
+    route: ProviderModelRouteIdentity,
     cooldownUntil: number,
     reason: "rate-limited" | "upstream-transient",
   ): void {
@@ -228,7 +232,7 @@ export class LocalModelGatewayStore
         .run(this.#routeKey(route), cooldownUntil, reason),
     );
   }
-  isRouteCooling(route: ModelGatewayRoute): boolean {
+  isRouteCooling(route: ProviderModelRouteIdentity): boolean {
     return this.#transaction(() => {
       const now = this.#now();
       this.#db
@@ -253,6 +257,13 @@ export class LocalModelGatewayStore
   ): Promise<void> {
     this.#db
       .query("INSERT INTO compatibility_evidence(payload) VALUES(?)")
+      .run(JSON.stringify(evidence));
+  }
+  async recordIngressCapacity(
+    evidence: CodexCompositeIngressCapacityEvidence,
+  ): Promise<void> {
+    this.#db
+      .query("INSERT INTO ingress_capacity_evidence(payload) VALUES(?)")
       .run(JSON.stringify(evidence));
   }
   close(): void {
@@ -315,7 +326,7 @@ export class LocalModelGatewayStore
     }
     return value as unknown as ModelGatewayReplayCompletedValue;
   }
-  #routeKey(route: ModelGatewayRoute): string {
+  #routeKey(route: ProviderModelRouteIdentity): string {
     const h = createHmac("sha256", this.#hmacKey);
     for (const value of [
       "kiln-route-cooldown-v1",

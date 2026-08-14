@@ -1,14 +1,77 @@
-import {
-  compareManagedEconomicAmounts,
-  validateManagedEconomicAmount,
-  type ManagedEconomicAmount,
-} from "../../cost/managed-route-economics.js";
 export type {
   ExecutionAccountEconomicsConfig,
   ExecutionPriceEvidenceConfig,
   ExecutionRouteEconomicsConfig,
   ExecutionUnitPriceConfig,
 } from "./economics.js";
+export {
+  decideExecutionRouteDataPolicy,
+  defineExecutionDataClassification,
+  defineExecutionRouteDataPolicyEvidence,
+  EXECUTION_DATA_CLASSIFICATIONS,
+} from "./data-policy.js";
+export type {
+  ExecutionDataClassification,
+  ExecutionRouteDataPolicyDecision,
+  ExecutionRouteDataPolicyEvidence,
+  ExecutionRouteDataPolicyReason,
+} from "./data-policy.js";
+
+export { validateModelTurn, validateModelTurnResult } from "./model-turn.js";
+export type {
+  CustomModelTool,
+  CustomModelToolCall,
+  FunctionModelTool,
+  FunctionModelToolCall,
+  ModelImagePart,
+  ModelJsonObject,
+  ModelJsonValue,
+  ModelPart,
+  ModelReasoningSummaryPart,
+  ModelTextPart,
+  ModelTool,
+  ModelToolCall,
+  ModelToolCallPart,
+  ModelToolChoice,
+  ModelToolResultContent,
+  ModelToolResultPart,
+  ModelTurn,
+  ModelTurnMessage,
+  ModelTurnResult,
+  ModelTurnUsage,
+} from "./model-turn.js";
+export { dispatchOneModelRound } from "./one-round-dispatcher.js";
+export type { OneRoundModelDispatcher, OneRoundModelDispatchInput } from "./one-round-dispatcher.js";
+export { createExecutionAccountPolicyId, createExecutionAccountRef } from "./account-identity.js";
+export type { ExecutionAccountPolicyId, ExecutionAccountRef } from "./account-identity.js";
+export type { ProviderModelRouteIdentity } from "../provider-model-evidence.js";
+export { selectAdmittedExecutionAccount } from "./account-admission.js";
+export type {
+  ExecutionAccountAdmissionCandidate,
+  ExecutionAccountAdmissionRejection,
+  ExecutionAccountAdmissionRejectionReason,
+  ExecutionAccountAdmissionSelection,
+} from "./account-admission.js";
+export {
+  defineExecutionAccountCapacityRejection,
+  defineExecutionAccountUsageEvidence,
+  selectExecutionCapacityAccount,
+} from "./account-capacity-selection.js";
+export type {
+  ExecutionAccountAffinity,
+  ExecutionAccountAffinityEvidence,
+  ExecutionAccountAffinityOutcome,
+  ExecutionAccountCapacityCandidate,
+  ExecutionAccountCapacityHealth,
+  ExecutionAccountCapacityRejection,
+  ExecutionAccountCapacityRejectionReason,
+  ExecutionAccountCapacitySelection,
+  ExecutionAccountCapacitySelectionResult,
+  ExecutionAccountUsageEvidence,
+  SelectExecutionCapacityAccountInput,
+} from "./account-capacity-selection.js";
+export { advanceExecutionAttempt, createExecutionAttempt } from "./execution-attempt.js";
+export type { ExecutionAttempt, ExecutionAttemptPhase } from "./execution-attempt.js";
 import type {
   ExecutionAccountEconomicsConfig,
   ExecutionRouteEconomicsConfig,
@@ -17,6 +80,12 @@ import {
   validateExecutionAccountEconomics,
   validateExecutionRouteEconomics,
 } from "./economics.js";
+import {
+  defineExecutionRouteDataPolicyEvidence,
+  defineExecutionDataClassification,
+  type ExecutionRouteDataPolicyEvidence,
+  type ExecutionDataClassification,
+} from "./data-policy.js";
 
 const CANONICAL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
 
@@ -46,6 +115,8 @@ export interface ExecutionRoute {
   readonly providerId: string;
   readonly providerModelId: string;
   readonly accountSelection: ExecutionRouteAccountSelection;
+  readonly dataClassification: ExecutionDataClassification;
+  readonly dataPolicyEvidence: ExecutionRouteDataPolicyEvidence;
   readonly economics: ExecutionRouteEconomicsConfig;
 }
 
@@ -71,39 +142,6 @@ export type AdmittedExecutionRoute = {
     | { readonly mode: "automatic"; readonly accountPolicyId: string; readonly eligibleAccountIds: readonly string[] }
     | { readonly mode: "exact"; readonly accountId: string; readonly source: "route" | "operator-override" };
 };
-
-export interface ExecutionAccountCandidate {
-  readonly accountId: string;
-  readonly safety: "eligible" | "ineligible";
-  readonly health: "healthy" | "unhealthy";
-  readonly quota: "available" | "exhausted" | "unknown";
-  readonly capacity: "available" | "exhausted";
-  readonly economicCost: ManagedEconomicAmount;
-  readonly pressure: number;
-}
-
-export type ExecutionAccountRejectionReason =
-  | "safety-ineligible"
-  | "health-unhealthy"
-  | "quota-exhausted"
-  | "quota-unknown"
-  | "capacity-exhausted";
-
-export interface ExecutionAccountRejection {
-  readonly accountId: string;
-  readonly reason: ExecutionAccountRejectionReason;
-}
-
-export type ExecutionAccountSelection =
-  | {
-      readonly kind: "selected";
-      readonly accountId: string;
-      readonly rejected: readonly ExecutionAccountRejection[];
-    }
-  | {
-      readonly kind: "rejected";
-      readonly rejected: readonly ExecutionAccountRejection[];
-    };
 
 export class ExecutionRoutingValidationError extends Error {
   override name = "ExecutionRoutingValidationError";
@@ -167,6 +205,8 @@ export function defineExecutionCatalog(input: ExecutionCatalogInput): ExecutionC
       providerId,
       providerModelId: requiredText(route.providerModelId, `routes[${index}].providerModelId`),
       accountSelection,
+      dataClassification: defineExecutionDataClassification(route.dataClassification),
+      dataPolicyEvidence: validatedDataPolicyEvidence(route.dataPolicyEvidence, `routes[${index}].dataPolicyEvidence`),
       economics: validatedEconomics(
         validateExecutionRouteEconomics,
         route.economics,
@@ -177,6 +217,17 @@ export function defineExecutionCatalog(input: ExecutionCatalogInput): ExecutionC
   uniqueIds(routes, "routes");
 
   return freeze({ accounts: freeze(accounts), accountPolicies: freeze(accountPolicies), routes: freeze(routes) });
+}
+
+function validatedDataPolicyEvidence(
+  value: ExecutionRouteDataPolicyEvidence,
+  field: string,
+): ExecutionRouteDataPolicyEvidence {
+  try {
+    return defineExecutionRouteDataPolicyEvidence(value);
+  } catch (error) {
+    throw invalid(`${field} is invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /** Admits a user selection without exposing a credential reference or allowing unsafe fallback. */
@@ -230,33 +281,6 @@ export function admitOperatorExecutionIntent(
   });
 }
 
-/**
- * Chooses only from the route's admitted account set. Rejection gates are evaluated
- * before economics; exact selection deliberately has no fallback behavior.
- */
-export function selectExecutionAccountCandidate(
-  admission: AdmittedExecutionRoute,
-  candidates: readonly ExecutionAccountCandidate[],
-): ExecutionAccountSelection {
-  if (!Array.isArray(candidates)) throw invalid("candidates must be an array");
-  const allowedAccountIds = admission.accountSelection.mode === "exact"
-    ? new Set([admission.accountSelection.accountId])
-    : new Set(admission.accountSelection.eligibleAccountIds);
-  const rejected: ExecutionAccountRejection[] = [];
-  const eligible: ExecutionAccountCandidate[] = [];
-  for (const candidate of candidates) {
-    validateCandidate(candidate);
-    if (!allowedAccountIds.has(candidate.accountId)) continue;
-    const reason = rejectionReason(candidate);
-    if (reason) rejected.push(freeze({ accountId: candidate.accountId, reason }));
-    else eligible.push(candidate);
-  }
-  if (eligible.length === 0) return freeze({ kind: "rejected", rejected: freeze(rejected) });
-
-  const selected = [...eligible].sort(compareCandidates)[0]!;
-  return freeze({ kind: "selected", accountId: selected.accountId, rejected: freeze(rejected) });
-}
-
 function normalizeRouteSelection(
   selection: ExecutionRouteAccountSelection,
   routeIndex: number,
@@ -280,46 +304,6 @@ function normalizeRouteSelection(
     return freeze({ mode: "exact", accountId });
   }
   throw invalid(`routes[${routeIndex}].accountSelection must be automatic or exact`);
-}
-
-function rejectionReason(candidate: ExecutionAccountCandidate): ExecutionAccountRejectionReason | undefined {
-  if (candidate.safety === "ineligible") return "safety-ineligible";
-  if (candidate.health === "unhealthy") return "health-unhealthy";
-  if (candidate.quota === "exhausted") return "quota-exhausted";
-  if (candidate.quota === "unknown") return "quota-unknown";
-  if (candidate.capacity === "exhausted") return "capacity-exhausted";
-  return undefined;
-}
-
-function compareCandidates(left: ExecutionAccountCandidate, right: ExecutionAccountCandidate): number {
-  const economic = compareManagedEconomicAmounts(left.economicCost, right.economicCost);
-  if (economic !== 0) return economic;
-  if (left.pressure !== right.pressure) return left.pressure - right.pressure;
-  return left.accountId.localeCompare(right.accountId);
-}
-
-function validateCandidate(candidate: ExecutionAccountCandidate): void {
-  canonicalId(candidate.accountId, "candidate.accountId");
-  if (candidate.safety !== "eligible" && candidate.safety !== "ineligible") {
-    throw invalid("candidate.safety is invalid");
-  }
-  if (candidate.health !== "healthy" && candidate.health !== "unhealthy") {
-    throw invalid("candidate.health is invalid");
-  }
-  if (candidate.quota !== "available" && candidate.quota !== "exhausted" && candidate.quota !== "unknown") {
-    throw invalid("candidate.quota is invalid");
-  }
-  if (candidate.capacity !== "available" && candidate.capacity !== "exhausted") {
-    throw invalid("candidate.capacity is invalid");
-  }
-  if (!Number.isFinite(candidate.pressure) || candidate.pressure < 0) {
-    throw invalid("candidate.pressure must be a finite non-negative number");
-  }
-  try {
-    validateManagedEconomicAmount(candidate.economicCost);
-  } catch (error) {
-    throw invalid(`candidate.economicCost is invalid: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 function validatedEconomics<T>(

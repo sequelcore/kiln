@@ -51,6 +51,21 @@ model, account, and credential evidence after that intent. Surfaces may
 abbreviate the human-facing reason, but they must not derive route selectability
 from a different source.
 
+## Available models and route creation
+
+The Available Models projection is a shared, secret-free view of discovery
+evidence plus whether a configured execution route currently references a model.
+GUI, TUI, and CLI render the same projection for diagnosis and route-creation
+starting points. It is intentionally separate from the execution picker.
+
+Selecting an available model produces an incomplete typed route draft. Runtime
+will not turn discovery metadata into an executable route: the operator must
+provide the data classification and current data-policy evidence, account
+selection, economic policy, and other route authority fields. Canonical route
+creation uses the revision-fenced global-config mutation owner, validates the
+whole execution catalog atomically, and then refreshes projections. A stale
+revision, missing material field, or contradictory evidence fails closed.
+
 `model_version_unsupported` means the harness or provider is installed and
 authenticated enough to answer, but the selected or requested model requires a
 newer provider binary, app channel, or compatible model surface. Surfaces must

@@ -46,7 +46,7 @@ import {
   type OperatorSurfaceController,
   type OrchestrateResult,
   type PerCallToolConfig,
-  type RuntimeBudgetAdmissionPort,
+  type RuntimeSessionTurnBudgetAuthority,
   type RuntimeExecutionEnvelope,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
@@ -91,7 +91,7 @@ export interface ProviderSessionConfig {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly runtimeExecutionMode?: "execute" | "plan";
-  readonly budgetAdmission?: RuntimeBudgetAdmissionPort;
+  readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly mcpClients?: readonly KilnMcpClient[];
   readonly mcpToolAllowlist?: ReadonlySet<string>;
@@ -415,27 +415,18 @@ export class ProviderSession implements IKilnSession {
   }
 
   private async checkProviderBudget(): Promise<string | undefined> {
-    const budgetAdmission = this.config.budgetAdmission;
-    if (!budgetAdmission) {
+    const sessionTurnBudget = this.config.sessionTurnBudget;
+    if (!sessionTurnBudget) {
       return undefined;
     }
     try {
-      const admission = await budgetAdmission.admit({
-        subject: "runtime-session-turn",
-        sessionId: this.sessionId,
-        routeCandidates: [
-          {
-            providerId: this.config.provider,
-            ...(this.resolvedModel ? { model: this.resolvedModel } : {}),
-          },
-        ],
-      });
+      const admission = await sessionTurnBudget.admit(this.sessionId);
       if (admission.status === "admitted") {
         return undefined;
       }
-      return admission.message ?? `Budget admission denied: ${admission.reason}.`;
+      return admission.message ?? `Session token budget denied: ${admission.reason}.`;
     } catch (error) {
-      return `Budget admission failed: ${readErrorMessage(error)}`;
+      return `Session token budget observation failed: ${readErrorMessage(error)}`;
     }
   }
 
@@ -832,7 +823,7 @@ export class ProviderSession implements IKilnSession {
       capabilityMap: new Map([...this.capabilityMap, ...externalCapabilityMap]),
       ...(this.config.mcpClients && this.config.mcpClients.length > 0 ? { mcpClients: this.config.mcpClients } : {}),
       dangerousCommandDetector: undefined,
-      ...(this.config.budgetAdmission ? { budgetAdmission: this.config.budgetAdmission } : {}),
+      ...(this.config.sessionTurnBudget ? { sessionTurnBudget: this.config.sessionTurnBudget } : {}),
       ...(this.config.executionEnvelope ? { executionEnvelope: this.config.executionEnvelope } : {}),
     });
 

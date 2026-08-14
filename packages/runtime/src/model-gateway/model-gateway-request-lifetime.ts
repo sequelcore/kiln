@@ -27,7 +27,7 @@ export function ownModelGatewayRequestLifetime(
   };
 }
 
-/** Claims the admitted dispatch lifetime after authentication, concurrency, and bounded body receipt. */
+/** Claims the admitted dispatch lifetime after bounded body receipt and dispatch validation. */
 export function claimModelGatewayRequestLifetime(request: Request): void {
   pendingLifetimeClaims.get(request)?.();
 }

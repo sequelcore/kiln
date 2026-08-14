@@ -6,7 +6,8 @@ Model Gateway is an ingress overlay on Kiln's canonical execution catalog. It
 accepts a virtual-model request, maps that virtual model to an
 `executionRouteId`, and executes the admitted route through the same Runtime
 authority used by `kiln run`, GUI, and TUI. It is not a second provider,
-credential, account-pool, or routing authority.
+credential, account-pool, routing authority, or general agent proxy. It remains
+a Runtime component, not a standalone package or product-service boundary.
 
 The authoritative configuration and selection rules are documented in
 [Global Config](../../guides/config/global-config.md) and
@@ -147,6 +148,19 @@ ownership, backup, drift, adoption, sync, uninstall, and exact restore rules.
 Projection never becomes route or account authority, and it must not replace a
 native provider catalog, default, search setting, or unrelated user field.
 
+### Native execution boundary
+
+Native harnesses consume virtual models through their own supported SDK or
+protocol and keep their own agent loops, tools, permissions, and subagents.
+Before a turn they obtain the secret-free canonical route/model projection; the
+harness reports resulting usage and execution evidence to Runtime. A virtual
+model does not make the Gateway the owner of that harness execution.
+
+MCP is separate from this ingress path. It can expose bounded inspection,
+configuration, and Agent Task operations, but it is never required to launch a
+native subagent. The Gateway accepts model traffic only after native protocol
+authentication and Runtime admission.
+
 ### Codex composite routing
 
 The Codex projection installs one loopback base URL under the authenticated
@@ -178,9 +192,32 @@ returned before forwarding, including Kiln's bounded-body 413, can therefore
 affect native Codex turns. Upstream responses and errors remain attributable to
 the Codex backend.
 
+Composite capacity is Runtime ingress capacity, separate from provider,
+execution-account, and managed-agent capacity. Capability-path authentication
+and method/path classification precede capacity acquisition. Bounded body
+receipt, decoding, model routing, and native authorization follow admission, so
+queued requests retain no application-level encoded or decoded body buffers and
+cannot reach provider dispatch. Each admitted route has its own FIFO class:
+`responses`, `compact`, `search`, `image-edits`, and `image-generations`. These
+path-level classes are the smallest classification the ingress can prove before
+reading the body, and prevent auxiliary search or compaction overlap from
+occupying a response-turn slot. Each class applies the surface's
+`maxConcurrentRequests`; composite queue policy is owned by the Codex composite
+adapter rather than every HTTP surface.
+Queued cancellation removes the waiter; every terminal dispatch path releases
+its held slot.
+
+Queue-full and queue-timeout are local HTTP 503 failures with stable ingress and
+pre-dispatch provenance. Sanitized evidence records only time, correlation ID,
+request class, outcome, wait/retry timing, origin, phase, and retryability in
+`ingress_capacity_evidence`. It excludes request bodies, authorization,
+capability URLs, account identity, and operator paths. Provider HTTP 429
+responses pass through unchanged and cannot cool an execution account because
+the native composite branch has no account-selection or dispatch evidence.
+
 ## Related Overlays
 
-Managed-agent direct routes also reference `executionRouteId`; they do not
+Agent Task economic routes also reference `executionRouteId`; they do not
 copy execution account facts. Native-harness managed routes are separate
 physical-harness routes and retain only the facts needed for that boundary.
 

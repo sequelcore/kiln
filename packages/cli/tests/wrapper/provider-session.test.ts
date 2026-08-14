@@ -1891,25 +1891,25 @@ describe("ProviderSession.run()", () => {
       queued: false,
       outcome: "completed",
     });
-    const budgetAdmission = { admit: vi.fn() };
+    const sessionTurnBudget = { admit: vi.fn() };
 
     const session = new ProviderSession(baseConfig({
       provider: "openai",
       model: "gpt-5.4",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "kiln-executable",
-      budgetAdmission,
+      sessionTurnBudget,
     }));
 
     await collectEvents(session.run({ prompt: "execute within budget" }));
 
     expect(runtimeMocks.orchestratorConstructor).toHaveBeenCalledWith(expect.objectContaining({
-      budgetAdmission,
+      sessionTurnBudget,
     }));
   });
 
   it("checks runtime budget admission before text-only provider calls", async () => {
-    const budgetAdmission = {
+    const sessionTurnBudget = {
       admit: vi.fn().mockResolvedValue({
         status: "denied",
         reason: "all-routes-over-budget",
@@ -1925,15 +1925,12 @@ describe("ProviderSession.run()", () => {
       model: "gpt-4o",
       env: { OPENAI_API_KEY: "cfg-key" },
       executionMode: "text-only",
-      budgetAdmission,
+      sessionTurnBudget,
     }));
 
     const events = await collectEvents(session.run({ prompt: "text-only budget check" }));
 
-    expect(budgetAdmission.admit).toHaveBeenCalledWith(expect.objectContaining({
-      subject: "runtime-session-turn",
-      routeCandidates: [expect.objectContaining({ providerId: "openai", model: "gpt-4o" })],
-    }));
+    expect(sessionTurnBudget.admit).toHaveBeenCalledWith(expect.any(String));
     expect(adapterMocks.openai.ctor).not.toHaveBeenCalled();
     expect(events).toContainEqual({
       type: "error",

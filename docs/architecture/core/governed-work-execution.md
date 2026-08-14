@@ -15,7 +15,7 @@ completion.
 This doctrine refines [`identity.md`](identity.md),
 [`work-governance.md`](work-governance.md),
 [`coordination.md`](../coordination/coordination.md), and
-[`managed-agents.md`](../coordination/managed-agents.md). It does not create a second workflow,
+[`agent-tasks.md`](../coordination/agent-tasks.md). It does not create a second workflow,
 route, job, evidence, or replay owner.
 
 ## Bounded Work Contract

@@ -28,8 +28,8 @@ import type {
 } from "@kilnai/core";
 import {
   adoptManagedEconomicSnapshot,
-  createAccountRef,
-  createAccountPolicyId,
+  createExecutionAccountRef,
+  createExecutionAccountPolicyId,
   createProviderModelEvidence,
   defineManagedAgentReadAuthority,
   defineManagedAgentWriteAuthority,
@@ -48,7 +48,7 @@ import {
   ManagedCliHarnessAdapter,
   ManagedCommittedRouteMismatchError,
   ManagedEconomicDispatchCoordinator,
-  ManagedJobApplicationError,
+  AgentTaskApplicationError,
   ManagedFilesystemRuntimeRecoveryStore,
   ManagedGitWorktreeLeaseManager,
   ManagedRemoteHarnessAdapter,
@@ -65,8 +65,8 @@ import {
   type ManagedInvocationToolRoute,
   type ManagedEconomicCandidateSet,
   type ManagedEconomicDispatchAuthorityPort,
-  type ManagedJobEconomicAdoption,
-  type ManagedJobRecord,
+  type AgentTaskEconomicAdoption,
+  type AgentTaskRecord,
 } from "@kilnai/runtime";
 import type {
   ManagedAgentProviderModelCatalogDiagnostic,
@@ -268,13 +268,13 @@ export interface ManagedAccountRuntimeComposition {
 }
 
 export type ManagedEconomicAdoptionSubject = Pick<
-  ManagedJobRecord,
+  AgentTaskRecord,
   | "adoptedDecisionAt"
   | "projectId"
   | "callerId"
   | "parent"
 > & {
-  readonly dispatch: Extract<ManagedJobRecord["dispatch"], { readonly kind: "economic" }>;
+  readonly dispatch: Extract<AgentTaskRecord["dispatch"], { readonly kind: "economic" }>;
 };
 
 /** Projects validated config and persisted admission into immutable Core evidence. */
@@ -282,9 +282,9 @@ export async function projectManagedEconomicJobAdoption(
   config: ManagedAgentRouteConfigSource,
   job: ManagedEconomicAdoptionSubject,
   routing: ConfiguredExecutionAccountRuntime,
-): Promise<ManagedJobEconomicAdoption> {
+): Promise<AgentTaskEconomicAdoption> {
   if (!isManagedEconomicAdoptionSubject(job)) {
-    throw new ManagedJobApplicationError(
+    throw new AgentTaskApplicationError(
       "identity-revision-conflict",
       "Restore the exact persisted managed economic dispatch contract.",
     );
@@ -295,7 +295,7 @@ export async function projectManagedEconomicJobAdoption(
   const policy = managed?.economicPolicies?.find((entry) =>
     entry.id === dispatch.economicPolicyId && entry.revision === dispatch.economicPolicyRevision);
   if (managed?.schemaVersion !== 2 || !policy || !executionCatalog) {
-    throw new ManagedJobApplicationError(
+    throw new AgentTaskApplicationError(
       "identity-revision-conflict",
       "Restore the exact persisted managed economic policy revision.",
     );
@@ -322,11 +322,11 @@ export async function projectManagedEconomicJobAdoption(
         ? executionCatalog.routes.find((entry) => entry.id === projection.executionRouteId)
         : undefined;
       const economics = economicsRoute?.economics;
-      const configuredAccountPolicyId = projection?.admission?.accountSelection.mode === "automatic"
+      const configuredExecutionAccountPolicyId = projection?.admission?.accountSelection.mode === "automatic"
         ? projection.admission.accountSelection.accountPolicyId
         : null;
       if (!routeConfig || routeConfig.kind !== "direct" || !projection || !economicsRoute || !domain || !economics) {
-        throw new ManagedJobApplicationError(
+        throw new AgentTaskApplicationError(
           "identity-revision-conflict",
           `Restore managed economic route '${candidate.routeId}' and its exact revision.`,
         );
@@ -336,12 +336,12 @@ export async function projectManagedEconomicJobAdoption(
         || economicsRoute.providerModelId !== admittedIdentity.modelId
         || economics.adapterCapabilityId !== admittedIdentity.adapterCapabilityId
         || economics.adapterCapabilityVersion !== admittedIdentity.adapterCapabilityVersion
-        || (configuredAccountPolicyId === null
+        || (configuredExecutionAccountPolicyId === null
           ? admittedIdentity.accountPolicy.kind !== "accountless"
           : admittedIdentity.accountPolicy.kind !== "account-bound"
-            || admittedIdentity.accountPolicy.accountPolicyId !== configuredAccountPolicyId)
+            || admittedIdentity.accountPolicy.accountPolicyId !== configuredExecutionAccountPolicyId)
       ) {
-        throw new ManagedJobApplicationError(
+        throw new AgentTaskApplicationError(
           "identity-revision-conflict",
           `Restore managed economic route '${candidate.routeId}' and its exact admitted identity.`,
         );
@@ -388,7 +388,7 @@ export async function projectManagedEconomicJobAdoption(
           authBillingChannel: economics.authBillingChannel,
           executionMode: economics.executionMode,
           serviceTier: economics.serviceTier,
-          accountPolicyId: configuredAccountPolicyId,
+          accountPolicyId: configuredExecutionAccountPolicyId,
           fallbackPosture: economics.fallbackPosture,
           overagePosture: economics.overagePosture,
           rateCardId: economics.priceEvidence.rateCardId,
@@ -411,7 +411,7 @@ export async function projectManagedEconomicJobAdoption(
       };
     });
   if (routes.length !== admitted.length) {
-    throw new ManagedJobApplicationError(
+    throw new AgentTaskApplicationError(
       "identity-revision-conflict",
       "Restore the exact persisted managed economic candidate set.",
     );
@@ -446,7 +446,7 @@ export async function projectManagedEconomicJobAdoption(
   const routeCapacity = await Promise.all(routes.map(async (route) => {
     const managedRoute = managed.routes?.find((entry) => entry.id === route.route.routeId);
     if (!managedRoute || managedRoute.kind !== "direct" || !executionCatalog) {
-      throw new ManagedJobApplicationError(
+      throw new AgentTaskApplicationError(
         "identity-revision-conflict",
         `Restore managed economic route '${route.route.routeId}' and its execution catalog reference.`,
       );
@@ -455,6 +455,7 @@ export async function projectManagedEconomicJobAdoption(
     const candidates = await routing.modelGatewayCandidates.resolve({
       admission,
       route: {
+        routeId: route.route.routeId,
         providerId: route.route.providerId,
         providerModelId: route.route.modelId,
         // The account authority compares candidate and commitment routes
@@ -1839,7 +1840,7 @@ async function resolveDirectRouteConfig(
   const route: ManagedInvocationToolRoute = {
     routeId: routeConfig.id,
     ...(target.admission?.accountSelection.mode === "automatic"
-      ? { accountPolicyId: createAccountPolicyId(target.admission.accountSelection.accountPolicyId) }
+      ? { accountPolicyId: createExecutionAccountPolicyId(target.admission.accountSelection.accountPolicyId) }
       : {}),
     routeSource: baseHealth.routeSource,
     providerId: provider,
@@ -1881,7 +1882,7 @@ async function resolveDirectRouteConfig(
         }
         const committedBinding = await accountRouting.resolveCommittedAccountBinding({
           capacityIdentity: committedAccount.capacityIdentity,
-          accountRef: createAccountRef(committedAccount.accountRef),
+          accountRef: createExecutionAccountRef(committedAccount.accountRef),
           credentialRevisionId: committedAccount.credentialRevision,
         });
         credentialBinding = {
@@ -2621,7 +2622,7 @@ function resolveCredentialRoute(
     return {
       mode: "account-leased",
       routeId: routeConfig.executionRouteId,
-      accountPolicyId: createAccountPolicyId(projection.admission.accountSelection.accountPolicyId),
+      accountPolicyId: createExecutionAccountPolicyId(projection.admission.accountSelection.accountPolicyId),
     };
   }
   return {
