@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import {
-  readAccountCapacityIncidents,
+  readAccountOutcomeIncidents,
   SqliteManagedAccountLeaseAuthority,
 } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
@@ -120,19 +120,127 @@ describe("shared account capacity in managed authority", () => {
     expect(() => authority.settleAccountCapacity("gateway", "fence", { ...settlement, observedAt: "2026-08-08Tgarbage" })).toThrow(/canonical ISO timestamp/i);
   });
 
-  it("adopts retained account-only capacity and fences the stale generation", () => {
+  it("retains an unknown outcome without holding local capacity or permitting redispatch", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const authority = createAuthority(path, "model-gateway-ingress", "gateway");
+    authority.acquireAccountCapacity(capacityInput("uncertain"));
+    authority.fenceAccountCapacityDispatch("uncertain", "uncertain-fence");
+    const settlement = {
+      kind: "unknown" as const,
+      reason: "terminal provider evidence is unavailable",
+      observedAt: "2026-08-13T08:00:00.000Z",
+    };
+
+    expect(authority.settleAccountCapacity("uncertain", "uncertain-fence", settlement))
+      .toMatchObject({ state: "settlement-pending" });
+    expect(authority.acquireAccountCapacity(capacityInput("uncertain")))
+      .toMatchObject({ status: "acquired", replay: true, record: { state: "settlement-pending" } });
+    expect(() => authority.fenceAccountCapacityDispatch("uncertain", "second-fence")).toThrow(/conflicts/i);
+    expect(authority.acquireAccountCapacity(capacityInput("next")))
+      .toMatchObject({ status: "acquired", replay: false });
+
+    const database = new Database(path, { readonly: true, strict: true });
+    expect(database.query<{ lifecycle_state: string; released_at: string | null; settlement_json: string }, []>(
+      "SELECT lifecycle_state,released_at,settlement_json FROM account_leases WHERE runtime_invocation_id='uncertain'",
+    ).get()).toEqual({
+      lifecycle_state: "settlement-pending",
+      released_at: expect.any(String),
+      settlement_json: JSON.stringify(settlement),
+    });
+    database.close();
+  });
+
+  it("continues counting unsettled economic rows against shared account capacity", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const authority = createAuthority(path, "model-gateway-ingress", "gateway");
+    authority.acquireAccountCapacity(capacityInput("economic-holder"));
+    const database = new Database(path, { strict: true });
+    database.query(
+      `UPDATE account_leases
+       SET runtime_invocation_id=NULL,economic_attempt_id='economic-attempt',commitment_id='commitment',
+           lifecycle_state='settlement-pending',released_at=?
+       WHERE job_id='economic-holder'`,
+    ).run("2026-08-13T08:00:00.000Z");
+    database.close();
+
+    expect(authority.acquireAccountCapacity(capacityInput("gateway"))).toMatchObject({ status: "unavailable" });
+  });
+
+  it("releases stale pre-fence capacity without adopting its generation", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
     const path = join(root, "authority.sqlite"); let now = 1_000;
     const old = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
     old.acquireAccountCapacity(capacityInput("gateway"));
+    const before = new Database(path, { readonly: true, strict: true });
+    const identity = before.query<{ owner_id: string; owner_generation: string }, []>(
+      "SELECT owner_id,owner_generation FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get();
+    before.close();
     now = 2_000;
     const replacement = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
-    expect(replacement.recoverAccountCapacity()).toHaveLength(1);
+    expect(replacement.recoverAccountCapacity()).toMatchObject([{ runtimeInvocationId: "gateway", state: "released" }]);
     expect(() => old.fenceAccountCapacityDispatch("gateway", "old-fence")).toThrow(/stale|ownership/i);
-    expect(replacement.fenceAccountCapacityDispatch("gateway", "new-fence").state).toBe("dispatch-fenced");
+    expect(() => replacement.fenceAccountCapacityDispatch("gateway", "new-fence")).toThrow(/stale|unavailable/i);
+    expect(replacement.acquireAccountCapacity(capacityInput("replacement"))).toMatchObject({ status: "acquired" });
+    const after = new Database(path, { readonly: true, strict: true });
+    expect(after.query<{ owner_id: string; owner_generation: string }, []>(
+      "SELECT owner_id,owner_generation FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get()).toEqual(identity);
+    after.close();
   });
 
-  it("reads retained account-only incidents without adopting ownership or exposing account identity", () => {
+  it("settles stale fenced capacity as unknown without fabricating a provider outcome", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
+    const path = join(root, "authority.sqlite"); let now = 1_000;
+    const old = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
+    old.acquireAccountCapacity(capacityInput("gateway"));
+    old.fenceAccountCapacityDispatch("gateway", "gateway-fence");
+    now = 2_000;
+    const replacement = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
+
+    expect(replacement.recoverAccountCapacity()).toMatchObject([{
+      runtimeInvocationId: "gateway",
+      state: "settlement-pending",
+      dispatchFenceId: "gateway-fence",
+    }]);
+    expect(replacement.acquireAccountCapacity(capacityInput("replacement"))).toMatchObject({ status: "acquired" });
+    const database = new Database(path, { readonly: true, strict: true });
+    const recovered = database.query<{ released_at: string | null; settlement_json: string }, []>(
+      "SELECT released_at,settlement_json FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get()!;
+    database.close();
+    expect(recovered.released_at).toBe(new Date(now).toISOString());
+    expect(JSON.parse(recovered.settlement_json)).toMatchObject({
+      kind: "unknown",
+      observedAt: new Date(now).toISOString(),
+    });
+    expect(JSON.parse(recovered.settlement_json)).not.toHaveProperty("outcome");
+  });
+
+  it("projects current-generation capacity during recovery without mutating it", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const authority = createAuthority(path, "model-gateway-ingress", "gateway");
+    authority.acquireAccountCapacity(capacityInput("gateway"));
+    const beforeDatabase = new Database(path, { readonly: true, strict: true });
+    const before = beforeDatabase.query<{ owner_id: string; owner_generation: string; lifecycle_state: string; released_at: string | null }, []>(
+      "SELECT owner_id,owner_generation,lifecycle_state,released_at FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get();
+    beforeDatabase.close();
+
+    expect(authority.recoverAccountCapacity()).toMatchObject([{ runtimeInvocationId: "gateway", state: "held" }]);
+
+    const afterDatabase = new Database(path, { readonly: true, strict: true });
+    const after = afterDatabase.query<{ owner_id: string; owner_generation: string; lifecycle_state: string; released_at: string | null }, []>(
+      "SELECT owner_id,owner_generation,lifecycle_state,released_at FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get();
+    afterDatabase.close();
+    expect(after).toEqual(before);
+  });
+
+  it("reads retained unknown outcomes after capacity is released without adopting ownership or exposing account identity", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
     const path = join(root, "authority.sqlite"); let now = 1_000;
     const gateway = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
@@ -151,13 +259,12 @@ describe("shared account capacity in managed authority", () => {
     operator.fenceAccountCapacityDispatch("operator", "operator-fence");
     gateway.close();
     const database = new Database(path, { strict: true });
-    database.query("UPDATE account_leases SET lifecycle_state='leaked' WHERE runtime_invocation_id='gateway'").run();
     const before = database.query<{ owner_generation: string }, []>(
       "SELECT owner_generation FROM account_leases WHERE runtime_invocation_id='gateway'",
     ).get();
     database.close();
 
-    const incidents = readAccountCapacityIncidents({
+    const incidents = readAccountOutcomeIncidents({
       path,
       participantKind: "model-gateway-ingress",
       recoveryDomain: "gateway",
@@ -165,7 +272,8 @@ describe("shared account capacity in managed authority", () => {
     expect(incidents).toMatchObject([{
       runtimeInvocationId: "gateway",
       dispatchFenceId: "gateway-fence",
-      state: "leaked",
+      lifecycleState: "settlement-pending",
+      capacityState: "released",
       settlement: {
         kind: "unknown",
         reason: "transport disconnected before terminal evidence",
@@ -194,20 +302,21 @@ describe("shared account capacity in managed authority", () => {
       }),
     );
     corruptDatabase.close();
-    expect(() => readAccountCapacityIncidents({
+    expect(() => readAccountOutcomeIncidents({
       path,
       participantKind: "model-gateway-ingress",
       recoveryDomain: "gateway",
     })).toThrow(/settlement is corrupt/i);
   });
 
-  it("fails closed when retained recovery state has a different configuration revision", () => {
+  it("admits a new configuration revision when only stale account-only capacity remains", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
     const path = join(root, "authority.sqlite"); let now = 1_000;
     createAuthority(path, "model-gateway-ingress", "gateway", () => now).acquireAccountCapacity(capacityInput("gateway"));
     now = 2_000;
-    expect(() => new SqliteManagedAccountLeaseAuthority({ path, participantKind: "model-gateway-ingress", recoveryDomain: "gateway", ownerId: "replacement", configurationRevision: "rev-2", now: () => now, ownerStaleMs: 10 }))
-      .toThrow(/configuration revision/i);
+    const replacement = new SqliteManagedAccountLeaseAuthority({ path, participantKind: "model-gateway-ingress", recoveryDomain: "gateway", ownerId: "replacement", configurationRevision: "rev-2", now: () => now, ownerStaleMs: 10 });
+    authorities.push(replacement);
+    expect(replacement.recoverAccountCapacity()).toMatchObject([{ runtimeInvocationId: "gateway", state: "released" }]);
   });
 
   it("admits a new configuration revision after the old owner is stale and no capacity remains", () => {
@@ -232,17 +341,138 @@ describe("shared account capacity in managed authority", () => {
     expect(replacement.recoverAccountCapacity()).toEqual([]);
   });
 
-  it("fails closed when account-only recovery encounters an anomalous consuming state", () => {
+  it("preserves an unknown outcome while recovering stale leaked account-only capacity", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-capacity-")); roots.push(root);
-    const path = join(root, "authority.sqlite");
-    const old = createAuthority(path, "model-gateway-ingress", "gateway");
+    const path = join(root, "authority.sqlite"); let now = 1_000;
+    const old = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
     old.acquireAccountCapacity(capacityInput("gateway"));
-    old.close();
+    old.fenceAccountCapacityDispatch("gateway", "gateway-fence");
+    const settlement = {
+      kind: "unknown" as const,
+      reason: "terminal provider evidence is unavailable",
+      observedAt: "2026-08-13T08:00:00.000Z",
+    };
+    old.settleAccountCapacity("gateway", "gateway-fence", settlement);
     const database = new Database(path, { strict: true });
-    database.query("UPDATE account_leases SET lifecycle_state='leaked' WHERE runtime_invocation_id='gateway'").run();
+    database.query("UPDATE account_leases SET lifecycle_state='leaked',released_at=NULL WHERE runtime_invocation_id='gateway'").run();
     database.close();
-    const replacement = createAuthority(path, "model-gateway-ingress", "gateway");
-    expect(() => replacement.recoverAccountCapacity()).toThrow(/unsupported consuming state leaked/i);
+    now = 2_000;
+    const replacement = createAuthority(path, "model-gateway-ingress", "gateway", () => now);
+    expect(replacement.recoverAccountCapacity()).toMatchObject([{
+      runtimeInvocationId: "gateway",
+      state: "settlement-pending",
+      dispatchFenceId: "gateway-fence",
+    }]);
+    expect(replacement.acquireAccountCapacity(capacityInput("replacement"))).toMatchObject({ status: "acquired" });
+    const after = new Database(path, { readonly: true, strict: true });
+    expect(after.query<{ lifecycle_state: string; released_at: string | null; settlement_json: string }, []>(
+      "SELECT lifecycle_state,released_at,settlement_json FROM account_leases WHERE runtime_invocation_id='gateway'",
+    ).get()).toEqual({
+      lifecycle_state: "settlement-pending",
+      released_at: new Date(now).toISOString(),
+      settlement_json: JSON.stringify(settlement),
+    });
+    after.close();
+  });
+
+  it.each(["settlement-pending", "leaked"] as const)(
+    "does not let agent-task commitment recovery adopt Gateway account-only %s capacity",
+    (lifecycleState) => {
+      const root = mkdtempSync(join(tmpdir(), "kiln-capacity-recovery-isolation-")); roots.push(root);
+      const path = join(root, "authority.sqlite");
+      const gateway = createAuthority(path, "model-gateway-ingress", "gateway");
+      expect(gateway.acquireAccountCapacity(capacityInput(`gateway-${lifecycleState}`)).status).toBe("acquired");
+      gateway.fenceAccountCapacityDispatch(`gateway-${lifecycleState}`, `fence-${lifecycleState}`);
+      gateway.settleAccountCapacity(`gateway-${lifecycleState}`, `fence-${lifecycleState}`, {
+        kind: "unknown",
+        reason: "terminal provider evidence is unavailable",
+        observedAt: "2026-08-13T08:00:00.000Z",
+      });
+      gateway.close();
+
+      const database = new Database(path, { strict: true });
+      database.query(
+        "UPDATE account_leases SET lifecycle_state=?,diagnostic_uris=? WHERE runtime_invocation_id=?",
+      ).run(lifecycleState, JSON.stringify(["kiln://model-gateway/incidents/synthetic"]), `gateway-${lifecycleState}`);
+      const before = database.query<{
+        owner_id: string;
+        owner_generation: string;
+        lifecycle_state: string;
+        diagnostic_uris: string;
+      }, [string]>(
+        "SELECT owner_id,owner_generation,lifecycle_state,diagnostic_uris FROM account_leases WHERE runtime_invocation_id=?",
+      ).get(`gateway-${lifecycleState}`);
+      database.close();
+
+      const agentTasks = createAuthority(path, "agent-task-runtime", "agent-tasks");
+      expect(agentTasks.recoverCommitments()).toEqual([]);
+
+      const afterDatabase = new Database(path, { readonly: true, strict: true });
+      const after = afterDatabase.query<{
+        owner_id: string;
+        owner_generation: string;
+        lifecycle_state: string;
+        diagnostic_uris: string;
+      }, [string]>(
+        "SELECT owner_id,owner_generation,lifecycle_state,diagnostic_uris FROM account_leases WHERE runtime_invocation_id=?",
+      ).get(`gateway-${lifecycleState}`);
+      afterDatabase.close();
+      expect(after).toEqual(before);
+    },
+  );
+
+  it("migrates the exact legacy-recovery leak into a released unknown outcome", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-capacity-outcome-migration-")); roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const gateway = createAuthority(path, "model-gateway-ingress", "gateway", () => 1_000);
+    gateway.acquireAccountCapacity(capacityInput("historical"));
+    gateway.fenceAccountCapacityDispatch("historical", "historical-fence");
+    const settlement = {
+      kind: "unknown" as const,
+      reason: "gateway provider failed after the dispatch fence",
+      observedAt: "2026-08-12T17:04:54.289Z",
+    };
+    gateway.settleAccountCapacity("historical", "historical-fence", settlement);
+    gateway.close();
+
+    const legacy = new Database(path, { strict: true });
+    const lease = legacy.query<{ lease_id: string }, []>(
+      "SELECT lease_id FROM account_leases WHERE runtime_invocation_id='historical'",
+    ).get()!;
+    const legacyDiagnostic = `kiln://managed-accounts/leases/${encodeURIComponent(lease.lease_id)}/legacy-recovery`;
+    legacy.query(
+      "UPDATE account_leases SET owner_id='legacy-recovery-owner',lifecycle_state='leaked',released_at=NULL,diagnostic_uris=? WHERE lease_id=?",
+    ).run(JSON.stringify([legacyDiagnostic]), lease.lease_id);
+    legacy.exec("PRAGMA user_version=4;");
+    const before = legacy.query<{
+      runtime_invocation_id: string;
+      dispatch_fence_id: string;
+      settlement_json: string;
+      diagnostic_uris: string;
+    }, [string]>(
+      "SELECT runtime_invocation_id,dispatch_fence_id,settlement_json,diagnostic_uris FROM account_leases WHERE lease_id=?",
+    ).get(lease.lease_id);
+    legacy.close();
+
+    const reopened = createAuthority(path, "model-gateway-ingress", "gateway", () => 2_000);
+    const migrated = new Database(path, { readonly: true, strict: true });
+    expect(migrated.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
+    expect(migrated.query<{
+      runtime_invocation_id: string;
+      dispatch_fence_id: string;
+      settlement_json: string;
+      diagnostic_uris: string;
+      lifecycle_state: string;
+      released_at: string | null;
+    }, [string]>(
+      "SELECT runtime_invocation_id,dispatch_fence_id,settlement_json,diagnostic_uris,lifecycle_state,released_at FROM account_leases WHERE lease_id=?",
+    ).get(lease.lease_id)).toEqual({
+      ...before,
+      lifecycle_state: "settlement-pending",
+      released_at: new Date(2_000).toISOString(),
+    });
+    migrated.close();
+    expect(reopened.acquireAccountCapacity(capacityInput("after-migration"))).toMatchObject({ status: "acquired" });
   });
 
   it("atomically migrates exact legacy agent-task capacity identity without losing retained recovery evidence", () => {
@@ -268,9 +498,9 @@ describe("shared account capacity in managed authority", () => {
       path, ownerId: "new-owner", now: () => 1_000, ownerStaleMs: 10, configurationRevision: "rev-1",
     });
     authorities.push(reopened);
-    expect(reopened.recoverAccountCapacity()).toMatchObject([{ runtimeInvocationId: "legacy-capacity", state: "held" }]);
-    expect(readAccountCapacityIncidents({ path, participantKind: "agent-task-runtime", recoveryDomain: "agent-tasks" }))
-      .toMatchObject([{ runtimeInvocationId: "legacy-capacity", state: "held" }]);
+    expect(reopened.recoverAccountCapacity()).toMatchObject([{ runtimeInvocationId: "legacy-capacity", state: "released" }]);
+    expect(readAccountOutcomeIncidents({ path, participantKind: "agent-task-runtime", recoveryDomain: "agent-tasks" }))
+      .toEqual([]);
 
     const after = new Database(path, { readonly: true, strict: true });
     expect(after.query<{ count: number }, []>("SELECT COUNT(*) count FROM participants WHERE participant_kind='managed-job-runtime' AND recovery_domain='managed-jobs'").get()?.count).toBe(0);

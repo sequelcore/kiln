@@ -11,6 +11,7 @@ import {
   ProviderAdapterOneRoundDispatcher,
   ProviderAdapterOneRoundError,
 } from "../../src/execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
+import { ProviderDispatchTerminalError } from "../../src/execution-kernel/provider-dispatch-terminal-error.js";
 
 const account = createExecutionAccountRef("configured:account-a:revision-a");
 
@@ -100,6 +101,59 @@ describe("ProviderAdapterOneRoundDispatcher", () => {
         { role: "user", parts: [{ type: "tool_result", toolUseId: "call-1", content: "found", contentParts: [{ type: "text", text: "found" }] }] },
       ],
     } satisfies Partial<CreateMessageOptions>));
+  });
+
+  it("correlates the durable dispatch fence and classifies a rejected provider response as terminal", async () => {
+    const provider = adapter();
+    provider.createMessage.mockImplementationOnce(async (options: CreateMessageOptions) => {
+      options.transportObserver?.onEvent({
+        type: "response_headers",
+        identity: options.requestIdentity,
+        status: 503,
+      });
+      const error = new Error("provider response must not cross the execution boundary") as Error & { status: number };
+      error.status = 503;
+      throw error;
+    });
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({
+      account,
+      providerId: "anthropic",
+      adapter: provider,
+      requestIdentity: { requestId: "attempt-1:dispatch" },
+      now: () => new Date("2026-08-13T20:00:00.000Z"),
+    });
+
+    const failure = await dispatcher.dispatchOneRound(input()).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ProviderDispatchTerminalError);
+    expect(failure).toMatchObject({
+      evidence: {
+        outcome: "provider-error",
+        requestId: "attempt-1:dispatch",
+        status: 503,
+        observedAt: "2026-08-13T20:00:00.000Z",
+      },
+    });
+    expect(provider.createMessage).toHaveBeenCalledWith(expect.objectContaining({
+      requestIdentity: { requestId: "attempt-1:dispatch" },
+      transportObserver: { onEvent: expect.any(Function) },
+    }));
+    expect(String((failure as Error).message)).not.toContain("provider response must not cross");
+    expect((failure as Error & { cause?: unknown }).cause).toBeUndefined();
+  });
+
+  it("keeps a transport failure without provider headers outcome-unknown", async () => {
+    const transportFailure = new TypeError("connection failed");
+    const provider = adapter();
+    provider.createMessage.mockRejectedValueOnce(transportFailure);
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({
+      account,
+      providerId: "anthropic",
+      adapter: provider,
+      requestIdentity: { requestId: "attempt-2:dispatch" },
+    });
+
+    await expect(dispatcher.dispatchOneRound(input())).rejects.toBe(transportFailure);
   });
 
   it("treats explicit parallelToolCalls false as the portable sequential default", async () => {

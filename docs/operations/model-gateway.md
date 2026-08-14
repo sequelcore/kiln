@@ -230,28 +230,35 @@ bun packages/cli/src/index.ts model-gateway status
 Use the [install native projections](#install-native-projections) procedure to
 restore harness routing through Kiln after the development work is complete.
 
-### Retained capacity incidents
+### Retained outcome incidents
 
-With the listener stopped, inspect post-fence work whose provider outcome is
-still unknown:
+Inspect post-fence work whose provider outcome is still unknown, including
+while the listener is running:
 
 ```bash
-bun packages/cli/src/index.ts model-gateway capacity-incidents --json
+bun packages/cli/src/index.ts model-gateway outcome-incidents --json
 ```
 
-The command opens the ledger read-only and returns every capacity-consuming
-account-only record in the `model-gateway-ingress/model-gateway` recovery
-domain, including `release-failed` and `leaked`. The projection contains only
-invocation, state, route, optional dispatch fence, and any existing
-unknown-settlement reason. Inspection does not claim a participant generation,
-advance a heartbeat, run recovery, expose account identities, or release
-capacity.
+The command opens the ledger read-only and returns account-only records with a
+durable `unknown` settlement in the `model-gateway-ingress/model-gateway`
+recovery domain. The projection contains only invocation, lifecycle state,
+derived local capacity state, route, dispatch fence, and the sanitized unknown
+settlement. Inspection does not claim a participant generation, advance a
+heartbeat, run recovery, expose account identities, or change capacity.
+
+An authoritative terminal HTTP response is recorded as a terminal provider
+outcome instead of an incident. OpenCode dispatch also projects the durable
+dispatch fence as `x-opencode-request`, giving provider-side evidence a stable
+correlation identity when it is available.
 
 There is intentionally no manual outcome flag or generic reconciliation
 command. A user-supplied status, timestamp, or `kiln://` string is not provider
-terminal evidence. If no authoritative terminal result exists, the incident
-remains `settlement-pending` and capacity-consuming. Do not edit the SQLite
-ledger or replace `unknown` with a guessed terminal outcome.
+terminal evidence. Local concurrency can be released while the provider
+outcome remains unknown: the remote request may still have been accepted,
+billed, or completed. Kiln preserves that uncertainty and fences redispatch of
+the exact invocation; it does not turn local capacity release into a guessed
+provider result. Do not edit the SQLite ledger or replace `unknown` with a
+guessed terminal outcome.
 
 ## Windows autostart and recovery
 

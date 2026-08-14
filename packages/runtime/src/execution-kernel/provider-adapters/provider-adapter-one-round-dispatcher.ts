@@ -16,9 +16,12 @@ import {
   type ModelTurnMessage,
   type ModelTurnResult,
   type ProviderAdapter,
+  type ProviderRequestIdentity,
+  type ProviderTransportEvent,
   type ToolChoiceOption,
   type ToolDefinition,
 } from "@kilnai/core";
+import { ProviderDispatchTerminalError } from "../provider-dispatch-terminal-error.js";
 
 export type ProviderAdapterOneRoundErrorCode =
   | "account-mismatch"
@@ -38,6 +41,8 @@ export interface ProviderAdapterOneRoundDispatcherOptions {
   readonly account: ExecutionAccountRef;
   readonly providerId: Exclude<DirectProviderId, "codex-oauth">;
   readonly adapter: ProviderAdapter;
+  readonly requestIdentity?: ProviderRequestIdentity;
+  readonly now?: () => Date;
 }
 
 /**
@@ -49,11 +54,15 @@ export class ProviderAdapterOneRoundDispatcher implements OneRoundModelDispatche
   readonly #account: ExecutionAccountRef;
   readonly #providerId: Exclude<DirectProviderId, "codex-oauth">;
   readonly #adapter: ProviderAdapter;
+  readonly #requestIdentity: ProviderRequestIdentity | undefined;
+  readonly #now: () => Date;
 
   constructor(options: ProviderAdapterOneRoundDispatcherOptions) {
     this.#account = options.account;
     this.#providerId = options.providerId;
     this.#adapter = options.adapter;
+    this.#requestIdentity = options.requestIdentity;
+    this.#now = options.now ?? (() => new Date());
   }
 
   async dispatchOneRound(input: OneRoundModelDispatchInput): Promise<ModelTurnResult> {
@@ -73,7 +82,27 @@ export class ProviderAdapterOneRoundDispatcher implements OneRoundModelDispatche
     }
 
     const projection = buildFunctionToolProjection(input.turn.tools ?? []);
-    const response = await this.#adapter.createMessage(toCreateMessageOptions(input, projection));
+    let rejectedResponse: Extract<ProviderTransportEvent, { readonly type: "response_headers" }> | undefined;
+    const response = await this.#adapter.createMessage({
+      ...toCreateMessageOptions(input, projection),
+      ...(this.#requestIdentity === undefined ? {} : { requestIdentity: this.#requestIdentity }),
+      transportObserver: {
+        onEvent: (event) => {
+          if (event.type === "response_headers" && event.status >= 400) rejectedResponse = event;
+        },
+      },
+    }).catch((error: unknown) => {
+      const requestId = rejectedResponse?.identity?.requestId ?? this.#requestIdentity?.requestId;
+      if (rejectedResponse !== undefined && requestId !== undefined) {
+        throw new ProviderDispatchTerminalError({
+          outcome: "provider-error",
+          requestId,
+          status: rejectedResponse.status,
+          observedAt: this.#now().toISOString(),
+        }, error);
+      }
+      throw error;
+    });
     // ProviderAdapter is an open boundary; this bridge projects adapter-produced tool calls
     // directly into the provider-neutral turn result, so identity must be validated here too
     // rather than trusting the adapter's own convention.

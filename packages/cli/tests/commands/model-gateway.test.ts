@@ -119,7 +119,13 @@ describe("modelGatewayCommand", () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-bundle-"));
     const configPath = join(root, "gateway.yaml");
     await writeFile(configPath, yaml, "utf8");
-    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => ({ close: vi.fn(async () => undefined), shutdownRequested: neverShutdown }));
+    const order: string[] = [];
+    const recover = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "recoverAccountCapacity")
+      .mockImplementation(() => { order.push("recover"); return []; });
+    const start = vi.fn(async (_options: StartModelGatewayListenerOptions) => {
+      order.push("listen");
+      return { close: vi.fn(async () => undefined), shutdownRequested: neverShutdown };
+    });
     const registerShutdown = vi.fn();
 
     await modelGatewayCommand(["serve", "--config", configPath], {
@@ -140,7 +146,30 @@ describe("modelGatewayCommand", () => {
     });
     expect(options.executionCandidates).toBeDefined();
     expect(options.accountCapacityAuthority).toBeDefined();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(order).toEqual(["recover", "listen"]);
     await registerShutdown.mock.calls[0]![0]!();
+  });
+
+  it("closes the capacity authority and never opens the listener when startup recovery fails", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-cli-recovery-failure-"));
+    const configPath = join(root, "gateway.yaml");
+    await writeFile(configPath, yaml, "utf8");
+    const close = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "close");
+    vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "recoverAccountCapacity")
+      .mockImplementation(() => { throw new Error("retained capacity evidence is corrupt"); });
+    const start = vi.fn();
+
+    await expect(modelGatewayCommand(["serve", "--config", configPath], {
+      startModelGatewayListener: start,
+      readGlobalConfig: () => globalConfig,
+      env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
+      registerShutdown: vi.fn(),
+      log: vi.fn(),
+    })).rejects.toThrow("retained capacity evidence is corrupt");
+
+    expect(start).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("closes execution authority only after listener shutdown settles", async () => {
@@ -337,51 +366,40 @@ describe("modelGatewayCommand", () => {
     expect(JSON.parse(String(log.mock.calls[0]![0]))).toMatchObject({ status: { state: "stopped" }, diagnostics: [] });
   });
 
-  it("lists retained gateway capacity incidents only after proving the listener is stopped", async () => {
+  it("lists retained gateway outcome incidents while the listener is running", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-incidents-"));
     const log = vi.fn();
-    const status = vi.fn(async () => ({ state: "stopped" as const }));
-    const readCapacityIncidents = vi.fn(() => [{
+    const status = vi.fn(async () => ({
+      state: "ready" as const,
+      identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "instance", pid: 99, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 },
+    }));
+    const readOutcomeIncidents = vi.fn(() => [{
       runtimeInvocationId: "gateway-attempt-1",
       dispatchFenceId: "gateway-fence-1",
-      state: "settlement-pending" as const,
+      lifecycleState: "settlement-pending" as const,
+      capacityState: "released" as const,
       route: { providerId: "opencode-go", providerModelId: "model", scope: "gateway" },
+      settlement: { kind: "unknown" as const, reason: "terminal evidence unavailable", observedAt: "2026-08-13T08:00:00.000Z" },
     }]);
-    await modelGatewayCommand(["capacity-incidents", "--json"], {
+    await modelGatewayCommand(["outcome-incidents", "--json"], {
       readGlobalConfig: () => globalConfig,
       resolveGlobalConfigPath: () => join(root!, "config.yaml"),
       createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), status, doctor: vi.fn() }),
-      readCapacityIncidents,
+      readOutcomeIncidents,
       env: {},
       log,
     });
 
-    expect(status).toHaveBeenCalledOnce();
-    expect(readCapacityIncidents).toHaveBeenCalledOnce();
+    expect(status).not.toHaveBeenCalled();
+    expect(readOutcomeIncidents).toHaveBeenCalledOnce();
     expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual({ incidents: [{
       runtimeInvocationId: "gateway-attempt-1",
       dispatchFenceId: "gateway-fence-1",
-      state: "settlement-pending",
+      lifecycleState: "settlement-pending",
+      capacityState: "released",
       route: { providerId: "opencode-go", providerModelId: "model", scope: "gateway" },
+      settlement: { kind: "unknown", reason: "terminal evidence unavailable", observedAt: "2026-08-13T08:00:00.000Z" },
     }] });
-  });
-
-  it("does not inspect retained capacity while the gateway listener is ready", async () => {
-    const readCapacityIncidents = vi.fn();
-    await expect(modelGatewayCommand(["capacity-incidents", "--json"], {
-      readGlobalConfig: () => globalConfig,
-      createSupervisor: () => ({
-        start: vi.fn(), ensure: vi.fn(), stop: vi.fn(), restart: vi.fn(), doctor: vi.fn(),
-        status: vi.fn(async () => ({
-          state: "ready" as const,
-          identity: { service: "kiln-model-gateway" as const, status: "ready" as const, protocolVersion: 1 as const, instanceId: "instance", pid: 99, version: "3.0.0-test", configDigest: "a".repeat(64), port: 4819 },
-        })),
-      }),
-      readCapacityIncidents,
-      env: { BEARER_TOKEN: "b".repeat(32) },
-      log: vi.fn(),
-    })).rejects.toThrow("requires a stopped model gateway");
-    expect(readCapacityIncidents).not.toHaveBeenCalled();
   });
 
   it("installs, inspects, and removes user autostart through the injected adapter", async () => {

@@ -135,7 +135,7 @@ describe("startModelGatewayListener", () => {
     expect(response.status).toBe(401);
     await Promise.all([runtime.close(), runtime.close()]);
     expect(stop).toHaveBeenCalledOnce();
-    expect(stop).toHaveBeenCalledWith(true);
+    expect(stop).toHaveBeenCalledWith();
   });
 
   it("keeps the Bun idle timeout through authentication and body receipt, then owns admitted dispatch lifetime", async () => {
@@ -219,6 +219,7 @@ describe("startModelGatewayListener", () => {
     const secondClose = runtime.close();
     expect(firstClose).toBe(secondClose);
     expect(stop).toHaveBeenCalledOnce();
+    expect(stop).toHaveBeenCalledWith();
     expect(closeStore).not.toHaveBeenCalled();
 
     releaseStop();

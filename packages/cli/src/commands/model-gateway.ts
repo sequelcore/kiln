@@ -8,7 +8,7 @@ import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
   ModelGatewaySupervisor,
-  readAccountCapacityIncidents,
+  readAccountOutcomeIncidents,
   SqliteManagedAccountLeaseAuthority,
   WindowsModelGatewayAutostartAdapter,
   createModelGatewayExecutionRoutingPort,
@@ -21,7 +21,7 @@ import {
   type ModelGatewaySupervisorDoctor,
   type ModelGatewaySupervisorStatus,
   type ModelGatewayExecutionBundle,
-  type AccountCapacityIncident,
+  type AccountOutcomeIncident,
   type StartModelGatewayListenerOptions,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
@@ -70,7 +70,7 @@ interface ModelGatewayCommandDependencies {
   readonly readCodexNativeCatalog: () => CodexNativeCatalog;
   readonly hasListenerDependentNativeProjection: (installStateDir: string) => boolean;
   readonly projectPath: string;
-  readonly readCapacityIncidents: (databasePath: string) => readonly AccountCapacityIncident[];
+  readonly readOutcomeIncidents: (databasePath: string) => readonly AccountOutcomeIncident[];
   readonly removeRuntimeDir: (path: string) => Promise<void>;
   readonly log: (message: string) => void;
 }
@@ -98,7 +98,7 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
     || hasGlobalClaudeModelGatewayProjection(installStateDir)
   ),
   projectPath: process.cwd(),
-  readCapacityIncidents: (databasePath) => readAccountCapacityIncidents({
+  readOutcomeIncidents: (databasePath) => readAccountOutcomeIncidents({
       path: databasePath,
       participantKind: "model-gateway-ingress",
       recoveryDomain: "model-gateway",
@@ -111,7 +111,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
   const dependencies = { ...defaultDependencies, ...overrides };
   const subcommand = args[0];
   if (subcommand === "--help" || subcommand === "-h" || subcommand === undefined) { printHelp(dependencies.log); return; }
-  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native", "capacity-incidents"]);
+  const supported = new Set(["serve", "start", "ensure", "stop", "restart", "status", "doctor", "install-autostart", "uninstall", "uninstall-autostart", "autostart-status", "sync-native", "outcome-incidents"]);
   if (!supported.has(subcommand)) throw new Error(`Unknown model-gateway command '${subcommand}'.`);
   const flags = parseFlags(args.slice(1));
   if (flags.help) { printHelp(dependencies.log); return; }
@@ -162,7 +162,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     await serveGlobalRuntime(config, resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()), flags.instanceId, globalConfig, dependencies);
     return;
   }
-  const token = ["doctor", "capacity-incidents", "uninstall"].includes(subcommand) || (subcommand === "sync-native" && flags.uninstall)
+  const token = ["doctor", "outcome-incidents", "uninstall"].includes(subcommand) || (subcommand === "sync-native" && flags.uninstall)
     ? resolveOptionalHealthToken(config, dependencies.env)
     : resolveHealthToken(config, dependencies.env);
   if (["start", "ensure", "restart"].includes(subcommand)) requireRuntimeSecrets(config, dependencies.env);
@@ -176,16 +176,12 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     inspect: (expected) => dependencies.inspectModelGatewayListener({ config, token, ...(expected ? { expected } : {}) }),
     requestShutdown: (identity) => requestModelGatewayShutdown({ config, token, identity }),
   });
-  if (subcommand === "capacity-incidents") {
-    if (globalConfig?.version !== "2") throw new Error("Model gateway capacity inspection requires global V2 execution authority.");
-    const status = await supervisor.status();
-    if (status.state !== "stopped") {
-      throw new Error("Model gateway capacity inspection requires a stopped model gateway.");
-    }
-    const incidents = dependencies.readCapacityIncidents(
+  if (subcommand === "outcome-incidents") {
+    if (globalConfig?.version !== "2") throw new Error("Model gateway outcome inspection requires global V2 execution authority.");
+    const incidents = dependencies.readOutcomeIncidents(
       resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()),
     );
-    dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatCapacityIncidents(incidents));
+    dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatOutcomeIncidents(incidents));
     return;
   }
   if (subcommand === "uninstall") {
@@ -366,6 +362,12 @@ function createModelGatewayExecutionComposition(
     recoveryDomain: "model-gateway",
     configurationRevision: createModelGatewayExecutionConfigurationRevision(globalConfig, config),
   });
+  try {
+    accountCapacityAuthority.recoverAccountCapacity();
+  } catch (error) {
+    accountCapacityAuthority.close();
+    throw error;
+  }
   return {
     bundle: {
       executionCatalog: globalConfig.executionCatalog,
@@ -454,10 +456,10 @@ function printClaudeNativeSyncResult(result: GlobalClaudeModelGatewayProjectionR
   log(`Claude model gateway projection: ${result.operation}${result.changed ? "ed" : " unchanged"} (${result.targetPaths.join(", ") || "no targets"})`);
 }
 
-function formatCapacityIncidents(incidents: readonly AccountCapacityIncident[]): string {
-  if (incidents.length === 0) return "Model gateway capacity incidents: none";
+function formatOutcomeIncidents(incidents: readonly AccountOutcomeIncident[]): string {
+  if (incidents.length === 0) return "Model gateway outcome incidents: none";
   return incidents.map((incident) =>
-    `${incident.runtimeInvocationId}\t${incident.state}\t${incident.dispatchFenceId ?? "-"}\t${incident.route.providerId}/${incident.route.providerModelId}`
+    `${incident.runtimeInvocationId}\t${incident.lifecycleState}\t${incident.capacityState}\t${incident.dispatchFenceId ?? "-"}\t${incident.route.providerId}/${incident.route.providerModelId}`
   ).join("\n");
 }
 
@@ -519,9 +521,9 @@ function registerProcessShutdown(close: () => Promise<void>, shutdownRequested: 
 }
 
 function printHelp(log: (message: string) => void): void {
-  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native|capacity-incidents> [--json]\n");
+  log("\nUsage: kiln model-gateway <start|ensure|stop|restart|status|doctor|install-autostart|uninstall|uninstall-autostart|autostart-status|sync-native|outcome-incidents> [--json]\n");
   log("Native provider: kiln model-gateway sync-native --client <codex|claude|opencode> [--project <path>] [--uninstall|--adopt-existing|--force]");
-  log("Inspection: kiln model-gateway capacity-incidents [--json] (gateway must be stopped)");
+  log("Inspection: kiln model-gateway outcome-incidents [--json]");
   log("The lifecycle commands resolve modelGateway from ~/.kiln/config.yaml.");
   log("Development only: kiln model-gateway serve --config <gateway.yaml>");
 }

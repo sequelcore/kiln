@@ -23,6 +23,7 @@ import type {
   ExecutionAccountCandidateBinding,
   ExecutionAccountCapacityAuthority,
 } from "./execution-account-capacity-authority.js";
+import { ProviderDispatchTerminalError } from "./provider-dispatch-terminal-error.js";
 
 export type GovernedOneRoundToolExecutionMode = "caller-owned" | "kiln-owned";
 export interface GovernedOneRoundIdentity {
@@ -336,14 +337,20 @@ export async function invokeGovernedOneRound(
   try {
     settlement =
       result === undefined
-        ? // A provider exception after the durable fence is not evidence that no effect escaped.
-          {
-            kind: "unknown",
-            reason: input.signal?.aborted
-              ? "gateway-cancelled-after-dispatch-fence"
-              : "gateway-provider-failure-after-dispatch-fence",
-            observedAt: new Date().toISOString(),
-          }
+        ? failure instanceof ProviderDispatchTerminalError
+          ? {
+              kind: "completed",
+              outcome: "provider-error",
+              observedAt: failure.evidence.observedAt,
+            }
+          : // A transport exception after the durable fence is not evidence that no effect escaped.
+            {
+              kind: "unknown",
+              reason: input.signal?.aborted
+                ? "gateway-cancelled-after-dispatch-fence"
+                : "gateway-provider-failure-after-dispatch-fence",
+              observedAt: new Date().toISOString(),
+            }
         : {
             kind: "completed",
             outcome: "success",

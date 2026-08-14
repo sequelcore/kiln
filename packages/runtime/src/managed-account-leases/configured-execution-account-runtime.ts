@@ -345,6 +345,9 @@ export class ConfiguredExecutionAccountRuntime {
     route: { readonly providerId: string; readonly providerModelId: string },
     lease: AccountCapacityRecord,
   ): Promise<OneRoundModelDispatcher> {
+    if (!lease.dispatchFenceId) {
+      throw new Error("Configured model gateway dispatch requires a durable dispatch fence identity.");
+    }
     const account = this.#requireAccount(accountId);
     if (account.providerId !== route.providerId) {
       throw new Error("Configured execution account does not match the dispatched provider route.");
@@ -375,14 +378,24 @@ export class ConfiguredExecutionAccountRuntime {
         credential: credential as OpenCodeExecutionCredential,
         defaultModel: route.providerModelId,
       });
-      return new ProviderAdapterOneRoundDispatcher({ account: lease.accountRef, providerId: route.providerId, adapter });
+      return new ProviderAdapterOneRoundDispatcher({
+        account: lease.accountRef,
+        providerId: route.providerId,
+        adapter,
+        requestIdentity: { requestId: lease.dispatchFenceId },
+      });
     }
     if (isPooledDirectProviderId(route.providerId)) {
       const adapter = await this.#directPool.createAdapterFromCredential({
         credential: credential as DirectProviderExecutionCredential,
         defaultModel: route.providerModelId,
       });
-      return new ProviderAdapterOneRoundDispatcher({ account: lease.accountRef, providerId: route.providerId, adapter });
+      return new ProviderAdapterOneRoundDispatcher({
+        account: lease.accountRef,
+        providerId: route.providerId,
+        adapter,
+        requestIdentity: { requestId: lease.dispatchFenceId },
+      });
     }
     throw new Error(`Configured provider '${route.providerId}' has no model gateway dispatcher.`);
   }

@@ -101,9 +101,10 @@ type LeaseRow = {
   configuration_revision: string | null;
 };
 
-type AccountCapacityIncidentRow = Pick<LeaseRow,
+type AccountOutcomeIncidentRow = Pick<LeaseRow,
   | "runtime_invocation_id"
   | "lifecycle_state"
+  | "released_at"
   | "provider_id"
   | "model_id"
   | "route_scope"
@@ -148,20 +149,21 @@ const CAPACITY_CONSUMING_STATES = [
   "release-failed",
   "leaked",
 ] as const;
+const ACCOUNT_ONLY_CAPACITY_CONSUMING_STATES = ["held", "dispatch-fenced"] as const;
 
-export interface AccountCapacityIncidentInspectionOptions {
+export interface AccountOutcomeIncidentInspectionOptions {
   readonly path: string;
   readonly participantKind: SharedAccountCapacityParticipantKind;
   readonly recoveryDomain: string;
 }
 
 /**
- * Reads retained account-only capacity without claiming participant ownership,
+ * Reads retained unknown account-only outcomes without claiming participant ownership,
  * advancing a heartbeat, running recovery, or changing a lease generation.
  */
-export function readAccountCapacityIncidents(
-  options: AccountCapacityIncidentInspectionOptions,
-): readonly AccountCapacityIncident[] {
+export function readAccountOutcomeIncidents(
+  options: AccountOutcomeIncidentInspectionOptions,
+): readonly AccountOutcomeIncident[] {
   if (!options.path.trim()) throw new TypeError("Managed account lease database path is required.");
   if (!existsSync(options.path)) return [];
   const participantKind = requireCanonicalText(
@@ -189,16 +191,17 @@ export function readAccountCapacityIncidents(
       .get();
     if (!hasLeaseTable) return [];
     return db
-      .query<AccountCapacityIncidentRow, [string, string, ...string[]]>(
-        `SELECT runtime_invocation_id, lifecycle_state, provider_id, model_id,
+      .query<AccountOutcomeIncidentRow, [string, string]>(
+        `SELECT runtime_invocation_id, lifecycle_state, released_at, provider_id, model_id,
                 route_scope, dispatch_fence_id, settlement_json
          FROM account_leases
          WHERE economic_attempt_id IS NULL AND participant_kind=? AND recovery_domain=?
-           AND lifecycle_state IN (${CAPACITY_CONSUMING_STATES.map(() => "?").join(",")})
+           AND settlement_json IS NOT NULL
          ORDER BY acquired_at, lease_id`,
       )
-      .all(participantKind, recoveryDomain, ...CAPACITY_CONSUMING_STATES)
-      .map(accountCapacityIncident);
+      .all(participantKind, recoveryDomain)
+      .map(accountOutcomeIncident)
+      .filter((incident): incident is AccountOutcomeIncident => incident !== undefined);
   } finally {
     db.close();
   }
@@ -351,16 +354,25 @@ export class SqliteManagedAccountLeaseAuthority {
     work: "new" | "existing",
   ): ExecutionAccountCapacityCandidate {
     validateCandidateBinding(binding);
-    const placeholders = CAPACITY_CONSUMING_STATES.map(() => "?").join(",");
+    const accountOnlyPlaceholders = ACCOUNT_ONLY_CAPACITY_CONSUMING_STATES.map(() => "?").join(",");
+    const economicPlaceholders = ECONOMIC_CAPACITY_CONSUMING_STATES.map(() => "?").join(",");
     const counts = this.#db
       .query<{ total: number; new_work: number | null }, [string, ...string[]]>(
         `
       SELECT COUNT(*) total, SUM(CASE WHEN purpose='new' THEN 1 ELSE 0 END) new_work
       FROM account_leases
-      WHERE capacity_identity=? AND lifecycle_state IN (${placeholders})
+      WHERE capacity_identity=? AND (
+        (economic_attempt_id IS NULL AND lifecycle_state IN (${accountOnlyPlaceholders}))
+        OR
+        (economic_attempt_id IS NOT NULL AND lifecycle_state IN (${economicPlaceholders}))
+      )
     `,
       )
-      .get(binding.capacityIdentity, ...CAPACITY_CONSUMING_STATES);
+      .get(
+        binding.capacityIdentity,
+        ...ACCOUNT_ONLY_CAPACITY_CONSUMING_STATES,
+        ...ECONOMIC_CAPACITY_CONSUMING_STATES,
+      );
     const total = counts?.total ?? 0;
     const newWork = counts?.new_work ?? 0;
     const newWorkLimit = binding.capacity.maxConcurrency - binding.capacity.reservedAffinitySlots;
@@ -818,6 +830,7 @@ export class SqliteManagedAccountLeaseAuthority {
         ON economic_commitments(selected_route_id, state);
       `);
           this.#migrateLegacyAgentTaskCapacityIdentity(version);
+          this.#migrateLegacyAccountCapacityOutcome(version);
           this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
         })
         .immediate();
@@ -827,7 +840,7 @@ export class SqliteManagedAccountLeaseAuthority {
   }
 
   #migrateLegacyAgentTaskCapacityIdentity(openedVersion: number): void {
-    if (openedVersion >= SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION) return;
+    if (openedVersion >= LEGACY_AGENT_TASK_CAPACITY_IDENTITY_SCHEMA_VERSION) return;
     const legacyParticipant = this.#db
       .query<{ heartbeat: number }, [string, string]>(
         "SELECT heartbeat FROM participants WHERE participant_kind=? AND recovery_domain=?",
@@ -889,6 +902,37 @@ export class SqliteManagedAccountLeaseAuthority {
         LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
       )?.count ?? 0;
     if (remaining !== 0) throw new Error("Legacy agent-task capacity identity migration did not converge.");
+  }
+
+  #migrateLegacyAccountCapacityOutcome(openedVersion: number): void {
+    if (openedVersion >= LEGACY_ACCOUNT_CAPACITY_OUTCOME_SCHEMA_VERSION) return;
+    const rows = this.#db
+      .query<LeaseRow, []>(
+        `SELECT * FROM account_leases
+         WHERE economic_attempt_id IS NULL
+           AND runtime_invocation_id IS NOT NULL
+           AND dispatch_fence_id IS NOT NULL
+           AND lifecycle_state='leaked'
+           AND released_at IS NULL
+           AND settlement_json IS NOT NULL`,
+      )
+      .all();
+    const releasedAt = new Date(this.#now()).toISOString();
+    for (const row of rows) {
+      const legacyEvidenceUri =
+        `kiln://managed-accounts/leases/${encodeURIComponent(row.lease_id)}/legacy-recovery`;
+      if (!parseStringArray(row.diagnostic_uris).includes(legacyEvidenceUri)) continue;
+      parseUnknownAccountCapacitySettlement(row.settlement_json!);
+      const changed = this.#db
+        .query(
+          `UPDATE account_leases SET lifecycle_state='settlement-pending',released_at=?
+           WHERE lease_id=? AND lifecycle_state='leaked' AND released_at IS NULL`,
+        )
+        .run(releasedAt, row.lease_id);
+      if (changed.changes !== 1) {
+        throw new Error("Legacy account capacity outcome migration was lost.");
+      }
+    }
   }
 
   acquireCommitment(input: ManagedEconomicCommitmentAcquireInput): ManagedEconomicCommitmentAcquireResult {
@@ -1381,6 +1425,11 @@ export class SqliteManagedAccountLeaseAuthority {
           `
         SELECT leases.* FROM account_leases leases
         WHERE lifecycle_state IN (${CAPACITY_CONSUMING_STATES.map(() => "?").join(",")})
+          AND (
+            (participant_kind=? AND recovery_domain=?)
+            OR
+            (?=? AND ?=? AND participant_kind IS NULL AND recovery_domain IS NULL)
+          )
           AND NOT EXISTS (
             SELECT 1 FROM economic_commitments commitments
             WHERE commitments.lease_id=leases.lease_id
@@ -1388,7 +1437,15 @@ export class SqliteManagedAccountLeaseAuthority {
         ORDER BY leases.rowid
       `,
         )
-        .all(...CAPACITY_CONSUMING_STATES);
+        .all(
+          ...CAPACITY_CONSUMING_STATES,
+          this.#participantKind,
+          this.#recoveryDomain,
+          this.#participantKind,
+          AGENT_TASK_PARTICIPANT_KIND,
+          this.#recoveryDomain,
+          AGENT_TASK_RECOVERY_DOMAIN,
+        );
       for (const row of legacyRows) {
         const historicalIdentity =
           row.runtime_invocation_id !== null && row.economic_attempt_id === null && row.commitment_id === null;
@@ -1635,15 +1692,23 @@ export class SqliteManagedAccountLeaseAuthority {
       if (row.dispatch_fence_id !== dispatchFenceId)
         throw new Error("Gateway capacity settlement does not own the dispatch fence.");
       const serialized = JSON.stringify(settlement);
-      if (row.settlement_json === serialized) return row;
+      if (row.settlement_json === serialized) {
+        if (settlement.kind === "unknown" && row.released_at === null) {
+          this.#db
+            .query("UPDATE account_leases SET released_at=? WHERE lease_id=? AND owner_generation=?")
+            .run(new Date(this.#now()).toISOString(), row.lease_id, this.#ownerGeneration);
+          return this.#requiredRow(row.lease_id);
+        }
+        return row;
+      }
       if (row.settlement_json !== null || !["dispatch-fenced", "settlement-pending"].includes(row.lifecycle_state))
         throw new Error("Gateway capacity settlement conflicts with durable state.");
       const state = settlement.kind === "unknown" ? "settlement-pending" : "released";
       this.#db
         .query(
-          "UPDATE account_leases SET lifecycle_state=?,settlement_json=?,released_at=CASE WHEN ?='released' THEN ? ELSE released_at END WHERE lease_id=? AND owner_generation=?",
+          "UPDATE account_leases SET lifecycle_state=?,settlement_json=?,released_at=COALESCE(released_at,?) WHERE lease_id=? AND owner_generation=?",
         )
-        .run(state, serialized, state, new Date(this.#now()).toISOString(), row.lease_id, this.#ownerGeneration);
+        .run(state, serialized, new Date(this.#now()).toISOString(), row.lease_id, this.#ownerGeneration);
       return this.#requiredRow(row.lease_id);
     });
   }
@@ -1651,32 +1716,54 @@ export class SqliteManagedAccountLeaseAuthority {
   recoverAccountCapacity(): readonly AccountCapacityRecord[] {
     return this.#transaction(() => {
       this.#heartbeat();
-      const anomalous = this.#db
-        .query<{ lifecycle_state: string }, [string, string]>(
-          `SELECT lifecycle_state FROM account_leases
-        WHERE economic_attempt_id IS NULL AND participant_kind=? AND recovery_domain=?
-          AND lifecycle_state IN ('release-failed','leaked') LIMIT 1`,
-        )
-        .get(this.#participantKind, this.#recoveryDomain);
-      if (anomalous) {
-        throw new Error(
-          `Gateway account capacity recovery encountered unsupported consuming state ${anomalous.lifecycle_state}.`,
-        );
-      }
       const rows = this.#db
         .query<LeaseRow, [string, string]>(
           `SELECT * FROM account_leases
         WHERE economic_attempt_id IS NULL AND participant_kind=? AND recovery_domain=?
-          AND lifecycle_state IN ('held','dispatch-fenced','settlement-pending')`,
+          AND lifecycle_state IN ('held','dispatch-fenced','settlement-pending','release-failed','leaked')
+        ORDER BY rowid`,
         )
         .all(this.#participantKind, this.#recoveryDomain);
       for (const row of rows) {
-        if (row.configuration_revision !== this.#configurationRevision) {
-          throw new Error("Gateway capacity recovery configuration revision conflicts with retained lease.");
+        if (row.owner_generation === this.#ownerGeneration) continue;
+        const releasedAt = new Date(this.#now()).toISOString();
+        if (row.lifecycle_state === "held") {
+          if (row.dispatch_fence_id !== null || row.settlement_json !== null) {
+            throw new Error("Retained pre-dispatch account capacity evidence is corrupt.");
+          }
+          this.#rollbackWinningAffinity(row);
+          const changed = this.#db
+            .query(
+              "UPDATE account_leases SET lifecycle_state='released',released_at=COALESCE(released_at,?) WHERE lease_id=? AND owner_generation IS ?",
+            )
+            .run(releasedAt, row.lease_id, row.owner_generation);
+          if (changed.changes !== 1) throw new Error("Stale pre-dispatch account capacity recovery was lost.");
+          continue;
         }
-        this.#db
-          .query("UPDATE account_leases SET owner_id=?,owner_generation=? WHERE lease_id=?")
-          .run(this.#ownerId, this.#ownerGeneration, row.lease_id);
+        let settlement = row.settlement_json;
+        if (settlement === null) {
+          if ((row.lifecycle_state as string) !== "dispatch-fenced") {
+            throw new Error("Retained account capacity outcome is missing unknown settlement evidence.");
+          }
+          if (row.dispatch_fence_id === null) {
+            throw new Error("Retained account capacity dispatch fence evidence is missing.");
+          }
+          settlement = JSON.stringify({
+            kind: "unknown",
+            reason: "gateway owner generation became stale after dispatch fencing",
+            observedAt: releasedAt,
+          } satisfies Extract<AccountCapacitySettlement, { readonly kind: "unknown" }>);
+        } else {
+          parseUnknownAccountCapacitySettlement(settlement);
+        }
+        const changed = this.#db
+          .query(
+            `UPDATE account_leases
+             SET lifecycle_state='settlement-pending',settlement_json=?,released_at=COALESCE(released_at,?)
+             WHERE lease_id=? AND owner_generation IS ?`,
+          )
+          .run(settlement, releasedAt, row.lease_id, row.owner_generation);
+        if (changed.changes !== 1) throw new Error("Stale post-dispatch account capacity recovery was lost.");
       }
       return rows.map((row) => accountCapacityRecord(this.#requiredRow(row.lease_id)));
     });
@@ -1788,6 +1875,7 @@ export class SqliteManagedAccountLeaseAuthority {
           .query<{ count: number }, [string, string, ...string[]]>(
             `SELECT COUNT(*) AS count FROM account_leases
              WHERE participant_kind=? AND recovery_domain=?
+               AND economic_attempt_id IS NOT NULL
                AND lifecycle_state IN (${placeholders})`,
           )
           .get(this.#participantKind, this.#recoveryDomain, ...CAPACITY_CONSUMING_STATES);
@@ -1932,12 +2020,13 @@ export type SharedAccountCapacityParticipantKind =
   | "model-gateway-ingress"
   | "operator-session";
 
-export interface AccountCapacityIncident {
+export interface AccountOutcomeIncident {
   readonly runtimeInvocationId: string;
-  readonly state: (typeof CAPACITY_CONSUMING_STATES)[number];
+  readonly lifecycleState: ManagedAccountLeaseEvidence["lifecycleState"];
+  readonly capacityState: "active" | "released";
   readonly route: AccountCapacityRecord["route"];
   readonly dispatchFenceId?: string;
-  readonly settlement?: Extract<AccountCapacitySettlement, { readonly kind: "unknown" }>;
+  readonly settlement: Extract<AccountCapacitySettlement, { readonly kind: "unknown" }>;
 }
 
 /** Read-only authority evidence safe to expose through agent-task replay. */
@@ -2028,7 +2117,9 @@ const AGENT_TASK_PARTICIPANT_KIND = "agent-task-runtime";
 const AGENT_TASK_RECOVERY_DOMAIN = "agent-tasks";
 const LEGACY_AGENT_TASK_PARTICIPANT_KIND = "managed-job-runtime";
 const LEGACY_AGENT_TASK_RECOVERY_DOMAIN = "managed-jobs";
-const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 4;
+const LEGACY_AGENT_TASK_CAPACITY_IDENTITY_SCHEMA_VERSION = 4;
+const LEGACY_ACCOUNT_CAPACITY_OUTCOME_SCHEMA_VERSION = 5;
+const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 5;
 const ECONOMIC_CAPACITY_CONSUMING_STATES = [
   "held",
   "dispatch-fenced",
@@ -2515,31 +2606,34 @@ function accountCapacityRecord(row: LeaseRow): AccountCapacityRecord {
   };
 }
 
-function accountCapacityIncident(row: AccountCapacityIncidentRow): AccountCapacityIncident {
-  if (!(CAPACITY_CONSUMING_STATES as readonly string[]).includes(row.lifecycle_state)) {
-    throw new Error("Account capacity incident state is corrupt.");
-  }
+function accountOutcomeIncident(row: AccountOutcomeIncidentRow): AccountOutcomeIncident | undefined {
   if (row.runtime_invocation_id === null) {
-    throw new Error("Account capacity incident identity is corrupt.");
+    throw new Error("Account outcome incident identity is corrupt.");
   }
-  const settlement = row.settlement_json === null
-    ? undefined
-    : parseUnknownAccountCapacitySettlement(row.settlement_json);
+  if (row.settlement_json === null) throw new Error("Account outcome incident settlement is corrupt.");
+  let parsed: unknown;
+  try { parsed = JSON.parse(row.settlement_json); }
+  catch { throw new Error("Account outcome incident settlement is corrupt."); }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && (parsed as { kind?: unknown }).kind === "completed") {
+    return undefined;
+  }
+  const settlement = parseUnknownAccountCapacitySettlement(row.settlement_json);
   return {
     runtimeInvocationId: row.runtime_invocation_id,
-    state: row.lifecycle_state as AccountCapacityIncident["state"],
+    lifecycleState: row.lifecycle_state,
+    capacityState: row.released_at === null ? "active" : "released",
     route: { providerId: row.provider_id, providerModelId: row.model_id, scope: row.route_scope },
     ...(row.dispatch_fence_id ? { dispatchFenceId: row.dispatch_fence_id } : {}),
-    ...(settlement ? { settlement } : {}),
+    settlement,
   };
 }
 
 function parseUnknownAccountCapacitySettlement(value: string): Extract<AccountCapacitySettlement, { readonly kind: "unknown" }> {
   let parsed: unknown;
   try { parsed = JSON.parse(value); }
-  catch { throw new Error("Account capacity incident settlement is corrupt."); }
+  catch { throw new Error("Account outcome incident settlement is corrupt."); }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Account capacity incident settlement is corrupt.");
+    throw new Error("Account outcome incident settlement is corrupt.");
   }
   const record = parsed as Record<string, unknown>;
   if (
@@ -2548,7 +2642,7 @@ function parseUnknownAccountCapacitySettlement(value: string): Extract<AccountCa
     || typeof record.reason !== "string"
     || typeof record.observedAt !== "string"
   ) {
-    throw new Error("Account capacity incident settlement is corrupt.");
+    throw new Error("Account outcome incident settlement is corrupt.");
   }
   const settlement = { kind: "unknown" as const, reason: record.reason, observedAt: record.observedAt };
   validateAccountCapacitySettlement(settlement);

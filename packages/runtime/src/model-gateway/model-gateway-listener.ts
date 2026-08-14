@@ -94,7 +94,7 @@ export async function startModelGatewayListener(options: StartModelGatewayListen
   const shutdownRequested = new Promise<void>((resolve) => { resolveShutdownRequested = resolve; });
   const close = () => closePromise ??= (async () => {
     try {
-      await listener?.stop(true);
+      await listener?.stop();
     } finally {
       handle.close();
     }

@@ -84,7 +84,7 @@ describe("managed authority lease history migration", () => {
       lifecycle_state: "released",
       usage_evidence: '{"health":"healthy","freshness":"missing"}',
     });
-    expect(migrated.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(4);
+    expect(migrated.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(5);
     expect(migrated.query<{ lifecycle_state: string; diagnostic_uris: string }, []>(
       "SELECT lifecycle_state,diagnostic_uris FROM account_leases WHERE lease_id='legacy-active'",
     ).get()).toEqual({

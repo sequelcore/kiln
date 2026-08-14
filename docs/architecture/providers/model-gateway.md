@@ -233,7 +233,10 @@ timeout, and downstream cancellation reaching both composite routing branches.
 Lifecycle commands preserve the native projection/listener invariant: installed
 Codex composite and globally registered Claude projections may be restarted or
 uninstalled, but not left pointing at an intentionally stopped listener.
-Retained post-fence capacity is
-observable only through a secret-free incident projection; absent authoritative
-terminal evidence remains capacity-consuming rather than becoming an
-operator-asserted settlement.
+Retained post-fence outcome uncertainty is observable through a secret-free,
+read-only incident projection even while the listener is running. Local
+concurrency occupancy and remote provider outcome are separate facts: a stale
+owner's local capacity can be released without fabricating a terminal provider
+result. The exact invocation remains replay-fenced, and the projection preserves
+the residual risk that the remote request may have been accepted, billed, or
+completed.

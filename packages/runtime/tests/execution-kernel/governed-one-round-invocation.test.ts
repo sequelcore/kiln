@@ -9,6 +9,7 @@ import {
   invokeGovernedOneRound,
   type GovernedOneRoundInvocationPorts,
 } from "../../src/execution-kernel/governed-one-round-invocation.js";
+import { ProviderDispatchTerminalError } from "../../src/execution-kernel/provider-dispatch-terminal-error.js";
 
 const route = {
   providerId: "fixture",
@@ -132,6 +133,29 @@ function input(id = "attempt") {
   };
 }
 
+function capacityInputFor(runtimeInvocationId: string) {
+  return {
+    runtimeInvocationId,
+    intentFingerprint: `sha256:${"b".repeat(64)}`,
+    accountPolicyId: "policy" as never,
+    route,
+    candidates: [{
+      candidate: {
+        account: createExecutionAccountRef("account"),
+        route,
+        health: "healthy" as const,
+        leaseCapacity: "available" as const,
+        pressure: 0,
+        reservedForNewWork: false,
+      },
+      capacityIdentity: "configured:fixture:account",
+      credentialRevisionId: "a".repeat(64),
+      usageEvidence: { health: "healthy" as const, freshness: "missing" as const },
+      capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
+    }],
+  } as const;
+}
+
 describe("governed one-round capacity", () => {
   it("runs the lifecycle hook before fencing and resolves credentials only after the dispatch fence", async () => {
     const value = fixture();
@@ -163,7 +187,7 @@ describe("governed one-round capacity", () => {
     value.authority.close();
   });
 
-  it("retains conservative capacity when post-fence dispatcher resolution fails", async () => {
+  it("retains an unknown outcome while freeing local capacity when dispatcher resolution fails", async () => {
     const value = fixture();
     await expect(
       invokeGovernedOneRound(input(), {
@@ -178,6 +202,8 @@ describe("governed one-round capacity", () => {
     expect(value.authority.recoverAccountCapacity()).toMatchObject([
       { state: "settlement-pending" },
     ]);
+    expect(value.authority.acquireAccountCapacity(capacityInputFor("next-attempt")))
+      .toMatchObject({ status: "acquired", replay: false });
     value.authority.close();
   });
 
@@ -249,7 +275,7 @@ describe("governed one-round capacity", () => {
     value.authority.close();
   });
 
-  it("marks post-fence provider failure pending instead of fabricating capacity", async () => {
+  it("preserves a post-fence provider failure as unknown while releasing the local slot", async () => {
     const value = fixture();
     const failure = await invokeGovernedOneRound(input(), {
       ...value.ports,
@@ -265,6 +291,31 @@ describe("governed one-round capacity", () => {
     expect(value.authority.recoverAccountCapacity()[0]).toMatchObject({
       state: "settlement-pending",
     });
+    expect(value.authority.acquireAccountCapacity(capacityInputFor("next-attempt")))
+      .toMatchObject({ status: "acquired", replay: false });
+    value.authority.close();
+  });
+
+  it("settles an exact rejected provider response as terminal provider-error", async () => {
+    const value = fixture();
+    const failure = await invokeGovernedOneRound(input(), {
+      ...value.ports,
+      dispatcherResolver: {
+        resolve: async () => ({
+          dispatchOneRound: async () => {
+            throw new ProviderDispatchTerminalError({
+              outcome: "provider-error",
+              requestId: "attempt:dispatch",
+              status: 503,
+              observedAt: "2026-08-13T20:00:00.000Z",
+            }, new Error("provider payload is not durable evidence"));
+          },
+        }),
+      },
+    }).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(GovernedOneRoundCommittedError);
+    expect(value.authority.recoverAccountCapacity()).toEqual([]);
     value.authority.close();
   });
 

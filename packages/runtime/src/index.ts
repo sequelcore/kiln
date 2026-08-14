@@ -82,7 +82,7 @@ export type {
   ConfiguredExecutionAccountRuntimeOptions,
 } from "./managed-account-leases/configured-execution-account-runtime.js";
 export {
-  readAccountCapacityIncidents,
+  readAccountOutcomeIncidents,
   SqliteManagedAccountLeaseAuthority,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 export {
@@ -153,8 +153,8 @@ export type {
   ManagedEconomicRouteCapacity,
   SqliteManagedAccountLeaseAuthorityOptions,
   SharedAccountCapacityParticipantKind,
-  AccountCapacityIncident,
-  AccountCapacityIncidentInspectionOptions,
+  AccountOutcomeIncident,
+  AccountOutcomeIncidentInspectionOptions,
 } from "./managed-account-leases/managed-account-lease-authority.js";
 
 export {
@@ -205,6 +205,8 @@ export type {
 } from "./model-gateway/model-gateway-listener.js";
 export { ProviderAdapterOneRoundDispatcher, ProviderAdapterOneRoundError } from "./execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
 export type { ProviderAdapterOneRoundDispatcherOptions, ProviderAdapterOneRoundErrorCode } from "./execution-kernel/provider-adapters/provider-adapter-one-round-dispatcher.js";
+export { ProviderDispatchTerminalError } from "./execution-kernel/provider-dispatch-terminal-error.js";
+export type { ProviderDispatchTerminalEvidence } from "./execution-kernel/provider-dispatch-terminal-error.js";
 export { createAnthropicMessagesRoutes } from "./model-gateway/anthropic-messages-routes.js";
 export type { AnthropicMessagesIngressConfig, AnthropicMessagesObservedCorrelation, AnthropicMessagesResolvedVirtualModel, AnthropicMessagesTrustedPrincipal } from "./model-gateway/anthropic-messages-routes.js";
 export { ANTHROPIC_MESSAGES_PROTOCOL_LIMITS, ANTHROPIC_MESSAGES_VERSION, AnthropicMessagesProtocolError, encodeAnthropicMessagesSseEvent, parseAnthropicMessagesRequest } from "./model-gateway/anthropic-messages-protocol.js";
