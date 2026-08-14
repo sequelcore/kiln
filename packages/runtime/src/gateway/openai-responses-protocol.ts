@@ -11,8 +11,8 @@ export const OPENAI_RESPONSES_PROTOCOL_LIMITS = {
   maxPortableDepth: 32,
   maxInputItems: 128,
   maxTopLevelTools: 32,
-  maxNamespaceTools: 32,
-  maxExpandedTools: 128,
+  maxNamespaceTools: 128,
+  maxExpandedTools: 256,
   maxMetadataEntries: 16,
   maxMetadataKeyLength: 64,
   maxMetadataValueLength: 4_096,
@@ -284,7 +284,7 @@ export function parseOpenAIResponsesRequest(value: unknown): OpenAIResponsesRequ
   if (request.tools !== undefined) validateTools(request.tools);
   if (request.parallel_tool_calls !== undefined && typeof request.parallel_tool_calls !== "boolean") fail("parallel_tool_calls must be boolean");
   if (request.tool_choice !== undefined && !["auto", "none", "required"].includes(request.tool_choice as string)) { const choice = dataObject(request.tool_choice, "tool_choice"); noUnknown(choice, ["type", "namespace", "name"], "tool_choice"); const type = oneOf(choice.type, ["function", "custom"], "tool_choice.type"); if (type === "custom" && choice.namespace !== undefined) fail("custom tool_choice does not support namespace"); optionalString(choice.namespace, "tool_choice.namespace"); boundedString(choice.name, "tool_choice.name"); }
-  if (request.reasoning !== undefined) { const reasoning = dataObject(request.reasoning, "reasoning"); noUnknown(reasoning, ["effort", "summary", "context"], "reasoning"); if (reasoning.effort !== undefined) oneOf(reasoning.effort, ["low", "medium", "high", "xhigh"], "reasoning.effort"); if (reasoning.summary !== undefined) oneOf(reasoning.summary, ["auto", "concise", "detailed"], "reasoning.summary"); if (reasoning.context !== undefined) oneOf(reasoning.context, ["auto", "current_turn", "all_turns"], "reasoning.context"); }
+  if (request.reasoning !== undefined) { const reasoning = dataObject(request.reasoning, "reasoning"); noUnknown(reasoning, ["effort", "summary", "context"], "reasoning"); if (reasoning.effort !== undefined) oneOf(reasoning.effort, ["none", "low", "medium", "high", "xhigh"], "reasoning.effort"); if (reasoning.summary !== undefined) oneOf(reasoning.summary, ["auto", "concise", "detailed"], "reasoning.summary"); if (reasoning.context !== undefined) oneOf(reasoning.context, ["auto", "current_turn", "all_turns"], "reasoning.context"); }
   if (request.stream_options !== undefined) { const options = dataObject(request.stream_options, "stream_options"); noUnknown(options, ["reasoning_summary_delivery"], "stream_options"); oneOf(options.reasoning_summary_delivery, ["sequential_cutoff"], "stream_options.reasoning_summary_delivery"); }
   if (request.include !== undefined) for (const entry of array(request.include, "include")) oneOf(entry, ["reasoning.encrypted_content"], "include entry");
   if (request.text !== undefined) { const text = dataObject(request.text, "text"); noUnknown(text, ["verbosity", "format"], "text"); if (text.verbosity !== undefined) oneOf(text.verbosity, ["low", "medium", "high"], "text.verbosity"); if (text.format !== undefined) { const format = dataObject(text.format, "text.format"); noUnknown(format, ["type", "name", "schema", "strict"], "text.format"); if (format.type !== "json_schema") fail("unsupported text format"); boundedString(format.name, "text.format.name"); portable(dataObject(format.schema, "text.format.schema"), "text.format.schema"); if (format.strict !== undefined && typeof format.strict !== "boolean") fail("text.format.strict must be boolean"); } }

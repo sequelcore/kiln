@@ -120,6 +120,30 @@ describe("OpenAI Responses authenticated loopback ingress", () => {
     expect(JSON.stringify(fixture.execute.mock.calls[0]?.[0].turn)).not.toContain("internal_chat_message_metadata_passthrough");
   });
 
+  it("preserves a native custom-tool call and result for harness-owned execution", async () => {
+    const fixture = config();
+    const response = await createOpenAIResponsesRoutes(fixture.value).request(request(body({
+      input: [
+        { type: "custom_tool_call", id: "ctc_exec", call_id: "call_exec", name: "exec", input: "Get-Location", status: "completed" },
+        { type: "custom_tool_call_output", call_id: "call_exec", output: "C:\\workspace", status: "completed" },
+        { type: "message", role: "user", content: "Continue." },
+      ],
+      tools: [{ type: "custom", name: "exec", description: "Run through the native harness.", format: { type: "grammar", syntax: "lark", definition: "start: /.+/" } }],
+    })));
+
+    expect(response.status).toBe(200);
+    expect(fixture.execute).toHaveBeenCalledWith(expect.objectContaining({
+      turn: expect.objectContaining({
+        history: [
+          { role: "assistant", parts: [{ type: "tool-call", call: { kind: "custom", id: "call_exec", name: "exec", input: { kind: "raw-text", value: "Get-Location" } } }] },
+          { role: "user", parts: [{ type: "tool-result", callId: "call_exec", content: [{ type: "text", text: "C:\\workspace" }] }] },
+          { role: "user", parts: [{ type: "text", text: "Continue." }] },
+        ],
+        tools: [{ kind: "custom", name: "exec", description: "Run through the native harness.", grammar: { syntax: "lark", source: "start: /.+/" } }],
+      }),
+    }));
+  });
+
   it("rejects an identical in-flight replay, then replays the completed SSE with the same response id", async () => {
     const replayGuard = new InMemoryModelGatewayReplayGuard({ hmacKey: "synthetic-route-test-key-with-32-bytes" });
     let finish!: () => void;

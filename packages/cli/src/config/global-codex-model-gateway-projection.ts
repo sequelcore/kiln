@@ -164,13 +164,15 @@ function compositeModel(template: Record<string, unknown>, model: ModelGatewayVi
   const modelMessages = isRecord(template.model_messages)
     ? { ...structuredClone(template.model_messages), instructions_template: instructions }
     : { instructions_template: instructions };
+  const shellType = directShellType(template, model);
   return {
     ...structuredClone(template),
     slug: model.id,
     display_name: model.displayName,
     description: `Governed by Kiln through ${model.displayName}.`,
     priority,
-    shell_type: "disabled",
+    shell_type: shellType,
+    tool_mode: "direct",
     visibility: "list",
     supported_in_api: true,
     default_reasoning_level: model.deliberation?.defaultLevel ?? levels[0],
@@ -198,6 +200,14 @@ function compositeModel(template: Record<string, unknown>, model: ModelGatewayVi
     base_instructions: instructions,
     model_messages: modelMessages,
   };
+}
+
+function directShellType(template: Record<string, unknown>, model: ModelGatewayVirtualModelConfig): "disabled" | "shell_command" {
+  if (!model.capabilities.includes("function-tools")) return "disabled";
+  if (template.shell_type !== "shell_command") {
+    throw new Error(`Codex virtual model '${model.id}' cannot project an unverified native shell transport.`);
+  }
+  return "shell_command";
 }
 
 function resolveCodexPrincipal(config: ModelGatewayConfig): ModelGatewayConfig["principals"][number] {

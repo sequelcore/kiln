@@ -82,6 +82,21 @@ describe("OpenAI Responses to ModelTurn anti-corruption mapping", () => {
     expect(mapOpenAIResponsesRequestToModelTurn(request).maxOutputTokens).toBe(4096);
   });
 
+  it("normalizes Codex direct-tool reasoning none without requiring provider reasoning transport", () => {
+    const request = parseOpenAIResponsesRequest({
+      model: "synthetic-model",
+      input: [{ role: "user", content: "hello" }],
+      tools: [{ type: "function", name: "shell_command", parameters: { type: "object" }, strict: true }],
+      reasoning: { effort: "none" },
+      stream: true,
+      store: false,
+    });
+
+    const summary = inspectOpenAIResponsesModelTurnCapabilities(request);
+    expect(summary.required).toEqual(["text", "function-tools"]);
+    expect(mapOpenAIResponsesRequestToModelTurn(request)).not.toHaveProperty("reasoning");
+  });
+
   it("omits Codex-only chat metadata from the protocol-neutral ModelTurn", () => {
     const request = parseOpenAIResponsesRequest({
       model: "synthetic-model",

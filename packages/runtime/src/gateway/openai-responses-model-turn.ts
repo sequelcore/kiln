@@ -100,7 +100,7 @@ export function inspectOpenAIResponsesModelTurnCapabilities(request: OpenAIRespo
   const optionalRequested = new Set<OpenAIResponsesModelTurnCapability>();
   const unsupported: OpenAIResponsesCapabilityIssue[] = [];
   const reasoning = request.reasoning === undefined ? undefined : asRecord(request.reasoning);
-  if (reasoning && (reasoning.effort !== undefined || reasoning.summary !== undefined)) required.add("reasoning-controls");
+  if (reasoning && ((reasoning.effort !== undefined && reasoning.effort !== "none") || reasoning.summary !== undefined)) required.add("reasoning-controls");
   if (reasoning?.context !== undefined) unsupported.push({ code: "unsupported-reasoning-context", path: "reasoning.context" });
   if (request.parallel_tool_calls === true) required.add("parallel-tool-calls");
   const text = request.text === undefined ? undefined : asRecord(request.text);
@@ -251,12 +251,14 @@ export function mapOpenAIResponsesRequestToModelTurn(request: OpenAIResponsesReq
   }
   const text = request.text === undefined ? undefined : asRecord(request.text); const format = text?.format === undefined ? undefined : asRecord(text.format);
   const reasoningWire = request.reasoning === undefined ? undefined : asRecord(request.reasoning);
+  const reasoningRequested = reasoningWire !== undefined
+    && ((reasoningWire.effort !== undefined && reasoningWire.effort !== "none") || reasoningWire.summary !== undefined);
   const turn: ModelTurn = {
     ...(request.instructions === undefined ? {} : { instructions: request.instructions as string }), history,
     ...(tools === undefined ? {} : { tools }), ...(toolChoice === undefined ? {} : { toolChoice }),
     ...(request.parallel_tool_calls === undefined ? {} : { parallelToolCalls: request.parallel_tool_calls as boolean }),
     ...(format === undefined ? {} : { responseFormat: { kind: "json-schema", name: format.name as string, schema: cloneJsonObject(format.schema), ...(format.strict === undefined ? {} : { strict: format.strict as boolean }) } as const }),
-    ...(reasoningWire === undefined ? {} : { reasoning: { ...(reasoningWire.effort === undefined ? {} : { effort: reasoningWire.effort as "low" | "medium" | "high" | "xhigh" }), ...(reasoningWire.summary === undefined ? {} : { summary: reasoningWire.summary as "auto" | "concise" | "detailed" }) } }),
+    ...(!reasoningRequested ? {} : { reasoning: { ...(reasoningWire.effort === undefined || reasoningWire.effort === "none" ? {} : { effort: reasoningWire.effort as "low" | "medium" | "high" | "xhigh" }), ...(reasoningWire.summary === undefined ? {} : { summary: reasoningWire.summary as "auto" | "concise" | "detailed" }) } }),
     ...(text?.verbosity === undefined ? {} : { textVerbosity: text.verbosity as "low" | "medium" | "high" }),
     ...(request.max_output_tokens === undefined ? {} : { maxOutputTokens: request.max_output_tokens }),
   };

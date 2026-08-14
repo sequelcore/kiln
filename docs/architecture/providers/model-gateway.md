@@ -69,8 +69,25 @@ turning caller-hosted features into route requirements. In particular,
 `text` and `image`. Provider-hosted web search is optional at the model-turn
 boundary: when the selected virtual route does not advertise it, Runtime omits
 that hosted tool, records degraded compatibility evidence, and preserves the
-remaining caller-owned tools. Unknown fields, values, and required route
-capabilities still fail closed.
+remaining caller-owned tools. Required caller-owned function and custom tools
+are never removed to make a route appear compatible. Runtime preserves them
+through canonical preflight and rejects the turn when the selected route lacks
+the declared capability.
+
+The native harness remains the tool executor. Virtual Codex catalog entries use
+the portable `direct` tool mode instead of inheriting a backend-specific
+`code_mode_only` value from the native OpenAI template. A route with proven
+`function-tools` support receives the exact verified native `shell_command`
+transport; unverified shell variants fail projection rather than being guessed.
+
+Function and namespaced-function tools follow the Responses calling contract:
+the native harness advertises and executes them, while Kiln preserves their
+declared identity and correlated results. Freeform and Lark custom tools remain
+rejected on provider-adapter routes until a grammar-preserving transport
+has its own admitted route and live proof. Kiln does not relabel an unproven
+custom tool as a function, run it inside the Gateway, or infer tool identity
+from model text. Unknown fields, values, aliases, and required route
+capabilities fail closed.
 
 The admitted Codex wire revision is owned by one Runtime compatibility
 contract. Revision `codex-0.147.0` names the exact verified native client

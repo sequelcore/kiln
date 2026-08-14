@@ -191,6 +191,13 @@ describe("ProviderAdapterOneRoundDispatcher", () => {
     expect(sent.messages[0]).toMatchObject({ parts: [{ type: "tool_use", name: sent.tools![1]!.name }] });
   });
 
+  it("rejects undeclared provider tool names at the adapter boundary", async () => {
+    const provider = adapter({ toolCalls: [{ id: "call-2", name: "invented", input: {} }] });
+    const dispatcher = new ProviderAdapterOneRoundDispatcher({ account, providerId: "anthropic", adapter: provider });
+
+    await expect(dispatcher.dispatchOneRound(input())).rejects.toMatchObject({ code: "unsupported-output" });
+  });
+
   it.each([
     ["custom tools", { tools: [{ kind: "custom", name: "shell", grammar: { syntax: "lark", source: "start: /x/" } }] }],
     ["parallel tool calls", { parallelToolCalls: true }],

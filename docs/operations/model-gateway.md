@@ -340,6 +340,32 @@ Codex SQLite, and reports the limitation as degraded visibility rather than
 data loss. Kiln GUI/TUI history remains provider-neutral and continues to list
 canonical Kiln sessions.
 
+### Native harness tools on virtual models
+
+A virtual model can request the tools that the native harness advertises, but
+the harness remains the executor. The virtual route must declare every required
+tool transport capability. Missing capability evidence rejects the request; it
+does not silently remove the tool.
+
+Kiln projects virtual Codex models with `tool_mode: direct`. It preserves the
+verified `shell_command` transport from the native 0.147 catalog only when the
+route admits `function-tools`; it does not inherit OpenAI-backend-specific code
+mode metadata into a direct-provider route. Codex applies its configured sandbox
+and approval policy, executes the native command, and returns the output. Kiln
+never executes the command itself.
+
+Function and namespaced-function tools use the native harness execution loop.
+Freeform and Lark custom tools remain rejected on provider-adapter routes
+until a grammar-preserving transport is implemented, admitted, and proven live.
+Kiln does not relabel them as functions.
+
+If a virtual route receives only conversational tools such as `wait` and
+`request_user_input`, inspect the route's `modelGateway.virtualModels[].capabilities`.
+Ordinary MCP and harness functions require `function-tools`. Do not add
+`custom-tools-lark` to a provider-adapter route; add capabilities only
+after their selected execution route has passed the corresponding transport
+proof.
+
 ## Exact uninstall
 
 ```bash

@@ -460,9 +460,7 @@ function normalizeVirtualRequest(
     normalized.tools = normalized.tools.filter((raw) => {
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
       const type = (raw as Record<string, unknown>).type;
-      if (type === "function" || type === "namespace") return capabilities.has("function-tools");
-      if (type === "custom") return capabilities.has("custom-tools-lark");
-      return false;
+      return type !== "web_search";
     });
   }
   if (!capabilities.has("parallel-tool-calls")) normalized.parallel_tool_calls = false;

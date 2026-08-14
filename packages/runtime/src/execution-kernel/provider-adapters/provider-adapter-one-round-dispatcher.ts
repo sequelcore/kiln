@@ -218,7 +218,8 @@ function toModelTurnResult(response: AgentResponse, projection: FunctionToolProj
   }
   for (const call of response.toolCalls) {
     const original = projection.fromWire.get(call.name);
-    parts.push({ type: "tool-call", call: { kind: "function", ...(original?.namespace === undefined ? {} : { namespace: original.namespace }), id: call.id, name: original?.name ?? call.name, input: { kind: "json-object", value: call.input as ModelJsonObject } } });
+    if (original === undefined) throw new ProviderAdapterOneRoundError("unsupported-output", "The provider returned an undeclared tool call.");
+    parts.push({ type: "tool-call", call: { kind: "function", ...(original.namespace === undefined ? {} : { namespace: original.namespace }), id: call.id, name: original.name, input: { kind: "json-object", value: call.input as ModelJsonObject } } });
   }
   return {
     parts,

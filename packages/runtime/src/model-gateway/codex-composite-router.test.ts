@@ -62,6 +62,7 @@ describe("Codex composite router", () => {
         tools: [
           { type: "function", name: "read", parameters: {} },
           { type: "custom", name: "exec", format: { type: "grammar", syntax: "lark", definition: "start: /.+/" } },
+          { type: "future_required_tool", opaque: true },
           { type: "web_search", external_web_access: true },
         ],
       }),
@@ -75,7 +76,11 @@ describe("Codex composite router", () => {
     const routedBody = JSON.parse(await response.text());
     expect(routedBody).toMatchObject({
       model: "kiln/model-a",
-      tools: [{ type: "function", name: "read" }],
+      tools: [
+        { type: "function", name: "read" },
+        { type: "custom", name: "exec", format: { type: "grammar", syntax: "lark", definition: "start: /.+/" } },
+        { type: "future_required_tool", opaque: true },
+      ],
       parallel_tool_calls: false,
     });
     expect(routedBody).not.toHaveProperty("reasoning");

@@ -47,6 +47,16 @@ describe("parseOpenAIResponsesRequest", () => {
     expect(parsed).toEqual(request);
   });
 
+  it("accepts the Codex 0.147 direct-tool sentinel for no reasoning", () => {
+    const parsed = parseOpenAIResponsesRequest({
+      ...request,
+      reasoning: { effort: "none" },
+      tools: [{ type: "function", name: "shell_command", parameters: { type: "object" }, strict: true }],
+    });
+
+    expect(parsed.reasoning).toEqual({ effort: "none" });
+  });
+
   it("admits only the Codex 0.147 metadata passthrough items as detached input", () => {
     const metadata = { tool: { status: "failed", exit_code: 1 }, retryable: false };
     const source = {
@@ -150,6 +160,25 @@ describe("parseOpenAIResponsesRequest", () => {
     expect(parsed.reasoning).toBeUndefined();
   });
 
+  it("admits the bounded Codex 0.147 direct-tool namespace inventory", () => {
+    const namespaceSizes = [5, 9, 3, 3, 89, 21, 1, 4, 5, 22];
+    const tools = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        type: "function", name: `direct_${index}`, parameters: { type: "object" }, strict: true,
+      })),
+      ...namespaceSizes.map((size, namespaceIndex) => ({
+        type: "namespace",
+        name: `namespace_${namespaceIndex}`,
+        tools: Array.from({ length: size }, (_, toolIndex) => ({
+          type: "function", name: `tool_${toolIndex}`, parameters: { type: "object" }, strict: true,
+        })),
+      })),
+      { type: "web_search", external_web_access: true, search_content_types: ["text", "image"] },
+    ];
+
+    expect(() => parseOpenAIResponsesRequest({ ...request, reasoning: { effort: "none" }, tools })).not.toThrow();
+  });
+
   it("accepts namespaced function tool choice", () => {
     const parsed = parseOpenAIResponsesRequest({
       ...request,
@@ -184,11 +213,11 @@ describe("parseOpenAIResponsesRequest", () => {
 
     expect(() => parseOpenAIResponsesRequest({
       ...request,
-      tools: Array.from({ length: 4 }, (_, index) => namespace(`group_${index}`, 32)),
+      tools: Array.from({ length: 2 }, (_, index) => namespace(`group_${index}`, 128)),
     })).not.toThrow();
     expect(() => parseOpenAIResponsesRequest({
       ...request,
-      tools: [...Array.from({ length: 4 }, (_, index) => namespace(`group_${index}`, 32)), namespace("overflow", 1)],
+      tools: [...Array.from({ length: 2 }, (_, index) => namespace(`group_${index}`, 128)), namespace("overflow", 1)],
     })).toThrow("expanded tool bound");
   });
 

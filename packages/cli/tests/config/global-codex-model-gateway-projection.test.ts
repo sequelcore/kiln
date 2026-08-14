@@ -29,7 +29,7 @@ function config(): ModelGatewayConfig {
 }
 
 const nativeCatalog = {
-  models: [{ slug: "gpt-native", display_name: "Native", description: "Keep", default_reasoning_level: "medium", supported_reasoning_levels: [{ effort: "medium", description: "Keep" }], visibility: "list", supported_in_api: true, priority: 1, shell_type: "shell_command", model_messages: { instructions_template: "You are Codex, a coding agent based on GPT-5." }, base_instructions: "You are Codex, a coding agent based on GPT-5.", context_window: 272_000, supports_parallel_tool_calls: true, supports_search_tool: true, input_modalities: ["text", "image"] }],
+  models: [{ slug: "gpt-native", display_name: "Native", description: "Keep", default_reasoning_level: "medium", supported_reasoning_levels: [{ effort: "medium", description: "Keep" }], visibility: "list", supported_in_api: true, priority: 1, shell_type: "shell_command", tool_mode: "code_mode_only", model_messages: { instructions_template: "You are Codex, a coding agent based on GPT-5." }, base_instructions: "You are Codex, a coding agent based on GPT-5.", context_window: 272_000, supports_parallel_tool_calls: true, supports_search_tool: true, input_modalities: ["text", "image"] }],
 };
 
 function ready(value: ModelGatewayConfig): ModelGatewayListenerIdentity {
@@ -46,7 +46,8 @@ describe("global Codex composite model gateway projection", () => {
     expect(catalog.models[1]).toMatchObject({
       slug: "kiln/model-a",
       display_name: "Model A via Kiln",
-      shell_type: "disabled",
+      shell_type: "shell_command",
+      tool_mode: "direct",
       context_window: 200_000,
       default_reasoning_level: "low",
       supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
@@ -59,6 +60,14 @@ describe("global Codex composite model gateway projection", () => {
       input_modalities: ["text"],
     });
     expect(JSON.stringify(catalog.models[1])).not.toContain("GPT-5");
+  });
+
+  it("fails closed when a function-capable virtual route has no verified native shell transport", () => {
+    const unsupportedCatalog = structuredClone(nativeCatalog);
+    unsupportedCatalog.models[0]!.shell_type = "unified_exec";
+
+    expect(() => buildCodexCompositeCatalog({ config: config(), nativeCatalog: unsupportedCatalog }))
+      .toThrow("cannot project an unverified native shell transport");
   });
 
   it("installs an OAuth-backed HTTPS-only provider and uninstalls only owned fields", async () => {
