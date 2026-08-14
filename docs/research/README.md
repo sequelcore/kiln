@@ -52,6 +52,7 @@ Durable research lives under [`foundations/`](foundations/README.md):
 
 Open, owner-backed research lives under [`active/`](active/README.md):
 
+- remote operator connection — Roadmaps 08 and 08.5
 - prompt component governance — Roadmap 06
 - visual work abstraction — issue-backed research awaiting an explicit
   documentation promotion target

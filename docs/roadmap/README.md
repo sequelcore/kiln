@@ -6,9 +6,10 @@ evidence belongs in the changelog or a release record.
 
 ## Operating Model
 
-Roadmap numbers define dependency order. Only the first `Ready` item is the
-default next task. Starting another item requires an explicit priority decision
-recorded here.
+Roadmap numbers normally define dependency order. The execution queue and an
+explicit recorded priority decision may supersede numeric order. Only the first
+`Ready` item at the highest priority is the default next task; parallel safety
+work must be named as independently admissible.
 
 States: `Ready`, `Queued`, `Research`, `Blocked`, `Deferred`, and `Guardrail`.
 Every track must name one next admissible action or an exact blocker.
@@ -26,21 +27,29 @@ roadmap reorganization.
 
 ## Execution Queue
 
-| Order | Track | State | Next bounded work |
-| --- | --- | --- | --- |
-| 1 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Persist one content-free effective-prompt observation after higher-priority Ready work. |
-| 2 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Define read-only fixtures and the typed stack-policy contract. |
-| 3 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
-| 4 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 5 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
-| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Implement read-only discovery adapters over the completed canonical catalog. |
-| 7 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
+| Order | Track | State | Priority | Next bounded work |
+| --- | --- | --- | --- | --- |
+| 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
+| 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
+| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Queued | Normal | Persist one content-free effective-prompt observation after higher-priority Ready work. |
+| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
+| 5 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 6 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Normal | Define workload fixture governance after release and control-plane work. |
+| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
+| 8 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Normal | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
 
 ## Dependency Rules
 
 - `06` decides how admitted instructions and skill content enter provider prompts and become replayable evidence.
 - `07` owns desired stack policy and drift evidence; skills may consume its result but never own versions.
-- `08` owns the cross-surface remote/headless pairing flow and its authenticated operator-session contract; deferred behind `07` by explicit decision, not technical dependency.
+- `08` owns `Kiln Connect` pairing, device identity, authenticated operator
+  sessions, scopes, expiry, and revocation.
+- `08.5` owns loopback exposure, operator-owned transport adapters, endpoint
+  evidence, connector lifecycle, and reconnection. Its Slice 0 is independently
+  admissible safety work; later slices consume `08` session identity.
+- The 2026-08-14 urgent operator priority decision supersedes the 2026-07-24
+  sequencing of `08` behind `07`. Neither Connect track admits a Kiln-hosted
+  cloud; a managed relay requires a separate future decision.
 - `09` is a decision boundary, not queued implementation.
 - `10` owns native surface promotion and remains sequenced behind stable release,
   gateway, and benchmark evidence.
@@ -73,11 +82,14 @@ source tests as release evidence.
 
 ## Roadmap File Standard
 
-Every numbered file uses `NN-kebab-case-title.md`, matching H1, `Status`,
-`Execution`, and `Created`/`Started`. Required sections are Objective, Ownership,
-Scope, Non-Goals, ordered slices, promotion gates, verification, and completion
-criteria. Keep one bounded concern per slice. Do not retain completed narrative
-that already belongs in architecture or release history.
+Every numbered file uses `NN-kebab-case-title.md` or
+`NN.N-kebab-case-title.md`, matching H1, `Status`, `Execution`, and
+`Created`/`Started`. A decimal track denotes an intentionally split adjacent
+concern, not an implicit compatibility version. Required sections are
+Objective, Ownership, Scope, Non-Goals, ordered slices, promotion gates,
+verification, and completion criteria. Keep one bounded concern per slice. Do
+not retain completed narrative that already belongs in architecture or release
+history.
 
 ## Admission Rules
 
