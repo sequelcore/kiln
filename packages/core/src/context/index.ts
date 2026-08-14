@@ -1,7 +1,6 @@
 export { estimateTextTokens, renderContextBlocks, partitionProjectedContext, validateAdmittedContextBlocks, validateModelFacingContextBlock, validatePartitionedProjectedContext } from "./projected-context.js";
 export {
   buildEffectivePromptManifest,
-  sha256ContentIdentity,
   toEffectivePromptEvidence,
 } from "./effective-prompt-manifest.js";
 export type {

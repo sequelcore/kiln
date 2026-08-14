@@ -130,6 +130,9 @@ Tool execution policy and the shared builtin-tool surface.
   Canonical shared builtin-tool intelligence contracts: structured outputs,
   catalog discovery, code intelligence, bulk reads, monitors, task state,
   elicitation, and initial resources.
+- [`tooling/capability-catalog.md`](tooling/capability-catalog.md)
+  Canonical provider-neutral capability identity, fail-closed catalog admission,
+  sanitized decisions, and secret-free Runtime projection boundary.
 
 ## Surfaces (`surfaces/`)
 

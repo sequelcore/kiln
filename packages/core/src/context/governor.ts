@@ -22,7 +22,7 @@ import type {
   RequiredContextOverflowPolicy,
 } from "./projected-context.js";
 import { estimateTextTokens } from "./projected-context.js";
-import { sha256ContentIdentity } from "./content-identity.js";
+import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 
 export const DEFAULT_PROJECTED_CONTEXT_TOKEN_BUDGET = 2000;
 export const DEFAULT_SESSION_ARTIFACT_TTL_MS = 1000 * 60 * 60 * 12;

@@ -1,6 +1,6 @@
 import type { CommunicationResolution } from "../agents/communication-policy.js";
 import type { ProviderRequestEvidence } from "../events/execution-session-event.js";
-import { sha256ContentIdentity } from "./content-identity.js";
+import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 import type { EffectivePromptEvidence } from "./effective-prompt-manifest.js";
 import { buildEffectivePromptManifest, toEffectivePromptEvidence } from "./effective-prompt-manifest.js";
 

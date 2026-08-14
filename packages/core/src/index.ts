@@ -6,6 +6,7 @@ export * from "./package/index.js";
 export * from "./skill/index.js";
 export * from "./memory/index.js";
 export * from "./context/index.js";
+export * from "./content-addressing/index.js";
 export * from "./field/index.js";
 export * from "./tree/index.js";
 export * from "./events/index.js";
@@ -25,6 +26,7 @@ export * from "./feedback/index.js";
 export * from "./change-artifacts/index.js";
 export * from "./external-engagement/index.js";
 export * from "./credentials/index.js";
+export * from "./capabilities/index.js";
 export type { FsPolicy, NetPolicy, SandboxConfig } from "./sandbox/index.js";
 export {
   DOCUMENTATION_DOMAINS,

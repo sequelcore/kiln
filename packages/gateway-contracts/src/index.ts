@@ -13,6 +13,20 @@ export {
   AvailableModelCatalogEntrySchema,
   AvailableModelCatalogSchema,
 } from "./available-models.js";
+export type {
+  CapabilityCatalogEntry,
+  CapabilityCatalogProjection,
+  CapabilityCatalogRejection,
+} from "./capability-catalog.js";
+export {
+  CAPABILITY_CATALOG_REASONS,
+  CAPABILITY_CALLER_IDS,
+  CAPABILITY_KINDS,
+  CAPABILITY_PERMISSIONS,
+  CapabilityCatalogEntrySchema,
+  CapabilityCatalogProjectionSchema,
+  CapabilityCatalogRejectionSchema,
+} from "./capability-catalog.js";
 export { ExecutionRouteCreateResultSchema, ExecutionRouteCreationRequestSchema } from "./execution-route-creation.js";
 export type { ExecutionRouteCreateResult, ExecutionRouteCreationRequest } from "./execution-route-creation.js";
 

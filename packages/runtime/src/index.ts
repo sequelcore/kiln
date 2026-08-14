@@ -1024,3 +1024,5 @@ export {
   projectAvailableModelCatalogForExecutionRoutes,
 } from "./gateway/available-model-catalog-projector.js";
 export type { AvailableModelConfiguredRouteIdentity } from "./gateway/available-model-catalog-projector.js";
+
+export { projectCapabilityCatalog } from "./capabilities/capability-catalog-projector.js";

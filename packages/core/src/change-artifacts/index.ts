@@ -1,4 +1,4 @@
-import { sha256ContentIdentity } from "../context/content-identity.js";
+import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 
 export type ChangeVerificationStatus = "passed" | "failed" | "not-run";
 

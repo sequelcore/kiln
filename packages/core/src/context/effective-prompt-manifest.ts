@@ -1,5 +1,5 @@
 import { estimateTextTokens } from "./projected-context.js";
-import { sha256ContentIdentity } from "./content-identity.js";
+import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
 
 export type EffectivePromptComponentScope = "static" | "dynamic" | "deferred";
 
@@ -77,8 +77,6 @@ export interface EffectivePromptEvidence {
   readonly finalPromptHash: string;
   readonly estimatedTokens: number;
 }
-
-export { sha256ContentIdentity } from "./content-identity.js";
 
 function validateComponents(
   components: readonly (

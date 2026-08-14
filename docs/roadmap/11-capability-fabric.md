@@ -1,7 +1,7 @@
 # 11 - Capability Fabric
 
 Status: Research capability-portability track
-Execution: Research - define the cross-harness contract before admitting implementation.
+Execution: Research - Slice 1 is complete; implement read-only discovery adapters next.
 Created: 2026-08-14
 
 ## Objective
@@ -242,7 +242,7 @@ separate repository verification work and must not be reported as green.
 
 ### Slice 1 - Canonical Capability Catalog
 
-Status: Ready.
+Status: Complete.
 
 Define the Core capability identity and decision values plus the public
 secret-free projection contract. A descriptor must bind capability id,
@@ -256,9 +256,23 @@ Acceptance: duplicate identities, revision drift, schema mismatch, unsupported
 effects, stale evidence, and secret-bearing fields are rejected; projection
 contains no credential or dispatch method that bypasses Runtime admission.
 
+Evidence: Core owns deterministic, deeply immutable capability descriptors,
+identity-wide fail-closed decisions, bounded inert candidate inspection, and
+content-addressed snapshots. Gateway Contracts owns the strict
+`kiln.capability-catalog/v1` secret-free wire schema. Runtime projects only
+Core-branded admitted snapshots and omits implementation references. The
+architecture and contract are documented in
+[`capability-catalog.md`](../architecture/tooling/capability-catalog.md).
+Focused catalog tests and affected package builds pass; the foundation suites
+pass with 375 Gateway Contract, 11 Tools, and 3,956 Core tests. Workspace
+typecheck and documentation validation pass. The Runtime suite has 3,362
+passing and 5 skipped tests plus the pre-existing configured execution-account
+diagnostic mismatch recorded in the Slice 0 verification boundary; no new
+Runtime failure was introduced.
+
 ### Slice 2 - Read-Only Discovery Adapters
 
-Status: Blocked on Slice 1.
+Status: Ready.
 
 Implement read-only adapters for Codex, Claude, OpenCode V2, MCP, OpenAPI,
 GraphQL, admitted CLIs, and Kiln-owned tools. Normalize their declarations into

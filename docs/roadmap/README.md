@@ -33,7 +33,7 @@ roadmap reorganization.
 | 3 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
 | 4 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
 | 5 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
-| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Define the canonical capability catalog and its fail-closed public projection contract. |
+| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Implement read-only discovery adapters over the completed canonical catalog. |
 | 7 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
 
 ## Dependency Rules

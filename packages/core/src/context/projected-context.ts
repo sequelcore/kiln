@@ -269,4 +269,4 @@ export function partitionProjectedContext(projectedContext: ProjectedContext): P
   validatePartitionedProjectedContext(partition);
   return partition;
 }
-import { sha256ContentIdentity } from "./content-identity.js";
+import { sha256ContentIdentity } from "../content-addressing/content-identity.js";
