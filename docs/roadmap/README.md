@@ -33,6 +33,7 @@ roadmap reorganization.
 | 3 | [08 - Remote Operator Pairing](08-remote-operator-pairing.md) | Deferred | No work admitted until `07` closes (explicit operator sequencing decision, 2026-07-24). |
 | 4 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Admit no implementation without a module-specific ADR and parity benchmark. |
 | 5 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Define workload fixture governance after release and control-plane work. |
+| 6 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Resolve exact Codex, Claude, and OpenCode V2 tool contracts before defining the shared catalog. |
 
 ## Dependency Rules
 
@@ -40,7 +41,11 @@ roadmap reorganization.
 - `07` owns desired stack policy and drift evidence; skills may consume its result but never own versions.
 - `08` owns the cross-surface remote/headless pairing flow and its authenticated operator-session contract; deferred behind `07` by explicit decision, not technical dependency.
 - `09` is a decision boundary, not queued implementation.
-- `10` remains last; native surface promotion depends on stable release, gateway, and benchmark evidence.
+- `10` owns native surface promotion and remains sequenced behind stable release,
+  gateway, and benchmark evidence.
+- `11` owns cross-harness capability discovery, deferred tool search, portable
+  execution, and agent-backed capabilities. It reuses `06` progressive
+  disclosure and existing Agent Task/A2A authority instead of duplicating them.
 
 GUI execution presentation is canonical in
 [`docs/architecture/gui-execution-presentation.md`](../architecture/surfaces/gui-execution-presentation.md).
