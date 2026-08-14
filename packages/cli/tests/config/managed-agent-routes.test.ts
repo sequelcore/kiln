@@ -556,6 +556,42 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
+  it.each(["codex", "opencode"] as const)(
+    "fails closed when an explicit %s harness route omits its exact model",
+    async (provider) => {
+      const result = await resolveManagedInvocationToolOptions(baseConfig({
+        routes: [{
+          id: `${provider}-missing-model`,
+          kind: "harness",
+          provider,
+          profiles: ["foundation-readonly-plan"],
+          workingDirectory: "project",
+          tools: {
+            allowed: ["read", "tree", "grep", "glob"],
+            network: false,
+            writes: false,
+          },
+          memory: { access: "read-only" },
+          credentials: { mode: "credentialless" },
+        }],
+      }), {
+        cwd: "C:/repo",
+        registry: createRegistry(provider),
+        surface: "gui",
+        providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      });
+
+      expect(result.managedInvocation?.routes).toBeUndefined();
+      expect(result.routeHealth).toEqual([
+        expect.objectContaining({
+          routeId: `${provider}-missing-model`,
+          available: false,
+          reason: `Managed invocation route '${provider}-missing-model' requires a model.`,
+        }),
+      ]);
+    },
+  );
+
   it("resolves an explicit healthy Codex harness route", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({

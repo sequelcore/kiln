@@ -26,7 +26,7 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
         "proof.txt": "before\n",
       },
     }, async (workspace) => {
-      const model = process.env.KILN_LIVE_CODEX_MODEL ?? "gpt-5.3-codex-spark";
+      const model = requireCodexLiveModel();
       const request = makeManagedAgentLiveHarnessReadOnlyRequest({
         invocationId: "invocation-codex-live-readonly-1",
         workspaceRoot: workspace.workspaceRoot,
@@ -62,6 +62,10 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
       if (result.status !== "completed") {
         throw new Error("Expected completed Codex live read-only proof");
       }
+      expect(
+        result.record.lifecycleState,
+        result.record.resultHandoff?.summary,
+      ).toBe("completed");
       await expect(workspace.readFile("proof.txt")).resolves.toBe("before\n");
       expect(result.record.writeEvidence?.some((evidence) =>
         evidence.kind === "write-proposal-approved" || evidence.kind === "write-attempt-completed",
@@ -77,7 +81,7 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
         "proof.txt": "before\n",
       },
     }, async (workspace) => {
-      const model = process.env.KILN_LIVE_CODEX_MODEL ?? "gpt-5.3-codex-spark";
+      const model = requireCodexLiveModel();
       const request = makeManagedAgentLiveHarnessWriteRequest({
         invocationId: "invocation-codex-live-write-1",
         workspaceRoot: workspace.workspaceRoot,
@@ -121,6 +125,10 @@ describeManagedAgentProviderLive("managed agent Codex live proof", KILN_LIVE_COD
       if (result.status !== "completed") {
         throw new Error("Expected completed Codex live write proof");
       }
+      expect(
+        result.record.lifecycleState,
+        result.record.resultHandoff?.summary,
+      ).toBe("completed");
       await expectManagedAgentLiveFilesystemAndEvidence({
         workspace,
         relativePath: "proof.txt",
@@ -177,7 +185,6 @@ function createCodexLiveSessionFactory(options: {
     approvalMode: options.approvalMode,
     sandboxMode: options.sandboxMode,
     skipGitRepoCheck: true,
-    ephemeral: true,
     sessionLedgerOwner: "host",
     deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
   });
@@ -189,4 +196,10 @@ function createCodexLiveInvocationService(): RuntimeManagedAgentInvocationServic
       allowedRouteIds: ["credential-route:codex"],
     }),
   });
+}
+
+function requireCodexLiveModel(): string {
+  const model = process.env.KILN_LIVE_CODEX_MODEL?.trim();
+  if (!model) throw new Error("KILN_LIVE_CODEX_MODEL must name the exact authorized Codex model.");
+  return model;
 }

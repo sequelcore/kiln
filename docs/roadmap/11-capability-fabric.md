@@ -28,7 +28,7 @@ Kiln already has the foundations this track must reuse:
 - Codex virtual models use the verified direct function-tool path; Codex
   remains the executor of its native shell and namespaced tools.
 - OpenCode native sessions use `@opencode-ai/sdk/v2`; OpenCode V1 is not an
-  admitted target.
+  admitted target. The exact admitted SDK baseline is `1.18.18`.
 - Agent Tasks govern bounded local delegation, and A2A v1 governs admitted
   remote delegation.
 - Available Models separates discovery from execution authority.
@@ -169,9 +169,9 @@ No adapter may become a second capability-selection or policy authority.
   This track decides which capability is eligible and selected; Roadmap 06
   decides when admitted descriptive content enters the prompt.
 - OpenCode integration targets only the official V2 SDK and stable V2 plugin
-  contracts. The repository currently pins `@opencode-ai/sdk` `1.18.16`; the
-  first slice must re-resolve the exact stable version and its source before
-  changing the integration.
+  contracts. The repository pins `@opencode-ai/sdk` `1.18.18`, resolved to
+  official tag `v1.18.18` and its generated V2 client/types; experimental tool
+  discovery remains ineligible.
 - Executor's `search -> describe -> execute` shape and OpenAI deferred tool
   search are research inputs, not adopted authorities.
 - CLI and MCP are implementation transports, not capability identities. A
@@ -199,7 +199,7 @@ No adapter may become a second capability-selection or policy authority.
 
 ### Slice 0 - Exact Harness Contract Baseline
 
-Status: Research; next admissible work.
+Status: Complete.
 
 Resolve and freeze the exact supported Codex, Claude, and OpenCode V2 tool and
 plugin contracts. Inventory which native definitions are portable functions,
@@ -215,9 +215,34 @@ experimental plugin API or private endpoint is treated as stable.
 Recovery: a failed version admission leaves the existing exact pinned adapter
 and projections unchanged.
 
+Evidence: the versioned schema, per-harness records, and synthetic event
+fixtures live under
+`docs/research/fixtures/capability-fabric/v1/`. The executable validator is
+`packages/cli/tests/research/capability-fabric-baseline.test.ts`. Records bind
+SDK and runtime versions separately, exact official source revisions and
+artifact digests, npm integrity, semantic-loss classifications, fixture
+digests, and bounded live-evidence status. Codex `0.147.0`, Claude `0.3.232`,
+and OpenCode V2 `1.18.18` pass focused wrapper compatibility tests. The Codex
+read-only and approved-write proofs both completed through the SDK's exact
+bundled CLI with `gpt-5.6-sol`; the write produced canonical evidence without
+retaining an absolute workspace path. Claude read-only and OpenCode
+cancellation remain bounded observed provider evidence. OpenCode executable
+`1.18.16` is recorded separately from SDK `1.18.18`; runtime parity and stable
+tool-schema discovery are not claimed. Experimental discovery endpoints remain
+ineligible, and no OpenCode V1 production consumer was found or retained.
+
+Verification boundary: workspace typecheck, documentation validation, Slice 0
+compatibility tests, focused wrapper/runtime tests, and both Codex live proofs
+pass. The repository-wide CLI and Runtime suites still expose two failures
+outside this slice: the frontend benchmark verifier source digest is out of
+sync with its locked value, and the configured execution-account test expects
+`dispatch-fenced` while the production diagnostic says `dispatch fence
+identity`. Neither failing subsystem is changed by this slice; they remain
+separate repository verification work and must not be reported as green.
+
 ### Slice 1 - Canonical Capability Catalog
 
-Status: Blocked on Slice 0.
+Status: Ready.
 
 Define the Core capability identity and decision values plus the public
 secret-free projection contract. A descriptor must bind capability id,

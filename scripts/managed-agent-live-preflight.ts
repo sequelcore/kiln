@@ -122,6 +122,20 @@ export function evaluateManagedAgentLivePreflight(
     }
   }
 
+  for (const [providerFlag, modelVariable] of [
+    [KILN_LIVE_CODEX_TESTS_ENV, KILN_LIVE_CODEX_MODEL],
+    [KILN_LIVE_OPENCODE_TESTS_ENV, KILN_LIVE_OPENCODE_MODEL],
+  ] as const) {
+    if (enabledProviders.includes(providerFlag) && !env[modelVariable]?.trim()) {
+      return {
+        ok: false,
+        enabledProviders,
+        environment: {},
+        message: `${modelVariable} must name an explicit exact model for the authorized live proof.`,
+      };
+    }
+  }
+
   return {
     ok: true,
     enabledProviders,

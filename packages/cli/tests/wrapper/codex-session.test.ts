@@ -230,6 +230,23 @@ describe("CodexSession implements IKilnSession", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "cost_update", inputTokens: 7, outputTokens: 3 }));
   });
 
+  it("keeps SDK error items non-fatal when the turn completes", async () => {
+    const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
+    const events = await collectEvents(new CodexSession(baseConfig({
+      ephemeral: false,
+      sdkPort: sdkPort([
+        { type: "thread.started", thread_id: "sdk-thread" },
+        { type: "turn.started" },
+        { type: "item.completed", item: { id: "notice", type: "error", message: "Skills were shortened." } },
+        { type: "item.completed", item: { id: "message", type: "agent_message", text: "Done" } },
+        { type: "turn.completed", usage: { input_tokens: 7, cached_input_tokens: 2, cache_write_input_tokens: 0, output_tokens: 3, reasoning_output_tokens: 0 } },
+      ], calls),
+    })).run({ prompt: "test" }));
+
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "completed" }));
+  });
+
   it("projects per-run communication through the official SDK config, prompt, and router evidence", async () => {
     const calls = { start: vi.fn(), resume: vi.fn(), run: vi.fn() };
     const port = sdkPort([
@@ -251,6 +268,7 @@ describe("CodexSession implements IKilnSession", () => {
     expect(codexOptions).toMatchObject({
       config: { model_verbosity: "high", personality: "pragmatic" },
     });
+    expect(codexOptions).not.toHaveProperty("codexPathOverride");
     expect(calls.run).toHaveBeenCalledWith(
       expect.stringContaining("Respond using locale 'es-MX'"),
       expect.any(Object),
@@ -1116,7 +1134,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     ]);
   });
 
-  it("run() yields error event for item.type error", async () => {
+  it("does not promote a non-fatal Codex error item to a terminal error", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
 
@@ -1130,12 +1148,7 @@ describe("CodexSession.run() JSONL parsing", () => {
     resolveExit(0);
 
     const events = await collectPromise;
-    expect(events).toContainEqual({
-      type: "error",
-      code: "CODEX_ITEM_ERROR",
-      message: "Tool failed",
-      isRetryable: false,
-    });
+    expect(events.some((event) => event.type === "error")).toBe(false);
   });
 
   it("run() yields a model-version error code for Codex model version gates", async () => {
@@ -1276,7 +1289,7 @@ describe("CodexSession.run() completion", () => {
     expect(completed?.outcome).toBe("completed");
   });
 
-  it("emits a failed outcome when an error item is received", async () => {
+  it("keeps a completed outcome when a non-fatal error item is received", async () => {
     const { proc, emitLine, resolveExit } = makeMockProc();
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
 
@@ -1291,7 +1304,7 @@ describe("CodexSession.run() completion", () => {
 
     const events = await collectPromise;
     const completed = events.find((e) => "type" in e && (e as { type: string }).type === "completed") as { outcome: string } | undefined;
-    expect(completed?.outcome).toBe("failed");
+    expect(completed?.outcome).toBe("completed");
   });
 
   it("completed.isPreflightCrash is true when turn.failed before turn.started", async () => {

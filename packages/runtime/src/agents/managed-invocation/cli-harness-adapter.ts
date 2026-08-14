@@ -705,7 +705,13 @@ function collectWriteEvidence(input: {
   const evidence = [
     ...writeDecisionEvidence,
     ...writeEvidence.evidence,
-  ];
+  ].map((item) => ({
+    ...item,
+    summary: redactWorkspaceRoot(
+      item.summary,
+      input.request.authority.workingDirectory.path,
+    ),
+  }));
 
   return {
     evidence,

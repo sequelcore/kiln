@@ -16,7 +16,10 @@ import {
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
 import { defineManagedAgentWriteEvidence } from "@kilnai/core";
-import { evaluateManagedAgentLivePreflight } from "../../../../scripts/managed-agent-live-preflight.js";
+import {
+  evaluateManagedAgentLivePreflight,
+  KILN_LIVE_CODEX_MODEL,
+} from "../../../../scripts/managed-agent-live-preflight.js";
 
 describe("managed agent live test harness", () => {
   it("is disabled unless the explicit live test environment flag is set", () => {
@@ -77,7 +80,9 @@ describe("managed agent live test harness", () => {
   });
 
   it("passes live preflight from auto-detected provider flags", () => {
-    const result = evaluateManagedAgentLivePreflight({}, [
+    const result = evaluateManagedAgentLivePreflight({
+      [KILN_LIVE_CODEX_MODEL]: "gpt-5.6-sol",
+    }, [
       KILN_LIVE_CODEX_TESTS_ENV,
       KILN_LIVE_CODEX_OAUTH_DIRECT_TESTS_ENV,
     ]);

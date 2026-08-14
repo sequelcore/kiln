@@ -195,6 +195,15 @@ Each harness integration declares explicit support for:
 - hooks
 - cross-harness managed invocation adapters
 
+The exact Codex, Claude, and OpenCode V2 tool/plugin compatibility baseline is
+recorded in `docs/research/fixtures/capability-fabric/v1/`. It is research
+evidence for Capability Fabric discovery work, not a second production
+capability table or policy authority. Experimental OpenCode tool-list endpoints
+remain explicitly ineligible there. SDK package identity and native executable
+identity are separate evidence: version equality is never inferred. Every
+enabled live proof requires an explicit catalog model; wrappers do not invent
+provider fallback models.
+
 The CLI source of truth is
 `packages/cli/src/config/harness-integration-capabilities.ts`. Other CLI config
 modules may consume that model, but they must not recreate harness capability
@@ -233,7 +242,8 @@ For Codex, live proof on 2026-05-07 verified that `CODEX_HOME` changes the
 runtime home used by `codex debug prompt-input`, and `CodexSession` already
 passes process-scoped startup overrides for model, approval, sandbox, and
 related execution flags. This is not a claim that standalone Codex reads Kiln
-global config directly.
+global config directly. The SDK-backed session executes the CLI bundled by the
+exact pinned SDK and does not replace it with an operator-local executable.
 
 Claude's admitted read-only plan route has one narrower version-bound
 capability, `claude-code-private-plan-artifacts-v1`, proven for the exact
@@ -258,13 +268,11 @@ replacement or unsafe descendants fail cleanup closed, and restoration uses
 same-directory temporary files plus rename without recursive deletion of an
 unknown root.
 
-Codex runtime output can include non-fatal native diagnostics that are not turn
-failures. The wrapper must classify those diagnostics at the adapter boundary
-and keep the canonical session stream focused on real failures, completed
-work, cost, file changes, and tool evidence. This is a compatibility boundary
-for the Codex CLI stream, not durable product doctrine; if Codex exposes
-structured diagnostic severities, Kiln should consume that structure instead
-of matching message text.
+Codex runtime output can include non-fatal `error` items that are not turn
+failures. The wrapper discards those items from terminal failure mapping and
+uses only top-level `error` and `turn.failed` events as fatal evidence, matching
+the exact SDK contract. The canonical session stream remains focused on real
+failures, completed work, cost, file changes, and tool evidence.
 
 ## Native Projection
 

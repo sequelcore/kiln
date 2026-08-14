@@ -21,7 +21,6 @@ import { NativeToolEventIdentity } from "./session.js";
 import { normalizeMcpSelector } from "./mcp-selector.js";
 import { SessionStore } from "./session-store.js";
 import { deriveSessionMetadata } from "../application/session-metadata.js";
-import { resolveNativeCliExecutable } from "./native-cli-executable.js";
 import { resolveNativeCommunication } from "../config/native-communication-capabilities.js";
 import { deriveCodexRuntimePermissionRequest, type RuntimePermissionObservationWriter } from "./runtime-permission-observation.js";
 
@@ -170,7 +169,6 @@ function officialPort(
   const merged = { ...process.env, ...env };
   delete merged.CODEX_MODEL;
   return new Codex({
-    codexPathOverride: resolveNativeCliExecutable({ command: "codex", fallbackPaths: [`${process.env.HOME ?? process.env.USERPROFILE ?? ""}\\.codex\\.sandbox-bin\\codex.exe`] }),
     env: merged as Record<string, string>,
     ...((communication.responseDetail || communication.interactionProfile)
       ? {
@@ -198,7 +196,9 @@ function mapSdkEvent(event: ThreadEvent, identities: NativeToolEventIdentity, cw
   if (item.type === "reasoning") return event.type === "item.completed" ? [{ type: "text_delta", content: item.text, isThinking: true }] : [];
   if (item.type === "file_change" && event.type === "item.completed") return item.status === "failed" ? [{ type: "write_decision", status: "denied", providerRequestId: item.id, actor: "codex-policy", reason: "Codex file change was not applied" }] : item.changes.map((change) => ({ type: "file_changed" as const, path: isAbsolute(change.path) ? change.path : resolve(cwd, change.path), changeType: change.kind === "add" ? "created" as const : change.kind === "delete" ? "deleted" as const : "modified" as const, diffTruncated: true }));
   const tool = item.type === "command_execution" ? "bash" : item.type === "mcp_tool_call" ? item.tool : item.type === "web_search" ? "web_search" : item.type === "todo_list" ? "todo_list" : undefined;
-  if (!tool) return item.type === "error" ? [{ type: "error", code: "CODEX_ITEM_ERROR", message: boundedError(item.message), isRetryable: false }] : [];
+  // Codex defines error items as non-fatal notices. A failed turn is reported
+  // separately through turn.failed or the top-level error event.
+  if (!tool) return [];
   const input = item.type === "command_execution" ? { command: item.command } : item.type === "mcp_tool_call" ? item.arguments as Record<string, unknown> : item.type === "web_search" ? { query: item.query } : {};
   if (event.type === "item.started") {
     const identity = identities.start(tool, item.id);

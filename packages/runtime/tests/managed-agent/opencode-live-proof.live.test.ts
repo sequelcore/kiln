@@ -29,7 +29,7 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         "proof.txt": "before\n",
       },
     }, async (workspace) => {
-      const model = requireOpenCodeWriteProofModel();
+      const model = requireOpenCodeLiveModel();
       const request = makeManagedAgentLiveHarnessReadOnlyRequest({
         invocationId: "invocation-opencode-live-readonly-1",
         workspaceRoot: workspace.workspaceRoot,
@@ -80,7 +80,7 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         "proof.txt": "before\n",
       },
     }, async (workspace) => {
-      const model = requireOpenCodeWriteProofModel();
+      const model = requireOpenCodeLiveModel();
       const request = makeManagedAgentLiveHarnessWriteRequest({
         invocationId: "invocation-opencode-live-write-1",
         workspaceRoot: workspace.workspaceRoot,
@@ -174,7 +174,7 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
         "proof.txt": "before\n",
       },
     }, async (workspace) => {
-      const model = process.env.KILN_LIVE_OPENCODE_MODEL ?? "opencode/minimax-m2.5-free";
+      const model = requireOpenCodeLiveModel();
       const runStarted = deferred<void>();
       const request = makeManagedAgentLiveHarnessWriteRequest({
         invocationId: "invocation-opencode-live-cancel-1",
@@ -253,11 +253,11 @@ describeManagedAgentProviderLive("managed agent OpenCode live proof", KILN_LIVE_
   }, 180000);
 });
 
-function requireOpenCodeWriteProofModel(): string {
+function requireOpenCodeLiveModel(): string {
   const model = process.env.KILN_LIVE_OPENCODE_MODEL?.trim();
   if (model === undefined || model.length === 0) {
     throw new Error(
-      "KILN_LIVE_OPENCODE_WRITE_PROOF_TESTS requires explicit KILN_LIVE_OPENCODE_MODEL with proven native write behavior.",
+      "OpenCode live proof requires explicit KILN_LIVE_OPENCODE_MODEL with proven native behavior.",
     );
   }
   return model;

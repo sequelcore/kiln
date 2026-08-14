@@ -3,10 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import {
-  KILN_LIVE_CODEX_MODEL,
   KILN_LIVE_CODEX_TESTS_ENV,
   KILN_LIVE_CLAUDE_TESTS_ENV,
-  KILN_LIVE_OPENCODE_MODEL,
   KILN_LIVE_OPENCODE_TESTS_ENV,
   evaluateManagedAgentLivePreflight,
   projectClaudeNativeEntitlementEnvironment,
@@ -27,20 +25,6 @@ const childEnv = {
     : process.env),
   ...preflight.environment,
 };
-
-if (
-  preflight.enabledProviders.includes(KILN_LIVE_CODEX_TESTS_ENV)
-  && childEnv[KILN_LIVE_CODEX_MODEL] === undefined
-) {
-  childEnv[KILN_LIVE_CODEX_MODEL] = "gpt-5.3-codex-spark";
-}
-
-if (
-  preflight.enabledProviders.includes(KILN_LIVE_OPENCODE_TESTS_ENV)
-  && childEnv[KILN_LIVE_OPENCODE_MODEL] === undefined
-) {
-  childEnv[KILN_LIVE_OPENCODE_MODEL] = "opencode/minimax-m2.5-free";
-}
 
 const exitCode = await runLiveTests(childEnv);
 process.exitCode = exitCode;

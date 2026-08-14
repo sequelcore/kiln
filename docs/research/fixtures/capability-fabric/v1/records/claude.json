@@ -1,0 +1,40 @@
+{
+  "schema": "kiln.capability-compatibility/v1",
+  "harness": "claude",
+  "sdk": {
+    "package": "@anthropic-ai/claude-agent-sdk",
+    "version": "0.3.232",
+    "npmIntegrity": "sha512-8od7hJk9fZnF1/oYYiR9PvroGbZRQrpmNgKirjHNGoj5ur5YcAZLohI70XVUAUe3KvjB1msLxtkvmlAT9sqFAg=="
+  },
+  "runtime": {
+    "name": "claude",
+    "observedVersion": "2.1.229",
+    "observedAt": "2026-08-14",
+    "relationshipToSdk": "Claude Code executable versioning is distinct from the SDK package and its bundled executable parity; equality is not inferred."
+  },
+  "source": {
+    "repository": "https://github.com/anthropics/claude-agent-sdk-typescript",
+    "tag": "v0.3.232",
+    "commit": "8716a39f83dd7506e6421199caface603d4941ab"
+  },
+  "sourceArtifacts": [
+    { "id": "repository-readme", "origin": "official-repository", "path": "README.md", "sha256": "d7f8965afea6198e0448bb8a3f3e0806d4dd6cfb3696cab21b1ee36faaef2065", "supports": "Official tagged SDK usage, query, and custom-tool surface documentation." },
+    { "id": "published-sdk-types", "origin": "published-npm-package", "path": "sdk.d.ts", "sha256": "65ec4f17eb95dc6fa85d964249d4d27e31a150e4bfbaf94c531090862b7a1fd7", "supports": "Published 0.3.232 message, MCP/function invocation, deferred loading, elicitation, subagent, and plugin declarations." },
+    { "id": "published-tool-types", "origin": "published-npm-package", "path": "sdk-tools.d.ts", "sha256": "8060faab6c27ba4e08b7057cb46ce13805728fd286d12a249d85e8929dfd9241", "supports": "Published typed inputs and outputs for builtin tools including Agent, WebSearch, WebFetch, and AskUserQuestion." }
+  ],
+  "capabilities": [
+    { "id": "claude.mcp-function-invocation", "classification": "portable-function/mcp", "stability": "stable", "eligible": true, "representation": "lossy", "semanticLoss": ["SDK 0.3.232 preserves structured tool_use_result content and _meta, but the current Kiln adapter still projects tool-result output as a string."], "sourceArtifacts": ["published-sdk-types"] },
+    { "id": "claude.deferred-tool-loading", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "unrepresentable", "semanticLoss": ["The SDK exposes alwaysLoad and deferred-tool lifecycle fields, but Kiln has not yet admitted native search selection or deterministic replay semantics."], "sourceArtifacts": ["published-sdk-types"] },
+    { "id": "claude.builtin-tools", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "lossy", "semanticLoss": ["Published input and output types describe builtin tools, but execution, permission, and availability remain harness-owned."], "sourceArtifacts": ["published-sdk-types", "published-tool-types"] },
+    { "id": "claude.agent-tool", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "lossy", "semanticLoss": ["The SDK exposes typed agent definitions and results, but this native subagent lifecycle is not Kiln Agent Task or A2A authority."], "sourceArtifacts": ["published-sdk-types", "published-tool-types"] },
+    { "id": "claude.operator-question", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "lossy", "semanticLoss": ["AskUserQuestion has typed input and output but does not supply Kiln's portable pause, expiry, cancellation, and resume contract."], "sourceArtifacts": ["published-tool-types"] },
+    { "id": "claude.mcp-elicitation", "classification": "portable-function/mcp", "stability": "stable", "eligible": false, "representation": "lossy", "semanticLoss": ["The SDK exposes correlated form and URL elicitation callbacks, but Kiln has not admitted them as operator-question or approval authority."], "sourceArtifacts": ["published-sdk-types"] },
+    { "id": "claude.plugins", "classification": "lossy/unrepresentable", "stability": "stable", "eligible": false, "representation": "unrepresentable", "semanticLoss": ["Plugin configuration and initialization identify plugins but do not provide a stable portable capability schema."], "sourceArtifacts": ["published-sdk-types", "repository-readme"] }
+  ],
+  "fixture": { "path": "fixtures/claude-messages.json", "sha256": "0a16b75d025a7a3f6e4a5bf6d1c4904de594514cfd6ed097e2a45f76faa68497", "kind": "synthetic" },
+  "liveEvidence": [
+    { "scope": "executable-version", "command": "claude --version", "bound": "one local read-only invocation", "status": "observed", "result": "2.1.229 (Claude Code)" },
+    { "scope": "provider-read-only-capability", "command": "bun run test:managed-agents:live", "bound": "one governed synthetic read-only fixture run in the serial managed-agent live suite", "status": "observed", "result": "Claude Code 2.1.229 with claude-sonnet-5 passed the read-only boundary proof." },
+    { "scope": "provider-structured-tool-result", "command": "bun run test:managed-agents:live", "bound": "serial managed-agent live suite; no additional provider call beyond admitted cases", "status": "not-run", "result": "The executed Claude case did not prove lossless arbitrary structured tool-result projection." }
+  ]
+}

@@ -558,16 +558,8 @@ export class CodexCliProcessSession implements IKilnSession {
             }
 
             case "error":
-              if (isBenignCodexItemError(item.message)) {
-                break;
-              }
-              lastError = item.message ?? "Unknown item error";
-              yield {
-                type: "error",
-                code: codexErrorCodeForMessage(lastError, "CODEX_ITEM_ERROR"),
-                message: lastError,
-                isRetryable: false,
-              };
+              // Codex defines item errors as non-fatal notices. Fatal stream
+              // failures arrive as top-level error or turn.failed events.
               break;
 
             case "file_change":
@@ -895,10 +887,6 @@ function stringifyCodexToolResult(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined) return "";
   return JSON.stringify(value);
-}
-
-function isBenignCodexItemError(message: string | undefined): boolean {
-  return message?.startsWith("Skill descriptions were shortened to fit the 2% skills context budget.") ?? false;
 }
 
 function codexErrorCodeForMessage(message: string | undefined, fallback: string): string {

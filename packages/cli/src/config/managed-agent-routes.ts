@@ -564,10 +564,6 @@ const DEFAULT_ALLOWED_TOOLS = ["read", "tree", "grep", "glob"] as const;
 const DEFAULT_WRITE_ALLOWED_TOOLS = ["read", "tree", "grep", "glob", "write", "edit", "apply-patch"] as const;
 const DEFAULT_MANAGED_WORKSPACE_DENIED_ENTRIES = [".git", "node_modules", ".kiln"] as const;
 const DEFAULT_TIMEOUT_MS = 300000;
-const HARNESS_TRANSPORT_DEFAULT_MODELS: Record<string, string> = {
-  codex: "gpt-5.3-codex-spark",
-  opencode: "opencode/minimax-m2.5-free",
-};
 const CLAUDE_MOVING_MODEL_ALIASES = new Set<string>(["default", "sonnet", "opus", "haiku"]);
 const LIVE_PROVEN_HARNESS_WRITE_AUTHORITY = {
   proposalSupported: true,
@@ -1339,9 +1335,7 @@ async function resolveRouteConfig(
     );
   }
 
-  const model = routeConfig.provider === "claude"
-    ? routeConfig.model
-    : routeConfig.model ?? HARNESS_TRANSPORT_DEFAULT_MODELS[routeConfig.provider];
+  const model = routeConfig.model;
   if (!model) {
     return unhealthy(baseHealth, `Managed invocation route '${routeConfig.id}' requires a model.`);
   }
