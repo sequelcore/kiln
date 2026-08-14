@@ -208,6 +208,28 @@ stay active, or `uninstall` to restore native routing before stopping the
 service. The additive OpenCode projection has a separate native-provider
 fallback and is not a replacement transport authority.
 
+Choose the lifecycle command by the outcome you need:
+
+| Outcome | Command | Effect |
+| --- | --- | --- |
+| Apply a new build or configuration while preserving native routing | `bun packages/cli/src/index.ts model-gateway restart` | Gracefully replaces the owned listener and keeps installed projections active. |
+| Stop a listener that has no dependent Codex or Claude projection | `bun packages/cli/src/index.ts model-gateway stop` | Stops only the owned listener. |
+| Keep the listener off for gateway development or end-to-end testing | `bun packages/cli/src/index.ts model-gateway uninstall` | Restores native harness routing, removes gateway autostart, and then stops the owned listener. |
+
+Do not use `stop` to prepare for gateway development when a dependent native
+projection is installed. The command will fail with
+`A listener-dependent native projection is installed`. This refusal does not
+change the projection or listener state. Run `uninstall` instead, then confirm
+the result:
+
+```bash
+bun packages/cli/src/index.ts model-gateway uninstall
+bun packages/cli/src/index.ts model-gateway status
+```
+
+Use the [install native projections](#install-native-projections) procedure to
+restore harness routing through Kiln after the development work is complete.
+
 ### Retained capacity incidents
 
 With the listener stopped, inspect post-fence work whose provider outcome is
