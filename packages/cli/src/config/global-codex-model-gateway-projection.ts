@@ -24,7 +24,8 @@ import { runGlobalNativeProjectionTransaction, type GlobalNativeProjectionLockTo
 
 export const GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID = "global-codex-model-gateway";
 export const GLOBAL_CODEX_MODEL_CATALOG_TARGET_ID = "global-codex-model-catalog";
-const MANAGED_CONFIG_FIELDS = ["openai_base_url", "model_catalog_json"] as const;
+const MANAGED_CONFIG_FIELDS = ["model_provider", "model_providers.kiln", "model_catalog_json"] as const;
+const ADOPTABLE_CONFIG_FIELDS = ["openai_base_url", ...MANAGED_CONFIG_FIELDS] as const;
 
 export interface CodexNativeCatalog {
   readonly models: readonly Record<string, unknown>[];
@@ -87,21 +88,37 @@ async function syncGlobalCodexModelGatewayProjectionUnlocked(input: SyncGlobalCo
     return { operation: "uninstall", changed: true, targetPath: input.targetPath, catalogPath: input.catalogPath };
   }
 
-  if (!configState && !input.adoptExisting && MANAGED_CONFIG_FIELDS.some((field) => field in currentDocument)) {
-    throw new Error("Codex native configuration contains an unmanaged composite base URL or catalog pointer; refusing to overwrite it.");
-  }
-  if (currentDocument.model_provider !== undefined && currentDocument.model_provider !== "openai") {
-    throw new Error("Codex composite routing requires the built-in openai model provider.");
+  const unmanagedDocument = configState
+    ? stripManagedFields({ currentDocument, managedFields: configState.managedFields })
+    : input.adoptExisting
+      ? stripManagedFields({ currentDocument, managedFields: ADOPTABLE_CONFIG_FIELDS })
+      : currentDocument;
+  if (!input.adoptExisting && hasCompositeProjectionCollision(unmanagedDocument)) {
+    throw new Error("Codex native configuration contains an unmanaged composite provider, base URL, or catalog pointer; refusing to overwrite it.");
   }
   const principal = resolveCodexPrincipal(input.config);
   const token = (input.env ?? process.env)[principal.tokenEnv];
   if (!token) throw new Error(`Codex principal token '${principal.tokenEnv}' is missing.`);
   const capability = createCodexCompositeCapability(token);
   const patch = {
-    openai_base_url: `http://127.0.0.1:${input.config.port}${CODEX_COMPOSITE_PATH_PREFIX}/${capability}/v1`,
+    model_provider: "kiln",
+    model_providers: {
+      kiln: {
+        // Codex uses this upstream-compatible name as a feature discriminator for
+        // first-party compaction, metadata, and reasoning request behavior.
+        name: "OpenAI",
+        base_url: `http://127.0.0.1:${input.config.port}${CODEX_COMPOSITE_PATH_PREFIX}/${capability}/v1`,
+        requires_openai_auth: true,
+        wire_api: "responses",
+        supports_websockets: false,
+        supports_standalone_web_search: true,
+        request_max_retries: 0,
+        stream_max_retries: 0,
+      },
+    },
     model_catalog_json: input.catalogPath,
   };
-  const document = mergeManagedFields({ currentDocument, managedPatch: patch, managedFields: MANAGED_CONFIG_FIELDS });
+  const document = mergeManagedFields({ currentDocument: unmanagedDocument, managedPatch: patch, managedFields: MANAGED_CONFIG_FIELDS });
   const catalog = buildCodexCompositeCatalog({ config: input.config, nativeCatalog: input.nativeCatalog });
   const catalogContent = `${JSON.stringify(catalog, null, 2)}\n`;
   const configSnapshot = createNativeProjectionSnapshot({ targetId: GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID, filePath: input.targetPath, document, managedFields: MANAGED_CONFIG_FIELDS });
@@ -255,4 +272,13 @@ function rewriteIdentity(text: string, displayName: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasCompositeProjectionCollision(document: Record<string, unknown>): boolean {
+  if (document.openai_base_url !== undefined || document.model_provider !== undefined || document.model_catalog_json !== undefined) {
+    return true;
+  }
+  if (document.model_providers === undefined) return false;
+  if (!isRecord(document.model_providers)) return true;
+  return document.model_providers.kiln !== undefined;
 }

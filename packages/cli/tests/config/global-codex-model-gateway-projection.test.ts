@@ -7,6 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ModelGatewayConfig } from "@kilnai/core";
 import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity } from "@kilnai/runtime";
 import {
+  createNativeProjectionSnapshot,
+  writeNativeProjectionInstallState,
+} from "../../src/config/native-projection-state.js";
+import {
+  GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID,
   buildCodexCompositeCatalog,
   syncGlobalCodexModelGatewayProjection,
 } from "../../src/config/global-codex-model-gateway-projection.js";
@@ -56,7 +61,7 @@ describe("global Codex composite model gateway projection", () => {
     expect(JSON.stringify(catalog.models[1])).not.toContain("GPT-5");
   });
 
-  it("installs and uninstalls only the owned base URL, catalog pointer, and catalog file", async () => {
+  it("installs an OAuth-backed HTTPS-only provider and uninstalls only owned fields", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-global-codex-"));
     const targetPath = join(root, ".codex", "config.toml");
     const catalogPath = join(root, ".kiln", "runtime", "native-projections", "codex-composite-models.json");
@@ -68,14 +73,79 @@ describe("global Codex composite model gateway projection", () => {
     await syncGlobalCodexModelGatewayProjection({ config: gateway, listener: ready(gateway), env: { CODEX_GATEWAY_TOKEN: token }, nativeCatalog, targetPath, catalogPath, installStateDir, operation: "install" });
 
     const installed = parseToml(readFileSync(targetPath, "utf8")) as Record<string, unknown>;
-    expect(installed).toMatchObject({ model: "gpt-native", approval_policy: "on-request", model_catalog_json: catalogPath });
-    expect(installed.model_provider).toBeUndefined();
-    expect(installed.openai_base_url).toMatch(/^http:\/\/127\.0\.0\.1:4910\/\.well-known\/kiln\/codex-composite\/[A-Za-z0-9_-]{43}\/v1$/u);
+    expect(installed).toMatchObject({
+      model: "gpt-native",
+      approval_policy: "on-request",
+      model_provider: "kiln",
+      model_catalog_json: catalogPath,
+      model_providers: {
+        kiln: {
+          name: "OpenAI",
+          requires_openai_auth: true,
+          wire_api: "responses",
+          supports_websockets: false,
+          supports_standalone_web_search: true,
+          request_max_retries: 0,
+          stream_max_retries: 0,
+        },
+      },
+    });
+    const provider = (installed.model_providers as { kiln: { base_url: string } }).kiln;
+    expect(provider.base_url).toMatch(/^http:\/\/127\.0\.0\.1:4910\/\.well-known\/kiln\/codex-composite\/[A-Za-z0-9_-]{43}\/v1$/u);
+    expect(provider).not.toHaveProperty("env_key");
+    expect(installed.openai_base_url).toBeUndefined();
     expect(JSON.parse(readFileSync(catalogPath, "utf8")).models).toHaveLength(2);
 
     await syncGlobalCodexModelGatewayProjection({ config: gateway, env: { CODEX_GATEWAY_TOKEN: token }, nativeCatalog, targetPath, catalogPath, installStateDir, operation: "uninstall" });
     expect(parseToml(readFileSync(targetPath, "utf8"))).toEqual({ model: "gpt-native", approval_policy: "on-request" });
     expect(existsSync(catalogPath)).toBe(false);
+  });
+
+  it("atomically replaces the owned built-in OpenAI base URL projection", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-global-codex-migrate-"));
+    const targetPath = join(root, ".codex", "config.toml");
+    const catalogPath = join(root, ".kiln", "runtime", "native-projections", "codex-composite-models.json");
+    const installStateDir = join(root, ".kiln", "runtime", "native-projections");
+    await mkdir(join(root, ".codex"), { recursive: true });
+    const previous = {
+      model: "gpt-native",
+      openai_base_url: "http://127.0.0.1:4910/owned/v1",
+      model_catalog_json: catalogPath,
+    };
+    writeFileSync(targetPath, [
+      'model = "gpt-native"',
+      'openai_base_url = "http://127.0.0.1:4910/owned/v1"',
+      `model_catalog_json = ${JSON.stringify(catalogPath)}`,
+    ].join("\n"));
+    writeNativeProjectionInstallState(installStateDir, {
+      version: 1,
+      targets: {
+        [GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID]: createNativeProjectionSnapshot({
+          targetId: GLOBAL_CODEX_MODEL_GATEWAY_TARGET_ID,
+          filePath: targetPath,
+          document: previous,
+          managedFields: ["openai_base_url", "model_catalog_json"],
+        }),
+      },
+    });
+    const gateway = config();
+
+    await syncGlobalCodexModelGatewayProjection({
+      config: gateway,
+      listener: ready(gateway),
+      env: { CODEX_GATEWAY_TOKEN: token },
+      nativeCatalog,
+      targetPath,
+      catalogPath,
+      installStateDir,
+      operation: "install",
+    });
+
+    const installed = parseToml(readFileSync(targetPath, "utf8")) as Record<string, unknown>;
+    expect(installed.openai_base_url).toBeUndefined();
+    expect(installed.model_provider).toBe("kiln");
+    expect((installed.model_providers as { kiln: { requires_openai_auth: boolean; supports_websockets: boolean } }).kiln)
+      .toMatchObject({ requires_openai_auth: true, supports_websockets: false });
   });
 
   it("fails closed for unmanaged collisions and managed drift", async () => {
@@ -86,9 +156,40 @@ describe("global Codex composite model gateway projection", () => {
     const gateway = config();
     writeFileSync(targetPath, "openai_base_url = \"https://operator.example\"\n");
     await expect(syncGlobalCodexModelGatewayProjection({ config: gateway, listener: ready(gateway), env: { CODEX_GATEWAY_TOKEN: token }, nativeCatalog, targetPath, catalogPath, installStateDir, operation: "install" })).rejects.toThrow("unmanaged");
+    writeFileSync(targetPath, [
+      'model_provider = "operator"',
+      "",
+      "[model_providers.kiln]",
+      'base_url = "https://operator.example/v1"',
+    ].join("\n"));
+    await expect(syncGlobalCodexModelGatewayProjection({ config: gateway, listener: ready(gateway), env: { CODEX_GATEWAY_TOKEN: token }, nativeCatalog, targetPath, catalogPath, installStateDir, operation: "install" })).rejects.toThrow("unmanaged");
     writeFileSync(targetPath, "model = \"gpt-native\"\n");
     await syncGlobalCodexModelGatewayProjection({ config: gateway, listener: ready(gateway), env: { CODEX_GATEWAY_TOKEN: token }, nativeCatalog, targetPath, catalogPath, installStateDir, operation: "install" });
     writeFileSync(targetPath, readFileSync(targetPath, "utf8").replace("127.0.0.1", "localhost"));
     await expect(syncGlobalCodexModelGatewayProjection({ config: gateway, listener: ready(gateway), env: { CODEX_GATEWAY_TOKEN: token }, nativeCatalog, targetPath, catalogPath, installStateDir, operation: "install" })).rejects.toThrow("drift");
+  });
+
+  it("preserves an unmanaged non-table model_providers value", async () => {
+    root = await mkdtemp(join(tmpdir(), "kiln-global-codex-provider-shape-"));
+    const targetPath = join(root, "config.toml");
+    const catalogPath = join(root, "catalog.json");
+    const installStateDir = join(root, "state");
+    const document = 'model_providers = "operator-owned"\n';
+    writeFileSync(targetPath, document);
+
+    await expect(syncGlobalCodexModelGatewayProjection({
+      config: config(),
+      listener: ready(config()),
+      env: { CODEX_GATEWAY_TOKEN: token },
+      nativeCatalog,
+      targetPath,
+      catalogPath,
+      installStateDir,
+      operation: "install",
+    })).rejects.toThrow("unmanaged");
+
+    expect(readFileSync(targetPath, "utf8")).toBe(document);
+    expect(existsSync(catalogPath)).toBe(false);
+    expect(existsSync(join(installStateDir, "install-state.json"))).toBe(false);
   });
 });

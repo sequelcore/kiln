@@ -130,9 +130,12 @@ causes body decoding or upstream dispatch.
 
 ## Why native Codex requests use the Kiln URL
 
-Kiln projects a composite base URL into Codex so one model selector can expose
-native Codex models and Kiln virtual models. The URL is a dispatch boundary,
-not proof that Kiln selected or executed the model.
+Kiln projects an OAuth-backed custom provider and composite base URL into Codex
+so one model selector can expose native Codex models and Kiln virtual models.
+The provider uses the HTTP Responses wire API with WebSocket support explicitly
+disabled; this avoids reconnect/fallback delays without changing Codex login or
+model behavior. The URL is a dispatch boundary, not proof that Kiln selected or
+executed the model.
 
 | Selected model ID | Listener action | Execution owner |
 | --- | --- | --- |

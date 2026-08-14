@@ -220,10 +220,9 @@ project policy, and pass the same global `modelGateway` value into native
 projection. Projection code does not read `.kiln/gateway.yaml` or another
 project-local gateway authority.
 
-- Codex composite lifecycle owns only `openai_base_url`,
-  `model_catalog_json`, and its generated catalog. It neither sets
-  `model_provider`, `model`, nor `web_search`, and it does not install a
-  `model_providers.kiln` entry.
+- Codex composite lifecycle owns only `model_provider`,
+  `model_providers.kiln`, `model_catalog_json`, and its generated catalog. It
+  does not own `model` or `web_search`.
 - OpenCode receives only `provider.kiln`. Kiln does not create or modify
   `enabled_providers` and does not select a default `model`.
 - Claude Code receives only the admitted project-local Messages settings and
@@ -239,26 +238,34 @@ incomplete picker metadata fail before any generated native file is written.
 Responses and Messages projections share this resolution boundary; harness-
 specific model-id rules are additional validation, not a second resolver.
 
-The Codex composite keeps the built-in `openai` provider and uses Codex's
-documented `openai_base_url` override to place one supervised loopback in front
-of it. The loopback is addressed by an HMAC capability derived from the
-dedicated Codex principal token. Native model ids retain caller OAuth and are
-forwarded to the native Codex backend; admitted virtual ids re-enter canonical
-Model Gateway ingress under the Codex principal. The generated catalog starts
-from `codex debug models --bundled`, preserves native entries structurally,
-rejects id collisions, and appends virtual entries that advertise only
-canonical capabilities. A missing ready listener, missing token, malformed or
-empty native catalog, unmanaged field collision, or managed drift fails closed.
+The Codex composite installs a custom `kiln` provider whose base URL is the
+supervised loopback, whose authentication remains Codex's first-party OpenAI
+login, and whose wire API is HTTP Responses. `supports_websockets=false`
+prevents Codex from attempting a WebSocket transport that the composite does
+not implement; request and stream retries are zero so ambiguous turns are not
+silently duplicated. The provider retains the upstream-compatible name
+`OpenAI` because Codex uses that value as a feature discriminator for native
+compaction, metadata, and reasoning behavior. The loopback is addressed by an
+HMAC capability derived from the dedicated Codex principal token. Native model
+ids retain caller OAuth and are forwarded to the native Codex backend; admitted
+virtual ids re-enter canonical Model Gateway ingress under the Codex principal.
+The generated catalog starts from `codex debug models --bundled`, preserves
+native entries structurally, rejects id collisions, and appends virtual entries
+that advertise only canonical capabilities. A missing ready listener, missing
+token, malformed or empty native catalog, unmanaged field collision, or managed
+drift fails closed. Updating an older owned `openai_base_url` projection strips
+that field before atomically installing the provider contract; it is not kept
+as a compatibility path.
 
 `kiln model-gateway sync-native --client codex` installs or repairs the
 projection only after exact listener inspection. `--uninstall` removes only
 owned fields and the owned catalog; general model-gateway uninstall composes
 that restore before deleting runtime lifecycle state. Permission sync remains
 a separate writer and records evidence in Kiln install state instead of adding
-private tables to Codex's native schema. Its one-time stale-field cleanup may
-remove previously owned `model_providers.kiln`, replacement picker fields, and
-`kiln.permission_sync`; those paths are not retained as runtime compatibility
-variants.
+private tables to Codex's native schema. Historical permission-projection
+ownership is retired through its own install-state evidence; current Model
+Gateway ownership of `model_providers.kiln` remains isolated under the global
+gateway target rather than inferred from field names.
 
 Claude Code receives an explicitly configured Anthropic Messages gateway
 configuration in project-local `.claude/settings.json`:
