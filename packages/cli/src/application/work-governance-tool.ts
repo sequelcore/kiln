@@ -342,8 +342,8 @@ export class WorkProfileListTool implements DevTool {
           description: profile.description,
           triggers: profile.triggers,
           minimumRisk: profile.minimumRisk,
-          recommendedAgentProfiles: profile.recommendedAgentProfiles,
-          defaultAuthorityProfile: profile.defaultAuthorityProfile,
+          recommendedTaskAffinities: profile.recommendedTaskAffinities,
+          defaultAdmissionProfile: profile.defaultAdmissionProfile,
           requiredEvidence: profile.requiredEvidence,
           verificationGates: profile.verificationGates,
           evidenceMatrix: evidenceMatrixForWorkflowProfile(profile),
@@ -594,7 +594,7 @@ export class WorkItemUpdateTool implements DevTool {
       ...readTextArray(input.input.verificationGates),
     ]);
     const routeId = readText(input.input.routeId) ?? existing?.routeId;
-    const authorityProfile = readText(input.input.authorityProfile) ?? existing?.authorityProfile ?? workflowProfile.defaultAuthorityProfile;
+    const authorityProfile = readText(input.input.authorityProfile) ?? existing?.authorityProfile ?? workflowProfile.defaultAdmissionProfile;
     const phaseRoutes = readTextRecord(input.input.phaseRoutes) ?? existing?.phaseRoutes;
     const referenceRootsInput = readTextArray(input.input.referenceRoots);
     const referenceRoots = referenceRootsInput.length > 0 ? referenceRootsInput : existing?.referenceRoots;

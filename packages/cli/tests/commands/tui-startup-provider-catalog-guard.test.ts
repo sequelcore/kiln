@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const tuiMocks = vi.hoisted(() => ({
   startTui: vi.fn().mockResolvedValue(undefined),
@@ -153,7 +153,8 @@ function gatewayProjection(provider: string, model: string, eligible: boolean) {
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
-    workerRouting?: { defaultWorker?: string };
+    targetRouting?: { defaultTargetId?: string };
+    targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
     engines?: Record<string, { enabled?: boolean }>;
     managedAgents?: {
       enabled?: boolean;
@@ -346,13 +347,14 @@ vi.mock("../../src/application/operator-turn-dispatch-composition.js", () => ({
   resolveOperatorContinuationBinding: operatorCompositionMocks.resolveContinuation,
 }));
 
-vi.mock("../../src/config/global-config.js", () => ({
+vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
   readGlobalConfig: configMocks.readGlobalConfig,
   readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
   resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
   resolveGlobalDefaultProvider: (config: typeof configMocks.globalConfig) => {
     if (!config) return undefined;
-    return config.workerRouting?.defaultWorker
+    return config.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerId
       ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
   },
   resolveGlobalDefaultModel: () => undefined,
@@ -492,7 +494,7 @@ describe("tuiCommand startup provider catalog guard", () => {
 
     await expect(
       tuiCommand(APP_CONFIG, { cwd }),
-    ).rejects.toThrow("configured TUI execution route uses unsupported provider 'openai'");
+    ).rejects.toThrow("configured TUI execution target uses unsupported provider 'openai'");
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
     expect(tuiMocks.waitForGateway).not.toHaveBeenCalled();
@@ -584,7 +586,7 @@ describe("tuiCommand startup provider catalog guard", () => {
 
     try {
       await expect(tuiCommand(APP_CONFIG, { cwd })).resolves.toBeUndefined();
-      expect(switchError).toContain("Execution route");
+      expect(switchError).toContain("Execution target");
     } finally {
       runtimeMocks.projectGuiProviderModelDiscovery.mockRestore();
     }
@@ -842,7 +844,7 @@ describe("tuiCommand startup provider catalog guard", () => {
 
     await expect(
       tuiCommand(APP_CONFIG, { cwd }),
-    ).rejects.toThrow("configured TUI execution route uses unsupported provider 'openai'");
+    ).rejects.toThrow("configured TUI execution target uses unsupported provider 'openai'");
 
     expect(runtimeMocks.startTuiGateway).not.toHaveBeenCalled();
     expect(tuiMocks.waitForGateway).not.toHaveBeenCalled();

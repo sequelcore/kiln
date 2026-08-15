@@ -130,7 +130,7 @@ describe("session-store", () => {
     resetSessionStore();
   });
 
-  it("onWelcome seeds execution routes, restores plan mode, and clears stale continuation targets", () => {
+  it("onWelcome seeds execution targets, restores plan mode, and clears stale continuation targets", () => {
     localStorage.setItem("kiln.gui.planMode", "true");
     localStorage.setItem("kiln.gui.continuationTarget", "session-123");
 

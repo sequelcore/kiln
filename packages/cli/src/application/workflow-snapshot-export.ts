@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { KilnInstructionProfileDefinition } from "./instruction-profile-loader.js";
 import type { ProjectContextEvidence } from "./project-context.js";
 import {
@@ -16,7 +16,7 @@ export interface WorkflowSnapshotExportInput {
   readonly generatedFiles: readonly string[];
   readonly projectContext: ProjectContextEvidence;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
-  readonly kilnConfig: KilnYaml | null;
+  readonly kilnConfig: ResolvedKilnConfig | null;
 }
 
 export interface WorkflowSnapshotExport {
@@ -61,8 +61,8 @@ export interface WorkflowSnapshotWorkItemProfile {
   readonly id: string;
   readonly description: string;
   readonly minimumRisk: string;
-  readonly recommendedAgentProfiles: readonly string[];
-  readonly defaultAuthorityProfile: string;
+  readonly recommendedTaskAffinities: readonly string[];
+  readonly defaultAdmissionProfile: string;
   readonly requiredEvidence: readonly string[];
   readonly verificationGates: readonly string[];
   readonly evidenceMatrix: readonly WorkflowSnapshotEvidenceMatrixEntry[];
@@ -138,7 +138,7 @@ function buildSpecification(projectContext: ProjectContextEvidence): WorkflowSna
   };
 }
 
-function buildPlan(kilnConfig: KilnYaml | null): WorkflowSnapshotPlan {
+function buildPlan(kilnConfig: ResolvedKilnConfig | null): WorkflowSnapshotPlan {
   const workGovernance = kilnConfig?.workGovernance;
   return {
     defaultPosture: workGovernance?.defaultPosture ?? null,
@@ -152,8 +152,8 @@ function buildWorkItemProfiles(): readonly WorkflowSnapshotWorkItemProfile[] {
     id: profile.id,
     description: profile.description,
     minimumRisk: profile.minimumRisk,
-    recommendedAgentProfiles: [...profile.recommendedAgentProfiles],
-    defaultAuthorityProfile: profile.defaultAuthorityProfile,
+    recommendedTaskAffinities: [...profile.recommendedTaskAffinities],
+    defaultAdmissionProfile: profile.defaultAdmissionProfile,
     requiredEvidence: [...profile.requiredEvidence],
     verificationGates: [...profile.verificationGates],
     evidenceMatrix: evidenceMatrixForWorkflowProfile(profile).map((entry) => ({
@@ -176,7 +176,7 @@ function buildInstructionProfiles(
     }));
 }
 
-function buildAuthorityPosture(kilnConfig: KilnYaml | null): WorkflowSnapshotAuthorityPosture {
+function buildAuthorityPosture(kilnConfig: ResolvedKilnConfig | null): WorkflowSnapshotAuthorityPosture {
   const workGovernance = kilnConfig?.workGovernance;
   return {
     defaultPosture: workGovernance?.defaultPosture ?? null,
@@ -191,7 +191,7 @@ function buildAuthorityPosture(kilnConfig: KilnYaml | null): WorkflowSnapshotAut
   };
 }
 
-function buildModelPolicyGuidance(kilnConfig: KilnYaml | null): WorkflowSnapshotModelPolicyGuidance {
+function buildModelPolicyGuidance(kilnConfig: ResolvedKilnConfig | null): WorkflowSnapshotModelPolicyGuidance {
   return {
     defaultProvider: kilnConfig?.provider ?? null,
     defaultModel: kilnConfig?.model?.default ?? null,

@@ -1,16 +1,16 @@
-# Sanitized global V2 configuration for an account-backed model team.
-# Route labels carry the work intent. GUI, TUI, and `kiln run` select a route;
+# Sanitized global V3 configuration for an account-backed model team.
+# Target labels carry the work intent. GUI, TUI, and `kiln run` select a target;
 # Kiln selects an eligible account automatically. Credential IDs are opaque
 # references resolved by the credential subsystem, never secret material.
 # The synthetic data-policy source is `synthetic-example-data-policy@2026-08-13`;
 # its digest is the SHA-256 of that exact stable identifier and revision.
-version: "2"
+version: "3"
 
 identity:
   name: Alex
   timezone: America/Tijuana
 
-executionCatalog:
+targetCatalog:
   accounts:
     - id: codex-oauth-primary
       providerId: codex-oauth
@@ -57,8 +57,9 @@ executionCatalog:
         - opencode-go-primary
       strategy: economic-least-pressure
 
-  routes:
+  targets:
     - id: codex-terra
+      kind: direct
       label: Terra — balanced implementation
       providerId: codex-oauth
       providerModelId: gpt-5.6-terra
@@ -107,6 +108,7 @@ executionCatalog:
         executionEnvelope:
           limits: []
     - id: codex-sol
+      kind: direct
       label: Sol — architecture and review
       providerId: codex-oauth
       providerModelId: gpt-5.6-sol
@@ -155,6 +157,7 @@ executionCatalog:
         executionEnvelope:
           limits: []
     - id: codex-luna
+      kind: direct
       label: Luna — bounded mechanical edits
       providerId: codex-oauth
       providerModelId: gpt-5.6-luna
@@ -203,6 +206,7 @@ executionCatalog:
         executionEnvelope:
           limits: []
     - id: opencode-go-glm
+      kind: direct
       label: GLM — approved service work
       providerId: opencode-go
       providerModelId: glm-5.2
@@ -251,16 +255,16 @@ executionCatalog:
         executionEnvelope:
           limits: []
 
-executionRouting:
-  defaultRouteId: codex-terra
+targetRouting:
+  defaultTargetId: codex-terra
 
-# The initial GUI/TUI preference names a route, not a provider or credential.
+# The initial GUI/TUI preference names a target, not a provider or credential.
 ui:
-  executionRouteSelection:
-    routeId: codex-terra
+  targetSelection:
+    targetId: codex-terra
 
 # Model Gateway is an ingress and virtual-name overlay. The canonical provider,
-# model, account policy, and economics remain in executionCatalog.
+# model, account policy, and economics remain in targetCatalog.
 modelGateway:
   port: 4819
   replay:
@@ -331,7 +335,7 @@ modelGateway:
       contextTokens: 200000
       outputTokens: 8192
       baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      executionRouteId: codex-terra
+      targetId: codex-terra
       capabilities:
         - text
       affinity:
@@ -341,7 +345,7 @@ modelGateway:
       contextTokens: 200000
       outputTokens: 8192
       baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      executionRouteId: codex-sol
+      targetId: codex-sol
       capabilities:
         - text
       affinity:
@@ -351,7 +355,7 @@ modelGateway:
       contextTokens: 200000
       outputTokens: 8192
       baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      executionRouteId: codex-luna
+      targetId: codex-luna
       capabilities:
         - text
       affinity:
@@ -361,7 +365,7 @@ modelGateway:
       contextTokens: 131072
       outputTokens: 8192
       baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      executionRouteId: opencode-go-glm
+      targetId: opencode-go-glm
       capabilities:
         - text
       affinity:
@@ -370,7 +374,7 @@ modelGateway:
       displayName: Codex Terra through Kiln
       contextTokens: 200000
       outputTokens: 8192
-      executionRouteId: codex-terra
+      targetId: codex-terra
       capabilities:
         - text
       affinity:
@@ -379,64 +383,16 @@ modelGateway:
       displayName: OpenCode Go GLM through Kiln
       contextTokens: 131072
       outputTokens: 8192
-      executionRouteId: opencode-go-glm
+      targetId: opencode-go-glm
       capabilities:
         - text
       affinity:
         continuity: none
 
 managedAgents:
-  schemaVersion: 2
   enabled: true
-  defaultProfile: foundation-readonly-plan
+  defaultAuthorityProfileId: readonly-plan
   requireApproval: true
-  routes:
-    - id: architecture-review
-      kind: direct
-      executionRouteId: codex-sol
-      profiles:
-        - foundation-readonly-plan
-      workingDirectory: project
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-        network: false
-        writes: false
-      memory:
-        access: read-only
-    - id: approved-service-work
-      kind: direct
-      executionRouteId: opencode-go-glm
-      profiles:
-        - foundation-apply-approved-writes
-      workingDirectory: project
-      tools:
-        allowed:
-          - read
-          - tree
-          - grep
-          - glob
-          - write
-          - edit
-          - apply-patch
-        network: false
-        writes: true
-      memory:
-        access: write-proposals
-      writeAuthority:
-        workspace:
-          mode: apply-approved
-          allowedPaths:
-            - .
-          deniedPaths:
-            - .git
-            - node_modules
-            - .kiln
-        approval:
-          mode: required-before-apply
   economicPolicies:
     - id: subscription-priority
       revision: rev-2026-08
@@ -453,7 +409,7 @@ managedAgents:
           rateCardBasis: provider-subscription
           envelopeSemantics: configured-upper-bound
       candidates:
-        - routeId: architecture-review
+        - targetId: codex-sol
           comparisonDomainId: subscription-priority
           priorityRank: 0
           ceiling:
@@ -461,7 +417,7 @@ managedAgents:
           worstCaseReservation:
             kind: not-comparable
             reason: subscription-basis
-        - routeId: approved-service-work
+        - targetId: opencode-go-glm
           comparisonDomainId: subscription-priority
           priorityRank: 1
           ceiling:
@@ -469,6 +425,31 @@ managedAgents:
           worstCaseReservation:
             kind: not-comparable
             reason: subscription-basis
+
+authorityProfiles:
+  - id: readonly-plan
+    admissionProfile: foundation-readonly-plan
+    workingDirectory: project
+    tools:
+      allowed: [read, tree, grep, glob]
+      network: false
+      writes: false
+    memory: { access: read-only }
+  - id: approved-service-work
+    admissionProfile: foundation-apply-approved-writes
+    workingDirectory: project
+    tools:
+      allowed: [read, tree, grep, glob, write, edit, apply-patch]
+      network: false
+      writes: true
+    memory: { access: write-proposals }
+    writeAuthority:
+      workspace:
+        mode: apply-approved
+        allowedPaths: [.] 
+        deniedPaths: [.git, node_modules, .kiln]
+      approval:
+        mode: required-before-apply
 
 skills:
   selection:

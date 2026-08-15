@@ -2,12 +2,12 @@
 
 > The TUI is Kiln's interactive terminal operator surface. It remains a
 > projection of shared runtime and gateway contracts. Terminal-specific feature
-> work is valid when it does not create private execution-route, memory, tool,
+> work is valid when it does not create private target, memory, tool,
 > authority, or session semantics.
 
 ## Overview
 
-`kiln tui` is Kiln's terminal chat interface. The TUI package is the rendering layer: it owns layout, input handling, theme application, and WebSocket frame mapping, while orchestration lives outside the renderer. The default runtime flow is TUI -> local gateway on port `4801` by default -> runtime `SessionRegistry` -> selected execution route through Kiln's runtime pipeline. That keeps the same session, safety, memory, routing, and cost machinery in the path instead of duplicating agent-loop logic in the terminal client.
+`kiln tui` is Kiln's terminal chat interface. The TUI package is the rendering layer: it owns layout, input handling, theme application, and WebSocket frame mapping, while orchestration lives outside the renderer. The default runtime flow is TUI -> local gateway on port `4801` by default -> runtime `SessionRegistry` -> selected target through Kiln's runtime pipeline. That keeps the same session, safety, memory, routing, and cost machinery in the path instead of duplicating agent-loop logic in the terminal client.
 
 Sources: `packages/tui/src/app.tsx`, `packages/tui/src/theme.ts`, `packages/tui/src/gateway-session.ts`, `packages/tui/src/ws-client.ts`, `packages/tui/src/index.ts`, `packages/cli/src/commands/tui.ts`, `packages/runtime/src/gateway/tui-gateway.ts`
 
@@ -54,10 +54,10 @@ bun packages/cli/src/index.ts tui --port 4900 --plan
 
 Transport note: `tui.ts` now resolves startup transport to `gateway` by default. The direct bootstrap path still exists for debugging and explicit opt-in, and is enabled only when `KILN_TUI_TRANSPORT=direct` is set.
 
-TUI startup resolves the configured `ui.executionRouteSelection` when present,
-then the global `executionRouting.defaultRouteId`. It does not accept a one-off
-route flag. Change the next-turn route interactively with `/route`; `--route`
-is the launch authority for `kiln run` and `kiln plan`, not GUI or TUI.
+TUI startup resolves `ui.targetSelection.targetId` when present, then
+`targetRouting.defaultTargetId`. It does not accept a one-off target flag.
+Change the next-turn target interactively with `/target`; `--target` is the
+launch selector for `kiln run` and `kiln plan`, not GUI or TUI.
 
 ## Themes
 
@@ -118,7 +118,7 @@ persisted changes by writing the shared operator theme default.
 
 ## Layout and Key Bindings
 
-The main screen is a two-column layout: a `chatArea` on the left and a `sidebar` on the right, separated by a divider. The sidebar renders execution-route status with derived provider/model evidence, cost, current working directory, turns and token counts, field status, approvals, file changes, resume hints, and session history. When the terminal width drops below `100` columns, the sidebar auto-collapses.
+The main screen is a two-column layout: a `chatArea` on the left and a `sidebar` on the right, separated by a divider. The sidebar renders target status with derived provider/model evidence, cost, current working directory, turns and token counts, field status, approvals, file changes, resume hints, and session history. When the terminal width drops below `100` columns, the sidebar auto-collapses.
 
 The existing turns/tokens line also renders shared context evidence: exact
 values and percentage when available, `partial` when qualified, and `Context
@@ -132,7 +132,7 @@ Slash command discovery is not TUI-owned. The TUI projects
 `listOperatorCommands("tui")` from `@kilnai/gateway-contracts`, so commands
 shared with GUI or CLI must be added to
 `packages/gateway-contracts/src/operator-commands.ts` first. The current shared
-interactive commands include `/clear`, `/theme`, `/route`, `/deliberation`,
+interactive commands include `/clear`, `/theme`, `/target`, `/deliberation`,
 `/authority`, `/continue`, `/plan`, `/exec`, `/setup`, and `/goal`.
 
 - `Ctrl+C` exits immediately.
@@ -142,81 +142,82 @@ interactive commands include `/clear`, `/theme`, `/route`, `/deliberation`,
 - `Enter` in continuation mode continues the selected session from the session list.
 - `/clear` clears the active session.
 - `/plan` enables plan mode in the TUI state.
-- `/route` opens the execution-route picker.
-- `/deliberation` cycles the selected route's derived provider default and
+- `/target` opens the execution-target picker.
+- `/deliberation` cycles the selected target's derived provider default and
   model's advertised levels.
 - `/theme` opens the theme picker.
 - `/continue` focuses the session browser in the sidebar.
 - `/goal` focuses the canonical goal/work projection in the sidebar. Lifecycle
   mutations use the same persisted core transitions exposed by
   `kiln goal pause|resume|edit|cancel`.
-- Arrow keys or `j` / `k` navigate the theme picker, execution-route picker,
+- Arrow keys or `j` / `k` navigate the theme picker, execution-target picker,
   slash popover, and session list depending on the current UI state.
 
 Printable-first key routing means normal printable characters are appended to the input before most special-case handlers run. That keeps typing responsive and reserves command handling for explicit control keys and slash commands instead of intercepting ordinary text entry.
 
-## Execution Route Selection
+## Execution target selection
 
-The execution-route picker is populated from the gateway's
-`ExecutionRouteCatalog`. It retains every configured route, including routes
-that are currently unavailable, with its route label, availability, reason
-codes, and repair actions. The picker sends route ID as the selection intent.
+The target picker is populated from the gateway's target catalog projection.
+It retains every configured target, including targets that are currently
+unavailable, with its label, availability, reason codes, and repair actions.
+The picker sends target ID as the selection intent.
 It does not select a provider, raw model ID, or credential.
 
 Provider and model labels are derived execution evidence. A provider
 authentication action remains provider-scoped because it repairs the account
-evidence behind a route; it does not change route authority. TUI marks an
-unavailable route that can be repaired by sign-in, and `r` refreshes the route
-catalog. After successful authentication, the Gateway returns a fresh catalog
-and TUI replaces its route list before the operator retries selection.
+evidence behind a target; it does not change target authority. TUI marks an
+unavailable target that can be repaired by sign-in, and `r` refreshes the
+catalog. After successful authentication, the Gateway returns fresh evidence
+before the operator retries selection.
 
-For an automatic route with eligible account aliases, choosing the route opens
+For an automatic target with eligible account aliases, choosing the target opens
 an account step with `Automatic (Kiln)` and the eligible aliases. `Automatic
-(Kiln)` leaves account choice to the route's configured economic/pressure
-policy; an alias narrows that same route for the next turn. Exact routes skip
+(Kiln)` leaves account choice to the target's configured economic/pressure
+policy; an alias narrows that same target for the next turn. Exact targets skip
 this step. The picker never transports or displays a credential ID.
 
-Selecting an execution route sends an `execution_route` frame with a route ID
-and, for an automatic route, an eligible account override when selected. The
+Selecting a target sends the internal `execution_route` frame with the target's
+resolved Runtime route ID and, for an automatic target, an eligible account
+override when selected. The
 gateway re-admits that intent and acknowledges it with
 `execution_route_changed`; provider, model, account, and credential evidence
 are derived by Runtime.
 
 On the CLI side, the session manager keeps a canonical Kiln continuation target
 only after explicit resume intent and tracks provider-native thread IDs only as
-provider-scoped metadata. Execution-route selection chooses the route for the
+provider-scoped metadata. Target selection chooses the execution target for the
 next turn; it does not move the operator into a provider-owned session namespace.
 
 Important distinction:
 
-- `execution_route_changed` acknowledges the admitted route for the next turn.
-- The assistant route label in chat is finalized from the gateway `done` frame's
+- `execution_route_changed` acknowledges the admitted target's internal route for the next turn.
+- The assistant execution label in chat is finalized from the gateway `done` frame's
   derived `routedProvider` and `routedModel` evidence.
 
 That means the header shown above an assistant message reflects the
 provider/model that actually handled the turn, not only the derived evidence
-shown when the route was selected.
+shown when the target was selected.
 
 ## Deliberation
 
 The TUI consumes provider-model discovery only as evidence for the selected
-route. When that route's derived provider/model advertises deliberation
+target. When that target's derived provider/model advertises deliberation
 capabilities, the sidebar appends an explicitly selected level next to the
 model label, for example
 `gpt-5.6-terra · medium`.
 
 At startup, the TUI may display cached provider-model discovery as `stale`
-diagnostics. Stale evidence does not make an execution route selectable;
-Runtime refreshes route availability before prompt admission or managed
+diagnostics. Stale evidence does not make a target selectable;
+Runtime refreshes target availability before prompt admission or managed
 invocation execution proceeds.
 
-Use `/deliberation` to cycle from the selected route's derived provider default
+Use `/deliberation` to cycle from the selected target's derived provider default
 through the advertised values. Kiln does not turn an advertised default into an
 explicit override. If the derived model advertises no levels, the command
 reports that deliberation controls are unavailable.
 
 The selected level is sent as a fixed deliberation intent with the next user
-turn. It is per-turn execution state, not a persisted TUI theme or route
+turn. It is per-turn execution state, not a persisted TUI theme or target
 preference.
 
 ## Session Commands
@@ -236,14 +237,14 @@ by `{ type: "execution_mode_transitioned", executionMode: "execute" }`.
 The local `planMode` flag is UI state only. The runtime contract is
 `executionMode`, shared with GUI and other operator consumers.
 
-### `/route`
+### `/target`
 
-`/route` opens the execution-route picker. Choosing a route sends
+`/target` opens the target picker. Choosing a target sends
 `execution_route` and awaits either
 `execution_route_changed` or `execution_route_change_failed`. The acknowledgement
-may carry derived provider/model evidence for presentation, but route ID remains
-the selected authority. Automatic routes with eligible aliases show the
-`Automatic (Kiln)`/alias choice before this request; exact routes do not.
+may carry derived provider/model evidence for presentation, but the configured
+target remains the selected authority. Automatic targets with eligible aliases
+show the `Automatic (Kiln)`/alias choice before this request; exact targets do not.
 
 ## Session Persistence
 
@@ -276,7 +277,7 @@ Kiln stores:
 At startup, `makeMultiProviderSessionFactory()` starts without a hidden active
 continuation target. Once the operator explicitly continues a canonical session,
 Kiln may pass a matching provider-native thread ID to the provider derived from
-the next route. If that provider has never participated in the session, Kiln
+the next target. If that provider has never participated in the session, Kiln
 continues through its own transcript/context continuity without fabricating a
 native provider thread.
 
@@ -331,7 +332,7 @@ The TUI WebSocket adapter handles:
 
 The `done` frame also carries:
 
-- `routedProvider` and `routedModel` for the actual execution route used on the turn
+- `routedProvider` and `routedModel` for the actual target resolution used on the turn
 - `runtimeContinuity` sidebar metadata for the current turn
 
 For local-write verification, trust the routed provider/model evidence shown in
@@ -359,7 +360,7 @@ is enabled by the profiler.
 ## Session Model Reference
 
 The canonical session rules are documented in
-`docs/architecture/core/session-model.md`. In short: execution-route selection is
+`docs/architecture/core/session-model.md`. In short: target selection is
 next-turn routing state; provider/model are derived turn evidence, while the
 Kiln session owns transcript, tools, approvals, cost, changed files, and replay.
 

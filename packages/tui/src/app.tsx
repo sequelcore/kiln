@@ -144,7 +144,7 @@ export async function startTui(
   let executionRouteCatalog = executionRouteCatalogRef?.current ?? { routes: [] };
   let availableModels: AvailableModelCatalog | null = null;
   let routeIds = executionRouteCatalog.routes.map((route) => route.routeId);
-  const routeGroups = () => [{ title: "Execution routes", routes: routeIds }];
+  const routeGroups = () => [{ title: "Execution targets", routes: routeIds }];
 
   let routePickerState = {
     routeIndex: 0,
@@ -330,7 +330,7 @@ export async function startTui(
         return;
       }
 
-      if (text === "/route") {
+      if (text === "/target") {
         openExecutionRoutePicker();
         return;
       }
@@ -480,7 +480,7 @@ export async function startTui(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Execution route picker helpers
+  // Execution target picker helpers
   // ─────────────────────────────────────────────────────────────────────────
 
   function getRouteEntries(): readonly ExecutionRouteCatalogEntry[] {
@@ -646,7 +646,7 @@ export async function startTui(
 
   /**
    * Fully rebuilds the data rows in the scrollBox.
-   * Called only on mode/route switches — NOT on every up/down keypress.
+   * Called only on mode/target switches — NOT on every up/down keypress.
    * Navigation updates are handled by updatePickerSelection() instead.
    */
   function renderExecutionRoutePicker(): void {
@@ -657,12 +657,12 @@ export async function startTui(
     const scrollContent = executionRoutePicker.scrollBox.content;
     if (providerCatalogStatus !== "ready") {
       executionRoutePicker.mode = "routes";
-      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(" Execution routes ")}`;
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(" Execution targets ")}`;
       const loadingLabel = providerCatalogStatus === "error"
         ? (providerCatalogError ?? "Provider discovery failed.")
         : providerCatalogStatus === "refreshing"
-          ? "Refreshing execution routes..."
-          : "Loading execution route catalog...";
+          ? "Refreshing execution targets..."
+          : "Loading execution target catalog...";
       const row = makePickerRow(
         "provider-catalog-status",
         loadingLabel,
@@ -741,7 +741,7 @@ export async function startTui(
       const route = getCurrentRoute();
       const accountOptions = getAccountOverrideOptions(route);
       executionRoutePicker.mode = "accounts";
-      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(` ${route?.label ?? "Execution route"} account `)}`;
+      executionRoutePicker.title.content = t`${fg(currentTheme.accent)(` ${route?.label ?? "Execution target"} account `)}`;
       for (const [index, accountOverrideId] of accountOptions.entries()) {
         const selected = index === routePickerState.accountOverrideIndex;
         const row = makePickerRow(
@@ -939,7 +939,7 @@ export async function startTui(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Execution route picker lifecycle
+  // Execution target picker lifecycle
   // ─────────────────────────────────────────────────────────────────────────
 
   void loadExecutionRouteCatalogFromSession();
@@ -1000,7 +1000,7 @@ export async function startTui(
       }
       const selectedRoute = getRouteEntries()[routePickerState.routeIndex];
       if (!selectedRoute || !routeIsSelectable(selectedRoute)) {
-        throw new Error(getRouteReason(selectedRoute) ?? "Execution route is unavailable");
+        throw new Error(getRouteReason(selectedRoute) ?? "Execution target is unavailable");
       }
 
       const session = await createSession();
@@ -1011,7 +1011,7 @@ export async function startTui(
           }
         ).switchExecutionRoute;
       if (typeof switchExecutionRoute !== "function") {
-        throw new Error("Active session does not support execution route selection");
+        throw new Error("Active session does not support execution target selection");
       }
 
       const selectRoute = switchExecutionRoute as (
@@ -1035,8 +1035,8 @@ export async function startTui(
       const message =
         error instanceof Error && error.message.trim().length > 0
           ? error.message
-          : "Execution route selection failed";
-      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Execution route selection failed: ${message}`)}`;
+          : "Execution target selection failed";
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Execution target selection failed: ${message}`)}`;
     } finally {
       destroyPicker();
     }
@@ -1045,7 +1045,7 @@ export async function startTui(
   async function refreshExecutionRoutesFromPicker(): Promise<void> {
     if (!executionRoutePicker) return;
     markProviderCatalog("refreshing");
-    ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Refreshing execution routes...")}`;
+    ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Refreshing execution targets...")}`;
     try {
       const session = await createSession();
       const sessionRefreshRoutes = (
@@ -1075,13 +1075,13 @@ export async function startTui(
       process.nextTick(() => {
         scrollToSelectedRow(false);
       });
-      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Execution route catalog refreshed")}`;
+      ui.commandBarStatus.content = t`${fg(currentTheme.accent)("Execution target catalog refreshed")}`;
     } catch (error) {
       const message = error instanceof Error && error.message.trim().length > 0
         ? error.message
-        : "Execution route refresh failed";
+        : "Execution target refresh failed";
       markProviderCatalog("error", message);
-      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Execution route refresh failed: ${message}`)}`;
+      ui.commandBarStatus.content = t`${fg(currentTheme.error)(`Execution target refresh failed: ${message}`)}`;
     }
   }
 
@@ -1136,7 +1136,7 @@ export async function startTui(
         executionRouteCatalog?: ExecutionRouteCatalog;
       }).executionRouteCatalog;
       if (!authenticatedCatalog || !Array.isArray(authenticatedCatalog.routes)) {
-        throw new Error("Provider authentication completed without an execution route catalog");
+        throw new Error("Provider authentication completed without an execution target catalog");
       }
       const selectedRouteId = getCurrentRoute()?.routeId;
       executionRouteCatalog = authenticatedCatalog;
@@ -1286,7 +1286,7 @@ export async function startTui(
 
     renderInput();
     renderCommandBarStatus();
-    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/setup /theme /route  ctrl+shift+P commands")}`;
+    ui.commandBarText.content = t`${fg(currentTheme.textMuted)("/setup /theme /target  ctrl+shift+P commands")}`;
 
     for (const { msg, node } of messageNodes) {
       const parent = node.parent;
@@ -1480,7 +1480,7 @@ export async function startTui(
       return;
     }
 
-    // ── Execution route picker ────────────────────────────────────────────
+    // ── Execution target picker ────────────────────────────────────────────
     if (executionRoutePickerOpen) {
       if (!executionRoutePicker) return;
 
@@ -1525,7 +1525,7 @@ export async function startTui(
             return;
           }
           if (!routeIsSelectable(selectedRoute)) {
-            ui.commandBarStatus.content = t`${fg(currentTheme.warning)(getRouteReason(selectedRoute) ?? "Execution route is unavailable")}`;
+            ui.commandBarStatus.content = t`${fg(currentTheme.warning)(getRouteReason(selectedRoute) ?? "Execution target is unavailable")}`;
             return;
           }
           if (getAccountOverrideOptions(selectedRoute).length > 0) {
@@ -1748,12 +1748,12 @@ export async function startTui(
         );
         if (!selectedRoute || !routeIsSelectable(selectedRoute)) {
           update(state, "sessionContinuationMode", false);
-          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: execution route ${selectedSession.lastRoute.routeId} is unavailable.`)}`;
+          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: execution target ${selectedSession.lastRoute.routeId} is unavailable.`)}`;
           return;
         }
         if (!onContinueSession?.(selectedSession)) {
           update(state, "sessionContinuationMode", false);
-          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: execution route ${selectedRoute.routeId} is unavailable.`)}`;
+          ui.commandBarStatus.content = t`${fg(currentTheme.warning)(`Cannot continue: execution target ${selectedRoute.routeId} is unavailable.`)}`;
           return;
         }
         update(state, "currentProvider", selectedRoute.providerId);
@@ -1770,7 +1770,7 @@ export async function startTui(
         return;
       }
 
-      if (inputText === "/clear" || inputText === "/theme" || inputText === "/route" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
+      if (inputText === "/clear" || inputText === "/theme" || inputText === "/target" || inputText === "/deliberation" || inputText === "/authority" || inputText === "/continue" || inputText === "/plan" || inputText === "/setup") {
         // Commands are handled after clearing input
         ui.inputTextarea.clear();
         update(state, "input", "");
@@ -1807,7 +1807,7 @@ export async function startTui(
             return;
           }
 
-          if (inputText === "/route") {
+          if (inputText === "/target") {
             openExecutionRoutePicker();
             return;
           }

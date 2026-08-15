@@ -45,7 +45,7 @@ test.describe("parity category 5 - theming and visual behavior", () => {
     await page.reload();
     await expect(page.locator("#composer-input")).toBeEnabled({ timeout: COMPOSER_READY_TIMEOUT_MS });
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    await expect(page.getByRole("button", { name: /Execution route selector/ })).toBeVisible({ timeout: 2_000 });
+    await expect(page.getByRole("button", { name: /Execution target selector/ })).toBeVisible({ timeout: 2_000 });
     const visualRoles = await page.locator("html").evaluate((root) => {
       const style = getComputedStyle(root);
       return {

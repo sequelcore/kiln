@@ -148,6 +148,9 @@ export {
   collectManagedEconomicCandidates,
   digestManagedEconomicCandidateProfileAuthority,
   ManagedCommittedRouteMismatchError,
+  resolveAdHocManagedInvocationRouteProfile,
+  resolveConfiguredManagedInvocationRouteProfile,
+  resolveManagedInvocationRouteProfile,
 } from "./runtime-tool/index.js";
 export type {
   ManagedCommittedInvocationRequest,

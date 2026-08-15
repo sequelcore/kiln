@@ -301,9 +301,9 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => adapter,
-      profiles: {
-        "foundation-readonly-plan": {
+      profiles: [{
           authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           permissionProfile: "read-only",
           allowedToolNames: ["read", "grep", "glob"],
           writeAllowed: false,
@@ -321,8 +321,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions {
             scope: { kind: "project", id: "kiln" },
             access: "read-only",
           },
-        },
-      },
+      }],
     }],
     requestedBy: "assistant",
     requestSource: "tui",

@@ -158,8 +158,8 @@ treated as runtime authority.
 
 Direct-provider, CLI, GUI, and TUI sessions create Kiln-owned clients and do not
 depend on native files. MCP is a consultation/configuration/tool surface, not a
-required subagent transport. Managed routes admit MCP only when
-`managedAgents.routes[].tools.allowed` contains the qualified selector. App
+required subagent transport. Managed execution admits MCP only when the
+selected `authorityProfiles[].tools.allowed` contains the qualified selector. App
 Gateway `app.yaml` contains canonical server ids only:
 
 ```yaml

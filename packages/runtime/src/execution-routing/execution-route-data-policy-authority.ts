@@ -2,6 +2,7 @@ import {
   decideExecutionRouteDataPolicy,
   type ExecutionCatalog,
   type ExecutionDataClassification,
+  type ExecutionRouteDataPolicyEvidence,
   type ExecutionRouteDataPolicyDecision,
 } from "@kilnai/core";
 
@@ -30,6 +31,44 @@ export interface SanitizedExecutionRouteDataPolicyDecision {
   readonly evidence?: SanitizedExecutionRouteDataPolicyEvidence;
 }
 
+export interface ExecutionTargetDataPolicyInput extends ExecutionRouteDataPolicyIdentity {
+  readonly requestedClassification: ExecutionDataClassification;
+  readonly evidence?: ExecutionRouteDataPolicyEvidence;
+  readonly now?: Date;
+}
+
+/** Evaluates one physical target without requiring account-backed route fields. */
+export function evaluateExecutionTargetDataPolicy(
+  input: ExecutionTargetDataPolicyInput,
+): SanitizedExecutionRouteDataPolicyDecision {
+  const evaluated = decideExecutionRouteDataPolicy({
+    evidence: input.evidence,
+    providerId: input.providerId,
+    providerModelId: input.providerModelId,
+    requestedClassification: input.requestedClassification,
+    now: input.now ?? new Date(),
+  });
+  const decision = { status: evaluated.status, freshness: evaluated.freshness, reason: evaluated.reason };
+  if (!input.evidence) return Object.freeze({ decision: Object.freeze(decision) });
+  const evidence = input.evidence;
+  return Object.freeze({
+    decision: Object.freeze(decision),
+    evidence: Object.freeze({
+      providerId: evidence.providerId,
+      providerModelId: evidence.providerModelId,
+      sourceIdentity: evidence.sourceIdentity,
+      sourceRevision: evidence.sourceRevision,
+      sourceDigest: evidence.sourceDigest,
+      trainingPosture: evidence.trainingPosture,
+      retentionPosture: evidence.retention.posture,
+      retentionDays: evidence.retention.days,
+      maximumClassification: evidence.permittedMaximumClassification,
+      observedAt: evidence.observedAt,
+      expiresAt: evidence.expiresAt,
+    }),
+  });
+}
+
 /** Runtime-owned fail-closed authority. Requested classification is read only from the admitted catalog route. */
 export class ExecutionRouteDataPolicyAuthority {
   #catalog: ExecutionCatalog;
@@ -46,31 +85,13 @@ export class ExecutionRouteDataPolicyAuthority {
 
   evaluate(identity: ExecutionRouteDataPolicyIdentity): SanitizedExecutionRouteDataPolicyDecision {
     const route = this.#catalog.routes.find(({ id }) => id === identity.routeId);
-    const evaluated = decideExecutionRouteDataPolicy({
+    return evaluateExecutionTargetDataPolicy({
+      routeId: identity.routeId,
       evidence: route?.dataPolicyEvidence,
       providerId: identity.providerId,
       providerModelId: identity.providerModelId,
       requestedClassification: route?.dataClassification ?? "restricted",
       now: this.#now(),
-    });
-    const decision = { status: evaluated.status, freshness: evaluated.freshness, reason: evaluated.reason };
-    if (!route?.dataPolicyEvidence) return Object.freeze({ decision: Object.freeze(decision) });
-    const evidence = route.dataPolicyEvidence;
-    return Object.freeze({
-      decision: Object.freeze(decision),
-      evidence: Object.freeze({
-        providerId: evidence.providerId,
-        providerModelId: evidence.providerModelId,
-        sourceIdentity: evidence.sourceIdentity,
-        sourceRevision: evidence.sourceRevision,
-        sourceDigest: evidence.sourceDigest,
-        trainingPosture: evidence.trainingPosture,
-        retentionPosture: evidence.retention.posture,
-        retentionDays: evidence.retention.days,
-        maximumClassification: evidence.permittedMaximumClassification,
-        observedAt: evidence.observedAt,
-        expiresAt: evidence.expiresAt,
-      }),
     });
   }
 

@@ -79,6 +79,7 @@ export interface AgentTaskGovernanceEvidence {
 export interface AgentTaskEconomicProfile {
   readonly kind: "economic";
   readonly id: string;
+  readonly authorityProfileId: string;
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
@@ -156,6 +157,7 @@ export type AgentTaskNativeDeliberationResolution =
 export interface AgentTaskNativeHarnessProfile {
   readonly kind: "native-harness";
   readonly id: string;
+  readonly authorityProfileId: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
   readonly routeId: string;
   readonly routeRevision: string;
@@ -169,7 +171,7 @@ export interface AgentTaskNativeHarnessProfile {
 
 export type AgentTaskProfile = AgentTaskEconomicProfile | AgentTaskNativeHarnessProfile;
 
-export type AgentTaskNativeHarnessRoute = Omit<AgentTaskNativeHarnessProfile, "id">;
+export type AgentTaskNativeHarnessRoute = Omit<AgentTaskNativeHarnessProfile, "id" | "authorityProfileId">;
 
 export type AgentTaskDispatch =
   | {

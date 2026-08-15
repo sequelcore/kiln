@@ -11,6 +11,7 @@ import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runti
 
 const readonlyProfile = {
   authorityProfileId: "readonly",
+  admissionProfile: "foundation-readonly-plan" as const,
   permissionProfile: "read-only",
   allowedToolNames: ["read"],
   writeAllowed: false,
@@ -59,9 +60,7 @@ function route(input: {
           },
         }
       : {}),
-    profiles: input.profile === false
-      ? {}
-      : { "foundation-readonly-plan": readonlyProfile },
+    profiles: input.profile === false ? [] : [readonlyProfile],
   };
 }
 
@@ -69,6 +68,7 @@ const command = {
   economicPolicyId: "economy-policy",
   economicPolicyRevision: "revision-001",
   configuredAgentProfileId: "scout",
+  authorityProfileId: "readonly",
   admissionProfileId: "foundation-readonly-plan" as const,
 };
 
@@ -261,6 +261,8 @@ describe("managed economic candidate admission", () => {
           role: "Scout",
           goal: "Inspect bounded work.",
           tier: "reasoning",
+          authorityProfileId: "readonly",
+          admissionProfile: "foundation-readonly-plan",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -327,6 +329,8 @@ describe("managed economic candidate admission", () => {
           role: "Scout",
           goal: "Inspect bounded work.",
           tier: "reasoning",
+          authorityProfileId: "readonly",
+          admissionProfile: "foundation-readonly-plan",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -395,6 +399,8 @@ describe("managed economic candidate admission", () => {
           role: "Scout",
           goal: "Inspect bounded work.",
           tier: "reasoning",
+          authorityProfileId: "readonly",
+          admissionProfile: "foundation-readonly-plan",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -493,6 +499,8 @@ describe("managed economic candidate admission", () => {
           role: "Scout",
           goal: "Inspect bounded work.",
           tier: "reasoning",
+          authorityProfileId: "readonly",
+          admissionProfile: "foundation-readonly-plan",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: ["codex-primary"],
@@ -536,6 +544,8 @@ describe("managed economic candidate admission", () => {
           role: "Writer",
           goal: "Apply bounded work.",
           tier: "reasoning",
+          authorityProfileId: "approved-write",
+          admissionProfile: "foundation-apply-approved-writes",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: [],

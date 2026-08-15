@@ -196,7 +196,7 @@ describe("ConfiguredExecutionAccountRuntime", () => {
         routeId: "codex-route",
         route,
         lease: acquired.record,
-      })).rejects.toThrow("dispatch-fenced");
+      })).rejects.toThrow("durable dispatch fence identity");
 
       const fenced = authority.fenceAccountCapacityDispatch("attempt", "attempt:dispatch");
       await expect(runtime.modelGatewayDispatchers.resolve({

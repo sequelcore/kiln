@@ -12,6 +12,7 @@ import {
   normalizeRuntimeProviderDiscoveryCatalog,
   RuntimeManagedAgentInvocationService,
   SqliteManagedAccountLeaseAuthority,
+  type ManagedInvocationToolRoute,
 } from "@kilnai/runtime";
 import type { ManagedAgentRuntimeAdapter } from "@kilnai/runtime";
 import { createStagedManagedInvocationRouteCatalog } from "./managed-agent-route-catalog.js";
@@ -32,6 +33,13 @@ const READONLY_POLICY: KilnPermissionPolicy = {
   sandbox: "read-only",
 };
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
+
+function profileByAdmission(
+  route: ManagedInvocationToolRoute | undefined,
+  admissionProfile: string,
+) {
+  return route?.profiles.find((profile) => profile.admissionProfile === admissionProfile);
+}
 
 function makeExecutionCatalog(
   routeId: string,
@@ -250,11 +258,24 @@ function createRegistry(provider: ProviderId): SessionRegistry {
 }
 
 function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
+  const executionCatalog = makeExecutionCatalog("opencode-go-research-readonly");
   return {
-    executionCatalog: makeExecutionCatalog("opencode-go-research-readonly"),
+    executionCatalog,
+    targetCatalog: {
+      accounts: executionCatalog.accounts,
+      accountPolicies: executionCatalog.accountPolicies,
+      targets: executionCatalog.routes.map((route) => ({ ...route, kind: "direct" as const })),
+    },
+    authorityProfiles: [{
+      id: "readonly-plan",
+      admissionProfile: "foundation-readonly-plan",
+      workingDirectory: "project",
+      tools: { allowed: ["read", "web_search"], network, writes: false },
+      memory: { access: "read-only" },
+    }],
     managedAgents: {
-      schemaVersion: 2,
       enabled: true,
+      defaultAuthorityProfileId: "readonly-plan",
       economicPolicies: [{
         id: "research-policy",
         revision: "rev-1",
@@ -269,25 +290,12 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
           envelopeSemantics: "bounded",
         }],
         candidates: [{
-          routeId: "opencode-go-research-readonly",
+          targetId: "opencode-go-research-readonly",
           comparisonDomainId: "priority-only",
           priorityRank: 0,
           ceiling: { kind: "none" },
           worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
         }],
-      }],
-      routes: [{
-        id: "opencode-go-research-readonly",
-        kind: "direct",
-        executionRouteId: "opencode-go-research-readonly",
-        profiles: ["foundation-readonly-plan"],
-        workingDirectory: "project",
-        tools: {
-          allowed: ["read", "web_search"],
-          network,
-          writes: false,
-        },
-        memory: { access: "read-only" },
       }],
     },
   };
@@ -295,36 +303,55 @@ function makeConfig(network: boolean): ManagedAgentRouteConfigSource {
 
 function makeIsolatedWorktreeWriteConfig(): ManagedAgentRouteConfigSource {
   return {
+    targetCatalog: {
+      accounts: [],
+      accountPolicies: [],
+      targets: [{
+        id: "codex-approved-write",
+        kind: "harness",
+        label: "Codex approved write",
+        providerId: "codex",
+        providerModelId: "gpt-5.3-codex-spark",
+        dataClassification: "internal",
+        dataPolicyEvidence: harnessDataPolicy("codex", "gpt-5.3-codex-spark"),
+      }],
+    },
+    authorityProfiles: [{
+      id: "approved-write",
+      admissionProfile: "foundation-apply-approved-writes",
+      workingDirectory: "isolated-worktree",
+      tools: { allowed: ["read", "grep", "glob", "apply-patch"], network: false, writes: true },
+      memory: { access: "read-only" },
+      writeAuthority: {
+        workspace: { mode: "apply-approved", allowedPaths: ["packages/cli/src/config"] },
+        approval: { mode: "required-before-apply" },
+      },
+    }],
     managedAgents: {
       enabled: true,
+      defaultAuthorityProfileId: "approved-write",
       worktreeLease: {
         mode: "git",
         rootPath: ".kiln/managed-worktrees",
       },
-      routes: [{
-        id: "codex-approved-write",
-        kind: "harness",
-        provider: "codex",
-        model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-apply-approved-writes"],
-        workingDirectory: "isolated-worktree",
-        tools: {
-          allowed: ["read", "grep", "glob", "apply-patch"],
-          network: false,
-          writes: true,
-        },
-        memory: { access: "read-only" },
-        writeAuthority: {
-          workspace: {
-            mode: "apply-approved",
-            allowedPaths: ["packages/cli/src/config"],
-          },
-          approval: {
-            mode: "required-before-apply",
-          },
-        },
-      }],
     },
+  };
+}
+
+function harnessDataPolicy(providerId: string, providerModelId: string) {
+  return {
+    providerId,
+    providerModelId,
+    dataUse: "not-used" as const,
+    trainingPosture: "prohibited" as const,
+    retention: { posture: "zero" as const, days: 0 },
+    permittedMaximumClassification: "internal" as const,
+    permittedClassifications: ["public", "internal"] as const,
+    sourceIdentity: "managed-agent-route-catalog.test",
+    sourceRevision: "v1",
+    sourceDigest: `sha256:${"c".repeat(64)}` as const,
+    observedAt: "2026-07-01T00:00:00.000Z",
+    expiresAt: "2027-07-01T00:00:00.000Z",
   };
 }
 
@@ -406,13 +433,13 @@ describe("managed agent route catalog", () => {
       .toBe("Provider/model eligibility evidence is pending for direct managed invocation route 'opencode-go-research-readonly'.");
 
     await catalog.refreshNow();
-    expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(false);
+    expect(profileByAdmission(catalog.managedInvocation?.routes[0], "foundation-readonly-plan")?.networkAllowed).toBe(false);
 
     currentConfig = makeConfig(true);
     await catalog.refreshNow();
     const refreshedComposition = createManagedAccountRuntimeComposition(currentConfig, cwd);
 
-    expect(catalog.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]?.networkAllowed).toBe(true);
+    expect(profileByAdmission(catalog.managedInvocation?.routes[0], "foundation-readonly-plan")?.networkAllowed).toBe(true);
     expect(refreshedComposition?.authority).toBe(initialComposition?.authority);
     expect(refreshedComposition?.routing).toBe(initialComposition?.routing);
   });
@@ -505,10 +532,30 @@ describe("managed agent route catalog", () => {
 
   it("projects explicit read-only reference roots with default protected descendants", async () => {
     const cwd = "C:/workspace/kiln";
+    const catalog = makeExecutionCatalog("opencode-go-frontend-reference-readonly");
     const resolution = await resolveManagedInvocationToolOptions({
+      executionCatalog: catalog,
+      targetCatalog: {
+        accounts: catalog.accounts,
+        accountPolicies: catalog.accountPolicies,
+        targets: catalog.routes.map((route) => ({ ...route, kind: "direct" as const })),
+      },
+      authorityProfiles: [{
+        id: "frontend-reference-readonly",
+        admissionProfile: "foundation-readonly-plan",
+        workingDirectory: "project",
+        tools: { allowed: ["read", "grep", "glob", "web_search"], network: true, writes: false },
+        readAuthority: {
+          workspace: {
+            allowedPaths: ["C:/workspace/references/t1code", "C:/workspace/references/vllm-studio"],
+            deniedPaths: [],
+          },
+        },
+        memory: { access: "read-only" },
+      }],
       managedAgents: {
-        schemaVersion: 2,
         enabled: true,
+        defaultAuthorityProfileId: "frontend-reference-readonly",
         economicPolicies: [{
           id: "frontend-reference-policy",
           revision: "rev-1",
@@ -523,37 +570,14 @@ describe("managed agent route catalog", () => {
             envelopeSemantics: "bounded",
           }],
           candidates: [{
-            routeId: "opencode-go-frontend-reference-readonly",
+            targetId: "opencode-go-frontend-reference-readonly",
             comparisonDomainId: "priority-only",
             priorityRank: 0,
             ceiling: { kind: "none" },
             worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
           }],
         }],
-        routes: [{
-          id: "opencode-go-frontend-reference-readonly",
-          kind: "direct",
-          executionRouteId: "opencode-go-frontend-reference-readonly",
-          profiles: ["foundation-readonly-plan"],
-          workingDirectory: "project",
-          tools: {
-            allowed: ["read", "grep", "glob", "web_search"],
-            network: true,
-            writes: false,
-          },
-          readAuthority: {
-            workspace: {
-              allowedPaths: [
-                "C:/workspace/references/t1code",
-                "C:/workspace/references/vllm-studio",
-              ],
-              deniedPaths: [],
-            },
-          },
-          memory: { access: "read-only" },
-        }],
       },
-      executionCatalog: makeExecutionCatalog("opencode-go-frontend-reference-readonly"),
     }, {
       cwd,
       registry: createRegistry("opencode-go"),
@@ -566,7 +590,7 @@ describe("managed agent route catalog", () => {
     });
 
     expect(resolution.routeHealth[0]).toMatchObject({ available: true });
-    expect(resolution.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
+    expect(profileByAdmission(resolution.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
       permissionProfile: "read-only",
       readAuthority: {
         workspace: {
@@ -590,7 +614,7 @@ describe("managed agent route catalog", () => {
     });
   });
 
-  it("rejects agent profiles whose explicit provider route contradicts their route id", async () => {
+  it("does not admit agent definitions that use removed route/provider fields", async () => {
     const cwd = createTempRoot();
     const agentsDirectory = join(cwd, ".kiln", "agents");
     mkdirSync(agentsDirectory, { recursive: true });
@@ -621,12 +645,7 @@ describe("managed agent route catalog", () => {
     });
 
     expect(resolution.managedInvocation?.agentCatalog?.some((agent) => agent.name === "contradictory") ?? false).toBe(false);
-    expect(resolution.agentHealth).toContainEqual({
-      agentName: "contradictory",
-      available: false,
-      routeId: "opencode-go-research-readonly",
-      reason: "Agent provider 'codex-oauth' does not match route provider 'opencode-go'.",
-    });
+    expect(resolution.agentHealth.some((agent) => agent.agentName === "contradictory")).toBe(false);
   });
 
   it("projects isolated worktree routes with a shared runtime invocation service", async () => {
@@ -642,7 +661,7 @@ describe("managed agent route catalog", () => {
     });
 
     expect(resolution.routeHealth[0]).toMatchObject({ available: true });
-    const profile = resolution.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"];
+    const profile = profileByAdmission(resolution.managedInvocation?.routes[0], "foundation-apply-approved-writes");
 
     expect(profile?.workingDirectory).toEqual({
       path: join(cwd, ".kiln", "managed-worktrees"),
@@ -659,26 +678,23 @@ describe("managed agent route catalog", () => {
   it("fails closed when isolated worktree write scopes point outside the repository", async () => {
     const cwd = createTempRoot();
     const config = makeIsolatedWorktreeWriteConfig();
-    const route = config.managedAgents?.routes?.[0];
-    if (!route?.writeAuthority) {
-      throw new Error("expected test route write authority");
+    const profile = config.authorityProfiles?.[0];
+    if (!profile?.writeAuthority) {
+      throw new Error("expected test authority profile write authority");
     }
     const resolution = await resolveManagedInvocationToolOptions({
       ...config,
-      managedAgents: {
-        ...config.managedAgents,
-        routes: [{
-          ...route,
+      authorityProfiles: [{
+          ...profile,
           writeAuthority: {
-            ...route.writeAuthority,
+            ...profile.writeAuthority,
             workspace: {
-              ...route.writeAuthority.workspace,
+              ...profile.writeAuthority.workspace,
               mode: "apply-approved",
               allowedPaths: [`${cwd}/../outside`],
             },
           },
         }],
-      },
     }, {
       cwd,
       registry: createRegistry("codex"),
@@ -750,7 +766,7 @@ describe("managed agent route catalog", () => {
     };
     await catalog.refreshNow();
 
-    const profile = catalog.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"];
+    const profile = profileByAdmission(catalog.managedInvocation?.routes[0], "foundation-apply-approved-writes");
     expect(initialService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
     expect(catalog.managedInvocation?.invocationService).toBeInstanceOf(RuntimeManagedAgentInvocationService);
     expect(catalog.managedInvocation?.invocationService).not.toBe(initialService);
@@ -759,29 +775,29 @@ describe("managed agent route catalog", () => {
 
   it("fails closed when isolated worktree absolute paths only match the repository by POSIX case folding", async () => {
     const config = makeIsolatedWorktreeWriteConfig();
-    const route = config.managedAgents?.routes?.[0];
-    if (!route?.writeAuthority) {
-      throw new Error("expected test route write authority");
+    const profile = config.authorityProfiles?.[0];
+    if (!profile?.writeAuthority) {
+      throw new Error("expected test authority profile write authority");
     }
     const resolution = await resolveManagedInvocationToolOptions({
       ...config,
+      authorityProfiles: [{
+        ...profile,
+        writeAuthority: {
+          ...profile.writeAuthority,
+          workspace: {
+            ...profile.writeAuthority.workspace,
+            mode: "apply-approved",
+            allowedPaths: ["/Users/test/Repo/packages/runtime/src"],
+          },
+        },
+      }],
       managedAgents: {
         ...config.managedAgents,
         worktreeLease: {
           mode: "git",
           rootPath: "/Users/test/repo/.kiln/managed-worktrees",
         },
-        routes: [{
-          ...route,
-          writeAuthority: {
-            ...route.writeAuthority,
-            workspace: {
-              ...route.writeAuthority.workspace,
-              mode: "apply-approved",
-              allowedPaths: ["/Users/test/Repo/packages/runtime/src"],
-            },
-          },
-        }],
       },
     }, {
       cwd: "/Users/test/repo",

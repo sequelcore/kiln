@@ -1,5 +1,5 @@
 import { describeTrustedExecutionEnforcement, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
-import type { KilnYaml } from "../../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import { translatePermission } from "../../wrapper/session-registry.js";
 import { stripManagedFields } from "../native-projection-state.js";
@@ -13,7 +13,7 @@ import {
 export function translateCodexPermissionProjection(input: {
   readonly policy: KilnPermissionPolicy;
   readonly existingDocument: Record<string, unknown>;
-  readonly kilnYaml?: KilnYaml;
+  readonly kilnYaml?: ResolvedKilnConfig;
   readonly ownsManagedDefault?: boolean;
   readonly suppressManagedDefault?: boolean;
   readonly previousManagedFields?: readonly string[];

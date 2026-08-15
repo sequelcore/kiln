@@ -136,7 +136,7 @@ describe("config proposals", () => {
     expect(proposal.diagnostics).toEqual(expect.arrayContaining([
       expect.objectContaining({
         field: "model",
-        message: "Agent model is not a canonical top-level field. Use providerRoute for strict execution routing.",
+        message: "Agent model is not a canonical top-level field. Select a global targetId instead.",
       }),
     ]));
   }));

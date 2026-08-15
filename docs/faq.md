@@ -71,7 +71,7 @@ channels. See [Operator Surfaces](guides/ops/operator-surfaces.md).
 Yes, in a narrow and deliberate sense. It is a local, authenticated gateway
 that accepts supported Codex, Claude Code, and OpenCode model requests. Native
 Codex requests are forwarded to Codex; Kiln virtual model IDs resolve to
-canonical execution routes owned by Kiln Runtime.
+canonical execution targets owned by Kiln Runtime.
 
 It is not a general-purpose network proxy and does not replace provider terms,
 credentials, or entitlement checks. See

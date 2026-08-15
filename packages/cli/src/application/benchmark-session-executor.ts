@@ -10,7 +10,6 @@ import {
   SandboxPolicy,
   WorkItemStore,
   createSessionBuiltinToolOptions,
-  defineExecutionCatalog,
   defineDeliberationLevelId,
   mapProviderModelRouteErrorToOutcome,
 } from "@kilnai/core";
@@ -38,7 +37,7 @@ import {
   type ProviderId,
 } from "../wrapper/session-registry.js";
 import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
-import { readGlobalConfig } from "../config/global-config.js";
+import { projectDirectExecutionCatalog, readGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
@@ -58,7 +57,11 @@ import {
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
-import { resolveManagedInvocationToolOptions } from "../config/managed-agent-routes.js";
+import {
+  closeManagedAccountRuntimeComposition,
+  createManagedAccountRuntimeComposition,
+  resolveManagedInvocationToolOptions,
+} from "../config/managed-agent-routes.js";
 import { createOperatorSurfaceEconomicAuthority } from "./operator-surface-economic-authority.js";
 import { SessionHooks } from "./session-hooks.js";
 import { runSession } from "./run-session.js";
@@ -75,6 +78,7 @@ import {
   createBenchmarkWriteWorkspaceLease,
   type BenchmarkWriteWorkspaceChanges,
 } from "./benchmark-write-workspace.js";
+import { createBenchmarkAuthorityWorkspaceLease } from "./benchmark-authority-workspace.js";
 import {
   verifyBackendBenchmarkLease,
   type BackendBenchmarkVerification,
@@ -94,7 +98,7 @@ const WRITE_BENCHMARK_PROFILE_IDS = new Set([
 const WRITE_BENCHMARK_TOOLS = ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"] as const;
 
 export interface BenchmarkSessionExecutorFlags {
-  readonly routeId?: string;
+  readonly targetId?: string;
   readonly skipGitRepoCheck?: boolean;
   readonly deliberationLevel?: string;
 }
@@ -117,7 +121,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const writeLease = writeMode
       ? createBenchmarkWriteWorkspaceLease(repositoryRoot, context.item.metadata?.workspaceFixture)
       : undefined;
+    const authorityLease = benchmarkWorkspace.kind === "synthetic-fixture"
+      ? createBenchmarkAuthorityWorkspaceLease()
+      : undefined;
     const cwd = writeLease?.rootPath ?? benchmarkWorkspace.rootPath;
+    const authorityStateRoot = authorityLease?.rootPath ?? repositoryRoot;
+    let closeAuthorityState = () => authorityLease?.cleanup();
     const workspaceFixtureHash = writeLease?.canonicalHash ?? (benchmarkWorkspace.kind === "synthetic-fixture"
       ? hashBenchmarkWorkspace(benchmarkWorkspace)
       : undefined);
@@ -140,10 +149,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
     const configuredRouteCandidates = resolveExecutionRouteCandidates({
       globalConfig,
-      routeId: options.flags?.routeId,
+      routeId: options.flags?.targetId,
     });
     if (writeMode && configuredRouteCandidates.length === 0) {
-      throw new Error("Benchmark write profiles require a configured Kiln V2 execution route.");
+      throw new Error("Benchmark write profiles require a configured direct execution target.");
     }
     const preferredProvider = configuredRouteCandidates[0]?.provider;
     const effectiveModel = configuredRouteCandidates[0]?.model;
@@ -183,12 +192,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       runtimePermissionObservationProjectPath: cwd,
     });
     const benchmarkCleanupRegistry = new CleanupRegistry();
-    const boundedWork = benchmarkWorkspace.kind === "repository"
-      ? createProjectBoundedWorkAuthority(cwd, {
-          authorityStateRoot: repositoryRoot,
-          projectIdentityRoot: repositoryRoot,
-        })
-      : undefined;
+    const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+      authorityStateRoot,
+      projectIdentityRoot: cwd,
+    });
     benchmarkCleanupRegistry.register(async () => boundedWork?.close());
     const operatorEconomicAuthority = benchmarkWorkspace.kind === "repository" && !options.appConfig.managedInvocation
       ? createOperatorSurfaceEconomicAuthority("benchmark", cwd)
@@ -265,17 +272,32 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           },
         }
       : withProgressiveRuntimeToolProjection(baseBuiltinToolOptions, "read-only"));
+    const benchmarkManagedAccountComposition = benchmarkWorkspace.kind === "synthetic-fixture" && globalConfig
+      ? createManagedAccountRuntimeComposition(globalConfig, cwd, {
+          compositionKey: authorityStateRoot,
+          databasePath: join(authorityStateRoot, "managed-account-leases.sqlite"),
+      })
+      : undefined;
+    closeAuthorityState = () => {
+      if (benchmarkWorkspace.kind === "synthetic-fixture") {
+        closeManagedAccountRuntimeComposition(authorityStateRoot);
+      }
+      authorityLease?.cleanup();
+    };
+    benchmarkCleanupRegistry.register(async () => closeAuthorityState());
     let managedInvocation = benchmarkWorkspace.kind === "repository"
       ? options.appConfig.managedInvocation
       : undefined;
-    if (benchmarkWorkspace.kind === "repository" && !managedInvocation) {
+    if (!managedInvocation) {
       const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
       const managedAgentProviderModels = await discoverManagedAgentProviderModels();
       managedInvocation = (await resolveManagedInvocationToolOptions(globalConfig, {
         cwd,
         registry,
         surface: "run",
-        maxParallelChildren: resolvedKilnConfig?.parallelWorkers ?? 1,
+        maxParallelChildren: benchmarkWorkspace.kind === "repository"
+          ? resolvedKilnConfig?.parallelWorkers ?? 1
+          : 1,
         isProviderAvailable: (providerId) => engineAvailability.get(providerId),
         providerModelEligibility: managedAgentProviderModels,
         directAdapterFactory: createManagedDirectProviderAdapterFactory({
@@ -286,6 +308,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         builtinToolOptions: () => builtinToolOptions,
         artifactStore: builtinToolOptions.artifactResources?.store,
         managedEconomicAuthority: operatorEconomicAuthority?.authority,
+        managedAccountComposition: benchmarkManagedAccountComposition,
       })).managedInvocation;
     }
     const managedInvocationWithService = managedInvocation
@@ -296,11 +319,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
     const sessionId = randomUUID();
-    const canonicalDispatcher = configuredRouteCandidates.length > 0 && globalConfig?.executionCatalog
+    const directExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
+    const canonicalDispatcher = configuredRouteCandidates.length > 0 && directExecutionCatalog
       ? createCanonicalRunSessionDispatcher({
-          catalog: defineExecutionCatalog(globalConfig.executionCatalog),
+          catalog: directExecutionCatalog,
           cwd,
-          authorityStateRoot: repositoryRoot,
+          authorityStateRoot,
           executionId: sessionId,
           routeId: configuredRouteCandidates[0]!.routeId,
           ...(executionDeliberation
@@ -318,7 +342,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     );
     const sessionConfig = {
       task: sessionInput,
-      mcpServerEntryPath: sessionContext.mcpServerEntryPath,
+      mcpServerEntryPath: benchmarkWorkspace.kind === "repository"
+        ? sessionContext.mcpServerEntryPath
+        : undefined,
       cwd,
       env,
       permissionPolicy,
@@ -353,7 +379,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       sessionConfig,
       permissionPolicy,
       sessionId,
-      approvalMemoryStore: new ApprovalMemoryStoreImpl(repositoryRoot),
+      approvalMemoryStore: new ApprovalMemoryStoreImpl(authorityStateRoot),
       env,
       sessionHooks,
       ...(writeLease ? {
@@ -469,7 +495,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       try {
         writeLease?.verifyCanonicalUnchanged();
       } finally {
-        writeLease?.cleanup();
+        try {
+          writeLease?.cleanup();
+        } finally {
+          closeAuthorityState();
+        }
       }
     }
   };

@@ -10,6 +10,7 @@ import type {
 } from "./types.js";
 import { unique } from "./catalog-descriptions.js";
 import { resolveManagedInvocationParentTurnId, sanitizeId } from "./input-parsing.js";
+import { resolveManagedInvocationRouteProfile } from "./profile-resolution.js";
 
 export function resolveRoute(
   routes: readonly ManagedInvocationToolRoute[],
@@ -34,6 +35,7 @@ export function resolveRoute(
       route.providerId === input.providerRoute.providerId
       && route.routeId === hintedRouteId
       && (!hintedModel || route.model === hintedModel)
+      && resolveManagedInvocationRouteProfile(route, input.profile, agentProfile) !== undefined
     );
     if (exactMatches.length === 1) {
       return { status: "found", route: exactMatches[0]! };
@@ -49,7 +51,7 @@ export function resolveRoute(
     route.providerId === input.providerRoute.providerId
     && (!hintedRouteId || route.routeId === hintedRouteId)
     && (!hintedModel || route.model === hintedModel)
-    && route.profiles[input.profile] !== undefined
+    && resolveManagedInvocationRouteProfile(route, input.profile, agentProfile) !== undefined
   );
   if (matches.length === 1) {
     return { status: "found", route: matches[0]! };
@@ -72,6 +74,12 @@ export function validateAgentRouteHint(
     return { ok: true };
   }
   const label = input.agentProfile ?? agentProfile.name;
+  if (agentProfile.admissionProfile !== input.profile) {
+    return {
+      ok: false,
+      error: `${toolName} profile '${input.profile}' contradicts configured agentProfile '${label}' authority binding.`,
+    };
+  }
   if (agentProfile.routeId && input.routeId && agentProfile.routeId !== input.routeId) {
     return {
       ok: false,

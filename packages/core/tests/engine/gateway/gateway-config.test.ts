@@ -40,13 +40,13 @@ modelGateway:
       contextTokens: 200000
       outputTokens: 10000
       baseInstructions: You are a governed Kiln coding agent.
-      executionRouteId: codex-standard
+      targetId: codex-standard
       capabilities: [text, function-tools]
       affinity: { continuity: none }
 `;
 
 describe("GatewayConfig model gateway overlay", () => {
-  it("parses ingress metadata with only a canonical execution route reference", () => {
+  it("keeps the virtual-model ingress alias separate from its canonical physical target", () => {
     const parsed = parseGatewayYaml(overlayGatewayYaml).modelGateway;
 
     expect(parsed).toMatchObject({
@@ -54,7 +54,7 @@ describe("GatewayConfig model gateway overlay", () => {
       surfaces: { openAIResponses: { maxConcurrentRequests: 4 } },
       virtualModels: [{
         id: "codex",
-        executionRouteId: "codex-standard",
+        targetId: "codex-standard",
         capabilities: ["text", "function-tools"],
       }],
     });
@@ -75,13 +75,18 @@ describe("GatewayConfig model gateway overlay", () => {
   ])("rejects duplicate Gateway ownership: %s", (_label, fragment) => {
     const yaml = fragment.startsWith("  accounts")
       ? overlayGatewayYaml.replace("  replay:", fragment + "  replay:")
-      : overlayGatewayYaml.replace("      executionRouteId:", fragment + "      executionRouteId:");
+      : overlayGatewayYaml.replace("      targetId:", fragment + "      targetId:");
     expect(() => parseGatewayYaml(yaml)).toThrow(/not supported/);
   });
 
-  it("fails closed when the execution route reference is missing or non-canonical", () => {
-    expect(() => parseGatewayYaml(overlayGatewayYaml.replace("executionRouteId: codex-standard", "executionRouteId: \"\""))).toThrow(/executionRouteId/);
-    expect(() => parseGatewayYaml(overlayGatewayYaml.replace("executionRouteId: codex-standard", "executionRouteId: route with spaces"))).toThrow(/executionRouteId/);
+  it("fails closed when the target reference is missing or non-canonical", () => {
+    expect(() => parseGatewayYaml(overlayGatewayYaml.replace("targetId: codex-standard", "targetId: \"\""))).toThrow(/targetId/);
+    expect(() => parseGatewayYaml(overlayGatewayYaml.replace("targetId: codex-standard", "targetId: target with spaces"))).toThrow(/targetId/);
+  });
+
+  it("rejects the removed executionRouteId vocabulary instead of accepting a compatibility alias", () => {
+    const legacyYaml = overlayGatewayYaml.replace("targetId: codex-standard", "executionRouteId: codex-standard");
+    expect(() => parseGatewayYaml(legacyYaml)).toThrow(/executionRouteId/);
   });
 
   it("rejects duplicate ownership in programmatic configs as well as YAML", () => {
@@ -106,7 +111,7 @@ describe("GatewayConfig model gateway overlay", () => {
       codexComposite: { maxQueuedRequests: 8, queueTimeoutMs: 30000 },
       principals: [{ nativeHarness: "codex" }],
       virtualModels: [{
-        executionRouteId: "codex-standard",
+        targetId: "codex-standard",
         deliberation: { levels: ["low", "high"], defaultLevel: "high" },
         affinity: { continuity: "prefer", scope: "session", allowRebind: true },
       }],

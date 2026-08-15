@@ -1,12 +1,12 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
 import { KilnYamlError } from "./kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./config/mcp-config.js";
 import { resolveCommunicationIntent } from "@kilnai/core";
 import type {
-  KilnYaml,
-  KilnModelTaskSuitabilityOverride,
+  ResolvedKilnConfig,
+  KilnProjectConfig,
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlWebConfig,
@@ -18,13 +18,12 @@ import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
-  KilnDeliberationPolicyConfig,
-  KilnDeliberationRouteRuleConfig,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
 export type {
-  KilnYaml,
+  ResolvedKilnConfig,
+  KilnProjectConfig,
   KilnYamlMcp,
   KilnYamlMcpServer,
   KilnYamlModel,
@@ -67,7 +66,27 @@ export type {
   KilnHooksConfig,
 } from "./kiln-yaml-types.js";
 
-export function readKilnYaml(kilnDir: string): KilnYaml | null {
+const PROJECT_ROOT_FIELDS = new Set([
+  "version",
+  "activeInstructionProfiles",
+  "workGovernance",
+  "domain",
+  "channels",
+  "teamMode",
+  "requireApproval",
+  "maxDepth",
+  "parallelWorkers",
+  "mcp",
+  "permissions",
+  "communication",
+  "web",
+  "interactiveUse",
+  "skills",
+  "qualityGates",
+  "contextGovernance",
+]);
+
+export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
   const path = join(kilnDir, "kiln.yaml");
   if (!existsSync(path)) {
     return null;
@@ -78,12 +97,17 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
     if (typeof parsed !== "object" || parsed === null) {
       throw new KilnYamlError("kiln.yaml must be an object");
     }
+    const record = parsed as Record<string, unknown>;
+    const unknownField = Object.keys(record).find((field) => !PROJECT_ROOT_FIELDS.has(field));
+    if (unknownField) {
+      throw new KilnYamlError(`${unknownField} is global-only or is not a supported project configuration field`);
+    }
     readMcpConfigurationSource({
-      value: (parsed as Record<string, unknown>).mcp,
+      value: record.mcp,
       scope: "project",
       sourcePath: path,
     });
-    const skills = (parsed as Record<string, unknown>).skills;
+    const skills = record.skills;
     if (skills !== undefined && (typeof skills !== "object" || skills === null || Array.isArray(skills))) {
       throw new KilnYamlError("skills must be an object");
     }
@@ -99,13 +123,13 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
       try {
         resolveCommunicationIntent([{
           source: "project",
-          intent: (parsed as KilnYaml).communication!,
+          intent: (parsed as KilnProjectConfig).communication!,
         }]);
       } catch (error) {
         throw new KilnYamlError(`communication is invalid: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    return parsed as KilnYaml;
+    return parsed as KilnProjectConfig;
   } catch (err) {
     if (err instanceof KilnYamlError) {
       throw err;
@@ -116,7 +140,7 @@ export function readKilnYaml(kilnDir: string): KilnYaml | null {
   }
 }
 
-export function writeKilnYaml(kilnDir: string, config: KilnYaml): void {
+export function writeKilnYaml(kilnDir: string, config: KilnProjectConfig): void {
   if (!existsSync(kilnDir)) {
     mkdirSync(kilnDir, { recursive: true });
   }
@@ -124,32 +148,33 @@ export function writeKilnYaml(kilnDir: string, config: KilnYaml): void {
   writeFileSync(path, stringify(config), "utf-8");
 }
 
-export function mergeKilnYaml(base: KilnYaml, override: Partial<KilnYaml>): KilnYaml {
+export function mergeKilnYaml(base: ResolvedKilnConfig, override: KilnProjectConfig): ResolvedKilnConfig {
   return {
     version: override.version ?? base.version ?? "1",
     activeInstructionProfiles: mergeStringList(base.activeInstructionProfiles, override.activeInstructionProfiles),
     workGovernance: mergeWorkGovernance(base.workGovernance, override.workGovernance),
     domain: override.domain ?? base.domain,
-    provider: override.provider ?? base.provider,
+    provider: base.provider,
     channels: override.channels ?? base.channels,
     teamMode: override.teamMode ?? base.teamMode,
     requireApproval: override.requireApproval ?? base.requireApproval,
     maxDepth: override.maxDepth ?? base.maxDepth,
     parallelWorkers: override.parallelWorkers ?? base.parallelWorkers,
-    mode: override.mode ?? base.mode,
     mcp: mergeMcp(base.mcp, override.mcp),
-    model: override.model ?? base.model,
+    model: base.model,
     permissions: override.permissions ?? base.permissions,
-    providers: override.providers ?? base.providers,
-    managedAgents: override.managedAgents ?? base.managedAgents,
-    modelTaskSuitability: mergeModelTaskSuitability(base.modelTaskSuitability, override.modelTaskSuitability),
-    deliberationPolicy: mergeDeliberationPolicy(base.deliberationPolicy, override.deliberationPolicy),
+    providers: base.providers,
+    managedAgents: base.managedAgents,
+    modelTaskSuitability: base.modelTaskSuitability,
+    deliberationPolicy: base.deliberationPolicy,
     communication: mergeCommunication(base.communication, override.communication),
     web: mergeWeb(base.web, override.web),
     interactiveUse: mergeInteractiveUse(base.interactiveUse, override.interactiveUse),
     skills: mergeSkills(base.skills, override.skills),
     contextGovernance: override.contextGovernance ?? base.contextGovernance,
-    hooks: override.hooks ?? base.hooks,
+    hooks: base.hooks,
+    targetCatalog: base.targetCatalog,
+    authorityProfiles: base.authorityProfiles,
   };
 }
 
@@ -176,45 +201,14 @@ function mergeWorkGovernance(
 }
 
 function mergeCommunication(
-  base: KilnYaml["communication"],
-  override: KilnYaml["communication"],
-): KilnYaml["communication"] {
+  base: ResolvedKilnConfig["communication"],
+  override: ResolvedKilnConfig["communication"],
+): ResolvedKilnConfig["communication"] {
   if (!base && !override) return undefined;
   return resolveCommunicationIntent([
     ...(override ? [{ source: "project" as const, intent: override }] : []),
     ...(base ? [{ source: "global" as const, intent: base }] : []),
   ]).intent;
-}
-
-function mergeDeliberationPolicy(
-  base: KilnDeliberationPolicyConfig | undefined,
-  override: KilnDeliberationPolicyConfig | undefined,
-): KilnDeliberationPolicyConfig | undefined {
-  if (!base && !override) return undefined;
-  const routes = new Map<string, KilnDeliberationRouteRuleConfig>();
-  for (const entry of [...(base?.byRoute ?? []), ...(override?.byRoute ?? [])]) {
-    routes.set(`${entry.provider}/${entry.model}`, entry);
-  }
-  return {
-    default: override?.default ?? base?.default,
-    byTask: {
-      ...(base?.byTask ?? {}),
-      ...(override?.byTask ?? {}),
-    },
-    byRoute: [...routes.values()],
-  };
-}
-
-function mergeModelTaskSuitability(
-  base: readonly KilnModelTaskSuitabilityOverride[] | undefined,
-  override: readonly KilnModelTaskSuitabilityOverride[] | undefined,
-): readonly KilnModelTaskSuitabilityOverride[] | undefined {
-  if (!base && !override) return undefined;
-  const merged = new Map<string, KilnModelTaskSuitabilityOverride>();
-  for (const entry of [...(base ?? []), ...(override ?? [])]) {
-    merged.set(`${entry.provider}/${entry.model}/${entry.task}`, entry);
-  }
-  return [...merged.values()];
 }
 
 function mergeStringList(
@@ -338,48 +332,10 @@ function mergeMcp(
   return { servers };
 }
 
-export function migrateConfigJson(kilnDir: string): boolean {
-  const configJsonPath = join(kilnDir, "config.json");
-  if (!existsSync(configJsonPath)) {
-    return false;
-  }
-  const raw = readFileSync(configJsonPath, "utf-8");
-  const config = JSON.parse(raw) as {
-    domain?: string;
-    provider?: string;
-    channels?: string[];
-    teamMode?: string;
-    requireApproval?: boolean;
-    maxDepth?: number;
-    parallelWorkers?: number;
-    mode?: string;
-  };
-  const kilnYaml: KilnYaml = {
-    version: "1",
-    domain: config.domain,
-    provider: config.provider,
-    channels: config.channels,
-    teamMode: config.teamMode,
-    requireApproval: config.requireApproval,
-    maxDepth: config.maxDepth,
-    parallelWorkers: config.parallelWorkers,
-    mode: config.mode,
-    permissions: {
-      approval: config.requireApproval ? "on-request" : "never",
-      sandbox: "read-only",
-    },
-  };
-  writeKilnYaml(kilnDir, kilnYaml);
-  rmSync(configJsonPath);
-  return true;
-}
-
-export function defaultKilnYaml(domain: string): KilnYaml {
+export function defaultKilnYaml(domain: string): KilnProjectConfig {
   return {
     version: "1",
     domain,
-    provider: "claude",
-    mode: "api-key",
     permissions: {
       approval: "on-request",
       sandbox: "read-only",

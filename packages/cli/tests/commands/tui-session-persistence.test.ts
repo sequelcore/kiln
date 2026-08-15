@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
 import { createSessionEvent, InMemoryContextArtifactCache, resolveCommunicationIntent, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
 
@@ -260,7 +260,8 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
     prepare = mockSessionManagerPrepare;
   },
 }));
-vi.mock("../../src/config/global-config.js", () => ({
+vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
   readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
   readGlobalConfigSnapshot: vi.fn(() => ({ config: mockGlobalConfig.value, revision: `sha256:${"a".repeat(64)}` })),
   resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
@@ -2026,7 +2027,7 @@ describe("makeMultiProviderSessionFactory", () => {
     }
 
     expect(switchToConfiguredRouteResult).toBe("openai-default");
-    expect(directRouteSelectionError).toContain("Execution route");
+    expect(directRouteSelectionError).toContain("Execution target");
     expect(mockResolveGuiOperatorDiscoveryResults).toHaveBeenCalled();
     expect(mockProjectGuiProviderModelDiscovery).toHaveBeenCalled();
   });

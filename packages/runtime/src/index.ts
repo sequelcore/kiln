@@ -104,10 +104,12 @@ export type {
 } from "./execution-routing/operator-session-execution-routing-service.js";
 export {
   ExecutionRouteDataPolicyAuthority,
+  evaluateExecutionTargetDataPolicy,
   ExecutionRouteDataPolicyDeniedError,
 } from "./execution-routing/execution-route-data-policy-authority.js";
 export type {
   ExecutionRouteDataPolicyIdentity,
+  ExecutionTargetDataPolicyInput,
   SanitizedExecutionRouteDataPolicyDecision,
   SanitizedExecutionRouteDataPolicyEvidence,
 } from "./execution-routing/execution-route-data-policy-authority.js";
@@ -420,6 +422,9 @@ export {
   ManagedAgentRuntimeAdmissionError,
   ManagedCommittedRouteMismatchError,
   ManagedEconomicDispatchCoordinator,
+  resolveAdHocManagedInvocationRouteProfile,
+  resolveConfiguredManagedInvocationRouteProfile,
+  resolveManagedInvocationRouteProfile,
   RuntimeManagedAgentInvocationService,
   runManagedAgentOrchestrationLifecycle,
 } from "./agents/managed-invocation/index.js";

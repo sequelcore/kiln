@@ -26,31 +26,48 @@ function deferred<T>() {
 /**
  * Shared between the `config-status.js` mock (still the sole source of
  * `workGovernance` evidence, consulted by `inspection.inspectWorkGovernance()`)
- * and the `global-config.js` mock below (now the real source
- * `loadOperatorProjectManagedRouteConfig` reads `managedAgents`/`modelGateway`
- * global authority from). Kept in one place so both mocks describe the same
- * fixture route instead of two independently drifting copies.
+ * and the `global-config.js` mock below. Managed-agent policy remains global,
+ * while target and authority identity live in their dedicated V3 catalogs.
  */
 const TEST_MANAGED_AGENTS_CONFIG = {
   enabled: true,
-  routes: [
-    {
-      id: "test-readonly-route",
-      kind: "direct",
-      executionRouteId: "managed-codex",
-      profiles: ["foundation-readonly-plan"],
-      workingDirectory: "project",
-      tools: {
-        allowed: ["read"],
-        network: false,
-        writes: false,
-      },
-      memory: { access: "read-only" },
-    },
-  ],
+  defaultAuthorityProfileId: "test-readonly",
+  economicPolicies: [{
+    id: "test-economic-policy",
+    revision: "rev-1",
+    evidenceRequirements: { quota: "optional", price: "optional" },
+    noRouteAction: "deny",
+    comparisonDomains: [{
+      id: "priority-only",
+      rank: 0,
+      unit: "request",
+      scheme: { kind: "unit" },
+      rateCardBasis: "subscription",
+      envelopeSemantics: "turn",
+    }],
+    candidates: [{
+      targetId: "managed-codex",
+      comparisonDomainId: "priority-only",
+      priorityRank: 0,
+      ceiling: { kind: "none" },
+      worstCaseReservation: { kind: "not-comparable", reason: "subscription-basis" },
+    }],
+  }],
 };
 
-const TEST_EXECUTION_CATALOG = {
+const TEST_AUTHORITY_PROFILES = [{
+  id: "test-readonly",
+  admissionProfile: "foundation-readonly-plan",
+  workingDirectory: "project",
+  tools: {
+    allowed: ["read"],
+    network: false,
+    writes: false,
+  },
+  memory: { access: "read-only" },
+}];
+
+const TEST_TARGET_CATALOG = {
   accounts: [{
     id: "test-account",
     providerId: "codex-oauth",
@@ -60,11 +77,27 @@ const TEST_EXECUTION_CATALOG = {
     economics: { capacityIdentity: "test-account", subscriptionClass: "subscription", quotaClassId: "test-account", creditPosture: "disabled", overagePosture: "disabled" },
   }],
   accountPolicies: [{ id: "managed-codex-policy", accountIds: ["test-account"], strategy: "economic-least-pressure" }],
-  routes: [{
+  targets: [{
     id: "managed-codex",
+    kind: "direct",
     label: "Managed Codex",
     providerId: "codex-oauth",
     providerModelId: "gpt-5.6-terra",
+    dataClassification: "internal",
+    dataPolicyEvidence: {
+      providerId: "codex-oauth",
+      providerModelId: "gpt-5.6-terra",
+      dataUse: "not-used",
+      trainingPosture: "prohibited",
+      retention: { posture: "zero", days: 0 },
+      permittedMaximumClassification: "internal",
+      permittedClassifications: ["public", "internal"],
+      sourceIdentity: "operator-project-agent-tasks-fixture",
+      sourceRevision: "rev-1",
+      sourceDigest: `sha256:${"b".repeat(64)}`,
+      observedAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: "2027-08-01T00:00:00.000Z",
+    },
     accountSelection: { mode: "automatic", accountPolicyId: "managed-codex-policy" },
     economics: { adapterCapabilityId: "codex", adapterCapabilityVersion: "v1", authBillingChannel: "oauth", executionMode: "direct", serviceTier: "standard", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider", priceEvidence: { kind: "subscription", rateCardId: "codex", rateCardRevision: "v1", evidence: { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", validUntil: "2026-09-01T00:00:00.000Z", confidence: "high", authority: "configured" } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } },
   }],
@@ -86,9 +119,10 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   return {
     ...actual,
     readGlobalConfig: vi.fn(() => ({
-      version: "2",
+      version: "3",
       managedAgents: TEST_MANAGED_AGENTS_CONFIG,
-      executionCatalog: TEST_EXECUTION_CATALOG,
+      authorityProfiles: TEST_AUTHORITY_PROFILES,
+      targetCatalog: TEST_TARGET_CATALOG,
     })),
   };
 });
@@ -97,7 +131,7 @@ vi.mock("../../src/application/config-status.js", () => ({
   readConfigStatusSnapshot: vi.fn(async (options?: { readonly projectPath?: string }) => {
     const projectRoot = options?.projectPath ?? "C:/workspace/unresolved";
     const effectiveConfig = {
-      version: "2",
+      version: "1",
       workGovernance: {
         defaultPosture: "orchestrate",
         directExecution: { maxFiles: 1, maxRisk: "low" },
@@ -105,7 +139,6 @@ vi.mock("../../src/application/config-status.js", () => ({
         requiredEvidence: ["surface-map", "tests"],
       },
       managedAgents: TEST_MANAGED_AGENTS_CONFIG,
-      executionCatalog: TEST_EXECUTION_CATALOG,
     };
     return {
       evidenceVersion: 2,
@@ -280,10 +313,13 @@ describe("operator project agent-task production composition", () => {
         adapterCapabilityId: `${providerId}-direct`,
         adapterCapabilityVersion: "1",
       },
-      profiles: { "foundation-readonly-plan": {} },
+      profiles: [{
+        authorityProfileId: "test-readonly",
+        admissionProfile: "foundation-readonly-plan",
+      }],
     });
     const agents = [
-      { name: "economic-worker", role: "Policy-only worker", economicPolicyId: "bounded-policy" },
+      { name: "economic-worker", role: "Policy-only worker", economicPolicyId: "bounded-policy", authorityProfileId: "test-readonly" },
     ];
 
     expect(summarizeOperatorProjectManagedAgents(agents, undefined)).toMatchObject([{
@@ -299,6 +335,8 @@ describe("operator project agent-task production composition", () => {
       ],
       agentCatalog: [{
         name: "economic-worker",
+        authorityProfileId: "test-readonly",
+        admissionProfile: "foundation-readonly-plan",
         economicPolicyId: "bounded-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: ["codex-route", "opencode-route"],
@@ -312,6 +350,8 @@ describe("operator project agent-task production composition", () => {
       routes: [],
       agentCatalog: [{
         name: "economic-worker",
+        authorityProfileId: "test-readonly",
+        admissionProfile: "foundation-readonly-plan",
         economicPolicyId: "bounded-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: ["codex-route"],
@@ -344,14 +384,22 @@ describe("operator project agent-task production composition", () => {
         capacity: { kind: "policy-bound" as const, accountPolicyId: "managed-claude" },
         settlement: { kind: "not-required" as const },
       },
-      profiles: { "foundation-readonly-plan": {} },
+      profiles: [{
+        authorityProfileId: "test-readonly",
+        admissionProfile: "foundation-readonly-plan" as const,
+      }],
     };
 
     expect(summarizeOperatorProjectManagedAgents([
-      { name: "native-reviewer", role: "Native reviewer" },
+      { name: "native-reviewer", role: "Native reviewer", targetId: nativeRoute.routeId, authorityProfileId: "test-readonly" },
     ], {
       routes: [nativeRoute],
-      agentCatalog: [{ name: "native-reviewer", routeId: nativeRoute.routeId }],
+      agentCatalog: [{
+        name: "native-reviewer",
+        routeId: nativeRoute.routeId,
+        authorityProfileId: "test-readonly",
+        admissionProfile: "foundation-readonly-plan",
+      }],
     } as never)).toMatchObject([{
       configuredAgentProfileId: "native-reviewer",
       availability: "unavailable",

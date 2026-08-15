@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createExecutionRoutePickerActions } from "../src/components/app-shell-execution-route-actions.js";
 
-describe("execution route actions", () => {
+describe("execution target actions", () => {
   it("selects a route with an optional exact account", async () => {
     const input = {
       selectExecutionRoute: vi.fn(() => true),

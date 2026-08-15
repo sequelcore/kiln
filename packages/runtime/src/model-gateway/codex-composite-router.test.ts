@@ -31,7 +31,7 @@ function config(): ModelGatewayConfig {
       displayName: "Model A",
       contextTokens: 200_000,
       outputTokens: 8_192,
-      executionRouteId: "model-a-route",
+      targetId: "model-a-route",
       capabilities: ["text", "function-tools"],
       affinity: { continuity: "none" },
     }],

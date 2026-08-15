@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deriveProviderModelEligibility, type ProviderModelEligibilityRequirements } from "@kilnai/core";
-import { ExecutionRouteDataPolicyAuthority, normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
 import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 
 function persistGlobalConfig(config: KilnGlobalConfig): void {
@@ -104,7 +104,9 @@ vi.mock("../../src/config/managed-agent-route-catalog.js", async (importOriginal
               });
             }
             if (routeCatalogTrace.mutateExecutionProfileAuthority && routeCatalogTrace.executionRefreshCount >= 3) {
-              const profile = route?.profiles["foundation-readonly-plan"];
+              const profile = route?.profiles.find(
+                (candidate) => candidate.admissionProfile === "foundation-readonly-plan",
+              );
               if (profile) Object.assign(profile, { timeoutMs: profile.timeoutMs + 1 });
             }
           },
@@ -132,8 +134,8 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
 
 /**
  * Regression proof for #56 revised S1: the operator-supervised project Runtime
- * composition must derive its managed-route config
- * (`executionCatalog`, `engines`, `routing`, `models`, `managedAgents`, ...) from
+ * composition must derive its managed-target config
+ * (`targetCatalog`, `authorityProfiles`, `engines`, `managedAgents`, ...) from
  * canonical global/project config with the correct authority split, not from
  * `readConfigStatusSnapshot().effectiveConfig` (a project/status projection
  * that never carries global-only Runtime route authority). Unlike
@@ -143,9 +145,9 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
  * disk, through the real composition boundary
  * (`createOperatorProjectAgentTaskApplicationComposition`) and the real MCP
  * surface (`NativeHarnessMcpTools`). A fake `effectiveConfig` mock (as the
- * existing sibling test uses) can assert whatever shape it likes, including a
- * `executionCatalog` field that `KilnYaml` never actually produces -- which is
- * exactly how the original defect went uncaught.
+ * existing sibling test uses) can assert whatever shape it likes, including
+ * global target authority that `ResolvedKilnConfig` never actually produces --
+ * which is exactly how the original defect went uncaught.
  */
 const FIXTURE_OBSERVED_AT = "2026-07-01T12:00:00.000Z";
 
@@ -227,6 +229,7 @@ const ECONOMIC_WORKER_AGENT = [
   "goal: Prove economic policy binding reaches native-harness composition.",
   "tier: fast",
   "mode: managed-child",
+  "authorityProfileId: readonly-plan",
   "economicPolicyId: default-economic-policy",
   "---",
   "Regression fixture agent; not used for real work.",
@@ -240,7 +243,7 @@ const OPENCODE_WRITE_WORKER_AGENT = [
   "tier: fast",
   "mode: managed-child",
   "economicPolicyId: default-economic-policy",
-  "authorityProfile: foundation-apply-approved-writes",
+  "authorityProfileId: approved-write",
   "---",
   "Regression fixture agent; not used for real work.",
 ].join("\n");
@@ -252,43 +255,59 @@ const NATIVE_CODEX_DELIBERATION_AGENT = [
   "goal: Execute only with the discovered deliberation level.",
   "tier: reasoning",
   "mode: managed-child",
-  "routeId: native-codex-deliberation",
-  "providerRoute:",
-  "  providerId: codex",
-  "  model: gpt-5.6-codex",
-  "  deliberationLevel: high",
+  "targetId: native-codex-deliberation",
+  "authorityProfileId: readonly-plan",
   "---",
   "Regression fixture agent; not used for real work.",
 ].join("\n");
 
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
-  const directCatalog = economicConfig().executionCatalog!;
   return {
-    version: "2",
-    executionCatalog: {
-      accounts: directCatalog.accounts.map((account) => ({ ...account, id: "native-codex-account", providerId: "codex", credentialId: "native-codex-identity" })),
+    version: "3",
+    targetCatalog: {
+      accounts: [],
       accountPolicies: [],
-      routes: directCatalog.routes.map((route) => ({
-        ...route,
+      targets: [{
         id: "native-codex-deliberation",
+        kind: "harness",
         label: "Native Codex Deliberation",
         providerId: "codex",
         providerModelId: "gpt-5.6-codex",
-        accountSelection: { mode: "exact" as const, accountId: "native-codex-account" },
-        dataPolicyEvidence: { ...route.dataPolicyEvidence, providerId: "codex", providerModelId: "gpt-5.6-codex" },
-      })),
+        dataClassification: "internal",
+        dataPolicyEvidence: {
+          providerId: "codex",
+          providerModelId: "gpt-5.6-codex",
+          dataUse: "not-used",
+          trainingPosture: "prohibited",
+          retention: { posture: "zero", days: 0 },
+          permittedMaximumClassification: "internal",
+          permittedClassifications: ["public", "internal"],
+          sourceIdentity: "fixture-privacy-policy",
+          sourceRevision: "rev-2026-08",
+          sourceDigest: `sha256:${"b".repeat(64)}`,
+          observedAt: "2026-08-01T00:00:00.000Z",
+          expiresAt: "2027-08-31T00:00:00.000Z",
+        },
+      }],
     },
+    authorityProfiles: [{
+      id: "readonly-plan",
+      admissionProfile: "foundation-readonly-plan",
+      workingDirectory: "project",
+      tools: { allowed: ["read"], network: false, writes: false },
+      memory: { access: "read-only" },
+    }],
     managedAgents: {
       enabled: true,
-      routes: [{
-        id: "native-codex-deliberation",
-        kind: "harness",
+      defaultAuthorityProfileId: "readonly-plan",
+    },
+    deliberationPolicy: {
+      byRoute: [{
         provider: "codex",
         model: "gpt-5.6-codex",
-        profiles: ["foundation-readonly-plan"],
-        workingDirectory: "project",
-        tools: { allowed: ["read"], network: false, writes: false },
-        memory: { access: "read-only" },
+        mode: "fixed",
+        preferredLevel: "high",
+        onUnsupported: "deny",
       }],
     },
   };
@@ -315,43 +334,39 @@ function openCodeGoEconomicConfig(): KilnGlobalConfig {
     ...configured,
     managedAgents: {
       ...configured.managedAgents!,
-      routes: configured.managedAgents!.routes.map((route) => ({
-        ...route,
-        id: "opencode-go-direct",
-        executionRouteId: "opencode-go-direct",
-      })),
       economicPolicies: configured.managedAgents!.economicPolicies!.map((policy) => ({
         ...policy,
-        candidates: policy.candidates.map((candidate) => ({ ...candidate, routeId: "opencode-go-direct" })),
+        candidates: policy.candidates.map((candidate) => ({ ...candidate, targetId: "opencode-go-direct" })),
       })),
     },
-    executionCatalog: {
-      ...configured.executionCatalog!,
-      accounts: configured.executionCatalog!.accounts.map((account) => ({
+    targetCatalog: {
+      ...configured.targetCatalog!,
+      accounts: configured.targetCatalog!.accounts.map((account) => ({
         ...account,
         id: "opencode-go-account",
         providerId: "opencode-go",
         credentialId: "opencode-go-credential",
       })),
-      accountPolicies: configured.executionCatalog!.accountPolicies.map((policy) => ({
+      accountPolicies: configured.targetCatalog!.accountPolicies.map((policy) => ({
         ...policy,
         id: "opencode-go-policy",
         accountIds: ["opencode-go-account"],
       })),
-      routes: configured.executionCatalog!.routes.map((route) => ({
-        ...route,
+      targets: configured.targetCatalog!.targets.map((target) => ({
+        ...target,
         id: "opencode-go-direct",
         providerId: "opencode-go",
         providerModelId: "kimi-k2.6",
         dataPolicyEvidence: {
-          ...route.dataPolicyEvidence,
+          ...target.dataPolicyEvidence,
           providerId: "opencode-go",
           providerModelId: "kimi-k2.6",
         },
         accountSelection: { mode: "automatic" as const, accountPolicyId: "opencode-go-policy" },
-        economics: { ...route.economics, adapterCapabilityId: "opencode-go-direct" },
+        economics: { ...target.economics, adapterCapabilityId: "opencode-go-direct" },
       })),
     },
+    targetRouting: { defaultTargetId: "opencode-go-direct" },
   };
 }
 
@@ -359,22 +374,24 @@ function openCodeGoWriteEconomicConfig(): KilnGlobalConfig {
   const configured = openCodeGoEconomicConfig();
   return {
     ...configured,
+    authorityProfiles: configured.authorityProfiles?.map((profile) => ({
+      ...profile,
+      id: "approved-write",
+      admissionProfile: "foundation-apply-approved-writes" as const,
+      tools: {
+        allowed: ["read", "grep", "glob", "write", "edit", "apply-patch"],
+        network: false,
+        writes: true,
+      },
+      memory: { access: "write-proposals" as const },
+      writeAuthority: {
+        workspace: { mode: "apply-approved" as const, allowedPaths: ["."] },
+        approval: { mode: "required-before-apply" as const },
+      },
+    })),
     managedAgents: {
       ...configured.managedAgents!,
-      routes: configured.managedAgents!.routes.map((route) => ({
-        ...route,
-        profiles: ["foundation-apply-approved-writes" as const],
-        tools: {
-          allowed: ["read", "grep", "glob", "write", "edit", "apply-patch"],
-          network: false,
-          writes: true,
-        },
-        memory: { access: "write-proposals" as const },
-        writeAuthority: {
-          workspace: { mode: "apply-approved" as const, allowedPaths: ["."] },
-          approval: { mode: "required-before-apply" as const },
-        },
-      })),
+      defaultAuthorityProfileId: "approved-write",
     },
   };
 }
@@ -478,7 +495,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     return projectRoot;
   }
 
-  it("constructs the real composition from canonical schema-v2 config and surfaces the admitted managed agent through the real MCP server", async () => {
+  it("constructs the real composition from canonical V3 config and surfaces the admitted managed agent through the real MCP server", async () => {
     useIsolatedGlobalConfigHome();
     persistGlobalConfig(economicConfig());
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
@@ -556,7 +573,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       const expected = {
         status: "exact",
         selectedLevel: "high",
-        source: "agent-profile",
+        source: "route",
         capabilityEvidence: {
           sourceIdentity: "fixture-native-codex-catalog",
           sourceRevision: "revision-1",
@@ -887,14 +904,11 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
   it("projects an economic lifecycle abort as a provider timeout", async () => {
     useIsolatedGlobalConfigHome();
     const config = openCodeGoEconomicConfig();
-    const route = config.managedAgents?.routes?.[0];
-    if (!route) throw new Error("Expected one managed OpenCode Go route fixture.");
+    const authorityProfile = config.authorityProfiles?.[0];
+    if (!authorityProfile) throw new Error("Expected one managed authority profile fixture.");
     persistGlobalConfig({
       ...config,
-      managedAgents: {
-        ...config.managedAgents,
-        routes: [{ ...route, timeoutMs: 150 }],
-      },
+      authorityProfiles: [{ ...authorityProfile, timeoutMs: 150 }],
     });
     const projectRoot = createProjectRoot('version: "1"\n', { "economic-worker.md": ECONOMIC_WORKER_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
@@ -988,9 +1002,17 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
   it("denies native-route policy before adapter creation or Runtime start", async () => {
     useIsolatedGlobalConfigHome();
     routeCatalogTrace.injectNativeDeliberationCapabilities = true;
-    persistGlobalConfig(nativeCodexDeliberationConfig());
-    const assertPolicy = vi.spyOn(ExecutionRouteDataPolicyAuthority.prototype, "assertAdmitted")
-      .mockImplementation(() => { throw new Error("expired-evidence"); });
+    const config = nativeCodexDeliberationConfig();
+    persistGlobalConfig({
+      ...config,
+      targetCatalog: {
+        ...config.targetCatalog!,
+        targets: config.targetCatalog!.targets.map((target) => ({
+          ...target,
+          dataPolicyEvidence: { ...target.dataPolicyEvidence, expiresAt: "2026-08-14T00:00:00.000Z" },
+        })),
+      },
+    });
     const projectRoot = createProjectRoot('version: "1"\n', { "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
     const composition = await createOperatorProjectAgentTaskApplicationComposition({
@@ -1010,13 +1032,9 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
       expect(adapterTrace.createCalls).toBe(adapterCreationsBeforeDispatch);
       expect(start).not.toHaveBeenCalled();
       expect(adapterTrace.adapter.invoke).not.toHaveBeenCalled();
-      expect(assertPolicy).toHaveBeenCalledWith({
-        routeId: "native-codex-deliberation", providerId: "codex", providerModelId: "gpt-5.6-codex",
-      });
     } finally {
       await composition.close();
       start.mockRestore();
-      assertPolicy.mockRestore();
     }
   });
 
@@ -1079,59 +1097,37 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     }
   });
 
-  it("does not let a project kiln.yaml override global execution-route or engine authority", async () => {
+  it("rejects project kiln.yaml attempts to declare global target or engine authority", async () => {
     useIsolatedGlobalConfigHome();
     persistGlobalConfig(economicConfig());
-    // `KilnYaml` has neither an `executionCatalog` nor an `engines` field; this
-    // simulates an operator (or a regression) hand-editing project kiln.yaml
-    // with out-of-schema keys attempting to disable the provider the global
-    // config allows, and to replace executionCatalog with a value that would
-    // crash the configured account runtime if it were ever used. Both global
-    // authorities must keep governing composition unchanged.
+    // Project config is a strict restriction surface. Global engine and target
+    // declarations are rejected at the project boundary instead of ignored.
     const projectRoot = createProjectRoot([
       'version: "1"',
       "engines:",
       "  codex-oauth:",
       "    enabled: false",
-      "executionCatalog: not-a-catalog",
+      "targetCatalog: not-a-catalog",
     ].join("\n"), { "economic-worker.md": ECONOMIC_WORKER_AGENT });
 
-    const composition = await createOperatorProjectAgentTaskApplicationComposition({
+    await expect(createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => eligibleDirectProviderCatalog("codex-oauth", "gpt-5.6-codex"),
-    });
-    try {
-      const economicWorker = composition.configuredAgents.find((agent) => agent.configuredAgentProfileId === "economic-worker");
-      expect(economicWorker).toBeDefined();
-      expect(economicWorker).toMatchObject({
-        configuredAgentProfileId: "economic-worker",
-        availability: "admitted",
-        providerFamily: "codex-oauth",
-      });
-    } finally {
-      await composition.close();
-    }
+    })).rejects.toThrow(/engines is global-only/u);
   });
 
-  it("stays fail-closed when a project-declared direct route has no reachable global execution catalog", async () => {
+  it("rejects a project-declared managed target instead of treating it as global authority", async () => {
     useIsolatedGlobalConfigHome();
-    persistGlobalConfig({ version: "2" });
+    persistGlobalConfig({ version: "3" });
     const projectRoot = createProjectRoot([
       'version: "1"',
       "managedAgents:",
-      "  schemaVersion: 2",
-      "  routes:",
-      "    - id: project-declared-route",
-      "      kind: direct",
-      "      executionRouteId: unresolvable-route",
+      "  enabled: true",
     ].join("\n"));
 
     await expect(createOperatorProjectAgentTaskApplicationComposition({
       projectPath: projectRoot,
       discoverProviderModels: async () => ({}),
-    })).rejects.toMatchObject({
-      code: "route_unavailable",
-      operatorAction: "Managed direct routes require executionCatalog in global config.",
-    });
+    })).rejects.toThrow(/managedAgents is global-only/u);
   });
 });

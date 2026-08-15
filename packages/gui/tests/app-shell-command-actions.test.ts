@@ -66,7 +66,7 @@ describe("createAppShellCommandExecutor", () => {
     const input = createInput();
     const execute = createAppShellCommandExecutor(input);
 
-    execute({ id: "route", label: "Execution route" });
+    execute({ id: "target", label: "Execution target" });
 
     expect(input.openExecutionRoutePicker).toHaveBeenCalledOnce();
     expect(input.closePalette).toHaveBeenCalledOnce();

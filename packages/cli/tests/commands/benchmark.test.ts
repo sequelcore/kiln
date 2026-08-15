@@ -726,13 +726,13 @@ describe("benchmarkCommand", () => {
         "--dataset", datasetPath,
         "--k", "1",
         "--output", outputPath,
-        "--route", "benchmark-codex",
+        "--target", "benchmark-codex",
         "--deliberation-level-sweep", "low,luna-max",
       ],
       {
         createExecuteItem: (flags) => {
           observedLevels.push(flags.deliberationLevel);
-          observedRoutes.push(flags.routeId);
+          observedRoutes.push(flags.targetId);
           return async () => ({
             output: "status",
             durationMs: 10,
@@ -789,7 +789,7 @@ describe("benchmarkCommand", () => {
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
       ...base,
       "--deliberation-level", "high",
-    ])).rejects.toThrow("require explicit --route identity");
+    ])).rejects.toThrow("require explicit --target identity");
   });
 
   it("projects BFCL input rows into Kiln JSONL datasets", async () => {

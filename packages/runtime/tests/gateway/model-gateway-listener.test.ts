@@ -22,7 +22,7 @@ const config: ModelGatewayConfig = {
   replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
   surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
   principals: [{ tokenEnv: "BEARER_TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["codex"] }],
-  virtualModels: [{ id: "codex", displayName: "Codex", contextTokens: 1000, outputTokens: 100, executionRouteId: "codex-route", capabilities: ["text"], affinity: { continuity: "none" } }],
+  virtualModels: [{ id: "codex", displayName: "Codex", contextTokens: 1000, outputTokens: 100, targetId: "codex-route", capabilities: ["text"], affinity: { continuity: "none" } }],
 };
 
 const executionCatalog = defineExecutionCatalog({
@@ -354,7 +354,7 @@ modelGateway:
   principals:
       - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }
   virtualModels:
-      - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, executionRouteId: codex-route, capabilities: [text], affinity: { continuity: none } }
+      - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, targetId: codex-route, capabilities: [text], affinity: { continuity: none } }
 `, "utf8");
     await expect(startGateway(path, { port: 4819 })).rejects.toThrow("must differ");
   });

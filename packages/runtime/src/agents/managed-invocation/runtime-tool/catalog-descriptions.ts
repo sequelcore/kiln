@@ -18,7 +18,7 @@ export function buildManagedRouteCatalogDescription(options: ManagedInvocationTo
         .map((route) => {
           const suitability = formatTaskSuitability(route.taskSuitability, managedInvocationSkillNames(options));
           const timeoutSummary = formatRouteTimeoutSummary(route.profiles);
-          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? "configured"}, profiles=${Object.keys(route.profiles).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
+          return `- ${route.routeId}: routeSource=${route.routeSource}, providerRoute.providerId=${route.providerId}${route.model ? `, model=${route.model}` : ""}, surface=${route.surface ?? "configured"}, profiles=${route.profiles.map((profile) => `${profile.authorityProfileId}:${profile.admissionProfile}`).join(",")}${timeoutSummary ? `, ${timeoutSummary}` : ""}${suitability ? `, taskSuitability=${suitability}` : ""}`;
         })
         .join("\n")
     : "- none";
@@ -38,11 +38,11 @@ export function buildManagedRouteCatalogDescription(options: ManagedInvocationTo
 export function formatRouteTimeoutSummary(
   profiles: ManagedInvocationToolRoute["profiles"],
 ): string | undefined {
-  const entries = Object.entries(profiles)
-    .map(([profile, value]) => ({
-      profile,
-      timeoutMs: value?.timeoutMs,
-      ...(value?.timeoutSource ? { timeoutSource: value.timeoutSource } : {}),
+  const entries = profiles
+    .map((value) => ({
+      profile: `${value.authorityProfileId}:${value.admissionProfile}`,
+      timeoutMs: value.timeoutMs,
+      ...(value.timeoutSource ? { timeoutSource: value.timeoutSource } : {}),
     }))
     .filter((entry): entry is {
       readonly profile: string;
@@ -121,7 +121,7 @@ export function buildManagedAgentSelectionDescription(options: ManagedInvocation
     "Selection policy:",
     "- Use scout/context profiles before broad or ambiguous implementation.",
     "- Follow routeId/providerRoute hints shown on the selected agent profile.",
-    "- Use tdd/test profiles before behavior-changing work.",
+    "- Select a configured agent with test-writing affinity before behavior-changing work.",
     "- Use coding profiles for bounded implementation subtasks.",
     "- Use reviewer/validator profiles for quality gates, architecture checks, and risk review.",
     "- Use researcher profiles for external or evidence-dependent questions.",

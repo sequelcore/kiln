@@ -109,7 +109,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--route <execution-route-id>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--target <execution-target-id>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
@@ -395,7 +395,7 @@ async function runInternalBenchmark(
             cases: FRONTEND_BENCHMARK_CASE_IDS,
           },
         } : {}),
-        executionRouteId: executorFlags.routeId ?? "configured-default",
+        targetId: executorFlags.targetId ?? "configured-default",
         deliberationLevel: deliberationLevel ?? "provider-default",
         deliberationMode: deliberationMembers.length > 1
           ? "sweep"
@@ -664,7 +664,7 @@ function readExecutorFlags(
   deliberationLevel?: string,
 ): BenchmarkSessionExecutorFlags {
   return {
-    routeId: readFlag(args, "--route"),
+    targetId: readFlag(args, "--target"),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
   };
@@ -703,8 +703,8 @@ function readDeliberationLevelMembers(args: readonly string[]): readonly (string
   if (new Set(requested).size !== requested.length) {
     throw new Error("--deliberation-level-sweep must not contain duplicate levels.");
   }
-  if (requested[0] !== undefined && !readFlag(args, "--route")) {
-    throw new Error("deliberation-level benchmarks require explicit --route identity.");
+  if (requested[0] !== undefined && !readFlag(args, "--target")) {
+    throw new Error("deliberation-level benchmarks require explicit --target identity.");
   }
   return requested;
 }

@@ -49,12 +49,15 @@ describe("validateGlobalConfig root fields", () => {
     expect(() => validateGlobalConfig({ ...baseConfig(), models: {} })).toThrow(/Unknown global config field: models/u);
   });
 
-  it("rejects retired worker routing budget fields", () => {
+  it("rejects retired worker routing and model catalogs", () => {
     expect(() => validateGlobalConfig({
       ...baseConfig(),
-      workerRouting: { defaultWorker: "codex", budgetAware: true },
+      workerRouting: { defaultWorker: "codex" },
+    })).toThrow(/Unknown global config field: workerRouting/u);
+    expect(() => validateGlobalConfig({
+      ...baseConfig(),
       workerModels: { codex: "gpt-5.6-terra" },
-    })).toThrow(/budgetAware/u);
+    })).toThrow(/Unknown global config field: workerModels/u);
   });
 });
 
@@ -82,7 +85,7 @@ describe("unknown-field diagnostics identify the running build", () => {
     expect(() => validateGlobalConfig({
       ...baseConfig(),
       ui: { notARealField: true },
-    })).toThrow(/Unknown global ui field: notARealField\. Validated by kiln /u);
+    })).toThrow(/Unknown ui field: notARealField\. Validated by kiln /u);
   });
 
   it("preserves field-specific guidance alongside the build identity", () => {

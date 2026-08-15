@@ -12,10 +12,15 @@ const capability = {
 };
 
 const agent = {
-  name: "planner", role: "planner", goal: "plan", routeId: "route-alpha",
-  providerRoute: { providerId: "codex", model: "gpt-5.3-codex-spark" },
+  name: "planner", role: "planner", goal: "plan", targetId: "route-alpha",
+  authorityProfileId: "cross-repository-research-readonly",
   tools: ["read"],
 } as const;
+
+const authorityProfiles = [{
+  id: "cross-repository-research-readonly",
+  admissionProfile: "foundation-readonly-plan",
+}] as const;
 
 describe("managed agent route admission", () => {
   it("projects from canonical candidate-admission routes without execution composition", async () => {
@@ -29,7 +34,7 @@ describe("managed agent route admission", () => {
     });
 
     const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
-      loadConfig: async () => ({}) as never,
+      loadConfig: async () => ({ authorityProfiles }) as never,
       createRegistry,
       discoverProviderModels,
       resolveRoutes: resolveRoutes as never,
@@ -42,7 +47,7 @@ describe("managed agent route admission", () => {
 
   it("returns unresolved for an absent canonical route and unavailable for an unhealthy route", async () => {
     const create = (resolution: unknown) => createManagedAgentRouteAdmissionResolver("/repo", {
-      loadConfig: async () => ({}) as never,
+      loadConfig: async () => ({ authorityProfiles }) as never,
       createRegistry: () => ({ registry: {} as never }),
       discoverProviderModels: async () => ({}),
       resolveRoutes: async () => resolution as never,
@@ -51,23 +56,23 @@ describe("managed agent route admission", () => {
     expect((await create({ managedInvocation: { routes: [], unavailableRoutes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark" }] } })).resolve(agent as never)).toMatchObject({ status: "unavailable" });
   });
 
-  it("admits a unique provider/model route without routeId and rejects ambiguous selection", async () => {
+  it("requires an explicit canonical target and rejects duplicate target observations", async () => {
     const create = (routes: readonly unknown[]) => createManagedAgentRouteAdmissionResolver("/repo", {
-      loadConfig: async () => ({}) as never,
+      loadConfig: async () => ({ authorityProfiles }) as never,
       createRegistry: () => ({ registry: {} as never }),
       discoverProviderModels: async () => ({}),
       resolveRoutes: async () => ({ managedInvocation: { routes } }) as never,
     });
-    const withoutRouteId = { ...agent, routeId: undefined };
+    const withoutTargetId = { ...agent, targetId: undefined };
     const canonicalRoute = { routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark", capability };
-    expect((await create([canonicalRoute])).resolve(withoutRouteId as never)).toMatchObject({ status: "admitted" });
-    expect((await create([canonicalRoute, { ...canonicalRoute, routeId: "route-beta" }])).resolve(withoutRouteId as never)).toMatchObject({ status: "unresolved" });
+    expect((await create([canonicalRoute])).resolve(withoutTargetId as never)).toBeUndefined();
+    expect((await create([canonicalRoute, canonicalRoute])).resolve(agent as never)).toMatchObject({ status: "unresolved" });
     expect((await create([canonicalRoute, { ...canonicalRoute, routeId: "route-beta" }])).resolve(agent as never)).toMatchObject({ status: "admitted", route: { identity: { routeId: "route-alpha" } } });
   });
 
   it("admits a policy-bound route and defers capacity selection to runtime", async () => {
     const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
-      loadConfig: async () => ({}) as never,
+      loadConfig: async () => ({ authorityProfiles }) as never,
       createRegistry: () => ({ registry: {} as never }),
       discoverProviderModels: async () => ({}),
       resolveRoutes: async () => ({
@@ -88,6 +93,24 @@ describe("managed agent route admission", () => {
         identity: { routeId: "route-alpha" },
         capacity: { kind: "policy-bound", accountPolicyId: "managed-codex" },
       },
+    });
+  });
+
+  it("fails closed when the agent references an unknown authority profile id", async () => {
+    const resolver = await createManagedAgentRouteAdmissionResolver("/repo", {
+      loadConfig: async () => ({ authorityProfiles }) as never,
+      createRegistry: () => ({ registry: {} as never }),
+      discoverProviderModels: async () => ({}),
+      resolveRoutes: async () => ({
+        managedInvocation: {
+          routes: [{ routeId: "route-alpha", providerId: "codex", model: "gpt-5.3-codex-spark", capability }],
+        },
+      }) as never,
+    });
+
+    expect(resolver.resolve({ ...agent, authorityProfileId: "missing-profile" } as never)).toMatchObject({
+      status: "unresolved",
+      routeId: "route-alpha",
     });
   });
 });

@@ -122,6 +122,7 @@ export function createImportNativePlan(input: {
   const imported = extractNativeConfig(input.target, input.nativeDocument);
   const after = mergeImportedGlobalConfig(before, imported);
   const diff = buildUnifiedConfigDiff(input.globalConfigPath, before, after);
+  const appliedFields = imported.extractedFields.filter((field) => field !== "model");
 
   return {
     target: input.target,
@@ -129,7 +130,7 @@ export function createImportNativePlan(input: {
     globalConfigPath: input.globalConfigPath,
     before,
     after,
-    extractedFields: imported.extractedFields,
+    extractedFields: appliedFields,
     diff,
     hasChanges: JSON.stringify(before) !== JSON.stringify(after),
   };
@@ -262,19 +263,10 @@ function mergeImportedGlobalConfig(
       enabled: true,
     },
   };
-  const workerRouting = {
-    ...base.workerRouting,
-    defaultWorker: imported.provider,
-  };
-  const workerModels = imported.model
-    ? { ...base.workerModels, [imported.provider]: imported.model }
-    : base.workerModels;
   return {
     ...base,
     version: CANONICAL_GLOBAL_CONFIG_VERSION,
     engines,
-    workerRouting,
-    workerModels,
     permissions: imported.permissions
       ? { ...base.permissions, ...imported.permissions }
       : base.permissions,

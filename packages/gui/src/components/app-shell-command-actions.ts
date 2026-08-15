@@ -59,7 +59,7 @@ export function createAppShellCommandExecutor(input: AppShellCommandExecutorInpu
         input.setPaletteQuery("");
         input.setPaletteOpen(true);
         return;
-      case "route":
+      case "target":
         input.openExecutionRoutePicker();
         input.closePalette();
         return;

@@ -72,6 +72,10 @@ export interface ManagedEconomicDispatchCoordinatorOptions {
     readonly commitment: ManagedEconomicCommitment;
     readonly dispatchFenceId: string;
     readonly abortSignal: AbortSignal;
+    readonly authorityProfileId: string;
+    readonly admissionProfile: ManagedAgentAdmissionProfile;
+    readonly profileAuthorityDigest: string;
+    readonly invocationId: string;
   }): Promise<ManagedAgentRuntimeAdapter | undefined>;
 }
 
@@ -96,6 +100,8 @@ export interface ManagedEconomicDispatchPrepareInput {
   readonly intentFingerprint: string;
   readonly adoption: ManagedEconomicDispatchAdoption;
   readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly authorityProfileId: string;
+  readonly invocationId: string;
   readonly abortSignal?: AbortSignal;
   readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
   /** Runs after held commitment acquisition and before dispatch fencing or adapter materialization. */
@@ -236,10 +242,20 @@ export class ManagedEconomicDispatchCoordinator {
 
     let adapter: ManagedAgentRuntimeAdapter | undefined;
     try {
+      const adoptedRoute = input.adoption.snapshot.routes.find((candidate) =>
+        candidate.route.routeId === result.record.commitment.reservation.selectedIdentity.route.routeId
+      );
+      if (!adoptedRoute) {
+        throw new Error("Committed managed economic route is absent from its adopted snapshot.");
+      }
       adapter = await awaitManagedEconomicMaterializationStep(this.options.createAdapter({
         commitment: result.record.commitment,
         dispatchFenceId,
         abortSignal: lifecycle.signal,
+        authorityProfileId: input.authorityProfileId,
+        admissionProfile: input.admissionProfile,
+        profileAuthorityDigest: adoptedRoute.admittedIdentity.profileAuthorityDigest,
+        invocationId: input.invocationId,
       }), lifecycle.signal);
       if (!adapter) throw new Error("Committed managed route has no executable adapter.");
     } catch (error) {

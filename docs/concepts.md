@@ -14,7 +14,7 @@ Kiln repeatedly performs a simple loop:
 1. Observe the request and current state.
 2. Compare them with goals, policy, capacity, and safety constraints.
 3. Admit, reject, defer, or narrow the work.
-4. Select an allowed execution route and context.
+4. Select an allowed execution target and context.
 5. Observe the result and record evidence.
 6. Recover or adapt when the result differs from the intended state.
 
@@ -39,11 +39,13 @@ budget, relevance, provenance, and authority boundaries.
 
 See [Context governance](architecture/context/context-governance.md).
 
-## Execution routes
+## Execution targets
 
-An execution route identifies an allowed provider, model, account policy, and
-capability envelope. User-facing aliases and Model Gateway entries reference
-routes; they do not duplicate that authority.
+An execution target is the stable choice exposed to an operator or agent. A
+direct target identifies a provider, model, and account policy; a harness
+target identifies a native or remote runtime. Managed agents pair that target
+with a reusable authority profile. Runtime derives and records a route only
+after admission; that durable route evidence is not another configuration ID.
 
 See [Model routing](guides/config/model-routing.md) and
 [global configuration](guides/config/global-config.md).

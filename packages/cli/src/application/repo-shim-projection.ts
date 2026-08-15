@@ -8,7 +8,7 @@ import {
   type KilnInstructionProfileDefinition,
 } from "./instruction-profile-loader.js";
 import { loadKilnConfig } from "../config/config-merger.js";
-import type { KilnYaml } from "../kiln-yaml.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml.js";
 import {
   collectProjectContextEvidence,
   readProjectContextMarkdown,
@@ -91,7 +91,7 @@ interface SignedProjection {
 interface RepoShimProjectionContext {
   readonly projectPath: string;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
-  readonly kilnYaml: KilnYaml | null;
+  readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
   readonly adoptedProjectContext: string | null;
   readonly sourceProfiles: readonly string[];
@@ -294,7 +294,7 @@ function writeRepoShimTarget(input: {
   readonly projectPath: string;
   readonly target: RepoShimTarget;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
-  readonly kilnYaml: KilnYaml | null;
+  readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
   readonly adoptedProjectContext: string | null;
   readonly sourceProfiles: readonly string[];
@@ -365,7 +365,7 @@ function renderRepoShimBody(input: {
   readonly projectPath: string;
   readonly target: RepoShimTarget;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
-  readonly kilnYaml: KilnYaml | null;
+  readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
   readonly adoptedProjectContext: string | null;
 }): string {
@@ -389,7 +389,7 @@ function renderRepoShimHeader(target: RepoShimTarget): readonly string[] {
   ];
 }
 
-function renderProjectSection(repoContext: ProjectContextEvidence, kilnYaml: KilnYaml | null): readonly string[] {
+function renderProjectSection(repoContext: ProjectContextEvidence, kilnYaml: ResolvedKilnConfig | null): readonly string[] {
   return [
     "## Project",
     "",
@@ -459,7 +459,7 @@ function renderAdoptedProjectContextSection(adoptedProjectContext: string | null
 function renderActiveInstructionProfilesSection(input: {
   readonly projectPath: string;
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
-  readonly kilnYaml: KilnYaml | null;
+  readonly kilnYaml: ResolvedKilnConfig | null;
 }): readonly string[] {
   const activeProfiles = input.kilnYaml?.activeInstructionProfiles ?? [];
   if (activeProfiles.length === 0) {
@@ -490,7 +490,7 @@ function renderInstructionProfileLine(
     : `- ${profileId} (missing; create the canonical Kiln instruction profile before relying on this shim)`;
 }
 
-function renderWorkGovernanceSection(kilnYaml: KilnYaml | null): readonly string[] {
+function renderWorkGovernanceSection(kilnYaml: ResolvedKilnConfig | null): readonly string[] {
   const workGovernance = kilnYaml?.workGovernance;
   if (!workGovernance) {
     return [];
@@ -529,7 +529,7 @@ function renderUsageSection(): readonly string[] {
 }
 
 function formatDirectExecution(
-  config: NonNullable<KilnYaml["workGovernance"]>["directExecution"],
+  config: NonNullable<ResolvedKilnConfig["workGovernance"]>["directExecution"],
 ): string {
   return formatDirectExecutionFields(config, "configured");
 }

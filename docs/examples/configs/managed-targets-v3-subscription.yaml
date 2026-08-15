@@ -1,15 +1,11 @@
-# Synthetic, parser-validated schema-v2 example. Replace all provider, account,
+# Synthetic, parser-validated V3 target-catalog example. Replace all provider, account,
 # model, price, and evidence values with current facts before operational use.
 # The synthetic data-policy source is `synthetic-example-data-policy@2026-08-13`;
 # its digest is the SHA-256 of that exact stable identifier and revision.
-version: "2"
+version: "3"
 
 managedAgents:
-  schemaVersion: 2
-  routes:
-    - id: codex-standard
-      kind: direct
-      executionRouteId: codex-standard
+  defaultAuthorityProfileId: readonly-plan
   economicPolicies:
     - id: default-economic-policy
       revision: rev-example-1
@@ -27,7 +23,7 @@ managedAgents:
           rateCardBasis: public-rate-card
           envelopeSemantics: configured-upper-bound
       candidates:
-        - routeId: codex-standard
+        - targetId: codex-standard
           comparisonDomainId: usd-worst-case
           priorityRank: 0
           ceiling:
@@ -49,7 +45,14 @@ managedAgents:
                 kind: currency
                 currency: USD
 
-executionCatalog:
+authorityProfiles:
+  - id: readonly-plan
+    admissionProfile: foundation-readonly-plan
+    workingDirectory: project
+    tools: { allowed: [read], network: false, writes: false }
+    memory: { access: read-only }
+
+targetCatalog:
   accounts:
     - id: codex-account
       providerId: codex-oauth
@@ -67,8 +70,9 @@ executionCatalog:
       accountIds:
         - codex-account
       strategy: economic-least-pressure
-  routes:
+  targets:
     - id: codex-standard
+      kind: direct
       label: Codex Standard
       providerId: codex-oauth
       providerModelId: gpt-5.6-codex
@@ -130,3 +134,6 @@ executionCatalog:
               unit: input-token
               scheme:
                 kind: unit
+
+targetRouting:
+  defaultTargetId: codex-standard

@@ -70,7 +70,7 @@ import {
 } from "../wrapper/session-store.js";
 import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
-import { readGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { projectDirectExecutionCatalog, readGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
@@ -104,7 +104,6 @@ import {
   admitManagedAgentOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
   createSessionBuiltinToolOptions,
-  defineExecutionCatalog,
   defineDeliberationLevelId,
   type ManagedAgentOrchestrationAdmissionLimits,
   type ModelDeliberationCapabilities,
@@ -120,6 +119,7 @@ import {
   discoverGuiDirectProviderModelDiscovery,
   getProjectContextArtifactCache,
   probeCodexCliModelReadiness,
+  resolveAdHocManagedInvocationRouteProfile,
   runManagedAgentOrchestrationLifecycle,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
@@ -139,7 +139,7 @@ import type {
 import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 
 export interface RunFlags {
-  readonly route?: string;
+  readonly target?: string;
   readonly deliberationLevel?: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly agent?: string;
@@ -621,8 +621,8 @@ function renderAgentProfilePromptContext(agent?: KilnAgentDefinition): string | 
     agent.backstory ? `backstory: ${agent.backstory}` : undefined,
     agent.tier ? `tier: ${agent.tier}` : undefined,
     agent.mode ? `mode: ${agent.mode}` : undefined,
-    agent.authorityProfile ? `authorityProfile: ${agent.authorityProfile}` : undefined,
-    agent.routeId ? `routeId: ${agent.routeId}` : undefined,
+    agent.authorityProfileId ? `authorityProfileId: ${agent.authorityProfileId}` : undefined,
+    agent.targetId ? `targetId: ${agent.targetId}` : undefined,
     agent.skills?.length ? `skills: ${agent.skills.join(", ")}` : undefined,
     agent.instructionProfiles?.length ? `instructionProfiles: ${agent.instructionProfiles.join(", ")}` : undefined,
     agent.instructions ? "instructions:" : undefined,
@@ -931,10 +931,10 @@ export async function runCommand(
   });
   const configuredRouteCandidates = resolveExecutionRouteCandidates({
     globalConfig,
-    routeId: flags.route,
+    routeId: flags.target,
   });
   if (configuredRouteCandidates.length === 0) {
-    const errorMessage = "No execution routes are configured. Configure executionCatalog and executionRouting before running a session.";
+    const errorMessage = "No execution targets are configured. Configure targetCatalog and targetRouting before running a session.";
     runOutput.writeErrorLine(`Error: ${errorMessage}`);
     emitRunFailureOutput(runOutput, {
       answer: "",
@@ -954,9 +954,7 @@ export async function runCommand(
   // second provider without a separate canonical lifecycle.
   const selectedExecutionRoute = configuredRouteCandidates[0]!;
   const selectedRouteCandidates = [selectedExecutionRoute] as const;
-  const executionCatalog = globalConfig?.executionCatalog
-    ? defineExecutionCatalog(globalConfig.executionCatalog)
-    : undefined;
+  const executionCatalog = projectDirectExecutionCatalog(globalConfig);
   if (!executionCatalog) {
     throw new Error("A canonical execution catalog is required for CLI run.");
   }
@@ -2250,7 +2248,7 @@ function resolveParallelWorkerAdmissionLimits(
   workerCount: number,
 ): ManagedAgentOrchestrationAdmissionLimits {
   const lifecycleRoutes = managedInvocation.routes.filter((route) => {
-    const profile = route.profiles["foundation-apply-approved-writes"];
+    const profile = resolveAdHocManagedInvocationRouteProfile(route, "foundation-apply-approved-writes");
     return profile !== undefined
       && route.createAdapter !== undefined
       && profile.workingDirectory.mode === "isolated-worktree"

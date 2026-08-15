@@ -25,11 +25,11 @@ function config(principals: ModelGatewayConfig["principals"]): ModelGatewayConfi
           contextTokens: 200000,
           outputTokens: 8192,
           baseInstructions: "Governed model A instructions.",
-          executionRouteId: "model-a-route",
+          targetId: "model-a-route",
           capabilities: ["text", "parallel-tool-calls", "input-image-url"],
           affinity: { continuity: "none" },
         },
-        { id: "model-b", displayName: "Model B", contextTokens: 100000, outputTokens: 4096, baseInstructions: "Governed model B instructions.", executionRouteId: "model-b-route", capabilities: ["text"], affinity: { continuity: "none" } },
+        { id: "model-b", displayName: "Model B", contextTokens: 100000, outputTokens: 4096, baseInstructions: "Governed model B instructions.", targetId: "model-b-route", capabilities: ["text"], affinity: { continuity: "none" } },
     ],
   };
 }

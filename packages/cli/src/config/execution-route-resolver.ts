@@ -1,7 +1,7 @@
-import type { KilnGlobalConfig } from "./global-config.js";
+import { projectDirectExecutionCatalog, type KilnGlobalConfig } from "./global-config.js";
 import { isDirectProviderId, type DirectProviderId, type ModelTaskSuitabilityTask } from "@kilnai/core";
 
-/** A configured operator execution route, before provider availability admission. */
+/** A configured operator execution target, before provider availability admission. */
 export interface ExecutionRouteCandidate {
   readonly routeId: string;
   readonly provider: DirectProviderId;
@@ -21,15 +21,15 @@ export interface ResolveExecutionRouteCandidatesInput {
 export function resolveExecutionRouteCandidates(
   input: ResolveExecutionRouteCandidatesInput,
 ): readonly ExecutionRouteCandidate[] {
-  const catalog = input.globalConfig?.executionCatalog;
-  const routing = input.globalConfig?.executionRouting;
+  const catalog = projectDirectExecutionCatalog(input.globalConfig);
+  const routing = input.globalConfig?.targetRouting;
   if (!catalog || !routing) return [];
 
-  const routeId = normalizeId(input.routeId) ?? routing.defaultRouteId;
+  const routeId = normalizeId(input.routeId) ?? routing.defaultTargetId;
   const route = catalog.routes.find((candidate) => candidate.id === routeId);
-  if (!route) throw new Error(`Execution route '${routeId}' is not configured.`);
+  if (!route) throw new Error(`Execution target '${routeId}' is not configured.`);
   if (!isDirectProviderId(route.providerId)) {
-    throw new Error(`Execution route '${routeId}' does not reference a direct provider.`);
+    throw new Error(`Execution target '${routeId}' does not reference a direct provider.`);
   }
   return [{
     routeId: route.id,

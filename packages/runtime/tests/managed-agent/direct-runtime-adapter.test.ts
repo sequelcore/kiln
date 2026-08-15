@@ -1742,9 +1742,9 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
             settlement: { kind: "not-required" },
           },
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:openai-direct-readonly:foundation-readonly-plan",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read"],
               writeAllowed: false,
@@ -1762,8 +1762,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
                 scope: { kind: "project", id: "direct-child-test" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
       },
     });

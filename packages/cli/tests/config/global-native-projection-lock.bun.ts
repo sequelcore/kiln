@@ -14,7 +14,7 @@ const gateway: ModelGatewayConfig = {
   replay: { ttlMs: 1_000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
   surfaces: { anthropicMessages: { maxBodyBytes: 1_024, maxConcurrentRequests: 1 } },
   principals: [{ tokenEnv: "ANTHROPIC_AUTH_TOKEN", ingress: "anthropic-messages", nativeHarness: "claude", tenantId: "tenant", applicationId: "claude", callerId: "native", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["claude-kiln"] }],
-  virtualModels: [{ id: "claude-kiln", displayName: "Claude via Kiln", contextTokens: 200_000, outputTokens: 8_192, executionRouteId: "claude-route", capabilities: ["text"], affinity: { continuity: "none" } }],
+  virtualModels: [{ id: "claude-kiln", displayName: "Claude via Kiln", contextTokens: 200_000, outputTokens: 8_192, targetId: "claude-route", capabilities: ["text"], affinity: { continuity: "none" } }],
 };
 
 if (workerRoot && workerKind === "mcp") {

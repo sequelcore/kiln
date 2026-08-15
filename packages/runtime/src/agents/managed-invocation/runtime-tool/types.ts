@@ -42,6 +42,7 @@ import type { ManagedEconomicCandidateSet } from "./economic-candidate-collectio
 
 export interface ManagedInvocationRouteProfile {
   readonly authorityProfileId: string;
+  readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly permissionProfile: string;
   readonly allowedToolNames: readonly string[];
   /**
@@ -95,7 +96,7 @@ export interface ManagedInvocationToolRoute {
   readonly surface?: string;
   readonly providerModelProof?: ManagedAgentCapabilitySnapshotInput["providerModelProof"];
   readonly taskSuitability?: readonly ModelTaskSuitability[];
-  readonly profiles: Partial<Record<ManagedAgentAdmissionProfile, ManagedInvocationRouteProfile>>;
+  readonly profiles: readonly ManagedInvocationRouteProfile[];
   /**
    * Roadmap 01 Slice 3.1 - External-runtime target identity. A property of
    * the physical target, so it lives at route level (not per-profile): every
@@ -146,6 +147,8 @@ export interface ManagedInvocationToolOptions {
       readonly adoptedDecisionAt: string;
       readonly parentSessionId: string;
       readonly parentTurnId: string;
+      readonly authorityProfileId: string;
+      readonly invocationId: string;
       readonly abortSignal?: AbortSignal;
        readonly lifecycleEvents?: ManagedEconomicLifecycleEventPort;
        readonly validateExecutionProfile?: ManagedEconomicDispatchPrepareInput["validateExecutionProfile"];
@@ -243,7 +246,8 @@ export interface ManagedInvocationAgentCatalogEntry {
   readonly role: string;
   readonly goal: string;
   readonly tier: string;
-  readonly authorityProfile?: ManagedAgentAdmissionProfile;
+  readonly authorityProfileId: string;
+  readonly admissionProfile: ManagedAgentAdmissionProfile;
   readonly skills?: readonly string[];
   readonly taskAffinity?: readonly ModelTaskSuitabilityTask[];
   readonly economicPolicyId?: string;
@@ -330,6 +334,10 @@ export interface ManagedCommittedInvocationRequest {
   readonly commitment: ManagedEconomicCommitment;
   readonly dispatchFenceId: string;
   readonly abortSignal: AbortSignal;
+  readonly authorityProfileId: string;
+  readonly admissionProfile: ManagedAgentAdmissionProfile;
+  readonly profileAuthorityDigest: string;
+  readonly invocationId: string;
 }
 
 export interface ManagedCommittedRouteMismatchEvidence {

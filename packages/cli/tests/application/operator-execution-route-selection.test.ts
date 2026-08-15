@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createOperatorExecutionRouteSelectionPort } from "../../src/application/operator-execution-route-selection.js";
 import { economicConfig } from "../config/managed-economic-policy-config-fixture.js";
 
-describe("operator execution route selection", () => {
+describe("operator execution target selection", () => {
   it("projects route availability from the configured account candidates", async () => {
     const accountAvailability = { current: [] as { accountId: string; available: boolean; reasonCodes: readonly any[] }[] };
     const resolveAccountAvailability = vi.fn(async ({ admission }: {

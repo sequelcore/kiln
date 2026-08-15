@@ -7,9 +7,9 @@ import {
   createWebToolSurfaceOptions,
   describeWebToolConfiguration,
 } from "../../src/config/web-tools-config.js";
-import type { KilnYaml } from "../../src/kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 
-function config(web: KilnYaml["web"]): KilnYaml {
+function config(web: ResolvedKilnConfig["web"]): ResolvedKilnConfig {
   return {
     version: "1",
     web,

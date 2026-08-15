@@ -1,8 +1,10 @@
 # Config Projection
 
-Kiln treats `~/.kiln/config.yaml` as the global source of truth for local
-operator and harness configuration. Project `kiln.yaml` may override it for a
-workspace, but native harness files are projected artifacts, not source state.
+Kiln treats `~/.kiln/config.yaml` as the global source of truth for providers,
+models, execution targets, reusable authority profiles, economics, and local
+harness configuration. Project `kiln.yaml` may only add repository context and
+narrow global limits for that workspace. It cannot redefine those global
+catalogs. Native harness files are projected artifacts, not source state.
 
 Supported native projection targets are Claude Code, Codex, and OpenCode.
 
@@ -49,17 +51,17 @@ No GUI, TUI, runtime, SDK, or MCP surface may rebuild these rules independently.
 Those surfaces consume resolved config, route health, gateway contracts, or
 runtime tool options.
 
-## Execution Catalog Projection
+## Target Catalog Projection
 
-`executionCatalog` is the single source for provider/model routes, accounts,
-account policies, economics, and capacity intent. Config projection validates
+`targetCatalog` is the single source for direct and harness execution targets,
+accounts, account policies, economics, and capacity intent. Config projection validates
 references only; it cannot resolve a credential, acquire capacity, choose an
 account, or construct an adapter.
 
 Runtime owns selection and commitment in its shared local capacity authority.
 Automatic policies gate safety, health, quota, and live capacity before
-economics and pressure. A direct managed route names `executionRouteId`; the
-same reference is used by Model Gateway virtual models. Neither overlay copies
+economics and pressure. Managed agents and Model Gateway virtual models name
+the same canonical `targetId`. Neither consumer copies
 an account list, credential, or economics route.
 
 The committed binding contains one route ID, account ID, credential ID, and
@@ -73,14 +75,15 @@ repair guidance rather than a guessed fallback.
 Global config is the active user-level contract. It includes:
 
 - `engines` for harness availability and billing metadata
-- `executionCatalog` and `executionRouting.defaultRouteId` for operator
+- `targetCatalog` and `targetRouting.defaultTargetId` for direct and harness
   execution
-- `workerRouting` and `workerModels` for separate native worker context
-- `permissions`, `mcp`, and `hooks`
-- `managedAgents` route policy
+- `authorityProfiles` for reusable tool, workspace, network, memory, voice,
+  timeout, and write authority
+- `permissions`, `permissionCeiling`, `mcp`, and `hooks`
+- `managedAgents` defaults and economic policy
 - `identity`, `ui.theme`, and bundled `components`
 
-The current canonical schema version is `"1"`. Kiln does not support
+The current canonical global schema version is `"3"`. Kiln does not support
 compatibility shims for obsolete or partial global config files. Invalid global
 config is an adoption error: commands that intentionally write a canonical
 replacement must back up the invalid file before writing.
@@ -559,7 +562,7 @@ kiln_config.apply_change({
 })
 ```
 
-`routing.set_default`, `route.set_enabled`, `projection.sync`, third-party pack
+`targetRouting.set_default`, `target.set_enabled`, `projection.sync`, third-party pack
 installation, team/cloud distribution, and rich GUI editing are not implicit
 config-mutation operations. They require their own explicit contracts before an
 agent may request them through tools. Until then, agents must not simulate those
@@ -586,8 +589,8 @@ Skill proposals validate against the canonical `SKILL.md` parser. Agent
 profile proposals validate against the Kiln agent-profile parser used by
 runtime discovery and native projection. `agent.upsert` supports canonical
 profile fields such as `displayName`, `nicknameCandidates`, `tools`, `skills`,
-`instructionProfiles`, `taskAffinity`, `authorityProfile`, `routeId`, and
-`providerRoute`. Duplicate aliases, aliases that collide with the canonical
+`instructionProfiles`, `taskAffinity`, `targetId`, and `authorityProfileId`.
+Duplicate aliases, aliases that collide with the canonical
 profile id or display name, invalid ids, invalid task affinities, unsupported
 tool names, and malformed profile files fail closed. Write-capable tool names
 such as `write` and `bash` are allowed only as explicit proposal data with
@@ -649,17 +652,18 @@ Harness aliases such as `codex` resolve to all recorded targets for that
 harness, including config, agents, skills, and hooks. Exact target IDs remain
 available for surgical removal.
 
-## Managed Agent Route Projection
+## Managed Agent Target Projection
 
-Managed-agent direct routes reference one canonical `executionRouteId`.
-They do not carry or derive provider, model, account, credential, economics,
-or fallback data. Runtime resolves the same route health, capacity, admission,
-fence, and exact credential binding used by GUI, TUI, CLI run, and Gateway
-ingress. Native-harness managed routes remain a separate physical-harness
-concern and must carry only the evidence their boundary requires.
+Every managed agent references one canonical `targetId` and one reusable
+`authorityProfileId`. The target owns physical execution identity. The
+authority profile owns tools, workspace, network, memory, timeout, voice, and
+write posture. Neither agent definition duplicates provider, model, account,
+credential, economics, or authority fields. Runtime projects a direct target
+into account-backed execution and a harness target into its native or remote
+adapter, while preserving the same target identity end to end.
 
-CLI run consumes one admitted execution route. Task suitability can describe
-healthy routes but cannot replace route selection, synthesize write authority,
+CLI run consumes one admitted execution target. Task suitability can describe
+healthy targets but cannot replace target selection, synthesize write authority,
 or bypass managed-agent admission.
 
 When at least one healthy route exists, runtime tool projection exposes
@@ -673,8 +677,10 @@ children instead use the configured managed economic policy and Runtime's
 atomic commitment authority; the session-turn budget decision cannot authorize
 or widen a managed route.
 
-Synthesized child routes are read-only and use `foundation-readonly-plan`. Write
-capable routes require an explicit `managedAgents.routes[]` entry with
+There is no synthesized or implicit agent roster. Ad hoc child execution may
+select an admission class only when exactly one concrete authority profile on
+the target matches it; ambiguity fails closed. Configured agents always select
+their exact `authorityProfileId`. Write-capable profiles require explicit
 `writeAuthority` scope and approval config plus live-proven write evidence
 support. `tools.writes: true` does not grant authority by itself. A harness that
 can prove write evidence but cannot yet prove substantive read-only result
@@ -689,14 +695,10 @@ timeout diagnostic, and `timeoutSource: "explicit-route"` evidence. Runtime,
 GUI, CLI, and adapter code must not add request-local timeout shims that bypass
 the resolved route profile.
 
-Route-source provenance is a separate projection field and is required before
-managed invocation admission. CLI projection records:
-
-- `execution-catalog` for managed direct routes tied to `executionRouteId`
-- `explicit-managed-route` for `managedAgents.routes[]`
-- `managed-default-route` for `managedAgents.enabled` with default provider or
-  profile settings
-- `enabled-engine-fallback` for the final supported enabled-engine fallback
+Target-source provenance is required before managed invocation admission. CLI
+projection records whether a target is direct, a local harness, or a remote
+harness. It does not infer a physical target from enabled engines, provider
+defaults, model names, or an agent persona.
 
 The route source is projected into route health, unavailable-route diagnostics,
 managed tool options, capability snapshots, session events, replay, CLI status,
@@ -738,11 +740,10 @@ tool behavior or write authority.
 - Workflow snapshot markdown and manifest files are generated projections from
   canonical workflow evidence; status surfaces may report drift, but must not
   repair them implicitly.
-- Managed-agent route projection is governed config, not assistant preference.
-- execution catalog routes, explicit `managedAgents.routes[]`, managed-agent defaults,
-  and enabled-engine fallback paths have distinct `routeSource` values; runtime
-  and operator surfaces consume those projected values instead of inferring
-  route provenance.
+- Managed-agent target projection is governed config, not assistant preference.
+- The target catalog and authority-profile catalog remain separate; runtime and
+  operator surfaces consume their exact references instead of inferring target
+  or authority from provider, model, persona, or admission class.
 - Instruction profile, agent, and skill definitions are canonical only under
   Kiln-owned directories, never in native harness folders.
 - Native harness-local skills are setup diagnostics until explicitly adopted or

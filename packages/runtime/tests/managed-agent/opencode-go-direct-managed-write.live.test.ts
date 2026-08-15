@@ -274,9 +274,9 @@ function observeOpenCodeResponse(response: Response, trace: Record<string, unkno
 }
 
 function liveAgentDefinition(): string {
-  const routeId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
+  const targetId = process.env[KILN_LIVE_OPENCODE_GO_DIRECT_WRITE_ROUTE_ENV]?.trim()
     || "opencode-go-critical-approved-write";
-  const route = assertLiveRoute(routeId);
+  const target = assertLiveTarget(targetId);
   return [
     "---",
     "name: live-opencode-write",
@@ -284,39 +284,38 @@ function liveAgentDefinition(): string {
     "goal: Apply one bounded operator-approved fixture write.",
     "tier: fast",
     "mode: managed-child",
-    `routeId: ${routeId}`,
-    "economicPolicyId: opencode-subscription-default",
-    "providerRoute:",
-    "  providerId: opencode-go",
-    `  model: ${route.model}`,
-    "authorityProfile: foundation-apply-approved-writes",
+    `targetId: ${targetId}`,
+    `authorityProfileId: ${target.authorityProfileId}`,
+    `economicPolicyId: ${target.economicPolicyId}`,
     "---",
     "Live proof only.",
     "",
   ].join("\n");
 }
 
-function assertLiveRoute(routeId: string): { readonly model: string } {
+function assertLiveTarget(targetId: string): { readonly authorityProfileId: string; readonly economicPolicyId: string } {
   const config = readGlobalConfig();
-  const route = config?.managedAgents?.routes?.find((candidate) => candidate.id === routeId);
-  const executionRoute = route?.kind === "direct"
-    ? config?.executionCatalog?.routes.find((candidate) => candidate.id === route.executionRouteId)
-    : undefined;
+  const target = config?.targetCatalog?.targets.find((candidate) => candidate.id === targetId);
+  const authorityProfile = config?.authorityProfiles?.find(
+    (candidate) => candidate.admissionProfile === "foundation-apply-approved-writes",
+  );
+  const economicPolicy = config?.managedAgents?.economicPolicies?.find(
+    (candidate) => candidate.candidates.some((candidateTarget) => candidateTarget.targetId === targetId),
+  );
   if (
-    !route
-    || route.kind !== "direct"
-    || !executionRoute
-    || executionRoute.providerId !== "opencode-go"
-    || typeof executionRoute.providerModelId !== "string"
-    || executionRoute.providerModelId.trim().length === 0
-    || executionRoute.accountSelection.mode !== "automatic"
-    || route.profiles?.includes("foundation-apply-approved-writes") !== true
-    || route.tools?.writes !== true
-    || route.tools?.network !== false
-    || route.writeAuthority?.workspace.mode !== "apply-approved"
-    || route.writeAuthority.approval.mode !== "required-before-apply"
+    !target
+    || target.kind !== "direct"
+    || target.providerId !== "opencode-go"
+    || target.providerModelId.trim().length === 0
+    || target.accountSelection.mode !== "automatic"
+    || !authorityProfile
+    || authorityProfile.tools?.writes !== true
+    || authorityProfile.tools?.network !== false
+    || authorityProfile.writeAuthority?.workspace.mode !== "apply-approved"
+    || authorityProfile.writeAuthority.approval.mode !== "required-before-apply"
+    || !economicPolicy
   ) {
-    throw new Error("Live proof requires one account-leased opencode-go direct approved-write route.");
+    throw new Error("Live proof requires one account-leased opencode-go direct approved-write target and authority profile.");
   }
-  return { model: executionRoute.providerModelId };
+  return { authorityProfileId: authorityProfile.id, economicPolicyId: economicPolicy.id };
 }

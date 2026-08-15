@@ -179,7 +179,7 @@ A profile may also declare:
 - nickname candidates or aliases for operator-facing surfaces
 - backstory
 - instructions
-- preferred provider/model route
+- target and authority-profile references
 - task affinity hints such as `architecture-review`, `backend-coding`,
   `frontend-design`, `mechanical-edit`, `research`, and `test-writing`
 - mode: primary, subagent, managed-child, or all
@@ -188,14 +188,15 @@ A profile may also declare:
 - default instruction profiles
 - managed authority profile constraints
 
-Profiles do not own credentials. They may request a provider route, but runtime
-credential routing remains a provider/credential-pool responsibility.
+Profiles do not own credentials, providers, models, or inline authority. A
+configured agent may reference one global `targetId` and one global
+`authorityProfileId`; Runtime still owns credential and execution-route
+commitment.
 
-Profiles also do not automatically imply read-only execution. A profile may be
-eligible for different managed authority profiles depending on context: scout
-and reviewer profiles may default to read-only, while coder, fast-coder, TDD,
-or refactoring profiles may request write-capable child authority when the
-parent session and operator approval admit it.
+Profile names and task affinity never imply authority. The referenced authority
+profile is exact, and parent authority plus operator approval may only narrow
+it. Two authority profiles with the same admission class remain distinct and
+must not collapse to the first match.
 
 Every surface must consume the same profile contract:
 
@@ -219,40 +220,20 @@ task-selection behavior, declare it explicitly in the canonical agent profile.
 Surface-specific renderers may project smaller views, but they must not invent
 local semantics.
 
-## First-Party Agent Defaults
+## Configured Agent Roster
 
-Kiln ships first-party agent profile defaults so a new installation is not an
-empty control plane. These defaults are canonical Kiln profiles, not provider
-prompt hacks. They use stable ids, explicit task affinity, bounded tool hints,
-and role-specific instructions that are safe to project into GUI, TUI, CLI,
-SDK/widget sessions, managed child invocation, Codex, OpenCode, and Claude Code
-repo shims.
+Kiln has no implicit executable agent roster. Global agents under
+`~/.kiln/agents/*.md` and project agents under `.kiln/agents/*.md` are the only
+agent-definition sources. Project definitions may shadow a global persona by
+name for that repository, but they may only reference global targets and
+authority profiles; they cannot define provider, model, target, or authority
+inline.
 
-The built-in profile ids are:
-
-| Profile | Purpose | Typical authority |
-| --- | --- | --- |
-| `scout` | Read-only repository ownership, dependency, and verification mapping through `codebase-scouting`. | `foundation-readonly-plan` |
-| `planner` | File-level implementation and verification planning. | `foundation-readonly-plan` |
-| `architect` | Architecture, DDD, contract, and boundary review. | `foundation-readonly-plan` |
-| `tdd` | Failing-test design and behavior verification. | Read-only or write-capable when admitted. |
-| `coder` | Bounded implementation after scope is clear. | Write-capable only through explicit route authority. |
-| `fast-coder` | Mechanical low-risk edits and projections. | Write-capable only through explicit route authority. |
-| `reviewer` | Findings-first code review and quality gate. | `foundation-readonly-plan` |
-| `ddd-validator` | Bounded-context and dependency-direction validation. | `foundation-readonly-plan` |
-| `researcher` | External or provided-source research through `research-workflow`. | `foundation-readonly-plan` plus admitted research tools. |
-| `refactoring-specialist` | Behavior-preserving cleanup and simplification. | Read-only or write-capable when admitted. |
-
-Global `~/.kiln/agents/*.md` profiles override built-ins with the same id.
-Project `.kiln/agents/*.md` profiles override both. This keeps first-party
-defaults useful while preserving operator and project customization without
-duplicating native harness files.
-
-First-party defaults are evaluated by a repeatable routing rubric before they
-become product defaults. The rubric checks output quality, evidence use,
-permission compliance, cost, duration, and actionable handoff quality. Defaults
-that cannot pass the rubric remain documentation or examples, not runtime
-catalog entries.
+HOME native projection consumes only global agents. Project agents remain
+available to Kiln within that repository and cannot overwrite global Codex,
+Claude Code, or OpenCode agent files. A future starter roster must be explicit
+scaffolding that writes ordinary global agent definitions, not a hidden runtime
+fallback.
 
 ## Skill Packages
 
@@ -613,7 +594,7 @@ Resolution order:
 7. Managed invocation request
 
 Higher-precedence safety rules always win. Lower-precedence sources can narrow
-authority, add task context, or request a profile/skill/route when policy allows
+authority, add task context, or request a profile, skill, or target when policy allows
 it.
 
 Every admitted context block must record:
@@ -630,9 +611,9 @@ Every admitted context block must record:
 
 No surface owns agent context semantics.
 
-- GUI renders profile, route, skill, and context evidence.
+- GUI renders profile, target, skill, and context evidence.
 - TUI renders the same evidence in terminal form.
-- CLI prints and records the same selected profile/skills/route.
+- CLI prints and records the same selected profile, skills, and target.
 - SDK/widget receives the same session event contract.
 - MCP/resources expose the same replayable artifacts.
 - Native harness sync projects from Kiln contracts only.

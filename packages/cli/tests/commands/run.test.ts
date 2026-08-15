@@ -101,7 +101,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--ephemeral",
       ];
@@ -113,7 +113,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           ephemeral: true,
         }),
       );
@@ -126,7 +126,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--profile",
         "fast-lane",
@@ -139,7 +139,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           profile: "fast-lane",
         }),
       );
@@ -152,7 +152,7 @@ describe("run command", () => {
         "run",
         "continue",
         "work",
-        "--route",
+        "--target",
         "test-route",
         "--continue",
       ];
@@ -164,7 +164,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "continue work",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           continuation: true,
         }),
       );
@@ -177,7 +177,7 @@ describe("run command", () => {
         "run",
         "continue",
         "work",
-        "--route",
+        "--target",
         "test-route",
         "--continue-session",
         "a04d3014-2770-41e1-a98e-f1d4cc578b30",
@@ -190,7 +190,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "continue work",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           continuationSessionId: "a04d3014-2770-41e1-a98e-f1d4cc578b30",
         }),
       );
@@ -203,7 +203,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--skip-git-repo-check",
       ];
@@ -215,7 +215,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           skipGitRepoCheck: true,
         }),
       );
@@ -228,7 +228,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--output-schema",
         ".kiln/schemas/result.json",
@@ -241,7 +241,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           outputSchema: ".kiln/schemas/result.json",
         }),
       );
@@ -254,7 +254,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--output",
         "answer",
@@ -267,7 +267,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           output: "answer",
         }),
       );
@@ -280,7 +280,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--output",
         "json",
@@ -293,7 +293,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           output: "json",
         }),
       );
@@ -321,7 +321,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--add-dir",
         "C:/workspace/shared",
@@ -334,7 +334,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           addDir: "C:/workspace/shared",
         }),
       );
@@ -347,7 +347,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--local-provider",
         "ollama",
@@ -360,20 +360,20 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           localProvider: "ollama",
         }),
       );
     });
 
-    it("forwards --route to runCommand flags", async () => {
+    it("forwards --target to runCommand flags", async () => {
       process.argv = [
         process.argv[0] ?? "bun",
         process.argv[1] ?? "kiln",
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
       ];
 
@@ -384,7 +384,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
         }),
       );
     });
@@ -396,7 +396,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--agent",
         "planner",
@@ -409,7 +409,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           agent: "planner",
         }),
       );
@@ -422,7 +422,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--authority",
         "audited",
@@ -435,7 +435,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           requestedAuthority: "audited",
         }),
       );
@@ -448,7 +448,7 @@ describe("run command", () => {
         "run",
         "ship",
         "it",
-        "--route",
+        "--target",
         "test-route",
         "--authority",
         "destructive",
@@ -461,7 +461,7 @@ describe("run command", () => {
         MOCK_APP_CONFIG,
         "ship it",
         expect.objectContaining({
-          route: "test-route",
+          target: "test-route",
           requestedAuthority: "destructive",
         }),
       );
@@ -508,7 +508,7 @@ describe("run command", () => {
       await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow("process.exit called");
 
       const text = output.join("\n");
-      expect(text).toContain("--route");
+      expect(text).toContain("--target");
       expect(text).toContain("--agent");
       expect(text).not.toContain("--model");
       expect(text).not.toContain("--api-key");
@@ -537,7 +537,7 @@ describe("run command", () => {
 
       const text = output.join("\n");
       expect(text).toContain("Usage: kiln run");
-      expect(text).toContain("--route");
+      expect(text).toContain("--target");
       expect(text).not.toContain("--provider");
       expect(text).not.toContain("--api-key");
       expect(text).toContain("--continue");
@@ -559,7 +559,7 @@ describe("run command", () => {
       ];
 
       await expect(createCli(MOCK_APP_CONFIG)).rejects.toThrow(
-        "Operator execution accepts route identity, not provider, model, or credential overrides",
+        "Operator execution accepts target identity, not provider, model, or credential overrides",
       );
       expect(runCommandMock).not.toHaveBeenCalled();
     });

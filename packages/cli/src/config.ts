@@ -1,7 +1,7 @@
 import type { DomainConfig, DomainRegistry } from "@kilnai/core";
 import type { ContextCandidate } from "@kilnai/core";
 import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
-import type { KilnYaml, KilnHooksConfig } from "./kiln-yaml.js";
+import type { ResolvedKilnConfig, KilnHooksConfig } from "./kiln-yaml.js";
 import type { ProjectedContext } from "./application/context-types.js";
 
 /** Options passed to the system prompt builder */
@@ -38,7 +38,7 @@ export interface KilnAppConfig {
   readonly contextCandidates?: readonly ContextCandidate[];
   /** Validated IANA timezone used to derive dynamic operator-turn context. */
   readonly operatorTimeZone?: string;
-  readonly kilnYaml?: KilnYaml;
+  readonly kilnYaml?: ResolvedKilnConfig;
   readonly hooks?: KilnHooksConfig;
   readonly managedInvocation?: ManagedInvocationToolOptions;
 }

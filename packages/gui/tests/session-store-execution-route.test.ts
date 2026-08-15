@@ -3,7 +3,7 @@ import { useSessionStore } from "../src/lib/session-store/index.js";
 
 const route = (overrides: Record<string, unknown> = {}) => ({ routeId: "terra", label: "Terra", providerId: "codex", providerModelId: "gpt", accountOverrideIds: ["work"], accountSelection: { mode: "automatic", eligibleAccountCount: 1, allowOperatorOverride: true }, availability: "available", reasonCodes: ["configured"], repairActions: [], ...overrides });
 
-describe("session-store execution route selection", () => {
+describe("session-store execution target selection", () => {
   beforeEach(() => { localStorage.clear(); useSessionStore.setState({ outboundSend: null, executionRouteSelecting: false, executionRouteSelectionTarget: null, activeRouteId: null, activeAccountOverrideId: null, providerOperationFailure: null, executionRouteCatalog: { routes: [] } }); });
   it("sends an admitted route with an exact account override", () => {
     const send = vi.fn();

@@ -5,7 +5,6 @@ import {
   createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
   digestManagedEconomicValue,
-  resolveDeliberation,
   type DeliberationResolution,
 } from "@kilnai/core";
 import {
@@ -15,7 +14,8 @@ import {
   AgentTaskApplicationError,
   AgentTaskApplicationService,
   AgentTaskExecutionFailure,
-  ExecutionRouteDataPolicyAuthority,
+  evaluateExecutionTargetDataPolicy,
+  resolveConfiguredManagedInvocationRouteProfile,
   type AgentTaskExecutionFailureClassification,
   type AgentTaskDataPolicyProof,
   type ManagedAgentRuntimeInvocationProgressEvent,
@@ -59,7 +59,8 @@ import {
 } from "@kilnai/gateway-contracts";
 import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { deriveEffectiveKilnYaml, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
-import { readGlobalConfig } from "../config/global-config.js";
+import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
+import { projectDirectExecutionCatalog, readGlobalConfig } from "../config/global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 
 const MAX_GOVERNANCE_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
@@ -70,9 +71,10 @@ const TRUSTED_WRITE_APPROVER_ID = "operator";
 const MANAGED_WRITE_APPROVAL_DB_FILE = "managed-write-approvals.sqlite";
 
 /**
- * `executionCatalog` and `engines` are global Runtime
- * route authority; none of them are project `KilnYaml` fields, so
- * `globalToKilnYaml` (and therefore the effective-`KilnYaml` projection)
+ * `targetCatalog` and `engines` are global Runtime authority. The projected
+ * `executionCatalog` is an internal account-routing view; none are project
+ * `ResolvedKilnConfig` fields, so
+ * `globalToKilnYaml` (and therefore the effective-`ResolvedKilnConfig` projection)
  * never carries them. Read canonical global config and canonical project
  * config exactly once each, derive the effective project-authorized config
  * from those exact values, and attach the global-only authority from the
@@ -88,7 +90,9 @@ function loadOperatorProjectManagedRouteConfig(
   if (!effectiveConfig) return undefined;
   return {
     ...effectiveConfig,
-    executionCatalog: globalConfig?.executionCatalog,
+    executionCatalog: projectDirectExecutionCatalog(globalConfig),
+    targetCatalog: globalConfig?.targetCatalog,
+    authorityProfiles: globalConfig?.authorityProfiles,
     engines: globalConfig?.engines,
   };
 }
@@ -309,12 +313,12 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   }
   const startupRouteConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
   if (
-    startupRouteConfig?.managedAgents?.routes?.some((route) => route.kind === "direct")
+    startupRouteConfig?.targetCatalog?.targets.some((target) => target.kind === "direct")
     && !startupRouteConfig.executionCatalog
   ) {
     throw new AgentTaskApplicationError(
       "route_unavailable",
-      "Managed direct routes require executionCatalog in global config.",
+      "Managed direct targets require targetCatalog in global config.",
     );
   }
   const mcpResolution = loadResolvedKilnMcpConfiguration(root.rootPath);
@@ -331,15 +335,17 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   const governance = createOperatorProjectGovernanceReader(root.rootPath);
   const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionRouteDataPolicyDecision => {
     const currentPolicyConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
-    if (!currentPolicyConfig?.executionCatalog) {
-      throw new AgentTaskApplicationError("route_unavailable", "Restore canonical execution-route data-policy authority.");
-    }
+    const target = currentPolicyConfig?.targetCatalog?.targets.find(({ id }) => id === route.routeId);
     try {
-      const result = new ExecutionRouteDataPolicyAuthority({ catalog: currentPolicyConfig.executionCatalog }).assertAdmitted({
+      if (!target) throw new Error("Missing target data-policy authority.");
+      const result = evaluateExecutionTargetDataPolicy({
         routeId: route.routeId,
         providerId: route.providerId,
         providerModelId: route.model,
+        requestedClassification: target.dataClassification,
+        evidence: target.dataPolicyEvidence,
       });
+      if (result.decision.status === "denied") throw new Error("Target data policy denied execution.");
       if (!result.evidence) throw new Error("Admitted route policy omitted evidence.");
       return result;
     } catch {
@@ -445,9 +451,15 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         if (!agent.economicPolicyId) {
           const nativeRoute = resolveNativeHarnessRouteForAgent(agent, current.routes);
           if (!nativeRoute || !catalogEntry?.routeId) return undefined;
-          const admissionProfileId = agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID;
-          if (!nativeRoute.profiles[admissionProfileId]) return undefined;
-          return createNativeHarnessProfile(agent, admissionProfileId, nativeRoute, nativeHarnessAcknowledgedAt);
+          const admissionProfileId = catalogEntry.admissionProfile;
+          if (!resolveConfiguredManagedInvocationRouteProfile(nativeRoute, catalogEntry, admissionProfileId)) return undefined;
+          return createNativeHarnessProfile(
+            agent,
+            admissionProfileId,
+            nativeRoute,
+            nativeHarnessAcknowledgedAt,
+            loadOperatorProjectManagedRouteConfig(root.rootPath)?.deliberationPolicy,
+          );
         }
         if (
           !catalogEntry?.economicPolicyId
@@ -458,15 +470,12 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         return {
           kind: "economic" as const,
           id: agent.name,
+          authorityProfileId: catalogEntry.authorityProfileId,
           economicPolicyId: catalogEntry.economicPolicyId,
           economicPolicyRevision: catalogEntry.economicPolicyRevision,
-          admissionProfileId: agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID,
+          admissionProfileId: catalogEntry.admissionProfile,
           constraints: {
-            ...(agent.routeId ? { routeId: agent.routeId } : {}),
-            ...(agent.providerRoute?.providerId
-              ? { providerId: agent.providerRoute.providerId }
-              : {}),
-            ...(agent.providerRoute?.model ? { model: agent.providerRoute.model } : {}),
+            ...(agent.targetId ? { routeId: agent.targetId } : {}),
           },
         };
       },
@@ -482,18 +491,27 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
             candidate.routeId === profile.routeId
             && candidate.providerId === profile.providerId
             && candidate.model === profile.model);
-          if (!route || !route.profiles[profile.admissionProfileId] || route.capability.identity.revision !== profile.routeRevision) {
+          if (!route || !resolveConfiguredManagedInvocationRouteProfile(route, {
+            authorityProfileId: profile.authorityProfileId,
+            admissionProfile: profile.admissionProfileId,
+          }, profile.admissionProfileId) || route.capability.identity.revision !== profile.routeRevision) {
             return undefined;
           }
           if (route.capability.capacity.kind !== "accountless") return undefined;
           const agent = findAgent(await loadAgentDefinitions(root.rootPath), profile.id);
           if (!agent) return undefined;
-          return nativeHarnessRouteFromProfile(profile, route, agent);
+          return nativeHarnessRouteFromProfile(
+            profile,
+            route,
+            agent,
+            loadOperatorProjectManagedRouteConfig(root.rootPath)?.deliberationPolicy,
+          );
         }
         return collectManagedEconomicCandidates({
           economicPolicyId: profile.economicPolicyId,
           economicPolicyRevision: profile.economicPolicyRevision,
           configuredAgentProfileId: profile.id,
+          authorityProfileId: profile.authorityProfileId,
           admissionProfileId: profile.admissionProfileId,
           ...(profile.constraints?.routeId
             ? { routeId: profile.constraints.routeId }
@@ -549,11 +567,18 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
           candidate.routeId === route.routeId
           && candidate.providerId === route.providerId
           && candidate.model === route.model);
-        const profile = currentRoute?.profiles[job.admissionProfileId];
         const invocationService = execution.invocationService;
         const agent = findAgent(await loadAgentDefinitions(root.rootPath), job.configuredAgentProfileId);
+        const catalogEntry = execution.agentCatalog?.find((candidate) => candidate.name === job.configuredAgentProfileId);
+        const profile = currentRoute && catalogEntry
+          ? resolveConfiguredManagedInvocationRouteProfile(currentRoute, catalogEntry, job.admissionProfileId)
+          : undefined;
         const currentDeliberation = agent && currentRoute
-          ? resolveNativeHarnessDeliberation(agent, currentRoute)
+          ? resolveNativeHarnessDeliberation(
+              agent,
+              currentRoute,
+              loadOperatorProjectManagedRouteConfig(root.rootPath)?.deliberationPolicy,
+            )
           : undefined;
         if (
           !currentRoute
@@ -697,7 +722,10 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
         ) {
           throw new AgentTaskApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
         }
-        const profile = route.profiles[job.admissionProfileId];
+        const catalogEntry = execution.agentCatalog?.find((candidate) => candidate.name === job.configuredAgentProfileId);
+        const profile = catalogEntry
+          ? resolveConfiguredManagedInvocationRouteProfile(route, catalogEntry, job.admissionProfileId)
+          : undefined;
         const invocationService = execution.invocationService;
         if (!profile || !invocationService) {
           throw new AgentTaskApplicationError("route_unavailable", "Restore the exact committed managed Runtime route.");
@@ -1058,13 +1086,9 @@ function resolveNativeHarnessRouteForAgent(
   routes: readonly OperatorManagedInvocationRoute[],
 ): OperatorManagedInvocationRoute | undefined {
   const route = routes.find((candidate) =>
-    (agent.routeId ? candidate.routeId === agent.routeId : true)
-    && (!agent.providerRoute || candidate.providerId === agent.providerRoute.providerId)
-    && (!agent.providerRoute?.model || candidate.model === agent.providerRoute.model));
+    agent.targetId ? candidate.routeId === agent.targetId : false);
   if (!route || !route.model || !isNativeHarnessAdapterKind(route.capability.adapter.kind)) return undefined;
   if (route.capability.capacity.kind !== "accountless") return undefined;
-  if (agent.providerRoute && route.providerId !== agent.providerRoute.providerId) return undefined;
-  if (agent.providerRoute?.model && route.model !== agent.providerRoute.model) return undefined;
   return route;
 }
 
@@ -1077,8 +1101,9 @@ function createNativeHarnessProfile(
   admissionProfileId: AgentTaskNativeHarnessProfile["admissionProfileId"],
   route: OperatorManagedInvocationRoute,
   acknowledgedAt: string,
+  deliberationPolicy: ManagedAgentRouteConfigSource["deliberationPolicy"],
 ): AgentTaskNativeHarnessProfile | undefined {
-  const resolvedDeliberation = resolveNativeHarnessDeliberation(agent, route);
+  const resolvedDeliberation = resolveNativeHarnessDeliberation(agent, route, deliberationPolicy);
   if (resolvedDeliberation?.status === "denied") return undefined;
   const deliberationResolution = toNativeHarnessDeliberationResolution(resolvedDeliberation);
   if ((resolvedDeliberation?.status === "exact" || resolvedDeliberation?.status === "clamped") && !deliberationResolution) return undefined;
@@ -1099,6 +1124,7 @@ function createNativeHarnessProfile(
   return {
     kind: "native-harness",
     id: agent.name,
+    authorityProfileId: agent.authorityProfileId!,
     admissionProfileId,
     routeId: route.routeId,
     routeRevision: route.capability.identity.revision,
@@ -1115,8 +1141,9 @@ function nativeHarnessRouteFromProfile(
   profile: AgentTaskNativeHarnessProfile,
   route: OperatorManagedInvocationRoute,
   agent: KilnAgentDefinition,
+  deliberationPolicy: ManagedAgentRouteConfigSource["deliberationPolicy"],
 ): AgentTaskNativeHarnessRoute | undefined {
-  const resolvedDeliberation = resolveNativeHarnessDeliberation(agent, route);
+  const resolvedDeliberation = resolveNativeHarnessDeliberation(agent, route, deliberationPolicy);
   if (resolvedDeliberation?.status === "denied") return undefined;
   const deliberationResolution = toNativeHarnessDeliberationResolution(resolvedDeliberation);
   if ((resolvedDeliberation?.status === "exact" || resolvedDeliberation?.status === "clamped") && !deliberationResolution) return undefined;
@@ -1138,15 +1165,18 @@ function nativeHarnessRouteFromProfile(
 function resolveNativeHarnessDeliberation(
   agent: KilnAgentDefinition,
   route: OperatorManagedInvocationRoute,
+  policy: ManagedAgentRouteConfigSource["deliberationPolicy"],
 ): DeliberationResolution | undefined {
-  const intent = agent.providerRoute?.deliberationIntent;
-  if (!intent) return undefined;
-  const resolution = resolveDeliberation({
-    intent,
-    source: "agent-profile",
-    ...(route.deliberationCapabilities ? { capabilities: route.deliberationCapabilities } : {}),
+  const resolution = resolveConfiguredDeliberation({
+    policy,
+    task: agent.taskAffinity?.[0],
+    provider: route.providerId,
+    model: route.model,
+    capabilities: route.deliberationCapabilities,
   });
-  return resolution;
+  return resolution.status === "omitted" && resolution.reason === "not-requested"
+    ? undefined
+    : resolution;
 }
 
 function toNativeHarnessDeliberationResolution(
@@ -1184,27 +1214,25 @@ function sameNativeHarnessDeliberationResolution(
     && (left.status !== "clamped" || (right.status === "clamped" && left.reason === right.reason));
 }
 
-function selectAdmissionProfile(
-  route: NonNullable<ManagedInvocationRouteResolution["managedInvocation"]>["routes"][number],
-): typeof REQUIRED_ADMISSION_PROFILE_ID | undefined {
-  return route.profiles[REQUIRED_ADMISSION_PROFILE_ID] ? REQUIRED_ADMISSION_PROFILE_ID : undefined;
-}
-
 export function summarizeOperatorProjectManagedAgents(
   configuredAgents: readonly KilnAgentDefinition[],
   resolution: ManagedInvocationRouteResolution["managedInvocation"],
 ): readonly OperatorProjectManagedAgentSummary[] {
   return configuredAgents.flatMap((agent): readonly OperatorProjectManagedAgentSummary[] => {
+    const catalogEntry = resolution?.agentCatalog?.find(
+      (candidate) => candidate.name === agent.name,
+    );
+    const admissionProfileId = catalogEntry?.admissionProfile ?? REQUIRED_ADMISSION_PROFILE_ID;
     const base = {
       configuredAgentProfileId: agent.name,
       ...(agent.displayName ? { displayName: agent.displayName } : {}),
       ...(agent.role ? { role: agent.role } : {}),
-      admissionProfileId: REQUIRED_ADMISSION_PROFILE_ID,
+      admissionProfileId,
     };
     if (!agent.economicPolicyId) {
       const nativeRoute = resolveNativeHarnessRouteForAgent(agent, resolution?.routes ?? []);
-      const admissionProfileId = agent.authorityProfile ?? REQUIRED_ADMISSION_PROFILE_ID;
-      if (nativeRoute?.profiles[admissionProfileId]) {
+      if (nativeRoute && catalogEntry
+        && resolveConfiguredManagedInvocationRouteProfile(nativeRoute, catalogEntry, admissionProfileId)) {
         return [{
           ...base,
           admissionProfileId,
@@ -1220,29 +1248,18 @@ export function summarizeOperatorProjectManagedAgents(
         operatorAction: "Restore the exact configured native-harness route and its read-only admission profile.",
       }];
     }
-    const catalogEntry = resolution?.agentCatalog?.find(
-      (candidate) =>
-        candidate.name === agent.name
-        && candidate.economicPolicyId === agent.economicPolicyId,
-    );
+    const economicCatalogEntry = catalogEntry?.economicPolicyId === agent.economicPolicyId
+      ? catalogEntry
+      : undefined;
     const policyRouteIds = new Set(
-      catalogEntry?.economicPolicyCandidateRouteIds ?? [],
+      economicCatalogEntry?.economicPolicyCandidateRouteIds ?? [],
     );
     const admittedRoutes = (resolution?.routes ?? []).filter(
       (route) =>
         policyRouteIds.has(route.routeId)
-        && (!agent.routeId || route.routeId === agent.routeId)
-        && (
-          !agent.providerRoute
-          || (
-            route.providerId === agent.providerRoute.providerId
-            && (
-              !agent.providerRoute.model
-              || route.model === agent.providerRoute.model
-            )
-          )
-        )
-        && selectAdmissionProfile(route) !== undefined
+        && (!agent.targetId || route.routeId === agent.targetId)
+        && economicCatalogEntry !== undefined
+        && resolveConfiguredManagedInvocationRouteProfile(route, economicCatalogEntry, admissionProfileId) !== undefined
         && route.economicCapability?.status === "verified",
     );
     if (admittedRoutes.length > 0) {
@@ -1255,7 +1272,7 @@ export function summarizeOperatorProjectManagedAgents(
     }
     const unavailable = resolution?.unavailableRoutes?.find((candidate) =>
       policyRouteIds.has(candidate.routeId)
-      && candidate.profiles.includes(REQUIRED_ADMISSION_PROFILE_ID));
+      && candidate.profiles.includes(admissionProfileId));
     if (unavailable) {
       return [{
         ...base,

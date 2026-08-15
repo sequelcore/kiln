@@ -2,7 +2,7 @@ import type { ArtifactResourceStore, DefaultBuiltinToolRegistryOptions } from "@
 import type { KilnAppConfig } from "../config.js";
 import { loadKilnConfig } from "./config-merger.js";
 import type {
-  KilnYaml,
+  ResolvedKilnConfig,
   KilnYamlInteractiveUseBrowserEnvironment,
   KilnYamlInteractiveUseBrowserProvider,
   KilnYamlInteractiveUseComputerEnvironment,
@@ -58,7 +58,7 @@ export async function loadConfiguredInteractiveUseToolSurfaceOptions(
 }
 
 export async function createInteractiveUseToolSurfaceOptions(
-  config: KilnYaml | null | undefined,
+  config: ResolvedKilnConfig | null | undefined,
   options: InteractiveUseToolSurfaceOptionsInput = {},
 ): Promise<DefaultBuiltinToolRegistryOptions> {
   const interactiveUse = config?.interactiveUse;
@@ -108,7 +108,7 @@ export async function createInteractiveUseToolSurfaceOptions(
 }
 
 export function describeInteractiveUseConfiguration(
-  config: KilnYaml | null | undefined,
+  config: ResolvedKilnConfig | null | undefined,
 ): InteractiveUseConfigurationDiagnostics {
   const interactiveUse = config?.interactiveUse;
   const enabled = interactiveUse?.enabled === true;

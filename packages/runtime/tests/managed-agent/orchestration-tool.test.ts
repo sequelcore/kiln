@@ -8,6 +8,7 @@ import {
   createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationLifecycleToolExecutors,
   RuntimeManagedAgentInvocationService,
+  digestManagedEconomicCandidateProfileAuthority,
   type ManagedAgentRuntimeInvocationInput,
   type ManagedInvocationToolAttachment,
 } from "../../src/agents/managed-invocation/index.js";
@@ -30,7 +31,8 @@ describe("managed_agent.orchestrate", () => {
         role: "Frontend producer",
         goal: "Produce a bounded visual handoff.",
         tier: "reasoning",
-        authorityProfile: "foundation-readonly-plan",
+        authorityProfileId: "authority:frontend-readonly",
+        admissionProfile: "foundation-readonly-plan",
         routeId: "frontend-readonly",
       }],
     });
@@ -118,7 +120,8 @@ describe("managed_agent.orchestrate", () => {
         role: "Economic worker",
         goal: "Execute after durable economic commitment.",
         tier: "reasoning",
-        authorityProfile: "foundation-readonly-plan",
+        authorityProfileId: "authority:economic",
+        admissionProfile: "foundation-readonly-plan",
         economicPolicyId: "economic-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: ["economic-route"],
@@ -148,6 +151,19 @@ describe("managed_agent.orchestrate", () => {
     expect(prepare.mock.calls.map(([call]) => call.candidateSet)).toEqual([
       expect.objectContaining({ candidates: [expect.objectContaining({ routeId: "economic-route" })], rejections: [] }),
       expect.objectContaining({ candidates: [expect.objectContaining({ routeId: "economic-route" })], rejections: [] }),
+    ]);
+    expect(prepare.mock.calls.map(([call]) => call.authorityProfileId)).toEqual([
+      "authority:economic",
+      "authority:economic",
+    ]);
+    expect(prepare.mock.calls.map(([call]) => call.invocationId)).toEqual([
+      "managed-orchestration:session-test:tool-call-test:child:1",
+      "managed-orchestration:session-test:tool-call-test:child:2",
+    ]);
+    const expectedProfileAuthorityDigest = digestManagedEconomicCandidateProfileAuthority(economicRoute().profiles[0]!);
+    expect(prepare.mock.calls.map(([call]) => call.candidateSet.candidates[0]?.profileAuthorityDigest)).toEqual([
+      expectedProfileAuthorityDigest,
+      expectedProfileAuthorityDigest,
     ]);
     expect(new Set(prepare.mock.calls.map(([call]) => call.jobId)).size).toBe(2);
     expect(new Set(prepare.mock.calls.map(([call]) => call.economicAttemptId)).size).toBe(2);
@@ -223,17 +239,16 @@ function economicRoute() {
       adapterCapabilityId: "codex-direct",
       adapterCapabilityVersion: "1",
     },
-    profiles: {
-      "foundation-readonly-plan": {
+    profiles: [{
         authorityProfileId: "authority:economic",
+        admissionProfile: "foundation-readonly-plan" as const,
         permissionProfile: "read-only" as const,
         allowedToolNames: ["read", "grep"],
         workingDirectory: { path: "C:/repo", mode: "read-only" as const },
         timeoutMs: 1000,
         credentialRoute: { mode: "credentialless" as const },
         memoryScope: { scope: { kind: "project" as const, id: "test" }, access: "none" as const },
-      },
-    },
+    }],
   };
 }
 

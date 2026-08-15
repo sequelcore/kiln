@@ -85,7 +85,7 @@ function economicRoutingResolution() {
           },
           resetsAt: null,
         }],
-        evidence: economicConfig().executionCatalog!.routes[0]!.economics.priceEvidence.evidence,
+        evidence: economicConfig().targetCatalog!.targets[0]!.economics.priceEvidence.evidence,
       },
       capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
     },
@@ -261,11 +261,7 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(economicConfig())).not.toThrow();
   });
 
-  it("requires the one-way schema version and rejects unknown policy fields", () => {
-    const missingVersion = structuredClone(economicConfig()) as Record<string, any>;
-    delete missingVersion.managedAgents.schemaVersion;
-    expect(() => validateGlobalConfig(missingVersion)).toThrow(/schemaVersion 2/);
-
+  it("rejects unknown economic policy and reservation fields", () => {
     const unknown = structuredClone(economicConfig()) as Record<string, any>;
     unknown.managedAgents.economicPolicies[0].estimatedCost = 0.25;
     expect(() => validateGlobalConfig(unknown)).toThrow(/estimatedCost/);
@@ -274,27 +270,18 @@ describe("managed economic policy config", () => {
     unknownReservation.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.rounding = "float";
     expect(() => validateGlobalConfig(unknownReservation)).toThrow(/rounding/);
 
-    const emptyPolicies = structuredClone(economicConfig()) as Record<string, any>;
-    emptyPolicies.managedAgents.economicPolicies = [];
-    expect(() => validateGlobalConfig(emptyPolicies)).toThrow(/schemaVersion 2 requires non-empty economicPolicies/);
-
-    const missingPolicies = structuredClone(economicConfig()) as Record<string, any>;
-    delete missingPolicies.managedAgents.economicPolicies;
-    expect(() => validateGlobalConfig(missingPolicies)).toThrow(/schemaVersion 2 requires non-empty economicPolicies/);
   });
 
-  it("diagnoses pre-v2 managed-agent routes as a re-authoring boundary", () => {
-    const legacy = structuredClone(economicConfig()) as Record<string, any>;
-    delete legacy.managedAgents.schemaVersion;
-    delete legacy.managedAgents.economicPolicies;
-    delete legacy.executionCatalog;
+  it("rejects the removed managed route catalog vocabulary", () => {
+    const obsolete = structuredClone(economicConfig()) as Record<string, any>;
+    obsolete.managedAgents.routes = [{ id: "duplicate-target", kind: "direct", executionRouteId: "codex-standard" }];
 
-    expect(() => validateGlobalConfig(legacy)).toThrow(/managedAgents direct routes require schemaVersion 2|Global config version must be "2"/i);
+    expect(() => validateGlobalConfig(obsolete)).toThrow(/Unknown managedAgents field: routes/u);
   });
 
-  it("keeps the documented subscription schema-v2 example executable", () => {
+  it("keeps the documented subscription target-catalog example executable", () => {
     const example = parse(readFileSync(
-      new URL("../../../../docs/examples/configs/managed-agents-schema-v2-subscription.yaml", import.meta.url),
+      new URL("../../../../docs/examples/configs/managed-targets-v3-subscription.yaml", import.meta.url),
       "utf8",
     ));
 
@@ -312,25 +299,25 @@ describe("managed economic policy config", () => {
 
   it("rejects broken candidate, route, and account cross-links", () => {
     const unknownRoute = structuredClone(economicConfig()) as Record<string, any>;
-    unknownRoute.managedAgents.economicPolicies[0].candidates[0].routeId = "missing";
-    expect(() => validateGlobalConfig(unknownRoute)).toThrow(/routeId must reference managedAgents.routes/);
+    unknownRoute.managedAgents.economicPolicies[0].candidates[0].targetId = "missing";
+    expect(() => validateGlobalConfig(unknownRoute)).toThrow(/targetId references an unknown target/);
 
     const missingRouteEconomics = structuredClone(economicConfig()) as Record<string, any>;
-    delete missingRouteEconomics.executionCatalog.routes[0].economics;
+    delete missingRouteEconomics.targetCatalog.targets[0].economics;
     expect(() => validateGlobalConfig(missingRouteEconomics)).toThrow(/economics/);
 
     const missingAccountEconomics = structuredClone(economicConfig()) as Record<string, any>;
-    delete missingAccountEconomics.executionCatalog.accounts[0].economics;
+    delete missingAccountEconomics.targetCatalog.accounts[0].economics;
     expect(() => validateGlobalConfig(missingAccountEconomics)).toThrow(/economics must be an object/);
   });
 
   it("rejects unsupported providers, implicit fallback, and incompatible ceilings", () => {
     const unsupported = structuredClone(economicConfig()) as Record<string, any>;
-    unsupported.executionCatalog.routes[0].providerId = "anthropic";
-    expect(() => validateGlobalConfig(unsupported)).toThrow(/provider must match route providerId/);
+    unsupported.targetCatalog.targets[0].providerId = "anthropic";
+    expect(() => validateGlobalConfig(unsupported)).toThrow(/dataPolicyEvidence.providerId must match the target providerId/);
 
     const fallback = structuredClone(economicConfig()) as Record<string, any>;
-    fallback.executionCatalog.routes[0].economics.fallbackPosture = "committed";
+    fallback.targetCatalog.targets[0].economics.fallbackPosture = "committed";
     expect(() => validateGlobalConfig(fallback)).toThrow(/uncommitted fallback or overage/);
 
     const ceiling = structuredClone(economicConfig()) as Record<string, any>;
@@ -338,7 +325,7 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(ceiling)).toThrow(/comparison domain unit and scheme/);
 
     const committedAccount = structuredClone(economicConfig()) as Record<string, any>;
-    committedAccount.executionCatalog.accounts[0].economics.creditPosture = "committed";
+    committedAccount.targetCatalog.accounts[0].economics.creditPosture = "committed";
     expect(() => validateGlobalConfig(committedAccount)).toThrow(/account credit or overage subcommitments/);
   });
 
@@ -353,7 +340,7 @@ describe("managed economic policy config", () => {
     duplicateCandidate.managedAgents.economicPolicies[0].candidates.push(
       structuredClone(duplicateCandidate.managedAgents.economicPolicies[0].candidates[0]),
     );
-    expect(() => validateGlobalConfig(duplicateCandidate)).toThrow(/routeId must be unique/);
+    expect(() => validateGlobalConfig(duplicateCandidate)).toThrow(/targetId must be unique/);
 
     const malformedAmount = structuredClone(economicConfig()) as Record<string, any>;
     malformedAmount.managedAgents.economicPolicies[0].candidates[0].ceiling.amount.atoms = "01";
@@ -390,8 +377,8 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(notComparableMetered)).toThrow(/metered route requires an exact worst-case reservation/);
 
     const subscription = structuredClone(economicConfig()) as Record<string, any>;
-    subscription.executionCatalog.routes[0].economics.priceEvidence.kind = "subscription";
-    delete subscription.executionCatalog.routes[0].economics.priceEvidence.unitPrices;
+    subscription.targetCatalog.targets[0].economics.priceEvidence.kind = "subscription";
+    delete subscription.targetCatalog.targets[0].economics.priceEvidence.unitPrices;
     subscription.managedAgents.economicPolicies[0].candidates[0].ceiling = { kind: "none" };
     subscription.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation = {
       kind: "not-comparable",
@@ -402,11 +389,11 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(subscription)).toThrow(/subscription-basis/);
 
     const priceScheme = structuredClone(economicConfig()) as Record<string, any>;
-    priceScheme.executionCatalog.routes[0].economics.priceEvidence.unitPrices[0].price.scheme.currency = "EUR";
+    priceScheme.targetCatalog.targets[0].economics.priceEvidence.unitPrices[0].price.scheme.currency = "EUR";
     expect(() => validateGlobalConfig(priceScheme)).toThrow(/route price scheme must match its comparison domain/);
 
     const auxiliaryScheme = structuredClone(economicConfig()) as Record<string, any>;
-    auxiliaryScheme.executionCatalog.routes[0].economics.auxiliaryCharges = [{
+    auxiliaryScheme.targetCatalog.targets[0].economics.auxiliaryCharges = [{
       id: "tool-call",
       amount: { atoms: "1", scale: 2, unit: "request", scheme: { kind: "currency", currency: "EUR" } },
     }];
@@ -415,8 +402,8 @@ describe("managed economic policy config", () => {
 
   it("requires proven free routes to reserve exact zero without auxiliary charges", () => {
     const free = structuredClone(economicConfig()) as Record<string, any>;
-    free.executionCatalog.routes[0].economics.priceEvidence.kind = "free";
-    delete free.executionCatalog.routes[0].economics.priceEvidence.unitPrices;
+    free.targetCatalog.targets[0].economics.priceEvidence.kind = "free";
+    delete free.targetCatalog.targets[0].economics.priceEvidence.unitPrices;
     free.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.amount.atoms = "0";
     expect(() => validateGlobalConfig(free)).not.toThrow();
 
@@ -425,7 +412,7 @@ describe("managed economic policy config", () => {
     expect(() => validateGlobalConfig(nonzero)).toThrow(/exact zero worst-case reservation/);
 
     const chargedAuxiliary = structuredClone(free);
-    chargedAuxiliary.executionCatalog.routes[0].economics.auxiliaryCharges = [{
+    chargedAuxiliary.targetCatalog.targets[0].economics.auxiliaryCharges = [{
       id: "tool-call",
       amount: { atoms: "1", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
     }];

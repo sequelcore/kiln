@@ -10,7 +10,7 @@ import {
   runCommand,
 } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -122,7 +122,7 @@ const operatorCompositionMocks = vi.hoisted(() => {
         }) => {
           if (state.dispatchError) throw state.dispatchError;
           const route = input.catalog.routes.find((candidate) => candidate.id === request.intent.routeId);
-          if (!route) throw new Error("Unknown test execution route '" + request.intent.routeId + "'.");
+          if (!route) throw new Error("Unknown test execution target '" + request.intent.routeId + "'.");
           const accountId = request.intent.accountOverrideId
             ?? (route.accountSelection.mode === "exact"
               ? route.accountSelection.accountId
@@ -373,6 +373,15 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
+  projectDirectExecutionCatalog: vi.fn((config) => config?.targetCatalog
+    ? {
+        accounts: config.targetCatalog.accounts,
+        accountPolicies: config.targetCatalog.accountPolicies,
+        routes: config.targetCatalog.targets
+          .filter((target: { kind: string }) => target.kind === "direct")
+          .map(({ kind: _kind, ...target }: { kind: string }) => target),
+      }
+    : undefined),
   resolveGlobalConfigPath: vi.fn(() => "C:\\Users\\operator\\.kiln\\config.yaml"),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
   resolveGlobalDefaultProvider: vi.fn(() => undefined),
@@ -789,7 +798,7 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
-  it("does not require MCP when a configured execution route is selected", async () => {
+  it("does not require MCP when a configured execution target is selected", async () => {
     await runCommand(APP_CONFIG, "use configured route", {});
 
     expect(runWiringMocks.capturedRunSessionInputs).toHaveLength(1);
@@ -959,7 +968,7 @@ describe("run command builtin tool wiring", () => {
     const stdout = captureStdout();
     vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
-    operatorCompositionMocks.state.dispatchError = new Error("Execution route 'openrouter-qwen' is unavailable.");
+    operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
 
     await expect(runCommand(
       APP_CONFIG,
@@ -981,7 +990,7 @@ describe("run command builtin tool wiring", () => {
         model: "qwen/qwen3-coder:free",
       },
       diagnostics: {
-        lastError: "Execution route 'openrouter-qwen' is unavailable.",
+        lastError: "Execution target 'openrouter-qwen' is unavailable.",
         attempts: [],
       },
       resources: {
@@ -995,7 +1004,7 @@ describe("run command builtin tool wiring", () => {
     const stdout = captureStdout();
     vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
-    operatorCompositionMocks.state.dispatchError = new Error("Execution route 'openrouter-qwen' is unavailable.");
+    operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
     runWiringMocks.cleanupWorktree.mockRejectedValueOnce(new Error("cleanup failed"));
 
     await expect(runCommand(
@@ -1012,7 +1021,7 @@ describe("run command builtin tool wiring", () => {
         sessionSucceeded: false,
       },
       diagnostics: {
-        lastError: "Execution route 'openrouter-qwen' is unavailable.; Failed to cleanup worktree. cleanup failed",
+        lastError: "Execution target 'openrouter-qwen' is unavailable.; Failed to cleanup worktree. cleanup failed",
       },
     });
   });
@@ -1500,19 +1509,19 @@ describe("run command builtin tool wiring", () => {
     })).toEqual({ ok: true });
   });
 
-  it("rejects an unknown explicit execution route before running a session", async () => {
+  it("rejects an unknown explicit execution target before running a session", async () => {
     await expect(runCommand(APP_CONFIG, "ship it", {
-      route: "missing-route",
-    })).rejects.toThrow("Execution route 'missing-route' is not configured.");
+      target: "missing-route",
+    })).rejects.toThrow("Execution target 'missing-route' is not configured.");
 
     expect(runWiringMocks.runSession).not.toHaveBeenCalled();
   });
 
-  it("binds the explicit execution route into canonical dispatch", async () => {
+  it("binds the explicit execution target into canonical dispatch", async () => {
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
 
     await runCommand(APP_CONFIG, "ship it", {
-      route: "openrouter-qwen",
+      target: "openrouter-qwen",
     });
 
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
@@ -1536,7 +1545,7 @@ describe("run command builtin tool wiring", () => {
     });
   });
 
-  it("binds only the selected execution route without client-side fallback", async () => {
+  it("binds only the selected execution target without client-side fallback", async () => {
     configureExecutionRoute("openrouter", "openrouter/free", "openrouter-free");
     await runCommand(APP_CONFIG, "ship it", { route: "openrouter-free" });
 
@@ -1555,7 +1564,7 @@ describe("run command builtin tool wiring", () => {
     }) as never);
     runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-unavailable";
     configureExecutionRoute("openrouter", "qwen/qwen3-coder:free", "openrouter-qwen");
-    operatorCompositionMocks.state.dispatchError = new Error("Execution route 'openrouter-qwen' is unavailable.");
+    operatorCompositionMocks.state.dispatchError = new Error("Execution target 'openrouter-qwen' is unavailable.");
 
     await expect(runCommand(APP_CONFIG, "ship it", {
       isolate: true,
@@ -1896,16 +1905,16 @@ function parallelManagedInvocation() {
           },
         },
       }),
-      profiles: {
-        "foundation-apply-approved-writes": {
+      profiles: [{
+          authorityProfileId: "authority:codex-isolated:foundation-apply-approved-writes",
+          admissionProfile: "foundation-apply-approved-writes",
           workingDirectory: {
             mode: "isolated-worktree",
           },
           workingDirectoryLease: {
             mode: "git-worktree",
           },
-        },
-      },
+      }],
     }],
   } as never;
 }

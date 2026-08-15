@@ -13,6 +13,7 @@ import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import type { ManagedInvocationRouteResolution } from "./managed-agent-routes.js";
 import type { SessionRegistry } from "../wrapper/session-registry.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "./managed-agent-provider-models.js";
+import type { KilnAuthorityProfileConfig } from "../kiln-yaml-types.js";
 
 export interface ManagedAgentRouteAdmissionResolver {
   resolve(agent: KilnAgentDefinition): RouteAdmissionDecision | undefined;
@@ -48,7 +49,13 @@ export async function createManagedAgentRouteAdmissionResolver(
       includeUnavailableRoutes: true,
       compositionMode: "candidate-admission",
     });
-    return { resolve: (agent) => resolveManagedAgentRouteAdmission(agent, resolution) };
+    return {
+      resolve: (agent) => resolveManagedAgentRouteAdmission(
+        agent,
+        resolution,
+        config?.authorityProfiles,
+      ),
+    };
   } catch {
     return { resolve: (agent) => unresolved(agent) };
   }
@@ -57,27 +64,22 @@ export async function createManagedAgentRouteAdmissionResolver(
 function resolveManagedAgentRouteAdmission(
   agent: KilnAgentDefinition,
   resolution: ManagedInvocationRouteResolution,
+  authorityProfiles: readonly KilnAuthorityProfileConfig[] | undefined,
 ): RouteAdmissionDecision | undefined {
-  if (!agent.providerRoute) return undefined;
-  const providerId = agent.providerRoute.providerId;
-  const modelId = agent.providerRoute.model?.trim();
-  if (!modelId) return unavailable(agent);
-  const matchingRoutes = (resolution.managedInvocation?.routes ?? []).filter((candidate) =>
-    candidate.providerId === providerId
-    && candidate.model === modelId
-    && (agent.routeId === undefined || candidate.routeId === agent.routeId),
+  if (!agent.targetId) return undefined;
+  const matchingRoutes = (resolution.managedInvocation?.routes ?? []).filter(
+    (candidate) => candidate.routeId === agent.targetId,
   );
   const route = matchingRoutes.length === 1 ? matchingRoutes[0] : undefined;
   if (!route) {
-    if (agent.routeId === undefined || matchingRoutes.length > 1) return unresolved(agent);
+    if (matchingRoutes.length > 1) return unresolved(agent);
     const unavailableRoute = resolution.managedInvocation?.unavailableRoutes?.find((candidate) =>
-      candidate.routeId === agent.routeId
-      && candidate.providerId === providerId
-      && candidate.model === modelId,
+      candidate.routeId === agent.targetId,
     );
     return unavailableRoute ? unavailable(agent) : unresolved(agent);
   }
-  const profile = (agent.authorityProfile ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const profile = resolveAdmissionProfile(agent, authorityProfiles);
+  if (!profile) return unresolved(agent);
   const requestedAuthority = profile === "foundation-readonly-plan" ? "read_only" : "destructive";
   const toolNames = [...(agent.tools ?? [])];
   const caller: CallerAuthorityProfile = {
@@ -103,8 +105,16 @@ function resolveManagedAgentRouteAdmission(
   });
 }
 
+function resolveAdmissionProfile(
+  agent: KilnAgentDefinition,
+  authorityProfiles: readonly KilnAuthorityProfileConfig[] | undefined,
+): ManagedAgentAdmissionProfile | undefined {
+  if (!agent.authorityProfileId) return undefined;
+  return authorityProfiles?.find((profile) => profile.id === agent.authorityProfileId)?.admissionProfile;
+}
+
 function unresolved(agent: KilnAgentDefinition): RouteAdmissionDecision {
-  return { status: "unresolved", routeId: agent.routeId ?? routeId(agent), reasons: [{ code: "proof-unknown" }] };
+  return { status: "unresolved", routeId: agent.targetId ?? "unresolved", reasons: [{ code: "proof-unknown" }] };
 }
 
 function unavailable(
@@ -112,9 +122,5 @@ function unavailable(
   admittedRouteId?: string,
   reason: RouteAdmissionRejection = { code: "proof-insufficient", requiredProof: "configured" },
 ): RouteAdmissionDecision {
-  return { status: "unavailable", routeId: admittedRouteId ?? agent.routeId ?? routeId(agent), reasons: [reason] };
-}
-
-function routeId(agent: KilnAgentDefinition): string {
-  return `${agent.providerRoute?.providerId ?? "unresolved"}:${agent.providerRoute?.model?.trim() || "unresolved"}`;
+  return { status: "unavailable", routeId: admittedRouteId ?? agent.targetId ?? "unresolved", reasons: [reason] };
 }

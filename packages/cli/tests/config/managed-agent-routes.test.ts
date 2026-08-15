@@ -25,6 +25,7 @@ import { SessionRegistry } from "../../src/wrapper/session-registry.js";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
   createManagedInvocationToolOptionsCatalog,
+  projectManagedEconomicJobAdoption,
   resolveManagedInvocationToolOptions,
 } from "../../src/config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
@@ -32,7 +33,15 @@ import {
   normalizeRuntimeProviderDiscoveryCatalog,
   RuntimeManagedAgentInvocationService,
   type ManagedAgentRuntimeAdapter,
+  type ManagedInvocationToolRoute,
 } from "@kilnai/runtime";
+
+function profileByAdmission(
+  route: ManagedInvocationToolRoute | undefined,
+  admissionProfile: string,
+) {
+  return route?.profiles.find((profile) => profile.admissionProfile === admissionProfile);
+}
 
 const READONLY_POLICY: KilnPermissionPolicy = {
   approval: "on-request",
@@ -278,37 +287,62 @@ function createRegistryWithCapturedHarnessRun(
   return new SessionRegistry([descriptor]);
 }
 
-function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}): KilnGlobalConfig {
-  const routes = overrides.routes ?? [];
-  const directRoutes = routes.filter((route) => route.kind === "direct");
+type AuthorityProfileFixture = NonNullable<KilnGlobalConfig["authorityProfiles"]>[number];
+type ManagedTargetFixture = {
+  readonly id: string;
+  readonly kind: "direct" | "harness";
+  readonly provider?: string;
+  readonly model?: string;
+  readonly profiles?: readonly AuthorityProfileFixture["admissionProfile"][];
+  readonly workingDirectory?: AuthorityProfileFixture["workingDirectory"];
+  readonly timeoutMs?: number;
+  readonly tools?: AuthorityProfileFixture["tools"];
+  readonly memory?: AuthorityProfileFixture["memory"];
+  readonly readAuthority?: AuthorityProfileFixture["readAuthority"];
+  readonly writeAuthority?: AuthorityProfileFixture["writeAuthority"];
+  readonly remoteHarness?: NonNullable<KilnGlobalConfig["targetCatalog"]>["targets"][number] extends infer _Target
+    ? import("../../src/kiln-yaml-types.js").KilnManagedAgentRemoteHarnessConfig
+    : never;
+  readonly externalRuntimeAttachment?: import("../../src/kiln-yaml-types.js").KilnManagedAgentExternalRuntimeAttachmentConfig;
+};
+
+type ManagedConfigFixture = Omit<NonNullable<KilnGlobalConfig["managedAgents"]>, "defaultAuthorityProfileId"> & {
+  readonly targetFixtures?: readonly ManagedTargetFixture[];
+};
+
+function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig {
+  const { targetFixtures = [], ...managedAgents } = overrides;
+  const directTargets = targetFixtures.filter((target) => target.kind === "direct");
   const executionCatalog = defineExecutionCatalog({
-    accounts: directRoutes.map((route) => {
-      const identity = testExecutionIdentity(route.executionRouteId);
+    accounts: directTargets.map((target) => {
+      const targetId = target.id;
+      const identity = testExecutionIdentity(targetId);
       return {
-        id: `account:${route.executionRouteId}`,
+        id: `account:${targetId}`,
         providerId: identity.providerId,
-        credentialId: `credential:${route.executionRouteId}`,
+        credentialId: `credential:${targetId}`,
         maxConcurrency: 1,
         reservedAffinitySlots: 0,
         economics: {
-          capacityIdentity: `capacity:${route.executionRouteId}`,
+          capacityIdentity: `capacity:${targetId}`,
           subscriptionClass: "subscription",
-          quotaClassId: `quota:${route.executionRouteId}`,
+          quotaClassId: `quota:${targetId}`,
           creditPosture: "disabled" as const,
           overagePosture: "disabled" as const,
         },
       };
     }),
-    accountPolicies: directRoutes.map((route) => ({
-      id: `policy:${route.executionRouteId}`,
-      accountIds: [`account:${route.executionRouteId}`],
+    accountPolicies: directTargets.map((target) => ({
+      id: `policy:${target.id}`,
+      accountIds: [`account:${target.id}`],
       strategy: "economic-least-pressure" as const,
     })),
-    routes: directRoutes.map((route) => {
-      const identity = testExecutionIdentity(route.executionRouteId);
+    routes: directTargets.map((target) => {
+      const targetId = target.id;
+      const identity = testExecutionIdentity(targetId);
       return {
-        id: route.executionRouteId,
-        label: route.executionRouteId,
+        id: targetId,
+        label: targetId,
         providerId: identity.providerId,
         providerModelId: identity.providerModelId,
         dataClassification: "internal" as const,
@@ -328,7 +362,7 @@ function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}):
         },
         accountSelection: {
           mode: "automatic" as const,
-          accountPolicyId: `policy:${route.executionRouteId}`,
+          accountPolicyId: `policy:${targetId}`,
         },
         economics: {
           adapterCapabilityId: "test-direct-adapter",
@@ -357,40 +391,97 @@ function baseConfig(overrides: Partial<KilnGlobalConfig["managedAgents"]> = {}):
             },
           },
           auxiliaryCharges: [],
-          executionEnvelope: { limits: [] },
+          executionEnvelope: {
+            limits: [{
+              atoms: "200000",
+              scale: 0,
+              unit: "input-token",
+              scheme: { kind: "unit" as const },
+            }],
+          },
         },
       };
     }),
   });
+
+  const authorityProfiles = targetFixtures.flatMap((target) =>
+    (target.profiles ?? ["foundation-readonly-plan"]).map((admissionProfile) => ({
+      id: `authority:${admissionProfile}`,
+      admissionProfile,
+      ...(target.workingDirectory ? { workingDirectory: target.workingDirectory } : {}),
+      ...(target.timeoutMs ? { timeoutMs: target.timeoutMs } : {}),
+      ...(target.tools ? { tools: target.tools } : {}),
+      ...(target.memory ? { memory: target.memory } : {}),
+      ...(target.readAuthority ? { readAuthority: target.readAuthority } : {}),
+      ...(target.writeAuthority ? { writeAuthority: target.writeAuthority } : {}),
+    })))
+    .filter((profile, index, profiles) => profiles.findIndex((candidate) => candidate.id === profile.id) === index);
+
   return {
-    version: "2",
-    executionCatalog,
+    version: "3",
+    targetCatalog: {
+      accounts: executionCatalog.accounts,
+      accountPolicies: executionCatalog.accountPolicies,
+      targets: targetFixtures.map((target) => {
+        const targetId = target.id;
+        if (target.kind === "direct") {
+          const route = executionCatalog.routes.find((candidate) => candidate.id === targetId)!;
+          return { ...route, id: target.id, kind: "direct" as const };
+        }
+        return {
+          id: target.id,
+          kind: "harness" as const,
+          label: target.id,
+          providerId: target.provider ?? "",
+          providerModelId: target.model as string,
+          dataClassification: "internal" as const,
+          dataPolicyEvidence: {
+            providerId: target.provider ?? "",
+            providerModelId: target.model as string,
+            dataUse: "not-used" as const,
+            trainingPosture: "prohibited" as const,
+            retention: { posture: "zero" as const, days: 0 },
+            permittedMaximumClassification: "internal" as const,
+            permittedClassifications: ["public", "internal"] as const,
+            sourceIdentity: "managed-agent-routes-test",
+            sourceRevision: "1",
+            sourceDigest: `sha256:${"d".repeat(64)}` as const,
+            observedAt: "2026-08-01T00:00:00.000Z",
+            expiresAt: "2027-08-01T00:00:00.000Z",
+          },
+          ...(target.remoteHarness ? { remoteHarness: target.remoteHarness } : {}),
+          ...(target.externalRuntimeAttachment ? { externalRuntimeAttachment: target.externalRuntimeAttachment } : {}),
+        };
+      }),
+    },
+    authorityProfiles,
     managedAgents: {
       enabled: true,
-      defaultProvider: "codex",
-      defaultProfile: "foundation-readonly-plan",
+      ...(authorityProfiles[0] ? { defaultAuthorityProfileId: authorityProfiles[0].id } : {}),
       requireApproval: true,
-      ...overrides,
-      ...(routes.length > 0 ? { routes } : {}),
+      ...managedAgents,
     },
   };
 }
 
-function testExecutionIdentity(executionRouteId: string): {
+function testExecutionIdentity(targetId: string): {
   readonly providerId: string;
   readonly providerModelId: string;
 } {
-  if (executionRouteId.startsWith("opencode-go-")) {
+  if (targetId.startsWith("opencode-go-")) {
     return { providerId: "opencode-go", providerModelId: "kimi-k2.6" };
   }
-  if (executionRouteId.startsWith("openai-")) {
+  if (targetId.startsWith("openai-")) {
     return { providerId: "openai", providerModelId: "gpt-5.4-mini" };
   }
-  if (executionRouteId === "codex-oauth-auto-review-readonly") {
+  if (targetId === "codex-oauth-auto-review-readonly") {
     return { providerId: "codex-oauth", providerModelId: "codex-auto-review" };
   }
-  if (executionRouteId === "codex-oauth-reasoning-readonly") {
+  if (targetId === "codex-oauth-reasoning-readonly") {
     return { providerId: "codex-oauth", providerModelId: "gpt-5.5" };
+  }
+  if (targetId === "codex-luna") {
+    return { providerId: "codex-oauth", providerModelId: "gpt-5.6-luna" };
   }
   return { providerId: "codex-oauth", providerModelId: "gpt-5.4-mini" };
 }
@@ -401,7 +492,7 @@ function testExecutionIdentity(executionRouteId: string): {
 // unrelated route-composition tests exercising their own concern instead of
 // tripping the policy-coverage gate.
 function economicPolicyCovering(
-  routeIds: readonly string[],
+  targetIds: readonly string[],
   policyId = "test-coverage-policy",
 ): NonNullable<KilnGlobalConfig["managedAgents"]>["economicPolicies"] {
   return [{
@@ -417,8 +508,8 @@ function economicPolicyCovering(
       rateCardBasis: "configured",
       envelopeSemantics: "bounded",
     }],
-    candidates: routeIds.map((routeId, priorityRank) => ({
-      routeId,
+    candidates: targetIds.map((targetId, priorityRank) => ({
+      targetId,
       comparisonDomainId: "priority-only",
       priorityRank,
       ceiling: { kind: "none" as const },
@@ -434,7 +525,7 @@ const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]
   principals: [],
   virtualModels: [{
     id: "managed-openai",
-    executionRouteId: "openai-readonly",
+    targetId: "openai-readonly",
     capabilities: ["text", "reasoning-controls"],
     deliberation: {
       levels: ["low", "high"],
@@ -541,7 +632,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("does not synthesize managed routes when no supported child engine is enabled", async () => {
     await expect(resolveManagedInvocationToolOptions({
-      version: "1",
+      version: "3",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: false, billing: "plus-quota" },
@@ -560,7 +651,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     "fails closed when an explicit %s harness route omits its exact model",
     async (provider) => {
       const result = await resolveManagedInvocationToolOptions(baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: `${provider}-missing-model`,
           kind: "harness",
           provider,
@@ -595,7 +686,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("resolves an explicit healthy Codex harness route", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: "codex-readonly",
           kind: "harness",
           provider: "codex",
@@ -661,8 +752,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         }),
       ]),
     );
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
-      authorityProfileId: "authority:codex-readonly:foundation-readonly-plan",
+    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
+      authorityProfileId: "authority:foundation-readonly-plan",
       permissionProfile: "read-only",
       allowedToolNames: ["read", "tree", "grep", "glob"],
       workingDirectory: {
@@ -689,10 +780,9 @@ describe("resolveManagedInvocationToolOptions", () => {
       workingDirectory: "project" as const,
       tools: { allowed: ["read", "tree"], network: false, writes: false },
       memory: { access: "read-only" as const },
-      credentials: { mode: "credentialless" as const },
     };
     const resolve = async (timeoutMs: number) => await resolveManagedInvocationToolOptions(
-      baseConfig({ routes: [{ ...route, timeoutMs }] }),
+      baseConfig({ targetFixtures: [{ ...route, timeoutMs }] }),
       {
         cwd: "C:/repo",
         registry: createRegistry("codex"),
@@ -714,10 +804,9 @@ describe("resolveManagedInvocationToolOptions", () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
         economicPolicies: economicPolicyCovering(["openai-readonly"]),
-        routes: [{
+        targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
       }),
@@ -744,7 +833,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   // from programmatically-constructed test fixtures.
   it("reads a route's declared external-runtime attachment from configuration (F6)", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -771,7 +860,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("rejects a route with a blank external-runtime attachment field instead of treating it as absent (F6)", async () => {
     await expect(resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -792,7 +881,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("rejects a blank external-runtime runtimeId as well as a blank attachmentId (F6)", async () => {
     await expect(resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -816,7 +905,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   // admission gate compares what was actually configured.
   it("preserves configured external-runtime identities byte-for-byte, including peripheral whitespace (F6)", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -862,7 +951,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       resourceProviders: [resourceProvider],
     });
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -883,7 +972,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     const route = result.managedInvocation?.routes[0];
     expect(route).toBeDefined();
-    const profile = route?.profiles["foundation-readonly-plan"];
+    const profile = profileByAdmission(route, "foundation-readonly-plan");
     expect(profile).toBeDefined();
     const service = result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService();
 
@@ -940,10 +1029,9 @@ describe("resolveManagedInvocationToolOptions", () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
         economicPolicies: economicPolicyCovering(["openai-readonly"]),
-        routes: [{
+        targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
       }),
@@ -957,7 +1045,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       managedAccountComposition: TEST_MANAGED_ACCOUNT_COMPOSITION,
     });
 
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"].credentialRoute).toEqual({
+    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")?.credentialRoute).toEqual({
       mode: "account-leased",
       routeId: "openai-readonly",
       accountPolicyId: "policy:openai-readonly",
@@ -969,7 +1057,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("creates an invocation service for credentialless routes without lease-backed resources", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -994,12 +1082,10 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("admits direct sandbox working-directory routes with a shared sandbox lease manager", async () => {
     validateGlobalConfig(baseConfig({
-      schemaVersion: 2,
       economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
-      routes: [{
+      targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
-        executionRouteId: "codex-oauth-sandbox-readonly",
         profiles: ["foundation-readonly-plan"],
         workingDirectory: "sandbox",
       }],
@@ -1007,10 +1093,9 @@ describe("resolveManagedInvocationToolOptions", () => {
 
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
-      routes: [{
+      targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
         kind: "direct",
-        executionRouteId: "codex-oauth-sandbox-readonly",
         profiles: ["foundation-readonly-plan"],
         workingDirectory: "sandbox",
         tools: {
@@ -1035,7 +1120,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       profiles: ["foundation-readonly-plan"],
       available: true,
     }]);
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
+    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
       workingDirectory: {
         path: "C:/repo",
         mode: "sandbox",
@@ -1047,7 +1132,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("keeps harness sandbox working-directory routes unavailable until harness sandbox proof exists", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-sandbox-readonly",
         kind: "harness",
         provider: "codex",
@@ -1082,7 +1167,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("resolves explicit remote harness sandbox routes with endpoint-backed limitations", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-cloud-remote-readonly",
         kind: "harness",
         provider: "codex-cloud",
@@ -1142,7 +1227,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       target: { providerId: "codex-cloud" },
       adapter: { kind: "governed-external-runtime" },
     });
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-readonly-plan"]).toMatchObject({
+    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-readonly-plan")).toMatchObject({
       workingDirectory: {
         path: "C:/repo",
         mode: "sandbox",
@@ -1150,79 +1235,6 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
     expect(result.managedInvocation?.invocationService).toBeDefined();
     expect(result.managedInvocation?.invocationServiceKey).toContain("sandboxPolicy");
-  });
-
-  it("keeps policy-owned harness routes adapter-free during candidate admission", async () => {
-    const result = await resolveManagedInvocationToolOptions(baseConfig({
-      schemaVersion: 2,
-      economicPolicies: [{
-        id: "bounded-policy",
-        revision: "rev-1",
-        evidenceRequirements: { quota: "optional", price: "optional" },
-        noRouteAction: "deny",
-        comparisonDomains: [{
-          id: "priority-only",
-          rank: 0,
-          unit: "request",
-          scheme: { kind: "unit" },
-          rateCardBasis: "configured",
-          envelopeSemantics: "bounded",
-        }],
-        candidates: ["local-harness", "remote-harness"].map((routeId, priorityRank) => ({
-          routeId,
-          comparisonDomainId: "priority-only",
-          priorityRank,
-          ceiling: { kind: "none" as const },
-          worstCaseReservation: { kind: "not-comparable" as const, reason: "economic-basis-unavailable" as const },
-        })),
-      }],
-      routes: [{
-        id: "local-harness",
-        kind: "harness",
-        provider: "codex",
-        model: "gpt-5.3-codex-spark",
-        profiles: ["foundation-readonly-plan"],
-      }, {
-        id: "remote-harness",
-        kind: "harness",
-        provider: "codex-cloud",
-        model: "gpt-5.5",
-        profiles: ["foundation-readonly-plan"],
-        workingDirectory: "sandbox",
-        remoteHarness: {
-          invokeUrl: "https://remote.example.test/managed-agent/invoke",
-          cancelUrl: "https://remote.example.test/managed-agent/cancel",
-        },
-      }],
-    }), {
-      cwd: "C:/repo",
-      userHome: "C:/repo",
-      registry: createRegistry("codex"),
-      surface: "gui",
-      compositionMode: "candidate-admission",
-      providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-    });
-
-    expect(result.managedInvocation?.routes).toHaveLength(2);
-    expect(result.managedInvocation?.routes.map((route) => ({
-      routeId: route.routeId,
-      adapter: route.adapter,
-      createCommittedAdapter: route.createCommittedAdapter,
-      economicCapability: route.economicCapability,
-    }))).toEqual([
-      {
-        routeId: "local-harness",
-        adapter: undefined,
-        createCommittedAdapter: undefined,
-        economicCapability: { status: "unverified" },
-      },
-      {
-        routeId: "remote-harness",
-        adapter: undefined,
-        createCommittedAdapter: undefined,
-        economicCapability: { status: "unverified" },
-      },
-    ]);
   });
 
   it("exposes canonical agent profiles as managed invocation selection catalog", async () => {
@@ -1245,6 +1257,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           "role: TDD guide",
           "goal: Write tests before behavior changes",
           "tier: reasoning",
+          "authorityProfileId: authority:foundation-readonly-plan",
           "taskAffinity:",
           "  - test-writing",
           "skills:",
@@ -1302,7 +1315,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       );
 
       const result = await resolveManagedInvocationToolOptions(baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: "codex-readonly",
           kind: "harness",
           provider: "codex",
@@ -1360,7 +1373,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
-  it("isolates missing or widening schema-v2 policy bindings to the affected agent", async () => {
+  it("isolates missing or widening policy bindings to the affected agent", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-agent-policy-"));
     try {
       const agentsDir = join(root, ".kiln", "agents");
@@ -1373,7 +1386,8 @@ describe("resolveManagedInvocationToolOptions", () => {
         "goal: Preserve harness work when another agent policy is invalid.",
         "tier: reasoning",
         "mode: managed-child",
-        "routeId: codex-readonly",
+        "targetId: codex-readonly",
+        "authorityProfileId: authority:foundation-readonly-plan",
         "---",
         "Remain within the native harness route.",
       ].join("\n"));
@@ -1384,6 +1398,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "goal: Execute only policy-admitted work.",
         "tier: reasoning",
         "mode: managed-child",
+        "authorityProfileId: authority:foundation-readonly-plan",
         policyLine,
         routeLine,
         "---",
@@ -1403,7 +1418,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           envelopeSemantics: "bounded",
         }],
         candidates: [{
-          routeId: "admitted-route",
+          targetId: "admitted-route",
           comparisonDomainId: "priority-only",
           priorityRank: 0,
           ceiling: { kind: "none" as const },
@@ -1411,12 +1426,10 @@ describe("resolveManagedInvocationToolOptions", () => {
         }],
       }];
       const config = baseConfig({
-        schemaVersion: 2,
         economicPolicies,
-        routes: [{
+        targetFixtures: [{
           id: "admitted-route",
           kind: "direct",
-          executionRouteId: "admitted-route",
           profiles: ["foundation-readonly-plan"],
         }, {
           id: "codex-readonly",
@@ -1462,7 +1475,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       }));
       expect(adapterConstructions).toBe(0);
 
-      writeAgent("economicPolicyId: bounded-policy", "routeId: outside-policy");
+      writeAgent("economicPolicyId: bounded-policy", "targetId: outside-policy");
       const widening = await resolve();
       expect(widening.agentHealth).toContainEqual(expect.objectContaining({
         agentName: "economic-worker",
@@ -1486,7 +1499,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     }
   });
 
-  it("consumes a valid schema-v2 agent policy binding without selecting a route hint", async () => {
+  it("consumes a valid agent policy binding without selecting a target hint", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-agent-policy-valid-"));
     try {
       const agentsDir = join(root, ".kiln", "agents");
@@ -1498,12 +1511,12 @@ describe("resolveManagedInvocationToolOptions", () => {
         "goal: Execute only policy-admitted work.",
         "tier: reasoning",
         "mode: managed-child",
+        "authorityProfileId: authority:foundation-readonly-plan",
         "economicPolicyId: bounded-policy",
         "---",
         "Remain within the configured economic policy.",
       ].join("\n"));
       const result = await resolveManagedInvocationToolOptions(baseConfig({
-        schemaVersion: 2,
         economicPolicies: [{
           id: "bounded-policy",
           revision: "rev-1",
@@ -1518,17 +1531,16 @@ describe("resolveManagedInvocationToolOptions", () => {
             envelopeSemantics: "bounded",
           }],
           candidates: [{
-            routeId: "admitted-route",
+            targetId: "admitted-route",
             comparisonDomainId: "priority-only",
             priorityRank: 0,
             ceiling: { kind: "none" },
             worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
           }],
         }],
-        routes: [{
+        targetFixtures: [{
           id: "admitted-route",
           kind: "direct",
-          executionRouteId: "admitted-route",
           profiles: ["foundation-readonly-plan"],
         }],
       }), {
@@ -1555,7 +1567,6 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("rejects a committed route mismatch before constructing its adapter", async () => {
     const directAdapterFactory = vi.fn((route) => makeDirectAdapter(route.provider));
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      schemaVersion: 2,
       economicPolicies: [{
         id: "bounded-policy",
         revision: "rev-1",
@@ -1570,17 +1581,16 @@ describe("resolveManagedInvocationToolOptions", () => {
           envelopeSemantics: "bounded",
         }],
         candidates: [{
-          routeId: "admitted-route",
+          targetId: "admitted-route",
           comparisonDomainId: "priority-only",
           priorityRank: 0,
           ceiling: { kind: "none" },
           worstCaseReservation: { kind: "not-comparable", reason: "economic-basis-unavailable" },
         }],
       }],
-      routes: [{
+      targetFixtures: [{
         id: "admitted-route",
         kind: "direct",
-        executionRouteId: "admitted-route",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1606,7 +1616,6 @@ describe("resolveManagedInvocationToolOptions", () => {
       dispatchFenceId: "dispatch-fence:test",
     } as never)).rejects.toMatchObject({
       code: "committed-route-mismatch",
-      message: "Committed managed route does not match the configured execution route.",
       evidence: {
         code: "committed-route-mismatch",
         expected: { routeId: "admitted-route", providerId: "codex-oauth", modelId: "gpt-5.4-mini" },
@@ -1627,6 +1636,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         "role: Repository scout",
         "goal: Collect bounded repository evidence.",
         "tier: fast",
+        "authorityProfileId: authority:foundation-readonly-plan",
         "taskAffinity:",
         "  - mechanical-edit",
         "---",
@@ -1634,16 +1644,14 @@ describe("resolveManagedInvocationToolOptions", () => {
       ].join("\n"));
       const result = await resolveManagedInvocationToolOptions(baseConfig({
         economicPolicies: economicPolicyCovering(["codex-oauth-reasoning-readonly", "codex-oauth-bounded-readonly"]),
-        routes: [{
+        targetFixtures: [{
           id: "codex-oauth-reasoning-readonly",
           kind: "direct",
-          executionRouteId: "codex-oauth-reasoning-readonly",
           profiles: ["foundation-readonly-plan"],
           taskSuitability: [{ task: "mechanical-edit", level: "limited" }],
         }, {
           id: "codex-oauth-bounded-readonly",
           kind: "direct",
-          executionRouteId: "codex-oauth-bounded-readonly",
           profiles: ["foundation-readonly-plan"],
           taskSuitability: [{ task: "mechanical-edit", level: "preferred" }],
         }],
@@ -1682,10 +1690,8 @@ describe("resolveManagedInvocationToolOptions", () => {
           "role: Visual reference research specialist",
           "goal: Collect real product UI evidence before frontend implementation.",
           "tier: reasoning",
-          "routeId: opencode-go-kimi-k2-6-readonly",
-          "providerRoute:",
-          "  providerId: opencode-go",
-          "  model: kimi-k2.6",
+          "targetId: opencode-go-kimi-k2-6-readonly",
+          "authorityProfileId: authority:foundation-readonly-plan",
           "taskAffinity:",
           "  - frontend-design",
           "  - research",
@@ -1699,10 +1705,9 @@ describe("resolveManagedInvocationToolOptions", () => {
       const result = await resolveManagedInvocationToolOptions({
         ...baseConfig({
           economicPolicies: economicPolicyCovering(["opencode-go-kimi-k2-6-readonly"]),
-          routes: [{
+          targetFixtures: [{
             id: "opencode-go-kimi-k2-6-readonly",
             kind: "direct",
-            executionRouteId: "opencode-go-kimi-k2-6-readonly",
             profiles: ["foundation-readonly-plan"],
             tools: {
               allowed: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
@@ -1713,18 +1718,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         }),
         engines: {
           "opencode-go": { enabled: true, billing: "subscription" },
-        },
-        workerRouting: {
-          routes: [
-            {
-              provider: "opencode-go",
-              model: "kimi-k2.6",
-            },
-            {
-              provider: "opencode-go",
-              model: "qwen3.6-plus",
-            },
-          ],
         },
       }, {
         cwd: root,
@@ -1741,7 +1734,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       expect(result.managedInvocation?.routes.filter((route) =>
         route.routeId === "opencode-go-kimi-k2-6-readonly"
       )).toHaveLength(1);
-      expect(visualRoute?.profiles["foundation-readonly-plan"]).toMatchObject({
+      expect(profileByAdmission(visualRoute, "foundation-readonly-plan")).toMatchObject({
         allowedToolNames: ["read", "tree", "grep", "glob", "web_search", "web_fetch", "browser_session_start", "browser_navigate", "browser_observe"],
         networkAllowed: true,
       });
@@ -1761,7 +1754,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("keeps explicit routes unhealthy when their engine is disabled", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: "codex-readonly",
           kind: "harness",
           provider: "codex",
@@ -1789,7 +1782,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("fails closed when the provider is unavailable", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-readonly",
         kind: "harness",
         provider: "codex",
@@ -1817,10 +1810,9 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("keeps direct routes unhealthy without a covering economic policy, even when an adapter factory exists", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1844,10 +1836,9 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("resolves direct routes when the host supplies a direct runtime adapter factory", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       economicPolicies: economicPolicyCovering(["openai-readonly"]),
-      routes: [{
+      targetFixtures: [{
         id: "openai-readonly",
         kind: "direct",
-        executionRouteId: "openai-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1874,10 +1865,9 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("resolves explicit Codex OAuth auto-review routes when direct discovery advertises the model", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       economicPolicies: economicPolicyCovering(["codex-oauth-auto-review-readonly"]),
-      routes: [{
+      targetFixtures: [{
         id: "codex-oauth-auto-review-readonly",
         kind: "direct",
-        executionRouteId: "codex-oauth-auto-review-readonly",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -1909,11 +1899,11 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("rejects write-capable routes without explicit write authority", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-write",
         kind: "harness",
         provider: "codex",
-        model: "gpt-5.4",
+        model: "gpt-5.4-mini",
         profiles: ["foundation-apply-approved-writes"],
         tools: {
           allowed: ["read", "grep", "write"],
@@ -1937,7 +1927,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("rejects Claude write routes even when configuration requests write authority", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "claude-write",
         kind: "harness",
         provider: "claude",
@@ -1969,7 +1959,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("keeps a managed Claude route closed when no operator Claude Code executable resolves", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "claude-readonly",
         kind: "harness",
         provider: "claude",
@@ -1995,7 +1985,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("advances past executable binding once the operator Claude Code executable resolves", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "claude-readonly",
         kind: "harness",
         provider: "claude",
@@ -2025,7 +2015,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("keeps a managed OpenCode route closed when its discovered executable is unavailable", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "opencode-readonly",
         kind: "harness",
         provider: "opencode",
@@ -2052,7 +2042,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("projects only the exact discovered Claude deliberation capability into a managed route", async () => {
     let capturedResolution: DeliberationResolution | undefined;
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "claude-readonly",
         kind: "harness",
         provider: "claude",
@@ -2093,7 +2083,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     const route = result.managedInvocation?.routes[0];
-    const profile = route?.profiles["foundation-readonly-plan"];
+    const profile = profileByAdmission(route, "foundation-readonly-plan");
     expect(route).toBeDefined();
     expect(profile).toBeDefined();
     await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
@@ -2142,7 +2132,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("does not substitute configured gateway deliberation for missing Claude discovery evidence", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: "claude-readonly",
           kind: "harness",
           provider: "claude",
@@ -2175,7 +2165,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("projects exact native OpenCode discovery into the managed harness without gateway fallback", async () => {
     let capturedResolution: DeliberationResolution | undefined;
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "opencode-readonly",
         kind: "harness",
         provider: "opencode",
@@ -2209,7 +2199,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
 
     const route = result.managedInvocation?.routes[0];
-    const profile = route?.profiles["foundation-readonly-plan"];
+    const profile = profileByAdmission(route, "foundation-readonly-plan");
     expect(route).toBeDefined();
     expect(profile).toBeDefined();
     await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
@@ -2261,7 +2251,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("does not substitute model-gateway deliberation for missing native OpenCode discovery", async () => {
     const result = await resolveManagedInvocationToolOptions({
       ...baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: "opencode-readonly",
           kind: "harness",
           provider: "opencode",
@@ -2294,7 +2284,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("fails closed when the observed Claude version lacks the admitted private plan artifact capability", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "claude-readonly",
         kind: "harness",
         provider: "claude",
@@ -2323,7 +2313,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     });
   });
 
-  it("does not require a Kiln economic policy for a schema-v2 native harness agent", async () => {
+  it("does not require a Kiln economic policy for a native harness target", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-harness-agent-"));
     try {
       const agentsDir = join(root, ".kiln", "agents");
@@ -2335,14 +2325,14 @@ describe("resolveManagedInvocationToolOptions", () => {
         "goal: Review through native harness authority.",
         "tier: reasoning",
         "mode: managed-child",
-        "routeId: codex-readonly",
+        "targetId: codex-readonly",
+        "authorityProfileId: authority:foundation-readonly-plan",
         "---",
         "Remain within the native harness route.",
       ].join("\n"));
 
       const result = await resolveManagedInvocationToolOptions(baseConfig({
-        schemaVersion: 2,
-        routes: [{
+        targetFixtures: [{
           id: "codex-readonly",
           kind: "harness",
           provider: "codex",
@@ -2373,7 +2363,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     ["claude-haiku-readonly", "claude-haiku-4-5-20251001"],
   ])("admits the exact live-proven Claude read-only route %s", async (routeId, model) => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: routeId,
         kind: "harness",
         provider: "claude",
@@ -2416,7 +2406,7 @@ describe("resolveManagedInvocationToolOptions", () => {
     "rejects the moving Claude model alias '%s' before live-proof admission",
     async (model) => {
       const result = await resolveManagedInvocationToolOptions(baseConfig({
-        routes: [{
+        targetFixtures: [{
           id: "claude-readonly",
           kind: "harness",
           provider: "claude",
@@ -2447,7 +2437,7 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("resolves explicit live-proven harness routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "codex-approved-write",
         kind: "harness",
         provider: "codex",
@@ -2501,8 +2491,8 @@ describe("resolveManagedInvocationToolOptions", () => {
       "foundation-apply-approved-writes",
     ]);
     expect(result.managedInvocation?.routes[0]?.capability.supportsWrite).toBe(true);
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"]).toMatchObject({
-      authorityProfileId: "authority:codex-approved-write:foundation-apply-approved-writes",
+    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-apply-approved-writes")).toMatchObject({
+      authorityProfileId: "authority:foundation-apply-approved-writes",
       permissionProfile: "apply-approved-writes",
       writeAllowed: true,
       workingDirectory: {
@@ -2552,10 +2542,9 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("resolves explicit live-proven direct provider routes for approved workspace writes", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       economicPolicies: economicPolicyCovering(["codex-oauth-approved-write"]),
-      routes: [{
+      targetFixtures: [{
         id: "codex-oauth-approved-write",
         kind: "direct",
-        executionRouteId: "codex-oauth-approved-write",
         profiles: ["foundation-apply-approved-writes"],
         tools: {
           allowed: ["read", "write"],
@@ -2589,7 +2578,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       available: true,
     }]);
     expect(result.managedInvocation?.routes[0]?.createCommittedAdapter).toBeInstanceOf(Function);
-    expect(result.managedInvocation?.routes[0]?.profiles["foundation-apply-approved-writes"]).toMatchObject({
+    expect(profileByAdmission(result.managedInvocation?.routes[0], "foundation-apply-approved-writes")).toMatchObject({
       permissionProfile: "apply-approved-writes",
       writeAllowed: true,
       workingDirectory: {
@@ -2617,10 +2606,9 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("marks approved-write routes with network authority unavailable so visual research must use a separate read-only route", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "opencode-go-frontend-approved-write",
         kind: "direct",
-        executionRouteId: "opencode-go-frontend-approved-write",
         profiles: ["foundation-apply-approved-writes"],
         tools: {
           allowed: ["read", "web_search", "browser_observe", "write"],
@@ -2663,10 +2651,9 @@ describe("resolveManagedInvocationToolOptions", () => {
   // dispatch. This must hold when no economicPolicies are declared at all.
   it("fails direct route health with a named reason when no economic policy covers it", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "openai-uncovered",
         kind: "direct",
-        executionRouteId: "openai-uncovered",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2695,17 +2682,14 @@ describe("resolveManagedInvocationToolOptions", () => {
   // in any of them.
   it("fails direct route health with a named reason when no economic policy covers it (schema v2, route not a candidate)", async () => {
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      schemaVersion: 2,
       economicPolicies: economicPolicyCovering(["openai-covered"]),
-      routes: [{
+      targetFixtures: [{
         id: "openai-covered",
         kind: "direct",
-        executionRouteId: "openai-covered",
         profiles: ["foundation-readonly-plan"],
       }, {
         id: "openai-uncovered",
         kind: "direct",
-        executionRouteId: "openai-uncovered",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2737,10 +2721,9 @@ describe("resolveManagedInvocationToolOptions", () => {
   it("never calls the direct adapter factory (zero credential/MCP work) for a policy-uncovered direct route", async () => {
     const directAdapterFactory = vi.fn(async (route: { readonly provider: string }) => makeDirectAdapter(route.provider));
     const result = await resolveManagedInvocationToolOptions(baseConfig({
-      routes: [{
+      targetFixtures: [{
         id: "openai-uncovered",
         kind: "direct",
-        executionRouteId: "openai-uncovered",
         profiles: ["foundation-readonly-plan"],
       }],
     }), {
@@ -2755,17 +2738,64 @@ describe("resolveManagedInvocationToolOptions", () => {
     expect(result.routeHealth[0]?.available).toBe(false);
   });
 
+  it("uses the one canonical target id for direct-target capacity resolution", async () => {
+    const canonicalTargetId = "codex-luna";
+    const config = baseConfig({
+      economicPolicies: economicPolicyCovering([canonicalTargetId]),
+      targetFixtures: [{
+        id: canonicalTargetId,
+        kind: "direct",
+        profiles: ["foundation-readonly-plan"],
+      }],
+    });
+    const resolve = vi.fn(async () => []);
+
+    await projectManagedEconomicJobAdoption(config, {
+      projectId: "project-a",
+      callerId: "caller-a",
+      adoptedDecisionAt: "2026-08-01T12:00:00.000Z",
+      dispatch: {
+        kind: "economic",
+        economicAttemptId: "economic-attempt:canonical-target-001",
+        economicPolicyId: "test-coverage-policy",
+        economicPolicyRevision: "rev-1",
+        constraints: {},
+        candidateSet: {
+          economicPolicyId: "test-coverage-policy",
+          economicPolicyRevision: "rev-1",
+          admissionProfileId: "foundation-readonly-plan",
+          constraints: {},
+          candidates: [{
+            routeId: canonicalTargetId,
+            routeSource: "explicit-managed-route",
+            providerId: "codex-oauth",
+            model: "gpt-5.6-luna",
+            accountPolicyId: `policy:${canonicalTargetId}`,
+            adapterCapabilityId: "test-direct-adapter",
+            adapterCapabilityVersion: "1",
+            profileAuthorityDigest: `sha256:${"9".repeat(64)}`,
+          }],
+          rejections: [],
+        },
+      },
+    } as never, { modelGatewayCandidates: { resolve } } as never);
+
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({
+      admission: expect.objectContaining({ routeId: canonicalTargetId }),
+      route: expect.objectContaining({ routeId: canonicalTargetId }),
+    }));
+  });
+
   it("rejects a harness route named as an economic-policy candidate at config validation", () => {
     expect(() => validateGlobalConfig(baseConfig({
-      schemaVersion: 2,
       economicPolicies: economicPolicyCovering(["codex-harness-readonly"]),
-      routes: [{
+      targetFixtures: [{
         id: "codex-harness-readonly",
         kind: "harness",
         provider: "codex",
         model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
       }],
-    }))).toThrow(/must reference a direct managed route with executionRouteId/u);
+    }))).toThrow(/targetId must reference a direct target/u);
   });
 });

@@ -8,6 +8,7 @@ import {
 } from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
 import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 function persistGlobalConfig(config: KilnGlobalConfig): void {
   mutateGlobalConfig(() => config);
@@ -128,15 +129,13 @@ describe("statusCommand", () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, {
-      version: "2",
+      version: "1",
       domain: "react-typescript",
       channels: ["cli", "web"],
       teamMode: "sequential",
       requireApproval: false,
       maxDepth: 5,
       parallelWorkers: 4,
-      provider: "openai",
-      mode: "api-key",
     });
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
@@ -146,8 +145,6 @@ describe("statusCommand", () => {
     expect(output).toContain("false");
     expect(output).toContain("5");
     expect(output).toContain("4");
-    expect(output).toContain("openai");
-    expect(output).toContain("api-key");
   });
 
   it("shows memory file count", async () => {
@@ -166,20 +163,26 @@ describe("statusCommand", () => {
   it("shows managed-agent route health", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, {
-      ...defaultKilnYaml("python"),
-      managedAgents: {
-        enabled: true,
-        defaultProvider: "codex",
-        defaultProfile: "foundation-readonly-plan",
-        requireApproval: true,
-        routes: [{
+    writeKilnYaml(kilnDir, defaultKilnYaml("python"));
+    const harnessBase = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
+    const directTarget = harnessBase.targetCatalog!.targets[0]!;
+    if (directTarget.kind !== "direct") throw new Error("fixture direct target is required");
+    const { accountSelection: _accountSelection, economics: _economics, ...physicalTarget } = directTarget;
+    persistGlobalConfig({
+      ...harnessBase,
+      targetCatalog: {
+        ...harnessBase.targetCatalog!,
+        targets: [directTarget, {
+          ...physicalTarget,
           id: "codex-readonly",
           kind: "harness",
-          provider: "codex",
-          model: "gpt-5.3-codex-spark",
-          profiles: ["foundation-readonly-plan"],
-          credentials: { mode: "credentialless" },
+          providerId: "codex",
+          providerModelId: "gpt-5.3-codex-spark",
+          dataPolicyEvidence: {
+            ...physicalTarget.dataPolicyEvidence,
+            providerId: "codex",
+            providerModelId: "gpt-5.3-codex-spark",
+          },
         }],
       },
     });
@@ -187,7 +190,7 @@ describe("statusCommand", () => {
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Managed agent routes:");
+    expect(output).toContain("Managed execution targets:");
     expect(output).toContain("codex-readonly");
     expect(output).toContain("harness/codex gpt-5.3-codex-spark");
     expect(output).toContain("admission-ready");
@@ -201,28 +204,22 @@ describe("statusCommand", () => {
   it("shows a policy-uncovered direct route as unavailable without throwing or resolving credentials", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, {
-      ...defaultKilnYaml("python"),
-      managedAgents: {
-        enabled: true,
-        defaultProvider: "codex",
-        defaultProfile: "foundation-readonly-plan",
-        requireApproval: true,
-        routes: [{
-          id: "openai-uncovered",
-          kind: "direct",
-          provider: "openai",
-          model: "gpt-5.4-mini",
-          profiles: ["foundation-readonly-plan"],
-          credentials: { mode: "credentialless" },
-        }],
+    writeKilnYaml(kilnDir, defaultKilnYaml("python"));
+    const uncovered = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
+    const coveredTarget = uncovered.targetCatalog!.targets[0]!;
+    if (coveredTarget.kind !== "direct") throw new Error("fixture direct target is required");
+    persistGlobalConfig({
+      ...uncovered,
+      targetCatalog: {
+        ...uncovered.targetCatalog!,
+        targets: [coveredTarget, { ...coveredTarget, id: "openai-uncovered", label: "Uncovered" }],
       },
     });
 
     await expect(statusCommand(MOCK_APP_CONFIG, tempDir)).resolves.toBeUndefined();
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("Managed agent routes:");
+    expect(output).toContain("Managed execution targets:");
     expect(output).toMatch(/openai-uncovered:.*admission-unavailable/);
   });
 
@@ -231,14 +228,10 @@ describe("statusCommand", () => {
     mkdirSync(kilnDir, { recursive: true });
     writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
     persistGlobalConfig({
-      version: "2",
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-test", "codex-direct"),
       engines: {
         codex: { enabled: true, billing: "plus-quota" },
         opencode: { enabled: true, billing: "free" },
-      },
-      workerRouting: {
-        defaultWorker: "codex",
-        fallback: "opencode",
       },
     });
 
@@ -257,7 +250,8 @@ describe("statusCommand", () => {
     expect(output).toContain("unavailable - not found");
     expect(output).toContain("opencode");
     expect(output).toContain("Resolved worker: opencode");
-    expect(output).not.toContain("Managed agent routes:");
+    expect(output).toContain("Managed execution targets:");
+    expect(output).toContain("codex-direct");
   });
 
   it("shows web configuration diagnostics", async () => {
@@ -314,7 +308,7 @@ describe("statusCommand", () => {
     process.env.TAVILY_API_KEY = "tv-test";
     process.env.FIRECRAWL_API_KEY = "fc-test";
     persistGlobalConfig({
-      version: "2",
+      version: "3",
       web: {
         searchProvider: {
           type: "tavily",

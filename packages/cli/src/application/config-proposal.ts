@@ -14,7 +14,7 @@ import type {
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
 import { parse, stringify } from "yaml";
-import type { KilnContextGovernanceConfig, KilnYaml } from "../kiln-yaml-types.js";
+import type { KilnContextGovernanceConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import { parseAgentDefinitionContent, type KilnAgentDefinition } from "./agent-loader.js";
 
 export interface CreateConfigChangeProposalInput {
@@ -153,8 +153,8 @@ function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: u
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const path = join(projectPath, ".kiln", "kiln.yaml");
   const existingContent = existsSync(path) ? readFileSync(path, "utf-8") : "version: '1'\n";
-  const parsed = parse(existingContent) as KilnYaml | null;
-  const config: KilnYaml = parsed && typeof parsed === "object" ? parsed : { version: "1" };
+  const parsed = parse(existingContent) as ResolvedKilnConfig | null;
+  const config: ResolvedKilnConfig = parsed && typeof parsed === "object" ? parsed : { version: "1" };
   const current = config.contextGovernance ?? {};
   const currentAdaptation = current.adaptation;
   const expectedRevision = payload.expectedRevision;
@@ -305,7 +305,7 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
     diagnostics.push({
       severity: "error",
       field: "model",
-      message: "Agent model is not a canonical top-level field. Use providerRoute for strict execution routing.",
+      message: "Agent model is not a canonical top-level field. Select a global targetId instead.",
     });
   }
   const instructions = optionalText(payload.instructions, "instructions", diagnostics);
@@ -404,7 +404,8 @@ function renderExistingAgent(agent: KilnAgentDefinition): string {
     tools: agent.tools,
     skills: agent.skills,
     taskAffinity: agent.taskAffinity,
-    providerRoute: agent.providerRoute,
+    targetId: agent.targetId,
+    authorityProfileId: agent.authorityProfileId,
     instructions: agent.instructions,
   }));
 }

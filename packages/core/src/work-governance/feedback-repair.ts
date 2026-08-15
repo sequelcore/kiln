@@ -74,7 +74,7 @@ export function createFeedbackRepairWorkItemInput(input: FeedbackRepairWorkItemI
     risk: input.risk ?? "medium",
     triggers: unique(["feedback-repair", "session-feedback", input.bundle.report.mode]),
     surface: "session-feedback",
-    assignedAgentProfile: input.assignedAgentProfile ?? "coder",
+    assignedAgentProfile: input.assignedAgentProfile,
     routeId: input.routeId,
     authorityProfile: input.authorityProfile ?? "audited",
     expectedEvidence: FEEDBACK_REPAIR_EXPECTED_EVIDENCE,

@@ -9,25 +9,25 @@ vi.mock("../kiln-yaml.js", () => ({
 vi.mock("./global-config.js", () => ({
   readGlobalConfig: vi.fn(),
   resolveGlobalDefaultProvider: (config: {
-    workerRouting?: { defaultWorker?: string };
-    engines?: Record<string, { enabled?: boolean }>;
-  }) => config.workerRouting?.defaultWorker ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0],
+    targetRouting?: { defaultTargetId?: string };
+    targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
+  }) => config.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerId,
   resolveGlobalDefaultModel: (config: {
-    workerRouting?: { defaultWorker?: string };
-    engines?: Record<string, { enabled?: boolean }>;
-    workerModels?: Record<string, string | undefined>;
-  }) => {
-    const provider = config.workerRouting?.defaultWorker
-      ?? Object.entries(config.engines ?? {}).find(([, engine]) => engine.enabled)?.[0];
-    return (provider ? config.workerModels?.[provider] : undefined) ?? config.workerModels?.default;
-  },
+    targetRouting?: { defaultTargetId?: string };
+    targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
+  }) => config.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerModelId,
 }));
 
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
 import { readGlobalConfig } from "./global-config.js";
-import { globalToKilnYaml, loadKilnConfig, loadKilnConfigWithGlobalAuthority } from "./config-merger.js";
+import {
+  deriveEffectiveKilnYaml,
+  globalToKilnYaml,
+  loadKilnConfig,
+  loadKilnConfigWithGlobalAuthority,
+} from "./config-merger.js";
 
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
 const readKilnYamlMock = readKilnYaml as unknown as ReturnType<typeof vi.fn>;
@@ -53,8 +53,8 @@ describe("config-merger", () => {
 
   it("returns the exact global authority alongside effective project config", async () => {
     const globalConfig = { version: "1", modelGateway: { marker: true } } as unknown as KilnGlobalConfig;
-    const projectConfig = { version: "1" } as KilnYaml;
-    const merged = { version: "1", permissions: { approval: "never", sandbox: "read-only" } } as KilnYaml;
+    const projectConfig = { version: "1" } as ResolvedKilnConfig;
+    const merged = { version: "1", permissions: { approval: "never", sandbox: "read-only" } } as ResolvedKilnConfig;
     readGlobalConfigMock.mockReturnValue(globalConfig);
     readKilnYamlMock.mockReturnValue(projectConfig);
     mergeKilnYamlMock.mockReturnValue(merged);
@@ -67,12 +67,86 @@ describe("config-merger", () => {
     expect(readKilnYamlMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns global-converted-to-KilnYaml when only global config exists", async () => {
-    const globalConfig: KilnGlobalConfig = {
+  it("rejects a project sandbox or approval policy that broadens global authority", () => {
+    const globalConfig = {
+      version: "3",
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    } as KilnGlobalConfig;
+    const projectConfig = {
       version: "1",
+      permissions: { approval: "never", sandbox: "danger-full-access" },
+    } as unknown as ResolvedKilnConfig;
+
+    expect(() => deriveEffectiveKilnYaml(globalConfig, projectConfig)).toThrow(
+      /project.*(?:authority|permissions).*broaden.*global/i,
+    );
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects project direct-execution limits that exceed the global ceiling", () => {
+    const globalConfig = {
+      version: "3",
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: { maxFiles: 1, maxRisk: "low" },
+        requireDelegationFor: ["architecture", "security"],
+        requiredEvidence: ["surface-map", "tests"],
+      },
+    } as KilnGlobalConfig;
+    const projectConfig = {
+      version: "1",
+      workGovernance: {
+        defaultPosture: "direct",
+        directExecution: { maxFiles: 2, maxRisk: "medium" },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
+      },
+    } as unknown as ResolvedKilnConfig;
+
+    expect(() => deriveEffectiveKilnYaml(globalConfig, projectConfig)).toThrow(
+      /project.*work governance.*(?:broaden|exceed).*global/i,
+    );
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a project request above the global default but within the explicit global ceiling", () => {
+    const globalConfig = {
+      version: "3",
+      permissions: { approval: "on-request", sandbox: "read-only" },
+      permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
+      workGovernance: {
+        defaultPosture: "direct",
+        directExecution: { maxFiles: 3, maxRisk: "medium" },
+        requireDelegationFor: ["architecture"],
+        requiredEvidence: ["surface-map"],
+      },
+    } as KilnGlobalConfig;
+    const projectConfig = {
+      version: "1",
+      permissions: { approval: "on-request", sandbox: "workspace-write" },
+      workGovernance: {
+        defaultPosture: "orchestrate",
+        directExecution: { maxFiles: 1, maxRisk: "low" },
+        requireDelegationFor: ["architecture", "security"],
+        requiredEvidence: ["surface-map", "tests"],
+      },
+    } as unknown as ResolvedKilnConfig;
+    const narrowed = { ...projectConfig, version: "1" } as ResolvedKilnConfig;
+    mergeKilnYamlMock.mockReturnValue(narrowed);
+
+    expect(deriveEffectiveKilnYaml(globalConfig, projectConfig)).toBe(narrowed);
+    expect(mergeKilnYamlMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns global-converted-to-ResolvedKilnConfig when only global config exists", async () => {
+    const globalConfig: KilnGlobalConfig = {
+      version: "3",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
-      workerRouting: { defaultWorker: "codex" },
-      workerModels: { codex: "gpt-5.4" },
+      targetCatalog: {
+        accounts: [], accountPolicies: [],
+        targets: [{ id: "codex", kind: "harness", label: "Codex", providerId: "codex", providerModelId: "gpt-5.4" } as never],
+      },
+      targetRouting: { defaultTargetId: "codex" },
       permissions: { approval: "never", sandbox: "workspace-write" },
       mcp: { servers: { shared: { type: "stdio", command: "srv" } } },
       hooks: {
@@ -130,6 +204,7 @@ describe("config-merger", () => {
       version: "1",
       provider: "codex",
       model: { default: "gpt-5.4" },
+      targetCatalog: globalConfig.targetCatalog,
       permissions: { approval: "never", sandbox: "workspace-write" },
       mcp: { servers: { shared: { type: "stdio", command: "srv" } } },
       hooks: {
@@ -182,7 +257,7 @@ describe("config-merger", () => {
   });
 
   it("returns project config as-is when only project config exists", async () => {
-    const projectConfig: KilnYaml = {
+    const projectConfig: ResolvedKilnConfig = {
       version: "1",
       provider: "claude",
       domain: "cinema",
@@ -199,18 +274,21 @@ describe("config-merger", () => {
 
   it("merges global as base with project as override - project scalar wins", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
+      version: "3",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
-      workerRouting: { defaultWorker: "codex" },
-      workerModels: { codex: "gpt-5.4" },
+      targetCatalog: {
+        accounts: [], accountPolicies: [],
+        targets: [{ id: "codex", kind: "harness", label: "Codex", providerId: "codex", providerModelId: "gpt-5.4" } as never],
+      },
+      targetRouting: { defaultTargetId: "codex" },
     };
-    const projectConfig: KilnYaml = {
+    const projectConfig: ResolvedKilnConfig = {
       version: "1",
       provider: "claude",
       domain: "project-domain",
       teamMode: "solo",
     };
-    const merged: KilnYaml = {
+    const merged: ResolvedKilnConfig = {
       version: "1",
       provider: "claude",
       domain: "project-domain",
@@ -225,14 +303,11 @@ describe("config-merger", () => {
     const result = await loadKilnConfig("/repo");
 
     expect(mergeKilnYamlMock).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         version: "1",
         provider: "codex",
         model: { default: "gpt-5.4" },
-        permissions: undefined,
-        mcp: undefined,
-        hooks: undefined,
-        skills: undefined,
+        targetCatalog: globalConfig.targetCatalog,
         workGovernance: {
           defaultPosture: "orchestrate",
           directExecution: {
@@ -262,8 +337,7 @@ describe("config-merger", () => {
             "residual-risk",
           ],
         },
-        modelTaskSuitability: undefined,
-      },
+      }),
       projectConfig,
     );
     expect(result).toEqual(merged);
@@ -274,11 +348,11 @@ describe("config-merger", () => {
       version: "1",
       mcp: { servers: { globalSrv: { type: "stdio", command: "global" } } },
     };
-    const projectConfig: KilnYaml = {
+    const projectConfig: ResolvedKilnConfig = {
       version: "1",
       mcp: { servers: { projectSrv: { type: "stdio", command: "project" } } },
     };
-    const merged: KilnYaml = {
+    const merged: ResolvedKilnConfig = {
       version: "1",
       mcp: {
         servers: {
@@ -301,10 +375,13 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps provider, model, permissions, mcp, hooks correctly", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
+      version: "3",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
-      workerRouting: { defaultWorker: "codex" },
-      workerModels: { default: "claude-opus-4-7", codex: "gpt-5.4" },
+      targetCatalog: {
+        accounts: [], accountPolicies: [],
+        targets: [{ id: "codex", kind: "harness", label: "Codex", providerId: "codex", providerModelId: "gpt-5.4" } as never],
+      },
+      targetRouting: { defaultTargetId: "codex" },
       permissions: { approval: "on-request", sandbox: "read-only" },
       mcp: { servers: { one: { type: "stdio", command: "one" } } },
       hooks: {
@@ -340,6 +417,7 @@ describe("config-merger", () => {
       version: "1",
       provider: "codex",
       model: { default: "gpt-5.4" },
+      targetCatalog: globalConfig.targetCatalog,
       permissions: { approval: "on-request", sandbox: "read-only" },
       mcp: { servers: { one: { type: "stdio", command: "one" } } },
       hooks: {
@@ -409,19 +487,20 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps undefined model to undefined", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "1",
+      version: "3",
       engines: { claude: { enabled: true, billing: "subscription" } },
-      workerRouting: { defaultWorker: "claude" },
+      targetCatalog: {
+        accounts: [], accountPolicies: [],
+        targets: [{ id: "claude", kind: "harness", label: "Claude", providerId: "claude", providerModelId: undefined } as never],
+      },
+      targetRouting: { defaultTargetId: "claude" },
     };
 
     expect(globalToKilnYaml(globalConfig)).toEqual({
       version: "1",
       provider: "claude",
       model: undefined,
-      permissions: undefined,
-      mcp: undefined,
-      hooks: undefined,
-      skills: undefined,
+      targetCatalog: globalConfig.targetCatalog,
       workGovernance: {
         defaultPosture: "orchestrate",
         directExecution: {

@@ -6,7 +6,7 @@ import {
   resolveGlobalDefaultProvider,
 } from "./global-config.js";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
-import { DEFAULT_WORK_GOVERNANCE_CONFIG, type KilnYaml, type KilnYamlWebConfig } from "../kiln-yaml-types.js";
+import { DEFAULT_WORK_GOVERNANCE_CONFIG, type KilnProjectConfig, type ResolvedKilnConfig, type KilnYamlWebConfig } from "../kiln-yaml-types.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import {
   resolveMcpConfiguration,
@@ -18,7 +18,7 @@ import { createMcpCredentialAccess } from "./mcp-credentials.js";
 export interface ResolveKilnMcpConfigurationInput {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly globalPath: string;
-  readonly projectConfig?: KilnYaml | null;
+  readonly projectConfig?: KilnProjectConfig | null;
   readonly projectPath: string;
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly credentialExists?: (credentialId: string) => boolean;
@@ -56,23 +56,25 @@ export function loadResolvedKilnMcpConfiguration(projectPath: string): McpConfig
   });
 }
 
-export function globalToKilnYaml(global: KilnGlobalConfig): KilnYaml {
+export function globalToKilnYaml(global: KilnGlobalConfig): ResolvedKilnConfig {
   const model = resolveGlobalDefaultModel(global);
   return {
     version: "1",
-    activeInstructionProfiles: global.activeInstructionProfiles,
+    ...(global.activeInstructionProfiles ? { activeInstructionProfiles: global.activeInstructionProfiles } : {}),
     workGovernance: global.workGovernance ?? DEFAULT_WORK_GOVERNANCE_CONFIG,
     provider: resolveGlobalDefaultProvider(global),
     model: model ? { default: model } : undefined,
-    permissions: global.permissions,
-    mcp: global.mcp,
-    managedAgents: global.managedAgents,
-    modelTaskSuitability: global.modelTaskSuitability,
-    deliberationPolicy: global.deliberationPolicy,
-    communication: global.communication,
-    web: globalWebToKilnWeb(global.web),
-    skills: global.skills,
-    hooks: global.hooks,
+    ...(global.permissions ? { permissions: global.permissions } : {}),
+    ...(global.targetCatalog ? { targetCatalog: global.targetCatalog } : {}),
+    ...(global.authorityProfiles ? { authorityProfiles: global.authorityProfiles } : {}),
+    ...(global.mcp ? { mcp: global.mcp } : {}),
+    ...(global.managedAgents ? { managedAgents: global.managedAgents } : {}),
+    ...(global.modelTaskSuitability ? { modelTaskSuitability: global.modelTaskSuitability } : {}),
+    ...(global.deliberationPolicy ? { deliberationPolicy: global.deliberationPolicy } : {}),
+    ...(global.communication ? { communication: global.communication } : {}),
+    ...(global.web ? { web: globalWebToKilnWeb(global.web) } : {}),
+    ...(global.skills ? { skills: global.skills } : {}),
+    ...(global.hooks ? { hooks: global.hooks } : {}),
   };
 }
 
@@ -88,17 +90,17 @@ function globalWebToKilnWeb(globalWeb: KilnGlobalConfig["web"]): KilnYamlWebConf
 }
 
 /**
- * Pure projection: derives the effective project-authorized `KilnYaml` from
+ * Pure projection: derives the effective project-authorized `ResolvedKilnConfig` from
  * exact already-read global/project config values, with no I/O of its own.
  * Callers that need global-only fields alongside this projection (e.g.
  * `modelGateway`, `engines`) must read `globalConfig` once and keep it,
  * since `globalToKilnYaml` intentionally omits authority that is not a
- * project `KilnYaml` field.
+ * project `ResolvedKilnConfig` field.
  */
 export function deriveEffectiveKilnYaml(
   globalConfig: KilnGlobalConfig | null,
-  projectConfig: KilnYaml | null,
-): KilnYaml | null {
+  projectConfig: KilnProjectConfig | null,
+): ResolvedKilnConfig | null {
   if (!globalConfig) {
     return projectConfig;
   }
@@ -107,15 +109,72 @@ export function deriveEffectiveKilnYaml(
     return globalToKilnYaml(globalConfig);
   }
 
+  assertProjectDoesNotBroadenGlobal(globalConfig, projectConfig);
+
   return mergeKilnYaml(globalToKilnYaml(globalConfig), projectConfig);
 }
 
-export async function loadKilnConfig(projectPath: string): Promise<KilnYaml | null> {
+function assertProjectDoesNotBroadenGlobal(
+  globalConfig: KilnGlobalConfig,
+  projectConfig: KilnProjectConfig,
+): void {
+  const globalPermissions = globalConfig.permissionCeiling ?? globalConfig.permissions;
+  const projectPermissions = projectConfig.permissions;
+  if (globalPermissions && projectPermissions) {
+    const sandboxRank = { "read-only": 0, "workspace-write": 1, "danger-full-access": 2 } as const;
+    const approvalRank = { never: 0, "on-failure": 1, "on-request": 2, untrusted: 3 } as const;
+    if (
+      projectPermissions.sandbox !== undefined
+      && globalPermissions.sandbox !== undefined
+      && sandboxRank[projectPermissions.sandbox] > sandboxRank[globalPermissions.sandbox]
+    ) {
+      throw new Error("Project permissions cannot broaden global authority.");
+    }
+    if (
+      projectPermissions.approval !== undefined
+      && globalPermissions.approval !== undefined
+      && approvalRank[projectPermissions.approval] < approvalRank[globalPermissions.approval]
+    ) {
+      throw new Error("Project permissions cannot broaden global authority.");
+    }
+  }
+
+  const globalGovernance = globalConfig.workGovernance;
+  const projectGovernance = projectConfig.workGovernance;
+  if (!globalGovernance || !projectGovernance) return;
+  const riskRank = { low: 0, medium: 1, high: 2 } as const;
+  const globalDirect = globalGovernance.directExecution;
+  const projectDirect = projectGovernance.directExecution;
+  const broadens = (
+    globalGovernance.defaultPosture === "orchestrate" && projectGovernance.defaultPosture === "direct"
+  ) || (
+    globalDirect?.maxFiles !== undefined
+    && projectDirect?.maxFiles !== undefined
+    && projectDirect.maxFiles > globalDirect.maxFiles
+  ) || (
+    globalDirect?.maxRisk !== undefined
+    && projectDirect?.maxRisk !== undefined
+    && riskRank[projectDirect.maxRisk] > riskRank[globalDirect.maxRisk]
+  ) || !containsAll(projectGovernance.requireDelegationFor, globalGovernance.requireDelegationFor)
+    || !containsAll(projectGovernance.requiredEvidence, globalGovernance.requiredEvidence);
+  if (broadens) {
+    throw new Error("Project work governance cannot broaden or exceed global policy.");
+  }
+}
+
+function containsAll<T>(candidate: readonly T[] | undefined, required: readonly T[] | undefined): boolean {
+  if (!required || required.length === 0) return true;
+  if (!candidate) return false;
+  const values = new Set(candidate);
+  return required.every((value) => values.has(value));
+}
+
+export async function loadKilnConfig(projectPath: string): Promise<ResolvedKilnConfig | null> {
   return (await loadKilnConfigWithGlobalAuthority(projectPath)).kilnYaml;
 }
 
 export interface KilnConfigWithGlobalAuthority {
-  readonly kilnYaml: KilnYaml | null;
+  readonly kilnYaml: ResolvedKilnConfig | null;
   readonly globalConfig: KilnGlobalConfig | null;
 }
 

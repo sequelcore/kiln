@@ -14,7 +14,6 @@ describe("KilnConfigReadTool", () => {
     mkdirSync(join(tempDir, ".kiln"), { recursive: true });
     writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
       'version: "1"',
-      "provider: codex-oauth",
       "permissions:",
       "  approval: on-request",
       "  sandbox: read-only",

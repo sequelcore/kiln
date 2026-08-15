@@ -8,7 +8,7 @@ export function createExecutionRoutePickerActions(input: {
   return {
     onSelectRoute: async (routeId: string, accountOverrideId?: string): Promise<void> => {
       if (!input.selectExecutionRoute(routeId, accountOverrideId)) {
-        throw new Error(input.readFailure()?.message ?? "Execution route selection failed.");
+        throw new Error(input.readFailure()?.message ?? "Execution target selection failed.");
       }
       await (input.waitForRoute?.(routeId, accountOverrideId)
         ?? waitForExecutionRouteSelectionResolution(routeId, accountOverrideId));

@@ -6,7 +6,7 @@ import type { KilnAppConfig } from "../config.js";
 import { generateAppYaml, generateGatewayYaml } from "./init-templates.js";
 import type { InitOptions } from "./init-templates.js";
 import { defaultKilnYaml, writeKilnYaml } from "../kiln-yaml.js";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { KilnProjectConfig } from "../kiln-yaml-types.js";
 
 export interface InitFlags {
   force?: boolean;
@@ -32,7 +32,7 @@ export async function initCommand(
   appConfig: KilnAppConfig,
   projectPath?: string,
   flags?: InitFlags,
-): Promise<KilnYaml | null> {
+): Promise<KilnProjectConfig | null> {
   const root = projectPath ?? process.cwd();
   const appDir = join(root, ".kiln");
 
@@ -131,15 +131,13 @@ export async function initCommand(
     (detectedDomain?.name === chosenDomainName ? detectedDomain : null);
   const qualityGates = chosenDomainConfig?.qualityGates ?? [];
 
-  const kilnYaml: KilnYaml = {
+  const kilnYaml: KilnProjectConfig = {
     ...defaultKilnYaml(chosenDomainName),
-    provider: chosenProvider,
     channels: chosenChannels,
     teamMode: chosenTeamMode,
     requireApproval: true,
     maxDepth: 3,
     parallelWorkers: 2,
-    mode: "api-key",
   };
 
   const initOptions: InitOptions = {

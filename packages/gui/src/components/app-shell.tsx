@@ -1271,7 +1271,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  aria-label={`Execution route selector. Current selection: ${activeExecutionRoute?.label ?? "none"}. Click to change.`}
+                  aria-label={`Execution target selector. Current selection: ${activeExecutionRoute?.label ?? "none"}. Click to change.`}
                   aria-expanded={isExecutionRoutePickerOpen}
                   aria-controls="execution-route-picker"
                   aria-haspopup="dialog"
@@ -1281,7 +1281,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
                   {activeExecutionRoute ? (
                     <ProviderGlyph providerId={activeExecutionRoute.providerId} />
                   ) : null}
-                  <span className="min-w-0 truncate">{activeExecutionRoute?.label ?? "Select execution route"}</span>
+                  <span className="min-w-0 truncate">{activeExecutionRoute?.label ?? "Select execution target"}</span>
                 </Button>
               ),
               deliberationControl: deliberationLevelOptions.length > 0 ? (
@@ -1405,8 +1405,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
           <ModelSelector
             open={isExecutionRoutePickerOpen}
             onOpenChange={setIsExecutionRoutePickerOpen}
-            title="Execution route"
-            description="Choose an available execution route or an eligible account override."
+            title="Execution target"
+            description="Choose an available execution target or an eligible account override."
             anchor={executionRoutePickerAnchorRef}
             finalFocus={executionRoutePickerInvokerRef}
           >

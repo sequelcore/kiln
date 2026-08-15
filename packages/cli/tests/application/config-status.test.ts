@@ -22,11 +22,12 @@ import {
 } from "../../src/config/native-projection-state.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
 import { defaultKilnYaml, writeKilnYaml } from "../../src/kiln-yaml.js";
-import { resolveCommunicationIntent, resolveCommunicationProfile } from "@kilnai/core";
 import {
   createRuntimePermissionObservationStore,
   deriveCodexRuntimePermissionRequest,
 } from "../../src/wrapper/runtime-permission-observation.js";
+import { mutateGlobalConfig } from "../../src/config/global-config.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v3-fixture.js";
 
 let tempDir: string;
 
@@ -48,14 +49,15 @@ function writeProjectConfig(projectPath: string): void {
   mkdirSync(join(projectPath, ".kiln"), { recursive: true });
   writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), [
     'version: "1"',
-    "provider: codex-oauth",
-    "model:",
-    "  default: gpt-5.4-mini",
     "permissions:",
     "  approval: on-request",
     "  sandbox: read-only",
     "",
   ].join("\n"), "utf-8");
+  mutateGlobalConfig(() => ({
+    ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
+    permissions: { approval: "on-request", sandbox: "read-only" },
+  }));
 }
 
 function writeSkill(root: string, name: string, description: string): void {
@@ -132,7 +134,7 @@ describe("config-status", () => {
     expect(snapshot.generatedAt).toBe("2026-05-07T12:00:00.000Z");
     expect(snapshot.project.projectName).toBe("status-project");
     expect(snapshot.project.kilnYaml.status).toBe("valid");
-    expect(snapshot.global.status).toBe("missing");
+    expect(snapshot.global.status).toBe("valid");
     expect(snapshot.effectiveConfigStatus).toBe("valid");
     expect(snapshot.effectiveConfig?.provider).toBe("codex-oauth");
     expect(snapshot.projections).toEqual(expect.arrayContaining([
@@ -207,10 +209,10 @@ describe("config-status", () => {
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
     expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Global config version must be "2"/),
+      expect.stringMatching(/Global config version must be "3"/),
     ]));
     expect(health.value).toMatchObject({
-      global: { error: expect.stringContaining('Global config version must be "2"') },
+      global: { error: expect.stringContaining('Global config version must be "3"') },
     });
   });
 
@@ -399,9 +401,8 @@ describe("config-status", () => {
       "role: Review specialist",
       "goal: Review implementation quality",
       "tier: reasoning",
-      "providerRoute:",
-      "  providerId: codex-oauth",
-      "  model: gpt-5.5",
+      "targetId: codex-unconfigured",
+      "authorityProfileId: foundation-readonly-plan",
       "---",
       "Review only.",
       "",
@@ -410,7 +411,7 @@ describe("config-status", () => {
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
     const agents = await readConfigStatusView(snapshot, "agents");
 
-    expect(JSON.stringify(agents.value)).toContain('"routeId":"codex-oauth:gpt-5.5"');
+    expect(JSON.stringify(agents.value)).toContain('"routeId":"codex-unconfigured"');
     expect(JSON.stringify(agents.value)).toContain('"status":"unresolved"');
   });
 
@@ -735,9 +736,8 @@ describe("config-status", () => {
       "role: OpenCode review specialist",
       "goal: Review implementation quality through OpenCode",
       "tier: reasoning",
-      "providerRoute:",
-      "  providerId: opencode-go",
-      "  model: deepseek-v4-flash",
+      "targetId: opencode-review",
+      "authorityProfileId: foundation-readonly-plan",
       "---",
       "Review only.",
       "",
@@ -752,7 +752,8 @@ describe("config-status", () => {
 
   it("reports content-free communication resolution for native agent projections", async () => {
     writeProjectConfig(tempDir);
-    const agentsDir = join(tempDir, ".kiln", "agents");
+    const userHome = join(tempDir, "home");
+    const agentsDir = join(userHome, ".kiln", "agents");
     mkdirSync(agentsDir, { recursive: true });
     writeFileSync(join(agentsDir, "reviewer.md"), [
       "---",
@@ -767,27 +768,9 @@ describe("config-status", () => {
       "Private agent instructions.",
       "",
     ].join("\n"), "utf-8");
-    const persistedResolution = resolveCommunicationProfile({
-      intent: resolveCommunicationIntent([{
-        source: "project",
-        intent: { locale: "es-MX", requiredContent: ["finding", "verification"] },
-      }]),
-      execution: { provider: "codex", model: "provider-default", surface: "standalone-harness", harness: "codex" },
-    });
-    writeNativeProjectionInstallState(join(tempDir, ".kiln"), upsertNativeProjectionTargetState(
-      emptyNativeProjectionInstallState(),
-      createNativeProjectionFileSnapshot({
-        targetId: "codex-agent:reviewer",
-        filePath: join(tempDir, "home", ".codex", "agents", "reviewer.toml"),
-        content: "owned projection",
-        harness: "codex",
-        sourceIdentity: "reviewer",
-        communicationResolution: persistedResolution,
-      }),
-    ));
 
-    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
-    const agents = await readConfigStatusView(snapshot, "agents", { userHome: join(tempDir, "home") });
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
+    const agents = await readConfigStatusView(snapshot, "agents", { userHome });
     const value = agents.value as { agents: readonly { id: string; nativeProjections: readonly unknown[] }[] };
     const reviewer = value.agents.find((agent) => agent.id === "reviewer");
     const serialized = JSON.stringify(reviewer);
@@ -797,7 +780,6 @@ describe("config-status", () => {
         target: "codex",
         status: "projected",
         communicationResolution: expect.objectContaining({
-          identity: persistedResolution.identity,
           execution: expect.objectContaining({ harness: "codex" }),
           requested: expect.objectContaining({
             intent: expect.objectContaining({ locale: "es-MX", requiredContent: ["finding", "verification"] }),
@@ -818,9 +800,8 @@ describe("config-status", () => {
       "role: OpenCode review specialist",
       "goal: Review implementation quality through OpenCode",
       "tier: reasoning",
-      "providerRoute:",
-      "  providerId: opencode-go",
-      "  model: deepseek-v4-flash",
+      "targetId: opencode-review",
+      "authorityProfileId: foundation-readonly-plan",
       "---",
       "Review only.",
       "",
@@ -923,7 +904,7 @@ describe("config-status", () => {
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [
-      'version: "2"', "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
+      'version: "3"', "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
     ].join("\n"), "utf8");
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 

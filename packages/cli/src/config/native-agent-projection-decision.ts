@@ -40,11 +40,9 @@ export interface DecideNativeAgentProjectionInput {
 }
 
 function unresolvedAdmission(agent: KilnAgentDefinition): RouteAdmissionDecision {
-  const routeId = agent.routeId
-    ?? `${agent.providerRoute?.providerId ?? "unresolved"}:${agent.providerRoute?.model ?? "unresolved"}`;
   return {
     status: "unresolved",
-    routeId,
+    routeId: agent.targetId ?? "unresolved",
     reasons: [{ code: "proof-unknown" }],
   };
 }
@@ -53,19 +51,15 @@ export function decideNativeAgentProjection(
   input: DecideNativeAgentProjectionInput,
 ): NativeAgentProjectionDecision {
   const { agent, harness } = input;
-  if (!agent.providerRoute) {
+  if (!agent.targetId) {
     return { kind: "project", harness };
   }
 
   const admission = input.admission ?? unresolvedAdmission(agent);
-  if (admission.status === "admitted" && (
-    admission.route.target.providerId !== agent.providerRoute.providerId
-    || admission.route.target.modelId !== agent.providerRoute.model?.trim()
-    || (agent.routeId !== undefined && admission.route.identity.routeId !== agent.routeId)
-  )) {
+  if (admission.status === "admitted" && admission.route.identity.routeId !== agent.targetId) {
     const mismatch: RouteAdmissionDecision = {
       status: "unresolved",
-      routeId: agent.routeId ?? `${agent.providerRoute.providerId}:${agent.providerRoute.model ?? "unresolved"}`,
+      routeId: agent.targetId,
       reasons: [{ code: "proof-unknown" }],
     };
     return { kind: "unresolved", harness, admission: mismatch, reason: { kind: "route-admission", reasons: mismatch.reasons } };
@@ -87,7 +81,7 @@ export function decideNativeAgentProjection(
     };
   }
 
-  const model = agent.providerRoute.model?.trim();
+  const model = admission.route.target.modelId.trim();
   if (!model) {
     return {
       kind: "unavailable",
@@ -96,7 +90,7 @@ export function decideNativeAgentProjection(
       reason: { kind: "transport", code: "missing-model" },
     };
   }
-  const nativeModel = encodeNativeAgentModel(harness, agent.providerRoute.providerId, model);
+  const nativeModel = encodeNativeAgentModel(harness, admission.route.target.providerId, model);
   if (!nativeModel) {
     return {
       kind: "unavailable",

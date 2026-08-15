@@ -297,12 +297,13 @@ Claude projection owns only the granular gateway environment fields and the
 model sets produce no invented default. This does not make Claude native config
 import supported or turn a Claude subscription into Anthropic API access.
 
-Native agent projection uses the same capability model. A Kiln agent without
-`providerRoute` is portable and projects to native harnesses without a fixed
-model. A Kiln agent with `providerRoute` is a strict route pin: the native
-projection may emit a harness model only when
+Native agent projection uses the same capability model. An agent selects a
+global `targetId` and `authorityProfileId`. A harness target may project to its
+matching native harness only when
 `packages/cli/src/config/harness-integration-capabilities.ts` explicitly
-declares the provider/model encoding for that harness.
+declares the provider/model encoding for that harness. A direct target that
+depends on Runtime account or economic authority is not projected as a
+standalone native agent because that would bypass Kiln admission.
 
 Native projection and invocation availability are deliberately separate:
 
@@ -312,7 +313,7 @@ Native projection and invocation availability are deliberately separate:
   agent files.
 - `unsupported` means neither native encoding nor adapter capability is proven.
 
-If a strict route is adapter-supported but not native-supported, Kiln omits the
+If a target is adapter-supported but not native-supported, Kiln omits the
 native agent with `adapter-required` and reconciles any previously managed
 native file through install-state, backup, and drift checks. Cross-harness
 adapter support is declared by provider id in the capability table; Kiln must

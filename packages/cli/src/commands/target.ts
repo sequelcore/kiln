@@ -1,10 +1,11 @@
+import { readFileSync } from "node:fs";
 import {
   defaultGlobalConfig,
   mutateGlobalConfig,
+  projectDirectExecutionCatalog,
   readGlobalConfig,
   readGlobalConfigSnapshot,
 } from "../config/global-config.js";
-import { readFileSync } from "node:fs";
 import {
   projectGuiProviderModelDiscovery,
   resolveGuiOperatorDiscoveryResults,
@@ -14,65 +15,79 @@ import { runRouteCreateCommand } from "../application/route-create-command.js";
 import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
 import { createOperatorExecutionRouteSelectionPort } from "../application/operator-execution-route-selection.js";
 import { createDefaultRegistry, getRuntimeProviderAvailability } from "../wrapper/session-registry.js";
-import {
-  resolveEngineRoute,
-  type EngineRouteContext,
-} from "../engines/engine-registry.js";
 
-export async function routeCommand(
-  context: EngineRouteContext = {},
-  args: readonly string[] = [],
-): Promise<void> {
+export async function targetCommand(args: readonly string[] = []): Promise<void> {
   if (args[0] === "available") {
-    await routeAvailableModelsCommand();
+    await targetAvailableModelsCommand();
     return;
   }
   if (args[0] === "create") {
-    await routeCreateCommand(args.slice(1));
+    await targetCreateCommand(args.slice(1));
+    return;
+  }
+  if (args[0] === "select") {
+    selectTarget(args[1]);
     return;
   }
   const config = readGlobalConfig() ?? defaultGlobalConfig();
-  const route = resolveEngineRoute(config, context);
-
-  console.log(`Resolved worker: ${route.worker ?? "—"}`);
-  console.log(`Reason:          ${route.reason}`);
-  if (route.defaultWorker) {
-    console.log(`Default worker:  ${route.defaultWorker}`);
+  const targets = config.targetCatalog?.targets ?? [];
+  console.log("Execution Targets:");
+  if (targets.length === 0) {
+    console.log("  none configured");
+    return;
   }
-  if (route.fallback) {
-    console.log(`Fallback:        ${route.fallback}`);
+  for (const target of targets) {
+    const selected = config.targetRouting?.defaultTargetId === target.id ? " *" : "";
+    console.log(`  ${target.id} [${target.kind}] ${target.providerId}/${target.providerModelId}${selected}`);
   }
 }
 
-export async function routeCreateCommand(args: readonly string[], input: {
+function selectTarget(targetId: string | undefined): void {
+  const id = targetId?.trim();
+  if (!id) throw new Error("target select requires one target id.");
+  mutateGlobalConfig((current) => {
+    const target = current?.targetCatalog?.targets.find((candidate) => candidate.id === id);
+    if (!current || !target) throw new Error(`Execution target '${id}' is not configured.`);
+    if (target.kind !== "direct") throw new Error(`Execution target '${id}' is not a direct operator target.`);
+    return {
+      ...current,
+      targetRouting: { defaultTargetId: id },
+      ui: { ...current.ui, targetSelection: { targetId: id } },
+    };
+  });
+  console.log(`Selected execution target: ${id}`);
+}
+
+export async function targetCreateCommand(args: readonly string[], input: {
   readonly readSource?: (path: string | undefined) => string;
   readonly create?: Parameters<typeof runRouteCreateCommand>[0]["create"];
 } = {}): Promise<void> {
   const preview = args.includes("--preview");
   const path = args.find((arg) => !arg.startsWith("--"));
   const source = (input.readSource ?? ((candidate) => readFileSync(candidate ?? 0, "utf-8")))(path);
-  const result = await runRouteCreateCommand({ source, preview, create: input.create ?? createRouteFromCurrentEvidence });
+  const result = await runRouteCreateCommand({ source, preview, create: input.create ?? createTargetFromCurrentEvidence });
   console.log(JSON.stringify(result));
 }
 
-async function createRouteFromCurrentEvidence(request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, preview: boolean) {
+async function createTargetFromCurrentEvidence(request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, preview: boolean) {
   const resolve = async () => {
     const snapshot = readGlobalConfigSnapshot();
-    if (!snapshot.config?.executionCatalog) throw new Error("Execution catalog is unavailable.");
+    const executionCatalog = projectDirectExecutionCatalog(snapshot.config);
+    if (!executionCatalog) throw new Error("Direct target catalog is unavailable.");
     const { registry } = createDefaultRegistry();
     const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
     const selection = createOperatorExecutionRouteSelectionPort({ readConfigSnapshot: () => snapshot, resolveAccountAvailability: async () => [] });
     const executionRouteCatalog = await selection.getCatalog();
-    return { catalog: projectAvailableModelDiagnostic({ discovery, executionRouteCatalog }), executionCatalog: snapshot.config.executionCatalog, revision: snapshot.revision };
+    return { catalog: projectAvailableModelDiagnostic({ discovery, executionRouteCatalog }), executionCatalog, revision: snapshot.revision };
   };
   const initial = await resolve();
   const entry = initial.catalog.entries.find((candidate) => candidate.providerId === request.discoveryIdentity.providerId && candidate.providerRouteId === request.discoveryIdentity.providerRouteId && candidate.providerModelId === request.discoveryIdentity.providerModelId);
-  if (!entry || entry.discoveryState !== "observed" || entry.eligibilityState !== "eligible" || initial.revision !== request.expectedRevision) throw new Error("Current route creation evidence is stale or unavailable.");
+  if (!entry || entry.discoveryState !== "observed" || entry.eligibilityState !== "eligible" || initial.revision !== request.expectedRevision) throw new Error("Current target creation evidence is stale or unavailable.");
   if (preview) return { status: "previewed", revision: initial.revision };
   return createCurrentExecutionRoute({ request, admittedEvidence: { entry, catalogObservedAt: initial.catalog.observedAt }, resolveCurrentEvidence: resolve, mutateGlobalConfig, refreshExecutionRoutes: async () => { await resolve(); } });
 }
 
-export async function routeAvailableModelsCommand(input: {
+export async function targetAvailableModelsCommand(input: {
   readonly readCatalog?: () => Promise<ReturnType<typeof projectAvailableModelDiagnostic>>;
 } = {}): Promise<void> {
   try {

@@ -116,7 +116,7 @@ right place for local Whisper and Kokoro because the executable paths,
 installed models, and device choices are machine-local.
 
 ```yaml
-version: "1"
+version: "3"
 operatorVoice:
   stt:
     provider: whisper-local
@@ -241,24 +241,31 @@ hint, format, conservative speed, and named runtime intents. Agents reference
 profile ids with `voiceProfile`; they do not invent provider ids, voice ids,
 formats, or arbitrary speeds at runtime.
 
-For local operator managed agents, keep voice identity in global config and
-reference the governed `operatorVoice.ttsProfiles` catalog:
+For local managed agents, keep voice identity in global config. Bind the
+governed `operatorVoice.ttsProfiles` entry to an authority profile, independently
+of its execution target:
 
 ```yaml
+authorityProfiles:
+  - id: voiced-readonly-review
+    admissionProfile: foundation-readonly-plan
+    voiceProfile: english-default
+    workingDirectory: project
+    tools:
+      allowed: [read, tree, grep, glob]
+      network: false
+      writes: false
+    memory: { access: read-only }
+
 managedAgents:
   enabled: true
-  defaultVoiceProfile: english-default
-  routes:
-    - id: codex-reviewer
-      kind: direct
-      provider: codex-oauth
-      model: gpt-5.6-luna
-      voiceProfile: english-default
+  defaultAuthorityProfileId: voiced-readonly-review
 ```
 
-Route-level `voiceProfile` overrides `managedAgents.defaultVoiceProfile`.
-Both must reference `operatorVoice.ttsProfiles`; managed agents do not carry
-provider-specific voice settings inline.
+`authorityProfiles[].voiceProfile` must reference `operatorVoice.ttsProfiles`.
+Agent files select that authority with `authorityProfileId` and select physical
+execution separately with `targetId`. Managed agents do not carry provider,
+model, or provider-specific voice settings inline.
 
 ```yaml
 voice:

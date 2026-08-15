@@ -179,7 +179,7 @@ describe("MessageRow", () => {
     expect(screen.getByRole("button", { name: "Generate audio" })).toBeInTheDocument();
   });
 
-  it("uses the active execution route only as streaming display evidence", () => {
+  it("uses the active execution target only as streaming display evidence", () => {
     useSessionStore.setState({
       executionRouteCatalog: {
         routes: [{

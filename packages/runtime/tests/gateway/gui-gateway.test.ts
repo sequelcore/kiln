@@ -460,9 +460,9 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions & { readon
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => adapter,
-      profiles: {
-        "foundation-readonly-plan": {
+      profiles: [{
           authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           permissionProfile: "read-only",
           allowedToolNames: ["read", "grep", "glob"],
           writeAllowed: false,
@@ -480,8 +480,7 @@ function makeManagedInvocationOptions(): ManagedInvocationToolOptions & { readon
             scope: { kind: "project", id: "kiln" },
             access: "read-only",
           },
-        },
-      },
+      }],
     }],
     requestedBy: "assistant",
     requestSource: "gui",
@@ -616,9 +615,9 @@ function makeManagedWriteConflictFixture(): {
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => writeAdapter,
-      profiles: {
-        "foundation-apply-approved-writes": {
+      profiles: [{
           authorityProfileId: "authority:opencode:approved-write",
+          admissionProfile: "foundation-apply-approved-writes",
           permissionProfile: "apply-approved-writes",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
@@ -662,8 +661,7 @@ function makeManagedWriteConflictFixture(): {
               evidenceRequired: true,
             },
           }),
-        },
-      },
+      }],
     }],
     requestedBy: "assistant",
     requestSource: "gui",
@@ -822,9 +820,9 @@ function makeManagedDirtyWorktreeReviewFixture(): {
         settlement: { kind: "not-required" },
       },
       createAdapter: async () => adapter,
-      profiles: {
-        "foundation-apply-approved-writes": {
+      profiles: [{
           authorityProfileId: "authority:opencode:isolated-write",
+          admissionProfile: "foundation-apply-approved-writes",
           permissionProfile: "apply-approved-writes",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
@@ -873,8 +871,7 @@ function makeManagedDirtyWorktreeReviewFixture(): {
               evidenceRequired: true,
             },
           }),
-        },
-      },
+      }],
     }],
     requestedBy: "assistant",
     requestSource: "gui",
@@ -2386,7 +2383,7 @@ describe("startGuiGateway static mount", () => {
       createManagedInvocation: () => {
         const base = makeManagedInvocationOptions();
         const route = base.routes[0]!;
-        const profile = route.profiles["foundation-readonly-plan"]!;
+        const profile = route.profiles[0]!;
         return {
           ...base,
           routes: [{
@@ -2397,13 +2394,11 @@ describe("startGuiGateway static mount", () => {
               identity: { ...route.capability.identity, routeId: "opencode-readonly-visual-without-network" },
               toolNames: ["read", "grep", "glob", "web_search", "browser_observe"],
             },
-            profiles: {
-              "foundation-readonly-plan": {
+            profiles: [{
                 ...profile,
                 allowedToolNames: ["read", "grep", "glob", "web_search", "browser_observe"],
                 networkAllowed: false,
-              },
-            },
+            }],
           }],
         } satisfies ManagedInvocationToolOptions;
       },
@@ -3548,13 +3543,10 @@ describe("startGuiGateway static mount", () => {
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
       ...baseRoute,
-      profiles: {
-        ...baseRoute.profiles,
-        "foundation-readonly-plan": {
-          ...baseRoute.profiles["foundation-readonly-plan"]!,
+      profiles: [{
+          ...baseRoute.profiles[0]!,
           credentialRoute: { mode: "credentialless" as const },
-        },
-      },
+      }],
     };
     const parentSessionId = "session-control";
     let startedInvocationId = "";
@@ -3771,13 +3763,10 @@ describe("startGuiGateway static mount", () => {
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
       ...baseRoute,
-      profiles: {
-        ...baseRoute.profiles,
-        "foundation-readonly-plan": {
-          ...baseRoute.profiles["foundation-readonly-plan"]!,
+      profiles: [{
+          ...baseRoute.profiles[0]!,
           credentialRoute: { mode: "credentialless" as const },
-        },
-      },
+      }],
     };
     const parentSessionId = "session-prompt-control";
     let completeChild!: () => void;
@@ -3999,13 +3988,10 @@ describe("startGuiGateway static mount", () => {
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
       ...baseRoute,
-      profiles: {
-        ...baseRoute.profiles,
-        "foundation-readonly-plan": {
-          ...baseRoute.profiles["foundation-readonly-plan"]!,
+      profiles: [{
+          ...baseRoute.profiles[0]!,
           credentialRoute: { mode: "credentialless" as const },
-        },
-      },
+      }],
     };
     const parentSessionId = "session-join-control";
     let startedInvocationId = "";
@@ -4503,13 +4489,10 @@ describe("startGuiGateway static mount", () => {
     const baseRoute = baseManagedInvocation.routes[0]!;
     const controlRoute = {
       ...baseRoute,
-      profiles: {
-        ...baseRoute.profiles,
-        "foundation-readonly-plan": {
-          ...baseRoute.profiles["foundation-readonly-plan"]!,
+      profiles: [{
+          ...baseRoute.profiles[0]!,
           credentialRoute: { mode: "credentialless" as const },
-        },
-      },
+      }],
     };
     const parentSessionId = `session-${terminalCase.lifecycleState}-control`;
     let startedInvocationId = "";

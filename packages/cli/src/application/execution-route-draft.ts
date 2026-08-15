@@ -41,7 +41,7 @@ export interface ExecutionRouteDraftMaterial {
 
 export function startExecutionRouteDraft(discovery: AvailableModelCatalogEntry): IncompleteExecutionRouteDraft {
   if (discovery.discoveryState !== "observed" || discovery.eligibilityState !== "eligible") {
-    throw new Error("Execution route drafts require currently observed, eligible discovery evidence.");
+    throw new Error("Execution target drafts require currently observed, eligible discovery evidence.");
   }
   return {
     status: "incomplete",
@@ -85,7 +85,7 @@ function rejectSecretLikeKeys(value: unknown): void {
     return;
   }
   for (const [key, child] of Object.entries(value)) {
-    if (FORBIDDEN_KEY.test(key)) throw new Error(`Execution route draft contains forbidden secret or credential field: ${key}`);
+    if (FORBIDDEN_KEY.test(key)) throw new Error(`Execution target draft contains forbidden secret or credential field: ${key}`);
     rejectSecretLikeKeys(child);
   }
 }

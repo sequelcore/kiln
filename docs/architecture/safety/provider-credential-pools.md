@@ -4,8 +4,8 @@
 
 Provider credential pools supply Runtime with current, secret-bearing account
 evidence. They are not an operator-facing model catalog and do not choose a
-route. The canonical execution catalog maps an opaque account ID to a provider
-and credential ID; Runtime resolves that credential only after a route and
+target. The canonical target catalog maps an opaque account ID to a provider
+and credential ID; Runtime resolves that credential only after a target and
 account have been committed.
 
 See [Global Config](../../guides/config/global-config.md) for configuration and
@@ -16,7 +16,7 @@ See [Global Config](../../guides/config/global-config.md) for configuration and
 Core owns secret-free account eligibility, deterministic ordering, admission,
 and commitment evidence. Runtime owns credential stores, health/quota evidence,
 capacity, revision observation, secret resolution, and provider-specific error
-mapping. Surfaces receive route availability and repair guidance, never
+mapping. Surfaces receive target availability and repair guidance, never
 credentials or secrets.
 
 Credential storage is private Runtime state. A credential ID is stable local
@@ -24,23 +24,23 @@ configuration identity, not an authentication claim. Tokens, API keys, account
 claims, home paths, and credential contents are never placed in global config,
 surface persistence, prompts, logs, events, or fixtures.
 
-## Execution Catalog
+## Target Catalog
 
-The V2 catalog has three distinct concepts:
+The V3 catalog has three distinct concepts:
 
 - `accounts`: configured execution identities. Each has `id`, `providerId`,
   `credentialId`, capacity limits, and economics metadata.
 - `accountPolicies`: an eligible account set and a selection strategy.
-- `routes`: an operator-facing provider/model choice that references either an
-  automatic account policy or one exact account.
+- `targets`: an operator-facing direct or harness execution choice. A direct
+  target references either an automatic account policy or one exact account.
 
 This prevents the previous ambiguity between “model”, “provider”, and
-credential binding. A route is what an operator selects. An account is what
+credential binding. A target is what an operator selects. An account is what
 Runtime commits. A credential is private runtime material used only to execute
 that account.
 
 ```yaml
-executionCatalog:
+targetCatalog:
   accounts:
     - id: codex-work
       providerId: codex-oauth
@@ -51,14 +51,14 @@ executionCatalog:
     - id: codex-automatic
       accountIds: [codex-work]
       strategy: economic-least-pressure
-  routes:
+  targets:
     - id: terra
       label: Terra
       providerId: codex-oauth
       providerModelId: gpt-5.6-terra
       accountSelection: { mode: automatic, accountPolicyId: codex-automatic }
-executionRouting:
-  defaultRouteId: terra
+targetRouting:
+  defaultTargetId: terra
 ```
 
 ## Selection And Commitment
@@ -82,10 +82,10 @@ accounts.
 
 ## Operator Experience
 
-GUI and TUI display routes, availability, a reason, and a repair action. They
+GUI and TUI display targets, availability, a reason, and a repair action. They
 may offer an account override only from the selected automatic policy's current
 eligible account IDs. The default is automatic. Credential IDs are never shown
-or selected. `kiln run` accepts `--route <id>`; it does not accept
+or selected. `kiln run` accepts `--target <id>`; it does not accept
 `--provider`, `--model`, or `--api-key` as execution-selection overrides.
 
 `directModels` and `kiln model bind/list` are not supported configuration or
@@ -94,7 +94,8 @@ credential-binding path to drift from the catalog.
 
 ## Related Consumers
 
-Model Gateway virtual models reference `executionRouteId` and introduce no
-account catalog of their own. Managed-agent direct routes use the same reference.
+Model Gateway virtual models reference `targetId` and introduce no account
+catalog of their own. Managed agents use the same target identity and a
+separate `authorityProfileId`.
 Both therefore share the same candidate admission, capacity, fence, and
 credential-revision validation as direct operator sessions.

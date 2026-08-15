@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ExecutionCatalog, ExecutionRouteDataPolicyEvidence } from "@kilnai/core";
-import { ExecutionRouteDataPolicyAuthority } from "../../src/execution-routing/execution-route-data-policy-authority.js";
+import {
+  ExecutionRouteDataPolicyAuthority,
+  evaluateExecutionTargetDataPolicy,
+} from "../../src/execution-routing/execution-route-data-policy-authority.js";
 
 const evidence = (): ExecutionRouteDataPolicyEvidence => ({
   providerId: "opencode-go", providerModelId: "deepseek-v4-flash", dataUse: "not-used",
@@ -37,5 +40,19 @@ describe("ExecutionRouteDataPolicyAuthority", () => {
     const result = authority.evaluate({ routeId: "deepseek-scout", providerId: "native-opencode", providerModelId: "deepseek-v4-flash" });
     expect(result.decision).toEqual({ status: "denied", freshness: "current", reason: "provider-mismatch" });
     expect(JSON.stringify(result)).not.toMatch(/secret|payload|content|path/iu);
+  });
+
+  it("evaluates a harness target without fabricating account-backed route fields", () => {
+    expect(evaluateExecutionTargetDataPolicy({
+      routeId: "native-codex",
+      providerId: "opencode-go",
+      providerModelId: "deepseek-v4-flash",
+      requestedClassification: "internal",
+      evidence: evidence(),
+      now: new Date("2026-08-15T00:00:00.000Z"),
+    })).toMatchObject({
+      decision: { status: "admitted", freshness: "current", reason: "policy-admitted" },
+      evidence: { sourceIdentity: "opencode-go-privacy" },
+    });
   });
 });

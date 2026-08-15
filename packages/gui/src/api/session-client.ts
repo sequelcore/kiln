@@ -71,12 +71,12 @@ export class GuiSessionClient {
   }
 
   switchExecutionRoute(routeId: string, accountOverrideId?: string): Promise<string> {
-    if (this.pendingRouteChange) throw new Error("Execution route switch already in flight");
+    if (this.pendingRouteChange) throw new Error("Execution target switch already in flight");
     const requestId = `execution-route-${++this.routeSwitchRequestOrdinal}`;
     return new Promise<string>((resolve, reject) => {
       const timerId = window.setTimeout(() => {
         this.pendingRouteChange = null;
-        reject(new Error("Execution route switch timed out"));
+        reject(new Error("Execution target switch timed out"));
       }, this.ACK_TIMEOUT_MS);
       const pending = { routeId, requestId, timerId, resolve, reject };
       this.pendingRouteChange = pending;
@@ -91,7 +91,7 @@ export class GuiSessionClient {
         if (this.pendingRouteChange === pending) {
           window.clearTimeout(timerId);
           this.pendingRouteChange = null;
-          reject(toError(error, "Execution route switch failed"));
+          reject(toError(error, "Execution target switch failed"));
         }
       }
     });
@@ -187,7 +187,7 @@ export class GuiSessionClient {
         this.pendingRouteChange = null;
       } else {
         window.clearTimeout(this.pendingRouteChange.timerId);
-        this.pendingRouteChange.reject(new Error("Execution route acknowledgement did not match the pending request"));
+        this.pendingRouteChange.reject(new Error("Execution target acknowledgement did not match the pending request"));
         this.pendingRouteChange = null;
       }
     }

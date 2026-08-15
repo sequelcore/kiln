@@ -74,11 +74,13 @@ import {
   MANAGED_AGENT_START_TOOL,
   MANAGED_AGENT_STATUS_CAPABILITY,
   MANAGED_AGENT_STATUS_TOOL,
+  resolveManagedInvocationRouteProfile,
   resolveManagedInvocationService,
   type ManagedInvocationToolOptions,
   type ManagedInvocationToolAttachment,
   type ManagedInvocationBoundedWorkAdmission,
 } from "../agents/managed-invocation/runtime-tool/index.js";
+import { resolveManagedInvocationAgentProfile } from "../agents/managed-invocation/agent-profile-catalog.js";
 import {
   createManagedAgentInvocationResourceProvider,
   isManagedAgentInvocationResourceProvider,
@@ -1297,7 +1299,8 @@ function hydrateManagedInvocationRequest(
   const exactRoute = routeId
     ? options.routes.find((route) => route.routeId === routeId)
     : undefined;
-  if (exactRoute?.profiles[requestedProfile] !== undefined) {
+  const configuredAgent = resolveManagedInvocationAgentProfile(options, readTextFromUnknown(request.agentProfile));
+  if (exactRoute && resolveManagedInvocationRouteProfile(exactRoute, requestedProfile, configuredAgent) !== undefined) {
     return {
       ...request,
       routeId: exactRoute.routeId,
@@ -1312,8 +1315,8 @@ function hydrateManagedInvocationRequest(
   const profile = requestedProfile;
   const matches = options.routes.filter((route) =>
     (!routeId || route.routeId === routeId)
-    && route.profiles[profile] !== undefined
-    && routeSupportsRequiredTools(route, profile, requiredToolNames)
+    && resolveManagedInvocationRouteProfile(route, profile, configuredAgent) !== undefined
+    && routeSupportsRequiredTools(route, profile, requiredToolNames, configuredAgent)
   );
   const route = matches.length === 1 ? matches[0] : selectUniqueSuitableRoute(matches, request);
   if (!route) {
@@ -1343,12 +1346,13 @@ function repairManagedInvocationRouteForRequiredTools(
   }
   const route = options.routes.find((candidate) => candidate.routeId === routeId);
   const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
-  if (!route || routeSupportsRequiredTools(route, profile, requiredToolNames)) {
+  const configuredAgent = resolveManagedInvocationAgentProfile(options, readTextFromUnknown(request.agentProfile));
+  if (!route || routeSupportsRequiredTools(route, profile, requiredToolNames, configuredAgent)) {
     return { request };
   }
   const compatibleRoutes = options.routes.filter((candidate) =>
     candidate.routeId !== routeId
-    && routeSupportsRequiredTools(candidate, profile, requiredToolNames)
+    && routeSupportsRequiredTools(candidate, profile, requiredToolNames, configuredAgent)
   );
   const replacement = compatibleRoutes.length === 1
     ? compatibleRoutes[0]
@@ -1373,7 +1377,7 @@ function repairManagedInvocationRouteForRequiredTools(
         toRouteId: replacement.routeId,
         reason: "required_tools_missing",
         missingRequiredTools: requiredToolNames.filter((toolName) =>
-          !routeSupportsRequiredTools(route, profile, [toolName])
+          !routeSupportsRequiredTools(route, profile, [toolName], configuredAgent)
         ),
       },
     },
@@ -1394,7 +1398,15 @@ function attachMatchingAgentProfile(
   if (!routeId) {
     return request;
   }
-  const matches = (options.agentCatalog ?? []).filter((agent) => agent.routeId === routeId);
+  const profile = (readTextFromUnknown(request.profile) ?? "foundation-readonly-plan") as ManagedAgentAdmissionProfile;
+  const route = options.routes.find((candidate) => candidate.routeId === routeId);
+  if (!route || !resolveManagedInvocationRouteProfile(route, profile)) {
+    return request;
+  }
+  const matches = (options.agentCatalog ?? []).filter((agent) =>
+    agent.routeId === routeId
+    && resolveManagedInvocationRouteProfile(route, profile, agent) !== undefined
+  );
   if (matches.length !== 1) {
     return request;
   }
@@ -1444,8 +1456,9 @@ function routeSupportsRequiredTools(
   route: ManagedInvocationToolOptions["routes"][number],
   profile: ManagedAgentAdmissionProfile,
   requiredToolNames: readonly string[],
+  agent?: NonNullable<ManagedInvocationToolOptions["agentCatalog"]>[number],
 ): boolean {
-  const routeProfile = route.profiles[profile];
+  const routeProfile = resolveManagedInvocationRouteProfile(route, profile, agent);
   if (!routeProfile) {
     return false;
   }

@@ -10,7 +10,7 @@ import type {
   ExecutionRouteSelectionIntent,
 } from "@kilnai/gateway-contracts";
 import type { OperatorExecutionRouteSelectionPort } from "@kilnai/runtime";
-import type { KilnGlobalConfig } from "../config/global-config.js";
+import { projectDirectExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
 
 export function createOperatorExecutionRouteSelectionPort(input: {
   readonly readConfigSnapshot: () => { readonly config: KilnGlobalConfig | null; readonly revision: string };
@@ -19,7 +19,7 @@ export function createOperatorExecutionRouteSelectionPort(input: {
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>;
 }): OperatorExecutionRouteSelectionPort {
   const catalog = (config: KilnGlobalConfig | null): ExecutionCatalog => {
-    const configured = config?.executionCatalog;
+    const configured = projectDirectExecutionCatalog(config);
     if (!configured) return defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
     return defineExecutionCatalog(configured);
   };
@@ -47,7 +47,7 @@ export function createOperatorExecutionRouteSelectionPort(input: {
         return {
           ok: false,
           reasonCode: "route-not-configured",
-          reason: error instanceof Error ? error.message : "Execution route admission failed.",
+          reason: error instanceof Error ? error.message : "Execution target admission failed.",
           repairActions: ["review-route-configuration"],
         };
       }
@@ -60,12 +60,12 @@ export function createOperatorExecutionRouteSelectionPort(input: {
  * first transport. The configured route remains the only selection input.
  */
 export function resolveOperatorStartupExecutionRoute(config: KilnGlobalConfig) {
-  const catalog = config.executionCatalog;
-  const routeId = config.ui?.executionRouteSelection?.routeId
-    ?? config.executionRouting?.defaultRouteId;
+  const catalog = projectDirectExecutionCatalog(config);
+  const routeId = config.ui?.targetSelection?.targetId
+    ?? config.targetRouting?.defaultTargetId;
   const route = catalog?.routes.find((candidate) => candidate.id === routeId);
   if (!route) {
-    throw new Error("No configured execution route is available for the operator surface.");
+    throw new Error("No configured execution target is available for the operator surface.");
   }
   return route;
 }
@@ -162,7 +162,7 @@ function rejectUnavailableExecutionRoute(
     return {
       ok: false as const,
       reasonCode: "route-not-configured" as const,
-      reason: `Execution route '${intent.routeId}' is not configured.`,
+      reason: `Execution target '${intent.routeId}' is not configured.`,
       repairActions: ["review-route-configuration"] as const,
     };
   }
@@ -178,7 +178,7 @@ function rejectUnavailableExecutionRoute(
   return {
     ok: false as const,
     reasonCode: route.reasonCodes[0] ?? "route-evidence-pending" as const,
-    reason: `Execution route '${intent.routeId}' is unavailable.`,
+    reason: `Execution target '${intent.routeId}' is unavailable.`,
     repairActions: route.repairActions,
   };
 }

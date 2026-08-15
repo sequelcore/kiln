@@ -77,7 +77,7 @@ export const createExecutionRouteLifecycleSlice: StateCreator<SessionStore, [], 
     if (!state.outboundSend) return false;
     const route = state.executionRouteCatalog.routes.find((candidate) => candidate.routeId === routeId);
     if (!route || route.availability !== "available" || (accountOverrideId && !route.accountOverrideIds?.includes(accountOverrideId))) {
-      set({ providerOperationFailure: { operation: "select-route", message: route ? `Execution route '${routeId}' is ${route.availability}.` : `Execution route '${routeId}' is unavailable.` } });
+      set({ providerOperationFailure: { operation: "select-route", message: route ? `Execution target '${routeId}' is ${route.availability}.` : `Execution target '${routeId}' is unavailable.` } });
       return false;
     }
     if (state.executionRouteSelectionTimeoutId) clearTimeout(state.executionRouteSelectionTimeoutId);

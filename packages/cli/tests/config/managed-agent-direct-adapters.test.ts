@@ -5,6 +5,7 @@ import {
   ManagedDirectProviderRuntimeAdapter,
   RuntimeManagedAgentInvocationService,
   type ManagedCommittedInvocationRequest,
+  type ManagedInvocationRouteProfile,
 } from "@kilnai/runtime";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
 import type {
@@ -69,6 +70,21 @@ function credentialBindingFor(routeId: string, accountId = "account-b"): DirectP
   };
 }
 
+const READONLY_PROFILE: ManagedInvocationRouteProfile = {
+  authorityProfileId: "readonly-plan",
+  admissionProfile: "foundation-readonly-plan",
+  permissionProfile: "read-only",
+  allowedToolNames: ["read", "grep"],
+  workingDirectory: { path: "C:/repo", mode: "read-only" },
+  timeoutMs: 60_000,
+  credentialRoute: { mode: "account-lease" },
+  memoryScope: { scope: { kind: "project", id: "test" }, access: "read-only" },
+};
+
+function profileWith(input: Partial<ManagedInvocationRouteProfile>): ManagedInvocationRouteProfile {
+  return { ...READONLY_PROFILE, ...input };
+}
+
 function provider(): ProviderAdapter {
   const response: AgentResponse = {
     parts: textParts("child result"),
@@ -94,8 +110,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     await expect(factory({
       id: "openai-managed",
       kind: "direct",
-      executionRouteId: "openai-managed",
-      profiles: ["foundation-readonly-plan"],
+      authorityProfiles: [],
     }, undefined, undefined, committedRequestFor("openai-managed", "openai", "gpt-5.4-mini")))
       .rejects.toThrow("has no committed credential binding");
 
@@ -110,9 +125,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     await expect(factory({
       id: "codex-managed",
       kind: "direct",
-      executionRouteId: "codex-managed",
-      profiles: ["foundation-readonly-plan"],
-    }, credentialBinding, undefined, committedRequestFor("codex-managed", "codex-oauth", "gpt-5.4")))
+      authorityProfiles: [],
+    }, credentialBinding, undefined, committedRequestFor("codex-managed", "codex-oauth", "gpt-5.4"), READONLY_PROFILE))
       .resolves.toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
     expect(createProviderAdapter).toHaveBeenCalledWith(expect.objectContaining({
       provider: "codex-oauth",
@@ -143,8 +157,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     await expect(factory({
       id: "codex-managed",
       kind: "direct",
-      executionRouteId: "codex-managed",
-      profiles: ["foundation-readonly-plan"],
+      authorityProfiles: [],
     }, credentialBindingFor("codex-managed"), undefined, committedRequest)).rejects.toThrow(/committed economic route/u);
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
@@ -160,9 +173,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     const adapter = await factory({
       id: "openai-readonly",
       kind: "direct",
-      executionRouteId: "openai-readonly",
-      profiles: ["foundation-readonly-plan"],
-    }, credentialBindingFor("openai-readonly"), undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"));
+      authorityProfiles: [],
+    }, credentialBindingFor("openai-readonly"), undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"), READONLY_PROFILE);
 
     expect(adapter).toBeInstanceOf(ManagedDirectProviderRuntimeAdapter);
     expect(adapter?.descriptor).toMatchObject({
@@ -209,9 +221,9 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     });
 
     const adapter = await factory({
-      id: "openai-mcp", kind: "direct", executionRouteId: "openai-mcp",
-      profiles: ["foundation-readonly-plan"], tools: { allowed: [selector] },
-    }, credentialBindingFor("openai-mcp"), undefined, committedRequestFor("openai-mcp", "openai", "gpt-5.4-mini"));
+      id: "openai-mcp", kind: "direct",
+      authorityProfiles: [],
+    }, credentialBindingFor("openai-mcp"), undefined, committedRequestFor("openai-mcp", "openai", "gpt-5.4-mini"), profileWith({ allowedToolNames: [selector] }));
     const internals = adapter as unknown as {
       readonly tools: readonly { readonly name: string }[];
       readonly builtinTools: ReadonlyMap<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -222,9 +234,9 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     expect(disconnect).toHaveBeenCalledTimes(2);
 
     const withoutSelector = await factory({
-      id: "openai-no-mcp", kind: "direct", executionRouteId: "openai-no-mcp",
-      profiles: ["foundation-readonly-plan"], tools: { allowed: ["read"] },
-    }, credentialBindingFor("openai-no-mcp"), undefined, committedRequestFor("openai-no-mcp", "openai", "gpt-5.4-mini"));
+      id: "openai-no-mcp", kind: "direct",
+      authorityProfiles: [],
+    }, credentialBindingFor("openai-no-mcp"), undefined, committedRequestFor("openai-no-mcp", "openai", "gpt-5.4-mini"), READONLY_PROFILE);
     expect((withoutSelector as unknown as { tools: readonly { name: string }[] }).tools.some((tool) => tool.name.startsWith("mcp:"))).toBe(false);
     expect(createMcpClient).toHaveBeenCalledTimes(1);
   });
@@ -239,22 +251,14 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     const adapter = await factory({
       id: "codex-oauth-approved-write",
       kind: "direct",
-      executionRouteId: "codex-oauth-approved-write",
-      profiles: ["foundation-apply-approved-writes"],
-      tools: {
-        allowed: ["read", "grep", "apply-patch"],
-        writes: true,
-      },
-      writeAuthority: {
-        workspace: {
-          mode: "apply-approved",
-          allowedPaths: ["packages/runtime"],
-        },
-        approval: {
-          mode: "required-before-apply",
-        },
-      },
-    }, credentialBindingFor("codex-oauth-approved-write"), undefined, committedRequestFor("codex-oauth-approved-write", "codex-oauth", "gpt-5.5"));
+      authorityProfiles: [],
+    }, credentialBindingFor("codex-oauth-approved-write"), undefined, committedRequestFor("codex-oauth-approved-write", "codex-oauth", "gpt-5.5"), profileWith({
+      authorityProfileId: "approved-write",
+      admissionProfile: "foundation-apply-approved-writes",
+      permissionProfile: "apply-approved-writes",
+      allowedToolNames: ["read", "grep", "apply-patch"],
+      writeAllowed: true,
+    }));
 
     expect(adapter?.descriptor).toMatchObject({
       supportedProfiles: [
@@ -285,9 +289,8 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     const adapter = await factory({
       id: "openai-readonly",
       kind: "direct",
-      executionRouteId: "openai-readonly",
-      profiles: ["foundation-readonly-plan"],
-    }, credentialBindingFor("openai-readonly"), undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"));
+      authorityProfiles: [],
+    }, credentialBindingFor("openai-readonly"), undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"), READONLY_PROFILE);
 
     const resourceProvider: ToolResourceProvider = {
       listResources: () => [],
@@ -375,7 +378,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       kind: "harness",
       provider: "codex",
       model: "gpt-5.3-codex-spark",
-      profiles: ["foundation-readonly-plan"],
+      authorityProfiles: [],
     }, undefined, undefined, committedRequestFor("codex-readonly", "codex", "gpt-5.3-codex-spark")))
       .resolves.toBeUndefined();
     expect(createProviderAdapter).not.toHaveBeenCalled();
@@ -389,8 +392,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     await expect(factory({
       id: "codex-direct",
       kind: "direct",
-      executionRouteId: "codex-direct",
-      profiles: ["foundation-readonly-plan"],
+      authorityProfiles: [],
     }, credentialBindingFor("codex-direct"), undefined, committedRequestFor("codex-direct", "codex", "gpt-5.3-codex-spark")))
       .rejects.toThrow("Provider 'codex' is not a direct provider.");
   });
@@ -402,8 +404,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     await expect(factory({
       id: "ollama-readonly",
       kind: "direct",
-      executionRouteId: "ollama-readonly",
-      profiles: ["foundation-readonly-plan"],
+      authorityProfiles: [],
     }, credentialBindingFor("ollama-readonly"), undefined, committedRequestFor("ollama-readonly", "ollama", "ollama-local")))
       .rejects.toThrow("requires a tool-call-capable model");
     expect(createProviderAdapter).not.toHaveBeenCalled();
@@ -416,8 +417,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
     await expect(factory({
       id: "openai-readonly",
       kind: "direct",
-      executionRouteId: "openai-readonly",
-      profiles: ["foundation-readonly-plan"],
+      authorityProfiles: [],
     }, undefined, undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini")))
       .rejects.toThrow("has no committed credential binding");
     expect(createProviderAdapter).not.toHaveBeenCalled();

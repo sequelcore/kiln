@@ -181,7 +181,7 @@ describe("GatewaySession execution-route switching", () => {
       requestId: "stale-request",
     }));
 
-    await expect(promise).rejects.toThrow("Execution route change acknowledgement did not match the pending request");
+    await expect(promise).rejects.toThrow("Execution target change acknowledgement did not match the pending request");
     await session.dispose();
   });
 

@@ -24,7 +24,7 @@ function config(): ModelGatewayConfig {
     replay: { ttlMs: 1_000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
     surfaces: { openAIResponses: { maxBodyBytes: 1_024, maxConcurrentRequests: 1 } },
     principals: [{ tokenEnv: "CODEX_GATEWAY_TOKEN", ingress: "openai-responses", nativeHarness: "codex", tenantId: "tenant", applicationId: "codex", callerId: "native", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["kiln/model-a"] }],
-    virtualModels: [{ id: "kiln/model-a", displayName: "Model A via Kiln", contextTokens: 200_000, outputTokens: 8_192, executionRouteId: "model-a-route", capabilities: ["text", "function-tools", "parallel-tool-calls"], affinity: { continuity: "none" }, deliberation: { levels: ["low", "high"], defaultLevel: "low", supportsAdaptive: false, evidenceRevision: "proof-v1" } }],
+    virtualModels: [{ id: "kiln/model-a", displayName: "Model A via Kiln", contextTokens: 200_000, outputTokens: 8_192, targetId: "model-a-route", capabilities: ["text", "function-tools", "parallel-tool-calls"], affinity: { continuity: "none" }, deliberation: { levels: ["low", "high"], defaultLevel: "low", supportsAdaptive: false, evidenceRevision: "proof-v1" } }],
   };
 }
 

@@ -131,7 +131,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
         role: "Reviewer",
         goal: "Review concisely and retain findings.",
         tier: "reasoning",
-        authorityProfile: "foundation-apply-approved-writes",
+        authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+        admissionProfile: "foundation-apply-approved-writes",
         routeId: "test-write",
         communication: {
           responseDetail: "concise",
@@ -640,7 +641,8 @@ describe("runManagedAgentOrchestrationLifecycle", () => {
           role: "Economic worker",
           goal: "Execute only after durable commitment.",
           tier: "reasoning",
-          authorityProfile: "foundation-apply-approved-writes",
+          authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+          admissionProfile: "foundation-apply-approved-writes",
           economicPolicyId: "economy-policy",
           economicPolicyRevision: "revision-001",
           economicPolicyCandidateRouteIds: [primaryRoute.routeId],
@@ -870,9 +872,9 @@ function createManagedInvocation(input: {
         holdOrdinals: input.holdOrdinals ?? new Set(),
         ...(input.requestObserver ? { requestObserver: input.requestObserver } : {}),
       }),
-      profiles: {
-        "foundation-apply-approved-writes": {
+      profiles: [{
           authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+          admissionProfile: "foundation-apply-approved-writes",
           permissionProfile: "apply-approved-writes",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
@@ -919,8 +921,7 @@ function createManagedInvocation(input: {
               evidenceRequired: true,
             },
           },
-        },
-      },
+        }],
     }],
   };
 }
@@ -1010,7 +1011,8 @@ function createEconomicManagedInvocation(input: {
         role: "Economic worker",
         goal: "Execute only after durable commitment.",
         tier: "reasoning",
-        authorityProfile: "foundation-apply-approved-writes" as const,
+        authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+        admissionProfile: "foundation-apply-approved-writes" as const,
         economicPolicyId: "economy-policy",
         economicPolicyRevision: "revision-001",
         economicPolicyCandidateRouteIds: [route.routeId],
@@ -1071,9 +1073,9 @@ function createReadOnlyManagedInvocation(): ManagedInvocationToolOptions {
       createAdapter: async () => createAdapter({
         failOrdinals: new Set(), recoveredOrdinals: new Set(), holdOrdinals: new Set(),
       }),
-      profiles: {
-        "foundation-readonly-plan": {
+      profiles: [{
           authorityProfileId: "authority:test-read-only:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           permissionProfile: "read-only",
           allowedToolNames: ["read", "grep"],
           workingDirectory: {
@@ -1086,8 +1088,7 @@ function createReadOnlyManagedInvocation(): ManagedInvocationToolOptions {
             scope: { kind: "project", id: "kiln-test" },
             access: "read-only",
           },
-        },
-      },
+        }],
     }],
   };
 }

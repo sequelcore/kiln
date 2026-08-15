@@ -23,9 +23,11 @@ describe("operator command contract", () => {
     expect(listOperatorCommands("gui").map((command) => command.trigger)).not.toContain("resume");
   });
 
-  it("publishes execution-route controls without a provider command alias", () => {
-    expect(findOperatorCommand("/route", "tui")?.id).toBe("route");
-    expect(findOperatorCommand("route", "gui")?.id).toBe("route");
+  it("publishes execution-target controls without route or provider command aliases", () => {
+    expect(findOperatorCommand("/target", "tui")?.id).toBe("target");
+    expect(findOperatorCommand("target", "gui")?.id).toBe("target");
+    expect(findOperatorCommand("/route", "tui")).toBeUndefined();
+    expect(findOperatorCommand("route", "gui")).toBeUndefined();
     expect(findOperatorCommand("/provider", "tui")).toBeUndefined();
     expect(findOperatorCommand("provider", "gui")).toBeUndefined();
   });

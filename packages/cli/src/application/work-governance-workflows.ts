@@ -1,4 +1,7 @@
 import type {
+  ModelTaskSuitabilityTask,
+} from "@kilnai/core";
+import type {
   KilnWorkGovernanceEvidence,
   KilnWorkGovernanceRisk,
   KilnWorkGovernanceTrigger,
@@ -20,8 +23,8 @@ export interface WorkGovernanceWorkflowProfile {
   readonly description: string;
   readonly triggers: readonly KilnWorkGovernanceTrigger[];
   readonly minimumRisk: KilnWorkGovernanceRisk;
-  readonly recommendedAgentProfiles: readonly string[];
-  readonly defaultAuthorityProfile: string;
+  readonly recommendedTaskAffinities: readonly ModelTaskSuitabilityTask[];
+  readonly defaultAdmissionProfile: string;
   readonly requiredEvidence: readonly KilnWorkGovernanceEvidence[];
   readonly verificationGates: readonly string[];
 }
@@ -97,8 +100,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Local, low-risk correction inside the direct-execution envelope.",
     triggers: [],
     minimumRisk: "low",
-    recommendedAgentProfiles: ["coder", "fast-coder"],
-    defaultAuthorityProfile: "foundation-propose-writes",
+    recommendedTaskAffinities: ["mechanical-edit"],
+    defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["tests", "typecheck", "residual-risk"],
     verificationGates: ["focused test or explicit no-test rationale", "typecheck when TypeScript is affected"],
   },
@@ -107,8 +110,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Diagnose a defect through a surface map, hypothesis, failing proof, minimal fix, and verification loop.",
     triggers: ["verification-heavy"],
     minimumRisk: "medium",
-    recommendedAgentProfiles: ["scout", "tdd", "coder", "reviewer"],
-    defaultAuthorityProfile: "foundation-propose-writes",
+    recommendedTaskAffinities: ["research", "test-writing", "backend-coding"],
+    defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
     verificationGates: ["failing test or reproduction before fix", "focused regression test", "typecheck/build"],
   },
@@ -117,8 +120,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Read-only architecture inspection, boundary review, or risk analysis without implementation work.",
     triggers: ["architecture"],
     minimumRisk: "medium",
-    recommendedAgentProfiles: ["scout", "architect", "ddd-validator", "reviewer"],
-    defaultAuthorityProfile: "foundation-readonly-plan",
+    recommendedTaskAffinities: ["architecture-review", "research"],
+    defaultAdmissionProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "managed-agent-review", "residual-risk"],
     verificationGates: ["architecture/DDD review", "residual-risk closeout when uncertainty or risk remains"],
   },
@@ -127,8 +130,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Change with bounded-context, dependency-direction, contract, or long-term design impact.",
     triggers: ["architecture", "cross-surface"],
     minimumRisk: "high",
-    recommendedAgentProfiles: ["scout", "architect", "architecture-planner", "ddd-validator", "reviewer"],
-    defaultAuthorityProfile: "foundation-readonly-plan",
+    recommendedTaskAffinities: ["architecture-review", "research", "test-writing"],
+    defaultAdmissionProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
     verificationGates: ["architecture/DDD review", "contract tests where behavior changes", "typecheck/build"],
   },
@@ -137,8 +140,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Operator-facing or browser-facing change requiring interaction, responsive checks, and frontend-reference evidence.",
     triggers: ["ui", "cross-surface"],
     minimumRisk: "medium",
-    recommendedAgentProfiles: ["scout", "react-ts-reviewer", "reviewer"],
-    defaultAuthorityProfile: "foundation-propose-writes",
+    recommendedTaskAffinities: ["frontend-design", "research", "test-writing"],
+    defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: [
       "surface-map",
       "risk-hypothesis",
@@ -161,8 +164,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Managed invocation, route identity, child handoff, evidence, replay, or provider behavior change.",
     triggers: ["managed-agents", "provider-routing", "runtime", "cross-surface"],
     minimumRisk: "high",
-    recommendedAgentProfiles: ["scout", "architect", "adversarial-reviewer", "reviewer"],
-    defaultAuthorityProfile: "foundation-readonly-plan",
+    recommendedTaskAffinities: ["architecture-review", "backend-coding", "test-writing"],
+    defaultAdmissionProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
     verificationGates: [
       "managed child live or simulated evidence",
@@ -176,8 +179,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Global, project, harness projection, or setup mutation change.",
     triggers: ["config", "cross-surface"],
     minimumRisk: "medium",
-    recommendedAgentProfiles: ["scout", "reviewer"],
-    defaultAuthorityProfile: "foundation-propose-writes",
+    recommendedTaskAffinities: ["architecture-review", "mechanical-edit", "test-writing"],
+    defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
     verificationGates: ["config parse/merge tests", "projection or sync diagnostic test", "typecheck"],
   },
@@ -186,8 +189,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Work where correctness depends on strong checks instead of confidence language.",
     triggers: ["verification-heavy"],
     minimumRisk: "medium",
-    recommendedAgentProfiles: ["scout", "tdd", "adversarial-reviewer", "reviewer"],
-    defaultAuthorityProfile: "foundation-propose-writes",
+    recommendedTaskAffinities: ["research", "test-writing", "architecture-review"],
+    defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "managed-agent-review", "residual-risk"],
     verificationGates: ["failing proof or test first", "verification loop until no known blocker", "review closeout"],
   },
@@ -196,8 +199,8 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     description: "Small high-value logic surface with crisp invariants suitable for deterministic verifier feedback.",
     triggers: ["formal-proof-candidate", "verification-heavy"],
     minimumRisk: "high",
-    recommendedAgentProfiles: ["architect", "tdd", "adversarial-reviewer"],
-    defaultAuthorityProfile: "foundation-readonly-plan",
+    recommendedTaskAffinities: ["architecture-review", "test-writing"],
+    defaultAdmissionProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "spec", "formal-proof", "tests", "residual-risk"],
     verificationGates: ["explicit invariant/spec review", "deterministic proof/property-test result", "residual-risk closeout"],
   },

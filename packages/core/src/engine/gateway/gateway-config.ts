@@ -53,8 +53,8 @@ export interface ModelGatewayVirtualModelConfig {
   readonly contextTokens?: number;
   readonly outputTokens?: number;
   readonly baseInstructions?: string;
-  /** Canonical execution route owned by the execution catalog. */
-  readonly executionRouteId: string;
+  /** Canonical physical target owned by the global target catalog. */
+  readonly targetId: string;
   readonly capabilities: readonly ModelGatewayCapabilityId[];
   readonly deliberation?: {
     readonly levels: readonly string[];
@@ -241,6 +241,9 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
   for (const [index, model] of (value.virtualModels ?? []).entries()) {
     const path = `modelGateway.virtualModels[${index}]`;
     const rawModel = model as unknown as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(rawModel, "executionRouteId")) {
+      errors.push({ field: `${path}.executionRouteId`, message: "was removed; use targetId" });
+    }
     for (const field of ["providerId", "providerModelId", "accountIds", "economics"]) {
       if (Object.prototype.hasOwnProperty.call(rawModel, field)) {
         errors.push({ field: `${path}.${field}`, message: "is owned by executionCatalog and is not supported here" });
@@ -253,7 +256,7 @@ function validateModelGateway(value: ModelGatewayConfig, gatewayPort: number, er
     if ((requiresPickerMetadata || model.contextTokens !== undefined) && (!Number.isSafeInteger(model.contextTokens) || model.contextTokens! < 1)) errors.push({ field: `${path}.contextTokens`, message: "must be a positive safe integer when exposed to a native harness" });
     if ((requiresPickerMetadata || model.outputTokens !== undefined) && (!Number.isSafeInteger(model.outputTokens) || model.outputTokens! < 1 || model.contextTokens === undefined || model.outputTokens! > model.contextTokens)) errors.push({ field: `${path}.outputTokens`, message: "must be a positive safe integer no greater than contextTokens when exposed to a native harness" });
     if ((codexNativeModelIds.has(model.id) || model.baseInstructions !== undefined) && (typeof model.baseInstructions !== "string" || model.baseInstructions.trim().length === 0 || Buffer.byteLength(model.baseInstructions, "utf8") > 32_768)) errors.push({ field: `${path}.baseInstructions`, message: "must be non-empty and at most 32768 UTF-8 bytes when exposed to Codex" });
-    if (!ID.test(model.executionRouteId ?? "")) errors.push({ field: `${path}.executionRouteId`, message: "must be a canonical id" });
+    if (!ID.test(model.targetId ?? "")) errors.push({ field: `${path}.targetId`, message: "must be a canonical id" });
     if (!Array.isArray(model.capabilities) || model.capabilities.length === 0 || new Set(model.capabilities).size !== model.capabilities.length || model.capabilities.some((id) => !CAPABILITIES.has(id))) errors.push({ field: `${path}.capabilities`, message: "must contain unique supported capability ids" });
     if (model.capabilities.includes("reasoning-controls")) {
       const deliberation = model.deliberation;

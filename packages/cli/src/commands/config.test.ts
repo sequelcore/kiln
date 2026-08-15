@@ -94,7 +94,7 @@ describe("config command", () => {
     });
   });
 
-  it("explicitly resets an invalid global config to V2 and preserves a backup", async () => {
+  it("explicitly resets an invalid global config to V3 and preserves a backup", async () => {
     const root = createTempRoot();
     process.env.XDG_CONFIG_HOME = join(root, "xdg");
     const configPath = resolveGlobalConfigPath();
@@ -103,7 +103,7 @@ describe("config command", () => {
 
     await configCommand({} as never, "reset", ["--global"], root);
 
-    expect(readGlobalConfig()).toMatchObject({ version: "2" });
+    expect(readGlobalConfig()).toMatchObject({ version: "3" });
     expect(consoleLog.mock.calls.flat().join("\n")).toContain("backed up");
   });
 });

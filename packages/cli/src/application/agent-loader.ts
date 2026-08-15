@@ -4,18 +4,13 @@ import { homedir } from "node:os";
 import { parse } from "yaml";
 import {
   defineWorkClassification,
-  defineDeliberationLevelId,
-  MANAGED_AGENT_ADMISSION_PROFILES,
   type AgentTier,
-  type ManagedAgentAdmissionProfile,
   type ModelTaskSuitabilityTask,
   type WorkClassification,
   type WorkClassificationInput,
-  type DeliberationIntent,
   type CommunicationIntent,
   resolveCommunicationIntent,
 } from "@kilnai/core";
-import { KILN_FIRST_PARTY_AGENT_DEFAULTS } from "./first-party-agent-defaults.js";
 
 export interface KilnAgentDefinition {
   readonly name: string;
@@ -35,24 +30,17 @@ export interface KilnAgentDefinition {
   readonly count?: number;
   readonly sandbox?: boolean;
   readonly modalities?: readonly string[];
-  readonly authorityProfile?: ManagedAgentAdmissionProfile;
+  readonly authorityProfileId?: string;
   readonly economicPolicyId?: string;
-  readonly routeId?: string;
-  readonly providerRoute?: KilnAgentProviderRoute;
+  readonly targetId?: string;
   readonly workClassification?: WorkClassification;
   readonly voiceProfile?: string;
   readonly communication?: CommunicationIntent;
   readonly instructions?: string;
-  readonly scope: "builtin" | "global" | "project";
+  readonly scope: "global" | "project";
 }
 
 export type KilnAgentMode = "primary" | "subagent" | "managed-child" | "all";
-
-export interface KilnAgentProviderRoute {
-  readonly providerId: string;
-  readonly model?: string;
-  readonly deliberationIntent?: DeliberationIntent;
-}
 
 interface ParsedFrontmatter {
   readonly frontmatter: string;
@@ -127,30 +115,6 @@ function asTaskAffinity(value: unknown): readonly ModelTaskSuitabilityTask[] | u
   return supported.length > 0 ? supported : undefined;
 }
 
-function asProviderRoute(value: unknown): KilnAgentProviderRoute | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  const record = value as Record<string, unknown>;
-  const providerId = asNonEmptyString(record.providerId);
-  if (!providerId) {
-    return undefined;
-  }
-  const model = asNonEmptyString(record.model);
-  const deliberationLevel = asNonEmptyString(record.deliberationLevel);
-  return {
-    providerId,
-    ...(model ? { model } : {}),
-    ...(deliberationLevel ? {
-      deliberationIntent: {
-        mode: "fixed",
-        preferredLevel: defineDeliberationLevelId(deliberationLevel),
-        onUnsupported: "deny",
-      },
-    } : {}),
-  };
-}
-
 function asWorkClassification(value: unknown): WorkClassification | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -194,6 +158,15 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   }
 
   const record = frontmatter as Record<string, unknown>;
+  const allowedFields = new Set([
+    "name", "displayName", "nicknameCandidates", "role", "description", "goal", "backstory", "tier",
+    "tools", "skills", "instructionProfiles", "taskAffinity", "mode", "structured", "count", "sandbox",
+    "modalities", "authorityProfileId", "economicPolicyId", "targetId", "workClassification", "voiceProfile",
+    "communication",
+  ]);
+  if (Object.keys(record).some((field) => !allowedFields.has(field))) {
+    return undefined;
+  }
   const name = asNonEmptyString(record.name);
   const role = asNonEmptyString(record.role);
   const goal = asNonEmptyString(record.goal);
@@ -215,13 +188,11 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
   const count = asPositiveInteger(record.count);
   const sandbox = asBoolean(record.sandbox);
   const modalities = asStringArray(record.modalities);
-  const authorityProfile = asManagedAgentAdmissionProfile(record.authorityProfile);
-  if (record.authorityProfile !== undefined && !authorityProfile) {
-    return undefined;
-  }
-  const routeId = asNonEmptyString(record.routeId);
+  const authorityProfileId = asNonEmptyString(record.authorityProfileId);
+  if (record.authorityProfileId !== undefined && !authorityProfileId) return undefined;
+  const targetId = asNonEmptyString(record.targetId);
+  if (record.targetId !== undefined && !targetId) return undefined;
   const economicPolicyId = asNonEmptyString(record.economicPolicyId);
-  const providerRoute = asProviderRoute(record.providerRoute);
   let workClassification: WorkClassification | undefined;
   try {
     workClassification = asWorkClassification(record.workClassification);
@@ -255,22 +226,15 @@ function parseAgentDefinition(raw: string, scope: "global" | "project"): KilnAge
     ...(count !== undefined ? { count } : {}),
     ...(sandbox !== undefined ? { sandbox } : {}),
     ...(modalities ? { modalities } : {}),
-    ...(authorityProfile ? { authorityProfile } : {}),
+    ...(authorityProfileId ? { authorityProfileId } : {}),
     ...(economicPolicyId ? { economicPolicyId } : {}),
-    ...(routeId ? { routeId } : {}),
-    ...(providerRoute ? { providerRoute } : {}),
+    ...(targetId ? { targetId } : {}),
     ...(workClassification ? { workClassification } : {}),
     ...(voiceProfile ? { voiceProfile } : {}),
     ...(communication ? { communication } : {}),
     ...(instructions ? { instructions } : {}),
     scope,
   };
-}
-
-function asManagedAgentAdmissionProfile(value: unknown): ManagedAgentAdmissionProfile | undefined {
-  return typeof value === "string" && MANAGED_AGENT_ADMISSION_PROFILES.includes(value as ManagedAgentAdmissionProfile)
-    ? value as ManagedAgentAdmissionProfile
-    : undefined;
 }
 
 export function parseAgentDefinitionContent(raw: string, scope: "global" | "project" = "project"): KilnAgentDefinition | undefined {
@@ -310,26 +274,25 @@ function readDefinitionsFromDirectory(
 }
 
 export interface LoadAgentDefinitionsOptions {
-  readonly includeBuiltins?: boolean;
   readonly userHome?: string;
+}
+
+export async function loadGlobalAgentDefinitions(
+  options: LoadAgentDefinitionsOptions = {},
+): Promise<KilnAgentDefinition[]> {
+  const globalDirectory = join(options.userHome ?? homedir(), ".kiln", "agents");
+  return readDefinitionsFromDirectory(globalDirectory, "global");
 }
 
 export async function loadAgentDefinitions(
   projectPath: string,
   options: LoadAgentDefinitionsOptions = {},
 ): Promise<KilnAgentDefinition[]> {
-  const globalDirectory = join(options.userHome ?? homedir(), ".kiln", "agents");
   const projectDirectory = join(projectPath, ".kiln", "agents");
 
   const merged = new Map<string, KilnAgentDefinition>();
 
-  if (options.includeBuiltins !== false) {
-    for (const definition of KILN_FIRST_PARTY_AGENT_DEFAULTS) {
-      merged.set(definition.name.toLowerCase(), definition);
-    }
-  }
-
-  for (const definition of readDefinitionsFromDirectory(globalDirectory, "global")) {
+  for (const definition of await loadGlobalAgentDefinitions(options)) {
     merged.set(definition.name.toLowerCase(), definition);
   }
 

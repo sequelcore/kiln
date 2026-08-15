@@ -7,7 +7,7 @@ describe("createExecutionRoute", () => {
     const mutate = vi.fn((mutation, options) => {
       order.push("mutate");
       expect(options).toEqual({ expectedRevision: "sha256:expected" });
-      const config = mutation({ version: "2", executionCatalog: { accounts: [account()], accountPolicies: [], routes: [] } });
+      const config = mutation(emptyTargetConfig());
       return { config, previousRevision: "sha256:expected", revision: "sha256:next" };
     });
     const refresh = vi.fn(async () => { order.push("refresh"); });
@@ -19,7 +19,7 @@ describe("createExecutionRoute", () => {
   it("reports a committed revision when only the post-commit refresh fails", async () => {
     const result = await createExecutionRoute({
       draft: completeDraft(), expectedRevision: "sha256:expected",
-      mutateGlobalConfig: (mutation) => ({ config: mutation({ version: "2", executionCatalog: { accounts: [account()], accountPolicies: [], routes: [] } }), previousRevision: "sha256:expected", revision: "sha256:committed" }),
+      mutateGlobalConfig: (mutation) => ({ config: mutation(emptyTargetConfig()), previousRevision: "sha256:expected", revision: "sha256:committed" }),
       refreshExecutionRoutes: async () => { throw new Error("refresh failed"); },
     });
     expect(result).toMatchObject({ status: "committed-refresh-failed", revision: "sha256:committed" });
@@ -51,6 +51,13 @@ function completeDraft() {
       dataPolicyEvidence: dataPolicyEvidence(),
       economics: routeEconomics(),
     },
+  };
+}
+
+function emptyTargetConfig() {
+  return {
+    version: "3" as const,
+    targetCatalog: { accounts: [account()], accountPolicies: [], targets: [] },
   };
 }
 

@@ -56,7 +56,7 @@ const catalog: ExecutionRouteCatalog = {
   ],
 };
 
-describe("execution route wire contract", () => {
+describe("execution target wire contract", () => {
   it("validates route catalogs and intents at the wire boundary", () => {
     expect(ExecutionRouteCatalogSchema.parse(catalog)).toEqual(catalog);
     expect(ExecutionRouteSelectionIntentSchema.safeParse({ routeId: "terra", credentialId: "secret-ref" }).success).toBe(false);

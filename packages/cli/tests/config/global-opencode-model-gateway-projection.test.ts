@@ -14,7 +14,7 @@ function config(): ModelGatewayConfig {
     replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY_KEY" },
     surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
     principals: [{ tokenEnv: "OPENCODE_TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "opencode", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model-a"], nativeHarness: "opencode" }],
-    virtualModels: [{ id: "model-a", displayName: "Model A", contextTokens: 200_000, outputTokens: 8_192, executionRouteId: "model-a-route", capabilities: ["text"], affinity: { continuity: "none" } }],
+    virtualModels: [{ id: "model-a", displayName: "Model A", contextTokens: 200_000, outputTokens: 8_192, targetId: "model-a-route", capabilities: ["text"], affinity: { continuity: "none" } }],
   };
 }
 

@@ -15,7 +15,7 @@ const catalog = {
 } as unknown as ExecutionCatalog;
 
 describe("account usage inspection", () => {
-  it("projects eligible execution routes from the execution catalog", async () => {
+  it("projects eligible execution targets from the execution catalog", async () => {
     const service = createAccountUsageInspectionService({
       readExecutionCatalog: () => catalog,
       listCredentialIds: async () => ["automatic-credential", "exact-credential"],

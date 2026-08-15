@@ -888,7 +888,7 @@ export class GuiWsClient {
     if (this._state === "open" && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame));
     } else if (frame.type === "execution_route") {
-      throw new Error("Cannot select execution route while WebSocket is not open");
+      throw new Error("Cannot select execution target while WebSocket is not open");
     } else if (frame.type === "provider_auth") {
       throw new Error("Cannot send provider authentication while WebSocket is not open");
     } else {

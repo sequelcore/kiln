@@ -540,9 +540,9 @@ function makeSurfaceOptions(
           proof: { status: "configured", source: "test", provenProfiles: ["foundation-readonly-plan"] }, capacity: { kind: "accountless" }, settlement: { kind: "not-required" },
         },
         createAdapter: async () => adapter,
-        profiles: {
-          "foundation-readonly-plan": {
+        profiles: [{
             authorityProfileId: "authority:opencode:readonly",
+            admissionProfile: "foundation-readonly-plan",
             permissionProfile: "read-only",
             allowedToolNames: ["read", "grep", "glob"],
             workingDirectory: {
@@ -559,8 +559,7 @@ function makeSurfaceOptions(
               scope: { kind: "project", id: "kiln" },
               access: "read-only",
             },
-          },
-        },
+        }],
       }],
   };
 }
@@ -613,9 +612,9 @@ function makeManagedRoute(
         reason: "Test suitability evidence.",
       },
     ],
-    profiles: {
-      "foundation-readonly-plan": {
+    profiles: [{
         authorityProfileId: `authority:${routeId}:foundation-readonly-plan`,
+        admissionProfile: "foundation-readonly-plan",
         permissionProfile: "read-only",
         allowedToolNames: ["read", "grep", "glob"],
         workingDirectory: {
@@ -632,8 +631,7 @@ function makeManagedRoute(
           scope: { kind: "project" as const, id: "kiln" },
           access: "read-only" as const,
         },
-      },
-    },
+    }],
   };
 }
 
@@ -1491,17 +1489,15 @@ describe("managed invocation runtime tool", () => {
       managedInvocation: {
         routes: [{
           ...route,
-          profiles: {
-            "foundation-readonly-plan": {
-              ...route.profiles["foundation-readonly-plan"],
+          profiles: [{
+              ...route.profiles[0]!,
               readAuthority: {
                 workspace: {
                   allowedPaths: ["/workspace/references/cloned"],
                   deniedPaths: ["/workspace/references/cloned/codex/.git"],
                 },
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -1728,15 +1724,13 @@ describe("managed invocation runtime tool", () => {
       managedInvocation: {
         routes: [{
           ...route,
-          profiles: {
-            "foundation-readonly-plan": {
-              ...route.profiles["foundation-readonly-plan"],
+          profiles: [{
+              ...route.profiles[0]!,
               credentialRoute: {
                 mode: "runtime-selected",
                 routeId: " credential-route:opencode:token-primary ",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -1796,15 +1790,13 @@ describe("managed invocation runtime tool", () => {
         }),
         routes: [{
           ...route,
-          profiles: {
-            "foundation-readonly-plan": {
-              ...route.profiles["foundation-readonly-plan"],
+          profiles: [{
+              ...route.profiles[0]!,
               workingDirectory: {
                 path: "C:/workspace/kiln",
                 mode: "sandbox",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2087,15 +2079,13 @@ describe("managed invocation runtime tool", () => {
         }),
         routes: [{
           ...route,
-          profiles: {
-            "foundation-readonly-plan": {
-              ...route.profiles["foundation-readonly-plan"],
+          profiles: [{
+              ...route.profiles[0]!,
               workingDirectory: {
                 path: "C:/workspace/kiln",
                 mode: "sandbox",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2236,15 +2226,13 @@ describe("managed invocation runtime tool", () => {
         }),
         routes: [{
           ...route,
-          profiles: {
-            "foundation-readonly-plan": {
-              ...route.profiles["foundation-readonly-plan"],
+          profiles: [{
+              ...route.profiles[0]!,
               workingDirectory: {
                 path: "C:/workspace/kiln",
                 mode: "sandbox",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2370,9 +2358,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-apply-approved-writes": {
+          profiles: [{
               authorityProfileId: "authority:opencode:approved-write",
+              admissionProfile: "foundation-apply-approved-writes",
               permissionProfile: "apply-approved-writes",
               allowedToolNames: ["read", "grep", "apply-patch"],
               writeAllowed: true,
@@ -2422,8 +2410,7 @@ describe("managed invocation runtime tool", () => {
                   evidenceRequired: true,
                 },
               }),
-            },
-          },
+          }],
         }],
       },
     });
@@ -2526,9 +2513,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-apply-approved-writes": {
+          profiles: [{
               authorityProfileId: "authority:opencode:approved-write",
+              admissionProfile: "foundation-apply-approved-writes",
               permissionProfile: "apply-approved-writes",
               allowedToolNames: ["read", "grep", "apply-patch"],
               writeAllowed: true,
@@ -2577,8 +2564,7 @@ describe("managed invocation runtime tool", () => {
                   evidenceRequired: true,
                 },
               }),
-            },
-          },
+          }],
         }],
       },
     });
@@ -2681,9 +2667,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-apply-approved-writes": {
+          profiles: [{
               authorityProfileId: "authority:opencode:approved-write",
+              admissionProfile: "foundation-apply-approved-writes",
               permissionProfile: "apply-approved-writes",
               allowedToolNames: ["read", "grep", "apply-patch"],
               writeAllowed: true,
@@ -2733,8 +2719,7 @@ describe("managed invocation runtime tool", () => {
                   evidenceRequired: true,
                 },
               }),
-            },
-          },
+          }],
         }],
       },
     });
@@ -3749,6 +3734,8 @@ describe("managed invocation runtime tool", () => {
             role: "Read-only context scout",
             goal: "Map impacted files",
             tier: "fast",
+            authorityProfileId: "authority:opencode-readonly-a:foundation-readonly-plan",
+            admissionProfile: "foundation-readonly-plan",
             taskAffinity: ["research", "architecture-review"],
           },
           {
@@ -3758,6 +3745,8 @@ describe("managed invocation runtime tool", () => {
             role: "TDD guide",
             goal: "Write tests first",
             tier: "reasoning",
+            authorityProfileId: "authority:opencode-readonly-b:foundation-readonly-plan",
+            admissionProfile: "foundation-readonly-plan",
             skills: ["test-generator"],
             taskAffinity: ["test-writing"],
           },
@@ -3897,6 +3886,8 @@ describe("managed invocation runtime tool", () => {
           role: "Software architect",
           goal: "Review architecture",
           tier: "reasoning",
+          authorityProfileId: "authority:opencode-readonly:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
         }],
         skillCatalog: [],
       },
@@ -4945,17 +4936,15 @@ describe("managed invocation runtime tool", () => {
       managedInvocation: {
         routes: [{
           ...route,
-          profiles: {
-            "foundation-readonly-plan": {
-              ...route.profiles["foundation-readonly-plan"],
+          profiles: [{
+              ...route.profiles[0]!,
               readAuthority: {
                 workspace: {
                   allowedPaths: ["/workspace/references/cloned"],
                   deniedPaths: [],
                 },
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -5233,9 +5222,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-readonly-visual-without-network", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-readonly-plan"], toolNames: ["read", "web_search", "browser_observe"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly-visual-without-network",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "web_search", "browser_observe"],
               networkAllowed: false,
@@ -5252,8 +5241,7 @@ describe("managed invocation runtime tool", () => {
                 scope: { kind: "project", id: "kiln" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -5357,9 +5345,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-readonly-visual-without-network", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-readonly-plan"], toolNames: ["read", "web_search", "browser_observe"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly-visual-without-network",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "web_search", "browser_observe"],
               networkAllowed: false,
@@ -5376,8 +5364,7 @@ describe("managed invocation runtime tool", () => {
                 scope: { kind: "project", id: "kiln" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -5482,9 +5469,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-approved-write", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-apply-approved-writes"], toolNames: ["read", "grep", "apply-patch"], supportsWrite: true }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-apply-approved-writes": {
+          profiles: [{
               authorityProfileId: "authority:opencode:approved-write",
+              admissionProfile: "foundation-apply-approved-writes",
               permissionProfile: "apply-approved-writes",
               allowedToolNames: ["read", "grep", "apply-patch"],
               writeAllowed: true,
@@ -5528,8 +5515,7 @@ describe("managed invocation runtime tool", () => {
                   evidenceRequired: true,
                 },
               }),
-            },
-          },
+          }],
         }],
       },
     });
@@ -5695,9 +5681,9 @@ describe("managed invocation runtime tool", () => {
           model: "opencode-default-model",
           capability: makeRouteCapability({ routeId: "opencode-propose-writes", providerId: "opencode", model: "opencode-default-model", profiles: ["foundation-propose-writes"], toolNames: ["read", "grep", "edit"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-propose-writes": {
+          profiles: [{
               authorityProfileId: "authority:opencode:propose-writes",
+              admissionProfile: "foundation-propose-writes",
               permissionProfile: "workspace-propose-writes",
               allowedToolNames: ["read", "grep", "edit"],
               writeAllowed: false,
@@ -5742,8 +5728,7 @@ describe("managed invocation runtime tool", () => {
                   evidenceRequired: true,
                 },
               }),
-            },
-          },
+          }],
         }],
       },
     });
@@ -6289,6 +6274,8 @@ describe("managed invocation runtime tool", () => {
           role: "Read-only context scout",
           goal: "Map impacted files quickly",
           tier: "fast",
+          authorityProfileId: "authority:opencode-scout-readonly:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-scout-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -6348,6 +6335,8 @@ describe("managed invocation runtime tool", () => {
           role: "Review changes",
           goal: "Lead with actionable findings",
           tier: "reasoning",
+          authorityProfileId: "authority:opencode-review:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-review",
           providerRoute: { providerId: "opencode", model: "openai/gpt-5.6-sol" },
           communication: {
@@ -6422,6 +6411,8 @@ describe("managed invocation runtime tool", () => {
           role: "Read-only context scout",
           goal: "Map impacted files quickly",
           tier: "fast",
+          authorityProfileId: "authority:opencode-scout-readonly:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-scout-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -6548,6 +6539,8 @@ describe("managed invocation runtime tool", () => {
           role: "Read-only context scout",
           goal: "Map impacted files quickly",
           tier: "fast",
+          authorityProfileId: "authority:opencode-scout-readonly:foundation-readonly-plan",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-scout-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -7214,9 +7207,9 @@ describe("managed invocation runtime tool", () => {
             model: "external-runtime-fixture",
             capability: makeRouteCapability({ routeId: "external-runtime-mcp-only", providerId: "mcp-external-runtime", model: "external-runtime-fixture", profiles: ["foundation-readonly-plan"], toolNames: externalRuntimeToolNames }),
             createAdapter: async () => adapter,
-            profiles: {
-              "foundation-readonly-plan": {
+            profiles: [{
                 authorityProfileId: "authority:external-runtime-mcp-only:foundation-readonly-plan",
+                admissionProfile: "foundation-readonly-plan",
                 permissionProfile: "read-only",
                 allowedToolNames: [...externalRuntimeToolNames],
                 // Roadmap 01 Slice 1 - this route's own capability-aware
@@ -7241,8 +7234,7 @@ describe("managed invocation runtime tool", () => {
                   scope: { kind: "project", id: "kiln" },
                   access: "read-only",
                 },
-              },
-            },
+            }],
           }],
         },
       });
@@ -7333,9 +7325,9 @@ describe("managed invocation runtime tool", () => {
             capability: makeRouteCapability({ routeId: "external-runtime-attached", providerId: "mcp-external-runtime", model: "external-runtime-fixture", profiles: ["foundation-readonly-plan"], externalRuntimeAttachment: routeAttachment }),
             createAdapter: async () => adapter,
             ...(routeAttachment ? { externalRuntimeAttachment: routeAttachment } : {}),
-            profiles: {
-              "foundation-readonly-plan": {
+            profiles: [{
                 authorityProfileId: "authority:external-runtime-attached:foundation-readonly-plan",
+                admissionProfile: "foundation-readonly-plan",
                 permissionProfile: "read-only",
                 allowedToolNames: ["read", "grep", "glob"],
                 networkAllowed: false,
@@ -7353,8 +7345,7 @@ describe("managed invocation runtime tool", () => {
                   scope: { kind: "project", id: "kiln" },
                   access: "read-only",
                 },
-              },
-            },
+            }],
           }],
         },
       });

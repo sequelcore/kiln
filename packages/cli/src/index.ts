@@ -1,15 +1,13 @@
 #!/usr/bin/env bun
 
-import { join } from "node:path";
 import { defineDeliberationLevelId } from "@kilnai/core";
 import { findOperatorCommand, type OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import pkg from "../package.json" with { type: "json" };
 import { parseRunOutputMode, type RunOutputMode } from "./application/run-output.js";
 import type { KilnAppConfig } from "./config.js";
-import { migrateConfigJson } from "./kiln-yaml.js";
 
 type RunArgFlags = {
-  route?: string;
+  target?: string;
   deliberationLevel?: string;
   requestedAuthority?: OperatorTurnRequestedAuthority;
   agent?: string;
@@ -52,7 +50,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   const command = args[0];
 
   const APP_NAME = "kiln";
-  const DIR_NAME = ".kiln";
   const VERSION = pkg.version as string;
   const DESCRIPTION = "Governed AI control-plane CLI";
   const planCommand = findOperatorCommand("plan", "cli");
@@ -66,7 +63,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     status: "Show current phase, tasks, and costs",
     doctor: "Diagnose local harness installation, path, version, auth, and model readiness",
     memory: "Browse and search memory layers",
-    config: "Edit domain config and provider settings",
+    config: "Inspect global authority and edit admitted project restrictions",
     "mcp-config": "Synchronize canonical MCP servers into governed native harness projections",
     "native-harness": "Run an internal native-harness adapter",
     "operator-runtime": "Run or inspect the machine-global operator runtime",
@@ -85,7 +82,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     trust: "Grant/revoke trusted execution or explicitly accept/revoke a native limitation",
     cron: "Manage scheduled jobs (list, add, remove, run)",
     sync: "Preview or sync explicit native projection targets (--target, --all, --dry-run)",
-    route: "Print the resolved worker route or inspect current available models (route available)",
+    target: "List, select, create, or inspect execution targets",
     "import-native": "Import supported native engine config into Kiln global config (codex, opencode)",
     uninstall: "Remove Kiln-managed native projections without deleting unmanaged native settings",
     tools:
@@ -101,7 +98,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
       console.log(`  ${cmd.padEnd(12)} ${desc}`);
     }
     console.log("\nOptions:");
-    console.log("  --route      Execution route for `run` and `plan` from global configuration");
+    console.log("  --target     Execution target for `run` and `plan` from global configuration");
     console.log("  --provider   Provider setting for commands that edit project configuration (for example, init)");
     console.log("  --deliberation-level  Provider-advertised deliberation level override");
     console.log("  --authority  Requested turn authority (auto, read_only, audited, destructive)");
@@ -206,11 +203,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "status") {
     const { statusCommand } = await import("./commands/status.js");
-    const root = process.cwd();
-    const kilnDir = join(root, DIR_NAME);
-    if (migrateConfigJson(kilnDir)) {
-      console.log("Migrated .kiln/config.json → kiln.yaml");
-    }
     statusCommand(config);
     return;
   }
@@ -231,11 +223,6 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
 
   if (command === "config") {
     const { configCommand } = await import("./commands/config.js");
-    const root = process.cwd();
-    const kilnDir = join(root, DIR_NAME);
-    if (migrateConfigJson(kilnDir)) {
-      console.log("Migrated .kiln/config.json → kiln.yaml");
-    }
     await configCommand(config, args[1] ?? "", args.slice(2));
     return;
   }
@@ -376,9 +363,9 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     return;
   }
 
-  if (command === "route") {
-    const { routeCommand } = await import("./commands/route.js");
-    await routeCommand({}, args.slice(1));
+  if (command === "target") {
+    const { targetCommand } = await import("./commands/target.js");
+    await targetCommand(args.slice(1));
     return;
   }
 
@@ -435,7 +422,7 @@ function printRunHelp(appName: string): void {
   console.log(`\nUsage: ${appName} run [options] <task>\n`);
   console.log("Start a CLI-only Kiln session.");
   console.log("\nOptions:");
-  console.log("  --route <id>                 Execution route from global configuration");
+  console.log("  --target <id>                Execution target from global configuration");
   console.log("  --deliberation-level <id>    Provider-advertised deliberation level override");
   console.log("  --authority <authority>      Requested authority (auto, read_only, audited, destructive)");
   console.log("  --agent <name>               Agent profile from .kiln/agents or ~/.kiln/agents");
@@ -499,8 +486,8 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
   let i = 0;
   while (i < rawArgs.length) {
     const arg = rawArgs[i]!;
-    if (arg === "--route" && i + 1 < rawArgs.length) {
-      flags.route = rawArgs[i + 1];
+    if (arg === "--target" && i + 1 < rawArgs.length) {
+      flags.target = rawArgs[i + 1];
       i += 2;
     } else if (arg === "--deliberation-level" && i + 1 < rawArgs.length) {
       flags.deliberationLevel = parseDeliberationLevel(rawArgs[i + 1]);
@@ -549,7 +536,7 @@ function parseRunArgs(rawArgs: readonly string[]): { task: string; flags: RunArg
       if (!Number.isNaN(n) && n > 0) flags.workers = n;
       i += 2;
     } else if (arg.startsWith("-")) {
-      throw new Error(`Unknown run option '${arg}'. Operator execution accepts route identity, not provider, model, or credential overrides.`);
+      throw new Error(`Unknown run option '${arg}'. Operator execution accepts target identity, not provider, model, or credential overrides.`);
     } else {
       taskParts.push(arg);
       i += 1;

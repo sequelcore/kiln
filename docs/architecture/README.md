@@ -172,7 +172,7 @@ Runtime, operator, and harness-facing surface contracts.
 - [`surfaces/config-projection.md`](surfaces/config-projection.md)
   Canonical global config, native harness projection, install-state, drift detection,
   sync/uninstall/import-native behavior, engine enablement removal, and
-  managed-agent route projection.
+  managed-agent target projection.
 - [`surfaces/inspectable-agent-work.md`](surfaces/inspectable-agent-work.md)
   Canonical cross-surface and cross-harness inspectability contract for agent
   work: work identity, authority, lifecycle, evidence, resources, attention
@@ -183,9 +183,9 @@ Runtime, operator, and harness-facing surface contracts.
 Model routing, provider discovery, and cross-modal transport.
 
 - [`providers/model-gateway.md`](providers/model-gateway.md)
-  Canonical cross-harness model ingress, route-scoped account affinity,
-  attempt commit/failover semantics, native projection, and migration from
-  pool-owned execution.
+  Canonical cross-harness model ingress over the target catalog, account
+  selection and credential fencing, native projection, and Codex composite
+  routing.
 - [`providers/provider-model-discovery.md`](providers/provider-model-discovery.md)
   Runtime provider/model evidence, catalog normalization, canonical
   eligibility, operator diagnostics, and provider/model selection invariants.

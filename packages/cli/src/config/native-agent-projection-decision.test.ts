@@ -3,9 +3,9 @@ import type { RouteAdmissionDecision } from "@kilnai/core";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import { decideNativeAgentProjection } from "./native-agent-projection-decision.js";
 
-const agent = (providerId: string, model = "gpt-5.5"): KilnAgentDefinition => ({
+const agent = (targetId = "codex"): KilnAgentDefinition => ({
   name: "coder", role: "Coding", goal: "Implement", tier: "coding", scope: "project",
-  providerRoute: { providerId, model },
+  targetId,
 });
 const admitted: RouteAdmissionDecision = {
   status: "admitted",
@@ -19,17 +19,17 @@ const admitted: RouteAdmissionDecision = {
 
 describe("decideNativeAgentProjection", () => {
   it("keeps route admission independent from Codex transport encoding", () => {
-    expect(decideNativeAgentProjection({ agent: agent("codex-oauth"), harness: "codex", admission: admitted })).toMatchObject({ kind: "project", nativeModel: "gpt-5.5" });
-    expect(decideNativeAgentProjection({ agent: agent("codex-oauth"), harness: "claude", admission: admitted })).toMatchObject({ kind: "unavailable", reason: { kind: "transport", code: "native-encoder-unavailable" } });
+    expect(decideNativeAgentProjection({ agent: agent(), harness: "codex", admission: admitted })).toMatchObject({ kind: "project", nativeModel: "gpt-5.5" });
+    expect(decideNativeAgentProjection({ agent: agent(), harness: "claude", admission: admitted })).toMatchObject({ kind: "unavailable", reason: { kind: "transport", code: "native-encoder-unavailable" } });
   });
 
   it("propagates canonical route rejection instead of provider denial", () => {
     const unavailable: RouteAdmissionDecision = { status: "unavailable", routeId: "claude", reasons: [{ code: "profile-unproven", profile: "foundation-readonly-plan" }] };
-    expect(decideNativeAgentProjection({ agent: agent("claude", "claude-sonnet"), harness: "codex", admission: unavailable })).toEqual({ kind: "unavailable", harness: "codex", admission: unavailable, reason: { kind: "route-admission", reasons: unavailable.reasons } });
+    expect(decideNativeAgentProjection({ agent: agent("claude"), harness: "codex", admission: unavailable })).toEqual({ kind: "unavailable", harness: "codex", admission: unavailable, reason: { kind: "route-admission", reasons: unavailable.reasons } });
   });
 
   it("does not project an admitted decision for a different route identity", () => {
-    expect(decideNativeAgentProjection({ agent: agent("codex-oauth", "gpt-5.6"), harness: "codex", admission: admitted }))
+    expect(decideNativeAgentProjection({ agent: agent("different-target"), harness: "codex", admission: admitted }))
       .toMatchObject({ kind: "unresolved", reason: { kind: "route-admission", reasons: [{ code: "proof-unknown" }] } });
   });
 
@@ -42,7 +42,7 @@ describe("decideNativeAgentProjection", () => {
       },
     };
 
-    expect(decideNativeAgentProjection({ agent: agent("codex-oauth"), harness: "codex", admission: runtimeSelected }))
+    expect(decideNativeAgentProjection({ agent: agent(), harness: "codex", admission: runtimeSelected }))
       .toMatchObject({
         kind: "unavailable",
         admission: { status: "unavailable", reasons: [{ code: "capacity-policy-mismatch" }] },

@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import type { KilnYaml } from "../../src/kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
 
 const syncMocks = vi.hoisted(() => ({
@@ -41,7 +41,7 @@ interface TestPaths {
   homePath: string;
 }
 
-const granularPermissions: NonNullable<KilnYaml["permissions"]> = {
+const granularPermissions: NonNullable<ResolvedKilnConfig["permissions"]> = {
   approval: "on-request",
   sandbox: "workspace-write",
   tools: [{ tool: "read", action: "allow" }],
@@ -51,7 +51,7 @@ const granularPermissions: NonNullable<KilnYaml["permissions"]> = {
   agentScopes: [{ agent: "planner", inherit: false }],
 };
 
-function buildKilnYaml(): KilnYaml {
+function buildKilnYaml(): ResolvedKilnConfig {
   return {
     version: "1",
     permissions: granularPermissions,
@@ -90,14 +90,14 @@ modelGateway:
         contextTokens: 200000
         outputTokens: 8192
         baseInstructions: You are a governed Kiln coding agent.
-        executionRouteId: model-a-route
+        targetId: model-a-route
         capabilities: [text, parallel-tool-calls]
         affinity: { continuity: none }
       - id: claude-kiln-a
         displayName: Kiln Claude A
         contextTokens: 200000
         outputTokens: 8192
-        executionRouteId: claude-model-a-route
+        targetId: claude-model-a-route
         capabilities: [text, parallel-tool-calls]
         affinity: { continuity: none }
 `);

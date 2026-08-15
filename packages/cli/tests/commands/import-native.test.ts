@@ -34,12 +34,11 @@ describe("import-native command helpers", () => {
 
   it("merges imported Codex fields without clobbering unrelated Kiln fields", () => {
     const currentConfig: KilnGlobalConfig = {
-      version: "2",
+      version: "3",
       identity: { name: "Alex", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
       },
-      workerRouting: { defaultWorker: "claude" },
       permissions: {
         approval: "never",
         tools: [{ tool: "Read", action: "allow" }],
@@ -64,19 +63,17 @@ describe("import-native command helpers", () => {
     });
 
     expect(plan.after).toEqual({
-      version: "2",
+      version: "3",
       identity: { name: "Alex", timezone: "America/Tijuana" },
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: true },
       },
-      workerRouting: { defaultWorker: "codex" },
       permissions: {
         approval: "on-request",
         sandbox: "workspace-write",
         tools: [{ tool: "Read", action: "allow" }],
       },
-      workerModels: { codex: "gpt-5.4" },
       mcp: {
         servers: {
           kiln: { transport: "stdio", command: "kiln-mcp" },
@@ -87,7 +84,7 @@ describe("import-native command helpers", () => {
     expect(plan.hasChanges).toBe(true);
     expect(plan.diff).toContain("--- C:/Users/ExampleUser/.kiln/config.yaml");
     expect(plan.diff).toContain("+++ C:/Users/ExampleUser/.kiln/config.yaml");
-    expect(plan.diff).toContain("+  codex: gpt-5.4");
+    expect(plan.extractedFields).not.toContain("model");
   });
 
   it("extracts provider, model, and permissions from OpenCode JSON", () => {

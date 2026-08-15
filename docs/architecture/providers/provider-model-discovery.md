@@ -46,7 +46,7 @@ Common statuses include:
 
 The discovery result drives operator diagnostics and contributes observations to
 provider/model evidence. It is not execution authority. An operator surface
-selects a configured execution route by route ID; Runtime derives provider,
+selects a configured execution target by target ID; Runtime derives provider,
 model, account, and credential evidence after that intent. Surfaces may
 abbreviate the human-facing reason, but they must not derive route selectability
 from a different source.
@@ -54,7 +54,7 @@ from a different source.
 ## Available models and route creation
 
 The Available Models projection is a shared, secret-free view of discovery
-evidence plus whether a configured execution route currently references a model.
+evidence plus whether a configured execution target currently references a model.
 GUI, TUI, and CLI render the same projection for diagnosis and route-creation
 starting points. It is intentionally separate from the execution picker.
 
@@ -87,7 +87,7 @@ Canonical provider-model evidence keeps these concepts separate:
 - harness identity: the local or remote harness that reported a route
 - normalized model identity: provider-neutral family/version metadata
 - provider route identity: the concrete provider/model/scope that an admitted
-  execution route may use as derived evidence
+  execution target may use as derived evidence
 - credential/authentication evidence
 - entitlement evidence when the provider can expose it
 - freshness evidence for catalog observations
@@ -156,25 +156,23 @@ selection, managed invocation route admission, and prompt execution must wait
 for or require fresh runtime discovery. Static provider display metadata and
 stale cache entries are diagnostics, not permission.
 
-`kiln run` admits the configured execution route before dispatch begins.
-`--route <id>` narrows that configured catalog; provider, model, and
+`kiln run` admits the configured execution target before dispatch begins.
+`--target <id>` narrows that configured catalog; provider, model, and
 API-key command-line overrides are rejected. Discovery validates the selected
-route's provider/model evidence and current configured account candidates, but
+target's provider/model evidence and current configured account candidates, but
 cannot choose a credential or widen the route authority.
 
 ## Gateway And Operator Projection
 
 Gateway frames project provider-model discovery as diagnostic evidence and
-project `ExecutionRouteCatalog` separately as the operator selection contract.
-Each configured catalog entry has route ID, label, availability, reason codes,
+projects the global target catalog separately as the operator selection
+contract. Each configured catalog entry has target ID, label, availability, reason codes,
 repair actions, account-selection summary, and derived provider/model evidence.
 Configured routes remain in the catalog even when Runtime cannot admit them.
 
-GUI and TUI execution-route pickers select only catalog route IDs. They send an
-`execution_route` frame with `routeId` and, only for an automatic route, an
-eligible `accountOverrideId`. The gateway responds with
-`execution_route_changed` or `execution_route_change_failed`; a refresh uses
-`refresh_execution_routes` and returns `execution_routes_refreshed`. Provider
+GUI and TUI target pickers select only catalog target IDs. Commands carry
+`targetId` and, only for an automatic direct target, an eligible
+`accountOverrideId`. Provider
 and model identifiers on frames are derived evidence, never alternate selection
 inputs. Authentication remains a provider-scoped repair action. Its successful
 completion returns refreshed route evidence, and no frame or catalog entry
@@ -182,11 +180,12 @@ exposes a credential ID or credential material.
 
 ## Configuration And Surface Selection
 
-`executionCatalog` is durable configuration. It defines each route's stable
-ID, provider/model attributes, and exact or automatic account policy.
-`executionRouting.defaultRouteId` supplies the normal startup default, while
-`ui.executionRouteSelection` can persist a surface route and eligible account
-alias override. Both are route references, never provider/model or credential
+`targetCatalog` is durable global configuration. It defines each target's
+stable ID and, for direct targets, provider/model attributes and exact or
+automatic account policy. `targetRouting.defaultTargetId` supplies the normal
+startup default, while `ui.targetSelection` can persist a surface target and
+eligible account alias override. Both are target references, never
+provider/model or credential
 selection fields.
 
 Runtime projects that configuration plus fresh availability into
@@ -313,7 +312,7 @@ health, provider availability, authority profile admission, configured agent
 profiles, and skill admission. Suitability can choose between eligible routes;
 it cannot make an unavailable or unauthorized route admissible.
 
-CLI run uses discovery only to validate the selected execution route. It does
+CLI run uses discovery only to validate the selected execution target. It does
 not turn task suitability or stale provider/model evidence into an unconfigured
 routing graph. Automatic account selection remains the catalog policy after
 route admission.
@@ -370,7 +369,7 @@ Direct API providers:
 - route-selection and prompt-admission failures use the same route-level
   readiness reason
 
-A configured execution route must carry a concrete provider model ID whenever
+A configured direct execution target must carry a concrete provider model ID whenever
 its provider requires one. Incomplete route configuration is rejected as a
 route-level `missing-model` condition; no surface falls back to a raw-model
 picker or a native ambient default.
@@ -394,7 +393,7 @@ Kiln tracks route health at the provider/model boundary, separate from
 credential health:
 
 - credential health answers "which secret/account can be used?"
-- provider/model route health answers "is this advertised execution route
+- provider/model target health answers "is this advertised execution target
   cooling down?"
 - native route integrity answers "does the harness default actually select the
   canonical provider/model?"
@@ -412,7 +411,7 @@ outcomes such as `rate-limited`, `quota-exceeded`, and `connection-failed`
 place the provider/model route in cooldown. A selected route in cooldown is not
 healthy just because discovery still lists the model.
 
-For an admitted execution route, discovery and route health are candidate
+For an admitted execution target, discovery and target health are candidate
 admission gates. An automatic route applies its configured
 `economic-least-pressure` policy among eligible accounts before dispatch; the
 surface does not choose an account unless the operator explicitly narrows that
@@ -428,7 +427,7 @@ another healthy candidate or `openrouter/free` when policy allows it.
 
 ## Operator UX
 
-Execution-route pickers show concise unavailable reasons while preserving
+Execution-target pickers show concise unavailable reasons while preserving
 structured diagnostics in the runtime result. Examples:
 
 - missing API keys or credentials become "Auth is missing."
@@ -447,7 +446,7 @@ composer control; TUI cycles provider default and explicit levels with
 
 ## Turn Records
 
-Live prompt admission records the selected execution route and its derived
+Live prompt admission records the selected execution target and its derived
 provider/model validation in the runtime turn record. This preserves the
 evidence used to admit or reject a turn and makes post-hoc diagnosis possible
 without replaying discovery.

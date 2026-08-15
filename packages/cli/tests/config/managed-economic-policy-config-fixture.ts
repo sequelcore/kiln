@@ -1,23 +1,18 @@
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 /**
- * Canonical schema-v2 global config: a runtime-selected `codex-standard`
- * managed route covered by a matching `executionCatalog.routes` economic
- * route. Shared by `managed-economic-policy-config.test.ts` (schema/runtime
+ * Canonical V3 global config: a runtime-selected `codex-standard` target
+ * covered by a matching economic policy. Shared by
+ * `managed-economic-policy-config.test.ts` (schema/runtime
  * validation of this shape) and `operator-project-agent-tasks-runtime-config.test.ts`
  * (the real native-harness composition boundary), so both exercise the exact
  * same valid fixture rather than two independently drifting copies.
  */
 export function economicConfig(): KilnGlobalConfig {
   return {
-    version: "2",
+    version: "3",
     managedAgents: {
-      schemaVersion: 2,
-      routes: [{
-        id: "codex-standard",
-        kind: "direct",
-        executionRouteId: "codex-standard",
-      }],
+      defaultAuthorityProfileId: "readonly-plan",
       economicPolicies: [{
         id: "default-economic-policy",
         revision: "rev-2026-07",
@@ -35,7 +30,7 @@ export function economicConfig(): KilnGlobalConfig {
           envelopeSemantics: "configured-upper-bound",
         }],
         candidates: [{
-          routeId: "codex-standard",
+          targetId: "codex-standard",
           comparisonDomainId: "usd-worst-case",
           priorityRank: 0,
           ceiling: {
@@ -59,7 +54,14 @@ export function economicConfig(): KilnGlobalConfig {
         }],
       }],
     },
-    executionCatalog: {
+    authorityProfiles: [{
+      id: "readonly-plan",
+      admissionProfile: "foundation-readonly-plan",
+      workingDirectory: "project",
+      tools: { allowed: ["read"], network: false, writes: false },
+      memory: { access: "read-only" },
+    }],
+    targetCatalog: {
       accounts: [{
         id: "codex-account",
         providerId: "codex-oauth",
@@ -79,8 +81,9 @@ export function economicConfig(): KilnGlobalConfig {
         accountIds: ["codex-account"],
         strategy: "economic-least-pressure",
       }],
-      routes: [{
+      targets: [{
         id: "codex-standard",
+        kind: "direct",
         label: "Codex Standard",
         providerId: "codex-oauth",
         providerModelId: "gpt-5.6-codex",
@@ -147,5 +150,6 @@ export function economicConfig(): KilnGlobalConfig {
         },
       }],
     },
+    targetRouting: { defaultTargetId: "codex-standard" },
   };
 }

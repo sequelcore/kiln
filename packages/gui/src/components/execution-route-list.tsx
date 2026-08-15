@@ -15,7 +15,7 @@ function repairActionLabel(action: ExecutionRouteRepairRequest["action"], provid
     case "authenticate-provider":
       return `Authenticate ${providerId}`;
     case "refresh-route-catalog":
-      return "Refresh execution routes";
+      return "Refresh execution targets";
     default:
       return null;
   }
@@ -29,8 +29,8 @@ export function ExecutionRouteList(props: {
   readonly onRepair: (request: ExecutionRouteRepairRequest) => void | Promise<void>;
 }) {
   return (
-    <CommandList label="Execution routes" className="max-h-[21rem] flex-1 overscroll-contain p-1.5">
-      <CommandEmpty>No governed execution routes match these filters.</CommandEmpty>
+    <CommandList label="Execution targets" className="max-h-[21rem] flex-1 overscroll-contain p-1.5">
+      <CommandEmpty>No governed execution targets match these filters.</CommandEmpty>
       <CommandGroup aria-label="Routes" className="p-0">
         {props.routes.map((route) => {
           const current = props.activeRouteId === route.routeId;

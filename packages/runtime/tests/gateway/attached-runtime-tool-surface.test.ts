@@ -535,17 +535,16 @@ describe("attached runtime builtin tool surface", () => {
           model: "opencode-default-model",
           capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read"],
               workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
               credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
-            },
-          },
+          }],
         }],
       },
     });
@@ -663,9 +662,9 @@ describe("attached runtime builtin tool surface", () => {
           model: "test-model",
           capability: managedRouteCapability({ routeId: "write-route", providerId: "opencode", modelId: "test-model", toolNames: ["read", "apply-patch"], profile: "foundation-apply-approved-writes", write: true }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-apply-approved-writes": {
+          profiles: [{
               authorityProfileId: "authority:test:write",
+              admissionProfile: "foundation-apply-approved-writes",
               permissionProfile: "apply-approved-writes",
               allowedToolNames: ["read", "apply-patch"],
               writeAllowed: true,
@@ -683,8 +682,7 @@ describe("attached runtime builtin tool surface", () => {
                 },
                 approval: { mode: "required-before-apply", evidenceRequired: true },
               }),
-            },
-          },
+          }],
         }],
       },
     });
@@ -830,17 +828,16 @@ describe("attached runtime builtin tool surface", () => {
            capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read"], externalRuntimeAttachment: routeAttachment }),
            createAdapter: async () => adapter,
            externalRuntimeAttachment: routeAttachment,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read"],
               workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
               credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2077,9 +2074,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           model: "opencode-default-model",
           capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
@@ -2095,8 +2092,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 scope: { kind: "project", id: "kiln" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2190,9 +2186,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           model: "opencode-default-model",
           capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob", "web_search", "browser_session_start"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
               networkAllowed: true,
@@ -2209,8 +2205,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 scope: { kind: "project", id: "kiln" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
         agentCatalog: [{
           name: "visual-researcher",
@@ -2218,6 +2213,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           role: "Visual research specialist",
           goal: "Collect real visual reference evidence before frontend implementation.",
           tier: "reasoning",
+          authorityProfileId: "authority:opencode:readonly",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -2314,6 +2311,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const adapter = makeManagedAdapter();
     const profile = (allowedToolNames: readonly string[]) => ({
       authorityProfileId: `authority:opencode:${allowedToolNames.join("-")}`,
+      admissionProfile: "foundation-readonly-plan" as const,
       permissionProfile: "read-only",
       allowedToolNames,
       workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" as const },
@@ -2338,7 +2336,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             model: "analysis-model",
             capability: managedRouteCapability({ routeId: "opencode-analysis-readonly", providerId: "opencode", modelId: "analysis-model", toolNames: ["read", "grep", "glob"] }),
             createAdapter: async () => adapter,
-            profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob"]) },
+            profiles: [profile(["read", "grep", "glob"])],
           },
           {
             routeId: "opencode-general-readonly",
@@ -2353,7 +2351,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               source: "configured-route",
               reason: "General verification capability.",
             }],
-            profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob", "bash"]) },
+            profiles: [profile(["read", "grep", "glob", "bash"])],
           },
           {
             routeId: "opencode-verification-readonly",
@@ -2368,7 +2366,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               source: "configured-route",
               reason: "Preferred verification route.",
             }],
-            profiles: { "foundation-readonly-plan": profile(["read", "grep", "glob", "bash"]) },
+            profiles: [profile(["read", "grep", "glob", "bash"])],
           },
         ],
       },
@@ -2477,17 +2475,16 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           model: "opencode-default-model",
           capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
               credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2566,9 +2563,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           model: "opencode-default-model",
           capability: managedRouteCapability({ routeId: "opencode-readonly", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
@@ -2584,8 +2581,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 scope: { kind: "project", id: "kiln" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
         agentCatalog: [{
           name: "visual-researcher",
@@ -2593,6 +2589,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           role: "Visual research specialist",
           goal: "Collect real visual reference evidence before frontend implementation.",
           tier: "reasoning",
+          authorityProfileId: "authority:opencode:readonly",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -2672,9 +2670,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           model: "opencode-default-model",
           capability: managedRouteCapability({ routeId: "opencode-provider-default", providerId: "opencode", modelId: "opencode-default-model", toolNames: ["read", "grep", "glob"] }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-readonly-plan": {
+          profiles: [{
               authorityProfileId: "authority:opencode:readonly",
+              admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
@@ -2690,8 +2688,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 scope: { kind: "project", id: "kiln" },
                 access: "read-only",
               },
-            },
-          },
+          }],
         }],
       },
     });
@@ -2759,9 +2756,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             model: "model-without-browser",
             capability: managedRouteCapability({ routeId: "opencode-visual-without-browser", providerId: "opencode", modelId: "model-without-browser", toolNames: ["read", "grep", "glob"] }),
             createAdapter: async () => adapter,
-            profiles: {
-              "foundation-readonly-plan": {
+            profiles: [{
                 authorityProfileId: "authority:opencode:readonly-without-browser",
+                admissionProfile: "foundation-readonly-plan",
                 permissionProfile: "read-only",
                 allowedToolNames: ["read", "grep", "glob"],
                 workingDirectory: {
@@ -2777,8 +2774,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                   scope: { kind: "project", id: "kiln" },
                   access: "read-only",
                 },
-              },
-            },
+            }],
           },
           {
             routeId: "opencode-visual-browser-readonly",
@@ -2787,9 +2783,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             model: "model-with-browser",
             capability: managedRouteCapability({ routeId: "opencode-visual-browser-readonly", providerId: "opencode", modelId: "model-with-browser", toolNames: ["read", "grep", "glob", "web_search", "browser_session_start"] }),
             createAdapter: async () => adapter,
-            profiles: {
-              "foundation-readonly-plan": {
+            profiles: [{
                 authorityProfileId: "authority:opencode:readonly-browser",
+                admissionProfile: "foundation-readonly-plan",
                 permissionProfile: "read-only",
                 allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
                 networkAllowed: true,
@@ -2806,8 +2802,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                   scope: { kind: "project", id: "kiln" },
                   access: "read-only",
                 },
-              },
-            },
+            }],
           },
         ],
         agentCatalog: [{
@@ -2815,6 +2810,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           role: "Visual research specialist",
           goal: "Collect real visual reference evidence.",
           tier: "reasoning",
+          authorityProfileId: "authority:opencode:readonly-browser",
+          admissionProfile: "foundation-readonly-plan",
           routeId: "opencode-visual-browser-readonly",
           providerRoute: {
             providerId: "opencode",
@@ -3518,17 +3515,16 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           settlement: { kind: "not-required" },
         },
         createAdapter: async () => makeManagedAdapter(),
-        profiles: {
-          "foundation-readonly-plan": {
+        profiles: [{
             authorityProfileId: "authority:opencode:readonly",
+            admissionProfile: "foundation-readonly-plan",
             permissionProfile: "read-only" as const,
             allowedToolNames: ["read", "grep", "glob"],
             workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" as const },
             timeoutMs: 120000,
             credentialRoute: { mode: "runtime-selected" as const, routeId: "credential-route:opencode:primary" },
             memoryScope: { scope: { kind: "project" as const, id: "kiln" }, access: "read-only" as const },
-          },
-        },
+        }],
       }],
       unavailableRoutes: [{
         routeId: "openrouter-readonly",
@@ -3819,9 +3815,9 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
           model: "kimi-k2.6",
           capability: managedRouteCapability({ routeId: "opencode-go-frontend-approved-write", providerId: "opencode-go", modelId: "kimi-k2.6", toolNames: ["read", "grep", "glob", "write"], profile: "foundation-apply-approved-writes", write: true }),
           createAdapter: async () => adapter,
-          profiles: {
-            "foundation-apply-approved-writes": {
+          profiles: [{
               authorityProfileId: "authority:opencode-go:frontend",
+              admissionProfile: "foundation-apply-approved-writes",
               permissionProfile: "apply-approved-writes",
               writeAllowed: true,
               allowedToolNames: ["read", "grep", "glob", "write"],
@@ -3866,8 +3862,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                   evidenceRequired: true,
                 },
               }),
-            },
-          },
+          }],
         }],
       },
     });

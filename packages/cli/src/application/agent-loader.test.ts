@@ -71,19 +71,10 @@ describe("agent-loader", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns first-party defaults when both directories missing", async () => {
+  it("returns no implicit agents when both configured directories are missing", async () => {
     const definitions = await loadAgentDefinitions(PROJECT_PATH);
 
-    expect(findAgent(definitions, "architect")).toMatchObject({
-      name: "architect",
-      scope: "builtin",
-      taskAffinity: ["architecture-review"],
-    });
-    expect(findAgent(definitions, "coder")).toMatchObject({
-      name: "coder",
-      scope: "builtin",
-      tools: ["read", "grep", "glob", "write", "bash"],
-    });
+    expect(definitions).toEqual([]);
     expect(readdirSyncMock).toHaveBeenCalledWith(GLOBAL_AGENTS_DIR);
     expect(readdirSyncMock).toHaveBeenCalledWith(PROJECT_AGENTS_DIR);
   });
@@ -116,11 +107,8 @@ describe("agent-loader", () => {
           "sandbox: true",
           "modalities:",
           "  - text",
-          "authorityProfile: foundation-readonly-plan",
-          "routeId: codex-oauth-readonly",
-          "providerRoute:",
-          "  providerId: codex-oauth",
-          "  model: gpt-5.4-mini",
+          "targetId: codex-oauth-readonly",
+          "authorityProfileId: foundation-readonly-plan",
           "communication:",
           "  responseDetail: detailed",
           "  locale: es-MX",
@@ -143,7 +131,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
+    const definitions = await loadAgentDefinitions(PROJECT_PATH);
 
     expect(definitions).toEqual([
       {
@@ -163,12 +151,8 @@ describe("agent-loader", () => {
         count: 2,
         sandbox: true,
         modalities: ["text"],
-        authorityProfile: "foundation-readonly-plan",
-        routeId: "codex-oauth-readonly",
-        providerRoute: {
-          providerId: "codex-oauth",
-          model: "gpt-5.4-mini",
-        },
+        targetId: "codex-oauth-readonly",
+        authorityProfileId: "foundation-readonly-plan",
         communication: {
           responseDetail: "detailed",
           locale: "es-MX",
@@ -196,26 +180,80 @@ describe("agent-loader", () => {
       ),
     });
 
-    const [definition] = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
+    const [definition] = await loadAgentDefinitions(PROJECT_PATH);
 
     expect(definition?.instructions).toBe("# Plan\n\nCreate a concrete implementation plan.");
   });
 
-  it("rejects agent definitions with unknown authority profiles", async () => {
+  it.each([
+    ["routeId", ["routeId: codex-oauth-readonly"]],
+    ["providerRoute", ["providerRoute:", "  providerId: codex-oauth", "  model: gpt-5.4-mini"]],
+    ["authorityProfile", ["authorityProfile: foundation-readonly-plan"]],
+  ])("rejects removed %s agent configuration", async (_field, removedConfiguration) => {
     configureDirectories(["invalid.md"], []);
     configureFiles({
       [join(GLOBAL_AGENTS_DIR, "invalid.md")]: markdownWithFrontmatter(
         [
           "name: Invalid",
-          "role: Invalid authority fixture",
+          "role: Legacy configuration fixture",
           "goal: Must not load",
           "tier: reasoning",
-          "authorityProfile: unrestricted",
+          ...removedConfiguration,
         ].join("\n"),
       ),
     });
 
-    await expect(loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false })).resolves.toEqual([]);
+    await expect(loadAgentDefinitions(PROJECT_PATH)).resolves.toEqual([]);
+  });
+
+  it("allows project agents to reference global target and authority profile identities", async () => {
+    configureDirectories([], ["project-worker.md"]);
+    configureFiles({
+      [join(PROJECT_AGENTS_DIR, "project-worker.md")]: markdownWithFrontmatter(
+        [
+          "name: ProjectWorker",
+          "role: Project worker",
+          "goal: Work within global execution policy",
+          "tier: coding",
+          "targetId: codex-oauth-terra",
+          "authorityProfileId: workspace-write",
+        ].join("\n"),
+      ),
+    });
+
+    await expect(loadAgentDefinitions(PROJECT_PATH)).resolves.toEqual([
+      {
+        name: "ProjectWorker",
+        role: "Project worker",
+        goal: "Work within global execution policy",
+        tier: "coding",
+        targetId: "codex-oauth-terra",
+        authorityProfileId: "workspace-write",
+        scope: "project",
+      },
+    ]);
+  });
+
+  it.each([
+    ["providerId: codex-oauth"],
+    ["model: gpt-5.4-mini"],
+    ["target:", "  kind: direct", "  providerId: codex-oauth", "  model: gpt-5.4-mini"],
+    ["authority:", "  write: workspace"],
+  ])("rejects project agents that define execution or authority configuration", async (...configuration) => {
+    configureDirectories([], ["invalid-project.md"]);
+    configureFiles({
+      [join(PROJECT_AGENTS_DIR, "invalid-project.md")]: markdownWithFrontmatter(
+        [
+          "name: InvalidProjectAgent",
+          "role: Invalid project worker",
+          "goal: Must not load",
+          "tier: coding",
+          ...configuration,
+        ].join("\n"),
+      ),
+    });
+
+    await expect(loadAgentDefinitions(PROJECT_PATH)).resolves.toEqual([]);
   });
 
   it("project agents override global agents with same name", async () => {
@@ -235,7 +273,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
+    const definitions = await loadAgentDefinitions(PROJECT_PATH);
 
     expect(definitions).toHaveLength(3);
     expect(findAgent(definitions, "shared")).toEqual({
@@ -257,7 +295,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
+    const definitions = await loadAgentDefinitions(PROJECT_PATH);
 
     expect(definitions).toEqual([]);
   });
@@ -270,7 +308,7 @@ describe("agent-loader", () => {
       ),
     });
 
-    const definitions = await loadAgentDefinitions(PROJECT_PATH, { includeBuiltins: false });
+    const definitions = await loadAgentDefinitions(PROJECT_PATH);
 
     expect(definitions).toEqual([]);
   });

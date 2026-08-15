@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mergeKilnYaml, type KilnYaml } from "../../src/kiln-yaml.js";
+import { mergeKilnYaml, type ResolvedKilnConfig } from "../../src/kiln-yaml.js";
 import { MemoryArtifactResourceStore } from "@kilnai/core";
 import {
   createInteractiveUseToolSurfaceOptions,
@@ -30,7 +30,7 @@ vi.mock("@kilnai/runtime", () => ({
   },
 }));
 
-function config(interactiveUse: KilnYaml["interactiveUse"]): KilnYaml {
+function config(interactiveUse: ResolvedKilnConfig["interactiveUse"]): ResolvedKilnConfig {
   return {
     version: "1",
     interactiveUse,

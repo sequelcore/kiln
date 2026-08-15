@@ -59,7 +59,7 @@ function sentRouteFrame(ws: MockWebSocket, index: number): { routeId: string; ac
   return frame as { routeId: string; accountOverrideId?: string; requestId: string };
 }
 
-describe("GuiSessionClient execution route selection", () => {
+describe("GuiSessionClient execution target selection", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     wsInstances = [];
@@ -87,7 +87,7 @@ describe("GuiSessionClient execution route selection", () => {
       requestId: request.requestId,
     }));
 
-    await expect(promise).rejects.toThrow("Execution route acknowledgement did not match the pending request");
+    await expect(promise).rejects.toThrow("Execution target acknowledgement did not match the pending request");
     expect(onFrame).toHaveBeenCalledWith({
       type: "execution_route_changed",
       routeId: "other",
@@ -146,7 +146,7 @@ describe("GuiSessionClient execution route selection", () => {
     sentRouteFrame(ws, 0);
 
     vi.advanceTimersByTime(5_000);
-    await expect(firstPromise).rejects.toThrow("Execution route switch timed out");
+    await expect(firstPromise).rejects.toThrow("Execution target switch timed out");
 
     const retryPromise = client.switchExecutionRoute("current");
     const retryFrame = sentRouteFrame(ws, 1);
@@ -160,7 +160,7 @@ describe("GuiSessionClient execution route selection", () => {
     expect(retryFrame).toMatchObject({
       routeId: "current",
     });
-    await expect(retryPromise).rejects.toThrow("Execution route acknowledgement did not match the pending request");
+    await expect(retryPromise).rejects.toThrow("Execution target acknowledgement did not match the pending request");
   });
 
   it("closes heartbeat timeouts with the reconnectable pong timeout code", () => {

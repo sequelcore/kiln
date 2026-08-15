@@ -24,7 +24,7 @@ const executionCatalog = defineExecutionCatalog({
   accountPolicies: [],
   routes: [{ id: "route", label: "Model", providerId: "codex-oauth", providerModelId: "model", dataClassification: "internal", dataPolicyEvidence: { providerId: "codex-oauth", providerModelId: "model", dataUse: "not-used", trainingPosture: "prohibited", retention: { posture: "zero", days: 0 }, permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"], sourceIdentity: "fixture-privacy", sourceRevision: "rev-1", sourceDigest: `sha256:${"b".repeat(64)}`, observedAt: "2026-08-11T00:00:00.000Z", expiresAt: "2027-08-11T00:00:00.000Z" }, accountSelection: { mode: "exact", accountId: "account" }, economics: { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v1", authBillingChannel: "oauth-subscription", executionMode: "responses-api", serviceTier: "standard", rateCardBasis: "configured", envelopeSemantics: "configured-upper-bound", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider-cache", priceEvidence: { kind: "subscription", rateCardId: "fixture", rateCardRevision: "v1", evidence }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }],
 });
-const gatewayConfig: ModelGatewayConfig = { port: 4901, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, executionRouteId: "route", capabilities: ["text"], affinity: { continuity: "none" } }] };
+const gatewayConfig: ModelGatewayConfig = { port: 4901, replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: "REPLAY" }, surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } }, principals: [{ tokenEnv: "TOKEN", ingress: "openai-responses", tenantId: "tenant", applicationId: "app", callerId: "caller", capabilityId: "invoke", scopes: ["model.invoke"], budgetEvidenceId: "budget", virtualModelIds: ["model"] }], virtualModels: [{ id: "model", displayName: "Model", contextTokens: 1000, outputTokens: 100, targetId: "route", capabilities: ["text"], affinity: { continuity: "none" } }] };
 const noCandidates: ModelGatewayExecutionCandidatePort = { resolve: async () => [] };
 
 function store(path: string): LocalModelGatewayStore {
@@ -119,7 +119,7 @@ modelGateway:
   principals:
       - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [model] }
   virtualModels:
-      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, executionRouteId: route, capabilities: [text], affinity: { continuity: none } }
+      - { id: model, displayName: Model, contextTokens: 1000, outputTokens: 100, targetId: route, capabilities: [text], affinity: { continuity: none } }
 `, "utf8");
     process.env.REPLAY_SECRET = secret; process.env.BEARER_TOKEN = "synthetic-bearer-token-at-least-32-bytes";
     const missingGuiDist = join(root, "missing-gui-dist");

@@ -225,8 +225,8 @@ vi.mock("../src/components/composer.js", () => ({
         Open composer commands
       </button>
       <div data-slot="command">
-        <button type="button" onClick={() => commandMenu.onExecute({ id: "route", label: "Execution route" })}>
-          Run execution-route command
+        <button type="button" onClick={() => commandMenu.onExecute({ id: "target", label: "Execution target" })}>
+          Run execution-target command
         </button>
       </div>
       <button type="button" onClick={() => onSubmit({ text: "hello target" })}>
@@ -411,17 +411,17 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(executionRoutePickerPropsLog.at(-1)?.finalFocus?.current).toBe(origin);
   });
 
-  it("anchors the execution route picker to its composer control", async () => {
+  it("anchors the execution target picker to its composer control", async () => {
     render(<AppShell />);
 
-    const routeControl = await screen.findByRole("button", { name: /Execution route selector/i });
+    const routeControl = await screen.findByRole("button", { name: /Execution target selector/i });
     fireEvent.click(routeControl);
 
     await waitFor(() => expect(executionRoutePickerPropsLog.at(-1)?.open).toBe(true));
     expect(executionRoutePickerPropsLog.at(-1)?.anchor?.current).toBe(routeControl);
   });
 
-  it("identifies the selected execution route with its provider mark", async () => {
+  it("identifies the selected execution target with its provider mark", async () => {
     const { container } = render(<AppShell />);
     act(() => useSessionStore.setState({
       activeRouteId: "codex-default",
@@ -451,10 +451,10 @@ describe("AppShell command palette and telemetry regressions", () => {
     expect(container.querySelector('[data-provider-fallback="true"]')).toBeNull();
   });
 
-  it("mounts the execution route picker on first use from a composer command", async () => {
+  it("mounts the execution target picker on first use from a composer command", async () => {
     render(<AppShell />);
 
-    const command = await screen.findByRole("button", { name: "Run execution-route command" });
+    const command = await screen.findByRole("button", { name: "Run execution-target command" });
     command.focus();
     fireEvent.click(command);
 

@@ -145,7 +145,7 @@ export function initUI(
       const text = inputTextarea.plainText.trim();
       if (text && state.status !== "running" && !state.themePickerOpen) {
         inputTextarea.clear();
-        if (text === "/clear" || text === "/theme" || text === "/route" || text === "/deliberation" || text === "/authority" || text === "/continue" || text === "/plan" || text === "/exec" || text === "/setup") {
+        if (text === "/clear" || text === "/theme" || text === "/target" || text === "/deliberation" || text === "/authority" || text === "/continue" || text === "/plan" || text === "/exec" || text === "/setup") {
           return;
         }
         onSubmit(text);
@@ -185,7 +185,7 @@ export function initUI(
 
   const commandBarText = new TextRenderable(renderer, {
     id: "command-bar-text",
-    content: t`${fg(theme.textMuted)("/setup /theme /route  ctrl+shift+P commands")}`,
+    content: t`${fg(theme.textMuted)("/setup /theme /target  ctrl+shift+P commands")}`,
   });
   commandBar.add(commandBarText);
 

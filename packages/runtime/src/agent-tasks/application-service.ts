@@ -664,12 +664,18 @@ export class AgentTaskApplicationService {
         adoptedDecisionAt: job.adoptedDecisionAt,
       });
       let consumedWriteApproval: ManagedAgentRuntimeConsumedWriteApproval | undefined;
+      const executionProfile = await this.options.profiles.resolve(job.configuredAgentProfileId);
+      if (!executionProfile || executionProfile.kind !== "economic") {
+        return this.transition(job.id, "failed", "route_unavailable");
+      }
       const preparation = await this.options.economicDispatch.prepare({
         jobId: job.id,
         economicAttemptId: dispatch.economicAttemptId,
         intentFingerprint,
         adoption: adopted,
         admissionProfile: job.admissionProfileId,
+        authorityProfileId: executionProfile.authorityProfileId,
+        invocationId: `agent-task:${job.id}`,
         ...(abortSignal ? { abortSignal } : {}),
         ...(isApprovedWriteProfile(job.admissionProfileId) ? {
           validateAndConsumeApprovalBeforeFence: async () => {

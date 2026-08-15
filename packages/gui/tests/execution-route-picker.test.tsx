@@ -20,7 +20,7 @@ const catalog = {
 describe("ExecutionRoutePicker", () => {
   it("uses the approved searchable command composition with official provider marks and brand/access filters", () => {
     render(<ExecutionRoutePicker catalog={catalog} onSelect={vi.fn()} onRepair={vi.fn()} />);
-    expect(screen.getByRole("combobox", { name: "Search execution routes" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Search execution targets" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Providers" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Route type" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Codex Auto Review, Automatic/ }).querySelector('[data-provider-brand="codex"]')).not.toBeNull();
@@ -40,7 +40,7 @@ describe("ExecutionRoutePicker", () => {
     expect(onSelect).toHaveBeenNthCalledWith(1, { routeId: "codex-auto-review" });
     expect(onSelect).toHaveBeenNthCalledWith(2, { routeId: "codex-auto-review", accountOverrideId: "team-a" });
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Search execution routes" }), { target: { value: "luna" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Search execution targets" }), { target: { value: "luna" } });
     expect(screen.getByRole("option", { name: /Luna, Exact account/ })).toBeInTheDocument();
   });
 
@@ -51,7 +51,7 @@ describe("ExecutionRoutePicker", () => {
     expect(offline).toHaveAttribute("aria-disabled", "true");
     expect(within(offline).getByText("missing-credentials")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Authenticate private-provider" }));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh execution routes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh execution targets" }));
     expect(onRepair).toHaveBeenNthCalledWith(1, { routeId: "offline", providerId: "private-provider", action: "authenticate-provider" });
     expect(onRepair).toHaveBeenNthCalledWith(2, { routeId: "offline", providerId: "private-provider", action: "refresh-route-catalog" });
   });

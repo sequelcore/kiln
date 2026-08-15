@@ -431,11 +431,11 @@ export class GatewaySession implements SessionLike {
    */
   async switchExecutionRoute(routeId: string, accountOverrideId?: string): Promise<string> {
     if (!this.connected || !this.client.isConnected) {
-      throw new Error("Execution route selection requires an active TUI gateway connection");
+      throw new Error("Execution target selection requires an active TUI gateway connection");
     }
     const normalizedRouteId = routeId.trim();
     if (!normalizedRouteId) {
-      throw new Error("Execution route selection requires a route id");
+      throw new Error("Execution target selection requires a route id");
     }
     const intent: ExecutionRouteSelectionIntent = {
       routeId: normalizedRouteId,
@@ -445,7 +445,7 @@ export class GatewaySession implements SessionLike {
       const requestId = nextExecutionRouteRequestId();
       const timeout = setTimeout(() => {
         this.executionRouteCallbacks = null;
-        reject(new Error("Execution route selection timed out"));
+        reject(new Error("Execution target selection timed out"));
       }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
 
       this.executionRouteCallbacks = {
@@ -468,7 +468,7 @@ export class GatewaySession implements SessionLike {
   }
 
   /**
-   * Refresh the execution route catalog without reconnecting the gateway session.
+   * Refresh the execution target catalog without reconnecting the gateway session.
    * Not part of SessionLike — duck-typed in app.tsx.
    */
   async refreshExecutionRoutes(): Promise<void> {
@@ -476,7 +476,7 @@ export class GatewaySession implements SessionLike {
     return new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.executionRouteRefreshCallbacks = null;
-        reject(new Error("Execution route refresh timed out"));
+        reject(new Error("Execution target refresh timed out"));
       }, EXECUTION_ROUTE_REFRESH_TIMEOUT_MS);
 
       this.executionRouteRefreshCallbacks = {
@@ -760,14 +760,14 @@ export class GatewaySession implements SessionLike {
       ) {
         pending.resolve(frame.routeId);
       } else if (pending) {
-        pending.reject(new Error("Execution route change acknowledgement did not match the pending request"));
+        pending.reject(new Error("Execution target change acknowledgement did not match the pending request"));
       }
     } else if (frame.type === "execution_route_change_failed") {
       const pending = this.executionRouteCallbacks;
       if (pending && frame.routeId === pending.routeId && frame.requestId === pending.requestId) {
         pending.reject(new Error(frame.reason));
       } else if (pending) {
-        pending.reject(new Error("Execution route failure did not match the pending request"));
+        pending.reject(new Error("Execution target failure did not match the pending request"));
       }
     }
   }

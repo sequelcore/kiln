@@ -644,7 +644,14 @@ function createDeterministicOperatorRouting(): {
     routes: [
       executionRoute("claude-default", "Claude", "claude", "claude-sonnet-4-6"),
       executionRoute("codex-default", "Codex", "codex", "gpt-5.5"),
+      executionRoute("codex-sol-medium", "Sol Medium", "codex-oauth", "gpt-5.6-sol"),
       executionRoute("opencode-default", "OpenCode", "opencode", "opencode-default"),
+      {
+        ...executionRoute("deepseek-flash-unavailable", "DeepSeek Flash", "opencode-go", "deepseek-v3.2-speciale"),
+        availability: "unavailable" as const,
+        reasonCodes: ["provider-model-unavailable"],
+        repairActions: ["refresh-route-catalog" as const],
+      },
     ],
   };
   const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
@@ -655,7 +662,7 @@ function createDeterministicOperatorRouting(): {
         return {
           ok: false,
           reasonCode: "route-not-configured",
-          reason: `Execution route '${intent.routeId}' is not configured in the parity fixture.`,
+          reason: `Execution target '${intent.routeId}' is not configured in the parity fixture.`,
           repairActions: ["refresh-route-catalog"],
         };
       }

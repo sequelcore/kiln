@@ -39,10 +39,10 @@ vi.mock("node:os", () => {
 });
 
 vi.mock("../../src/application/agent-loader.js", () => ({
-  loadAgentDefinitions: vi.fn(),
+  loadGlobalAgentDefinitions: vi.fn(),
 }));
 
-import { loadAgentDefinitions } from "../../src/application/agent-loader.js";
+import { loadGlobalAgentDefinitions } from "../../src/application/agent-loader.js";
 import {
   agentToClaudeMd,
   agentToCodexToml,
@@ -56,7 +56,7 @@ const unlinkSyncMock = unlinkSync as unknown as ReturnType<typeof vi.fn>;
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
 const readFileSyncMock = readFileSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = os.homedir as unknown as ReturnType<typeof vi.fn>;
-const loadAgentDefinitionsMock = loadAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
+const loadAgentDefinitionsMock = loadGlobalAgentDefinitions as unknown as ReturnType<typeof vi.fn>;
 
 describe("native-agent-projection", () => {
   beforeEach(() => {
@@ -95,7 +95,7 @@ describe("native-agent-projection", () => {
       errors: [],
       outcomes: [],
     });
-    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project");
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith({});
     expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
@@ -150,7 +150,7 @@ describe("native-agent-projection", () => {
     });
 
     expect(result.errors).toEqual([]);
-    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json")) ?? "{}") as {
       targets: Record<string, { communicationResolution?: { requested: { authority: Record<string, unknown>; intent: { requiredContent: string[] } } } }>;
     };
     expect(state.targets["codex-agent:reviewer"]?.communicationResolution?.requested).toMatchObject({
@@ -172,7 +172,7 @@ describe("native-agent-projection", () => {
 
   it("passes an explicit userHome to the agent loader and never falls back to the OS home", async () => {
     const userHome = "/synthetic/user-home";
-    loadAgentDefinitionsMock.mockImplementation(async (_projectPath: string, options: { userHome?: string }) => {
+    loadAgentDefinitionsMock.mockImplementation(async (options: { userHome?: string }) => {
       expect(options).toEqual({ userHome });
       return [{
         name: "synthetic-agent",
@@ -187,7 +187,7 @@ describe("native-agent-projection", () => {
     const result = await syncNativeAgentProjections("/workspace/project", { userHome });
 
     expect(result.errors).toEqual([]);
-    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith("/workspace/project", { userHome });
+    expect(loadAgentDefinitionsMock).toHaveBeenCalledExactlyOnceWith({ userHome });
     expect(homedirMock).not.toHaveBeenCalled();
     expect(fsMocks.files.has(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "synthetic-agent.toml"))).toBe(false);
@@ -303,10 +303,8 @@ describe("native-agent-projection", () => {
         role: "Review specialist",
         goal: "Review implementation quality",
         tier: "reasoning",
-        providerRoute: {
-          providerId: "codex-oauth",
-          model: "gpt-5.5",
-        },
+        targetId: "codex-unproven",
+        authorityProfileId: "foundation-readonly-plan",
         instructions: "Review only.",
         scope: "project",
       },
@@ -354,10 +352,8 @@ describe("native-agent-projection", () => {
         role: "Context scout",
         goal: "Map local context",
         tier: "fast",
-        providerRoute: {
-          providerId: "opencode-go",
-          model: "deepseek-v4-flash",
-        },
+        targetId: "opencode-unproven",
+        authorityProfileId: "foundation-readonly-plan",
         instructions: "Scout only.",
         scope: "project",
       },
@@ -392,10 +388,8 @@ describe("native-agent-projection", () => {
         role: "Context scout",
         goal: "Map local context",
         tier: "fast",
-        providerRoute: {
-          providerId: "opencode-go",
-          model: "deepseek-v4-flash",
-        },
+        targetId: "opencode-unproven",
+        authorityProfileId: "foundation-readonly-plan",
         instructions: "Scout only.",
         scope: "project",
       },
@@ -413,7 +407,7 @@ describe("native-agent-projection", () => {
     ]));
     expect(fsMocks.files.has(join("/home/tester", ".codex", "agents", "scout.toml"))).toBe(false);
 
-    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json")) ?? "{}") as {
       targets: Record<string, unknown>;
     };
     expect(state.targets).toEqual({});
@@ -430,7 +424,7 @@ describe("native-agent-projection", () => {
     };
     loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
     await syncNativeAgentProjections("/workspace/project");
-    const statePath = join("/workspace/project", ".kiln", "install-state.json");
+    const statePath = join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json");
     const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
       targets: Record<string, Record<string, unknown>>;
     };
@@ -442,7 +436,8 @@ describe("native-agent-projection", () => {
     fsMocks.files.set(statePath, JSON.stringify(state));
     loadAgentDefinitionsMock.mockResolvedValueOnce([{
       ...agent,
-      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+      targetId: "opencode-unproven",
+      authorityProfileId: "foundation-readonly-plan",
     }]);
 
     const result = await syncNativeAgentProjections("/workspace/project");
@@ -471,7 +466,8 @@ describe("native-agent-projection", () => {
     fsMocks.files.set(codexPath, "operator drift\n");
     loadAgentDefinitionsMock.mockResolvedValueOnce([{
       ...agent,
-      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+      targetId: "opencode-unproven",
+      authorityProfileId: "foundation-readonly-plan",
     }]);
 
     const result = await syncNativeAgentProjections("/workspace/project", { force: true });
@@ -492,7 +488,8 @@ describe("native-agent-projection", () => {
       role: "Planning specialist",
       goal: "Produce a verified implementation plan",
       tier: "reasoning" as const,
-      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+      targetId: "opencode-unproven",
+      authorityProfileId: "foundation-readonly-plan",
       instructions: "Plan first.",
       scope: "project" as const,
     }]);
@@ -515,7 +512,7 @@ describe("native-agent-projection", () => {
     };
     loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
     await syncNativeAgentProjections("/workspace/project");
-    const statePath = join("/workspace/project", ".kiln", "install-state.json");
+    const statePath = join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json");
     const before = fsMocks.files.get(statePath);
     vi.clearAllMocks();
     unlinkSyncMock.mockImplementation((path: string) => fsMocks.files.delete(path));
@@ -523,7 +520,8 @@ describe("native-agent-projection", () => {
     readFileSyncMock.mockImplementation((path: string) => fsMocks.files.get(path) ?? "");
     loadAgentDefinitionsMock.mockResolvedValueOnce([{
       ...agent,
-      providerRoute: { providerId: "opencode-go", model: "deepseek-v4-flash" },
+      targetId: "opencode-unproven",
+      authorityProfileId: "foundation-readonly-plan",
     }]);
 
     const result = await syncNativeAgentProjections("/workspace/project", { dryRun: true });
@@ -554,7 +552,7 @@ describe("native-agent-projection", () => {
     expect(result.outcomes).toEqual(expect.arrayContaining([
       expect.objectContaining({ targetId: "opencode-agent:retired", status: "removed" }),
     ]));
-    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json")) ?? "{}") as {
       targets: Record<string, unknown>;
     };
     expect(state.targets).toEqual({});
@@ -603,7 +601,7 @@ describe("native-agent-projection", () => {
     const result = await syncNativeAgentProjections("/workspace/project");
 
     expect(result.errors).toHaveLength(0);
-    const state = JSON.parse(fsMocks.files.get(join("/workspace/project", ".kiln", "install-state.json")) ?? "{}") as {
+    const state = JSON.parse(fsMocks.files.get(join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json")) ?? "{}") as {
       targets: Record<string, { projectionKind?: string; managedFields: string[]; harness?: string; sourceIdentity?: string }>;
     };
     expect(Object.keys(state.targets).sort()).toEqual([

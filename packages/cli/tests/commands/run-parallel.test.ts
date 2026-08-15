@@ -379,9 +379,9 @@ function createManagedInvocation(input: {
         failOrdinals: input.failOrdinals ?? new Set(),
         recoveredOrdinals: input.recoveredOrdinals ?? new Set(),
       }),
-      profiles: {
-        "foundation-apply-approved-writes": {
+      profiles: [{
           authorityProfileId: "authority:test-write:foundation-apply-approved-writes",
+          admissionProfile: "foundation-apply-approved-writes",
           permissionProfile: "apply-approved-writes",
           allowedToolNames: ["read", "grep", "apply-patch"],
           writeAllowed: true,
@@ -428,8 +428,7 @@ function createManagedInvocation(input: {
               evidenceRequired: true,
             },
           },
-        },
-      },
+      }],
     }],
   };
 }

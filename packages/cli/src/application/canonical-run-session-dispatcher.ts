@@ -35,7 +35,7 @@ export function createCanonicalRunSessionDispatcher(input: {
   composition.bridge.bind(async ({ admission, binding, credential, payload }) => {
     const provider = admission.providerId as ProviderId;
     if (!isDirectApiProvider(provider)) {
-      throw new Error(`Execution route '${admission.routeId}' resolved to an unsupported direct provider.`);
+      throw new Error(`Execution target '${admission.routeId}' resolved to an unsupported direct provider.`);
     }
     return runSession({
       ...payload,

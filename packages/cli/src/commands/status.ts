@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createSessionBuiltinToolOptions } from "@kilnai/core";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import type { SkillPluginProvider } from "../config/skill-source-inventory.js";
@@ -44,7 +44,7 @@ export async function statusCommand(
     console.log(`Not initialized. Run 'kiln init' first.`);
     return;
   }
-  const config = snapshot.effectiveConfig as unknown as KilnYaml;
+  const config = snapshot.effectiveConfig as unknown as ResolvedKilnConfig;
 
   console.log(`\nKiln Project Status\n`);
   console.log(`  Domain:           ${config.domain ?? "—"}`);
@@ -52,7 +52,6 @@ export async function statusCommand(
   console.log(`  Max Depth:        ${config.maxDepth ?? 3}`);
   console.log(`  Parallel Workers: ${config.parallelWorkers ?? 2}`);
   console.log(`  Provider:         ${config.provider ?? "—"}`);
-  console.log(`  Mode:             ${config.mode ?? "—"}`);
 
   const globalConfig = readGlobalConfig();
   const projectConfig = snapshot.project.kilnYaml.status === "valid"
@@ -96,7 +95,7 @@ export async function statusCommand(
         compositionMode: "candidate-admission",
       });
   if (managedInvocationResolution.routeHealth.length > 0) {
-    console.log(`\n  Managed agent routes:`);
+    console.log(`\n  Managed execution targets:`);
     for (const route of managedInvocationResolution.routeHealth) {
       const status = route.available ? "admission-ready" : `admission-unavailable - ${route.reason}`;
       const economicBoundary = route.kind === "harness"
@@ -138,7 +137,7 @@ export async function statusCommand(
   console.log("");
 }
 
-function printInteractiveUseStatus(config: KilnYaml): void {
+function printInteractiveUseStatus(config: ResolvedKilnConfig): void {
   const diagnostics = describeInteractiveUseConfiguration(config);
   if (
     !diagnostics.enabled
@@ -180,7 +179,7 @@ function formatInteractiveUseProviderStatus(
 }
 
 function printWebStatus(
-  config: KilnYaml,
+  config: ResolvedKilnConfig,
   sources: Parameters<typeof describeWebToolConfiguration>[1],
 ): void {
   const diagnostics = describeWebToolConfiguration(config, sources);

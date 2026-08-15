@@ -18,7 +18,7 @@ import type {
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
 import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import {
   globalToKilnYaml,
   resolveKilnMcpConfiguration,
@@ -37,6 +37,7 @@ import {
   detectNativeProjectionDrift,
   detectNativeProjectionFileDrift,
   readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
 } from "../config/native-projection-state.js";
@@ -98,7 +99,7 @@ export interface ReadConfigStatusViewOptions {
 
 interface ConfigLoadState {
   readonly source: KilnConfigSourceSnapshot;
-  readonly config: KilnGlobalConfig | KilnYaml | null;
+  readonly config: KilnGlobalConfig | ResolvedKilnConfig | null;
 }
 
 interface NativeAgentProjectionSummary {
@@ -209,7 +210,7 @@ function buildMcpStatus(
   const resolution = resolveKilnMcpConfiguration({
     globalConfig: globalState.config as KilnGlobalConfig | null,
     globalPath: globalState.source.path,
-    projectConfig: projectState.config as KilnYaml | null,
+    projectConfig: projectState.config as ResolvedKilnConfig | null,
     projectPath: projectState.source.path,
     credentialExists: credentials.exists,
   });
@@ -355,13 +356,13 @@ function buildEffectiveConfig(
   globalState: ConfigLoadState,
   projectState: ConfigLoadState,
   errors: string[],
-): KilnYaml | null {
+): ResolvedKilnConfig | null {
   if (globalState.source.status === "invalid" || projectState.source.status === "invalid") {
     return null;
   }
 
   const globalConfig = globalState.config as KilnGlobalConfig | null;
-  const projectConfig = projectState.config as KilnYaml | null;
+  const projectConfig = projectState.config as ResolvedKilnConfig | null;
 
   try {
     if (globalConfig && projectConfig) {
@@ -394,7 +395,7 @@ function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot 
 async function readProjectionSnapshots(
   projectPath: string,
   errors: string[],
-  effectiveConfig?: KilnYaml,
+  effectiveConfig?: ResolvedKilnConfig,
   userHome?: string,
   now = new Date(),
 ): Promise<{
@@ -593,7 +594,7 @@ function permissionIntegrityForProjectionStatus(
 
 function readNativeRouteIntegrity(
   target: NativeProjectionTargetState,
-  effectiveConfig: KilnYaml | undefined,
+  effectiveConfig: ResolvedKilnConfig | undefined,
 ): KilnProjectionTargetSnapshot["routeIntegrity"] | undefined {
   if (!target.managedFields.includes("model") || !existsSync(target.filePath) || target.projectionKind === "file") {
     return undefined;
@@ -649,7 +650,7 @@ function readNativeDocument(filePath: string): Record<string, unknown> {
   return JSON.parse(stripJsonComments(raw)) as Record<string, unknown>;
 }
 
-function canonicalRouteFromConfig(config: KilnYaml | undefined): NativeRoute | undefined {
+function canonicalRouteFromConfig(config: ResolvedKilnConfig | undefined): NativeRoute | undefined {
   const providerId = config?.provider?.trim();
   const model = config?.model?.default?.trim();
   return providerId && model ? { providerId, model } : undefined;
@@ -684,7 +685,7 @@ async function projectConfigView(
   view: KilnConfigReadView,
   options: ReadConfigStatusViewOptions,
 ): Promise<unknown> {
-  const config = snapshot.effectiveConfig as unknown as KilnYaml | undefined;
+  const config = snapshot.effectiveConfig as unknown as ResolvedKilnConfig | undefined;
   switch (view) {
     case "effective":
       return config ?? null;
@@ -878,7 +879,7 @@ async function readAgentIndexes(projectPath: string, options: ReadConfigStatusVi
   const createRouteAdmissionResolver = options.createManagedAgentRouteAdmissionResolver
     ?? createManagedAgentRouteAdmissionResolver;
   const routeAdmissionResolver = await createRouteAdmissionResolver(projectPath);
-  const installState = readNativeProjectionInstallState(join(projectPath, ".kiln"));
+  const installState = readNativeProjectionInstallState(resolveGlobalNativeProjectionStateDir(options.userHome));
   const communicationCandidates = configuredCommunicationCandidates({
     global: readGlobalConfig()?.communication,
     project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
@@ -888,11 +889,11 @@ async function readAgentIndexes(projectPath: string, options: ReadConfigStatusVi
       id: agent.name,
       displayName: agent.displayName,
       role: agent.role,
-      providerRoute: agent.providerRoute,
       tools: agent.tools,
       skills: agent.skills,
       taskAffinity: agent.taskAffinity,
-      routeId: agent.routeId,
+      targetId: agent.targetId,
+      authorityProfileId: agent.authorityProfileId,
       nativeProjections: nativeAgentProjectionSummaries(agent, routeAdmissionResolver, installState, communicationCandidates),
       invocationCapabilities: agentInvocationCapabilitySummaries(agent, routeAdmissionResolver),
     })),
@@ -929,7 +930,7 @@ function agentInvocationCapabilitySummaries(
   agent: KilnAgentDefinition,
   routeAdmissionResolver: Awaited<ReturnType<typeof createManagedAgentRouteAdmissionResolver>>,
 ): readonly AgentInvocationCapabilitySummary[] {
-  if (!agent.providerRoute) {
+  if (!agent.targetId) {
     return HARNESSES_WITH_NATIVE_PROJECTION.map((target) => ({
       target,
       status: "admitted",
@@ -957,7 +958,7 @@ function agentInvocationCapabilitySummaries(
 function unresolvedInvocationAdmission(agent: KilnAgentDefinition): RouteAdmissionDecision {
   return {
     status: "unresolved",
-    routeId: agent.routeId ?? `${agent.providerRoute?.providerId ?? "unresolved"}:${agent.providerRoute?.model ?? "unresolved"}`,
+    routeId: agent.targetId ?? "unresolved",
     reasons: [{ code: "proof-unknown" }],
   };
 }

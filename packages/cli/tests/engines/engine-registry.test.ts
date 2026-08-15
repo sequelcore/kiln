@@ -8,15 +8,23 @@ import {
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 const baseConfig: KilnGlobalConfig = {
-  version: "1",
+  version: "3",
   engines: {
     codex: { enabled: true, billing: "plus-quota" },
     opencode: { enabled: true, billing: "free" },
   },
-  workerRouting: {
-    defaultWorker: "codex",
-    fallback: "opencode",
+  targetCatalog: {
+    accounts: [],
+    accountPolicies: [],
+    targets: [{
+      id: "codex-harness",
+      kind: "harness",
+      label: "Codex",
+      providerId: "codex",
+      providerModelId: "gpt-test",
+    } as never],
   },
+  targetRouting: { defaultTargetId: "codex-harness" },
 };
 
 describe("EngineRegistry", () => {
@@ -95,24 +103,18 @@ describe("EngineRegistry", () => {
     expect(route.defaultWorker).toBe("codex");
   });
 
-  it("uses ordered routing routes before scalar default and fallback fields", () => {
+  it("derives the native default from the canonical harness target", () => {
     const route = resolveEngineRoute({
       ...baseConfig,
-      workerRouting: {
-        ...baseConfig.workerRouting,
-        defaultWorker: "opencode",
-        fallback: "opencode",
-        routes: [
-          { provider: "codex-oauth", model: "gpt-5.4-mini" },
-          { provider: "openrouter", model: "openrouter/free" },
-          { provider: "codex", model: "gpt-5.4-mini" },
-        ],
+      engines: {
+        codex: { enabled: true },
+        opencode: { enabled: true },
       },
     });
 
-    expect(route.worker).toBe("codex-oauth");
-    expect(route.defaultWorker).toBe("codex-oauth");
-    expect(route.fallback).toBe("openrouter");
+    expect(route.worker).toBe("codex");
+    expect(route.defaultWorker).toBe("codex");
+    expect(route.fallback).toBe("opencode");
   });
 
   it("keeps the default worker when it is available", () => {

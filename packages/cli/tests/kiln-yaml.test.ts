@@ -14,10 +14,9 @@ import {
   readKilnYaml,
   writeKilnYaml,
   mergeKilnYaml,
-  migrateConfigJson,
   defaultKilnYaml,
   KilnYamlError,
-  type KilnYaml,
+  type ResolvedKilnConfig,
 } from "../src/kiln-yaml.js";
 
 describe("readKilnYaml", () => {
@@ -39,13 +38,13 @@ describe("readKilnYaml", () => {
   it("parses valid kiln.yaml", () => {
     writeFileSync(
       join(tempDir, ".kiln", "kiln.yaml"),
-      "version: '1'\ndomain: python\nprovider: claude\n",
+      "version: '1'\ndomain: python\nmaxDepth: 2\n",
     );
     const result = readKilnYaml(join(tempDir, ".kiln"));
     expect(result).not.toBeNull();
     expect(result!.version).toBe("1");
     expect(result!.domain).toBe("python");
-    expect(result!.provider).toBe("claude");
+    expect(result!.maxDepth).toBe(2);
   });
 
   it("throws KilnYamlError when file is not an object", () => {
@@ -67,6 +66,23 @@ describe("readKilnYaml", () => {
       "skills.visibility is global-only because native skill targets are user-global",
     );
   });
+
+  it.each([
+    ["provider", "provider: codex-oauth"],
+    ["model", "model:\n  default: gpt-5.6-sol"],
+    ["provider catalog", "providers:\n  codex-oauth: {}"],
+    ["target catalog", "targets:\n  sol:\n    kind: direct\n    provider: codex-oauth\n    model: gpt-5.6-sol"],
+    ["managed target definitions", "managedAgents:\n  routes:\n    - id: sol\n      kind: harness\n      provider: codex\n      model: gpt-5.6-sol"],
+    ["model suitability", "modelTaskSuitability: []"],
+    ["deliberation policy", "deliberationPolicy:\n  default:\n    mode: adaptive\n    target: balanced"],
+  ])("rejects global-only %s from project config", (_label, fieldYaml) => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      `version: '2'\n${fieldYaml}\n`,
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(KilnYamlError);
+  });
 });
 
 describe("writeKilnYaml", () => {
@@ -81,7 +97,7 @@ describe("writeKilnYaml", () => {
   });
 
   it("writes valid YAML file", () => {
-    const config: KilnYaml = {
+    const config: ResolvedKilnConfig = {
       version: "1",
       domain: "react-ts",
       provider: "openai",
@@ -89,7 +105,7 @@ describe("writeKilnYaml", () => {
     writeKilnYaml(tempDir, config);
     const path = join(tempDir, "kiln.yaml");
     expect(existsSync(path)).toBe(true);
-    const parsed = parseYaml(readFileSync(path, "utf-8")) as KilnYaml;
+    const parsed = parseYaml(readFileSync(path, "utf-8")) as ResolvedKilnConfig;
     expect(parsed.version).toBe("1");
     expect(parsed.domain).toBe("react-ts");
     expect(parsed.provider).toBe("openai");
@@ -97,18 +113,18 @@ describe("writeKilnYaml", () => {
 
   it("creates kilnDir if it does not exist", () => {
     const nested = join(tempDir, "subdir", ".kiln");
-    const config: KilnYaml = { version: "1" };
+    const config: ResolvedKilnConfig = { version: "1" };
     writeKilnYaml(nested, config);
     expect(existsSync(join(nested, "kiln.yaml"))).toBe(true);
   });
 
   it("writes nested permissions object", () => {
-    const config: KilnYaml = {
+    const config: ResolvedKilnConfig = {
       version: "1",
       permissions: { approval: "on-request", sandbox: "read-only" },
     };
     writeKilnYaml(tempDir, config);
-    const parsed = parseYaml(readFileSync(join(tempDir, "kiln.yaml"), "utf-8")) as KilnYaml;
+    const parsed = parseYaml(readFileSync(join(tempDir, "kiln.yaml"), "utf-8")) as ResolvedKilnConfig;
     expect(parsed.permissions?.approval).toBe("on-request");
     expect(parsed.permissions?.sandbox).toBe("read-only");
   });
@@ -127,21 +143,21 @@ describe("mergeKilnYaml", () => {
     expect(result.skills).toMatchObject({ externalCatalog, selection: { mode: "auto" }, visibility: { default: "explicit-only" } });
   });
   it("override wins on scalar conflict", () => {
-    const base: KilnYaml = { version: "1", domain: "python" };
-    const override: Partial<KilnYaml> = { domain: "react-ts" };
+    const base: ResolvedKilnConfig = { version: "1", domain: "python" };
+    const override: Partial<ResolvedKilnConfig> = { domain: "react-ts" };
     const result = mergeKilnYaml(base, override);
     expect(result.domain).toBe("react-ts");
   });
 
   it("preserves base fields not in override", () => {
-    const base: KilnYaml = { version: "1", domain: "python", provider: "claude" };
-    const override: Partial<KilnYaml> = { domain: "react-ts" };
+    const base: ResolvedKilnConfig = { version: "1", domain: "python", provider: "claude" };
+    const override: Partial<ResolvedKilnConfig> = { domain: "react-ts" };
     const result = mergeKilnYaml(base, override);
     expect(result.provider).toBe("claude");
   });
 
   it("merges mcp.servers by server name", () => {
-    const base: KilnYaml = {
+    const base: ResolvedKilnConfig = {
       version: "1",
       mcp: {
         servers: {
@@ -149,7 +165,7 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       mcp: {
         servers: {
           kiln: { enabled: true },
@@ -165,11 +181,11 @@ describe("mergeKilnYaml", () => {
   });
 
   it("adds new mcp server from override", () => {
-    const base: KilnYaml = {
+    const base: ResolvedKilnConfig = {
       version: "1",
       mcp: { servers: { kiln: { transport: "stdio", command: "kiln-mcp" } } },
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       mcp: {
         servers: {
           custom: { transport: "streamable-http", url: "http://localhost:3001/mcp" },
@@ -181,8 +197,8 @@ describe("mergeKilnYaml", () => {
     expect(result.mcp?.servers["custom"]).toBeDefined();
   });
 
-  it("merges model task suitability by provider, model, and task", () => {
-    const base: KilnYaml = {
+  it("does not let project config replace global model suitability", () => {
+    const base: ResolvedKilnConfig = {
       version: "1",
       modelTaskSuitability: [{
         provider: "codex-oauth",
@@ -192,7 +208,7 @@ describe("mergeKilnYaml", () => {
         reason: "Global operator preference.",
       }],
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       modelTaskSuitability: [{
         provider: "codex-oauth",
         model: "gpt-5.4-mini",
@@ -208,13 +224,13 @@ describe("mergeKilnYaml", () => {
       provider: "codex-oauth",
       model: "gpt-5.4-mini",
       task: "frontend-design",
-      level: "capable",
-      reason: "Project has a strong frontend skill profile.",
+      level: "limited",
+      reason: "Global operator preference.",
     }]);
   });
 
   it("merges builtin skill policy additively", () => {
-    const base: KilnYaml = {
+    const base: ResolvedKilnConfig = {
       version: "1",
       skills: {
         builtin: {
@@ -224,7 +240,7 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       skills: {
         builtin: {
           include: ["code-review-findings"],
@@ -273,7 +289,7 @@ describe("mergeKilnYaml", () => {
   });
 
   it("merges work governance policy with project overrides", () => {
-    const base: KilnYaml = {
+    const base: ResolvedKilnConfig = {
       version: "1",
       workGovernance: {
         defaultPosture: "orchestrate",
@@ -285,7 +301,7 @@ describe("mergeKilnYaml", () => {
         requiredEvidence: ["surface-map"],
       },
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       workGovernance: {
         directExecution: {
           maxFiles: 2,
@@ -309,7 +325,7 @@ describe("mergeKilnYaml", () => {
   });
 
   it("inherits global web providers while project web policy grants authority", () => {
-    const base: KilnYaml = {
+    const base: ResolvedKilnConfig = {
       version: "1",
       web: {
         searchProvider: {
@@ -322,7 +338,7 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       web: {
         enabled: true,
         netPolicy: "documentation",
@@ -348,7 +364,7 @@ describe("mergeKilnYaml", () => {
   });
 
   it("lets project web config explicitly disable inherited providers", () => {
-    const base: KilnYaml = {
+    const base: ResolvedKilnConfig = {
       version: "1",
       web: {
         searchProvider: {
@@ -361,7 +377,7 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<KilnYaml> = {
+    const override: Partial<ResolvedKilnConfig> = {
       web: {
         enabled: true,
         netPolicy: "documentation",
@@ -377,78 +393,10 @@ describe("mergeKilnYaml", () => {
   });
 
   it("ignores undefined override values", () => {
-    const base: KilnYaml = { version: "1", domain: "python" };
-    const override: Partial<KilnYaml> = { domain: undefined };
+    const base: ResolvedKilnConfig = { version: "1", domain: "python" };
+    const override: Partial<ResolvedKilnConfig> = { domain: undefined };
     const result = mergeKilnYaml(base, override);
     expect(result.domain).toBe("python");
-  });
-});
-
-describe("migrateConfigJson", () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), "kiln-yaml-migrate-"));
-    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("returns false when config.json does not exist", () => {
-    const result = migrateConfigJson(join(tempDir, ".kiln"));
-    expect(result).toBe(false);
-  });
-
-  it("migrates config.json to kiln.yaml", () => {
-    writeFileSync(
-      join(tempDir, ".kiln", "config.json"),
-      JSON.stringify({
-        domain: "python",
-        provider: "claude",
-        channels: ["cli", "web"],
-        teamMode: "sequential",
-        requireApproval: true,
-        maxDepth: 5,
-        parallelWorkers: 4,
-        mode: "api-key",
-      }),
-    );
-    const result = migrateConfigJson(join(tempDir, ".kiln"));
-    expect(result).toBe(true);
-
-    const parsed = parseYaml(
-      readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),
-    ) as KilnYaml;
-    expect(parsed.domain).toBe("python");
-    expect(parsed.provider).toBe("claude");
-    expect(parsed.channels).toEqual(["cli", "web"]);
-    expect(parsed.requireApproval).toBe(true);
-    expect(parsed.maxDepth).toBe(5);
-    expect(parsed.parallelWorkers).toBe(4);
-    expect(parsed.permissions?.approval).toBe("on-request");
-  });
-
-  it("deletes config.json after migration", () => {
-    writeFileSync(
-      join(tempDir, ".kiln", "config.json"),
-      JSON.stringify({ domain: "generic" }),
-    );
-    migrateConfigJson(join(tempDir, ".kiln"));
-    expect(existsSync(join(tempDir, ".kiln", "config.json"))).toBe(false);
-  });
-
-  it("maps requireApproval false to never", () => {
-    writeFileSync(
-      join(tempDir, ".kiln", "config.json"),
-      JSON.stringify({ requireApproval: false }),
-    );
-    migrateConfigJson(join(tempDir, ".kiln"));
-    const parsed = parseYaml(
-      readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),
-    ) as KilnYaml;
-    expect(parsed.permissions?.approval).toBe("never");
   });
 });
 
@@ -457,8 +405,9 @@ describe("defaultKilnYaml", () => {
     const result = defaultKilnYaml("python");
     expect(result.version).toBe("1");
     expect(result.domain).toBe("python");
-    expect(result.provider).toBe("claude");
-    expect(result.mode).toBe("api-key");
+    expect(result).not.toHaveProperty("provider");
+    expect(result).not.toHaveProperty("model");
+    expect(result).not.toHaveProperty("mode");
     expect(result.permissions?.approval).toBe("on-request");
     expect(result.permissions?.sandbox).toBe("read-only");
   });

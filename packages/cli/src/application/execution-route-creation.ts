@@ -1,4 +1,3 @@
-import { defineExecutionCatalog } from "@kilnai/core";
 import type { GlobalConfigMutationOptions, GlobalConfigMutationResult, KilnGlobalConfig } from "../config/global-config.js";
 import type { CompleteExecutionRouteDraft } from "./execution-route-draft.js";
 
@@ -20,14 +19,13 @@ export async function createExecutionRoute(input: {
   readonly refreshExecutionRoutes: ExecutionRouteRefreshPort;
 }): Promise<ExecutionRouteCreationCommitResult> {
   const result = input.mutateGlobalConfig((current) => {
-    if (!current?.executionCatalog) throw new Error("Global config must declare executionCatalog before creating a route.");
-    const executionCatalog = defineExecutionCatalog({
-      ...current.executionCatalog,
-      routes: [...current.executionCatalog.routes, input.draft.route],
-    });
+    if (!current?.targetCatalog) throw new Error("Global config must declare targetCatalog before creating a direct target.");
     return {
       ...current,
-      executionCatalog,
+      targetCatalog: {
+        ...current.targetCatalog,
+        targets: [...current.targetCatalog.targets, { ...input.draft.route, kind: "direct" as const }],
+      },
     };
   }, { expectedRevision: input.expectedRevision });
   try {

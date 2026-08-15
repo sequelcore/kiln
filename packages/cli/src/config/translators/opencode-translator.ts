@@ -1,5 +1,5 @@
 import { describeTrustedExecutionEnforcement, OPENCODE_NO_FILESYSTEM_SANDBOX, type TrustedExecutionAuthorizationRecord } from "@kilnai/core";
-import type { KilnYaml } from "../../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../../wrapper/session.js";
 import { type OpenCodeNativeRules, translatePermission } from "../../wrapper/session-registry.js";
 import type { OpenCodeResponsesProjection } from "../model-gateway-native-projection.js";
@@ -66,7 +66,7 @@ function buildOpenCodePermissionDocument(
 export function translateOpenCodePermissionProjection(input: {
   readonly policy: KilnPermissionPolicy;
   readonly existingDocument: Record<string, unknown>;
-  readonly kilnYaml?: KilnYaml;
+  readonly kilnYaml?: ResolvedKilnConfig;
   readonly ownsManagedDefault?: boolean;
   readonly gatewayProjection?: OpenCodeResponsesProjection;
   readonly previousManagedFields?: readonly string[];

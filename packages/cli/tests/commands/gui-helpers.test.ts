@@ -45,7 +45,7 @@ describe("gui command helpers", () => {
       "utf-8",
     );
 
-    expect(written).toContain("version: \"2\"");
+    expect(written).toContain("version: \"3\"");
     expect(written).toContain("ui:");
     expect(written).toContain("theme: automata");
     expect(buildGuiUrl("http://localhost:5183/gui/", "automata")).toBe("http://localhost:5183/gui/?theme=automata");

@@ -60,6 +60,11 @@ export type {
 export {
   ManagedCommittedRouteMismatchError,
 } from "./request-preparation.js";
+export {
+  resolveAdHocManagedInvocationRouteProfile,
+  resolveConfiguredManagedInvocationRouteProfile,
+  resolveManagedInvocationRouteProfile,
+} from "./profile-resolution.js";
 export type {
   ManagedCommittedInvocationRequest,
   ManagedCommittedRouteMismatchEvidence,

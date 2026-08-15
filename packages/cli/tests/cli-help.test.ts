@@ -31,7 +31,8 @@ describe("CLI help", () => {
     const helpOutput = stdoutSpy.mock.calls.map((call) => String(call[0])).join("\n");
     expect(helpOutput).toContain("import-native");
     expect(helpOutput).toContain("uninstall");
-    expect(helpOutput).toContain("route");
+    expect(helpOutput).toContain("target");
+    expect(helpOutput).not.toContain("  route ");
     expect(helpOutput).toContain("tools");
     expect(helpOutput).toContain("operator-runtime");
     expect(helpOutput).toContain("--open");

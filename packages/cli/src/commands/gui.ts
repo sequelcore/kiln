@@ -6,6 +6,7 @@ import {
   readGlobalConfig,
   readGlobalConfigSnapshot,
   mutateGlobalConfig,
+  projectDirectExecutionCatalog,
 } from "../config/global-config.js";
 import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -72,7 +73,6 @@ import {
   createOperatorTurnDispatchComposition,
   resolveOperatorContinuationBinding,
 } from "../application/operator-turn-dispatch-composition.js";
-import { defineExecutionCatalog } from "@kilnai/core";
 import { GoalRunStore, WorkItemStore, createSessionBuiltinToolOptions, getFieldStore } from "@kilnai/core";
 import { persistGuiThemePreference, resolveGuiThemePreference } from "../application/operator-theme-preferences.js";
 import { buildGuiAttachUrl, buildGuiUrl } from "./gui-options.js";
@@ -163,7 +163,8 @@ export async function guiCommand(
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the GUI.");
-  if (!globalConfig.executionCatalog) throw new Error("An execution catalog is required to start the GUI.");
+  const operatorExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
+  if (!operatorExecutionCatalog) throw new Error("A direct target catalog is required to start the GUI.");
   const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig);
   const provider = parseStartupProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
@@ -288,7 +289,6 @@ export async function guiCommand(
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
   const initialOperatorDiscovery = readProviderDiscoveryCache(cwd);
-  const operatorExecutionCatalog = defineExecutionCatalog(globalConfig.executionCatalog);
   const { startGuiGateway } = await import("@kilnai/runtime");
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnGuiDispatchPayload, OperatorTurnDispatchResult>({
     catalog: operatorExecutionCatalog,
@@ -355,10 +355,11 @@ export async function guiCommand(
         admittedEvidence,
         resolveCurrentEvidence: async () => {
           const snapshot = readGlobalConfigSnapshot();
-          if (!snapshot.config?.executionCatalog) throw new Error("Execution catalog is unavailable.");
+          const executionCatalog = projectDirectExecutionCatalog(snapshot.config);
+          if (!executionCatalog) throw new Error("Direct target catalog is unavailable.");
           const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
           const executionRouteCatalog = await executionRouteSelection.getCatalog();
-          return { catalog: projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog }), executionCatalog: snapshot.config.executionCatalog, revision: snapshot.revision };
+          return { catalog: projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog }), executionCatalog, revision: snapshot.revision };
         },
         mutateGlobalConfig,
         refreshExecutionRoutes: async () => { await executionRouteSelection.getCatalog(); },
@@ -490,13 +491,13 @@ async function guiAttachCommand(
 function parseStartupProvider(p: string | undefined, providerIds: readonly ProviderId[]): ProviderId {
   const provider = typeof p === "string" ? p.trim() : "";
   if (provider.length === 0) {
-    throw new Error("The configured execution route does not specify a provider.");
+    throw new Error("The configured execution target does not specify a provider.");
   }
   if (providerIds.includes(provider as ProviderId)) {
     return provider as ProviderId;
   }
   throw new Error(
-    `The configured GUI execution route uses unsupported provider '${provider}'. Configure one of: ${providerIds.join(", ")}`,
+    `The configured GUI execution target uses unsupported provider '${provider}'. Configure one of: ${providerIds.join(", ")}`,
   );
 }
 

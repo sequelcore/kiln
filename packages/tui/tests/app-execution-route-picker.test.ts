@@ -309,7 +309,7 @@ function emitKey(sequence: string, name: string): void {
 }
 
 async function openExecutionRoutePickerAndChooseOpenAi(): Promise<void> {
-  emitText("/route");
+  emitText("/target");
   emitKey("\r", "return");
   await flushUi();
   expect(harness.state?.executionRoutePickerOpen).toBe(true);
@@ -467,7 +467,7 @@ describe("TUI execution-route picker", () => {
 
       expect(onContinueSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-1" }));
       expect(harness.state?.sessionContinuationMode).toBe(false);
-      expect(harness.ui?.commandBarStatus.content).toContain("execution route claude-default is unavailable");
+      expect(harness.ui?.commandBarStatus.content).toContain("execution target claude-default is unavailable");
 
       emitText("/continue");
       emitKey("\r", "return");
@@ -536,7 +536,7 @@ describe("TUI execution-route picker", () => {
 
   it("preserves derived execution evidence when route selection rejects with a connection failure", async () => {
     harness.switchExecutionRoute.mockImplementation(async () => {
-      throw new Error("Execution route selection requires an active TUI gateway connection");
+      throw new Error("Execution target selection requires an active TUI gateway connection");
     });
 
     const createSession = vi.fn(async () => ({
@@ -565,7 +565,7 @@ describe("TUI execution-route picker", () => {
       expect(harness.state?.currentProvider).toBe("claude");
       expect(harness.state?.currentModel).toBe("claude-sonnet-4-6");
       expect(harness.ui?.commandBarStatus.content).toContain(
-        "Execution route selection requires an active TUI gateway connection",
+        "Execution target selection requires an active TUI gateway connection",
       );
     } finally {
       harness.renderer?.destroy();
@@ -649,7 +649,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
 
@@ -658,7 +658,7 @@ describe("TUI execution-route picker", () => {
 
       expect(refreshExecutionRoutes).toHaveBeenCalledOnce();
       expect(harness.state?.executionRoutePickerOpen).toBe(true);
-      expect(harness.ui?.commandBarStatus.content).toContain("Execution route catalog refreshed");
+      expect(harness.ui?.commandBarStatus.content).toContain("Execution target catalog refreshed");
     } finally {
       harness.renderer?.destroy();
       void startPromise.catch(() => undefined);
@@ -674,7 +674,7 @@ describe("TUI execution-route picker", () => {
     const startPromise = startTui(createSession, [{ id: "claude", group: "subscription", models: ["claude-sonnet-4-6"], free: false }], "claude", "kiln", TEST_THEME);
     try {
       await waitForTuiReady();
-      emitText("/route"); emitKey("\r", "return"); await flushUi();
+      emitText("/target"); emitKey("\r", "return"); await flushUi();
       emitKey("a", "a"); await flushUi();
       expect(harness.routePicker?.title.content).toContain("Available Models (read-only)");
       expect(harness.routePicker?.rows.some((row) => row.content.includes("provider/model"))).toBe(true);
@@ -717,7 +717,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
 
@@ -725,7 +725,7 @@ describe("TUI execution-route picker", () => {
       await flushUi();
 
       expect(refreshExecutionRoutes).toHaveBeenCalledOnce();
-      expect(harness.ui?.commandBarStatus.content).toContain("Refreshing execution routes");
+      expect(harness.ui?.commandBarStatus.content).toContain("Refreshing execution targets");
 
       emitKey("\r", "return");
       await flushUi();
@@ -736,7 +736,7 @@ describe("TUI execution-route picker", () => {
       resolveRefresh?.();
       await flushUi();
 
-      expect(harness.ui?.commandBarStatus.content).toContain("Execution route catalog refreshed");
+      expect(harness.ui?.commandBarStatus.content).toContain("Execution target catalog refreshed");
     } finally {
       harness.renderer?.destroy();
       void startPromise.catch(() => undefined);
@@ -766,7 +766,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
       expect(harness.state?.executionRoutePickerOpen).toBe(true);
@@ -789,7 +789,7 @@ describe("TUI execution-route picker", () => {
     }
   });
 
-  it("sends a selected eligible account override through the execution route", async () => {
+  it("sends a selected eligible account override through the execution target", async () => {
     harness.switchExecutionRoute.mockResolvedValue("openai-gpt-5");
     const createSession = vi.fn(async () => ({
       run: async function* () {},
@@ -811,7 +811,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
       emitKey("\x1b[B", "down");
@@ -853,7 +853,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
       expect(harness.state?.executionRoutePickerOpen).toBe(true);
@@ -910,7 +910,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
       expect(harness.state?.executionRoutePickerOpen).toBe(true);
@@ -998,7 +998,7 @@ describe("TUI execution-route picker", () => {
 
     try {
       await waitForTuiReady();
-      emitText("/route");
+      emitText("/target");
       emitKey("\r", "return");
       await flushUi();
       emitKey("\x1b[B", "down");

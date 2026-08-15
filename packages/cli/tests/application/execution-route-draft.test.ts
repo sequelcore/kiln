@@ -14,7 +14,7 @@ const discovery: AvailableModelCatalogEntry = {
   reasonCodes: ["discovery-observed", "model-eligible", "model-available", "route-not-configured"],
 };
 
-describe("execution route draft", () => {
+describe("execution target draft", () => {
   it("starts from the exact discovery identity and stays incomplete without material choices", () => {
     expect(startExecutionRouteDraft(discovery)).toEqual({
       status: "incomplete",

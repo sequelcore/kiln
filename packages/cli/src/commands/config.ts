@@ -3,7 +3,7 @@ import {
   readKilnYaml,
   writeKilnYaml,
   defaultKilnYaml,
-  type KilnYaml,
+  type KilnProjectConfig,
 } from "../kiln-yaml.js";
 import type { KilnWorkGovernanceConfig } from "../kiln-yaml-types.js";
 import type { KilnAppConfig } from "../config.js";
@@ -37,13 +37,11 @@ type KilnYamlKey =
   | "workGovernance.requireDelegationFor"
   | "workGovernance.requiredEvidence"
   | "domain"
-  | "provider"
   | "channels"
   | "teamMode"
   | "requireApproval"
   | "maxDepth"
   | "parallelWorkers"
-  | "mode"
   | "permissions.approval"
   | "permissions.sandbox"
   | "permissions.safeDefaults"
@@ -79,13 +77,11 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "workGovernance.requireDelegationFor",
   "workGovernance.requiredEvidence",
   "domain",
-  "provider",
   "channels",
   "teamMode",
   "requireApproval",
   "maxDepth",
   "parallelWorkers",
-  "mode",
   "permissions.approval",
   "permissions.sandbox",
   "permissions.safeDefaults",
@@ -203,14 +199,14 @@ export async function configCommand(
         console.log(`Not initialized. Run 'kiln init' first.`);
         return;
       }
-      let updated: KilnGlobalConfig | KilnYaml;
+      let updated: KilnGlobalConfig | KilnProjectConfig;
       if (hasGlobalFlag(args)) {
         updated = mutateGlobalConfig((current) =>
           setGlobalNestedKey(current ?? defaultGlobalConfig(), scopedKey, value) as KilnGlobalConfig
         ).config;
       } else {
         updated = setProjectNestedKey(projectConfig!, scopedKey, value);
-        writeKilnYaml(kilnDir, updated as KilnYaml);
+        writeKilnYaml(kilnDir, updated as KilnProjectConfig);
       }
 
       const displayVal = getNestedKey(updated, scopedKey);
@@ -224,7 +220,7 @@ export async function configCommand(
           () => defaultGlobalConfig(),
           { invalidCurrent: "backup-and-replace" },
         );
-        console.log("Global config reset to V2 defaults.");
+        console.log("Global config reset to V3 defaults.");
         if (result.invalidBackupPath) {
           console.log(`Previous invalid config backed up to ${result.invalidBackupPath}`);
         }
@@ -241,7 +237,7 @@ export async function configCommand(
   }
 }
 
-function setProjectNestedKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
+function setProjectNestedKey(config: KilnProjectConfig, key: KilnYamlKey, rawValue: string): KilnProjectConfig {
   if (key.startsWith("identity.") || key.startsWith("skills.visibility.") || key === "skills.externalCatalog") {
     console.error(`Config key ${key} is global-only. Use 'kiln config set --global ${key} <value>'.`);
     process.exit(1);
@@ -343,7 +339,7 @@ function setGlobalNestedKey(config: KilnGlobalConfig, key: KilnYamlKey, rawValue
 
 function setGovernanceOrSkillKey<T extends {
   readonly workGovernance?: KilnWorkGovernanceConfig;
-  readonly skills?: KilnYaml["skills"];
+  readonly skills?: KilnProjectConfig["skills"];
 }>(
   config: T,
   key: KilnYamlKey,
@@ -425,7 +421,7 @@ function setGovernanceOrSkillKey<T extends {
     };
   }
   if (key === "skills.builtin") {
-    return { ...config, skills: { ...(config.skills ?? {}), builtin: parseJson(rawValue, key) as NonNullable<KilnYaml["skills"]>["builtin"] } };
+    return { ...config, skills: { ...(config.skills ?? {}), builtin: parseJson(rawValue, key) as NonNullable<KilnProjectConfig["skills"]>["builtin"] } };
   }
   if (key === "skills.visibility.default") {
     if (rawValue !== "implicit" && rawValue !== "explicit-only" && rawValue !== "disabled") {
@@ -437,12 +433,12 @@ function setGovernanceOrSkillKey<T extends {
     return { ...config, skills: { ...(config.skills ?? {}), visibility: { ...(config.skills?.visibility ?? {}), overrides: parseJson(rawValue, key) as Record<string, "implicit" | "explicit-only" | "disabled"> } } };
   }
   if (key === "skills.externalCatalog") {
-    return { ...config, skills: { ...(config.skills ?? {}), externalCatalog: parseJson(rawValue, key) as NonNullable<KilnYaml["skills"]>["externalCatalog"] } };
+    return { ...config, skills: { ...(config.skills ?? {}), externalCatalog: parseJson(rawValue, key) as NonNullable<KilnGlobalConfig["skills"]>["externalCatalog"] } };
   }
   return undefined;
 }
 
-function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): unknown {
+function getNestedKey(config: KilnProjectConfig | KilnGlobalConfig, key: KilnYamlKey): unknown {
   if (key === "identity.name") return (config as KilnGlobalConfig).identity?.name;
   if (key === "identity.timezone") return (config as KilnGlobalConfig).identity?.timezone;
   if (key === "activeInstructionProfiles") return config.activeInstructionProfiles;
@@ -456,7 +452,7 @@ function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): un
   if (key === "skills.visibility.default") return config.skills?.visibility?.default;
   if (key === "skills.visibility.overrides") return config.skills?.visibility?.overrides;
   if (key === "skills.externalCatalog") return config.skills?.externalCatalog;
-  const projectConfig = config as KilnYaml;
+  const projectConfig = config as KilnProjectConfig;
   if (key === "permissions.approval") return projectConfig.permissions?.approval;
   if (key === "permissions.sandbox") return projectConfig.permissions?.sandbox;
   if (key === "permissions.safeDefaults") return projectConfig.permissions?.safeDefaults;
@@ -478,13 +474,11 @@ function getNestedKey(config: KilnYaml | KilnGlobalConfig, key: KilnYamlKey): un
   if (key === "interactiveUse.computerEnvironment") return projectConfig.interactiveUse?.computerEnvironment;
   switch (key) {
     case "domain": return projectConfig.domain;
-    case "provider": return projectConfig.provider;
     case "channels": return projectConfig.channels;
     case "teamMode": return projectConfig.teamMode;
     case "requireApproval": return projectConfig.requireApproval;
     case "maxDepth": return projectConfig.maxDepth;
     case "parallelWorkers": return projectConfig.parallelWorkers;
-    case "mode": return projectConfig.mode;
     default: return undefined;
   }
 }
@@ -505,7 +499,7 @@ function parseScalar(value: string, key: KilnYamlKey): string | number | boolean
   return value;
 }
 
-function setInteractiveUseKey(config: KilnYaml, key: KilnYamlKey, rawValue: string): KilnYaml {
+function setInteractiveUseKey(config: KilnProjectConfig, key: KilnYamlKey, rawValue: string): KilnProjectConfig {
   const interactiveUse = config.interactiveUse ?? {};
   if (key === "interactiveUse.enabled") {
     return { ...config, interactiveUse: { ...interactiveUse, enabled: parseBoolean(rawValue, key) } };
@@ -616,7 +610,7 @@ function printConfigHelp(): void {
   console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
-  console.log("  reset [--global]  Reset project config, or explicitly adopt clean global V2 defaults");
+  console.log("  reset [--global]  Reset project config, or explicitly adopt clean global V3 defaults");
   console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");

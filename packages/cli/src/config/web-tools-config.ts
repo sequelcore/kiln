@@ -33,7 +33,7 @@ import {
 } from "../wrapper/permission-evaluator.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import type {
-  KilnYaml,
+  ResolvedKilnConfig,
   KilnYamlWebConfig,
   KilnYamlWebExtractProvider,
   KilnYamlWebNetPolicy,
@@ -54,7 +54,7 @@ export interface WebToolSurfaceMemoryAuthorityInput {
 }
 
 export interface WebToolSurfaceOptionsInput {
-  readonly config?: KilnYaml | null;
+  readonly config?: ResolvedKilnConfig | null;
   readonly projectPath: string;
   readonly fetchImpl?: FetchLike;
   readonly memoryAuthority?: WebToolSurfaceMemoryAuthorityInput;
@@ -162,7 +162,7 @@ export function createWebToolSurfaceOptions(
 }
 
 export function describeWebToolConfiguration(
-  config: KilnYaml | null | undefined,
+  config: ResolvedKilnConfig | null | undefined,
   sources: WebToolConfigurationSourceInput = {},
 ): WebToolConfigurationDiagnostics {
   const webConfig = config?.web;

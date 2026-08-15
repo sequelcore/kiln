@@ -1,120 +1,127 @@
-# Model Routing
+# Model routing
 
-Kiln has two routing concerns with separate authority. Do not configure one as
-an alias or fallback for the other.
+Kiln separates operator targets from tenant application routing. They solve
+different problems and do not fall back to one another.
 
 | Concern | Owner | Applies to |
 | --- | --- | --- |
-| Operator execution | Global V2 `executionCatalog` and `executionRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed direct agents |
-| Tenant model routing | A tenant application's `modelConfig` | The application's `RuntimeSessionOrchestrator` and its configured provider pool |
+| Operator execution | Global V3 `targetCatalog` and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
+| Tenant model routing | Application `modelConfig` | That application's session orchestrator and provider pool |
 
-The operator catalog is the only authority for an operator-facing provider,
-model, account policy, credential reference, and route economics. A surface
-selects a route; it never selects a credential.
+## Operator targets
 
-## Operator execution catalog
+A target is the only operator-selectable execution identity. Configure targets
+in `~/.kiln/config.yaml`; projects cannot add or replace them.
 
-Configure the catalog in the global configuration (`~/.kiln/config.yaml`) with
-`version: "2"`. The complete, parser-validated example is
-[task-aware-model-team.yaml](../../examples/configs/task-aware-model-team.yaml).
+The catalog separates:
 
-The catalog has three intentionally separate records:
+| Record | Owns |
+| --- | --- |
+| `targetCatalog.accounts` | Opaque credential reference, capacity, quota, and account economics |
+| `targetCatalog.accountPolicies` | Eligible accounts and deterministic automatic selection |
+| `targetCatalog.targets` | Direct or harness provider/model destination, data policy, account selection, and target economics |
 
-| Record | Contains | Does not contain |
-| --- | --- | --- |
-| `executionCatalog.accounts` | An opaque `credentialId`, capacity limits, and account economics | Credential material or surface preferences |
-| `executionCatalog.accountPolicies` | Eligible accounts and `economic-least-pressure` selection | Model, provider model ID, or a surface-visible credential |
-| `executionCatalog.routes` | Route label, provider, provider model, account-selection rule, and route economics | A second fallback hierarchy or copied managed-agent authority |
+`targetRouting.defaultTargetId` selects the normal default. A surface preference
+may persist `ui.targetSelection.targetId`. The CLI accepts an explicit target:
 
-`executionRouting.defaultRouteId` selects the default route. A GUI or TUI
-preference can persist the same `routeId` in `ui.executionRouteSelection`.
-For CLI use, select a configured route with `kiln run --route <route-id>`; omit
-it to use the default.
+```bash
+kiln target
+kiln run --target codex-terra "Inspect this repository"
+```
 
-### Automatic accounts and explicit overrides
+The GUI and TUI use the same target catalog. The TUI opens it with `/target`.
+No operator surface selects a raw provider, model, account policy, or
+credential.
 
-An automatic route references one account policy. At dispatch time, Kiln first
-rejects candidates that fail safety, health, quota, or capacity admission.
-Among the remaining accounts it chooses by economic cost, then pressure, then
-account ID for a deterministic tie break.
+Start from the parser-validated
+[task-aware model team](../../examples/configs/task-aware-model-team.yaml).
 
-An operator may temporarily narrow an automatic route to an eligible account
-with `accountOverrideId`. The override must be a member of that route's account
-policy; exact routes do not accept overrides. Neither UI exposes a credential
-ID or secret.
+## Automatic accounts
 
-After selection, Runtime acquires capacity, fences the commitment, verifies the
-credential revision, and dispatches through that exact binding. If no candidate
-is admissible, operator execution is rejected before dispatch. It does not
-silently fall back to another provider, model, route, or credential.
+A direct target may reference an automatic account policy. At dispatch,
+Runtime rejects accounts that fail safety, data-policy, health, quota, or
+capacity admission. It orders the remaining accounts by configured economics,
+pressure, and stable account identity.
 
-### Required economics
+An eligible `accountOverrideId` may narrow the selected target for one surface.
+It cannot add an account or expose a credential ID. After selection, Runtime
+fences capacity and verifies the exact credential revision before provider
+dispatch.
 
-Every account declares its capacity and subscription/quota posture. Every route
-declares its adapter capability, billing channel, service tier, rate-card basis,
-fallback and overage posture, price evidence, auxiliary charges, and execution
-envelope. This is deliberate: economics is route authority, not display
-metadata. Use the full example rather than copying a partial fragment.
+If no account is admissible, the target is unavailable. Kiln does not silently
+switch provider, model, target, or credential after an effect may have escaped.
 
-## Model Gateway and managed agents are overlays
+## Economics and data policy
 
-Model Gateway provides authenticated ingress and virtual model names. It does
-not own accounts, provider/model identity, or route economics. Each virtual
-model references the catalog with `executionRouteId`:
+Every operational direct target carries complete data-policy and economic
+evidence. These records are execution authority, not display metadata. They
+include the adapter and billing channel, rate-card basis, price evidence,
+auxiliary charges, execution envelope, fallback posture, and overage posture.
+
+Do not copy partial YAML fragments from prose. Use the complete
+[V3 target example](../../examples/configs/managed-targets-v3-subscription.yaml)
+and replace its synthetic evidence with current facts.
+
+## Managed children
+
+Managed execution reuses physical targets. It does not define a second route
+graph.
+
+- Agent profiles reference `targetId` and `authorityProfileId`.
+- `authorityProfiles` owns tools, workspace, memory, timeouts, approvals, and
+  optional voice identity.
+- Managed economic policy candidates reference `targetId`.
+- `managedAgents` owns enablement, default authority, approval posture,
+  worktree leasing, and economic selection policy.
+
+Runtime may persist a `routeId` after it admits a target for a specific child
+execution. That route identity belongs to lifecycle, settlement, and replay;
+it is not another configuration field for the operator.
+
+## Model Gateway
+
+Model Gateway adds authenticated ingress and virtual names. Each virtual model
+references one catalog target:
 
 ```yaml
 modelGateway:
   virtualModels:
     - id: managed-codex-terra
-      executionRouteId: codex-terra
+      displayName: Codex Terra through Kiln
+      contextTokens: 200000
+      outputTokens: 8192
+      targetId: codex-terra
       capabilities: [text]
       affinity: { continuity: none }
 ```
 
-A managed direct route follows the same rule. It contributes its authority
-profile and exactly one execution route reference; it does not repeat provider,
-model, credential, or economics fields:
+The virtual model does not repeat provider, model, account, credential,
+data-policy, or economics authority.
 
-```yaml
-managedAgents:
-  schemaVersion: 2
-  routes:
-    - id: architecture-review
-      kind: direct
-      executionRouteId: codex-sol
-      profiles: [foundation-readonly-plan]
-```
+## Direct and harness targets
 
-Managed economic policy candidates name the managed route ID, while the managed
-route itself names the canonical execution route. This keeps economic admission
-and physical execution identity in one place.
+A direct target uses a Kiln provider adapter and account policy. A harness
+target identifies a supported native CLI boundary. Both live in
+`targetCatalog.targets`; separate worker routing and worker-model defaults are
+not operator selection authorities.
 
-## Native worker engines are separate
+Harness availability and native model encoding still require current capability
+evidence. Ambient harness defaults do not become Kiln model authority.
 
-`workerRouting` and `workerModels` configure native CLI harness workers such as
-Codex, Claude, or OpenCode. They are not an operator execution catalog and must
-not contain account-backed direct-provider routes such as `codex-oauth` or
-`opencode-go`. Omit both settings when the installation has no native harness
-worker concern, as the complete example does.
+## Tenant application routing
 
-## Tenant application model router
+Tenant `modelConfig` remains an application feature. Its rules and capability
+registry choose within the application's configured provider pool before an
+application LLM call.
 
-Tenant `modelConfig` remains a distinct application feature. Its
-`RulesRouter`, `ModelCapabilityRegistry`, complexity score, and `model_routed`
-events choose among the application's configured provider pool before an
-application LLM call. It may use a tenant default when no rule matches, and the
-runtime preserves that configured default when its internal router fails without
-an authority-sensitive deliberation request.
-
-That behavior never authorizes operator execution fallback. Tenant routing does
-not select an account, read `executionCatalog`, or bypass the catalog's
-admission and exact credential commitment. Configure it in the tenant
-application configuration, not the global V2 execution catalog. See
-[App YAML](../../configuration/app-yaml.md) for application configuration and
-[Multi-Tenant](multi-tenant.md) for tenant ownership.
+That behavior cannot authorize operator targets, access the global account
+catalog, or bypass exact credential commitment. Configure tenant routing in
+the application configuration. See [App YAML](../../configuration/app-yaml.md)
+and [Multi-Tenant](multi-tenant.md).
 
 ## Related
 
-- [Global Configuration](global-config.md) — global configuration reference
-- [Control Model](../../architecture/core/control-model.md) — control-loop placement
-- [Coordination](../../architecture/coordination/coordination.md) — runtime coordination boundaries
+- [Global configuration](global-config.md)
+- [Provider credential pools](../../architecture/safety/provider-credential-pools.md)
+- [Model Gateway](../../architecture/providers/model-gateway.md)
+- [Coordination](../../architecture/coordination/coordination.md)

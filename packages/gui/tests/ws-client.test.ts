@@ -387,14 +387,14 @@ describe("GuiWsClient", () => {
       vi.useRealTimers();
     });
 
-    it("does not queue execution route selection while disconnected", () => {
+    it("does not queue execution target selection while disconnected", () => {
       client = createClient();
 
       expect(() => client.send({
         type: "execution_route",
         routeId: "openai-gpt-5",
         requestId: "route-switch-1",
-      })).toThrow("Cannot select execution route while WebSocket is not open");
+      })).toThrow("Cannot select execution target while WebSocket is not open");
 
       client.connect();
       const wsInstance = wsInstances[wsInstances.length - 1];
@@ -1388,7 +1388,7 @@ describe("GuiWsClient", () => {
       }
     });
 
-    it("rejects execution route acknowledgements with an empty route id", () => {
+    it("rejects execution target acknowledgements with an empty route id", () => {
       client = createClient();
       client.connect();
 

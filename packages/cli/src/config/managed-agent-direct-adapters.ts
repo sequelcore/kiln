@@ -15,10 +15,11 @@ import {
   createAttachedRuntimeBuiltinToolSurface,
   ManagedDirectProviderRuntimeAdapter,
   type ManagedCommittedInvocationRequest,
+  type ManagedInvocationRouteProfile,
   type RuntimeExecutionEnvelope,
   type ManagedAgentRuntimeAdapter,
 } from "@kilnai/runtime";
-import type { KilnManagedAgentRouteConfig } from "../kiln-yaml-types.js";
+import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
 import {
   createDirectProviderAdapter,
   type DirectProviderCredentialBinding,
@@ -30,11 +31,6 @@ type BuiltinToolOptionsSource =
   | DefaultBuiltinToolRegistryOptions
   | (() => DefaultBuiltinToolRegistryOptions | undefined);
 type ExecutionEnvelopeSource = RuntimeExecutionEnvelope | (() => RuntimeExecutionEnvelope | undefined);
-const WRITE_PROFILES = new Set([
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
-]);
 const LIVE_PROVEN_DIRECT_WRITE_AUTHORITY: ManagedAgentAdapterWriteAuthorityDescriptor = {
   proposalSupported: true,
   approvedApplySupported: true,
@@ -63,17 +59,18 @@ export interface ManagedDirectProviderAdapterFactoryOptions {
 export function createManagedDirectProviderAdapterFactory(
   options: ManagedDirectProviderAdapterFactoryOptions = {},
 ): (
-  route: KilnManagedAgentRouteConfig,
+  route: ResolvedManagedTargetConfig,
   credentialBinding: DirectProviderCredentialBinding | undefined,
   abortSignal: AbortSignal | undefined,
   committedRequest: ManagedCommittedInvocationRequest,
+  profile: ManagedInvocationRouteProfile,
 ) => Promise<ManagedAgentRuntimeAdapter | undefined> {
   const resolveBuiltinToolSurface = () => createAttachedRuntimeBuiltinToolSurface({
     builtinToolOptions: resolveBuiltinToolOptions(options.builtinToolOptions),
   });
   const createProvider = options.createProviderAdapter ?? createDirectProviderAdapter;
 
-  return async (route, credentialBinding, abortSignal, committedRequest) => {
+  return async (route, credentialBinding, abortSignal, committedRequest, profile) => {
     throwIfAborted(abortSignal);
     if (route.kind !== "direct") {
       return undefined;
@@ -105,7 +102,7 @@ export function createManagedDirectProviderAdapterFactory(
     throwIfAborted(abortSignal);
     const builtinToolSurface = resolveBuiltinToolSurface();
     const admittedMcpSelectors = new Set(
-      (route.tools?.allowed ?? []).filter((name) => name.startsWith("mcp:")),
+      profile.allowedToolNames.filter((name) => name.startsWith("mcp:")),
     );
     const createMcpClient = options.createMcpClient ?? createCanonicalMcpClient;
     const mcpClients = admittedMcpSelectors.size > 0
@@ -159,7 +156,7 @@ export function createManagedDirectProviderAdapterFactory(
       toolAuthority: builtinToolSurface.toolAuthority,
       ...(executionEnvelope ? { executionEnvelope } : {}),
       economicIdentity: committedRequest.commitment.reservation.selectedIdentity,
-      ...(routeRequiresWriteAuthority(route) ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
+      ...(profile.writeAllowed === true ? { writeAuthority: LIVE_PROVEN_DIRECT_WRITE_AUTHORITY } : {}),
     });
   };
 }
@@ -200,11 +197,6 @@ function resolveBuiltinToolOptions(
   source: BuiltinToolOptionsSource | undefined,
 ): DefaultBuiltinToolRegistryOptions | undefined {
   return typeof source === "function" ? source() : source;
-}
-
-function routeRequiresWriteAuthority(route: KilnManagedAgentRouteConfig): boolean {
-  return route.tools?.writes === true
-    || route.profiles?.some((profile) => WRITE_PROFILES.has(profile)) === true;
 }
 
 function requireDirectProvider(provider: string): DirectProviderId {

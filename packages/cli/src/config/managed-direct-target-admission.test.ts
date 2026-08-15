@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
 import { defineExecutionCatalog } from "@kilnai/core";
-import { admitManagedDirectExecutionRoute } from "./managed-execution-route-projection.js";
+import { describe, expect, it } from "vitest";
+import { admitManagedDirectTarget } from "./managed-direct-target-admission.js";
+import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";
 
 const amount = {
   atoms: "1",
@@ -60,15 +61,23 @@ const catalog = defineExecutionCatalog({
   }],
 });
 
-describe("managed execution route projection", () => {
-  it("admits direct managed identity from the canonical execution catalog", () => {
-    const projection = admitManagedDirectExecutionRoute(catalog, {
-      id: "managed-terra",
-      kind: "direct",
-      executionRouteId: "terra",
-    });
+function directTarget(id: string): Extract<ResolvedManagedTargetConfig, { readonly kind: "direct" }> {
+  return {
+    id,
+    kind: "direct",
+    profiles: ["foundation-readonly-plan"],
+    authorityProfiles: [],
+  };
+}
 
-    expect(projection.admission).toMatchObject({
+describe("managed direct target admission", () => {
+  it("admits one canonical target identity without translating through an alias", () => {
+    const target = directTarget("terra");
+    const admitted = admitManagedDirectTarget(catalog, target);
+
+    expect(admitted.target).toBe(target);
+    expect(admitted.executionRoute.id).toBe("terra");
+    expect(admitted.admission).toMatchObject({
       routeId: "terra",
       providerId: "codex-oauth",
       providerModelId: "gpt-5.6-terra",
@@ -76,9 +85,16 @@ describe("managed execution route projection", () => {
     });
   });
 
-  it("fails closed when direct route authority is absent or stale", () => {
-    const route = { id: "managed-terra", kind: "direct" as const, executionRouteId: "terra" };
-    expect(() => admitManagedDirectExecutionRoute(undefined, route)).toThrow(/executionCatalog/u);
-    expect(() => admitManagedDirectExecutionRoute(catalog, { ...route, executionRouteId: "missing" })).toThrow(/unavailable/u);
+  it("fails closed when the canonical target catalog is absent or does not contain the target", () => {
+    expect(() => admitManagedDirectTarget(undefined, directTarget("terra"))).toThrow(/target catalog/u);
+    expect(() => admitManagedDirectTarget(catalog, directTarget("missing"))).toThrow(/unavailable/u);
+  });
+
+  it("does not expose managed-route alias vocabulary", () => {
+    const admitted = admitManagedDirectTarget(catalog, directTarget("terra"));
+
+    expect(admitted.target).not.toHaveProperty("executionRouteId");
+    expect(admitted).not.toHaveProperty("projection");
+    expect(JSON.stringify(admitted)).not.toContain("managed-terra");
   });
 });

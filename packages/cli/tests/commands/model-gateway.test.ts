@@ -49,7 +49,7 @@ modelGateway:
   principals:
     - { tokenEnv: BEARER_TOKEN, ingress: openai-responses, tenantId: tenant, applicationId: app, callerId: caller, capabilityId: invoke, scopes: [model.invoke], budgetEvidenceId: budget, virtualModelIds: [codex] }
   virtualModels:
-    - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, executionRouteId: codex-route, capabilities: [text], affinity: { continuity: none } }
+    - { id: codex, displayName: Codex, contextTokens: 1000, outputTokens: 100, targetId: codex-route, capabilities: [text], affinity: { continuity: none } }
 `;
 const modelGateway = parseGatewayYaml(yaml).modelGateway!;
 const executionCatalog = defineExecutionCatalog({
@@ -108,9 +108,13 @@ const executionCatalog = defineExecutionCatalog({
   }],
 });
 const globalConfig = {
-  version: "2" as const,
-  executionCatalog,
-  executionRouting: { defaultRouteId: "codex-route" },
+  version: "3" as const,
+  targetCatalog: {
+    accounts: executionCatalog.accounts,
+    accountPolicies: executionCatalog.accountPolicies,
+    targets: executionCatalog.routes.map((route) => ({ ...route, kind: "direct" as const })),
+  },
+  targetRouting: { defaultTargetId: "codex-route" },
   modelGateway,
 };
 const neverShutdown = new Promise<void>(() => undefined);
@@ -172,7 +176,7 @@ describe("modelGatewayCommand", () => {
     });
 
     const options = start.mock.calls[0]![0];
-    expect(options.executionCatalog).toBe(executionCatalog);
+    expect(options.executionCatalog).toStrictEqual(executionCatalog);
     expect(options.executionRouting.admit({ routeId: "codex-route" })).toMatchObject({
       routeId: "codex-route",
       providerId: "codex-oauth",
@@ -277,7 +281,7 @@ describe("modelGatewayCommand", () => {
     });
 
     const options = start.mock.calls[0]![0];
-    expect(options.executionCatalog).toBe(executionCatalog);
+    expect(options.executionCatalog).toStrictEqual(executionCatalog);
     expect(options.executionRouting.admit({ routeId: "codex-route" }).routeId).toBe("codex-route");
     expect(options.databasePath).toBe(join(root, "runtime", "economic-authority", "managed-account-leases.sqlite"));
     await registerShutdown.mock.calls[0]![0]!();
@@ -291,10 +295,10 @@ describe("modelGatewayCommand", () => {
 
     await expect(modelGatewayCommand(["serve", "--config", configPath], {
       startModelGatewayListener: start,
-      readGlobalConfig: () => ({ version: "2", modelGateway }),
+      readGlobalConfig: () => ({ version: "3", modelGateway }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       log: vi.fn(),
-    })).rejects.toThrow("executionCatalog and executionRouting");
+    })).rejects.toThrow("targetCatalog and targetRouting");
     expect(start).not.toHaveBeenCalled();
   });
 

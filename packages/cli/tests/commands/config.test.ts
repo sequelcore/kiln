@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { configCommand } from "../../src/commands/config.js";
-import type { KilnYaml } from "../../src/kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry } from "@kilnai/core";
 
@@ -18,7 +18,7 @@ const MOCK_APP_CONFIG: KilnAppConfig = {
   mcpServerName: "kiln",
 };
 
-function writeKiln(dir: string, config: KilnYaml): void {
+function writeKiln(dir: string, config: ResolvedKilnConfig): void {
   mkdirSync(join(dir, ".kiln"), { recursive: true });
   writeFileSync(join(dir, ".kiln", "kiln.yaml"), `version: "1"\n${Object.entries(config)
     .filter(([k]) => k !== "version")
@@ -26,11 +26,11 @@ function writeKiln(dir: string, config: KilnYaml): void {
     .join("\n")}\n`);
 }
 
-function readKiln(dir: string): KilnYaml {
-  return parseYaml(readFileSync(join(dir, ".kiln", "kiln.yaml"), "utf-8")) as KilnYaml;
+function readKiln(dir: string): ResolvedKilnConfig {
+  return parseYaml(readFileSync(join(dir, ".kiln", "kiln.yaml"), "utf-8")) as ResolvedKilnConfig;
 }
 
-const DEFAULT_KILN: KilnYaml = {
+const DEFAULT_KILN: ResolvedKilnConfig = {
   version: "1",
   domain: "generic",
   channels: ["cli", "web"],
@@ -38,8 +38,6 @@ const DEFAULT_KILN: KilnYaml = {
   requireApproval: true,
   maxDepth: 3,
   parallelWorkers: 2,
-  provider: "claude",
-  mode: "api-key",
   permissions: { approval: "on-request", sandbox: "read-only" },
 };
 
@@ -70,13 +68,24 @@ describe("configCommand", () => {
     expect(output).toContain('"maxDepth": 3');
   });
 
-  it("set updates a config value", async () => {
+  it("set updates an admitted project config value", async () => {
     writeKiln(tempDir, DEFAULT_KILN);
 
-    await configCommand(MOCK_APP_CONFIG, "set", ["provider", "openai"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["domain", "backend"], tempDir);
 
     const config = readKiln(tempDir);
-    expect(config.provider).toBe("openai");
+    expect(config.domain).toBe("backend");
+  });
+
+  it.each(["provider", "model", "mode"])("does not write global execution field %s into project config", async (field) => {
+    writeKiln(tempDir, DEFAULT_KILN);
+    const path = join(tempDir, ".kiln", "kiln.yaml");
+    const before = readFileSync(path);
+
+    await configCommand(MOCK_APP_CONFIG, "set", [field, "synthetic-value"], tempDir);
+
+    expect(readFileSync(path)).toEqual(before);
+    expect(consoleSpy.mock.calls.flat().join("\n")).toContain(`Unknown config key: ${field}`);
   });
 
   it("set handles boolean values", async () => {
@@ -134,7 +143,7 @@ describe("configCommand", () => {
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.overrides", '{"pdf":"implicit"}'], tempDir);
     await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.externalCatalog", JSON.stringify(external)], tempDir);
 
-    const global = parseYaml(readFileSync(join(globalDir, "config.yaml"), "utf8")) as KilnYaml;
+    const global = parseYaml(readFileSync(join(globalDir, "config.yaml"), "utf8")) as ResolvedKilnConfig;
     expect(global.skills).toMatchObject({
       builtin,
       visibility: { default: "explicit-only", overrides: { pdf: "implicit" } },
@@ -192,7 +201,9 @@ describe("configCommand", () => {
 
     const config = readKiln(tempDir);
     expect(config.domain).toBe("generic");
-    expect(config.provider).toBe("claude");
+    expect(config).not.toHaveProperty("provider");
+    expect(config).not.toHaveProperty("model");
+    expect(config).not.toHaveProperty("mode");
     expect(config.permissions?.approval).toBe("on-request");
   });
 

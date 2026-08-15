@@ -34,11 +34,14 @@ import {
   missingManagedInvocationRequiredTools,
 } from "./evidence-validation.js";
 import { resolveManagedInvocationRouteAuthority } from "./working-directory-lease.js";
+import { resolveConfiguredManagedInvocationRouteProfile } from "./profile-resolution.js";
+import type { ManagedInvocationRouteProfile } from "./types.js";
 
 export interface ManagedEconomicInvocationCommand {
   readonly economicPolicyId: string;
   readonly economicPolicyRevision: string;
   readonly configuredAgentProfileId: string;
+  readonly authorityProfileId: string;
   readonly admissionProfileId: ManagedAgentAdmissionProfile;
   readonly routeId?: string;
   readonly providerRoute?: ManagedAgentProviderRoute;
@@ -115,7 +118,10 @@ export function collectManagedEconomicCandidates(
   }
 
   for (const route of routes) {
-    const profile = route.profiles[command.admissionProfileId];
+    const profile = resolveConfiguredManagedInvocationRouteProfile(route, {
+      authorityProfileId: command.authorityProfileId,
+      admissionProfile: command.admissionProfileId,
+    }, command.admissionProfileId);
     const nonEconomicAdmissionFailed = (
       !profile
       || missingManagedInvocationRequiredTools(
@@ -233,14 +239,14 @@ export function collectManagedEconomicCandidates(
 }
 
 export function digestManagedEconomicCandidateProfileAuthority(
-  profile: NonNullable<ManagedInvocationToolRoute["profiles"][ManagedAgentAdmissionProfile]>,
+  profile: ManagedInvocationRouteProfile,
   invocationId?: string,
 ): string {
   return digestManagedEconomicProfileAuthority(managedEconomicCandidateAuthority(profile, invocationId));
 }
 
 function managedEconomicCandidateAuthority(
-  profile: NonNullable<ManagedInvocationToolRoute["profiles"][ManagedAgentAdmissionProfile]>,
+  profile: ManagedInvocationRouteProfile,
   invocationId: string | undefined,
 ): ManagedAgentAuthorityProfile {
   const resolved = invocationId

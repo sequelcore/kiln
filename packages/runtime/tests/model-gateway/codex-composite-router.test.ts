@@ -29,7 +29,7 @@ const config: ModelGatewayConfig = {
     displayName: "Virtual",
     contextTokens: 1000,
     outputTokens: 100,
-    executionRouteId: "route",
+    targetId: "route",
     capabilities: ["text"],
     affinity: { continuity: "none" },
   }],

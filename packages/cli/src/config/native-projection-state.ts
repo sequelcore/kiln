@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { CommunicationResolutionSchema, type TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { validateResolvedCommunicationIntent, type CommunicationResolution } from "@kilnai/core";
 import { normalizeProjectionPath, resolveProjectionPathWithin } from "./native-projection-paths.js";
+import { resolveGlobalConfigPath } from "./global-config.js";
 
 export type NativeProjectionFileHarness = "claude" | "codex" | "opencode";
 
@@ -71,6 +72,11 @@ export interface NativeProjectionDrift {
 
 const INSTALL_STATE_FILE = "install-state.json";
 let installStateWriteSequence = 0;
+
+export function resolveGlobalNativeProjectionStateDir(userHome?: string): string {
+  const globalDir = userHome ? join(userHome, ".kiln") : dirname(resolveGlobalConfigPath());
+  return join(globalDir, "runtime", "native-projections");
+}
 
 export function emptyNativeProjectionInstallState(): NativeProjectionInstallState {
   return {

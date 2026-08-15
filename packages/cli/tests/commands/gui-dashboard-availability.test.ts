@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v2-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const gatewayHarness = vi.hoisted(() => ({
   snapshot: null as {
@@ -137,8 +137,9 @@ const registryMocks = vi.hoisted(() => {
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
-    version?: "1";
-    workerRouting?: { defaultProvider?: string };
+    version?: "3";
+    targetRouting?: { defaultTargetId?: string };
+    targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
     managedAgents?: {
       enabled?: boolean;
       defaultProvider?: string;
@@ -153,11 +154,11 @@ const configMocks = vi.hoisted(() => ({
       };
     };
   } | null,
-  defaultGlobalConfig: vi.fn(() => ({ version: "1" })),
+  defaultGlobalConfig: vi.fn(() => ({ version: "3" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
   mutateGlobalConfig: vi.fn(),
-  resolveGlobalDefaultProvider: vi.fn((config: { workerRouting?: { defaultProvider?: string } } | null) => {
-    const provider = config?.workerRouting?.defaultProvider?.trim() ?? "";
+  resolveGlobalDefaultProvider: vi.fn((config: { targetRouting?: { defaultTargetId?: string }; targetCatalog?: { targets?: readonly { id: string; providerId: string }[] } } | null) => {
+    const provider = config?.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerId ?? "";
     return provider.length > 0 ? provider : undefined;
   }),
   resolveGlobalDefaultModel: vi.fn(() => undefined),
@@ -285,7 +286,8 @@ vi.mock("@kilnai/core", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/config/global-config.js", () => ({
+vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
   defaultGlobalConfig: configMocks.defaultGlobalConfig,
   readGlobalConfig: configMocks.readGlobalConfig,
   readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
@@ -833,7 +835,7 @@ describe("GUI dashboard provider availability", () => {
       cwd: tmpDir,
       mode: "prod",
       open: true,
-    })).rejects.toThrow("configured GUI execution route uses unsupported provider 'claude'");
+    })).rejects.toThrow("configured GUI execution target uses unsupported provider 'claude'");
 
     expect(gatewayHarness.startGuiGateway).not.toHaveBeenCalled();
   });

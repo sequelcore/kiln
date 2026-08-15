@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import {
   resolveCommunicationIntent,
@@ -8,7 +8,7 @@ import {
   type CommunicationIntentCandidate,
   type RouteAdmissionDecision,
 } from "@kilnai/core";
-import { loadAgentDefinitions } from "../application/agent-loader.js";
+import { loadGlobalAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
   adoptLegacyNativeProjectionFile,
@@ -16,6 +16,7 @@ import {
   detectNativeProjectionFileDrift,
   isFullyOwnedNativeProjectionFile,
   readNativeProjectionInstallState,
+  resolveGlobalNativeProjectionStateDir,
   removeNativeProjectionTargetState,
   upsertNativeProjectionTargetState,
   writeNativeProjectionInstallState,
@@ -65,7 +66,7 @@ export interface NativeAgentProjectionOptions extends NativeProjectionSyncOption
   readonly resolveRouteAdmission?: (input: {
     readonly agent: KilnAgentDefinition;
     readonly routeId?: string;
-    readonly providerId: string;
+    readonly providerId?: string;
     readonly model?: string;
     readonly harness: NativeAgentProjectionTarget["key"];
   }) => RouteAdmissionDecision | undefined;
@@ -258,14 +259,12 @@ export async function syncNativeAgentProjections(
   const unavailable: NativeAgentProjectionUnavailable[] = [];
   const communication: NativeAgentCommunicationProjectionEvidence[] = [];
   let synced = 0;
-  const kilnDir = join(projectPath, ".kiln");
-  let installState = readNativeProjectionInstallState(kilnDir);
+  const projectionStateDir = resolveGlobalNativeProjectionStateDir(options.userHome);
+  let installState = readNativeProjectionInstallState(projectionStateDir);
 
   let agents: KilnAgentDefinition[];
   try {
-    agents = options.userHome === undefined
-      ? await loadAgentDefinitions(projectPath)
-      : await loadAgentDefinitions(projectPath, { userHome: options.userHome });
+    agents = await loadGlobalAgentDefinitions(options.userHome === undefined ? {} : { userHome: options.userHome });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -276,7 +275,7 @@ export async function syncNativeAgentProjections(
       errors: [`Agent load failed: ${message}`],
       outcomes: [{
         targetId: "native-agents",
-        path: join(projectPath, ".kiln", "agents"),
+        path: join(dirname(dirname(projectionStateDir)), "agents"),
         status: "failed",
         reason: `Agent load failed: ${message}`,
       }],
@@ -290,7 +289,7 @@ export async function syncNativeAgentProjections(
   if (agents.length === 0 && !hasManagedAgentProjection) {
     return { claude: true, codex: true, opencode: true, synced: 0, errors: [], outcomes, unavailable, communication };
   }
-  const defaultAdmissionResolver = options.resolveRouteAdmission || !agents.some((agent) => agent.providerRoute)
+  const defaultAdmissionResolver = options.resolveRouteAdmission || !agents.some((agent) => agent.targetId)
     ? undefined
     : await createManagedAgentRouteAdmissionResolver(projectPath);
   const resolveRouteAdmission = options.resolveRouteAdmission
@@ -358,7 +357,7 @@ export async function syncNativeAgentProjections(
     const staleAgentResult = pruneOmittedNativeAgentProjections({
       target,
       agents,
-      kilnDir,
+      kilnDir: projectionStateDir,
       installState,
       options,
     });
@@ -370,7 +369,7 @@ export async function syncNativeAgentProjections(
     }
 
     for (const agent of agents) {
-      const result = syncAgentFile(agent, target, kilnDir, installState, { ...options, resolveRouteAdmission });
+      const result = syncAgentFile(agent, target, projectionStateDir, installState, { ...options, resolveRouteAdmission });
       outcomes.push(result.outcome);
       if (result.unavailable) unavailable.push(result.unavailable);
       if (result.communication) communication.push(result.communication);
@@ -391,7 +390,7 @@ export async function syncNativeAgentProjections(
     }
   }
 
-  if (!options.dryRun) writeNativeProjectionInstallState(kilnDir, installState);
+  if (!options.dryRun) writeNativeProjectionInstallState(projectionStateDir, installState);
 
   return { claude, codex, opencode, synced, errors, outcomes, unavailable, communication };
 }
@@ -426,10 +425,10 @@ function syncAgentFile(
   const decision = decideNativeAgentProjection({
     agent,
     harness: target.key,
-    admission: agent.providerRoute ? options.resolveRouteAdmission?.({
+    admission: agent.targetId ? options.resolveRouteAdmission?.({
       agent,
-      ...(agent.routeId ? { routeId: agent.routeId } : {}), providerId: agent.providerRoute.providerId,
-      ...(agent.providerRoute.model ? { model: agent.providerRoute.model } : {}), harness: target.key,
+      routeId: agent.targetId,
+      harness: target.key,
     }) : undefined,
   });
   if (decision.kind !== "project") {
@@ -646,7 +645,7 @@ function pruneOmittedNativeAgentProjections(input: {
           },
           currentContent: observedContent ?? readFileSync(filePath),
         });
-        if (drift) {
+        if (drift && !input.options.force) {
           const reason = `managed file drift detected: ${describeProjectionDrift(drift.driftedFields)}`;
           errors.push(`${input.target.label} omitted agent "${agentName}" failed: ${reason}`);
           outcomes.push({ targetId, path: filePath, status: "blocked", reason });

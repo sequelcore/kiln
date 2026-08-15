@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "./execution-route-resolver.js";
 import type { KilnGlobalConfig } from "./global-config.js";
+import { economicConfig } from "../../tests/config/managed-economic-policy-config-fixture.js";
 
-const config = {
-  version: "2",
-  executionCatalog: {
-    accounts: [], accountPolicies: [],
-    routes: [
-      { id: "terra", label: "Terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", accountSelection: { mode: "exact", accountId: "account-terra" }, economics: { kind: "unpriced" } },
-      { id: "luna", label: "Luna", providerId: "opencode-go", providerModelId: "kimi-k2.6", accountSelection: { mode: "exact", accountId: "account-luna" }, economics: { kind: "unpriced" } },
+const fixture = economicConfig();
+const standardTarget = fixture.targetCatalog!.targets[0]!;
+const config: KilnGlobalConfig = {
+  ...fixture,
+  targetCatalog: {
+    ...fixture.targetCatalog!,
+    targets: [
+      { ...standardTarget, id: "terra", label: "Terra", providerModelId: "gpt-5.6-terra", dataPolicyEvidence: { ...standardTarget.dataPolicyEvidence, providerModelId: "gpt-5.6-terra" } },
+      { ...standardTarget, id: "luna", label: "Luna", providerModelId: "gpt-5.6-luna", dataPolicyEvidence: { ...standardTarget.dataPolicyEvidence, providerModelId: "gpt-5.6-luna" } },
     ],
   },
-  executionRouting: { defaultRouteId: "terra" },
-} as KilnGlobalConfig;
+  targetRouting: { defaultTargetId: "terra" },
+};
 
 describe("resolveExecutionRouteCandidates", () => {
-  it("derives only the default dispatch identity from V2 routing", () => {
+  it("derives only the default dispatch identity from V3 target routing", () => {
     expect(resolveExecutionRouteCandidates({ globalConfig: config })).toEqual([
       { routeId: "terra", provider: "codex-oauth", model: "gpt-5.6-terra" },
     ]);
@@ -23,33 +26,37 @@ describe("resolveExecutionRouteCandidates", () => {
 
   it("uses an explicit route as the sole operator selection", () => {
     expect(resolveExecutionRouteCandidates({ globalConfig: config, routeId: "luna" })).toEqual([
-      { routeId: "luna", provider: "opencode-go", model: "kimi-k2.6" },
+      { routeId: "luna", provider: "codex-oauth", model: "gpt-5.6-luna" },
     ]);
   });
 
   it("fails closed for an unknown explicit route", () => {
     expect(() => resolveExecutionRouteCandidates({ globalConfig: config, routeId: "unknown" }))
-      .toThrow("Execution route 'unknown' is not configured.");
+      .toThrow("Execution target 'unknown' is not configured.");
   });
 
   it("does not infer execution candidates from legacy direct models or gateway virtual models", () => {
-    expect(resolveExecutionRouteCandidates({ globalConfig: { version: "2" } })).toEqual([]);
+    expect(resolveExecutionRouteCandidates({ globalConfig: { version: "3" } })).toEqual([]);
   });
 
-  it("rejects native harness routes instead of treating them as direct execution routes", () => {
+  it("rejects native harness routes instead of treating them as direct execution targets", () => {
     const nativeRouteConfig = {
       ...config,
-      executionCatalog: {
-        ...config.executionCatalog,
-        routes: [{
-          ...config.executionCatalog!.routes[0]!,
+      targetCatalog: {
+        ...config.targetCatalog!,
+        targets: [{
+          id: "terra",
+          kind: "harness",
+          label: "Native Codex",
           providerId: "codex",
+          providerModelId: "gpt-5.6-terra",
+          dataClassification: "internal",
+          dataPolicyEvidence: { ...standardTarget.dataPolicyEvidence, providerId: "codex", providerModelId: "gpt-5.6-terra" },
         }],
       },
-      executionRouting: { defaultRouteId: "terra" },
     } as KilnGlobalConfig;
     expect(() => resolveExecutionRouteCandidates({ globalConfig: nativeRouteConfig }))
-      .toThrow("Execution route 'terra' does not reference a direct provider.");
+      .toThrow("Execution target 'terra' is not configured.");
   });
 
 });

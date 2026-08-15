@@ -22,6 +22,7 @@ import {
   readGlobalConfig,
   readGlobalConfigSnapshot,
   resolveGlobalUiTheme,
+  projectDirectExecutionCatalog,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
@@ -104,7 +105,6 @@ import {
   type SessionEventSource,
   type SessionTurnOutcome,
   type ExecutionSessionBindingEvidence,
-  defineExecutionCatalog,
 } from "@kilnai/core";
 import {
   attachManagedInvocationSessionEventSink,
@@ -366,12 +366,12 @@ function parseProvider(
 ): ProviderId {
   const requestedProvider = p?.trim() ?? "";
   if (requestedProvider.length === 0) {
-    throw new Error("The configured execution route does not specify a provider.");
+    throw new Error("The configured execution target does not specify a provider.");
   }
   if (providerIds.includes(requestedProvider as ProviderId)) {
     return requestedProvider as ProviderId;
   }
-  throw new Error(`The configured TUI execution route uses unsupported provider '${requestedProvider}'. Configure one of: ${providerIds.join(", ")}`);
+  throw new Error(`The configured TUI execution target uses unsupported provider '${requestedProvider}'. Configure one of: ${providerIds.join(", ")}`);
 }
 
 function toPersistedTranscriptEvent(
@@ -1377,7 +1377,7 @@ async function bootstrapDirectSession(
           throw new Error(admission.reason);
         }
         if (!sessionManager.setProvider(admission.admission.providerId)) {
-          throw new Error(`Execution route '${admission.admission.routeId}' resolved to an unsupported provider.`);
+          throw new Error(`Execution target '${admission.admission.routeId}' resolved to an unsupported provider.`);
         }
         sessionManager.setModel(admission.admission.providerModelId);
         executionRouteCatalogRef.current = await options.executionRouteSelection.getCatalog();
@@ -1440,7 +1440,8 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   );
   const startupTransport = resolveTuiStartupTransport(flags);
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the TUI.");
-  if (!globalConfig.executionCatalog) throw new Error("An execution catalog is required to start the TUI.");
+  const operatorExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
+  if (!operatorExecutionCatalog) throw new Error("A direct target catalog is required to start the TUI.");
   const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig);
   const provider = parseProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
@@ -1584,7 +1585,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
 
   const initialProviderDiscovery = readProviderDiscoveryCache(cwd);
-  const operatorExecutionCatalog = defineExecutionCatalog(globalConfig.executionCatalog);
   const operatorTurnComposition = createOperatorTurnDispatchComposition<OperatorTurnTuiDispatchPayload, OperatorTurnDispatchResult>({
     catalog: operatorExecutionCatalog,
     cwd,

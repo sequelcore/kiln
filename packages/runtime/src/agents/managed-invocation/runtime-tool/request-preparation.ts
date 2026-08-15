@@ -43,6 +43,7 @@ import type {
   ManagedInvocationToolResult,
   ManagedInvocationToolRoute,
 } from "./types.js";
+import { resolveManagedInvocationRouteProfile } from "./profile-resolution.js";
 
 function applyManagedAgentCommunication(
   parsed: ManagedInvocationToolInput,
@@ -142,7 +143,7 @@ export class ManagedCommittedRouteMismatchError extends Error {
   readonly evidence: ManagedCommittedRouteMismatchEvidence;
 
   constructor(evidence: ManagedCommittedRouteMismatchEvidence) {
-    super("Committed managed route does not match the configured execution route.");
+    super("Committed managed route does not match the configured execution target.");
     this.name = "ManagedCommittedRouteMismatchError";
     this.evidence = {
       code: "committed-route-mismatch",
@@ -372,6 +373,8 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     economicPolicyId,
     economicPolicyRevision,
     configuredAgentProfileId: agentProfile.name,
+    authorityProfileId: agentProfile.authorityProfileId,
+    invocationId,
     admissionProfileId: parsed.profile,
     ...(parsed.routeId ? { routeId: parsed.routeId } : {}),
     ...(economicProviderRoute.providerId
@@ -387,7 +390,6 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     requestedAuthority,
     requiresNetwork: (parsed.requiredToolNames ?? []).some(requiresNetworkCapability),
     requiresWrite: parsed.profile !== "foundation-readonly-plan",
-    invocationId,
   }, options.routes, options.unavailableRoutes);
   if (candidateSet.candidates.length === 0) {
     return {
@@ -412,6 +414,8 @@ async function resolveManagedInvocationEconomicCommitment(input: {
   const economicIdentity = digestManagedEconomicValue({
     parentSessionId: context.session.id,
     parentTurnId: context.turnId ?? context.toolCall.id,
+    authorityProfileId: agentProfile.authorityProfileId,
+    invocationId,
     toolCallId: context.toolCall.id,
     configuredAgentProfileId: agentProfile.name,
     profile: parsed.profile,
@@ -429,6 +433,8 @@ async function resolveManagedInvocationEconomicCommitment(input: {
     adoptedDecisionAt: context.session.createdAt.toISOString(),
     parentSessionId: context.session.id,
     parentTurnId: context.turnId ?? context.toolCall.id,
+    authorityProfileId: agentProfile.authorityProfileId,
+    invocationId,
     ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
     validateExecutionProfile: async ({ commitment }) => {
       const selected = commitment.reservation.selectedIdentity.route;
@@ -440,7 +446,9 @@ async function resolveManagedInvocationEconomicCommitment(input: {
         route.routeId === selected.routeId
         && route.providerId === selected.providerId
         && route.model === selected.modelId);
-      const executionProfile = selectedRoute?.profiles[parsed.profile];
+      const executionProfile = selectedRoute
+        ? resolveManagedInvocationRouteProfile(selectedRoute, parsed.profile, agentProfile)
+        : undefined;
       if (
         !selectedCandidate
         || !executionProfile
@@ -654,7 +662,7 @@ async function resolveManagedInvocationRouteAndCapability(
     };
   }
   const route = routeResolution.route;
-  const profileDefaults = route.profiles[parsed.profile];
+  const profileDefaults = resolveManagedInvocationRouteProfile(route, parsed.profile, agentProfile);
   if (!profileDefaults) return { ok: false, result: errorResult(`Managed invocation route '${route.routeId}' does not allow profile '${parsed.profile}'.`, {}, toolName) };
   const capabilityIdentityMismatch = managedRouteCapabilityIdentityMismatch(route);
   if (capabilityIdentityMismatch) {

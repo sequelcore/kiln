@@ -63,7 +63,7 @@ const catalog: ExecutionCatalog = defineExecutionCatalog({
   }],
 });
 
-function config(executionRouteId = "route"): ModelGatewayConfig {
+function config(targetId = "route"): ModelGatewayConfig {
   return {
     port: 4801,
     replay: { ttlMs: 1_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
@@ -81,7 +81,7 @@ function config(executionRouteId = "route"): ModelGatewayConfig {
     }],
     virtualModels: [{
       id: "model",
-      executionRouteId,
+      targetId,
       capabilities: ["text"],
       affinity: { continuity: "none" },
     }],
@@ -109,7 +109,7 @@ describe("createModelGatewayIngress", () => {
     vi.restoreAllMocks();
   });
 
-  it("fails closed when a virtual model references an unknown canonical route", async () => {
+  it("fails closed when a virtual model references an unknown canonical target", async () => {
     const sharedAuthority = authority();
     authorities.push(sharedAuthority);
     await expect(createModelGatewayIngress({
@@ -121,7 +121,7 @@ describe("createModelGatewayIngress", () => {
       accountCapacityAuthority: sharedAuthority,
       databasePath: ":memory:",
       env,
-    })).rejects.toThrow(/unknown execution route/);
+    })).rejects.toThrow(/unknown target/);
   });
 
   it("resolves the overlay through injected admission and candidate ports", async () => {

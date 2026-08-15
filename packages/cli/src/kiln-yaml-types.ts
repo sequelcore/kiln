@@ -487,36 +487,49 @@ export interface KilnManagedAgentExternalRuntimeAttachmentConfig {
   readonly attachmentId: string;
 }
 
-interface KilnManagedAgentRouteCommonConfig {
+/** Physical execution identity. Authority is selected separately by profile id. */
+export type KilnExecutionTargetConfig =
+  | {
+    readonly id: string;
+    readonly kind: "direct";
+    readonly label: string;
+    readonly providerId: string;
+    readonly providerModelId: string;
+    readonly accountSelection: import("@kilnai/core").ExecutionRouteAccountSelection;
+    readonly dataClassification: import("@kilnai/core").ExecutionDataClassification;
+    readonly dataPolicyEvidence: import("@kilnai/core").ExecutionRouteDataPolicyEvidence;
+    readonly economics: import("@kilnai/core").ExecutionRouteEconomicsConfig;
+  }
+  | {
+    readonly id: string;
+    readonly kind: "harness";
+    readonly label: string;
+    readonly providerId: string;
+    readonly providerModelId: string;
+    readonly dataClassification: import("@kilnai/core").ExecutionDataClassification;
+    readonly dataPolicyEvidence: import("@kilnai/core").ExecutionRouteDataPolicyEvidence;
+    readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
+    readonly externalRuntimeAttachment?: KilnManagedAgentExternalRuntimeAttachmentConfig;
+  };
+
+export interface KilnTargetCatalogConfig {
+  readonly accounts: readonly import("@kilnai/core").ExecutionAccount[];
+  readonly accountPolicies: readonly import("@kilnai/core").ExecutionAccountPolicy[];
+  readonly targets: readonly KilnExecutionTargetConfig[];
+}
+
+/** Reusable authority/environment policy, independent from physical target identity. */
+export interface KilnAuthorityProfileConfig {
   readonly id: string;
+  readonly admissionProfile: KilnManagedAgentProfile;
   readonly voiceProfile?: string;
-  readonly profiles?: readonly KilnManagedAgentProfile[];
   readonly workingDirectory?: "project" | "isolated-worktree" | "sandbox";
   readonly timeoutMs?: number;
   readonly tools?: KilnManagedAgentToolsConfig;
   readonly memory?: KilnManagedAgentMemoryConfig;
   readonly readAuthority?: KilnManagedAgentReadAuthorityConfig;
   readonly writeAuthority?: KilnManagedAgentWriteAuthorityConfig;
-  readonly externalRuntimeAttachment?: KilnManagedAgentExternalRuntimeAttachmentConfig;
 }
-
-/**
- * A managed route is either a physical harness target or a reference to the
- * canonical operator execution catalog.  Direct routes deliberately carry no
- * provider, model, credential, or economic account data of their own: those
- * facts are admitted and committed from `executionCatalog` at invocation time.
- */
-export type KilnManagedAgentRouteConfig =
-  | (KilnManagedAgentRouteCommonConfig & {
-    readonly kind: "direct";
-    readonly executionRouteId: string;
-  })
-  | (KilnManagedAgentRouteCommonConfig & {
-    readonly kind: "harness";
-    readonly provider: string;
-    readonly model?: string;
-    readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
-  });
 
 export interface KilnManagedEconomicComparisonDomainConfig {
   readonly id: string;
@@ -528,7 +541,7 @@ export interface KilnManagedEconomicComparisonDomainConfig {
 }
 
 export interface KilnManagedEconomicPolicyCandidateConfig {
-  readonly routeId: string;
+  readonly targetId: string;
   readonly comparisonDomainId: string;
   readonly priorityRank: number;
   readonly worstCaseReservation: ManagedEconomicComparableReservation;
@@ -550,15 +563,11 @@ export interface KilnManagedEconomicPolicyConfig {
 }
 
 export interface KilnManagedAgentsConfig {
-  readonly schemaVersion?: 2;
   readonly enabled?: boolean;
-  readonly defaultProfile?: KilnManagedAgentProfile;
-  readonly defaultProvider?: string;
+  readonly defaultAuthorityProfileId?: string;
   readonly defaultVoiceProfile?: string;
-  readonly model?: string;
   readonly worktreeLease?: KilnManagedAgentWorktreeLeaseConfig;
   readonly requireApproval?: boolean;
-  readonly routes?: readonly KilnManagedAgentRouteConfig[];
   readonly economicPolicies?: readonly KilnManagedEconomicPolicyConfig[];
 }
 
@@ -672,31 +681,39 @@ export interface KilnContextGovernanceConfig {
   };
 }
 
-export interface KilnYaml {
+/** Repository-owned restrictions and project facts. It cannot define execution targets or models. */
+export interface KilnProjectConfig {
   readonly version: "1";
   readonly activeInstructionProfiles?: readonly string[];
   readonly workGovernance?: KilnWorkGovernanceConfig;
   readonly domain?: string;
-  readonly provider?: string;
   readonly channels?: string[];
   readonly teamMode?: string;
   readonly requireApproval?: boolean;
   readonly maxDepth?: number;
   readonly parallelWorkers?: number;
-  readonly mode?: string;
   readonly mcp?: KilnYamlMcp;
-  readonly model?: KilnYamlModel;
   readonly permissions?: KilnYamlPermissions;
-  readonly providers?: Record<string, KilnYamlProvider>;
-  readonly managedAgents?: KilnManagedAgentsConfig;
-  readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
-  readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
   readonly communication?: CommunicationIntent;
   readonly web?: KilnYamlWebConfig;
   readonly interactiveUse?: KilnYamlInteractiveUseConfig;
   readonly skills?: KilnYamlSkillsConfig;
-  readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly qualityGates?: readonly KilnYamlQualityGate[];
-  readonly hooks?: KilnHooksConfig;
   readonly contextGovernance?: KilnContextGovernanceConfig;
+}
+
+/** Fully resolved Runtime input after global authority and project restrictions are composed. */
+export interface ResolvedKilnConfig extends KilnProjectConfig {
+  readonly provider?: string;
+  readonly model?: KilnYamlModel;
+  readonly providers?: Record<string, KilnYamlProvider>;
+  readonly managedAgents?: KilnManagedAgentsConfig;
+  readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
+  readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
+  readonly skillGeneration?: KilnYamlSkillGeneration;
+  readonly hooks?: KilnHooksConfig;
+  /** Global-only physical target authority projected into Runtime composition. */
+  readonly targetCatalog?: KilnTargetCatalogConfig;
+  /** Global-only reusable authority profiles projected into Runtime composition. */
+  readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
 }

@@ -330,8 +330,8 @@ function gatewayConfig(port: number): ModelGatewayConfig {
       },
     ],
     virtualModels: [
-      { id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", executionRouteId: "model-a", capabilities: ["text"], affinity: { continuity: "none" } },
-      { id: "claude-kiln-probe", displayName: "Kiln Claude Probe", contextTokens: 100000, outputTokens: 4096, executionRouteId: "claude-kiln-probe", capabilities: ["text"], affinity: { continuity: "none" } },
+      { id: "model-a", displayName: "Kiln Probe", contextTokens: 100000, outputTokens: 4096, baseInstructions: "You are a governed Kiln probe.", targetId: "model-a", capabilities: ["text"], affinity: { continuity: "none" } },
+      { id: "claude-kiln-probe", displayName: "Kiln Claude Probe", contextTokens: 100000, outputTokens: 4096, targetId: "claude-kiln-probe", capabilities: ["text"], affinity: { continuity: "none" } },
     ],
   };
 }

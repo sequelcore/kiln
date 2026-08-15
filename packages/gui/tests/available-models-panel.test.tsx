@@ -42,7 +42,7 @@ describe("AvailableModelsPanel", () => {
     const send = vi.fn(); render(<AvailableModelsPanel catalog={catalog} catalogRevision={`sha256:${"a".repeat(64)}`} send={send} />);
     fireEvent.click(screen.getByText("Create route"));
     fireEvent.change(screen.getByLabelText("Complete route material"), { target: { value: JSON.stringify(material()) } });
-    fireEvent.submit(screen.getByLabelText("Execution route creation form"));
+    fireEvent.submit(screen.getByLabelText("Execution target creation form"));
     expect(screen.getByText(/Preview ready/u)).toBeTruthy();
     expect(send).not.toHaveBeenCalled();
   });

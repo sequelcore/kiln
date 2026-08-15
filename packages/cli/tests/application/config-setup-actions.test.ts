@@ -10,9 +10,6 @@ function writeProjectConfig(projectPath: string): void {
   mkdirSync(join(projectPath, ".kiln"), { recursive: true });
   writeFileSync(join(projectPath, ".kiln", "kiln.yaml"), [
     'version: "1"',
-    "provider: codex-oauth",
-    "model:",
-    "  default: gpt-5.4-mini",
     "permissions:",
     "  approval: on-request",
     "  sandbox: read-only",
@@ -64,8 +61,8 @@ describe("config setup actions", () => {
 
   it("installs the control-plane MCP globally while keeping project MCP projection project-specific", async () => {
     const userHome = join(tempDir, "home");
-    mkdirSync(join(tempDir, ".kiln", "agents"), { recursive: true });
-    writeFileSync(join(tempDir, ".kiln", "agents", "synthetic-agent.md"), [
+    mkdirSync(join(userHome, ".kiln", "agents"), { recursive: true });
+    writeFileSync(join(userHome, ".kiln", "agents", "synthetic-agent.md"), [
       "---",
       "name: synthetic-agent",
       "role: Synthetic setup agent",
@@ -74,6 +71,18 @@ describe("config setup actions", () => {
       "---",
       "",
       "Use only the synthetic harness home.",
+      "",
+    ].join("\n"), "utf-8");
+    mkdirSync(join(tempDir, ".kiln", "agents"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "agents", "project-only-agent.md"), [
+      "---",
+      "name: project-only-agent",
+      "role: Project-only setup agent",
+      "goal: Remain project-scoped.",
+      "tier: fast",
+      "---",
+      "",
+      "Do not project this agent into a harness HOME.",
       "",
     ].join("\n"), "utf-8");
 
@@ -94,6 +103,9 @@ describe("config setup actions", () => {
     expect(existsSync(join(userHome, ".codex", "agents", "synthetic-agent.toml"))).toBe(true);
     expect(existsSync(join(userHome, ".claude", "agents", "synthetic-agent.md"))).toBe(true);
     expect(existsSync(join(userHome, ".config", "opencode", "agents", "synthetic-agent.md"))).toBe(true);
+    expect(existsSync(join(userHome, ".codex", "agents", "project-only-agent.toml"))).toBe(false);
+    expect(existsSync(join(userHome, ".claude", "agents", "project-only-agent.md"))).toBe(false);
+    expect(existsSync(join(userHome, ".config", "opencode", "agents", "project-only-agent.md"))).toBe(false);
     expect(existsSync(join(userHome, ".codex", "agents", "adversarial-reviewer.toml"))).toBe(false);
     expect(existsSync(join(tempDir, "ambient-codex", "config.toml"))).toBe(false);
     const claudeGlobal = JSON.parse(readFileSync(join(userHome, ".claude.json"), "utf8"));

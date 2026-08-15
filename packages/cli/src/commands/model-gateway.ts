@@ -26,7 +26,7 @@ import {
   type CodexResponsesNativeClientCompatibility,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
-import { readGlobalConfig, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { projectDirectExecutionCatalog, readGlobalConfig, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatewayProjectionResult } from "../config/global-opencode-model-gateway-projection.js";
 import {
@@ -176,7 +176,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     return;
   }
   if (subcommand === "outcome-incidents") {
-    if (globalConfig?.version !== "2") throw new Error("Model gateway outcome inspection requires global V2 execution authority.");
+    if (globalConfig?.version !== "3") throw new Error("Model gateway outcome inspection requires global V3 target authority.");
     const incidents = dependencies.readOutcomeIncidents(resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()));
     dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatOutcomeIncidents(incidents));
     return;
@@ -375,12 +375,13 @@ function createModelGatewayExecutionComposition(
   databasePath: string,
   env: Readonly<Record<string, string | undefined>>,
 ): { readonly bundle: ModelGatewayExecutionBundle; close(): void } {
-  if (globalConfig?.version !== "2" || !globalConfig.executionCatalog || !globalConfig.executionRouting) {
-    throw new Error("Model gateway execution requires a global V2 config with executionCatalog and executionRouting.");
+  const executionCatalog = projectDirectExecutionCatalog(globalConfig);
+  if (globalConfig?.version !== "3" || !executionCatalog || !globalConfig.targetRouting) {
+    throw new Error("Model gateway execution requires a global V3 config with targetCatalog and targetRouting.");
   }
   mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
-    catalog: globalConfig.executionCatalog,
+    catalog: executionCatalog,
     env,
   });
   const accountCapacityAuthority = new SqliteManagedAccountLeaseAuthority({
@@ -397,8 +398,8 @@ function createModelGatewayExecutionComposition(
   }
   return {
     bundle: {
-      executionCatalog: globalConfig.executionCatalog,
-      executionRouting: createModelGatewayExecutionRoutingPort(globalConfig.executionCatalog),
+      executionCatalog,
+      executionRouting: createModelGatewayExecutionRoutingPort(executionCatalog),
       executionCandidates: accountRuntime.modelGatewayCandidates,
       executionDispatcher: accountRuntime.modelGatewayDispatchers,
       accountCapacityAuthority,
@@ -409,7 +410,7 @@ function createModelGatewayExecutionComposition(
 
 function createModelGatewayExecutionConfigurationRevision(globalConfig: KilnGlobalConfig, config: ModelGatewayConfig): string {
   return createHash("sha256")
-    .update(JSON.stringify({ executionCatalog: globalConfig.executionCatalog, executionRouting: globalConfig.executionRouting, modelGateway: config }), "utf8")
+    .update(JSON.stringify({ targetCatalog: globalConfig.targetCatalog, targetRouting: globalConfig.targetRouting, modelGateway: config }), "utf8")
     .digest("hex");
 }
 

@@ -26,8 +26,8 @@ export function ExecutionRoutePicker(props: {
   const rows = useMemo(() => projectExecutionRoutePicker(props.catalog), [props.catalog]);
   const [state, dispatch] = useReducer(reducer, { query: "", brandId: null, access: "all" });
   const routes = useMemo(() => filterExecutionRouteOptions(rows, state), [rows, state]);
-  return <ModelSelectorCommand id="execution-route-picker" label="Search execution routes" shouldFilter={false}>
-    <CommandInput aria-label="Search execution routes" placeholder="Search execution routes…" value={state.query} onValueChange={(query) => dispatch({ type: "query", query })} />
+  return <ModelSelectorCommand id="execution-route-picker" label="Search execution targets" shouldFilter={false}>
+    <CommandInput aria-label="Search execution targets" placeholder="Search execution targets…" value={state.query} onValueChange={(query) => dispatch({ type: "query", query })} />
     <div className="flex min-h-0 border-t border-border/70">
       <ExecutionRouteBrandRail brands={executionRouteBrands(rows)} selectedBrandId={state.brandId} onSelectBrand={(brandId) => dispatch({ type: "brand", brandId })} />
       <div className="flex min-w-0 flex-1 flex-col border-l border-border/70">

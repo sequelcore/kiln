@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import { initCommand } from "../../src/commands/init.js";
-import type { KilnYaml } from "../../src/kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry } from "@kilnai/core";
 
@@ -44,14 +44,15 @@ describe("initCommand", () => {
     expect(config!.requireApproval).toBe(true);
     expect(config!.maxDepth).toBe(3);
     expect(config!.parallelWorkers).toBe(2);
-    expect(config!.provider).toBe("anthropic");
-    expect(config!.mode).toBe("api-key");
+    expect(config).not.toHaveProperty("provider");
+    expect(config).not.toHaveProperty("model");
+    expect(config).not.toHaveProperty("mode");
     expect(config!.permissions?.approval).toBe("on-request");
     expect(config!.permissions?.sandbox).toBe("read-only");
 
     const onDisk = parseYaml(
       readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),
-    ) as KilnYaml;
+    ) as ResolvedKilnConfig;
     expect(onDisk.version).toBe("1");
     expect(onDisk.requireApproval).toBe(true);
   });
@@ -100,13 +101,14 @@ describe("initCommand", () => {
     expect(config!.domain).toBe("generic");
   });
 
-  it("non-interactive init with --provider flag uses specified provider", async () => {
+  it("uses --provider only for the generated app gateway, not project config", async () => {
     const config = await initCommand(MOCK_APP_CONFIG, tempDir, {
       interactive: false,
       provider: "openai",
     });
     expect(config).not.toBeNull();
-    expect(config!.provider).toBe("openai");
+    expect(config).not.toHaveProperty("provider");
+    expect(readFileSync(join(tempDir, ".kiln", "gateway.yaml"), "utf8")).toContain("name: openai");
   });
 
   it("non-interactive init with --channels flag uses specified channels", async () => {

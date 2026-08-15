@@ -31,6 +31,7 @@ import { resolveManagedInvocationAgentProfile } from "./agent-profile-catalog.js
 import { deriveManagedInvocationCallerAuthority } from "./caller-capability-policy.js";
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "./index.js";
 import type { ManagedInvocationExecutableRoute } from "./runtime-tool/types.js";
+import { resolveManagedInvocationRouteProfile } from "./runtime-tool/profile-resolution.js";
 
 const ORCHESTRATION_CONTEXT_MODE = "isolated";
 
@@ -117,8 +118,8 @@ export async function runManagedAgentOrchestrationLifecycle(
     if (child.agentProfile && !agent) {
       throw new Error(`Managed orchestration references unknown agent profile '${child.agentProfile}'`);
     }
-    if (agent?.authorityProfile && agent.authorityProfile !== input.profile) {
-      throw new Error(`Managed orchestration agent profile '${agent.name}' requires '${agent.authorityProfile}', not '${input.profile}'`);
+    if (agent && agent.admissionProfile !== input.profile) {
+      throw new Error(`Managed orchestration agent profile '${agent.name}' requires '${agent.admissionProfile}', not '${input.profile}'`);
     }
     const communicationIntent = agent?.providerRoute?.communicationIntent
       ?? (agent?.communication
@@ -130,6 +131,7 @@ export async function runManagedAgentOrchestrationLifecycle(
           economicPolicyId: agent.economicPolicyId,
           economicPolicyRevision: agent.economicPolicyRevision,
           configuredAgentProfileId: agent.name,
+          authorityProfileId: agent.authorityProfileId,
           admissionProfileId: input.profile,
           ...(input.callerIdentity ? { callerIdentity: input.callerIdentity } : {}),
           ...(child.routeId ?? input.routeSelector?.routeId
@@ -168,6 +170,7 @@ export async function runManagedAgentOrchestrationLifecycle(
       input.orchestrationRequest.isolation.workingDirectoryMode,
       routeId ? { routeId } : input.routeSelector,
       economicCandidateSet !== undefined,
+      agent,
     );
     assertOrchestrationAgentRoute(agent, route);
     return {
@@ -183,6 +186,7 @@ export async function runManagedAgentOrchestrationLifecycle(
         route,
         input.profile,
         input.orchestrationRequest.isolation.workingDirectoryMode,
+        agent,
       ),
     };
   });
@@ -335,6 +339,8 @@ async function prepareOrchestrationEconomicDispatch(
   const economicIdentity = digestManagedEconomicValue({
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
+    authorityProfileId: entry.profile.authorityProfileId,
+    invocationId: sanitizeInvocationId(entry.child.childId),
     childId: entry.child.childId,
     task: entry.child.task,
     roleIntent: entry.child.roleIntent,
@@ -351,6 +357,8 @@ async function prepareOrchestrationEconomicDispatch(
     adoptedDecisionAt: input.economicAdoptedDecisionAt,
     parentSessionId: input.orchestrationRequest.parentSessionId,
     parentTurnId: input.orchestrationRequest.parentTurnId,
+    authorityProfileId: entry.profile.authorityProfileId,
+    invocationId: sanitizeInvocationId(entry.child.childId),
     ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
   });
   if (preparation.status === "already-dispatched") {
@@ -644,12 +652,13 @@ function selectOrchestrationRoute(
   workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
   selector: ManagedAgentOrchestrationLifecycleRouteSelector | undefined,
   allowEconomicAdapterlessRoute = false,
+  agent?: NonNullable<ManagedInvocationToolOptions["agentCatalog"]>[number],
 ): ManagedInvocationToolRoute {
   const matches = options.routes.filter((route) => {
     if (selector?.providerId && route.providerId !== selector.providerId) return false;
     if (selector?.model && route.model !== selector.model) return false;
     if (selector?.routeId && route.routeId !== selector.routeId) return false;
-    const profile = route.profiles[admissionProfile];
+    const profile = resolveManagedInvocationRouteProfile(route, admissionProfile, agent);
     return profile !== undefined
       && profile.workingDirectory.mode === workingDirectoryMode
       && (workingDirectoryMode !== "isolated-worktree" || profile.workingDirectoryLease !== undefined)
@@ -676,8 +685,9 @@ function requireOrchestrationProfile(
   route: ManagedInvocationToolRoute,
   admissionProfile: ManagedAgentAdmissionProfile,
   workingDirectoryMode: ManagedAgentWorkingDirectory["mode"] | undefined,
+  agent?: NonNullable<ManagedInvocationToolOptions["agentCatalog"]>[number],
 ): ManagedInvocationRouteProfile {
-  const profile = route.profiles[admissionProfile];
+  const profile = resolveManagedInvocationRouteProfile(route, admissionProfile, agent);
   if (!profile) {
     throw new Error(`Managed orchestration route '${route.routeId}' does not expose ${admissionProfile}`);
   }

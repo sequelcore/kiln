@@ -4,12 +4,23 @@ import { join } from "node:path";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
-import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v2-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v3-fixture.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),
+  closeManagedAccountRuntimeComposition: vi.fn(),
   closeMemoryRepository: vi.fn(),
   createDefaultRegistry: vi.fn(),
+  createBenchmarkAuthorityWorkspaceLease: vi.fn(() => ({
+    rootPath: "C:/temp/benchmark-authority",
+    cleanup: vi.fn(),
+  })),
+  createManagedAccountRuntimeComposition: vi.fn(() => ({
+    routing: {},
+    authority: {},
+    updateCatalog: vi.fn(),
+    close: vi.fn(),
+  })),
   createProjectBoundedWorkAuthority: vi.fn(() => ({
     surface: { projectRuntimeId: "project:test", authority: {} },
     admitExecutionAttempt: vi.fn(),
@@ -80,7 +91,8 @@ vi.mock("../../src/application/instruction-profile-context.js", () => ({
   resolveInstructionProfileContextCandidates: benchmarkExecutorMocks.resolveInstructionProfileContextCandidates,
 }));
 
-vi.mock("../../src/config/global-config.js", () => ({
+vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
   readGlobalConfig: benchmarkExecutorMocks.readGlobalConfig,
 }));
 
@@ -125,7 +137,13 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", () => ({
 }));
 
 vi.mock("../../src/config/managed-agent-routes.js", () => ({
+  closeManagedAccountRuntimeComposition: benchmarkExecutorMocks.closeManagedAccountRuntimeComposition,
+  createManagedAccountRuntimeComposition: benchmarkExecutorMocks.createManagedAccountRuntimeComposition,
   resolveManagedInvocationToolOptions: benchmarkExecutorMocks.resolveManagedInvocationToolOptions,
+}));
+
+vi.mock("../../src/application/benchmark-authority-workspace.js", () => ({
+  createBenchmarkAuthorityWorkspaceLease: benchmarkExecutorMocks.createBenchmarkAuthorityWorkspaceLease,
 }));
 
 vi.mock("../../src/engines/engine-registry.js", () => ({
@@ -493,6 +511,8 @@ describe("createBenchmarkSessionExecutor", () => {
       sessionConfig: expect.objectContaining({
         cwd: expectedWorkspace,
         task: expect.stringContaining("Do not prepend the fixture declaration"),
+        mcpServerEntryPath: undefined,
+        boundedWork: expect.anything(),
       }),
     }));
     expect(result.metadata).toMatchObject({
@@ -500,7 +520,27 @@ describe("createBenchmarkSessionExecutor", () => {
       workspaceFixture: fixturePath,
       workspaceFixtureHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
     });
-    expect(benchmarkExecutorMocks.resolveManagedInvocationToolOptions).toHaveBeenCalledTimes(priorManagedResolutionCount);
+    expect(benchmarkExecutorMocks.resolveManagedInvocationToolOptions).toHaveBeenCalledTimes(priorManagedResolutionCount + 1);
+    expect(benchmarkExecutorMocks.resolveManagedInvocationToolOptions).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        cwd: expectedWorkspace,
+        maxParallelChildren: 1,
+        managedAccountComposition: expect.anything(),
+      }),
+    );
+    expect(benchmarkExecutorMocks.createProjectBoundedWorkAuthority).toHaveBeenCalledWith(expectedWorkspace, {
+      authorityStateRoot: "C:/temp/benchmark-authority",
+      projectIdentityRoot: expectedWorkspace,
+    });
+    expect(benchmarkExecutorMocks.createManagedAccountRuntimeComposition).toHaveBeenCalledWith(
+      expect.anything(),
+      expectedWorkspace,
+      {
+        compositionKey: "C:/temp/benchmark-authority",
+        databasePath: join("C:/temp/benchmark-authority", "managed-account-leases.sqlite"),
+      },
+    );
     expect(benchmarkExecutorMocks.withGlobalIdentityContext).toHaveBeenCalledTimes(priorIdentityContextCount);
     expect(benchmarkExecutorMocks.withWorkGovernanceContext).toHaveBeenCalledTimes(priorGovernanceContextCount);
     expect(benchmarkExecutorMocks.resolveInstructionProfileContextCandidates).toHaveBeenCalledTimes(priorInstructionContextCount);
@@ -570,7 +610,7 @@ describe("createBenchmarkSessionExecutor", () => {
     });
   });
 
-  it("rejects write profiles without a configured V2 execution route before execution", async () => {
+  it("rejects write profiles without a configured direct execution target before execution", async () => {
     const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue({});
     const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
@@ -582,7 +622,7 @@ describe("createBenchmarkSessionExecutor", () => {
     }, {
       id: "kiln-model-roster-backend-write",
       authorityProfile: "foundation-apply-approved-writes",
-    }))).rejects.toThrow("require a configured Kiln V2 execution route");
+    }))).rejects.toThrow("require a configured direct execution target");
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
@@ -618,7 +658,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        routeId: "benchmark-codex",
+        targetId: "benchmark-codex",
         deliberationLevel: "high",
       },
     });
@@ -682,7 +722,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        routeId: "benchmark-anthropic",
+        targetId: "benchmark-anthropic",
         deliberationLevel: "low",
       },
     });
@@ -717,7 +757,7 @@ describe("createBenchmarkSessionExecutor", () => {
     const executor = createBenchmarkSessionExecutor({
       appConfig: MOCK_APP_CONFIG,
       flags: {
-        routeId: "benchmark-unknown",
+        targetId: "benchmark-unknown",
         deliberationLevel: "high",
       },
     });

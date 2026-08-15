@@ -108,9 +108,9 @@ export async function createModelGatewayIngress(
   }
   const routes = new Map(
     options.config.virtualModels.map((model) => {
-      const canonicalRoute = options.executionCatalog.routes.find(({ id }) => id === model.executionRouteId);
-      if (!canonicalRoute) throw new Error(`Virtual model '${model.id}' references unknown execution route '${model.executionRouteId}'.`);
-      const admission = options.executionRouting.admit({ routeId: model.executionRouteId });
+      const canonicalRoute = options.executionCatalog.routes.find(({ id }) => id === model.targetId);
+      if (!canonicalRoute) throw new Error(`Virtual model '${model.id}' references unknown target '${model.targetId}'.`);
+      const admission = options.executionRouting.admit({ routeId: model.targetId });
       if (
         admission.routeId !== canonicalRoute.id
         || admission.providerId !== canonicalRoute.providerId

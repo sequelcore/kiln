@@ -27,7 +27,7 @@ const catalog = {
   ],
 };
 
-describe("execution route picker model", () => {
+describe("execution target picker model", () => {
   it("projects automatic and exact account intents without turning display evidence into selection identity", () => {
     const routes = projectExecutionRoutePicker(catalog);
 

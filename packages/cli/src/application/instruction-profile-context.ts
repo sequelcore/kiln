@@ -1,6 +1,6 @@
 import type { ContextCandidate } from "@kilnai/core";
 import type { KilnGlobalConfig } from "../config/global-config.js";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { KilnProjectConfig } from "../kiln-yaml-types.js";
 import type { KilnAgentDefinition } from "./agent-loader.js";
 import {
   findInstructionProfile,
@@ -14,7 +14,7 @@ const INSTRUCTION_PROFILE_SCORE = 0.98;
 export interface ResolveInstructionProfileContextInput {
   readonly projectPath: string;
   readonly globalConfig?: KilnGlobalConfig | null;
-  readonly projectConfig?: KilnYaml | null;
+  readonly projectConfig?: KilnProjectConfig | null;
   readonly agent?: Pick<KilnAgentDefinition, "name" | "instructionProfiles">;
   readonly userHome?: string;
 }

@@ -1,4 +1,4 @@
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { HarnessIntegrationId } from "./harness-integration-capabilities.js";
 import { encodeNativeAgentModel } from "./harness-integration-capabilities.js";
 
@@ -107,7 +107,7 @@ export interface NativeRouteIntegrityDiagnostic {
 
 export function resolveNativeDefaultRouteProjection(
   harness: HarnessIntegrationId,
-  kilnYaml: KilnYaml,
+  kilnYaml: ResolvedKilnConfig,
 ): NativeDefaultRouteProjection {
   const providerId = kilnYaml.provider?.trim();
   const model = kilnYaml.model?.default?.trim();

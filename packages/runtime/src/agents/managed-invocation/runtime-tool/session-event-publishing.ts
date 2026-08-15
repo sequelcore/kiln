@@ -21,6 +21,7 @@ import type {
   ManagedInvocationToolOptions,
   ManagedInvocationToolRoute,
 } from "./types.js";
+import { resolveManagedInvocationRouteProfile } from "./profile-resolution.js";
 import { unique } from "./catalog-descriptions.js";
 import { validateAgentRouteHint, resolveRoute } from "./route-resolution.js";
 import { canonicalizeManagedInvocationRawInput } from "./request-preparation.js";
@@ -169,7 +170,7 @@ export function createManagedInvocationToolCallMetadataResolver(
     if (!route.createAdapter && route.economicCapability?.status !== "verified") {
       return undefined;
     }
-    const profileDefaults = route.profiles[parsed.input.profile];
+    const profileDefaults = resolveManagedInvocationRouteProfile(route, parsed.input.profile, agentProfile);
     if (!profileDefaults) {
       return undefined;
     }

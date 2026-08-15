@@ -6,7 +6,6 @@ import {
   adoptManagedEconomicSnapshot,
   digestManagedEconomicValue,
   type ManagedEconomicCommitment,
-  type ManagedEconomicPolicyIdentity,
   type ManagedEconomicSettlement,
 } from "@kilnai/core";
 import {
@@ -22,16 +21,19 @@ import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-le
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { createEconomicRouteProofAdoption } from "./economic-route-proof-fixture.js";
 
-function policy(): ManagedEconomicPolicyIdentity {
-  return {
-    policyId: "policy-a",
-    schemaVersion: 1,
-    policyRevision: "revision-1",
-    policyDigest: `sha256:${"1".repeat(64)}`,
-    comparisonDomains: [],
-    noRouteAction: "deny",
-    evidenceRequirements: { quota: "optional", price: "required" },
-  };
+const AUTHORITY_PROFILE_ID = "authority:dispatch-test:foundation-readonly-plan";
+const INVOCATION_ID = "managed-invocation:dispatch-test";
+const PROFILE_AUTHORITY_DIGEST = `sha256:${"9".repeat(64)}`;
+
+function dispatchAdoption(): ManagedEconomicDispatchAdoption {
+  return createEconomicRouteProofAdoption({
+    providerId: "codex-oauth",
+    routeId: "route-a",
+    modelId: "gpt-test",
+    priceKind: "metered",
+    quotaEvidence: { kind: "missing" },
+    quotaRequirement: "optional",
+  });
 }
 
 function recordingLifecycleEvents(): { readonly port: ManagedEconomicLifecycleEventPort; readonly transitions: string[] } {
@@ -113,8 +115,16 @@ describe("ManagedEconomicDispatchCoordinator", () => {
     const coordinator = new ManagedEconomicDispatchCoordinator({
       authority: economicAuthority,
       resolveLifecycleTimeoutMs: () => 1_000,
-      createAdapter: async ({ commitment: selected }) => {
+      createAdapter: async ({
+        commitment: selected,
+        authorityProfileId,
+        profileAuthorityDigest,
+        invocationId,
+      }) => {
         events.push(`adapter:${selected.reservation.selectedIdentity.account.kind}`);
+        expect(authorityProfileId).toBe(AUTHORITY_PROFILE_ID);
+        expect(profileAuthorityDigest).toBe(PROFILE_AUTHORITY_DIGEST);
+        expect(invocationId).toBe(INVOCATION_ID);
         return { descriptor: {} } as never;
       },
     });
@@ -123,8 +133,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: { snapshot: { policy: policy() } } as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       lifecycleEvents: lifecycleEvents.port,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
@@ -173,8 +185,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: { snapshot: { policy: policy() } } as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-apply-approved-writes",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       validateAndConsumeApprovalBeforeFence,
     });
 
@@ -203,8 +217,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: { snapshot: { policy: policy() } } as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-apply-approved-writes",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       validateAndConsumeApprovalBeforeFence,
     })).rejects.toThrow("approval-rejected");
 
@@ -228,8 +244,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     })).resolves.toMatchObject({ status: "already-dispatched" });
     expect(createAdapter).not.toHaveBeenCalled();
   });
@@ -246,8 +264,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     })).rejects.toThrow("synthetic adapter failure");
     expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce();
     expect(economicAuthority.recordExecutionSettlementPending).toHaveBeenCalledWith(
@@ -272,8 +292,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       validateExecutionProfile: async () => {
         throw new Error("identity-revision-conflict: managed profile authority changed");
       },
@@ -301,8 +323,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     })).rejects.toThrow("timeout must be a positive finite number");
     expect(economicAuthority.releasePreFence).toHaveBeenCalledOnce();
   });
@@ -323,8 +347,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: { snapshot: { policy: policy() } } as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       abortSignal: controller.signal,
       lifecycleEvents: lifecycleEvents.port,
       validateAndConsumeApprovalBeforeFence,
@@ -364,8 +390,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: { snapshot: { policy: policy() } } as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       lifecycleEvents: lifecycleEvents.port,
     });
 
@@ -448,8 +476,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: { snapshot: { policy: policy() } } as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       lifecycleEvents: {
         record: (input) => records.push(input as unknown as Record<string, unknown>),
       },
@@ -486,8 +516,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
       abortSignal: controller.signal,
     });
     await vi.waitFor(() => expect(economicAuthority.fenceDispatch).toHaveBeenCalledOnce());
@@ -515,8 +547,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     });
     if (preparation.status !== "prepared") throw new Error("fixture");
 
@@ -546,8 +580,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     });
     if (preparation.status !== "prepared") throw new Error("fixture");
 
@@ -573,8 +609,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     });
     if (preparation.status !== "prepared") throw new Error("fixture");
     preparation.registerEconomicSettlement(new Promise<ManagedEconomicSettlement>(() => undefined));
@@ -600,8 +638,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
     const unknown: ManagedEconomicSettlement = {
@@ -634,8 +674,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     });
     if (prepared.status !== "prepared") throw new Error("fixture");
     prepared.registerEconomicSettlement(Promise.reject(new Error("provider outcome unknown")));
@@ -654,8 +696,10 @@ describe("ManagedEconomicDispatchCoordinator", () => {
       jobId: "job-a",
       economicAttemptId: "economic-attempt-a",
       intentFingerprint: `sha256:${"9".repeat(64)}`,
-      adoption: {} as never,
+      adoption: dispatchAdoption(),
       admissionProfile: "foundation-readonly-plan",
+      authorityProfileId: AUTHORITY_PROFILE_ID,
+      invocationId: INVOCATION_ID,
     });
 
     expect(prepared).toMatchObject({ status: "prepared" });
@@ -750,6 +794,8 @@ describe("ManagedEconomicDispatchCoordinator", () => {
         intentFingerprint: digestManagedEconomicValue({ proof: "no-spend" }),
         adoption,
         admissionProfile: "foundation-readonly-plan",
+        authorityProfileId: AUTHORITY_PROFILE_ID,
+        invocationId: `managed-invocation:${jobId}`,
         lifecycleEvents: {
           record: (input) => appendManagedEconomicLifecycleSessionEvent({
             session,

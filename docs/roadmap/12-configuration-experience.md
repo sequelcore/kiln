@@ -165,7 +165,7 @@ second policy or default authority.
 - Guided first-run adoption and common configuration operations.
 - Searchable GUI Settings with Basic, Providers, Models, Permissions, Tools,
   Budgets, Agents, Health, and Advanced sections.
-- A model-route wizard that consumes Available Models and builds admitted route
+- A model-target wizard that consumes Available Models and builds admitted target
   material without raw JSON entry.
 - Typed configuration operations shared by CLI, GUI, TUI, SDK, and admitted
   agent tools.
@@ -277,19 +277,19 @@ state remains visible and cannot be presented as current.
 
 Status: Blocked on Slices 0 and 2.
 
-Start with execution routes because they currently expose the largest repeated
-policy and economic material. Define minimal route intent and move generated
+Start with execution targets because they currently expose the largest repeated
+policy and economic material. Define minimal target intent and move generated
 data-policy, economic, discovery, freshness, and projection evidence to their
 owning durable stores. Intent references exact admitted evidence revisions; it
 does not duplicate their contents.
 
-Migrate useful global state atomically. Revalidate the complete execution
-catalog before publication, prove the new read model, then retire the former
+Migrate useful global state atomically. Revalidate the complete target catalog
+before publication, prove the new read model, then retire the former
 shape and writer. Evidence that can be reconstructed is regenerated instead of
 copied blindly.
 
-Acceptance: the common route declaration contains only material operator
-choices; admission remains at least as strict; no route executes with missing,
+Acceptance: the common target declaration contains only material operator
+choices; admission remains at least as strict; no target executes with missing,
 stale, widened, or mismatched evidence; only the new contract remains.
 
 Recovery: migration publishes the new state only after complete validation and
@@ -302,7 +302,7 @@ Status: Blocked on the read model and first intent contract.
 
 Generalize the existing governed lifecycle without creating a generic patch
 escape hatch. Add typed operations such as preference selection, provider
-connection intent, model-route creation or disablement, permission-profile
+connection intent, model-target creation or disablement, permission-profile
 selection, budget changes, and capability enablement. Every proposal binds its
 base revision, normalized operation, affected owners, preview, authority
 impact, activation plan, validation diagnostics, and rollback evidence.
@@ -324,7 +324,7 @@ authority. Rollback is another validated operation, not filesystem copying.
 Status: Blocked on Slices 1, 2, and 4.
 
 Implement a minimal first-run CLI flow and the equivalent GUI entry point. Ask
-only for provider connection, default model or route, safe permission posture,
+only for provider connection, default target, safe permission posture,
 scope, and optional capabilities required for the first useful run. Resolve
 defaults and presets through canonical owners and emit only intent that differs
 materially from defaults.
@@ -352,11 +352,11 @@ Acceptance: keyboard, narrow-layout, screen-reader, pending, conflict,
 reconciliation-failure, and focus-restoration behavior pass on real flows;
 surface state always comes from the shared read model.
 
-### Slice 7 - Available Models Route Wizard
+### Slice 7 - Available Models Target Wizard
 
 Status: Blocked on Slices 3, 4, and 6.
 
-Replace raw route-material JSON with a guided wizard backed by current Available
+Replace raw target-material JSON with a guided wizard backed by current Available
 Models evidence. The operator selects a discovered model and answers only
 material unresolved choices. Runtime constructs and admits provider identity,
 account selection, data policy, economics, capability, and revision evidence.

@@ -20,7 +20,7 @@
 > expected to change before the next public release.
 
 Kiln gives applications, operators, and native coding harnesses one place to
-decide what AI work may run, which route and account may execute it, what
+decide what AI work may run, which target and account may execute it, what
 context and tools it may receive, and what evidence must remain afterward.
 
 It is not another agent loop or a generic model proxy. Codex, Claude Code,
@@ -30,8 +30,8 @@ Kiln provides the shared execution and governance layer beneath them.
 ## What Kiln provides
 
 - **Canonical execution routing.** Operator surfaces and managed workers select
-  governed routes instead of copying provider, model, account, and fallback
-  policy into every client.
+  governed execution targets instead of copying provider, model, account, and
+  fallback policy into every client.
 - **Cross-harness model access.** The local Model Gateway exposes admitted
   virtual models to Codex, Claude Code, and OpenCode while preserving each
   harness's own tools, permissions, and session model.
@@ -53,14 +53,14 @@ Codex / Claude Code / OpenCode -- Model Gateway -+
 CLI / TUI / GUI -------------- Operator Runtime -+-- Kiln Runtime
 Apps / channels ------------------ App Gateway ---+        |
                                                           v
-                                             admitted execution route
+                                             admitted execution target
                                                           |
                                                           v
                                              provider + fenced account
 ```
 
 The interfaces do not become interchangeable. They share Kiln's execution
-catalog, policy, capacity, and evidence while retaining their native agent
+target catalog, policy, capacity, and evidence while retaining their native agent
 loops and capabilities.
 
 ## Evaluate Kiln from source
@@ -94,7 +94,7 @@ path and the current platform boundaries.
 | --- | --- |
 | Understand the product and its boundaries | [Core concepts](docs/concepts.md) |
 | Build and inspect the repository | [Getting started](docs/getting-started.md) |
-| Configure execution routes and providers | [Model routing](docs/guides/config/model-routing.md) |
+| Configure execution targets and providers | [Model routing](docs/guides/config/model-routing.md) |
 | Understand the cross-harness proxy | [Model Gateway](docs/architecture/providers/model-gateway.md) |
 | Choose a CLI, TUI, GUI, or gateway surface | [Operator surfaces](docs/guides/ops/operator-surfaces.md) |
 | Build an application on the runtime | [Examples](docs/examples/README.md) |

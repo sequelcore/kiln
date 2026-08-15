@@ -9,7 +9,7 @@ import { resolveInstructionProfileContextCandidates } from "../application/instr
 import { readGlobalConfig } from "./global-config.js";
 import type { KilnGlobalConfig } from "./global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import type { KilnModelTaskSuitabilityOverride, KilnYaml, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
+import type { KilnModelTaskSuitabilityOverride, KilnProjectConfig, KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { join } from "node:path";
 import { inferRouteTask } from "./execution-route-resolver.js";
 import { resolveTaskSkillSelection } from "./task-skill-selection.js";
@@ -19,7 +19,7 @@ export function createManagedInvocationContextResolver(
   userHome = homedir(),
   config: {
     readonly globalConfig?: KilnGlobalConfig | null;
-    readonly projectConfig?: KilnYaml | null;
+    readonly projectConfig?: KilnProjectConfig | null;
     readonly skillConfig?: KilnYamlSkillsConfig | null;
     readonly modelTaskSuitability?: readonly KilnModelTaskSuitabilityOverride[];
   } = {},
@@ -113,7 +113,7 @@ function resolveManagedInstructionProfiles(
   sections: string[],
   config: {
     readonly globalConfig?: KilnGlobalConfig | null;
-    readonly projectConfig?: KilnYaml | null;
+    readonly projectConfig?: KilnProjectConfig | null;
   },
 ): readonly string[] {
   const candidates = resolveInstructionProfileContextCandidates({

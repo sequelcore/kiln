@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Model Gateway is an ingress overlay on Kiln's canonical execution catalog. It
-accepts a virtual-model request, maps that virtual model to an
-`executionRouteId`, and executes the admitted route through the same Runtime
+Model Gateway is an ingress overlay on Kiln's canonical target catalog. It
+accepts a virtual-model request, maps that virtual model to a `targetId`, and
+executes the admitted target through the same Runtime
 authority used by `kiln run`, GUI, and TUI. It is not a second provider,
 credential, account-pool, routing authority, or general agent proxy. It remains
 a Runtime component, not a standalone package or product-service boundary.
@@ -15,14 +15,14 @@ The authoritative configuration and selection rules are documented in
 
 ## Boundary
 
-`@kilnai/core` owns the pure execution-catalog validation, route admission,
+`@kilnai/core` owns pure target-catalog projection, route admission,
 candidate ordering, and secret-free commitment evidence. `@kilnai/runtime`
 owns current account evidence, shared capacity, fencing, credential resolution,
 provider dispatch, and terminal evidence. Gateway contracts and surfaces own
 only validated request and projection DTOs.
 
 The Gateway overlay owns ingress policy: virtual model names, protocol exposure,
-and authentication. A virtual model has one `executionRouteId`; it does not
+and authentication. A virtual model has one `targetId`; it does not
 repeat provider/model, credential, account-policy, capacity, economics, or
 failover data. The referenced route remains the only authority for those facts.
 
@@ -30,13 +30,13 @@ failover data. The referenced route remains the only authority for those facts.
 modelGateway:
   virtualModels:
     - id: kiln/terra
-      executionRouteId: terra
+      targetId: terra
 ```
 
 ## Canonical Turn Flow
 
 1. Authenticate and validate the ingress request.
-2. Resolve the virtual model to its canonical execution route.
+2. Resolve the virtual model to its canonical execution target.
 3. Admit the route and obtain current account candidates from Runtime.
 4. Apply the account policy: safety, health, quota, and live capacity first;
    then economics, pressure, and stable account identity.
@@ -209,15 +209,15 @@ Codex client
     v
 Kiln codex-composite listener
     |-- native Codex model ID --> Codex backend
-    `-- Kiln virtual model ID --> canonical Kiln execution route
+    `-- Kiln virtual model ID --> canonical Kiln execution target
 ```
 
 For a native Codex model ID, Kiln authenticates the composite capability,
 applies ingress safety limits, preserves only admitted native headers, and
 forwards the original request to the Codex backend. Kiln does not translate
-that turn into a Kiln execution route and does not change the selected native
+that turn into a Kiln execution target and does not change the selected native
 model. For a virtual model ID admitted to the projected principal, Kiln maps
-the request to that virtual model's canonical `executionRouteId`.
+the request to that virtual model's canonical `targetId`.
 
 This means selecting Codex's default model still sends the HTTP request through
 the local listener. A URL containing
@@ -260,9 +260,10 @@ the native composite branch has no account-selection or dispatch evidence.
 
 ## Related Overlays
 
-Agent Task economic routes also reference `executionRouteId`; they do not
-copy execution account facts. Native-harness managed routes are separate
-physical-harness routes and retain only the facts needed for that boundary.
+Agent Task economic candidates also reference `targetId`; they do not copy
+execution-account facts. Runtime may persist the admitted value under an
+internal `routeId` field as durable execution evidence; that internal name is
+not a second configuration identity.
 
 ## Verification
 

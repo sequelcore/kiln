@@ -78,10 +78,10 @@ runtime-capable apps, enabled tenants, active app/tenant selection, and
 target-bound operator actions with `gatewayTargetId`, and prefers the
 gateway-published Operator Workspace home projection for workspace
 summary/attention state before falling back to local reconstruction. Global
- control-plane frames such as execution-route selection, execution-route catalog
+ control-plane frames such as target selection and target-catalog evidence
  refresh, provider authentication, clear, theme results, and voice synthesis
- remain targetless because they operate on the connected operator surface, route
- catalog, UI preference, or source message.
+ remain targetless because they operate on the connected operator surface,
+ target catalog, UI preference, or source message.
 
 ## Operator terminal
 
@@ -157,9 +157,9 @@ The GUI command palette projects `listOperatorCommands("gui")` from
 `packages/gateway-contracts/src/operator-commands.ts`; do not add GUI-only
 duplicates for governed operator controls.
 
-The shared GUI catalog includes `goal`, `plan`, `exec`, `route`, `theme`,
+The shared GUI catalog includes `goal`, `plan`, `exec`, `target`, `theme`,
 `deliberation`, `authority`, `continue`, `setup`, `clear`, and `terminal`.
-`route` opens execution-route controls, `goal` opens the governed work/goal
+`target` opens target controls, `goal` opens the governed work/goal
 surface, and `plan`/`exec` toggle the same planning state used by the composer
 controls.
 
@@ -228,7 +228,7 @@ The GUI shell uses a supervision layout rather than a dashboard layout:
   files, Approvals, Activity, Memory, and Setup
 - the expanded mode panel owns the selected mode's list or navigation content
 - the main chat column owns conversation, turn composition, and active-turn
-  controls such as execution-route and app-target selection
+  controls such as execution-target and app-target selection
 - the Activity mode owns runtime evidence such as routing, tool calls, cost
   updates, continuity, and turn completion details
 - the Setup mode owns durable configuration diagnostics, projection status, and
@@ -249,39 +249,39 @@ historical evidence. The focusable control has a matching accessible name and
 tooltip. It is not transcript length or a derived provider probe. GUI validates
 the Gateway DTO but does not change state, freshness, or authority locally.
 
-Selecting an execution route affects the next turn only. A completed or
-restored context observation remains bound to the route that produced it;
-incompatible new route evidence is rejected by Runtime rather than displayed as
+Selecting an execution target affects the next turn only. A completed or
+restored context observation remains bound to the target execution that produced it;
+incompatible new target evidence is rejected by Runtime rather than displayed as
 a retained percentage.
 
-Initial selection is route-configured: a persisted
-`ui.executionRouteSelection` takes precedence over
-`executionRouting.defaultRouteId`. GUI has no one-off `--route` startup flag.
+Initial selection is target-configured: a persisted
+`ui.targetSelection.targetId` takes precedence over
+`targetRouting.defaultTargetId`. GUI has no one-off `--target` startup flag.
 The in-surface picker changes the next-turn selection only after Runtime
-acknowledges the route intent.
+acknowledges the target intent.
 
-Execution-route selection is an anchored, non-modal composer surface. The
-picker renders the runtime `ExecutionRouteCatalog`: configured route labels,
-availability, reason codes, and repair actions. Route ID is the sole selection
+Target selection is an anchored, non-modal composer surface. The picker renders
+the runtime target-catalog projection: configured target labels, availability,
+reason codes, and repair actions. Target ID is the sole selection
 input. Provider and model labels are derived execution evidence for recognition
 and diagnostics; they do not become alternate selection keys. A configured
-route remains visible when unavailable so its repair action is actionable.
+target remains visible when unavailable so its repair action is actionable.
 
-An automatic route may expose eligible account aliases as an optional override.
-Those aliases narrow that route's configured account policy; they never expose
-or select credential IDs. Exact routes do not offer an override. Provider
-authentication remains a provider-scoped repair action for a route diagnostic,
-not a second route-selection mechanism.
+An automatic target may expose eligible account aliases as an optional
+override. Those aliases narrow that target's configured account policy; they
+never expose or select credential IDs. Exact targets do not offer an override.
+Provider authentication remains a provider-scoped repair action for a target
+diagnostic, not a second target-selection mechanism.
 
-Unavailable routes render the repair actions supplied by the catalog. GUI
+Unavailable targets render the repair actions supplied by the catalog. GUI
 offers `Authenticate <provider>` for `authenticate-provider` and `Refresh
-execution routes` for `refresh-route-catalog`. Authentication uses the
-route's derived provider only to repair account evidence. On success, the
-Gateway returns a fresh execution-route catalog and GUI replaces the picker
-catalog; the operator must still select an admitted route for a later turn.
+execution targets` for `refresh-route-catalog`. Authentication uses the
+target's derived provider only to repair account evidence. On success, the
+Gateway returns fresh target evidence and GUI replaces the picker
+catalog; the operator must still select an admitted target for a later turn.
 
-Manual execution-route refresh is an in-place picker operation after bootstrap.
-It preserves the workspace and current route state while Runtime refreshes
+Manual target refresh is an in-place picker operation after bootstrap.
+It preserves the workspace and current target state while Runtime refreshes
 availability evidence. Refresh failure is reported beside the initiating
 control and does not return the application to its startup gate; bootstrap
 state is reserved for initial connection and explicit runtime recovery.
@@ -429,7 +429,7 @@ File preview support is intentionally conservative:
   state
 
 Document tabs are local presentation state. They do not mutate the runtime
-session, execution-route state, approval state, changed-file events, or working tree.
+session, target state, approval state, changed-file events, or working tree.
 Editing, save semantics, structured diff viewing, and provider tool invocation
 remain outside this read-only workspace slice.
 
@@ -521,7 +521,7 @@ fallback into the centered global modal.
 
 The composer should remain a compact framed control with internal padding, a
 transparent textarea, and a bottom action rail for command, file, approval,
-plan, route, and send affordances. Avoid large detached input cards, duplicate
+plan, target, and send affordances. Avoid large detached input cards, duplicate
 status headers, or controls that push the transcript out of view.
 
 During a turn, the composer exposes the canonical activity phase as visible
@@ -531,9 +531,9 @@ orb. The containing Border Beam remains a low-strength monochrome pulse during
 work and uses a short controlled ember completion signal. Neither effect may
 infer provider state, replace event evidence, or bypass reduced-motion support.
 
-Execution-route selection and deliberation live in the composer action rail
+Target selection and deliberation live in the composer action rail
 because they shape the next submitted turn. The deliberation control appears
-only when the selected route's derived model evidence advertises ordered levels.
+only when the selected target's derived model evidence advertises ordered levels.
 It remains at the provider default until the operator explicitly selects a
 level; that selection is sent as a fixed intent with the next message and is
 not a global GUI preference.
@@ -543,10 +543,10 @@ gateway admission result. The authority selector sends the requested limit
 (`auto`, `read_only`, `audited`, or `destructive`) with the next turn, while the
 execution status chip displays the latest admitted authority projected by the
 runtime (`requested -> admitted`, sandbox, and completeness). Do not infer
-write capability from a route's derived provider/model alone; managed-agent
-writes require an explicit write-capable route in global config.
+write capability from a target's derived provider/model alone; managed-agent
+writes require a write-capable authority profile in global config.
 
-When a selected route's derived provider is Codex OAuth, Runtime discovers model
+When a selected target's derived provider is Codex OAuth, Runtime discovers model
 capabilities from the authenticated Codex endpoint. Reasoning levels are
 derived from that evidence, including the object-shaped
 `supported_reasoning_levels` response returned by ChatGPT-backed Codex models.
@@ -562,17 +562,17 @@ project it as its default browser sign-in path.
 ## Session Model
 
 The GUI session rail shows canonical Kiln sessions. It is not filtered by the
-selected execution route or its derived provider.
+selected target or its derived provider.
 
-Execution-route selection controls the next turn. A single Kiln session can
-contain turns from multiple execution routes, and the GUI keeps that session
-visible while the operator changes routes. Provider-native thread IDs, when
+Target selection controls the next turn. A single Kiln session can
+contain turns resolved through multiple targets, and the GUI keeps that session
+visible while the operator changes targets. Provider-native thread IDs, when
 available, are provider-scoped metadata under the Kiln session and are used only
 by the matching provider.
 
 At startup, the GUI may render cached provider-model discovery as diagnostic
-evidence. Cached entries are `stale` and do not make a route selectable;
-Runtime must refresh route availability before prompt execution or managed
+evidence. Cached entries are `stale` and do not make a target selectable;
+Runtime must refresh target availability before prompt execution or managed
 invocation execution proceeds.
 
 Selecting a session from the rail loads that session's transcript into the main
@@ -603,7 +603,7 @@ history, and type a normal prompt. The expected result is a fresh session, not
 hidden continuation. Then select the first conversation again and use the
 explicit resume action; the expected result is that the runtime logs show the
 first canonical Kiln session ID and the assistant has the selected
-conversation's prior context. Execution-route selection should still produce
+conversation's prior context. Target selection should still produce
 one continued Kiln conversation with derived provider telemetry attribution, not
 separate provider-owned histories.
 
@@ -619,17 +619,16 @@ layout. The Chat tab remains available beside the opened files. Opening files
 must not create session events, approvals, changed-file entries, or provider
 tool calls.
 
-For reasoning validation, select a route whose derived provider/model is Codex
+For reasoning validation, select a target whose derived provider/model is Codex
 OAuth and advertises reasoning levels, choose a non-default effort from the
 composer control, and send a turn. The request should complete through the same
 runtime session and the selected effort should apply only to that turn.
 
 For authority validation, select `Auto`, send a turn, and verify the composer
 status shows the admitted authority and sandbox. If the task delegates
-implementation to a managed child, the child must use
-`foundation-apply-approved-writes` and route health must show a configured
-write-capable harness route; read-only direct routes should continue to fail
-closed for edits.
+implementation to a managed child, the child must reference a configured
+write-capable authority profile and target health must show an admitted target;
+read-only authority profiles should continue to fail closed for edits.
 
 See `docs/architecture/core/session-model.md` for the canonical rules.
 

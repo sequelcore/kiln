@@ -158,10 +158,10 @@ settlement rather than being released by recovery.
 
 ## Configuration Boundary
 
-Managed direct routes reference exactly one `executionRouteId`. The global
-execution catalog owns that route's provider, provider model, automatic account
+Managed direct execution references exactly one `targetId`. The global target
+catalog owns that target's provider, provider model, automatic account
 policy or exact account, and economic evidence. Managed configuration does not
-duplicate credential selectors, account lists, or a second economic-route
+duplicate credential selectors, account lists, or a second execution-target
 identity.
 
 Candidate collection is secret-free and performs no adapter construction,

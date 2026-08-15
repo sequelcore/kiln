@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { type ModelGatewayConfig, loadSkillMdIndex, readTrustedExecutionAuthorization } from "@kilnai/core";
 import { parse as parseYaml } from "yaml";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
-import type { KilnYaml } from "../kiln-yaml-types.js";
+import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { stripJsonComments } from "./json-comments.js";
 import {
@@ -64,7 +64,7 @@ function ensureDir(dirPath: string): void {
 }
 
 export async function syncOpenCodeSkillVisibilityProjection(
-  kilnYaml: KilnYaml,
+  kilnYaml: ResolvedKilnConfig,
   projectPath: string,
   options: NativePermissionProjectionOptions = {},
 ): Promise<{ readonly errors: readonly string[]; readonly outcomes: readonly ProjectionOutcome[] }> {
@@ -201,7 +201,7 @@ export function uninstallOpenCodeSkillVisibilityProjection(options: { readonly u
 }
 
 export async function syncNativePermissionProjections(
-  kilnYaml: KilnYaml,
+  kilnYaml: ResolvedKilnConfig,
   projectPath: string,
   options: NativePermissionProjectionOptions = {},
 ): Promise<NativePermissionProjectionResult> {
@@ -337,7 +337,7 @@ async function syncClaudePermissions(
 }
 
 async function syncCodexPermissions(
-  kilnYaml: KilnYaml,
+  kilnYaml: ResolvedKilnConfig,
   policy: KilnPermissionPolicy,
   projectPath: string,
   kilnDir: string,
@@ -462,7 +462,7 @@ async function syncCodexPermissions(
 }
 
 async function syncOpenCodePermissions(
-  kilnYaml: KilnYaml,
+  kilnYaml: ResolvedKilnConfig,
   policy: KilnPermissionPolicy,
   projectPath: string,
   kilnDir: string,

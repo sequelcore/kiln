@@ -19,11 +19,11 @@ function normalizeCanonicalId(value: unknown): string | null {
 export function resolveGuiExecutionRouteSelectionPreference(
   config: KilnGlobalConfig | null | undefined,
 ): OperatorExecutionRouteSelectionPreference | null {
-  const routeId = normalizeCanonicalId(config?.ui?.executionRouteSelection?.routeId);
+  const routeId = normalizeCanonicalId(config?.ui?.targetSelection?.targetId);
   if (!routeId) return null;
   return {
     routeId,
-    accountOverrideId: normalizeCanonicalId(config?.ui?.executionRouteSelection?.accountOverrideId),
+    accountOverrideId: normalizeCanonicalId(config?.ui?.targetSelection?.accountOverrideId),
   };
 }
 
@@ -41,8 +41,8 @@ export function persistGuiExecutionRouteSelectionPreference(
       ...current,
       ui: {
         ...current.ui,
-        executionRouteSelection: {
-          routeId: resolvedRouteId,
+        targetSelection: {
+          targetId: resolvedRouteId,
           ...(resolvedAccountOverrideId ? { accountOverrideId: resolvedAccountOverrideId } : {}),
         },
       },
