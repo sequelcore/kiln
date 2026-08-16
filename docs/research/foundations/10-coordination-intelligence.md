@@ -50,6 +50,27 @@ Those earlier prototypes were disconnected from the managed runtime and have
 been removed. Future adaptation must promote through reproducible benchmark
 evidence and the canonical policy-adaptation controls.
 
+## Background And Parallel Execution
+
+Reliability in a long-running agent comes from the machinery around the loop,
+not the loop itself. Analysis of production coding agents attributes it to
+compaction, extensibility, subagent delegation, worktree isolation, and
+append-oriented session storage. SWE-agent established the agent-computer
+interface as its own design surface, and SWE-Effi evaluates software agents
+under explicit resource constraints rather than accuracy alone — which is why
+Kiln treats concurrency, budget, and cancellation as part of correctness.
+
+Distributed-systems practice supplies the failure model. Tail latency dominates
+user-visible behavior once work fans out, and retry strategy must use timeouts,
+bounded attempts, and backoff with jitter or it converts a slow dependency into
+a self-inflicted outage.
+
+- [SWE-agent](https://arxiv.org/abs/2405.15793),
+  [SWE-Effi](https://arxiv.org/abs/2509.09853),
+  [agent loop machinery](https://arxiv.org/abs/2604.14228)
+- [The Tail at Scale](https://research.google/pubs/the-tail-at-scale/),
+  [AWS: timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/)
+
 ## Cybernetic Interpretation
 
 - Sensors: governance recommendation, graph shape, risk, route health, budget,

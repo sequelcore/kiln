@@ -90,6 +90,46 @@ Kiln should defend against fake capability claims by requiring:
 That is the clean way to stop a model, adapter, or integration from claiming a
 capability it cannot actually perform safely.
 
+## Tool Surface Evidence
+
+Two findings from protocol research reinforce the separation above.
+
+Production MCP deployments need infrastructure-level mechanisms around timeouts,
+errors, observability, and server contracts; the protocol alone does not make a
+deployment reliable. Separately, tool descriptions themselves affect tool-choice
+quality, which makes a description part of the executable contract rather than
+documentation attached to it.
+
+- [Bridging Protocol and Production: Design Patterns for Deploying AI Agents with MCP](https://arxiv.org/abs/2603.13417)
+- [Model Context Protocol Tool Descriptions Are Smelly!](https://arxiv.org/abs/2602.14878)
+
+Retrieval providers show the same gap between advertised and executable
+capability. Holding one agent policy fixed and varying only the search provider
+produced close final accuracy while snippet support, rank concentration,
+contradiction exposure, fetch behavior, tokens, and latency differed materially.
+The useful abstraction is therefore a provider's evidence decision surface, not
+an accuracy leaderboard.
+
+- [Equal Accuracy, Unequal Evidence](https://arxiv.org/abs/2607.10198)
+
+## Deciding When The System Acts
+
+Approval gating is a human-computer interaction problem as much as a policy one.
+Mixed-initiative research argues for coupling automated services with direct
+manipulation, and for deciding deliberately when the system acts versus when the
+operator stays in control. Human-AI interaction guidelines add that a system
+should make its capability clear, support efficient invocation, show context,
+handle uncertainty, and enable correction.
+
+The consequence Kiln takes is that a natural request becomes a bounded,
+inspectable plan before it becomes authority. The model works over explicit
+artifacts the operator can review; it does not receive unbounded execution
+authority because a request sounded broad.
+
+- [Horvitz, Principles of Mixed-Initiative User Interfaces](https://erichorvitz.com/chi99horvitz.pdf)
+- [Microsoft Research, Guidelines for Human-AI Interaction](https://www.microsoft.com/en-us/research/project/guidelines-for-human-ai-interaction/)
+- [CHI 2019](https://dl.acm.org/doi/10.1145/3290605.3300233)
+
 ## Direct Kiln Mappings
 
 - tool registries map to declared actuator surfaces

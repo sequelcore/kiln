@@ -73,6 +73,25 @@ Projection ownership and drift stay with config-projection review.
 - [Lost in the Middle](https://arxiv.org/abs/2307.03172)
 - [GitHub repository instructions](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions)
 
+## Public evidence is directional, not representative
+
+Social and public-web evidence can reveal observed pain, language, workarounds,
+and emerging demand. It is not a sample. Public posts overrepresent people who
+post publicly, highly engaged communities, loud or repeated voices,
+platform-specific demographics, and topics that are easy to express in public.
+Bots, coordinated activity, deleted content, private conversations, and API
+access limits distort it further, and synthetic user-generated content is now a
+named contamination risk rather than a hypothetical one.
+
+Kiln therefore records sampling limitations alongside any collected evidence,
+keeps collection separate from review and decision, and re-checks a candidate
+against other evidence before a high-impact roadmap or architecture decision
+depends on it.
+
+- [Social Data: Biases, Methodological Pitfalls, and Ethical Boundaries](https://pmc.ncbi.nlm.nih.gov/articles/PMC7931947/)
+- [Hargittai, Potential Biases in Big Data: Omitted Voices on Social Media](https://www.mkoganresearch.com/assets/hargittai.pdf)
+- [The Generation, Identification, and Mitigation of AI-Fabricated UGC](https://arxiv.org/html/2403.14706v1)
+
 ## Accepted separations
 
 - **Canonical content is not generated projection state.** A projection is

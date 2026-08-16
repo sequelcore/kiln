@@ -109,6 +109,32 @@ missing-capability requirement. It must not fabricate delegation evidence,
 create transient project memory files, or treat native harness instructions as
 runtime authority.
 
+## Task Families, Not A Task Enum
+
+Cross-domain evaluation does not support one universal task type. Benchmarks
+partition agent work into families with different environments, action spaces,
+and success criteria: AgentBench spans distinct operating environments, GAIA
+mixes reasoning with tool use and browsing, OSWorld evaluates desktop
+computer-use, and WebArena evaluates realistic web tasks. The reasoning
+literature describes the shape of the loop rather than the domain — ReAct
+interleaves reasoning with tool calls and observation, and MRKL argues for
+routing between neural and symbolic modules.
+
+The consequence Kiln adopts is that task classification stays a governed,
+extensible family model rather than a fixed enumeration, and that a routing
+decision is evidence about a family, not a global claim about capability.
+
+- [ReAct](https://arxiv.org/abs/2210.03629),
+  [MRKL Systems](https://arxiv.org/abs/2205.00445)
+- [AgentBench](https://arxiv.org/abs/2308.03688),
+  [GAIA](https://arxiv.org/abs/2311.12983)
+- [OSWorld](https://arxiv.org/abs/2404.07972),
+  [WebArena](https://arxiv.org/abs/2307.13854)
+
+Software-issue and tool-use benchmarks for the same purpose are recorded in
+[engineering review practice](engineering-review-practice.md) and
+[governance and reproducibility](governance-and-reproducibility.md).
+
 ## Limits
 
 Work governance must not become hidden prompt bloat. The policy needs typed
