@@ -99,5 +99,5 @@ Biological analogies are useful when they lead to a testable mechanism:
 - stigmergic and swarm mechanisms can inform coordination substrates.
 
 They must not replace explicit ownership, state, interfaces, or failure
-behavior. See [Biological mechanisms](research/foundations/03-biological-mechanisms.md)
-and [Cybernetic foundations](research/foundations/02-cybernetic-foundations.md).
+behavior. See [Biological mechanisms](research/foundations/biological-mechanisms.md)
+and [Cybernetic foundations](research/foundations/cybernetic-foundations.md).

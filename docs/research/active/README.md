@@ -12,18 +12,18 @@ Every note must name or link:
 
 ## Investigations
 
-- [Prompt Component and Response Governance](23-prompt-component-governance.md)
+- [Prompt Component and Response Governance](prompt-component-governance.md)
   supports [Roadmap 06](../../roadmap/06-prompt-governance-plane.md).
-- [Provider-Neutral Communication Governance](42-provider-neutral-communication-2026.md)
+- [Provider-Neutral Communication Governance](provider-neutral-communication.md)
   records the current provider/harness evidence and the evaluation work that
   remains before any communication default or prompt fallback can be promoted.
-- [Remote Operator Connection](43-remote-operator-connection-2026.md) supports
+- [Remote Operator Connection](remote-operator-connection.md) supports
   [Roadmap 08](../../roadmap/08-remote-operator-pairing.md) and
   [Roadmap 08.5](../../roadmap/08.5-remote-operator-connectivity.md) with the
   current product, standards, transport, and repository evidence for
   `Kiln Connect`.
-- [Visual Work Abstraction](31-visual-work-abstraction-2026.md) and
-  [General Work Contracts](32-general-work-contracts-2026.md) retain issue-backed
+- [Visual Work Abstraction](visual-work-abstraction.md) and
+  [General Work Contracts](general-work-contracts.md) retain issue-backed
   evidence but still need explicit documentation promotion targets.
 
 - [Bounded-Work Authority Benchmark](bounded-work-benchmark.md) holds the paired

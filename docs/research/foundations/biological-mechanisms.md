@@ -7,7 +7,7 @@ informed the Kiln architecture and separates them from weaker or mostly
 metaphorical analogies.
 
 Its purpose is taxonomy and boundary-setting. It should complement
-`02-cybernetic-foundations.md`, not compete with it.
+`cybernetic-foundations.md`, not compete with it.
 
 ## Nervous System
 
@@ -180,10 +180,10 @@ Use this document for mechanism taxonomy.
 
 Use:
 
-- `05-memory-systems.md` for memory-specific research
-- `06-safety-defense.md` for immune-style defense
-- `07-regulation-and-adaptation.md` for homeostasis and allostasis
-- `08-context-governance.md` for attention, inhibition, and shared-medium
+- `memory-systems.md` for memory-specific research
+- `safety-defense.md` for immune-style defense
+- `regulation-and-adaptation.md` for homeostasis and allostasis
+- `context-governance.md` for attention, inhibition, and shared-medium
   context selection
-- `09-tool-execution-and-trust.md` for tool gating and trust boundaries
-- `10-coordination-intelligence.md` for the deep coordination lineage
+- `tool-execution-and-trust.md` for tool gating and trust boundaries
+- `coordination-intelligence.md` for the deep coordination lineage

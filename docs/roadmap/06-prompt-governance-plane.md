@@ -42,7 +42,7 @@ Stable boundaries are documented in
 [Context Usage Projection](../architecture/context/context-usage-projection.md), and
 [Agent Context](../architecture/context/agent-context.md). The research and source
 basis lives in
-[Prompt Component And Response Governance](../research/active/23-prompt-component-governance.md).
+[Prompt Component And Response Governance](../research/active/prompt-component-governance.md).
 
 ## Goals
 

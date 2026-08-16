@@ -160,5 +160,5 @@ alternate selection command.
 
 Local benchmarks are admission evidence for this profile, not universal model
 rankings. Keep methodology, limitations, and promotion decisions in the
-[coordination intelligence foundation](../research/foundations/10-coordination-intelligence.md)
+[coordination intelligence foundation](../research/foundations/coordination-intelligence.md)
 rather than duplicating result tables here.

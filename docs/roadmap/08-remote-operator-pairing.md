@@ -111,7 +111,7 @@ roadmap prose.
 ## Research Basis
 
 The active, dated evidence synthesis is
-[Remote Operator Connection Research](../research/active/43-remote-operator-connection-2026.md).
+[Remote Operator Connection Research](../research/active/remote-operator-connection.md).
 It compares current OpenAI Codex and Anthropic Claude Code remote-control
 surfaces, VS Code Remote Tunnels, T3 Code/T3 Connect, community tools,
 Cloudflare and Tailscale transports, and RFC 8252, RFC 8628, RFC 9449, and RFC
