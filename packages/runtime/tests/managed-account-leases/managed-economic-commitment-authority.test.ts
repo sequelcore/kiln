@@ -559,6 +559,81 @@ describe("managed economic commitment authority", () => {
       .toMatchObject({ status: "committed" });
   });
 
+  it("writes the acquiring participant identity onto the economic lease", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-identity-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const authority = new SqliteManagedAccountLeaseAuthority({
+      path, ownerId: "owner-a", participantKind: "operator-session", recoveryDomain: "operator-sessions",
+    });
+    authorities.push(authority);
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    expect(authority.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }],
+    })).toMatchObject({ status: "committed" });
+    authority.close();
+    authorities.splice(authorities.indexOf(authority), 1);
+
+    const db = new Database(path, { readonly: true, strict: true });
+    const lease = db.query<{
+      participant_kind: string; recovery_domain: string; owner_generation: string; diagnostic_uris: string;
+    }, []>(
+      "SELECT participant_kind,recovery_domain,owner_generation,diagnostic_uris FROM account_leases",
+    ).get();
+    db.close();
+    expect(lease).toMatchObject({
+      participant_kind: "operator-session",
+      recovery_domain: "operator-sessions",
+      diagnostic_uris: "[]",
+    });
+    expect(lease?.owner_generation).toMatch(/^[0-9a-f-]{36}$/u);
+  });
+
+  it("leaves account-only capacity of its own participant untouched during commitment recovery", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-account-only-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const authority = createAt(path, "owner-a", () => 1_000);
+    expect(authority.acquireAccountCapacity({
+      runtimeInvocationId: "account-only", intentFingerprint: `sha256:${"c".repeat(64)}`,
+      accountPolicyId: "managed-policy", route, candidates: [candidate],
+    })).toMatchObject({ status: "acquired" });
+
+    expect(authority.recoverCommitments()).toEqual([]);
+
+    const db = new Database(path, { readonly: true, strict: true });
+    expect(db.query<{ lifecycle_state: string; diagnostic_uris: string }, []>(
+      "SELECT lifecycle_state,diagnostic_uris FROM account_leases WHERE runtime_invocation_id='account-only'",
+    ).get()).toEqual({ lifecycle_state: "held", diagnostic_uris: "[]" });
+    db.close();
+  });
+
+  it("fails closed when a retained economic lease has lost its commitment", () => {
+    const root = mkdtempSync(join(tmpdir(), "kiln-economic-orphan-"));
+    roots.push(root);
+    const path = join(root, "authority.sqlite");
+    const adopted = accountSnapshot();
+    const { route, candidate } = accountCapacity(adopted);
+    const first = createAt(path, "owner-a", () => 1_000);
+    expect(first.acquireCommitment({
+      ...input(adopted),
+      routeCapacity: [{ routeId: "route-direct", route, candidates: [candidate] }],
+    })).toMatchObject({ status: "committed" });
+    first.close();
+    authorities.splice(authorities.indexOf(first), 1);
+
+    const corrupted = new Database(path, { strict: true });
+    corrupted.exec("DELETE FROM economic_commitments");
+    corrupted.close();
+
+    const restarted = createAt(path, "owner-b", () => 2_000);
+    expect(() => restarted.recoverCommitments()).toThrow("orphaned from its commitment");
+  });
+
   it("recovers a pre-fence restart as releasable and transfers ownership", () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-economic-restart-"));
     roots.push(root);

@@ -44,7 +44,11 @@ legacy reader is the labeled one-time v12 local-state migration described in
 Runtime owns one user-scoped SQLite ledger and executes commitment acquisition
 synchronously in one `BEGIN IMMEDIATE` transaction. Each participant is keyed
 by its kind, recovery domain, and owner generation/configuration revision;
-stale writers cannot settle, release, or replace newer work. The ledger uses a
+stale writers cannot settle, release, or replace newer work. Every lease record
+carries the participant kind, recovery domain, and owner generation of the
+writer that acquired it, whether the acquisition is economic or account-only;
+the schema declares those columns mandatory, so an unattributable lease cannot
+be written or converged. The ledger uses a
 versioned `PRAGMA user_version` schema, refuses newer schemas, and permits only
 rolling compatible schema changes.
 
@@ -151,10 +155,14 @@ queued or dispatch-fenced native-harness task found after restart becomes
 state cannot be proven.
 
 A crash between SQLite commit and job projection therefore recovers and
-releases the exact durable commitment instead of selecting again. Migrated
-account-only leases that were still capacity-consuming are conservatively
-classified `leaked`; they remain capacity-consuming pending authoritative
-settlement rather than being released by recovery.
+releases the exact durable commitment instead of selecting again.
+
+Economic recovery and account-only recovery partition the ledger by the same
+discriminator: economic recovery reads only leases bound to an economic
+attempt, and account-only recovery reads only the rest. Neither reclassifies
+the other's records. An economic lease and its commitment are written in one
+transaction and never deleted, so a retained economic lease with no commitment
+is durable corruption and fails closed instead of being adopted as `leaked`.
 
 ## Configuration Boundary
 

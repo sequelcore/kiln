@@ -92,9 +92,9 @@ type LeaseRow = {
   affinity_key: string | null;
   affinity_expected_capacity_identity: string | null;
   affinity_commit_outcome: ManagedAccountAffinityCommitOutcome | null;
-  participant_kind: string | null;
-  recovery_domain: string | null;
-  owner_generation: string | null;
+  participant_kind: string;
+  recovery_domain: string;
+  owner_generation: string;
   dispatch_fence_id: string | null;
   settlement_json: string | null;
   intent_fingerprint: string | null;
@@ -227,9 +227,9 @@ export class SqliteManagedAccountLeaseAuthority {
     );
     this.#now = options.now ?? Date.now;
     this.#ownerStaleMs = options.ownerStaleMs ?? 30000;
-    this.#participantKind = options.participantKind ?? "agent-task-runtime";
+    this.#participantKind = options.participantKind ?? DEFAULT_PARTICIPANT_KIND;
     this.#recoveryDomain = requireCanonicalText(
-      options.recoveryDomain ?? "agent-tasks",
+      options.recoveryDomain ?? DEFAULT_RECOVERY_DOMAIN,
       "Managed account recovery domain is required.",
     );
     this.#configurationRevision = requireCanonicalText(
@@ -620,8 +620,9 @@ export class SqliteManagedAccountLeaseAuthority {
       lease_id,account_policy_id,account_ref,capacity_identity,provider_id,model_id,route_scope,
       job_id,runtime_invocation_id,economic_attempt_id,commitment_id,credential_revision_id,owner_id,acquired_at,lifecycle_state,
       released_at,selection_reason,candidate_rejections,usage_evidence,affinity_outcome,purpose,
-      resource_uris,diagnostic_uris,affinity_key,affinity_expected_capacity_identity,affinity_commit_outcome
-    ) VALUES(?,?,?,?,?,?,?,?,NULL,?,?,?,?,?, 'held',NULL,?,?,?,?,?,?,?,?,?,NULL)`,
+      resource_uris,diagnostic_uris,affinity_key,affinity_expected_capacity_identity,affinity_commit_outcome,
+      participant_kind,recovery_domain,owner_generation
+    ) VALUES(?,?,?,?,?,?,?,?,NULL,?,?,?,?,?, 'held',NULL,?,?,?,?,?,?,?,?,?,NULL,?,?,?)`,
       )
       .run(
         leaseId,
@@ -646,6 +647,9 @@ export class SqliteManagedAccountLeaseAuthority {
         "[]",
         account.resolution.key ?? null,
         account.resolution.expectedCapacityIdentity,
+        this.#participantKind,
+        this.#recoveryDomain,
+        this.#ownerGeneration,
       );
     const row = this.#requiredRow(leaseId);
     if (row.affinity_key !== null) {
@@ -697,6 +701,7 @@ export class SqliteManagedAccountLeaseAuthority {
     }
     this.#db
       .transaction(() => {
+        const detached = this.#beginMandatoryIdentityRebuild(version);
         this.#db.exec(`
         CREATE TABLE IF NOT EXISTS participants (
           participant_kind TEXT NOT NULL, recovery_domain TEXT NOT NULL,
@@ -714,7 +719,8 @@ export class SqliteManagedAccountLeaseAuthority {
           affinity_outcome TEXT, purpose TEXT NOT NULL, resource_uris TEXT NOT NULL,
           diagnostic_uris TEXT NOT NULL, affinity_key TEXT,
           affinity_expected_capacity_identity TEXT, affinity_commit_outcome TEXT,
-          participant_kind TEXT, recovery_domain TEXT, owner_generation TEXT,
+          participant_kind TEXT NOT NULL, recovery_domain TEXT NOT NULL,
+          owner_generation TEXT NOT NULL,
           dispatch_fence_id TEXT, settlement_json TEXT, intent_fingerprint TEXT,
           configuration_revision TEXT
         );
@@ -741,9 +747,62 @@ export class SqliteManagedAccountLeaseAuthority {
         CREATE INDEX IF NOT EXISTS economic_commitments_route_state
         ON economic_commitments(selected_route_id, state);
       `);
+        if (detached) this.#completeMandatoryIdentityRebuild();
         this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
       })
       .immediate();
+  }
+
+  /**
+   * Detaches a lease table written before participant identity was mandatory so the
+   * canonical schema can recreate it with the identity columns declared NOT NULL.
+   * Rows whose writing participant is unattributable fail closed: nothing in the
+   * authority can decide who owns them, so they are not silently adopted.
+   */
+  #beginMandatoryIdentityRebuild(openedVersion: number): boolean {
+    if (openedVersion >= MANDATORY_LEASE_IDENTITY_SCHEMA_VERSION) return false;
+    const present = this.#db
+      .query<{ present: number }, []>(
+        "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='account_leases'",
+      )
+      .get();
+    if (!present) return false;
+    const unattributable =
+      this.#db
+        .query<{ count: number }, []>(
+          `SELECT COUNT(*) AS count FROM account_leases
+           WHERE participant_kind IS NULL OR recovery_domain IS NULL OR owner_generation IS NULL`,
+        )
+        .get()?.count ?? 0;
+    if (unattributable > 0) {
+      throw new Error("Managed account lease participant identity is unattributable and cannot be converged.");
+    }
+    this.#db.exec(`
+      DROP INDEX IF EXISTS account_leases_runtime_invocation;
+      DROP INDEX IF EXISTS account_leases_capacity_state;
+      ALTER TABLE account_leases RENAME TO account_leases_pre_identity;
+    `);
+    return true;
+  }
+
+  #completeMandatoryIdentityRebuild(): void {
+    const columns = this.#tableColumns("account_leases");
+    const detachedColumns = this.#tableColumns("account_leases_pre_identity");
+    if (columns.join(",") !== detachedColumns.join(",")) {
+      throw new Error("Detached managed account lease columns do not match the canonical schema.");
+    }
+    const projection = columns.join(",");
+    this.#db.exec(`
+      INSERT INTO account_leases(${projection}) SELECT ${projection} FROM account_leases_pre_identity;
+      DROP TABLE account_leases_pre_identity;
+    `);
+  }
+
+  #tableColumns(table: string): readonly string[] {
+    return this.#db
+      .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+      .all()
+      .map((column) => column.name);
   }
 
   acquireCommitment(input: ManagedEconomicCommitmentAcquireInput): ManagedEconomicCommitmentAcquireResult {
@@ -1220,6 +1279,30 @@ export class SqliteManagedAccountLeaseAuthority {
     };
   }
 
+  /**
+   * An economic lease and the commitment that owns it are written in one immediate
+   * transaction and neither is ever deleted, so a retained economic lease without a
+   * commitment can only mean the durable store was corrupted outside this authority.
+   * Account-only leases are excluded: `recoverAccountCapacity` owns them, and they
+   * legitimately have no commitment row.
+   */
+  #requireCommittedEconomicLeases(): void {
+    const orphaned = this.#db
+      .query<{ count: number }, string[]>(
+        `SELECT COUNT(*) AS count FROM account_leases leases
+         WHERE economic_attempt_id IS NOT NULL
+           AND lifecycle_state IN (${CAPACITY_CONSUMING_STATES.map(() => "?").join(",")})
+           AND NOT EXISTS (
+             SELECT 1 FROM economic_commitments commitments
+             WHERE commitments.lease_id=leases.lease_id
+           )`,
+      )
+      .get(...CAPACITY_CONSUMING_STATES)?.count ?? 0;
+    if (orphaned > 0) {
+      throw new Error("Retained managed economic account lease is orphaned from its commitment.");
+    }
+  }
+
   recoverCommitments(input: ManagedEconomicCommitmentRecoveryInput = {}): readonly ManagedEconomicCommitmentRecord[] {
     return this.#transaction(() => {
       this.#heartbeat();
@@ -1231,49 +1314,7 @@ export class SqliteManagedAccountLeaseAuthority {
         requireKilnEvidenceUri(evidence.evidenceUri);
         leaked.set(`${evidence.jobId}\0${evidence.economicAttemptId}`, evidence);
       }
-      const orphanedIdentityRows = this.#db
-        .query<LeaseRow, string[]>(
-          `
-        SELECT leases.* FROM account_leases leases
-        WHERE lifecycle_state IN (${CAPACITY_CONSUMING_STATES.map(() => "?").join(",")})
-          AND (
-            (participant_kind=? AND recovery_domain=?)
-            OR
-            (?=? AND ?=? AND participant_kind IS NULL AND recovery_domain IS NULL)
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM economic_commitments commitments
-            WHERE commitments.lease_id=leases.lease_id
-          )
-        ORDER BY leases.rowid
-      `,
-        )
-        .all(
-          ...CAPACITY_CONSUMING_STATES,
-          this.#participantKind,
-          this.#recoveryDomain,
-          this.#participantKind,
-          AGENT_TASK_PARTICIPANT_KIND,
-          this.#recoveryDomain,
-          AGENT_TASK_RECOVERY_DOMAIN,
-        );
-      for (const row of orphanedIdentityRows) {
-        const runtimeInvocationIdentity =
-          row.runtime_invocation_id !== null && row.economic_attempt_id === null && row.commitment_id === null;
-        const orphanedEconomicIdentity =
-          row.runtime_invocation_id === null && row.economic_attempt_id !== null && row.commitment_id !== null;
-        if (!runtimeInvocationIdentity && !orphanedEconomicIdentity) {
-          throw new Error("Orphaned managed account lease identity is corrupt.");
-        }
-        const evidenceUri = `kiln://managed-accounts/leases/${encodeURIComponent(row.lease_id)}/orphaned-identity-recovery`;
-        const diagnostics = uniqueStrings([...parseStringArray(row.diagnostic_uris), evidenceUri]);
-        this.#db
-          .query(
-            `UPDATE account_leases
-          SET owner_id=?,lifecycle_state='leaked',diagnostic_uris=? WHERE lease_id=?`,
-          )
-          .run(this.#ownerId, JSON.stringify(diagnostics), row.lease_id);
-      }
+      this.#requireCommittedEconomicLeases();
       const rows = this.#db
         .query<CommitmentRow, string[]>(
           `
@@ -1545,7 +1586,7 @@ export class SqliteManagedAccountLeaseAuthority {
           this.#rollbackWinningAffinity(row);
           const changed = this.#db
             .query(
-              "UPDATE account_leases SET lifecycle_state='released',released_at=COALESCE(released_at,?) WHERE lease_id=? AND owner_generation IS ?",
+              "UPDATE account_leases SET lifecycle_state='released',released_at=COALESCE(released_at,?) WHERE lease_id=? AND owner_generation=?",
             )
             .run(releasedAt, row.lease_id, row.owner_generation);
           if (changed.changes !== 1) throw new Error("Stale pre-dispatch account capacity recovery was lost.");
@@ -1571,7 +1612,7 @@ export class SqliteManagedAccountLeaseAuthority {
           .query(
             `UPDATE account_leases
              SET lifecycle_state='settlement-pending',settlement_json=?,released_at=COALESCE(released_at,?)
-             WHERE lease_id=? AND owner_generation IS ?`,
+             WHERE lease_id=? AND owner_generation=?`,
           )
           .run(settlement, releasedAt, row.lease_id, row.owner_generation);
         if (changed.changes !== 1) throw new Error("Stale post-dispatch account capacity recovery was lost.");
@@ -1853,9 +1894,11 @@ export interface ManagedEconomicCommitmentRecoveryPort {
   query(input: { readonly jobId: string; readonly economicAttemptId: string }): ManagedEconomicCommitmentRecoveryState;
 }
 
-const AGENT_TASK_PARTICIPANT_KIND = "agent-task-runtime";
-const AGENT_TASK_RECOVERY_DOMAIN = "agent-tasks";
-const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 5;
+const DEFAULT_PARTICIPANT_KIND = "agent-task-runtime";
+const DEFAULT_RECOVERY_DOMAIN = "agent-tasks";
+const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 6;
+/** Schema version from which every lease row carries its writing participant identity. */
+const MANDATORY_LEASE_IDENTITY_SCHEMA_VERSION = 6;
 const ECONOMIC_CAPACITY_CONSUMING_STATES = [
   "held",
   "dispatch-fenced",
