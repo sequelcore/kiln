@@ -17,7 +17,10 @@ try {
   await page.goto(guiUrl, { waitUntil: "commit", timeout: timeoutMs });
   const navigationCommittedMs = Math.round(performance.now() - startedAt);
 
-  const composer = page.getByPlaceholder("Message Kiln", { exact: true });
+  // Target the composer by its stable element id. Placeholder copy is user-facing
+  // and changes freely: this probe waited on "Message Kiln" long after the GUI
+  // stopped using it, and hung until the profile timed out instead of failing.
+  const composer = page.locator("#composer-input");
   await composer.waitFor({ state: "visible", timeout: timeoutMs });
   await composer.fill("Kiln startup readiness probe");
 
