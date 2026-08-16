@@ -1946,6 +1946,16 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("claude"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
+      // Bind the harness explicitly: without it the route closes on a missing
+      // executable wherever Claude Code is not installed, which hides the
+      // moving-alias rejection this case exists to prove.
+      resolveClaudeExecutable: () => ({
+        path: "/opt/harness/claude",
+        evidence: {
+          executable: "<operator-harness>/claude",
+          version: "2.1.220",
+        },
+      }),
     });
 
     expect(result.managedInvocation).toBeUndefined();
@@ -2185,6 +2195,13 @@ describe("resolveManagedInvocationToolOptions", () => {
         "opencode",
         "opencode/gpt-5.4",
       ),
+      resolveOpenCodeExecutable: () => ({
+        path: "/opt/harness/opencode",
+        evidence: {
+          executable: "<operator-harness>/opencode",
+          version: "1.4.0",
+        },
+      }),
     });
 
     expect(result.managedInvocation?.routes[0]?.deliberationCapabilities).toMatchObject({

@@ -180,7 +180,7 @@ describe("skill source inventory", () => {
     const inventory = collectSkillSourceInventory({
       roots: [
         { sourceKind: "kiln-user", root: canonical, relationship: "canonical" },
-        { sourceKind: "native-harness", root: native, relationship: "external", managedSkillPaths: new Set([join(native, "planner", "SKILL.md").replaceAll("\\", "/").toLowerCase()]) },
+        { sourceKind: "native-harness", root: native, relationship: "external", managedSkillPaths: new Set([normalizeSkillInventoryPath(join(native, "planner", "SKILL.md"))]) },
       ],
       limits: { maxDepth: 4, maxEntries: 100 },
       pluginProvider: () => ({ roots: [], diagnostics: [] }),

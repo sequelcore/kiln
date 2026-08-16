@@ -382,7 +382,10 @@ describe("native-skill-projection", () => {
     const userFile = join(globalDir, "user.md");
     const invalidFile = join(globalDir, "invalid.md");
     const projectFile = join(projectDir, "project.md");
-    fsMocks.files.set(userFile, "---\nname: BuildTools\ndescription: user\n---\n");
+    // The two flat files must be duplicates on every platform. Case-insensitive
+    // collision is a Windows-only property of canonicalSkillKey and is covered
+    // against both platforms in native-projection-paths.test.ts.
+    fsMocks.files.set(userFile, "---\nname: buildtools\ndescription: user\n---\n");
     fsMocks.files.set(invalidFile, "---\nname: ../escape\ndescription: invalid\n---\n");
     fsMocks.files.set(projectFile, "---\nname: buildtools\ndescription: project\n---\n");
     readdirSyncMock.mockImplementation((targetPath: string) => {
@@ -392,7 +395,7 @@ describe("native-skill-projection", () => {
     });
 
     const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig);
-    expect(sources.get(canonicalSkillKey("BuildTools"))).toMatchObject({
+    expect(sources.get(canonicalSkillKey("buildtools"))).toMatchObject({
       skillName: "buildtools",
       sourceIdentity: "project:buildtools",
       files: [{ fileName: "project.md", content: "---\nname: buildtools\ndescription: project\n---\n" }],

@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
+import { afterAll, describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
 import { resolveCommunicationIntent } from "@kilnai/core/agents";
 import { createSessionEvent } from "@kilnai/core/events";
@@ -7,6 +10,15 @@ import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
+
+// Interactive startup creates <project>/.kiln/runtime. A fabricated absolute
+// path resolves under the current drive on Windows but lands on the filesystem
+// root on POSIX, where the directory cannot be created.
+const PROJECT_ROOT = mkdtempSync(joinPath(tmpdir(), "kiln-tui-session-"));
+
+afterAll(() => {
+  rmSync(PROJECT_ROOT, { recursive: true, force: true });
+});
 
 const {
   mockGatewaySessionCtor,
@@ -405,7 +417,7 @@ describe("makeMultiProviderSessionFactory", () => {
       task: "interactive",
       completedAt: "2026-01-01T00:00:00.000Z",
       cost: 0,
-      projectPath: "/p",
+      projectPath: PROJECT_ROOT,
       providerThread: { provider: "claude", nativeSessionId: "prov-1" },
     };
     const { store } = makeStore(record);
@@ -413,8 +425,8 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/p", registry, store as any, transcriptStore, cache);
-    const session = factory("sys", "/p");
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, PROJECT_ROOT, registry, store as any, transcriptStore, cache);
+    const session = factory("sys", PROJECT_ROOT);
     
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
@@ -428,8 +440,8 @@ describe("makeMultiProviderSessionFactory", () => {
     const transcriptStore = makeTranscriptStore();
     const cache = makeContextArtifactCache();
 
-    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, "/p", registry, store as any, transcriptStore, cache);
-    const session = factory("sys", "/p");
+    const { factory } = await makeMultiProviderSessionFactory("claude", PROVIDER_IDS, PROJECT_ROOT, registry, store as any, transcriptStore, cache);
+    const session = factory("sys", PROJECT_ROOT);
     
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
@@ -449,7 +461,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
@@ -460,7 +472,7 @@ describe("makeMultiProviderSessionFactory", () => {
       undefined,
       communicationIntent,
     );
-    const session = factory("sys", "/p");
+    const session = factory("sys", PROJECT_ROOT);
 
     for await (const _ of session.run({ prompt: "test" } as any)) {}
     for await (const _ of session.run({ prompt: "continue" } as any)) {}
@@ -516,7 +528,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "codex-oauth",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
@@ -524,7 +536,7 @@ describe("makeMultiProviderSessionFactory", () => {
       undefined,
       "gui",
     );
-    const session = factory("sys", "/p");
+    const session = factory("sys", PROJECT_ROOT);
 
     for await (const _ of session.run({ prompt: "start child" } as any)) {}
 
@@ -547,14 +559,14 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
       cache,
       builtinToolOptions,
     );
-    const session = factory("sys", "/p");
+    const session = factory("sys", PROJECT_ROOT);
 
     for await (const _ of session.run({ prompt: "test" } as any)) {}
 
@@ -582,7 +594,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
@@ -592,7 +604,7 @@ describe("makeMultiProviderSessionFactory", () => {
       undefined,
       sessionTurnBudget,
     );
-    const session = factory("sys", "/p");
+    const session = factory("sys", PROJECT_ROOT);
 
     for await (const _ of session.run({ prompt: "budgeted turn" } as any)) {}
 
@@ -604,7 +616,7 @@ describe("makeMultiProviderSessionFactory", () => {
 
   it("does not pass a default tool-round budget into the interactive TUI gateway", async () => {
     await tuiCommand(APP_CONFIG as never, {
-      cwd: "/p",
+      cwd: PROJECT_ROOT,
     });
 
     expect(mockStartTuiGateway).toHaveBeenCalledWith(
@@ -621,13 +633,13 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
       cache,
     );
-    const session = factory("sys", "/p");
+    const session = factory("sys", PROJECT_ROOT);
 
     for await (const _ of session.run({
       kilnSessionId: "kiln-gui:session-1",
@@ -650,7 +662,7 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
@@ -671,7 +683,7 @@ describe("makeMultiProviderSessionFactory", () => {
         },
       } as any,
     );
-    const session = factory("sys", "/p");
+    const session = factory("sys", PROJECT_ROOT);
 
     for await (const _ of session.run({ prompt: "managed resources" } as any)) {}
 
@@ -688,16 +700,16 @@ describe("makeMultiProviderSessionFactory", () => {
     const { factory } = await makeMultiProviderSessionFactory(
       "claude",
       PROVIDER_IDS,
-      "/p",
+      PROJECT_ROOT,
       registry,
       store as any,
       transcriptStore,
       cache,
     );
 
-    const first = factory("sys", "/p");
+    const first = factory("sys", PROJECT_ROOT);
     for await (const _ of first.run({ prompt: "first" } as any)) {}
-    const second = factory("sys", "/p");
+    const second = factory("sys", PROJECT_ROOT);
     for await (const _ of second.run({ prompt: "second" } as any)) {}
 
     const firstOptions = vi.mocked(registry.createSession).mock.calls[0]?.[1]?.builtinToolOptions;
