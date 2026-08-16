@@ -65,6 +65,53 @@ evidence.
 No one field substitutes for another. Skills never own provider routing,
 permissions, stack versions, generated repository shims, or acceptance truth.
 
+## Catalog maintenance
+
+A catalog decays through overlap rather than absence. The 2026-07-22 backend
+scout found four skills repeating the same platform doctrine in four Markdown
+owners — a test-writing skill and a review skill had each absorbed Spring,
+PostgreSQL, security, API, and observability rules already owned elsewhere.
+Overlap made updates expensive and let exact version claims drift independently.
+The correction was to split by capability so a narrow task does not load an
+entire domain, and to retire skills whose only content was duplicated doctrine.
+
+The durable rule that came out of it: **skills hold decision procedures,
+invariants, and verification paths; exact framework, runtime, plugin, driver,
+and image versions belong in executable stack profiles, manifests, wrappers,
+lockfiles, and migration records.** A version pinned in prose is a claim no
+build can check, and it goes stale silently.
+
+The same scout captured a platform snapshot — JDK, Spring Boot, Spring Security,
+Spring Modulith, Gradle, PostgreSQL, and observability lines current at
+2026-07-22. Those observations are deliberately not reproduced here. They were
+research evidence for a catalog decision, not durable findings, and the rule
+above exists precisely because such facts expire. Resolve the runtime through
+repository and stack evidence instead.
+
+- [OpenJDK](https://openjdk.org/projects/jdk/),
+  [Spring Boot](https://docs.spring.io/spring-boot/reference/),
+  [Spring Boot system requirements](https://docs.spring.io/spring-boot/system-requirements.html)
+- [Spring Security](https://docs.spring.io/spring-security/reference/),
+  [Spring Modulith](https://docs.spring.io/spring-modulith/reference/),
+  [Gradle release notes](https://docs.gradle.org/current/release-notes.html)
+- [PostgreSQL](https://www.postgresql.org/docs/current/index.html),
+  [Boot observability](https://docs.spring.io/spring-boot/reference/actuator/observability.html),
+  [Testcontainers](https://testcontainers.com/guides/)
+
+External catalogs are research input, never admitted verbatim. Popularity is an
+adoption signal, not evidence of quality, compatibility, or authority: the
+survey weighed repositories from roughly 175 to 36,940 stars and admitted none
+of them wholesale. Candidates were downloaded to isolated staging and inspected
+before any catalog mutation. Generic framework rules, fixed coverage targets,
+universal response envelopes, identifier and persistence defaults, and provider
+conventions were rejected wherever they would override repository or domain
+evidence.
+
+- [awesome-copilot](https://github.com/github/awesome-copilot),
+  [claude-skills](https://github.com/Jeffallan/claude-skills)
+- [dr-jskill](https://github.com/jdubois/dr-jskill),
+  [spring-boot-skills](https://github.com/rrezartprebreza/spring-boot-skills)
+
 ## Harness capability boundary
 
 The current first-party documentation supports a capability matrix, not a

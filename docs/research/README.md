@@ -47,6 +47,10 @@ Durable research lives under [`foundations/`](foundations/README.md):
 - coordination intelligence
 - work governance and verification
 - skill capability governance
+- engineering review practice
+- agent security and authority
+- communication standards
+- governance and reproducibility
 
 ## Active Investigations
 
