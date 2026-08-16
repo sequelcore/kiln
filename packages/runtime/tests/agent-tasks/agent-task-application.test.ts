@@ -484,7 +484,7 @@ describe("AgentTaskApplicationService V13 AgentTask/AgentRun record", () => {
     });
   });
 
-  it("accepts a durable queued V12 record before dispatch and exposes completion through status/result", async () => {
+  it("accepts a durable queued record before dispatch and exposes completion through status/result", async () => {
     const execution = deferred<{
       readonly runtimeInvocationId: string;
       readonly completedAt: string;

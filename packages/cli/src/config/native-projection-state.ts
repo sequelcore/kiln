@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from "node:path";
 import { CommunicationResolutionSchema, type TrustedExecutionIntegrity } from "@kilnai/gateway-contracts";
 import { validateResolvedCommunicationIntent, type CommunicationResolution } from "@kilnai/core";
-import { normalizeProjectionPath, resolveProjectionPathWithin } from "./native-projection-paths.js";
+import { normalizeProjectionPath } from "./native-projection-paths.js";
 import { resolveGlobalConfigPath } from "./global-config.js";
 
 export type NativeProjectionFileHarness = "claude" | "codex" | "opencode";
@@ -21,8 +21,6 @@ export interface NativeProjectionTargetState {
   readonly projectionKind?: "document" | "file";
   readonly harness?: NativeProjectionFileHarness;
   readonly sourceIdentity?: string;
-  /** Legacy whole-file hash retained only while adopting older install state. */
-  readonly installedContentHash?: string;
   readonly contentHash: string;
   readonly managedFields: readonly string[];
   readonly managedFieldHashes: Readonly<Record<string, string>>;
@@ -56,13 +54,6 @@ export interface NativeProjectionFileSnapshotInput {
   readonly sourceIdentity?: string;
   readonly updatedAt?: string;
   readonly communicationResolution?: CommunicationResolution;
-}
-
-export interface NativeProjectionLegacyFileAdoptionInput {
-  readonly target: NativeProjectionTargetState | undefined;
-  readonly currentContent: string | Uint8Array;
-  readonly expected: NativeProjectionFileIdentity;
-  readonly harnessRoot: string;
 }
 
 export interface NativeProjectionDrift {
@@ -228,39 +219,6 @@ export function nativeProjectionFileMatchesDesired(input: {
     .some((hash) => desiredHashes.includes(hash));
 }
 
-/**
- * Upgrade a legacy whole-file record only when its historical evidence still
- * identifies this exact target and the observed bytes are trustworthy.
- */
-export function adoptLegacyNativeProjectionFile(
-  input: NativeProjectionLegacyFileAdoptionInput,
-): NativeProjectionTargetState | undefined {
-  const target = input.target;
-  if (!target || isFullyOwnedNativeProjectionFile(target, input.expected)) {
-    return undefined;
-  }
-  if (!legacyFileIdentityMatches(target, input.expected)
-    || !resolveProjectionPathWithin(input.harnessRoot, input.expected.filePath)
-    || !resolveProjectionPathWithin(input.harnessRoot, target.filePath)) {
-    return undefined;
-  }
-
-  const observedHashes = fileContentHashes(input.currentContent);
-  const historicalHashes = legacyFileContentHashes(target);
-  if (!historicalHashes.some((hash) => observedHashes.includes(hash))) {
-    return undefined;
-  }
-
-  return createNativeProjectionFileSnapshot({
-    targetId: input.expected.targetId,
-    filePath: input.expected.filePath,
-    content: input.currentContent,
-    harness: input.expected.harness,
-    sourceIdentity: input.expected.sourceIdentity,
-    updatedAt: target.updatedAt,
-  });
-}
-
 export function upsertNativeProjectionTargetState(
   state: NativeProjectionInstallState,
   target: NativeProjectionTargetState,
@@ -348,38 +306,6 @@ function fileContentHashes(content: string | Uint8Array): readonly string[] {
   // UTF-8 strings. Accept that legacy hash once so an unchanged file does not
   // report false drift during migration.
   return [canonical, hashStableValue(Buffer.from(content).toString("utf-8"))];
-}
-
-function legacyFileIdentityMatches(
-  target: NativeProjectionTargetState,
-  expected: NativeProjectionFileIdentity,
-): boolean {
-  if (target.targetId !== expected.targetId
-    || normalizeProjectionPath(target.filePath) !== normalizeProjectionPath(expected.filePath)) {
-    return false;
-  }
-  if (target.projectionKind !== undefined && target.projectionKind !== "file") return false;
-  if (target.harness !== undefined && target.harness !== expected.harness) return false;
-  if (target.sourceIdentity !== undefined && target.sourceIdentity !== expected.sourceIdentity) return false;
-  if (target.managedFields !== undefined
-    && (target.managedFields.length !== 1 || target.managedFields[0] !== "$file")) {
-    return false;
-  }
-  return true;
-}
-
-function legacyFileContentHashes(target: NativeProjectionTargetState): readonly string[] {
-  const hashes = new Set<string>();
-  if (target.projectionKind === "document") return [];
-  if (typeof target.installedContentHash === "string") hashes.add(target.installedContentHash);
-  if (typeof target.managedFieldHashes?.["$file"] === "string") {
-    hashes.add(target.managedFieldHashes["$file"]);
-  }
-  if (target.projectionKind === "file"
-    || target.managedFields?.length === 1 && target.managedFields[0] === "$file") {
-    if (typeof target.contentHash === "string") hashes.add(target.contentHash);
-  }
-  return [...hashes];
 }
 
 export function mergeManagedFields(input: {

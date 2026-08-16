@@ -829,109 +829,11 @@ export class SqliteManagedAccountLeaseAuthority {
         CREATE INDEX IF NOT EXISTS economic_commitments_route_state
         ON economic_commitments(selected_route_id, state);
       `);
-          this.#migrateLegacyAgentTaskCapacityIdentity(version);
-          this.#migrateLegacyAccountCapacityOutcome(version);
           this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
         })
         .immediate();
     } finally {
       this.#db.exec("PRAGMA foreign_keys=ON;");
-    }
-  }
-
-  #migrateLegacyAgentTaskCapacityIdentity(openedVersion: number): void {
-    if (openedVersion >= LEGACY_AGENT_TASK_CAPACITY_IDENTITY_SCHEMA_VERSION) return;
-    const legacyParticipant = this.#db
-      .query<{ heartbeat: number }, [string, string]>(
-        "SELECT heartbeat FROM participants WHERE participant_kind=? AND recovery_domain=?",
-      )
-      .get(LEGACY_AGENT_TASK_PARTICIPANT_KIND, LEGACY_AGENT_TASK_RECOVERY_DOMAIN);
-    const legacyLeaseCount = this.#db
-      .query<{ count: number }, [string, string]>(
-        "SELECT COUNT(*) count FROM account_leases WHERE participant_kind=? AND recovery_domain=?",
-      )
-      .get(LEGACY_AGENT_TASK_PARTICIPANT_KIND, LEGACY_AGENT_TASK_RECOVERY_DOMAIN)?.count ?? 0;
-    if (!legacyParticipant && legacyLeaseCount === 0) return;
-    const destinationParticipant = this.#db
-      .query<{ present: number }, [string, string]>(
-        "SELECT 1 present FROM participants WHERE participant_kind=? AND recovery_domain=?",
-      )
-      .get(AGENT_TASK_PARTICIPANT_KIND, AGENT_TASK_RECOVERY_DOMAIN);
-    const destinationLeaseCount = this.#db
-      .query<{ count: number }, [string, string]>(
-        "SELECT COUNT(*) count FROM account_leases WHERE participant_kind=? AND recovery_domain=?",
-      )
-      .get(AGENT_TASK_PARTICIPANT_KIND, AGENT_TASK_RECOVERY_DOMAIN)?.count ?? 0;
-    if (destinationParticipant || destinationLeaseCount > 0) {
-      throw new Error("Legacy agent-task capacity identity conflicts with an existing destination identity.");
-    }
-    if (legacyParticipant && legacyParticipant.heartbeat > this.#now() - this.#ownerStaleMs) {
-      throw new Error("Legacy agent-task capacity identity still has a live owner.");
-    }
-    if (legacyParticipant) {
-      const changed = this.#db
-        .query(
-          "UPDATE participants SET participant_kind=?,recovery_domain=? WHERE participant_kind=? AND recovery_domain=?",
-        )
-        .run(
-          AGENT_TASK_PARTICIPANT_KIND,
-          AGENT_TASK_RECOVERY_DOMAIN,
-          LEGACY_AGENT_TASK_PARTICIPANT_KIND,
-          LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
-        );
-      if (changed.changes !== 1) throw new Error("Legacy agent-task capacity participant migration was lost.");
-    }
-    this.#db
-      .query(
-        "UPDATE account_leases SET participant_kind=?,recovery_domain=? WHERE participant_kind=? AND recovery_domain=?",
-      )
-      .run(
-        AGENT_TASK_PARTICIPANT_KIND,
-        AGENT_TASK_RECOVERY_DOMAIN,
-        LEGACY_AGENT_TASK_PARTICIPANT_KIND,
-        LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
-      );
-    const remaining = this.#db
-      .query<{ count: number }, [string, string, string, string]>(
-        "SELECT (SELECT COUNT(*) FROM participants WHERE participant_kind=? AND recovery_domain=?) + (SELECT COUNT(*) FROM account_leases WHERE participant_kind=? AND recovery_domain=?) count",
-      )
-      .get(
-        LEGACY_AGENT_TASK_PARTICIPANT_KIND,
-        LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
-        LEGACY_AGENT_TASK_PARTICIPANT_KIND,
-        LEGACY_AGENT_TASK_RECOVERY_DOMAIN,
-      )?.count ?? 0;
-    if (remaining !== 0) throw new Error("Legacy agent-task capacity identity migration did not converge.");
-  }
-
-  #migrateLegacyAccountCapacityOutcome(openedVersion: number): void {
-    if (openedVersion >= LEGACY_ACCOUNT_CAPACITY_OUTCOME_SCHEMA_VERSION) return;
-    const rows = this.#db
-      .query<LeaseRow, []>(
-        `SELECT * FROM account_leases
-         WHERE economic_attempt_id IS NULL
-           AND runtime_invocation_id IS NOT NULL
-           AND dispatch_fence_id IS NOT NULL
-           AND lifecycle_state='leaked'
-           AND released_at IS NULL
-           AND settlement_json IS NOT NULL`,
-      )
-      .all();
-    const releasedAt = new Date(this.#now()).toISOString();
-    for (const row of rows) {
-      const legacyEvidenceUri =
-        `kiln://managed-accounts/leases/${encodeURIComponent(row.lease_id)}/legacy-recovery`;
-      if (!parseStringArray(row.diagnostic_uris).includes(legacyEvidenceUri)) continue;
-      parseUnknownAccountCapacitySettlement(row.settlement_json!);
-      const changed = this.#db
-        .query(
-          `UPDATE account_leases SET lifecycle_state='settlement-pending',released_at=?
-           WHERE lease_id=? AND lifecycle_state='leaked' AND released_at IS NULL`,
-        )
-        .run(releasedAt, row.lease_id);
-      if (changed.changes !== 1) {
-        throw new Error("Legacy account capacity outcome migration was lost.");
-      }
     }
   }
 
@@ -2115,10 +2017,6 @@ export interface ManagedEconomicCommitmentRecoveryPort {
 
 const AGENT_TASK_PARTICIPANT_KIND = "agent-task-runtime";
 const AGENT_TASK_RECOVERY_DOMAIN = "agent-tasks";
-const LEGACY_AGENT_TASK_PARTICIPANT_KIND = "managed-job-runtime";
-const LEGACY_AGENT_TASK_RECOVERY_DOMAIN = "managed-jobs";
-const LEGACY_AGENT_TASK_CAPACITY_IDENTITY_SCHEMA_VERSION = 4;
-const LEGACY_ACCOUNT_CAPACITY_OUTCOME_SCHEMA_VERSION = 5;
 const SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION = 5;
 const ECONOMIC_CAPACITY_CONSUMING_STATES = [
   "held",

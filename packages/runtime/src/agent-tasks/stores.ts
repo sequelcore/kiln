@@ -10,22 +10,10 @@ import {
   isNativeHarnessDispatchFenceId,
   isNonterminal,
   lifecycleEntry,
-  isManagedAgentAdmissionProfile,
-  isDiagnostic,
-  isValidLifecycle,
-  isApprovedWriteProfile,
-  sameAgentTaskConstraints,
 } from "./validation-primitives.js";
-import {
-  isValidAgentTaskDispatch,
-  isValidAgentTaskFailureEvidence,
-  isValidAgentTaskResult,
-  isValidAgentTaskWriteApproval,
-} from "./agent-run-validation.js";
+import { isValidAgentTaskResult } from "./agent-run-validation.js";
 import { validateStoredJob } from "./stored-agent-task-validation.js";
-import { validateLegacyV12AgentTask } from "./legacy-v12-validation.js";
 import {
-  AGENT_TASK_SCHEMA_VERSION,
   type AgentTaskDiagnosticCode,
   type AgentTaskEconomicFenceResult,
   type AgentTaskFailureEvidence,
@@ -228,12 +216,10 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     try {
       const parsed = JSON.parse(await readFile(resolve(this.root, "agent-tasks", "agent-tasks.json"), "utf8")) as unknown;
       if (!Array.isArray(parsed)) throw new Error("corrupt");
-      const memory = new InMemoryAgentTaskStore(parsed);
-      await this.retireLegacyV12Source();
-      return memory;
+      return new InMemoryAgentTaskStore(parsed);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return await this.migrateV12();
+        return new InMemoryAgentTaskStore();
       }
       if (
         error instanceof SyntaxError
@@ -257,59 +243,6 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
       await rm(temp, { force: true }).catch(() => undefined);
     }
   }
-  private async migrateV12(): Promise<InMemoryAgentTaskStore> {
-    const legacy = resolve(this.root, "managed-jobs", "managed-jobs.json");
-    let parsed: unknown;
-    try { parsed = JSON.parse(await readFile(legacy, "utf8")); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return new InMemoryAgentTaskStore(); throw new AgentTaskApplicationError("job_persistence_corrupt", "Repair the legacy agent-task store before retrying."); }
-    if (!Array.isArray(parsed)) throw new AgentTaskApplicationError("job_persistence_corrupt", "Repair the legacy agent-task store before retrying.");
-    const tasks = parsed.map((legacyRecord) => migrateV12AgentTask(legacyRecord));
-    const memory = new InMemoryAgentTaskStore(tasks);
-    await this.assertLegacyBackupCompatible();
-    await this.saveMemory(memory);
-    // Never retire the sole source before the atomically-published V13 is readable and fully validated.
-    await this.loadMemory();
-    return memory;
-  }
-  private async assertLegacyBackupCompatible(): Promise<void> {
-    const legacy = resolve(this.root, "managed-jobs", "managed-jobs.json");
-    const backup = resolve(this.root, "managed-jobs", "managed-jobs.v12.json");
-    try {
-      const [sourceContents, backupContents] = await Promise.all([
-        readFile(legacy, "utf8"),
-        readFile(backup, "utf8"),
-      ]);
-      if (sourceContents !== backupContents) {
-        throw new AgentTaskApplicationError("job_persistence_corrupt", "Resolve the conflicting legacy V12 backup before retrying.");
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-  }
-  private async retireLegacyV12Source(): Promise<void> {
-    const legacy = resolve(this.root, "managed-jobs", "managed-jobs.json");
-    const backup = resolve(this.root, "managed-jobs", "managed-jobs.v12.json");
-    let sourceContents: string;
-    try {
-      sourceContents = await readFile(legacy, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw error;
-    }
-    try {
-      const backupContents = await readFile(backup, "utf8");
-      if (backupContents !== sourceContents) {
-        throw new AgentTaskApplicationError("job_persistence_corrupt", "Resolve the conflicting legacy V12 backup before retrying.");
-      }
-      await rm(legacy);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        await rename(legacy, backup);
-        return;
-      }
-      throw error;
-    }
-  }
   private async withLock<T>(action: () => Promise<T>): Promise<T> {
     await mkdir(this.root, { recursive: true });
     const lock = resolve(this.root, ".agent-tasks.lock");
@@ -330,32 +263,4 @@ export class FilesystemAgentTaskStore implements AgentTaskStore {
     }
     throw new AgentTaskApplicationError("job_persistence_unavailable", "Wait for the active agent-task persistence operation to finish.");
   }
-}
-function migrateV12AgentTask(value: unknown): AgentTaskRecord {
-  let legacy;
-  try {
-    legacy = validateLegacyV12AgentTask(value, {
-      admissionProfile: isManagedAgentAdmissionProfile,
-      dispatch: isValidAgentTaskDispatch,
-      lifecycle: isValidLifecycle,
-      diagnostic: isDiagnostic,
-      failureEvidence: isValidAgentTaskFailureEvidence,
-      writeApproval: isValidAgentTaskWriteApproval,
-      result: isValidAgentTaskResult,
-      approvedWriteProfile: isApprovedWriteProfile,
-      sameEconomicConstraints: sameAgentTaskConstraints,
-      economicDispatchFenceId: isManagedEconomicDispatchFenceId,
-      nativeDispatchFenceId: isNativeHarnessDispatchFenceId,
-    });
-  } catch {
-    throw new AgentTaskApplicationError("job_persistence_corrupt", "Repair the legacy agent-task store before retrying.");
-  }
-  return validateStoredJob({ ...legacy, version: AGENT_TASK_SCHEMA_VERSION, run: {
-    runId: `agent-run:${legacy.id}`,
-    state: legacy.state,
-    dispatch: legacy.dispatch,
-    ...(legacy.result ? { result: legacy.result } : {}),
-    ...(legacy.failureEvidence ? { failureEvidence: legacy.failureEvidence } : {}),
-    ...(legacy.result?.dataPolicyProof ? { dataPolicyProof: legacy.result.dataPolicyProof } : {}),
-  } });
 }

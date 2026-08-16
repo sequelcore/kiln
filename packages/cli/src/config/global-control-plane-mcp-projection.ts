@@ -34,7 +34,6 @@ export interface GlobalControlPlaneMcpProjectionTargetResult {
   readonly path: string;
   readonly status: GlobalControlPlaneMcpProjectionStatus;
   readonly changed: boolean;
-  readonly migratedLegacy: boolean;
   readonly reason?: string;
 }
 
@@ -105,7 +104,7 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
     const targetId = targetIdFor(harness);
     const installed = state.targets[targetId];
     if (installed && resolve(installed.filePath) !== resolve(path)) {
-      targets.push(result(harness, path, "incompatible", false, false,
+      targets.push(result(harness, path, "incompatible", false,
         `Global install state targets a different native configuration: ${installed.filePath}`));
       continue;
     }
@@ -113,7 +112,7 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
     if (installed && (installed.projectionKind === "file"
       || installed.managedFields.length !== 1
       || installed.managedFields[0] !== expectedField)) {
-      targets.push(result(harness, path, "incompatible", false, false,
+      targets.push(result(harness, path, "incompatible", false,
         "Global install state claims fields outside the single control-plane MCP identity."));
       continue;
     }
@@ -122,7 +121,7 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
     try {
       current = readDocument(harness, path);
     } catch (error) {
-      targets.push(result(harness, path, "blocked-malformed", false, false,
+      targets.push(result(harness, path, "blocked-malformed", false,
         `Native configuration is unreadable and was not modified: ${safeError(error)}`));
       continue;
     }
@@ -135,11 +134,11 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
 
     if (input.operation === "uninstall") {
       if (!installed) {
-        targets.push(result(harness, path, "uninstalled", false, false));
+        targets.push(result(harness, path, "uninstalled", false));
         continue;
       }
       if (drift && !input.force) {
-        targets.push(result(harness, path, "drifted", false, false,
+        targets.push(result(harness, path, "drifted", false,
           `Managed global MCP field drifted: ${drift.driftedFields.join(", ")}`));
         continue;
       }
@@ -147,28 +146,18 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
       const nextState = removeNativeProjectionTargetState(state, targetId);
       commitDocumentAndState({ harness, path, targetId, document: stripped, previousContent: readContent(path), installStateDir, nextState, timestamp: input.now });
       state = nextState;
-      targets.push(result(harness, path, "uninstalled", true, false));
+      targets.push(result(harness, path, "uninstalled", true));
       continue;
     }
 
     if (drift && !input.force) {
-      targets.push(result(harness, path, "drifted", false, false,
+      targets.push(result(harness, path, "drifted", false,
         `Managed global MCP field drifted: ${drift.driftedFields.join(", ")}`));
       continue;
     }
-    let migrateLegacy = false;
-    if (input.projectPath) {
-      try {
-        migrateLegacy = isOwnedExactLegacyProjectBridge({ harness, projectPath: input.projectPath });
-      } catch (error) {
-        targets.push(result(harness, path, "blocked-malformed", false, false,
-          `Owned legacy project MCP configuration is unreadable and global installation was not modified: ${safeError(error)}`));
-        continue;
-      }
-    }
     const field = expectedField;
     if (!installed && hasManagedIdentity(current, harness)) {
-      targets.push(result(harness, path, "incompatible", false, false,
+      targets.push(result(harness, path, "incompatible", false,
         `Native configuration already contains unmanaged '${GLOBAL_CONTROL_PLANE_MCP_ID}'; refusing to overwrite it.`));
       continue;
     }
@@ -189,10 +178,7 @@ async function syncGlobalControlPlaneMcpProjectionsLocked(
       commitDocumentAndState({ harness, path, targetId, document: projected, previousContent: readContent(path), installStateDir, nextState, timestamp: input.now });
     }
     state = nextState;
-    const migratedLegacy = input.projectPath && migrateLegacy
-      ? migrateLegacyProjectBridge({ harness, projectPath: input.projectPath, now: input.now })
-      : false;
-    targets.push(result(harness, path, "current", changed, migratedLegacy));
+    targets.push(result(harness, path, "current", changed));
   }
 
   return { operation: input.operation, targets };
@@ -219,66 +205,13 @@ function statusResult(
 ): GlobalControlPlaneMcpProjectionTargetResult {
   if (!installed) {
     return hasManagedIdentity(current, harness)
-      ? result(harness, path, "incompatible", false, false, `Native configuration contains an unmanaged '${GLOBAL_CONTROL_PLANE_MCP_ID}'.`)
-      : result(harness, path, "missing", false, false);
+      ? result(harness, path, "incompatible", false, `Native configuration contains an unmanaged '${GLOBAL_CONTROL_PLANE_MCP_ID}'.`)
+      : result(harness, path, "missing", false);
   }
-  if (drift) return result(harness, path, "drifted", false, false, `Managed global MCP field drifted: ${drift.driftedFields.join(", ")}`);
+  if (drift) return result(harness, path, "drifted", false, `Managed global MCP field drifted: ${drift.driftedFields.join(", ")}`);
   return documentsEqual(getServer(current, harness), expectedServer(harness, launch))
-    ? result(harness, path, "current", false, false)
-    : result(harness, path, "drifted", false, false, "Managed global MCP field is stale.");
-}
-
-function migrateLegacyProjectBridge(input: { readonly harness: NativeMcpHarness; readonly projectPath: string; readonly now?: string }): boolean {
-  const path = localTargetFor(input.harness, input.projectPath);
-  if (!existsSync(path)) return false;
-  const kilnDir = join(input.projectPath, ".kiln");
-  const targetId = `mcp:${input.harness}`;
-  const legacyState = readNativeProjectionInstallState(kilnDir);
-  const owned = legacyState.targets[targetId];
-  const field = managedFieldFor(input.harness);
-  if (!owned?.managedFields.includes(field)) return false;
-  const current = readDocument(input.harness, path);
-  const server = getServer(current, input.harness);
-  if (!isExactLegacyServer(server, input.harness, input.projectPath)) return false;
-  const stripped = stripManagedFields({ currentDocument: current, managedFields: [field] });
-  let nextState = legacyState;
-  if (owned?.managedFields.includes(field)) {
-    const remaining = owned.managedFields.filter((managedField) => managedField !== field);
-    nextState = remaining.length === 0
-      ? removeNativeProjectionTargetState(legacyState, targetId)
-      : upsertNativeProjectionTargetState(legacyState, createNativeProjectionSnapshot({
-          targetId,
-          filePath: path,
-          document: stripped,
-          managedFields: remaining,
-          updatedAt: input.now ?? owned.updatedAt,
-          ...(owned.managedArrayItems ? { managedArrayItems: owned.managedArrayItems } : {}),
-          ...(owned.permissionIntegrity ? { permissionIntegrity: owned.permissionIntegrity } : {}),
-        }));
-  }
-  commitDocumentAndState({
-    harness: input.harness,
-    path,
-    targetId,
-    document: stripped,
-    previousContent: readContent(path),
-    installStateDir: kilnDir,
-    nextState,
-    writeState: nextState !== legacyState,
-    timestamp: input.now,
-  });
-  return true;
-}
-
-function isOwnedExactLegacyProjectBridge(input: { readonly harness: NativeMcpHarness; readonly projectPath: string }): boolean {
-  const kilnDir = join(input.projectPath, ".kiln");
-  const targetId = `mcp:${input.harness}`;
-  const field = managedFieldFor(input.harness);
-  const owned = readNativeProjectionInstallState(kilnDir).targets[targetId];
-  if (!owned?.managedFields.includes(field)) return false;
-  const path = localTargetFor(input.harness, input.projectPath);
-  if (!existsSync(path)) return false;
-  return isExactLegacyServer(getServer(readDocument(input.harness, path), input.harness), input.harness, input.projectPath);
+    ? result(harness, path, "current", false)
+    : result(harness, path, "drifted", false, "Managed global MCP field is stale.");
 }
 
 function expectedServer(
@@ -291,17 +224,6 @@ function expectedServer(
   return { type: "local", command: [launch.executable, ...args], enabled: true };
 }
 
-function isExactLegacyServer(value: unknown, harness: NativeMcpHarness, projectPath: string): boolean {
-  if (!isRecord(value)) return false;
-  const command = harness === "opencode" && Array.isArray(value.command) ? value.command : undefined;
-  const executable = command ? command[0] : value.command;
-  const args = command ? command.slice(1) : value.args;
-  const expected = ["native-harness", "control-plane-mcp", "--harness", harness, "--project-root", projectPath];
-  return executable === "kiln" && Array.isArray(args) && args.length === expected.length
-    && args.every((entry, index) => index === expected.length - 1
-      ? typeof entry === "string" && resolve(entry) === resolve(projectPath)
-      : entry === expected[index]);
-}
 
 function addServer(
   document: Record<string, unknown>,
@@ -352,12 +274,6 @@ function hasManagedIdentity(document: Record<string, unknown>, harness: NativeMc
 function getServer(document: Record<string, unknown>, harness: NativeMcpHarness): unknown {
   const root = document[rootKeyFor(harness)];
   return isRecord(root) ? root[GLOBAL_CONTROL_PLANE_MCP_ID] : undefined;
-}
-
-function localTargetFor(harness: NativeMcpHarness, projectPath: string): string {
-  if (harness === "codex") return join(projectPath, ".codex", "config.toml");
-  if (harness === "claude") return join(projectPath, ".mcp.json");
-  return join(projectPath, "opencode.json");
 }
 
 function readDocument(harness: NativeMcpHarness, path: string): Record<string, unknown> {
@@ -443,10 +359,9 @@ function result(
   path: string,
   status: GlobalControlPlaneMcpProjectionStatus,
   changed: boolean,
-  migratedLegacy: boolean,
   reason?: string,
 ): GlobalControlPlaneMcpProjectionTargetResult {
-  return { harness, path, status, changed, migratedLegacy, ...(reason ? { reason } : {}) };
+  return { harness, path, status, changed, ...(reason ? { reason } : {}) };
 }
 
 function documentsEqual(left: unknown, right: unknown): boolean {

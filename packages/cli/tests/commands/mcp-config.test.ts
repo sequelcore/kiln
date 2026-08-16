@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   })),
   globalSync: vi.fn(async (input: { operation: string; harnesses: readonly string[] }) => ({
     operation: input.operation,
-    targets: input.harnesses.map((harness) => ({ harness, path: "global", status: input.operation === "uninstall" ? "uninstalled" : "current", changed: true, migratedLegacy: false })),
+    targets: input.harnesses.map((harness) => ({ harness, path: "global", status: input.operation === "uninstall" ? "uninstalled" : "current", changed: true })),
   })),
   discover: vi.fn(async () => ({ serverId: "fixture", tools: [], resources: [], prompts: [], discoveredAt: "2026-07-19T00:00:00.000Z" })),
   disconnect: vi.fn(async () => undefined),

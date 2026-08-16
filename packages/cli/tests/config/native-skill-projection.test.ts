@@ -571,56 +571,6 @@ describe("native-skill-projection", () => {
     expect(writeFileSyncMock).not.toHaveBeenCalledWith(codexSkillPath, expect.anything(), expect.anything());
   });
 
-  it("adopts a legacy canonical skill snapshot without rewriting or backing up the file", async () => {
-    const projectPath = "/workspace/project";
-    const globalDir = join("/home/tester", ".kiln", "skills");
-    const skillSourceDir = join(globalDir, "planner");
-    readdirSyncMock.mockImplementation((targetPath: string) => {
-      if (targetPath === globalDir) return [dirent("planner", true)];
-      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
-    });
-    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
-    await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
-    const statePath = join(projectPath, ".kiln", "install-state.json");
-    const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, Record<string, unknown>>;
-    };
-    const target = state.targets["codex-skill:planner/SKILL.md"]!;
-    const installedHash = target.contentHash;
-    delete target.projectionKind;
-    delete target.harness;
-    delete target.sourceIdentity;
-    target.installedContentHash = installedHash;
-    target.contentHash = "historical-snapshot";
-    target.managedFieldHashes = { "$file": "historical-snapshot" };
-    const legacyState = JSON.stringify(state);
-    fsMocks.files.set(statePath, legacyState);
-    writeFileSyncMock.mockClear();
-
-    const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
-
-    expect(result.errors).toEqual([]);
-    expect(result.outcomes).toContainEqual(expect.objectContaining({
-      targetId: "codex-skill:planner/SKILL.md",
-      status: "unchanged",
-      reason: "reconciled legacy managed skill file snapshot",
-    }));
-    expect(writeFileSyncMock).not.toHaveBeenCalledWith(
-      join("/home/tester", ".codex", "skills", "planner", "SKILL.md"),
-      expect.anything(),
-      expect.anything(),
-    );
-    const migrated = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, Record<string, unknown>>;
-    };
-    expect(migrated.targets["codex-skill:planner/SKILL.md"]).toMatchObject({
-      projectionKind: "file",
-      harness: "codex",
-      sourceIdentity: "user:planner/SKILL.md",
-    });
-  });
-
   it("blocks canonical bytes when a legacy snapshot has no matching historical hash", async () => {
     const projectPath = "/workspace/project";
     const globalDir = join("/home/tester", ".kiln", "skills");
@@ -640,7 +590,6 @@ describe("native-skill-projection", () => {
     delete target.projectionKind;
     delete target.harness;
     delete target.sourceIdentity;
-    target.installedContentHash = "historical-snapshot";
     target.contentHash = "historical-snapshot";
     target.managedFieldHashes = { "$file": "historical-snapshot" };
     fsMocks.files.set(statePath, JSON.stringify(state));
@@ -658,44 +607,6 @@ describe("native-skill-projection", () => {
       expect.anything(),
       expect.anything(),
     );
-  });
-
-  it("reports legacy canonical reconciliation in dry-run without mutating install-state", async () => {
-    const projectPath = "/workspace/project";
-    const globalDir = join("/home/tester", ".kiln", "skills");
-    const skillSourceDir = join(globalDir, "planner");
-    readdirSyncMock.mockImplementation((targetPath: string) => {
-      if (targetPath === globalDir) return [dirent("planner", true)];
-      if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
-    });
-    fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
-    await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
-    const statePath = join(projectPath, ".kiln", "install-state.json");
-    const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, Record<string, unknown>>;
-    };
-    const target = state.targets["codex-skill:planner/SKILL.md"]!;
-    const installedHash = target.contentHash;
-    delete target.projectionKind;
-    delete target.harness;
-    delete target.sourceIdentity;
-    target.installedContentHash = installedHash;
-    target.contentHash = "historical-snapshot";
-    target.managedFieldHashes = { "$file": "historical-snapshot" };
-    const legacyState = JSON.stringify(state);
-    fsMocks.files.set(statePath, legacyState);
-    writeFileSyncMock.mockClear();
-
-    const result = await syncNativeSkillProjections(projectPath, { ...SKILLS_DISABLED, dryRun: true });
-
-    expect(result.outcomes).toContainEqual(expect.objectContaining({
-      targetId: "codex-skill:planner/SKILL.md",
-      status: "planned",
-      reason: "reconciled legacy managed skill file snapshot",
-    }));
-    expect(fsMocks.files.get(statePath)).toBe(legacyState);
-    expect(writeFileSyncMock).not.toHaveBeenCalled();
   });
 
   it("projects configured Kiln builtin skills to native skill directories", async () => {
@@ -922,10 +833,9 @@ describe("native-skill-projection", () => {
 
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
     const staleState = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, { contentHash: string; installedContentHash?: string; managedFieldHashes: Record<string, string> }>;
+      targets: Record<string, { contentHash: string; managedFieldHashes: Record<string, string> }>;
     };
     for (const target of Object.values(staleState.targets)) {
-      target.installedContentHash = target.contentHash;
       target.contentHash = "historical-snapshot";
       target.managedFieldHashes.$file = "historical-snapshot";
     }
@@ -970,10 +880,9 @@ describe("native-skill-projection", () => {
 
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
     const staleState = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, { contentHash: string; installedContentHash?: string; managedFieldHashes: Record<string, string> }>;
+      targets: Record<string, { contentHash: string; managedFieldHashes: Record<string, string> }>;
     };
     for (const target of Object.values(staleState.targets)) {
-      target.installedContentHash = target.contentHash;
       target.contentHash = "historical-snapshot";
       target.managedFieldHashes.$file = "historical-snapshot";
     }

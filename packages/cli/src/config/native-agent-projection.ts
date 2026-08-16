@@ -11,7 +11,6 @@ import {
 import { loadGlobalAgentDefinitions } from "../application/agent-loader.js";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import {
-  adoptLegacyNativeProjectionFile,
   createNativeProjectionFileSnapshot,
   detectNativeProjectionFileDrift,
   isFullyOwnedNativeProjectionFile,
@@ -437,12 +436,7 @@ function syncAgentFile(
     let observedContent: string | Uint8Array | undefined;
     if (!isFullyOwnedNativeProjectionFile(managedTarget, identity) && existsSync(filePath)) {
       observedContent = readFileSync(filePath);
-      managedTarget = adoptLegacyNativeProjectionFile({
-        target: managedTarget,
-        currentContent: observedContent,
-        expected: identity,
-        harnessRoot: target.dir,
-      });
+      managedTarget = undefined;
     }
     const ownedTarget = managedTarget;
     if (!ownedTarget || !isFullyOwnedNativeProjectionFile(ownedTarget, identity)) {
@@ -626,12 +620,7 @@ function pruneOmittedNativeAgentProjections(input: {
     let observedContent: string | Uint8Array | undefined;
     if (!isFullyOwnedNativeProjectionFile(managedTarget, identity) && existsSync(filePath)) {
       observedContent = readFileSync(filePath);
-      managedTarget = adoptLegacyNativeProjectionFile({
-        target: managedTarget,
-        currentContent: observedContent,
-        expected: identity,
-        harnessRoot: input.target.dir,
-      });
+      managedTarget = undefined;
     }
     const ownedTarget = managedTarget;
     if (!ownedTarget || !isFullyOwnedNativeProjectionFile(ownedTarget, identity)) continue;

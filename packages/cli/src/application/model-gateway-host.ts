@@ -14,12 +14,11 @@ export const MODEL_GATEWAY_HOST_SHA256 = "4cf25fbfe259cff169e2e9a831c83e7d157f73
 const HOST_STORE_DIRECTORY = "model-gateway-hosts";
 const HOST_EXECUTABLE = "bun.exe";
 const HOST_MANIFEST = "manifest.json";
-const LEGACY_EXECUTABLE = ["bun-canary", "bun-windows-x64", "bun.exe"] as const;
 
 export interface ResolvedModelGatewayHost {
   readonly executable: string;
   readonly host: ModelGatewayHostIdentity;
-  readonly source: "bundled" | "legacy-migration";
+  readonly source: "bundled";
 }
 
 export interface ModelGatewayHostInspector {
@@ -45,11 +44,7 @@ interface StoredHostManifest {
   readonly host: ModelGatewayHostIdentity;
 }
 
-/**
- * Resolves the pinned Windows Bun host without consulting PATH or the network.
- * A legacy canary executable is copied into the same verified bundled-host
- * identity, never removed; lifecycle convergence owns its eventual deletion.
- */
+/** Resolves the pinned Windows Bun host without consulting PATH or the network. */
 export async function resolveModelGatewayHost(input: ResolveModelGatewayHostInput): Promise<ResolvedModelGatewayHost> {
   if ((input.platform ?? process.platform) !== "win32" || (input.arch ?? process.arch) !== "x64") {
     throw new Error("No approved model gateway host artifact is available for this platform and architecture.");
@@ -59,8 +54,8 @@ export async function resolveModelGatewayHost(input: ResolveModelGatewayHostInpu
   const installed = await readInstalledHost(destination, input);
   if (installed) return { ...installed, source: "bundled" };
 
-  const artifact = await selectArtifact(runtimeDir, input);
-  const sha256 = hash(artifact.bytes, input);
+  const artifactBytes = requireBundledArtifact(input);
+  const sha256 = hash(artifactBytes, input);
   if (sha256 !== MODEL_GATEWAY_HOST_SHA256)
     throw new Error("Model gateway host artifact SHA-256 does not match the approved host.");
 
@@ -73,8 +68,8 @@ export async function resolveModelGatewayHost(input: ResolveModelGatewayHostInpu
   try {
     await mkdir(temporary, { mode: 0o700 });
     const executable = confinedJoin(temporary, HOST_EXECUTABLE);
-    await writeFile(executable, artifact.bytes, { mode: 0o700 });
-    const host = await verifyExecutable(executable, artifact.bytes, input);
+    await writeFile(executable, artifactBytes, { mode: 0o700 });
+    const host = await verifyExecutable(executable, artifactBytes, input);
     const manifest: StoredHostManifest = { schemaVersion: 1, executable: HOST_EXECUTABLE, host };
     await writeFile(confinedJoin(temporary, HOST_MANIFEST), `${JSON.stringify(manifest)}\n`, {
       encoding: "utf8",
@@ -86,27 +81,17 @@ export async function resolveModelGatewayHost(input: ResolveModelGatewayHostInpu
       if (!isFsCode(error, "EEXIST") && !isFsCode(error, "ENOTEMPTY")) throw error;
       const raced = await readInstalledHost(destination, input);
       if (!raced) throw new Error("Model gateway host publish raced with an invalid installed host.");
-      return { ...raced, source: artifact.source };
+      return { ...raced, source: "bundled" };
     }
-    return { executable: confinedJoin(destination, HOST_EXECUTABLE), host, source: artifact.source };
+    return { executable: confinedJoin(destination, HOST_EXECUTABLE), host, source: "bundled" };
   } finally {
     await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
-async function selectArtifact(
-  runtimeDir: string,
-  input: ResolveModelGatewayHostInput,
-): Promise<{ readonly bytes: Uint8Array; readonly source: "bundled" | "legacy-migration" }> {
-  if (input.bundledArtifact) return { bytes: input.bundledArtifact, source: "bundled" };
-  const legacy = confinedJoin(runtimeDir, ...LEGACY_EXECUTABLE);
-  try {
-    return { bytes: await readFile(legacy), source: "legacy-migration" };
-  } catch (error) {
-    if (isFsCode(error, "ENOENT"))
-      throw new Error("No approved bundled model gateway host is available and no legacy host can be migrated.");
-    throw error;
-  }
+function requireBundledArtifact(input: ResolveModelGatewayHostInput): Uint8Array {
+  if (!input.bundledArtifact) throw new Error("No approved bundled model gateway host is available.");
+  return input.bundledArtifact;
 }
 
 async function readInstalledHost(

@@ -413,43 +413,6 @@ describe("native-agent-projection", () => {
     expect(state.targets).toEqual({});
   });
 
-  it("adopts a legacy unchanged agent snapshot before safe unavailable removal", async () => {
-    const agent = {
-      name: "planner",
-      role: "Planning specialist",
-      goal: "Produce a verified implementation plan",
-      tier: "reasoning" as const,
-      instructions: "Plan first.",
-      scope: "project" as const,
-    };
-    loadAgentDefinitionsMock.mockResolvedValueOnce([agent]);
-    await syncNativeAgentProjections("/workspace/project");
-    const statePath = join("/home/tester", ".kiln", "runtime", "native-projections", "install-state.json");
-    const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, Record<string, unknown>>;
-    };
-    const target = state.targets["codex-agent:planner"]!;
-    delete target.projectionKind;
-    delete target.harness;
-    delete target.sourceIdentity;
-    target.installedContentHash = target.contentHash;
-    fsMocks.files.set(statePath, JSON.stringify(state));
-    loadAgentDefinitionsMock.mockResolvedValueOnce([{
-      ...agent,
-      targetId: "opencode-unproven",
-      authorityProfileId: "foundation-readonly-plan",
-    }]);
-
-    const result = await syncNativeAgentProjections("/workspace/project");
-
-    expect(result.errors).toHaveLength(0);
-    expect(unlinkSyncMock).toHaveBeenCalledWith(join("/home/tester", ".codex", "agents", "planner.toml"));
-    const migrated = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
-      targets: Record<string, unknown>;
-    };
-    expect(migrated.targets).not.toHaveProperty("codex-agent:planner");
-  });
-
   it("blocks and preserves true drift when an unavailable projection is managed", async () => {
     const agent = {
       name: "planner",

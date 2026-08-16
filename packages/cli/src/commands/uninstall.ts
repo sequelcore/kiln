@@ -59,7 +59,6 @@ const HARNESS_TARGET_OWNERSHIP: Readonly<Record<NativeHarnessTarget, {
   codex: {
     exact: new Set([
       "codex-config",
-      "codex-model-catalog",
       "codex-global-instructions",
       "codex-autoformat-hook",
       "mcp:codex",

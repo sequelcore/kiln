@@ -103,27 +103,7 @@ describe("resolveModelGatewayHost", () => {
     expect(JSON.parse(await readFile(manifestPath, "utf8"))).toMatchObject({ host: { source: "bundled" } });
   });
 
-  it("migrates only the fixed legacy runtime executable and leaves that durable source in place", async () => {
-    root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-host-"));
-    const legacy = join(root, "bun-canary", "bun-windows-x64", "bun.exe");
-    await mkdir(join(root, "bun-canary", "bun-windows-x64"), { recursive: true });
-    await writeFile(legacy, Uint8Array.from([9]));
-
-    const resolved = await resolveModelGatewayHost({
-      ...ADMITTED_PLATFORM,
-      runtimeDir: root,
-      inspect: {
-        inspect: async (_executable, args) =>
-          args[0] === "--version" ? MODEL_GATEWAY_HOST_VERSION : MODEL_GATEWAY_HOST_REVISION,
-      },
-      calculateSha256: () => MODEL_GATEWAY_HOST_SHA256,
-    });
-
-    expect(resolved.source).toBe("legacy-migration");
-    expect(existsSync(legacy)).toBe(true);
-  });
-
-  it("fails closed without a bundled artifact or the exact legacy migration source", async () => {
+  it("fails closed without a bundled artifact", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-host-"));
     await expect(resolveModelGatewayHost({ ...ADMITTED_PLATFORM, runtimeDir: root })).rejects.toThrow(
       "No approved bundled model gateway host",

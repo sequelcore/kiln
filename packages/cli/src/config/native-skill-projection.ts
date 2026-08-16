@@ -13,7 +13,6 @@ import {
 import {
   createNativeProjectionFileSnapshot,
   detectNativeProjectionFileDrift,
-  adoptLegacyNativeProjectionFile,
   isFullyOwnedNativeProjectionFile,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
@@ -645,49 +644,15 @@ function syncSkillFile(input: {
           };
         }
       }
-      if (historicalTarget && !isFullyOwnedNativeProjectionFile(historicalTarget, expectedIdentity)) {
-        const adopted = adoptLegacyNativeProjectionFile({
-          target: historicalTarget,
-          currentContent,
-          expected: expectedIdentity,
-          harnessRoot: input.target.dir,
-        });
-        if (adopted && nativeProjectionFileMatchesDesired({
-          target: adopted,
-          currentContent,
-          desiredContent: input.content,
-          expected: expectedIdentity,
-        })) {
-          if (input.options.dryRun) {
-            return {
-              ok: true,
-              outcome: {
-                targetId,
-                path: input.targetFile,
-                status: "planned",
-                reason: "reconciled legacy managed skill file snapshot",
-              },
-            };
-          }
-          return {
-            ok: true,
-            snapshot: adopted,
-            outcome: {
-              targetId,
-              path: input.targetFile,
-              status: "unchanged",
-              reason: "reconciled legacy managed skill file snapshot",
-            },
-          };
-        }
-        if (!adopted && !input.options.force) {
-          const reason = "managed projection identity mismatch";
-          return {
-            ok: false,
-            error: reason,
-            outcome: { targetId, path: input.targetFile, status: "blocked", reason },
-          };
-        }
+      if (historicalTarget
+        && !isFullyOwnedNativeProjectionFile(historicalTarget, expectedIdentity)
+        && !input.options.force) {
+        const reason = "managed projection identity mismatch";
+        return {
+          ok: false,
+          error: reason,
+          outcome: { targetId, path: input.targetFile, status: "blocked", reason },
+        };
       }
       const drift = detectNativeProjectionFileDrift({
         targetId,

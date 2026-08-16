@@ -20,7 +20,6 @@ import {
 import {
   createNativeProjectionSnapshot,
   detectNativeProjectionDrift,
-  detectNativeProjectionFileDrift,
   type NativeProjectionInstallState,
   type NativeProjectionTargetState,
   readNativeProjectionInstallState,
@@ -372,17 +371,6 @@ async function syncCodexPermissions(
     };
   }
 
-  const catalogTargetId = "codex-model-catalog";
-  const catalogState = installState.targets[catalogTargetId];
-  const catalogPath = catalogState?.filePath ?? join(kilnDir, "projections", "codex-model-catalog.json");
-  const originalCatalogContent = existsSync(catalogPath) ? readFileSync(catalogPath, "utf8") : undefined;
-  const catalogDrift = catalogState
-    ? detectNativeProjectionFileDrift({
-        targetId: catalogTargetId,
-        state: installState,
-        currentContent: existsSync(catalogPath) ? readFileSync(catalogPath, "utf8") : "",
-      })
-    : undefined;
   const previousManagedFields = installState.targets[targetId]?.managedFields ?? [];
   const projection = translateCodexPermissionProjection({
     policy,
@@ -402,51 +390,17 @@ async function syncCodexPermissions(
     managedFields: projection.managedFields,
     permissionIntegrity: projection.integrity,
   });
-  const removeTargetIds = catalogState ? [catalogTargetId] : [];
-  const catalogOutcome: ProjectionOutcome | undefined = catalogState
-    ? {
-        targetId: catalogTargetId,
-        path: catalogPath,
-        status: options.dryRun ? "planned" : "removed",
-        reason:
-          catalogDrift && !options.force
-            ? "detach install-state while preserving modified catalog file content"
-            : "remove legacy managed model catalog",
-      }
-    : undefined;
   if (options.dryRun) {
     return {
       ok: true,
-      removeTargetIds,
-      outcomes: [
-        { targetId, path: target, status: "planned", reason: "write projected permission settings" },
-        ...(catalogOutcome ? [catalogOutcome] : []),
-      ],
+      outcomes: [{ targetId, path: target, status: "planned", reason: "write projected permission settings" }],
     };
   }
   ensureDir(dirname(target));
   backupNativeProjectionFile({ kilnDir, targetId, filePath: target });
   const rollback = () => {
     restoreFile(target, originalConfigContent);
-    restoreFile(catalogPath, originalCatalogContent);
   };
-  try {
-    if (catalogState && (!catalogDrift || options.force)) rmSync(catalogPath, { force: true });
-  } catch {
-    return {
-      ok: false,
-      error: "legacy managed model catalog could not be removed safely",
-      outcomes: [
-        { targetId, path: target, status: "skipped", reason: "legacy model catalog removal failed" },
-        {
-          targetId: catalogTargetId,
-          path: catalogPath,
-          status: "failed",
-          reason: "legacy managed model catalog could not be removed safely",
-        },
-      ],
-    };
-  }
   try {
     writeFileAtomically(target, stringifyToml(projection.document));
   } catch (error) {
@@ -455,9 +409,8 @@ async function syncCodexPermissions(
   return {
     ok: true,
     snapshot,
-    removeTargetIds,
     rollback,
-    outcomes: [{ targetId, path: target, status: "written" }, ...(catalogOutcome ? [catalogOutcome] : [])],
+    outcomes: [{ targetId, path: target, status: "written" }],
   };
 }
 

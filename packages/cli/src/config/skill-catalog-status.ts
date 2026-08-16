@@ -22,7 +22,6 @@ import type {
 import type { KilnYamlSkillsConfig } from "../kiln-yaml-types.js";
 import { stripJsonComments } from "./json-comments.js";
 import {
-  adoptLegacyNativeProjectionFile,
   detectNativeProjectionFileDrift,
   isFullyOwnedNativeProjectionFile,
   type NativeProjectionInstallState,
@@ -505,7 +504,6 @@ function readConfiguredProjectionStatus(
         harness: target,
         sourceIdentity: `${source.origin}:${canonicalSkillKey(skillName)}/${fileName}`,
       },
-      targetRoot,
     );
   });
   const observedVisibility = readEffectiveNativeSkillVisibility(target, targetRoot, skillName);
@@ -688,7 +686,6 @@ function readProjectionStatus(
     readonly harness: "claude" | "codex" | "opencode";
     readonly sourceIdentity: string;
   },
-  harnessRoot?: string,
 ): KilnSkillCatalogProjectionStatus {
   if (!existsSync(path)) {
     return "missing";
@@ -699,22 +696,6 @@ function readProjectionStatus(
   const currentContent = readFileSync(path);
   if (desiredContent !== undefined && expected
     && !isFullyOwnedNativeProjectionFile(installState.targets[targetId], expected)) {
-    const adopted = harnessRoot
-      ? adoptLegacyNativeProjectionFile({
-        target: installState.targets[targetId],
-        currentContent,
-        expected,
-        harnessRoot,
-      })
-      : undefined;
-    if (adopted && nativeProjectionFileMatchesDesired({
-      target: adopted,
-      currentContent,
-      desiredContent,
-      expected,
-    })) {
-      return "projected";
-    }
     return "drifted";
   }
   if (desiredContent !== undefined && nativeProjectionFileMatchesDesired({

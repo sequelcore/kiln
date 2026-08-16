@@ -430,48 +430,4 @@ describe("skill catalog status path safety", () => {
     ]));
   });
 
-  it("reports a legacy snapshot with canonical bytes as projected", () => {
-    const root = mkdtempSync(join(tmpdir(), "kiln-skill-status-"));
-    const projectPath = join(root, "project");
-    const userHome = join(root, "user");
-    const sourceDir = join(userHome, ".kiln", "skills", "planner");
-    const targetPath = join(userHome, ".codex", "skills", "planner", "SKILL.md");
-    const content = "---\nname: planner\ndescription: valid\n---\n";
-    mkdirSync(sourceDir, { recursive: true });
-    mkdirSync(join(userHome, ".codex", "skills", "planner"), { recursive: true });
-    writeFileSync(join(sourceDir, "SKILL.md"), content, { encoding: "utf8", flag: "w" });
-    writeFileSync(targetPath, content, { encoding: "utf8", flag: "w" });
-    const current = createNativeProjectionFileSnapshot({
-      targetId: "codex-skill:planner/SKILL.md",
-      filePath: targetPath,
-      content: "historical\n",
-    });
-    const canonical = createNativeProjectionFileSnapshot({
-      targetId: "codex-skill:planner/SKILL.md",
-      filePath: targetPath,
-      content,
-    });
-    const legacy = {
-      ...current,
-      projectionKind: undefined,
-      harness: undefined,
-      sourceIdentity: undefined,
-      installedContentHash: canonical.contentHash,
-    };
-    writeNativeProjectionInstallState(
-      join(projectPath, ".kiln"),
-      upsertNativeProjectionTargetState(emptyNativeProjectionInstallState(), legacy),
-    );
-
-    const snapshot = readSkillCatalogStatus({
-      projectPath,
-      userHome,
-      skillConfig: { builtin: { enabled: false } },
-    });
-    const planner = snapshot.entries.find((entry) => entry.name === "planner");
-
-    expect(planner?.projections).toEqual(expect.arrayContaining([
-      expect.objectContaining({ target: "codex", status: "projected" }),
-    ]));
-  });
 });
