@@ -1,18 +1,18 @@
-# Instruction File Evidence, 2026-08-02
+# Instruction and Doctrine Evidence
 
-## Decision
+Evidence cutoff: 2026-08-02.
 
-The `sequel-engineering` instruction profile gained a sixth doctrine section,
-`executionDiscipline`, and the doctrine schema was extended to carry it. The
-profile now separates two concerns explicitly:
+This foundation preserves the measured basis for how Kiln writes instruction
+profiles. Current behavior belongs to the profiles themselves and to
+[`agent-context.md`](../../architecture/context/agent-context.md).
 
-| Concern | Sections |
-| --- | --- |
-| Work product | `principles`, `workflow`, `qualityGates`, `reviewPosture` |
-| Agent execution | `delegation`, `executionDiscipline` |
+It is the reason the doctrine schema separates two concerns — `principles`,
+`workflow`, `qualityGates`, and `reviewPosture` govern the work product, while
+`delegation` and `executionDiscipline` govern how a session runs.
 
-Three content decisions follow from the evidence below and are recorded here so
-they are not silently reversed:
+## Content rules this evidence supports
+
+Recorded so they are not silently reversed:
 
 1. No instruction-file size cap is justified on adherence grounds. Brevity is
    defended as token cost and maintenance burden only.

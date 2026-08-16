@@ -166,7 +166,7 @@ exhaustion is not a satisfied criterion.
 Scope fidelity and overengineering control are not yet measured. The paired
 control-versus-bounded-authority experiment, its frozen task definitions, and
 its limitations remain research and are recorded in the
-[bounded-work research record](../../research/41-bounded-work-authority-2026.md)
+[bounded-work benchmark](../../research/active/bounded-work-benchmark.md)
 under the evidence contract in
 [`benchmark-validation.md`](../quality/benchmark-validation.md). Nothing in this
 document claims an efficiency, parity, or quality result.

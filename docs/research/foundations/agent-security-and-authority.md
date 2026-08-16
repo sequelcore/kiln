@@ -31,6 +31,17 @@ rather than proceeding.
 - [InjecAgent](https://aclanthology.org/2024.findings-acl.624/)
 - [CaMeL](https://arxiv.org/abs/2503.18813)
 
+The tool surface carries the same risk in a protocol-specific form. Threat
+modeling of the Model Context Protocol documents tool poisoning, where a server
+supplies a description or annotation crafted to steer tool choice, and analyses
+of MCP defenses remain preprints rather than settled practice. This is the
+evidence behind treating tool annotations as hints with no authority, and
+behind refusing to let an untrusted server's own metadata drive a tool-use
+decision.
+
+- [MCP Threat Modeling and Tool Poisoning](https://arxiv.org/abs/2603.22489)
+- [Securing the Model Context Protocol](https://arxiv.org/abs/2512.06556)
+
 ## Delegation is not evidence of benefit
 
 Anthropic reports a 90.2% improvement for one internal multi-agent research

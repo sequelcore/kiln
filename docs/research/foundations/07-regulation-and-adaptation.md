@@ -76,6 +76,26 @@ The regulation research implies a few explicit rules:
 - regulation should account for subsystem tradeoffs rather than optimize one
   metric in isolation
 
+## Allocating Deliberation Effort
+
+Reasoning effort is a regulated resource, and the evidence says the setpoint is
+per-task rather than global. Test-time compute can improve difficult reasoning,
+but the compute-optimal strategy varies with model and problem difficulty:
+difficulty-aware allocation reported more than a fourfold efficiency gain over
+best-of-N, from allocation rather than from a larger universal budget. Adaptive
+selection can improve efficiency and quality together, with one method reporting
+53% shorter average responses alongside 2.4% higher accuracy on its own
+evaluation.
+
+The consequence Kiln adopts is that maximum effort is not a default. It is
+justified per task class, or by an explicit operator or provider decision, and
+an unsupported effort level is omitted rather than guessed. A permanent
+route-wide override is exceptional precisely because it forces the same compute
+onto difficult and trivial work alike.
+
+- [Snell et al., scaling test-time compute](https://arxiv.org/abs/2408.03314)
+- [AdaptThink](https://arxiv.org/abs/2505.13417)
+
 ## Design Consequence
 
 Kiln should expose regulation through:

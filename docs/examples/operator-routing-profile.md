@@ -160,5 +160,5 @@ alternate selection command.
 
 Local benchmarks are admission evidence for this profile, not universal model
 rankings. Keep methodology, limitations, and promotion decisions in the
-[Managed Invocation Routing Research](../research/21-managed-invocation-routing-2026.md)
+[coordination intelligence foundation](../research/foundations/10-coordination-intelligence.md)
 rather than duplicating result tables here.

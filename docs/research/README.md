@@ -51,6 +51,7 @@ Durable research lives under [`foundations/`](foundations/README.md):
 - agent security and authority
 - communication standards
 - governance and reproducibility
+- instruction and doctrine evidence
 
 ## Active Investigations
 
@@ -62,19 +63,5 @@ Open, owner-backed research lives under [`active/`](active/README.md):
   documentation promotion target
 - general work contracts — issue-backed research awaiting an explicit
   documentation promotion target
-
-## Promotion Backlog
-
-The files remaining at this directory root predate the lifecycle above. They
-mix research evidence with implementation status, accepted decisions, or
-delivery history. They are retained temporarily to avoid losing evidence while
-each dossier is reconciled against architecture, ADRs, guides, configuration,
-and the changelog.
-
-They are not active architecture and must not receive new implementation-status
-updates. Process each dossier by bounded concern:
-
-1. preserve unique evidence in a foundation or evaluation when useful;
-2. promote stable contracts and accepted decisions to their owning documents;
-3. record completed delivery in the changelog or release notes;
-4. delete the residual dossier and repair its consumers.
+- bounded-work authority benchmark — issue #19; the contract is canonical, only
+  the measurement remains open

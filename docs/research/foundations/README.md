@@ -21,5 +21,6 @@ product behavior.
 13. [Agent Security and Authority](agent-security-and-authority.md)
 14. [Communication Standards](communication-standards.md)
 15. [Governance and Reproducibility](governance-and-reproducibility.md)
+16. [Instruction and Doctrine Evidence](instruction-and-doctrine-evidence.md)
 
 For current contracts, use the [architecture index](../../architecture/README.md).

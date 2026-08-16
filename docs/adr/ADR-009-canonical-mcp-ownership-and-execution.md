@@ -89,7 +89,7 @@ documented supervised Roblox Studio path.
 
 Canonical references:
 
-- `docs/research/22-canonical-mcp-integration-2026.md`
+- `docs/research/foundations/agent-security-and-authority.md`
 - `docs/architecture/config-projection.md`
 - `docs/architecture/tooling/tool-execution.md`
 - `docs/architecture/coordination/agent-tasks.md`

@@ -16,7 +16,10 @@ It names the product center those documents serve:
   runtimes are adapters, providers, import sources, or fallback execution
   routes. They are not Kiln's product center.
 
-Research basis: `docs/research/18-execution-surfaces-strategy.md`.
+Research basis: [tool execution and trust](../../research/foundations/09-tool-execution-and-trust.md)
+for the operator-control and human-AI interaction evidence, and
+[work governance and verification](../../research/foundations/13-work-governance-and-verification.md)
+for the governance-framework evidence.
 
 ## Product Center
 

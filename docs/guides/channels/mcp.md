@@ -227,4 +227,4 @@ post-uninstall comparison remain the supervised steps above.
   qualified allowlists.
 
 See [ADR-009](../../adr/ADR-009-canonical-mcp-ownership-and-execution.md) and the
-[research dossier](../../research/22-canonical-mcp-integration-2026.md).
+[tool-poisoning evidence](../../research/foundations/agent-security-and-authority.md).

@@ -26,4 +26,10 @@ Every note must name or link:
   [General Work Contracts](32-general-work-contracts-2026.md) retain issue-backed
   evidence but still need explicit documentation promotion targets.
 
+- [Bounded-Work Authority Benchmark](bounded-work-benchmark.md) holds the paired
+  design for [issue #19](https://github.com/sequelcore/kiln/issues/19). The
+  contract it tests is already canonical in
+  [`bounded-work-authority.md`](../../architecture/core/bounded-work-authority.md);
+  only the measurement remains open.
+
 Research without an active owner does not remain here.

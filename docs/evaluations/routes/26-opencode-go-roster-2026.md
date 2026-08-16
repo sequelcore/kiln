@@ -37,7 +37,8 @@ unchanged before and after execution.
 This is one route-time read-only proof, not a quality benchmark or write
 promotion. Direct OpenCode Go deliberation remains at provider default by the
 terminal fail-closed decision recorded in
-`30-deliberation-policy-2026.md`; the provider does not publish the revisioned
+[ADR-011](../../adr/ADR-011-provider-neutral-deliberation-policy.md); the
+provider does not publish the revisioned
 route capability required to admit selectable levels. Making this worker a
 default requires a repeated task-specific comparison against the incumbent;
 write authority still requires the separate strict repeated write gate.

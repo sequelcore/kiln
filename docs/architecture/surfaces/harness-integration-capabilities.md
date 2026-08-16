@@ -47,7 +47,7 @@ lossy evidence is not silently upgraded. If a required dimension is unknown,
 the work item records a capability pause or uses a separately admitted
 alternate. See [`bounded-work-authority.md`](../core/bounded-work-authority.md)
 for the contract, and the
-[bounded-work research record](../../research/41-bounded-work-authority-2026.md)
+[bounded-work benchmark](../../research/active/bounded-work-benchmark.md)
 for its benchmark limitations.
 
 There is no claim of parity between native harnesses and Kiln Runtime, direct

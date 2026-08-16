@@ -71,6 +71,24 @@ a self-inflicted outage.
 - [The Tail at Scale](https://research.google/pubs/the-tail-at-scale/),
   [AWS: timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/)
 
+## Delegation Is Not A Correctness Guarantee
+
+Delegation buys reviewability, and it is paid for. Software delegation contracts
+report improved reviewability and evidence at additional token and time cost,
+which is why Kiln keeps contracts bounded rather than treating a handoff as
+proof of quality. Agentless separately shows that a simple localize–repair–
+validate workflow competes with heavier orchestration, supporting selective
+delegation over mandatory fan-out.
+
+Routing conclusions do not generalize from one benchmark. OmniCode broadens
+evaluation beyond Python bug repair and cautions specifically against reading a
+single benchmark as universal routing proof — a caution that applies to Kiln's
+own route evidence as much as to published leaderboards.
+
+- [Software Delegation Contracts](https://arxiv.org/abs/2606.17099),
+  [Agentless](https://arxiv.org/abs/2407.01489)
+- [OmniCode](https://arxiv.org/abs/2602.02262)
+
 ## Cybernetic Interpretation
 
 - Sensors: governance recommendation, graph shape, risk, route health, budget,
@@ -90,5 +108,5 @@ inspectable and falsifiable.
 Trajectory-aware escalation and learned routing remain candidates, not current
 capabilities. Promotion requires task-class cohorts, a static baseline,
 verified-success non-regression, known coordination cost, bounded authority,
-and rollback evidence. See
-[Managed Invocation Routing 2026](../21-managed-invocation-routing-2026.md).
+and rollback evidence. The routing evidence is recorded above under
+[delegation is not a correctness guarantee](#delegation-is-not-a-correctness-guarantee).
