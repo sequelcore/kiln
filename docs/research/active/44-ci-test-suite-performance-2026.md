@@ -190,9 +190,40 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   itself a git repository, and it applies to production equally: running Kiln
   from a temporary or nested directory under a git-tracked home selects the wrong
   project root. The guard suppresses one symptom rather than bounding the walk.
-- Test files are never typechecked. Package `tsconfig.json` files use
+- Test sources are largely untypechecked. Package build configs use
   `include: ["src"]` and exclude `src/**/*.test.ts`, while suites live in
-  `tests/`. Type drift between tests and source is currently invisible.
+  `tests/`, so type drift between tests and source has been invisible. The
+  `typecheck:tests` gate now exists and admits packages one at a time; only
+  `@kilnai/tools` currently qualifies.
+
+  Measured backlog, compiling each package's `src` and `tests` together with
+  `rootDir` at the package root:
+
+  | Package | Errors |
+  | --- | --- |
+  | tools | 0 |
+  | gateway-contracts | 16 |
+  | sdk | 90 |
+  | tui | 129 |
+  | cli | 280 |
+  | core | 488 |
+  | native | 596 |
+  | runtime | 1092 |
+
+  The `native`, `tui`, and `sdk` counts are inflated by configuration rather
+  than drift: `native` reports mostly `TS17004` because the probe config does
+  not enable JSX, and `tui` and `sdk` report `TS6059` for paths outside their
+  `rootDir`. Those need a per-package config before their real counts are known.
+
+  The remainder are genuine. Samples: `content` asserted on `IncomingMessage`
+  which no longer declares it; `expiresAt` on a route-capability snapshot that
+  no longer declares it; `"session_started"` used where `OperatorSessionEventKind`
+  no longer admits it; `.sort()` called on a `readonly` array. These tests pass
+  because the extra properties are ignored at runtime, so they assert against
+  contracts that no longer exist. The defect fixed in
+  `managed-agent-route-catalog.test.ts` during this work — calling `.some()` on
+  an optional `agentHealth` — is the same class and would have been a compile
+  error under this gate.
 
 ## Sources
 

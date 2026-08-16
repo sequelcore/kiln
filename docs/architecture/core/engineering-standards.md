@@ -164,6 +164,12 @@ discarding it is preferred over carrying readers that exist only to parse it.
 - Package tests resolve workspace dependencies through the exports map, which
   points at compiled output. Compilation is an explicit prerequisite of the test
   lanes, not a side effect of typechecking.
+- Test sources are typechecked. Package build configs cover `src` only, so each
+  package admits its suites through a `tsconfig.test.json` wired into
+  `typecheck:tests`. A package joins that gate once its suites compile clean and
+  never leaves it; the gate ratchets forward one package at a time and never
+  carries a tolerated-error baseline. Until a package is admitted, its tests can
+  assert against shapes the production types no longer have.
 - Keep package worker limits proportional to available CPUs and validate them
   with repeated full-suite measurements. Do not disable isolation or increase
   timeouts to conceal shared state, leaked resources, or accidental integration
