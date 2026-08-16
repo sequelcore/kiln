@@ -111,7 +111,7 @@ function createAttachedRuntimeBuiltinToolSurface(
       ...attachment,
       boundedWorkAdmission: attachment.boundedWorkAdmission ?? (options.boundedWork ? undefined : () => ({
         admitted: true as const,
-        workspaceAuthority: { allowedPaths: ["C:/workspace/kiln"], deniedPaths: [] },
+        workspaceAuthority: { allowedPaths: ["/workspace/kiln"], deniedPaths: [] },
         lifecycle: {
           markDispatched: () => undefined,
           releaseBeforeDispatch: () => undefined,
@@ -541,7 +541,7 @@ describe("attached runtime builtin tool surface", () => {
               admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read"],
-              workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
+              workingDirectory: { path: "/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
               credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
@@ -669,14 +669,14 @@ describe("attached runtime builtin tool surface", () => {
               permissionProfile: "apply-approved-writes",
               allowedToolNames: ["read", "apply-patch"],
               writeAllowed: true,
-              workingDirectory: { path: "C:/workspace/kiln", mode: "workspace-write" },
+              workingDirectory: { path: "/workspace/kiln", mode: "workspace-write" },
               timeoutMs: 120000,
               credentialRoute: { mode: "credentialless" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
               writeAuthority: defineManagedAgentWriteAuthority({
                 profile: "foundation-apply-approved-writes",
                 scope: {
-                  workspace: { mode: "apply-approved", allowedPaths: ["C:/workspace/kiln"], deniedPaths: [] },
+                  workspace: { mode: "apply-approved", allowedPaths: ["/workspace/kiln"], deniedPaths: [] },
                   memory: { mode: "none", operations: [] },
                   artifacts: { mode: "none", resourceUris: [], retention: "none" },
                   tools: { allowedToolNames: ["apply-patch"], deniedToolNames: [] },
@@ -834,7 +834,7 @@ describe("attached runtime builtin tool surface", () => {
               admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read"],
-              workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
+              workingDirectory: { path: "/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
               credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
@@ -2081,7 +2081,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
-                path: "C:/workspace/kiln",
+                path: "/workspace/kiln",
                 mode: "read-only",
               },
               timeoutMs: 120000,
@@ -2194,7 +2194,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
               networkAllowed: true,
               workingDirectory: {
-                path: "C:/workspace/kiln",
+                path: "/workspace/kiln",
                 mode: "read-only",
               },
               timeoutMs: 120000,
@@ -2315,7 +2315,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       admissionProfile: "foundation-readonly-plan" as const,
       permissionProfile: "read-only",
       allowedToolNames,
-      workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" as const },
+      workingDirectory: { path: "/workspace/kiln", mode: "read-only" as const },
       timeoutMs: 120000,
       credentialRoute: {
         mode: "runtime-selected" as const,
@@ -2481,7 +2481,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               admissionProfile: "foundation-readonly-plan",
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
-              workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" },
+              workingDirectory: { path: "/workspace/kiln", mode: "read-only" },
               timeoutMs: 120000,
               credentialRoute: { mode: "runtime-selected", routeId: "credential-route:opencode:primary" },
               memoryScope: { scope: { kind: "project", id: "kiln" }, access: "read-only" },
@@ -2570,7 +2570,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
-                path: "C:/workspace/kiln",
+                path: "/workspace/kiln",
                 mode: "read-only",
               },
               timeoutMs: 120000,
@@ -2677,7 +2677,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               permissionProfile: "read-only",
               allowedToolNames: ["read", "grep", "glob"],
               workingDirectory: {
-                path: "C:/workspace/kiln",
+                path: "/workspace/kiln",
                 mode: "read-only",
               },
               timeoutMs: 120000,
@@ -2763,7 +2763,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 permissionProfile: "read-only",
                 allowedToolNames: ["read", "grep", "glob"],
                 workingDirectory: {
-                  path: "C:/workspace/kiln",
+                  path: "/workspace/kiln",
                   mode: "read-only",
                 },
                 timeoutMs: 120000,
@@ -2791,7 +2791,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 allowedToolNames: ["read", "grep", "glob", "web_search", "browser_session_start"],
                 networkAllowed: true,
                 workingDirectory: {
-                  path: "C:/workspace/kiln",
+                  path: "/workspace/kiln",
                   mode: "read-only",
                 },
                 timeoutMs: 120000,
@@ -3521,7 +3521,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
             admissionProfile: "foundation-readonly-plan",
             permissionProfile: "read-only" as const,
             allowedToolNames: ["read", "grep", "glob"],
-            workingDirectory: { path: "C:/workspace/kiln", mode: "read-only" as const },
+            workingDirectory: { path: "/workspace/kiln", mode: "read-only" as const },
             timeoutMs: 120000,
             credentialRoute: { mode: "runtime-selected" as const, routeId: "credential-route:opencode:primary" },
             memoryScope: { scope: { kind: "project" as const, id: "kiln" }, access: "read-only" as const },
@@ -3823,7 +3823,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
               writeAllowed: true,
               allowedToolNames: ["read", "grep", "glob", "write"],
               workingDirectory: {
-                path: "C:/workspace/kiln",
+                path: "/workspace/kiln",
                 mode: "workspace-write",
               },
               timeoutMs: 120000,
@@ -3840,8 +3840,8 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
                 scope: defineManagedAgentWriteScope({
                   workspace: {
                     mode: "apply-approved",
-                    allowedPaths: ["C:/workspace/kiln"],
-                    deniedPaths: ["C:/workspace/kiln/.git"],
+                    allowedPaths: ["/workspace/kiln"],
+                    deniedPaths: ["/workspace/kiln/.git"],
                   },
                   memory: {
                     mode: "propose",

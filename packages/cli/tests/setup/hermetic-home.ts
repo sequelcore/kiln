@@ -18,6 +18,12 @@ const syntheticHome = mkdtempSync(join(tmpdir(), "kiln-cli-home-"));
 process.env.HOME = syntheticHome;
 process.env.USERPROFILE = syntheticHome;
 
+// resolveGlobalConfigPath prefers XDG_CONFIG_HOME over the home directory, so
+// an inherited value would send global configuration outside the synthetic home
+// and make results depend on the host. Linux sets it; Windows does not, which
+// is why suites that hardcode the home-directory layout only failed on CI.
+delete process.env.XDG_CONFIG_HOME;
+
 afterAll(() => {
   rmSync(syntheticHome, { recursive: true, force: true });
 });

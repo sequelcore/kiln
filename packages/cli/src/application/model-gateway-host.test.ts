@@ -12,6 +12,14 @@ import {
   resolveModelGatewayHost,
 } from "./model-gateway-host.js";
 
+/**
+ * The admitted host artifact is intentionally Windows x64 only. Pin the platform
+ * through the production seam so these cases assert host resolution rather than
+ * the operating system the suite happens to run on; the rejection of
+ * unadmitted platforms has its own case below.
+ */
+const ADMITTED_PLATFORM = { platform: "win32", arch: "x64" } as const;
+
 describe("resolveModelGatewayHost", () => {
   let root: string | undefined;
   afterEach(async () => {
@@ -28,6 +36,7 @@ describe("resolveModelGatewayHost", () => {
     };
 
     const resolved = await resolveModelGatewayHost({
+      ...ADMITTED_PLATFORM,
       runtimeDir: root,
       bundledArtifact: Uint8Array.from([1, 2, 3]),
       inspect,
@@ -55,6 +64,7 @@ describe("resolveModelGatewayHost", () => {
       ),
     };
     const input = {
+      ...ADMITTED_PLATFORM,
       runtimeDir: root,
       bundledArtifact: Uint8Array.from([1]),
       inspect,
@@ -73,6 +83,7 @@ describe("resolveModelGatewayHost", () => {
       ),
     };
     await resolveModelGatewayHost({
+      ...ADMITTED_PLATFORM,
       runtimeDir: root,
       bundledArtifact: Uint8Array.from([1]),
       inspect,
@@ -85,7 +96,7 @@ describe("resolveModelGatewayHost", () => {
     await writeFile(manifestPath, JSON.stringify(predecessor));
 
     await expect(
-      resolveModelGatewayHost({ runtimeDir: root, inspect, calculateSha256: () => MODEL_GATEWAY_HOST_SHA256 }),
+      resolveModelGatewayHost({ ...ADMITTED_PLATFORM, runtimeDir: root, inspect, calculateSha256: () => MODEL_GATEWAY_HOST_SHA256 }),
     ).resolves.toMatchObject({
       host: { source: "bundled" },
     });
@@ -99,6 +110,7 @@ describe("resolveModelGatewayHost", () => {
     await writeFile(legacy, Uint8Array.from([9]));
 
     const resolved = await resolveModelGatewayHost({
+      ...ADMITTED_PLATFORM,
       runtimeDir: root,
       inspect: {
         inspect: async (_executable, args) =>
@@ -113,7 +125,7 @@ describe("resolveModelGatewayHost", () => {
 
   it("fails closed without a bundled artifact or the exact legacy migration source", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-host-"));
-    await expect(resolveModelGatewayHost({ runtimeDir: root })).rejects.toThrow(
+    await expect(resolveModelGatewayHost({ ...ADMITTED_PLATFORM, runtimeDir: root })).rejects.toThrow(
       "No approved bundled model gateway host",
     );
   });
@@ -138,7 +150,7 @@ describe("resolveModelGatewayHost", () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-host-"));
     const inspect = { inspect: vi.fn() };
     await expect(
-      resolveModelGatewayHost({ runtimeDir: root, bundledArtifact: Uint8Array.from([1]), inspect }),
+      resolveModelGatewayHost({ ...ADMITTED_PLATFORM, runtimeDir: root, bundledArtifact: Uint8Array.from([1]), inspect }),
     ).rejects.toThrow("SHA-256");
     expect(inspect.inspect).not.toHaveBeenCalled();
   });
@@ -152,6 +164,6 @@ describe("resolveModelGatewayHost", () => {
       JSON.stringify({ schemaVersion: 1, executable: "../bun.exe", host: canonicalModelGatewayHostIdentity() }),
     );
 
-    await expect(resolveModelGatewayHost({ runtimeDir: root })).rejects.toThrow("single relative filename");
+    await expect(resolveModelGatewayHost({ ...ADMITTED_PLATFORM, runtimeDir: root })).rejects.toThrow("single relative filename");
   });
 });
