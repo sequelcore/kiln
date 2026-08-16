@@ -102,8 +102,11 @@ async function buildWorkspace(): Promise<void> {
   console.log(`Built ${builds.length} workspaces in dependency order`);
 }
 
+// Validation answers whether the workspace forms one coherent release cohort.
+// The Windows host artifact is produced during packaging, so requiring it here
+// blocked every pull request on a binary that does not exist yet. pack() and
+// publish() still assert it, and publishing remains impossible without it.
 async function validate(): Promise<void> {
-  await assertModelGatewayHostReleaseArtifact(join(packagesRoot, "model-gateway-host-win32-x64"));
   const records = await discoverPackages(packagesRoot);
   const explicitRef = stringOption("--ref") ?? process.env.RELEASE_REF;
   const identity = explicitRef

@@ -82,14 +82,12 @@
     "packages/gui": {
       "name": "@kilnai/gui",
       "version": "3.0.0-beta.1",
-      "dependencies": {
-        "@lobehub/icons-static-svg": "1.94.0",
-      },
       "devDependencies": {
         "@base-ui/react": "^1.4.1",
         "@fontsource-variable/geist": "^5.2.8",
         "@kilnai/core": "3.0.0-beta.1",
         "@kilnai/gateway-contracts": "3.0.0-beta.1",
+        "@lobehub/icons-static-svg": "1.94.0",
         "@playwright/test": "^1.52.0",
         "@shadcn/react": "^0.1.0",
         "@tailwindcss/vite": "^4.1.5",
