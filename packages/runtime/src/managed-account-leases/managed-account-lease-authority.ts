@@ -1322,7 +1322,7 @@ export class SqliteManagedAccountLeaseAuthority {
         requireKilnEvidenceUri(evidence.evidenceUri);
         leaked.set(`${evidence.jobId}\0${evidence.economicAttemptId}`, evidence);
       }
-      const legacyRows = this.#db
+      const orphanedIdentityRows = this.#db
         .query<LeaseRow, string[]>(
           `
         SELECT leases.* FROM account_leases leases
@@ -1348,15 +1348,15 @@ export class SqliteManagedAccountLeaseAuthority {
           this.#recoveryDomain,
           AGENT_TASK_RECOVERY_DOMAIN,
         );
-      for (const row of legacyRows) {
-        const historicalIdentity =
+      for (const row of orphanedIdentityRows) {
+        const runtimeInvocationIdentity =
           row.runtime_invocation_id !== null && row.economic_attempt_id === null && row.commitment_id === null;
         const orphanedEconomicIdentity =
           row.runtime_invocation_id === null && row.economic_attempt_id !== null && row.commitment_id !== null;
-        if (!historicalIdentity && !orphanedEconomicIdentity) {
+        if (!runtimeInvocationIdentity && !orphanedEconomicIdentity) {
           throw new Error("Orphaned managed account lease identity is corrupt.");
         }
-        const evidenceUri = `kiln://managed-accounts/leases/${encodeURIComponent(row.lease_id)}/legacy-recovery`;
+        const evidenceUri = `kiln://managed-accounts/leases/${encodeURIComponent(row.lease_id)}/orphaned-identity-recovery`;
         const diagnostics = uniqueStrings([...parseStringArray(row.diagnostic_uris), evidenceUri]);
         this.#db
           .query(

@@ -89,7 +89,7 @@ describe("managed authority lease history migration", () => {
       "SELECT lifecycle_state,diagnostic_uris FROM account_leases WHERE lease_id='legacy-active'",
     ).get()).toEqual({
       lifecycle_state: "leaked",
-      diagnostic_uris: '["kiln://managed-accounts/leases/legacy-active/legacy-recovery"]',
+      diagnostic_uris: '["kiln://managed-accounts/leases/legacy-active/orphaned-identity-recovery"]',
     });
     migrated.close();
 
