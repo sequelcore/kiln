@@ -182,7 +182,7 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   test can observe. The synthetic home closes this for the CLI suite, but the
   fallback itself remains untested authority: a caller that forgets to pass
   `userHome` silently reads operator state in production too.
-- `resolveProjectRoot` escapes into ancestor repositories. `findAncestor` walks
+- [#84](https://github.com/sequelcore/kiln/issues/84) — `resolveProjectRoot` escapes into ancestor repositories. `findAncestor` walks
   to the filesystem root, and `hasGitMarker` suppresses only the single case
   where the candidate is exactly `homedir()`. Any directory nested under a
   git-tracked parent therefore resolves to that parent. This surfaced when the
@@ -190,7 +190,7 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   itself a git repository, and it applies to production equally: running Kiln
   from a temporary or nested directory under a git-tracked home selects the wrong
   project root. The guard suppresses one symptom rather than bounding the walk.
-- Test sources are largely untypechecked. Package build configs use
+- [#85](https://github.com/sequelcore/kiln/issues/85) — Test sources are largely untypechecked. Package build configs use
   `include: ["src"]` and exclude `src/**/*.test.ts`, while suites live in
   `tests/`, so type drift between tests and source has been invisible. The
   `typecheck:tests` gate now exists and admits packages one at a time; only
