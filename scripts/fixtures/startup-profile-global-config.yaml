@@ -1,0 +1,129 @@
+# Deterministic operator configuration for the GUI startup profile.
+#
+# A startup benchmark that reads whatever the operator happens to have
+# configured cannot be compared between runs or machines. This fixture gives
+# the profiled GUI one fixed input instead.
+#
+# Everything outside targetCatalog and targetRouting must stay equal to
+# defaultGlobalConfig(); a direct target cannot be defaulted because it names
+# accounts and models. startup-profile-config-fixture.test.ts enforces both
+# halves, so a schema or default change fails loudly instead of rotting.
+version: "3"
+engines:
+  claude:
+    enabled: true
+    billing: subscription
+  codex:
+    enabled: false
+    billing: plus-quota
+  opencode:
+    enabled: false
+    billing: free
+permissions:
+  approval: on-request
+  sandbox: read-only
+permissionCeiling:
+  approval: on-request
+  sandbox: workspace-write
+skills:
+  builtin:
+    enabled: true
+workGovernance:
+  defaultPosture: orchestrate
+  directExecution:
+    maxFiles: 1
+    maxRisk: low
+  requireDelegationFor:
+    - architecture
+    - security
+    - ui
+    - runtime
+    - provider-routing
+    - managed-agents
+    - config
+    - multi-file
+    - cross-surface
+    - long-running
+    - verification-heavy
+    - formal-proof-candidate
+  requiredEvidence:
+    - surface-map
+    - risk-hypothesis
+    - plan
+    - tests
+    - typecheck
+    - residual-risk
+components:
+  include:
+    - baseline:core
+targetCatalog:
+  accounts:
+    - id: startup-profile-account
+      providerId: opencode-go
+      credentialId: startup-profile-credential
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics:
+        capacityIdentity: startup-profile-capacity
+        subscriptionClass: free
+        quotaClassId: startup-profile-quota
+        creditPosture: disabled
+        overagePosture: disabled
+  accountPolicies:
+    - id: startup-profile-policy
+      accountIds: [startup-profile-account]
+      strategy: economic-least-pressure
+  targets:
+    - id: startup-profile-target
+      kind: direct
+      label: Startup profile fixture target
+      providerId: opencode-go
+      providerModelId: startup-profile-model
+      dataClassification: internal
+      dataPolicyEvidence:
+        providerId: opencode-go
+        providerModelId: startup-profile-model
+        dataUse: not-used
+        trainingPosture: prohibited
+        retention:
+          posture: zero
+          days: 0
+        permittedMaximumClassification: internal
+        permittedClassifications: [public, internal]
+        sourceIdentity: startup-profile-fixture
+        sourceRevision: v1
+        sourceDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        observedAt: "2026-01-01T00:00:00.000Z"
+        expiresAt: "2030-01-01T00:00:00.000Z"
+      accountSelection:
+        mode: automatic
+        accountPolicyId: startup-profile-policy
+      economics:
+        adapterCapabilityId: opencode-go-direct
+        adapterCapabilityVersion: v1
+        authBillingChannel: fixture
+        executionMode: direct
+        serviceTier: default
+        rateCardBasis: fixture
+        envelopeSemantics: request
+        fallbackPosture: disabled
+        overagePosture: disabled
+        contextClass: standard
+        cacheClass: none
+        priceEvidence:
+          kind: free
+          rateCardId: fixture
+          rateCardRevision: v1
+          evidence:
+            sourceIdentity: startup-profile-fixture
+            sourceRevision: v1
+            sourceDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+            observedAt: "2026-01-01T00:00:00.000Z"
+            validUntil: "2030-01-01T00:00:00.000Z"
+            confidence: high
+            authority: configured
+        auxiliaryCharges: []
+        executionEnvelope:
+          limits: []
+targetRouting:
+  defaultTargetId: startup-profile-target

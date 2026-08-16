@@ -1,6 +1,8 @@
 import { execFile as execFileCallback } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
 
@@ -10,7 +12,9 @@ const repoRoot = resolve(import.meta.dirname, "..");
 test("profiles the first usable GUI interaction when browser measurement is enabled", async () => {
   const gatewayPort = await reservePort();
   const guiPort = await reservePort();
-  const stdout = await runStartupProfile(gatewayPort, guiPort);
+  const configHome = await seedGlobalConfiguration();
+  const stdout = await runStartupProfile(gatewayPort, guiPort, configHome)
+    .finally(() => rm(configHome, { recursive: true, force: true }));
 
   const profile = JSON.parse(stdout) as {
     command: { measureFirstPaint?: boolean };
@@ -33,9 +37,27 @@ test("profiles the first usable GUI interaction when browser measurement is enab
   expect(profile.timings.milestones.map((milestone) => milestone.name)).toContain("gui-first-usable-interaction");
 }, 75_000);
 
+/**
+ * The GUI refuses to start without a configured execution target, and a startup
+ * benchmark that reads the operator's own configuration cannot be compared
+ * between runs or machines. Point global configuration at a committed fixture so
+ * every run profiles the same input. packages/cli keeps that fixture in step with
+ * the configuration contract.
+ */
+async function seedGlobalConfiguration(): Promise<string> {
+  const configHome = await mkdtemp(join(tmpdir(), "kiln-startup-profile-config-"));
+  await mkdir(join(configHome, "kiln"), { recursive: true });
+  await copyFile(
+    resolve(repoRoot, "scripts", "fixtures", "startup-profile-global-config.yaml"),
+    join(configHome, "kiln", "config.yaml"),
+  );
+  return configHome;
+}
+
 async function runStartupProfile(
   gatewayPort: number,
   guiPort: number,
+  configHome: string,
 ): Promise<string> {
   try {
     const result = await execFile("bun", [
@@ -58,6 +80,7 @@ async function runStartupProfile(
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
       timeout: 70_000,
+      env: { ...process.env, XDG_CONFIG_HOME: configHome },
     });
     return result.stdout;
   } catch (error) {
