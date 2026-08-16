@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import { ManagedCliHarnessAdapter } from "../../src/agents/managed-invocation/cli-harness-adapter.js";
 import { ManagedDirectProviderRuntimeAdapter } from "../../src/agents/managed-invocation/direct-runtime-adapter.js";
 import { ManagedRemoteHarnessAdapter } from "../../src/agents/managed-invocation/remote-harness-adapter.js";

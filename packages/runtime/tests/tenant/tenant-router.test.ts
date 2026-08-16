@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { textParts } from "@kilnai/core";
-import type { AgentRAG, TenantAgentConfig } from "@kilnai/core";
+import type { AgentRAG } from "@kilnai/core/agents";
+import { type TenantAgentConfig, textParts } from "@kilnai/core/engine";
 import { DefaultTenantRouter, EmbeddingTenantRouter } from "../../src/tenant/tenant-router.js";
 
 describe("DefaultTenantRouter", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { EventStore, KilnEvent } from "@kilnai/core";
+import type { EventStore, KilnEvent } from "@kilnai/core/events";
 import { CompositeEventStore } from "../../src/observability/composite-event-store.js";
 
 function makeEvent(overrides: Partial<KilnEvent> = {}): KilnEvent {

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { AllCredentialsExhaustedError, KilnError, resolveCommunicationIntent, type ExecutionSessionEvent, type KilnMcpClient } from "@kilnai/core";
+import { AllCredentialsExhaustedError, resolveCommunicationIntent } from "@kilnai/core/agents";
+import { KilnError } from "@kilnai/core/engine";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
+import type { KilnMcpClient } from "@kilnai/core/mcp";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";

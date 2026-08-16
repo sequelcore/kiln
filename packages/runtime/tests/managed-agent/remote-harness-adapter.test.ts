@@ -4,12 +4,10 @@ import {
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
   evaluateManagedAgentAdmission,
-} from "@kilnai/core";
-import type {
-  ManagedAgentCapabilitySnapshotInput,
-  ManagedAgentCapabilitySnapshot,
-  ManagedAgentInvocationRequest,
-} from "@kilnai/core";
+  type ManagedAgentCapabilitySnapshot,
+  type ManagedAgentCapabilitySnapshotInput,
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core/agents";
 import {
   RuntimeManagedAgentInvocationService,
 } from "../../src/agents/managed-invocation/index.js";

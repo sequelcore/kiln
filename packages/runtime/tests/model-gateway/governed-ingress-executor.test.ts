@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createExecutionAccountRef, type ModelTurnResult } from "@kilnai/core";
+import { createExecutionAccountRef, type ModelTurnResult } from "@kilnai/core/agents";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { executeGovernedIngress } from "../../src/model-gateway/governed-ingress-executor.js";
 import type { GovernedOneRoundInvocationPorts } from "../../src/execution-kernel/governed-one-round-invocation.js";

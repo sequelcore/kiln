@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
-import type { ActionEffectEnvelope, TenantConfig, IntegrationAdapter, CredentialResolver } from "@kilnai/core";
+import type {
+  ActionEffectEnvelope,
+  CredentialResolver,
+  IntegrationAdapter,
+  TenantConfig,
+} from "@kilnai/core/engine";
 import { buildTenantToolContext, clearIntegrationDeps, configureIntegrationDeps } from "../../src/gateway/tenant-tool-factory.js";
 import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AuthorityDescriptor, Capability, ToolDefinition } from "@kilnai/core";
+import type { ToolDefinition } from "@kilnai/core/agents";
+import type { AuthorityDescriptor, Capability } from "@kilnai/core/engine";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { projectEffectiveTurnAuthorityPerCallConfig } from "../../src/session/effective-turn-authority.js";
 

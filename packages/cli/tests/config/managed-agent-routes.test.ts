@@ -3,18 +3,17 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  createSessionBuiltinToolOptions,
-  deriveProviderModelEligibility,
   defineExecutionCatalog,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentInvocationRequest,
   type DeliberationResolution,
+  deriveProviderModelEligibility,
   type ManagedAgentInvocationRequest,
-  type ProviderModelEvidenceFreshness,
   type ProviderModelEligibilityRequirements,
-  type ToolResourceProvider,
-} from "@kilnai/core";
+  type ProviderModelEvidenceFreshness,
+} from "@kilnai/core/agents";
+import { createSessionBuiltinToolOptions, type ToolResourceProvider } from "@kilnai/core/tools";
 import type { KilnPermissionPolicy } from "../../src/wrapper/index.js";
 import type {
   ProviderCreateConfig,

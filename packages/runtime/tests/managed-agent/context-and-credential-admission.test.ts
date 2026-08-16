@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ContextAuditEntry,
-  ManagedAgentInvocationRequest,
-  ManagedAgentMemoryScope,
-} from "@kilnai/core";
-import { defineManagedAgentInvocationRequest, sha256ContentIdentity, type ProjectedContextBlock } from "@kilnai/core";
+import {
+  defineManagedAgentInvocationRequest,
+  type ManagedAgentInvocationRequest,
+  type ManagedAgentMemoryScope,
+} from "@kilnai/core/agents";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import type { ContextAuditEntry, ProjectedContextBlock } from "@kilnai/core/context";
 import {
   ManagedAgentRuntimeAdmissionError,
   admitManagedChildContextAndCredentials,

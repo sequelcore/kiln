@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryContextArtifactCache, type ResumePolicyDecision } from "@kilnai/core";
+import { InMemoryContextArtifactCache, type ResumePolicyDecision } from "@kilnai/core/memory";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { applyRuntimeTurnRecord } from "../../src/session/runtime-turn-record.js";
 

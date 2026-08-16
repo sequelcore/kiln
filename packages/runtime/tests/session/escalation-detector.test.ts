@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { textParts } from "@kilnai/core";
+import { textParts } from "@kilnai/core/engine";
 import {
   DefaultEscalationDetector,
   wordOverlapSimilarity,

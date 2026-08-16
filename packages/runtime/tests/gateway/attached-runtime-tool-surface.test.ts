@@ -2,29 +2,30 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  ActionEffectEnvelope,
-  DevTool,
-  ManagedAgentAdapterDescriptor,
-  ManagedAgentInvocationRequest,
-  ManagedAgentResultHandoff,
-  ToolInput,
-  ToolResult,
-} from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
-  adoptBoundedWorkContractRevision,
-  createDefaultBuiltinToolSurface,
-  createSessionBuiltinToolOptions,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
+  type ManagedAgentAdapterDescriptor,
+  type ManagedAgentInvocationRequest,
+  type ManagedAgentResultHandoff,
+} from "@kilnai/core/agents";
+import { type ActionEffectEnvelope, textParts } from "@kilnai/core/engine";
+import { SandboxPolicy } from "@kilnai/core/sandbox";
+import {
+  createDefaultBuiltinToolSurface,
+  createSessionBuiltinToolOptions,
+  type DevTool,
+  type ToolInput,
+  type ToolResult,
+} from "@kilnai/core/tools";
+import {
+  adoptBoundedWorkContractRevision,
   GoalRunStore,
-  SandboxPolicy,
-  textParts,
   WorkItemStore,
-} from "@kilnai/core";
+} from "@kilnai/core/work-governance";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,

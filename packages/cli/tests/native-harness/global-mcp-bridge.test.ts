@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { OperatorRuntimeHarness } from "@kilnai/gateway-contracts";
-import { KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS } from "@kilnai/core";
+import { KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS } from "@kilnai/core/skill";
 import {
   OPERATOR_RUNTIME_BINDING_HEADERS,
   OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,

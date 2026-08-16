@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { resolveMcpConfiguration, type McpConfigurationResolution, type ResolvedMcpServer } from "@kilnai/core";
+import {
+  type McpConfigurationResolution,
+  type ResolvedMcpServer,
+  resolveMcpConfiguration,
+} from "@kilnai/core/mcp";
 import { projectMcpServer } from "../../src/config/native-mcp-projection.js";
 import {
   assertNativeMcpProjectionCurrent,

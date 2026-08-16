@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse as parseToml } from "smol-toml";
 import { afterEach, describe, expect, it } from "vitest";
-import { digestSkillPackage } from "@kilnai/core";
+import { digestSkillPackage } from "@kilnai/core/skill";
 import { computeCodexExternalInventoryFingerprint } from "../../src/config/external-skill-exposure.js";
 import { syncCodexExternalSkillExposure, uninstallCodexExternalSkillExposure } from "../../src/config/codex-external-skill-exposure-projection.js";
 import { readSkillCatalogStatus } from "../../src/config/skill-catalog-status.js";

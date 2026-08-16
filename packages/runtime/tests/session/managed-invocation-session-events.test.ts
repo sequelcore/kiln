@@ -1,9 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ManagedAgentAdmissionDecision,
-  ManagedAgentInvocationRecord,
-  ManagedAgentInvocationRequest,
-} from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
@@ -12,12 +7,19 @@ import {
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteEvidence,
   defineManagedAgentWriteScope,
-} from "@kilnai/core";
+  type ManagedAgentAdmissionDecision,
+  type ManagedAgentInvocationRecord,
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core/agents";
+import type {
+  ManagedEconomicCommitment,
+  ManagedEconomicPolicyIdentity,
+  ManagedEconomicSettlement,
+} from "@kilnai/core/cost";
 import {
   normalizeManagedAgentOperatorReplayEvents,
   projectOperatorCockpitReadOnlyView,
 } from "@kilnai/gateway-contracts";
-import type { ManagedEconomicCommitment, ManagedEconomicPolicyIdentity, ManagedEconomicSettlement } from "@kilnai/core";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   appendManagedEconomicLifecycleSessionEvent,

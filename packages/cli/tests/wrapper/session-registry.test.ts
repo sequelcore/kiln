@@ -113,7 +113,7 @@ import {
   type ProviderId,
 } from "../../src/wrapper/session-registry.js";
 import type { SessionCapabilities, IKilnSession, KilnPermissionPolicy } from "../../src/wrapper/session.js";
-import type { DeliberationResolution } from "@kilnai/core";
+import type { DeliberationResolution } from "@kilnai/core/agents";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 
 const makeMockSession = (id: string): IKilnSession => ({

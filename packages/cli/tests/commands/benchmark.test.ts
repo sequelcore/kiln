@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KILN_BENCHMARK_PROFILES } from "@kilnai/core";
+import { KILN_BENCHMARK_PROFILES } from "@kilnai/core/eval";
 import { benchmarkCommand } from "../../src/commands/benchmark.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
 

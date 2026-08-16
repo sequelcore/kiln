@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { EmailChannel } from "../../src/channels/email-channel.js";
 import type { EmailTransport } from "../../src/channels/email-api.js";
-import type { IncomingMessage, OutgoingMessage } from "@kilnai/core";
+import type { IncomingMessage, OutgoingMessage } from "@kilnai/core/engine";
 
 function mockTransport(): EmailTransport & { send: ReturnType<typeof vi.fn> } {
   return { send: vi.fn().mockResolvedValue({ messageId: "msg-1" }) };

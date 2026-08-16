@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { TenantConfig } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { type TenantConfig, textParts } from "@kilnai/core/engine";
 import { resolveAgentContextAsync } from "../../src/tenant/agent-resolver.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { AgentHandoffSummarizer } from "../../src/session/support/summarization/agent-handoff-summarizer.js";

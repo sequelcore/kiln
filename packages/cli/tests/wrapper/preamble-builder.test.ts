@@ -5,7 +5,7 @@ import {
   resolveTurnPrompt,
 } from "../../src/wrapper/preamble-builder.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
-import type { DomainConfig, Agent } from "@kilnai/core";
+import type { Agent, DomainConfig } from "@kilnai/core/domain";
 
 const MINIMAL_CONTEXT: SessionContext = {
   mode: "api-key",

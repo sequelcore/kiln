@@ -1,23 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type {
-  ProviderAdapter,
-  Capability,
-  ToolAuthorizer,
-  RateLimiter,
-  ToolDefinition,
-  AuthorityDescriptor,
-  ApprovalRequestedEvent,
-  ActionEffectEnvelope,
-  KilnMcpClient,
-} from "@kilnai/core";
-import { textParts, EventBus, normalizeToolInput, resolveCommunicationIntent } from "@kilnai/core";
+import {
+  normalizeToolInput,
+  type ProviderAdapter,
+  resolveCommunicationIntent,
+  type ToolDefinition,
+} from "@kilnai/core/agents";
+import {
+  type ActionEffectEnvelope,
+  type AuthorityDescriptor,
+  type Capability,
+  type RateLimiter,
+  textParts,
+  type ToolAuthorizer,
+} from "@kilnai/core/engine";
+import { type ApprovalRequestedEvent, EventBus } from "@kilnai/core/events";
+import type { KilnMcpClient } from "@kilnai/core/mcp";
+import {
+  type SafetyPipeline,
+  type SanitizationResult,
+  type ToolResultSanitizer,
+  ToolResultSanitizer as RealToolResultSanitizer,
+} from "@kilnai/core/safety";
+import type { AuditLog } from "@kilnai/core/security";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import type { PerCallToolConfig } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSessionToolExecutor } from "../../src/session/runtime-session-orchestrator-tool-executor.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
-import type { ToolResultSanitizer, SanitizationResult, SafetyPipeline } from "@kilnai/core";
-import { ToolResultSanitizer as RealToolResultSanitizer } from "@kilnai/core";
-import type { AuditLog } from "@kilnai/core";
 
 async function waitForAssertion(assertion: () => void, timeoutMs = 1_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

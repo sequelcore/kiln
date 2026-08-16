@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolDefinition } from "@kilnai/core";
+import type { ToolDefinition } from "@kilnai/core/agents";
 import { appendOperatorSurfaceToolDirective } from "../../src/session/runtime-session-orchestrator-routing.js";
 
 describe("runtime session orchestrator routing", () => {

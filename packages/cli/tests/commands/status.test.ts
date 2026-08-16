@@ -14,7 +14,7 @@ function persistGlobalConfig(config: KilnGlobalConfig): void {
   mutateGlobalConfig(() => config);
 }
 import type { KilnAppConfig } from "../../src/config.js";
-import type { ProviderModelEligibilityRequirements } from "@kilnai/core";
+import type { ProviderModelEligibilityRequirements } from "@kilnai/core/agents";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   appName: "kiln",
@@ -102,7 +102,8 @@ describe("statusCommand", () => {
   afterEach(() => {
     rmSync(tempDir, { recursive: true, force: true });
     rmSync(tempConfigHome, { recursive: true, force: true });
-    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     consoleSpy.mockRestore();
   });
 

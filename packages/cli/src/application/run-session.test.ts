@@ -3,7 +3,7 @@ import { runSession, type RunSessionRouteCandidate } from "./run-session.js";
 import type { SessionRegistry } from "../wrapper/session-registry.js";
 import type { SessionContext } from "../wrapper/index.js";
 import type { SessionHooks } from "./session-hooks.js";
-import { defineDeliberationLevelId, type DeliberationResolution } from "@kilnai/core";
+import { defineDeliberationLevelId, type DeliberationResolution } from "@kilnai/core/agents";
 
 const XHIGH_RESOLUTION: DeliberationResolution = {
   status: "exact",

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createExecutionAccountRef,
-  type ModelTurnResult,
-} from "@kilnai/core";
+import { createExecutionAccountRef, type ModelTurnResult } from "@kilnai/core/agents";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import {
   GovernedOneRoundCommittedError,

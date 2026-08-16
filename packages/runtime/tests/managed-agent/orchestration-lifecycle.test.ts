@@ -3,11 +3,11 @@ import {
   buildManagedAgentDecompositionOrchestrationRequest,
   buildManagedAgentFanOutOrchestrationRequest,
   buildManagedAgentReviewSwarmOrchestrationRequest,
+  defineDeliberationLevelId,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
-  defineDeliberationLevelId,
-} from "@kilnai/core";
-import type { ManagedAgentAdmissionDecision } from "@kilnai/core";
+  type ManagedAgentAdmissionDecision,
+} from "@kilnai/core/agents";
 import {
   RuntimeManagedAgentInvocationService,
   runManagedAgentOrchestrationLifecycle,

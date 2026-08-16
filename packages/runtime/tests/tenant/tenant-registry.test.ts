@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { TenantConfig } from "@kilnai/core";
+import type { TenantConfig } from "@kilnai/core/engine";
 import {
   TenantRegistry,
   TenantNotFoundError,

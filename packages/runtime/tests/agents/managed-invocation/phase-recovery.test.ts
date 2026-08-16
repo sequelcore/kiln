@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { WorkItemPauseRequirement } from "@kilnai/core";
+import type { WorkItemPauseRequirement } from "@kilnai/core/work-governance";
 import {
   buildManagedInvocationPhaseRecovery,
   buildManagedInvocationPhaseHandoffRecovery,

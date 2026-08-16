@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { textParts } from "@kilnai/core";
-import type { AgentMessage } from "@kilnai/core";
+import type { AgentMessage } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import { detectRepetitiveAbuse } from "../../src/session/repetitive-abuse-detector.js";
 
 function userMsg(text: string): AgentMessage {

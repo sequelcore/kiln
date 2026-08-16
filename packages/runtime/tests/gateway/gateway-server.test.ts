@@ -19,8 +19,17 @@ import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { App, EventBus, ProviderAdapter, RuntimeModeConfig, SttAdapter, TenantConfig, VoiceConfig } from "@kilnai/core";
-import { CredentialPool, MemoryArtifactResourceStore, textParts } from "@kilnai/core";
+import { CredentialPool, type ProviderAdapter } from "@kilnai/core/agents";
+import {
+  type App,
+  type RuntimeModeConfig,
+  type SttAdapter,
+  type TenantConfig,
+  textParts,
+  type VoiceConfig,
+} from "@kilnai/core/engine";
+import type { EventBus } from "@kilnai/core/events";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 
 const originalFetch = globalThis.fetch;
 

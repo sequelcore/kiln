@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { validateStartupConfig, assertValidStartupConfig } from "../../src/gateway/config-validator.js";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 
 describe("validateStartupConfig", () => {
   // Store original env

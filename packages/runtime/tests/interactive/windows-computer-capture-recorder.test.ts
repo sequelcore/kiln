@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MemoryArtifactResourceStore } from "@kilnai/core";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import {
   WindowsComputerCaptureRecorder,
 } from "../../src/index.js";

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { KilnEvent } from "@kilnai/core";
+import type { KilnEvent } from "@kilnai/core/events";
 
 // Track mock calls for assertions
 const mockInc = vi.fn();

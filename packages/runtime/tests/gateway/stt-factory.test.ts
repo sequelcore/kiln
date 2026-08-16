@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createSttAdapter } from "../../src/gateway/stt-factory.js";
-import { OpenAISttAdapter, DeepgramSttAdapter } from "@kilnai/core";
+import { DeepgramSttAdapter, OpenAISttAdapter } from "@kilnai/core/agents";
 import { WhisperLocalSttAdapter } from "../../src/gateway/local-voice-adapters.js";
 
 describe("createSttAdapter", () => {

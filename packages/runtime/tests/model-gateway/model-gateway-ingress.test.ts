@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  defineExecutionCatalog,
-  type ExecutionCatalog,
-  type ModelGatewayConfig,
-} from "@kilnai/core";
+import { defineExecutionCatalog, type ExecutionCatalog } from "@kilnai/core/agents";
+import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import {
   createModelGatewayExecutionRoutingPort,

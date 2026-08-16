@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ModelGatewayConfig } from "@kilnai/core";
+import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity } from "@kilnai/runtime";
 import {
   createNativeProjectionSnapshot,

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  createRecorderCaptureManifest,
-  MemoryArtifactResourceStore,
-  type RecorderCaptureManifest,
-} from "@kilnai/core";
+import { createRecorderCaptureManifest, type RecorderCaptureManifest } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import {
   RecorderExternalEditorExporter,
 } from "../../src/index.js";

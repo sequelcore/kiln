@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createSessionEvent, textParts } from "@kilnai/core";
+import { textParts } from "@kilnai/core/engine";
+import { createSessionEvent } from "@kilnai/core/events";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 describe("RuntimeSession", () => {

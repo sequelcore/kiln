@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { InstagramChannel } from "../../src/channels/instagram-channel.js";
-import type { IncomingMessage, OutgoingMessage } from "@kilnai/core";
+import type { IncomingMessage, OutgoingMessage } from "@kilnai/core/engine";
 
 describe("InstagramChannel", () => {
   let fetchMock: ReturnType<typeof vi.fn>;

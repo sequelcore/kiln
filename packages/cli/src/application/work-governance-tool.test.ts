@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ManagedAgentResultHandoff } from "@kilnai/core/agents";
 import {
   adoptBoundedWorkContractRevision,
   bindBoundedWorkEvidence,
@@ -7,8 +8,7 @@ import {
   GoalRunStore,
   startGoalExecutionAttempt,
   WorkItemStore,
-} from "@kilnai/core";
-import type { ManagedAgentResultHandoff } from "@kilnai/core";
+} from "@kilnai/core/work-governance";
 import { assessWorkGovernance } from "./work-governance-policy.js";
 import { createWorkGovernanceTools as createWorkGovernanceToolsProduction, WorkGovernanceAssessTool } from "./work-governance-tool.js";
 

@@ -37,7 +37,7 @@ vi.mock("@kilnai/runtime", () => ({
 
 import { cronCommand } from "../../src/commands/cron.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry } from "@kilnai/core";
+import { DomainRegistry } from "@kilnai/core/domain";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   appName: "kiln",

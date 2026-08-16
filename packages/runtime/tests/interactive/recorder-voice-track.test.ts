@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  MemoryArtifactResourceStore,
-  type SttAdapter,
-  type TtsAdapter,
-} from "@kilnai/core";
+import type { SttAdapter, TtsAdapter } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import {
   RecorderVoiceTrackRecorder,
 } from "../../src/index.js";

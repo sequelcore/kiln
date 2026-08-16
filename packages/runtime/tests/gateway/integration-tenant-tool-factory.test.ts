@@ -5,7 +5,13 @@ import {
   clearIntegrationDeps,
 } from "../../src/gateway/tenant-tool-factory.js";
 import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
-import type { TenantConfig, IntegrationAdapter, IntegrationResult, CredentialResolver, ResolvedCredential } from "@kilnai/core";
+import type {
+  CredentialResolver,
+  IntegrationAdapter,
+  IntegrationResult,
+  ResolvedCredential,
+  TenantConfig,
+} from "@kilnai/core/engine";
 
 function baseTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {
   return {

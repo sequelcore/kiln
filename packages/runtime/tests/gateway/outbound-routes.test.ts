@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { createOutboundRoutes } from "../../src/gateway/outbound-routes.js";
 import type { OutboundRoutesConfig } from "../../src/gateway/outbound-routes.js";
-import type { TenantConfig } from "@kilnai/core";
+import type { TenantConfig } from "@kilnai/core/engine";
 
 const ADMIN_TOKEN = "test-admin-token";
 

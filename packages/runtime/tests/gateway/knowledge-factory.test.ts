@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createKnowledgePipeline, createContactMemoryService } from "../../src/gateway/knowledge-factory.js";
-import type { KnowledgeConfig, ContactMemoryConfig, VectorStore, EmbeddingAdapter } from "@kilnai/core";
+import type {
+  ContactMemoryConfig,
+  EmbeddingAdapter,
+  KnowledgeConfig,
+  VectorStore,
+} from "@kilnai/core/engine";
 
 // Mock createPgVectorStore to avoid actual postgres dependency
 vi.mock("@kilnai/core", async () => {

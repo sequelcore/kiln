@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core";
-import type { AppDelegation } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { type AppDelegation, textParts } from "@kilnai/core/engine";
 import { Message, Task } from "@a2a-js/sdk";
 import {
   executeA2ADelegation,

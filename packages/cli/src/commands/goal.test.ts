@@ -2,8 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GoalRun, PlanSubmissionInput, WorkItem } from "@kilnai/core";
-import { adoptBoundedWorkContractRevision, PlanStateStore } from "@kilnai/core";
+import { PlanStateStore, type PlanSubmissionInput } from "@kilnai/core/tools";
+import {
+  adoptBoundedWorkContractRevision,
+  type GoalRun,
+  type WorkItem,
+} from "@kilnai/core/work-governance";
 import { goalCommand, loadGoalSnapshotFromTranscript } from "./goal.js";
 import { TranscriptStore } from "../wrapper/session-store.js";
 

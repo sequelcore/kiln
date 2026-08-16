@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { TenantConfig, UserContext } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import { type TenantConfig, textParts, type UserContext } from "@kilnai/core/engine";
 import { resolveAgentContext, buildAgentSystemPrompt } from "../../src/tenant/agent-resolver.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 

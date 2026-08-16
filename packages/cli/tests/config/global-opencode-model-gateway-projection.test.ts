@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity } from "@kilnai/runtime";
-import type { ModelGatewayConfig } from "@kilnai/core";
+import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import { syncGlobalOpenCodeModelGatewayProjection } from "../../src/config/global-opencode-model-gateway-projection.js";
 
 function config(): ModelGatewayConfig {

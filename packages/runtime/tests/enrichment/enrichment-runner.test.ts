@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { EnrichmentRunner } from "../../src/enrichment/enrichment-runner.js";
-import type { ConversationEnricher, CompletedSession, ConversationEnrichment, EnrichmentStore } from "@kilnai/core";
+import type {
+  CompletedSession,
+  ConversationEnricher,
+  ConversationEnrichment,
+  EnrichmentStore,
+} from "@kilnai/core/enrichment";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
 
 function makeSession(): CompletedSession {

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DomainConfig } from "@kilnai/core";
+import type { DomainConfig } from "@kilnai/core/domain";
 import { runSession } from "../../src/application/run-session.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
 import { ApprovalMemoryStore } from "../../src/wrapper/approval-memory-store.js";

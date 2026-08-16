@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createExecutionAccountRef, type OneRoundModelDispatchInput, type ModelTurnResult } from "@kilnai/core";
+import {
+  createExecutionAccountRef,
+  type ModelTurnResult,
+  type OneRoundModelDispatchInput,
+} from "@kilnai/core/agents";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import { createGatewayApp } from "../../src/gateway/gateway-routes.js";
 import {

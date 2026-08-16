@@ -3,8 +3,8 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { TenantConfig } from "@kilnai/core";
-import { AesSecretStore } from "@kilnai/core";
+import type { TenantConfig } from "@kilnai/core/engine";
+import { AesSecretStore } from "@kilnai/core/security";
 import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 
 function makeTenant(overrides: Partial<TenantConfig> = {}): TenantConfig {

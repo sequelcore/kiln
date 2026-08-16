@@ -6,7 +6,7 @@ import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { WebChannel } from "../../src/channels/web-channel.js";
 import type { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
-import type { ConversationEvent } from "@kilnai/core";
+import type { ConversationEvent } from "@kilnai/core/engine";
 
 // Mock sendWhatsAppMessage
 vi.mock("../../src/channels/whatsapp-api.js", () => ({

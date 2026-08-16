@@ -3,8 +3,8 @@ import { existsSync } from "node:fs";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig } from "../../src/wrapper/index.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
-import type { DomainConfig, ContextArtifactCache } from "@kilnai/core";
+import { type DomainConfig, DomainRegistry } from "@kilnai/core/domain";
+import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
 
 const PYTHON_CONFIG: DomainConfig = {
   name: "python",

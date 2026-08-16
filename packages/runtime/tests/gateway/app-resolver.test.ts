@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { parseGatewayYaml } from "@kilnai/core";
+import { parseGatewayYaml } from "@kilnai/core/engine";
 import { resolveApps } from "../../src/gateway/app-resolver.js";
 
 const __filename = fileURLToPath(import.meta.url);

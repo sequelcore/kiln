@@ -7,8 +7,9 @@ import type { UpgradeWebSocket } from "hono/ws";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
-import type { Capability, TenantConfig, ToolDefinition } from "@kilnai/core";
-import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
+import type { ToolDefinition } from "@kilnai/core/agents";
+import { type Capability, type TenantConfig, textParts } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 
 const { mockedToolAuthority, mockedResolveAgentContextAsync } = vi.hoisted(() => {
   const toolAuthority = new Map([["mock_tool", {

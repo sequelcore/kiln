@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DirectProviderId } from "@kilnai/core";
+import type { DirectProviderId } from "@kilnai/core/agents";
 
 type MockAdapterName =
   | "anthropic"

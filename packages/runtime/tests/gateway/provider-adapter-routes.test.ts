@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import { createProviderAdapterRoutes } from "../../src/gateway/provider-adapter-routes.js";
 import type { ProviderAdapterAppRuntime } from "../../src/gateway/provider-adapter-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";

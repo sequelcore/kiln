@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PermissionPolicyAuthorizer } from "../../src/wrapper/permission-policy-authorizer.js";
 import type { KilnPermissionPolicy } from "../../src/wrapper/session.js";
-import type { ResolvedInvocationEffect } from "@kilnai/core";
+import type { ResolvedInvocationEffect } from "@kilnai/core/engine";
 
 function makePolicy(approval: KilnPermissionPolicy["approval"]): KilnPermissionPolicy {
   return { approval };

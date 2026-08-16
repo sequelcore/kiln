@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defineDeliberationLevelId, type ModelDeliberationCapabilities } from "@kilnai/core";
+import { defineDeliberationLevelId, type ModelDeliberationCapabilities } from "@kilnai/core/agents";
 import {
   ANTHROPIC_MESSAGES_PROTOCOL_LIMITS,
   AnthropicMessagesProtocolError,

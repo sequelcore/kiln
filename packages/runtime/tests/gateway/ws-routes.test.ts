@@ -3,7 +3,8 @@ import { createWsRoutes } from "../../src/gateway/ws-routes.js";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
 import type { UpgradeWebSocket } from "hono/ws";
-import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
+import { textParts } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 
 const hash = (character: string) => `sha256:${character.repeat(64)}`;
 

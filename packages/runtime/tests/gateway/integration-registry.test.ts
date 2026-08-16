@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { IntegrationRegistry } from "../../src/gateway/integration-registry.js";
-import type { ActionEffectEnvelope, IntegrationAdapter, IntegrationResult, ResolvedCredential } from "@kilnai/core";
-import { KilnError } from "@kilnai/core";
+import {
+  type ActionEffectEnvelope,
+  type IntegrationAdapter,
+  type IntegrationResult,
+  KilnError,
+  type ResolvedCredential,
+} from "@kilnai/core/engine";
 
 const EXTERNAL_OBSERVE_EFFECT: ActionEffectEnvelope = {
   operation: "observe",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LocalCredentialResolver } from "../../src/gateway/local-credential-resolver.js";
-import type { SecretStore } from "@kilnai/core";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
+import type { SecretStore } from "@kilnai/core/security";
 
 function makeSecretStore(data: Record<string, string> = {}): SecretStore {
   const store = new Map(Object.entries(data));

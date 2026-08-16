@@ -2,8 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelRouter } from "../../src/channels/channel-router.js";
 import { ChannelRegistry } from "../../src/channels/channel-registry.js";
 import { InMemoryIdentityResolver } from "../../src/channels/types.js";
-import type { Channel, IncomingMessage, OutgoingMessage } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
+import {
+  type Channel,
+  extractText,
+  type IncomingMessage,
+  type OutgoingMessage,
+  textParts,
+} from "@kilnai/core/engine";
 
 function makeChannel(name: string): Channel {
   return {

@@ -20,8 +20,8 @@ vi.mock("@kilnai/runtime", () => ({
 import { printReport, computeEvalScore } from "../../src/application/session-report.js";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig, SessionReport } from "../../src/wrapper/index.js";
-import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
-import type { DomainConfig, ContextArtifactCache } from "@kilnai/core";
+import { type DomainConfig, DomainRegistry } from "@kilnai/core/domain";
+import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import { createCli } from "../../src/index.js";
 
 const runCommandMock = vi.hoisted(() => vi.fn());

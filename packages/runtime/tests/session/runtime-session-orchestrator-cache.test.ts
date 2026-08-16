@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
-import type { ActionEffectEnvelope, ProviderAdapter, Capability, ToolDefinition } from "@kilnai/core";
-import { textParts, EventBus, resolveCommunicationIntent, sha256ContentIdentity, ToolCache } from "@kilnai/core";
+import {
+  type ProviderAdapter,
+  resolveCommunicationIntent,
+  ToolCache,
+  type ToolDefinition,
+} from "@kilnai/core/agents";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import { type ActionEffectEnvelope, type Capability, textParts } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { measureProviderRequestRegions } from "../../src/session/runtime-session-orchestrator-telemetry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";

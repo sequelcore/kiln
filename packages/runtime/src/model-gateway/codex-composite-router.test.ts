@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ModelGatewayConfig } from "@kilnai/core";
+import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import {
   CODEX_COMPOSITE_PATH_PREFIX,
   createCodexCompositeCapability,

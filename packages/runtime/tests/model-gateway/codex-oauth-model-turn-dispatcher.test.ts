@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createExecutionAccountRef, type OneRoundModelDispatchInput, type ModelTurn } from "@kilnai/core";
+import {
+  createExecutionAccountRef,
+  type ModelTurn,
+  type OneRoundModelDispatchInput,
+} from "@kilnai/core/agents";
 import {
   CodexOAuthModelTurnDispatcher,
   CodexOAuthModelTurnError,

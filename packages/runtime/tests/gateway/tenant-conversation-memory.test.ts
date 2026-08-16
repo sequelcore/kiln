@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
-import { EventBus } from "@kilnai/core";
+import { EventBus } from "@kilnai/core/events";
 import {
   createTenantConversationMemoryRepository,
   TenantConversationMemory,

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createEnrichmentAdminRoutes } from "../../src/gateway/enrichment-admin-routes.js";
 import type { EnrichmentAdminRoutesConfig } from "../../src/gateway/enrichment-admin-routes.js";
-import type { ConversationEnrichment, EnrichmentStore } from "@kilnai/core";
+import type { ConversationEnrichment, EnrichmentStore } from "@kilnai/core/enrichment";
 
 function makeEnrichment(overrides: Partial<ConversationEnrichment> = {}): ConversationEnrichment {
   return {

@@ -22,7 +22,7 @@ import {
   defineDeliberationLevelId,
   type DeliberationResolution,
   type ModelDeliberationCapabilities,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
 
 describeManagedAgentProviderLive("managed agent Claude Code live proof", KILN_LIVE_CLAUDE_TESTS_ENV, () => {
   it("runs a read-only managed child in Claude plan mode without changing the fixture", async () => {

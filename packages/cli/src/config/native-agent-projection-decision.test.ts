@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RouteAdmissionDecision } from "@kilnai/core";
+import type { RouteAdmissionDecision } from "@kilnai/core/agents";
 import type { KilnAgentDefinition } from "../application/agent-loader.js";
 import { decideNativeAgentProjection } from "./native-agent-projection-decision.js";
 

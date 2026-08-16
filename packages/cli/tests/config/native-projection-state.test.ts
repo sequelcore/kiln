@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveCommunicationIntent, resolveCommunicationProfile } from "@kilnai/core";
+import { resolveCommunicationIntent, resolveCommunicationProfile } from "@kilnai/core/agents";
 import {
   createNativeProjectionFileSnapshot,
   createNativeProjectionSnapshot,

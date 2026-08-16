@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { EventBus, MemoryArtifactResourceStore } from "@kilnai/core";
+import type { ContentPart, SttAdapter, SttResult } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import {
   AudioTransformError,
   createGenericMediaDownloader,
@@ -8,8 +10,6 @@ import {
   transformAudioParts,
 } from "../../src/gateway/audio-preprocessor.js";
 import type { MediaDownloader } from "../../src/gateway/audio-preprocessor.js";
-import type { SttAdapter, SttResult } from "@kilnai/core";
-import type { ContentPart } from "@kilnai/core";
 
 function mockStt(text = "hello world"): SttAdapter {
   return {

@@ -1,22 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  ManagedAgentAdapterDescriptor,
-  ManagedAgentCallerAttachmentIdentity,
-  ManagedAgentInvocationRequest,
-  ManagedAgentLifecycleState,
-  ManagedAgentAdmissionProfile,
-  RouteCapability,
-  StructuredExecutionResult,
-} from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
-  MemoryArtifactResourceStore,
-  WorkItemStore,
-  textParts,
-} from "@kilnai/core";
+  type ManagedAgentAdapterDescriptor,
+  type ManagedAgentAdmissionProfile,
+  type ManagedAgentCallerAttachmentIdentity,
+  type ManagedAgentInvocationRequest,
+  type ManagedAgentLifecycleState,
+  type RouteCapability,
+} from "@kilnai/core/agents";
+import type { StructuredExecutionResult } from "@kilnai/core/efficiency";
+import { textParts } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
+import { WorkItemStore } from "@kilnai/core/work-governance";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,

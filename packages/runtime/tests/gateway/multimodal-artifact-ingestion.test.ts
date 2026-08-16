@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { MemoryArtifactResourceStore } from "@kilnai/core";
-import type { ContentPart } from "@kilnai/core";
+import type { ContentPart } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import type { MediaDownloader } from "../../src/gateway/audio-preprocessor.js";
 import { captureMultimodalArtifacts } from "../../src/gateway/multimodal-artifact-ingestion.js";
 

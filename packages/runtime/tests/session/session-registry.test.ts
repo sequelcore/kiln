@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import type { SessionStore } from "../../src/session/persistence/session-store.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";

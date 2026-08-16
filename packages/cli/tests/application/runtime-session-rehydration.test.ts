@@ -2,13 +2,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { extractText } from "@kilnai/core/engine";
 import {
   adoptBoundedWorkContractRevision,
-  extractText,
   GoalRunStore,
   reconstructWorkItemsFromSessionEvents,
   WorkItemStore,
-} from "@kilnai/core";
+} from "@kilnai/core/work-governance";
 import { RuntimeSession } from "@kilnai/runtime";
 import { createTranscriptRuntimeSessionHydrator } from "../../src/application/runtime-session-rehydration.js";
 import { TranscriptStore } from "../../src/wrapper/session-store.js";

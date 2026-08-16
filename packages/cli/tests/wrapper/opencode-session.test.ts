@@ -6,7 +6,12 @@ import {
 } from "../../src/wrapper/opencode-session.js";
 import type { OpenCodeSessionConfig } from "../../src/wrapper/opencode-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import { defineDeliberationLevelId, resolveCommunicationIntent, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
+import {
+  defineDeliberationLevelId,
+  type DeliberationResolution,
+  resolveCommunicationIntent,
+} from "@kilnai/core/agents";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {
   return {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { textParts } from "@kilnai/core";
-import { GroundingRail } from "@kilnai/core";
-import type { ModelCapabilityRegistry } from "@kilnai/core";
+import type { ModelCapabilityRegistry } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import { GroundingRail } from "@kilnai/core/safety";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";

@@ -15,7 +15,7 @@ import {
   makeManagedAgentLiveHarnessReadOnlyRequest,
   withManagedAgentLiveFixtureWorkspace,
 } from "./managed-agent-live-test-harness.js";
-import { defineManagedAgentWriteEvidence } from "@kilnai/core";
+import { defineManagedAgentWriteEvidence } from "@kilnai/core/agents";
 import {
   evaluateManagedAgentLivePreflight,
   KILN_LIVE_CODEX_MODEL,

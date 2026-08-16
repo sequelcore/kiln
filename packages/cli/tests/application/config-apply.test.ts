@@ -4,14 +4,16 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  evaluateContextAllocationPromotion,
   evaluatePolicyAdaptationCandidate,
   generatePolicyAdaptationCandidate,
+  type PolicyAdaptationObservation,
+} from "@kilnai/core/efficiency";
+import { evaluateContextAllocationPromotion } from "@kilnai/core/eval";
+import {
+  type CanonicalCostUpdatedEvent,
   projectCostUpdatedEventToLifecycleLedger,
   summarizeLifecycleAttributionLedger,
-  type CanonicalCostUpdatedEvent,
-  type PolicyAdaptationObservation,
-} from "@kilnai/core";
+} from "@kilnai/core/events";
 import { parse } from "yaml";
 import { approveConfigChangeProposal } from "../../src/application/config-approval.js";
 import { applyConfigChange } from "../../src/application/config-apply.js";

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter, TenantConfig } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { type TenantConfig, textParts } from "@kilnai/core/engine";
 import { createEmailWebhookRoutes } from "../../src/gateway/email-webhook-routes.js";
 import type { EmailWebhookConfig } from "../../src/gateway/email-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";

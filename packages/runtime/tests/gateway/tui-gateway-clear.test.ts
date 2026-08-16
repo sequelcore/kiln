@@ -4,9 +4,9 @@ import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
-  textParts,
   type ManagedAgentInvocationRequest,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import type {
   ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,

@@ -3,7 +3,7 @@ import {
   buildCapabilityCatalog,
   type CapabilityCatalogSnapshot,
   type CapabilityDescriptorCandidate,
-} from "@kilnai/core";
+} from "@kilnai/core/capabilities";
 import { CapabilityCatalogProjectionSchema } from "@kilnai/gateway-contracts";
 import { projectCapabilityCatalog } from "../../src/capabilities/capability-catalog-projector.js";
 

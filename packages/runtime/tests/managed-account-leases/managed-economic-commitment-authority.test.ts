@@ -3,13 +3,13 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createExecutionAccountRef } from "@kilnai/core/agents";
 import {
   adoptManagedEconomicSnapshot,
-  createExecutionAccountRef,
   digestManagedEconomicValue,
   type ManagedEconomicAdoptedSnapshot,
   type ManagedEconomicPriceEvidence,
-} from "@kilnai/core";
+} from "@kilnai/core/cost";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 
 const roots: string[] = [];

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createExecutionAccountRef,
   type AgentResponse,
+  createExecutionAccountRef,
   type CreateMessageOptions,
-  type OneRoundModelDispatchInput,
   type ModelTurn,
+  type OneRoundModelDispatchInput,
   type ProviderAdapter,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
 import {
   ProviderAdapterOneRoundDispatcher,
   ProviderAdapterOneRoundError,

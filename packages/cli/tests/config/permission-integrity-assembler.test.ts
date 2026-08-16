@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assembleRuntimePermissionIntegrity } from "../../src/config/permission-integrity-assembler.js";
 import { createPermissionProjectionIntegrity } from "../../src/config/translators/permission-projection.js";
-import { OPENCODE_NO_FILESYSTEM_SANDBOX } from "@kilnai/core";
+import { OPENCODE_NO_FILESYSTEM_SANDBOX } from "@kilnai/core/security";
 
 const now = new Date("2026-08-13T18:00:00.000Z");
 

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Scheduler } from "../../src/trigger/scheduler.js";
 import type { ScheduleEntry } from "../../src/trigger/scheduler.js";
-import { EventBus } from "@kilnai/core";
-import type { ScheduleTrigger, KilnEvent } from "@kilnai/core";
+import type { ScheduleTrigger } from "@kilnai/core/engine";
+import { EventBus, type KilnEvent } from "@kilnai/core/events";
 
 describe("Scheduler", () => {
   beforeEach(() => {

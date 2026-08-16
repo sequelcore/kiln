@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core";
-import { textParts, extractText, sha256ContentIdentity } from "@kilnai/core";
-import type { ContextAuditEntry, ProjectedContextBlock } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import type { ContextAuditEntry, ProjectedContextBlock } from "@kilnai/core/context";
+import { extractText, textParts } from "@kilnai/core/engine";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { EscalationDetector } from "../../src/session/support/escalation/escalation-detector.js";

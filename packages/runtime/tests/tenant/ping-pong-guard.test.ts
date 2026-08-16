@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { checkPingPong } from "../../src/tenant/ping-pong-guard.js";
-import type { TenantRoutingConfig } from "@kilnai/core";
+import type { TenantRoutingConfig } from "@kilnai/core/engine";
 import type { RoutingResult } from "../../src/tenant/tenant-router.js";
 
 function mockSession(overrides: Partial<{

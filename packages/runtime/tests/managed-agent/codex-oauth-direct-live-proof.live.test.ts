@@ -1,10 +1,10 @@
 import { expect, it } from "vitest";
 import {
-  createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   ManagedRuntimeCredentialRouteLeaseManager,
   RuntimeManagedAgentInvocationService,

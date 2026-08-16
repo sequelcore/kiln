@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  admitOperatorExecutionIntent,
-  defineExecutionCatalog,
-} from "@kilnai/core";
+import { admitOperatorExecutionIntent, defineExecutionCatalog } from "@kilnai/core/agents";
 import { ConfiguredExecutionAccountRuntime } from "../../src/managed-account-leases/configured-execution-account-runtime.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 

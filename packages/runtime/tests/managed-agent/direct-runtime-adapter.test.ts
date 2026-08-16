@@ -2,19 +2,17 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  AgentResponse,
-  ManagedAgentCapabilitySnapshotInput,
-  ManagedAgentInvocationRequest,
-  ProviderAdapter,
-  ToolDefinition,
-} from "@kilnai/core";
 import {
+  type AgentResponse,
   AllCredentialsExhaustedError,
-  createSessionBuiltinToolOptions,
   defineManagedAgentInvocationRequest,
-  textParts,
-} from "@kilnai/core";
+  type ManagedAgentCapabilitySnapshotInput,
+  type ManagedAgentInvocationRequest,
+  type ProviderAdapter,
+  type ToolDefinition,
+} from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   ManagedRuntimeSandboxLeaseManager,
   RuntimeManagedAgentInvocationService,

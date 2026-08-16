@@ -1,8 +1,6 @@
 import { expect, it } from "vitest";
-import {
-  createSessionBuiltinToolOptions,
-  defineManagedAgentInvocationRequest,
-} from "@kilnai/core";
+import { defineManagedAgentInvocationRequest } from "@kilnai/core/agents";
+import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   DirectProviderCredentialPoolService,
   ManagedDirectProviderRuntimeAdapter,

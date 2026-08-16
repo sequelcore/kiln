@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProviderAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
-import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import {
+  type TenantConfig,
+  textParts,
+  type TtsAdapter,
+  type VoiceConfig,
+} from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { createMessengerWebhookRoutes } from "../../src/gateway/messenger-webhook-routes.js";
 import type { MessengerWebhookConfig } from "../../src/gateway/messenger-webhook-routes.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";

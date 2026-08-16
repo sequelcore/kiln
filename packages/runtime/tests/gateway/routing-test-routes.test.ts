@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRoutingTestRoutes } from "../../src/gateway/routing-test-routes.js";
 import type { RoutingTestRoutesConfig } from "../../src/gateway/routing-test-routes.js";
 import type { TenantRegistry } from "../../src/tenant/tenant-registry.js";
-import type { TenantConfig } from "@kilnai/core";
+import type { TenantConfig } from "@kilnai/core/engine";
 
 const tenant: TenantConfig = {
   tenantId: "t1",

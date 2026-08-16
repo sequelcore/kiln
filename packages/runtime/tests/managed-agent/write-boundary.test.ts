@@ -6,14 +6,12 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
-} from "@kilnai/core";
-import type {
-  ManagedAgentAdapterDescriptor,
-  ManagedAgentAdmissionDecision,
-  ManagedAgentCapabilitySnapshotInput,
-  ManagedAgentInvocationRecord,
-  ManagedAgentInvocationRequest,
-} from "@kilnai/core";
+  type ManagedAgentAdapterDescriptor,
+  type ManagedAgentAdmissionDecision,
+  type ManagedAgentCapabilitySnapshotInput,
+  type ManagedAgentInvocationRecord,
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core/agents";
 import {
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,

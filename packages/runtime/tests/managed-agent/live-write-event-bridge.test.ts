@@ -3,9 +3,9 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
-} from "@kilnai/core";
-import type { ManagedAgentInvocationRequest } from "@kilnai/core";
-import type { ExecutionSessionEvent } from "@kilnai/core";
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core/agents";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import { ManagedAgentRuntimeAdmissionError } from "../../src/agents/managed-invocation/index.js";
 import {
   collectManagedAgentLiveWriteEvidence,

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { DomainRegistry } from "@kilnai/core";
+import { DomainRegistry } from "@kilnai/core/domain";
 import type { KilnAppConfig } from "../../src/config.js";
 
 // Mock the process.exit to prevent test runner from dying
@@ -48,7 +48,8 @@ describe("skillCommand", () => {
 
   afterEach(() => {
     process.chdir(originalCwd);
-    process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+    if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

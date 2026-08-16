@@ -1,8 +1,8 @@
 import {
+  type ActionEffectEnvelope,
   deriveAuthorityFromEffect,
   resolveInvocationEffect,
-  type ActionEffectEnvelope,
-} from "@kilnai/core";
+} from "@kilnai/core/engine";
 import { describe, expect, it } from "vitest";
 import { buildRuntimeInvocationEffectResolvers } from "../../src/session/runtime-invocation-effect-resolvers.js";
 

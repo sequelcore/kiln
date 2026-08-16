@@ -189,6 +189,10 @@ export { AppLoaderError, parseAppYaml, validateAppGraph } from "./loader/app-loa
 // Orchestrator config -- shared interface in engine domain (used by orchestrator + preset loader)
 export type { OrchestratorConfig } from "./domain/orchestrator-config.js";
 
+// Model routing -- shared interfaces in engine domain
+export type { ModelRouter, RoutingRequest, RoutingDecision } from "./domain/model-router.js";
+export type { UserContext } from "./domain/user-context.js";
+
 // Preset loader -- App -> OrchestratorConfig (Phase 17)
 export { PresetLoaderError, loadPresetConfig } from "./loader/preset-loader.js";
 

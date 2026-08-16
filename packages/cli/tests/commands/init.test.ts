@@ -6,7 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { initCommand } from "../../src/commands/init.js";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry } from "@kilnai/core";
+import { DomainRegistry } from "@kilnai/core/domain";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
   appName: "kiln",

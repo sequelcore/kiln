@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core";
-import { resolveCommunicationIntent, textParts } from "@kilnai/core";
+import { type ProviderAdapter, resolveCommunicationIntent } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 

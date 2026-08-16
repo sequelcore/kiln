@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CanonicalSessionEvent, WorkItem } from "@kilnai/core";
+import type { CanonicalSessionEvent } from "@kilnai/core/events";
+import type { WorkItem } from "@kilnai/core/work-governance";
 import { toOperatorSessionEventFrame } from "../../src/gateway/operator-session-event-frame.js";
 
 function managedWorkItem(input: {

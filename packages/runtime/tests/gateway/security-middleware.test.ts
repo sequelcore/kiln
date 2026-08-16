@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Hono } from "hono";
 import { securityMiddleware } from "../../src/gateway/security-middleware.js";
-import type { PromptScanner, AuditLog, PromptScanResult, PromptInjectionConfig } from "@kilnai/core";
+import type {
+  AuditLog,
+  PromptInjectionConfig,
+  PromptScanner,
+  PromptScanResult,
+} from "@kilnai/core/security";
 
 // ---------------------------------------------------------------------------
 // Helpers

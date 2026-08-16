@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core";
+import type { ToolCalledEvent, ToolOutputEvent, ToolResultEvent } from "@kilnai/core/events";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 

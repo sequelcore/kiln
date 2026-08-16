@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createExecutionAccountPolicyId, createExecutionAccountRef, defineExecutionCatalog, type ExecutionAccountAdmissionCandidate } from "@kilnai/core";
+import {
+  createExecutionAccountPolicyId,
+  createExecutionAccountRef,
+  defineExecutionCatalog,
+  type ExecutionAccountAdmissionCandidate,
+} from "@kilnai/core/agents";
 import { OperatorSessionExecutionRoutingService } from "../../src/execution-routing/operator-session-execution-routing-service.js";
 import { SqliteManagedAccountLeaseAuthority } from "../../src/managed-account-leases/managed-account-lease-authority.js";
 import type { ExecutionAccountCapacityAuthority } from "../../src/index.js";

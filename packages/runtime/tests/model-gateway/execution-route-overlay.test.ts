@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { selectAdmittedExecutionAccount, type AdmittedExecutionRoute, type ExecutionAccountAdmissionCandidate } from "@kilnai/core";
+import {
+  type AdmittedExecutionRoute,
+  type ExecutionAccountAdmissionCandidate,
+  selectAdmittedExecutionAccount,
+} from "@kilnai/core/agents";
 
 describe("model gateway execution-route overlay", () => {
   it("selects only canonical execution candidates admitted for the referenced route", () => {

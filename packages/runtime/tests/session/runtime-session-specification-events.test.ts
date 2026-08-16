@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { textParts } from "@kilnai/core";
+import { textParts } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 

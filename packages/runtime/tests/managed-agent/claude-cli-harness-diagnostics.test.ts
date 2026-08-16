@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentInvocationRequest,
-  type ExecutionSessionEvent,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import {
   ManagedCliHarnessAdapter,
   RuntimeManagedAgentInvocationService,

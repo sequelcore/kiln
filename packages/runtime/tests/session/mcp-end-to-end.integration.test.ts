@@ -5,15 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import {
-  EventBus,
-  KilnMcpClient,
-  textParts,
-  type AuditLog,
-  type ProviderAdapter,
-  type ResolvedMcpServer,
-  type ToolAuthorizer,
-} from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { textParts, type ToolAuthorizer } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
+import { KilnMcpClient, type ResolvedMcpServer } from "@kilnai/core/mcp";
+import type { AuditLog } from "@kilnai/core/security";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 

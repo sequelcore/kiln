@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { matchesFilter, EventListener } from "../../src/trigger/event-listener.js";
-import { EventBus } from "@kilnai/core";
-import type { EventTrigger, KilnEvent, ErrorEvent } from "@kilnai/core";
+import type { EventTrigger } from "@kilnai/core/engine";
+import { type ErrorEvent, EventBus, type KilnEvent } from "@kilnai/core/events";
 
 describe("matchesFilter", () => {
   const baseEvent: KilnEvent = {

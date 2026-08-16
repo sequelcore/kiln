@@ -6,11 +6,10 @@ import {
   defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
-  type ExecutionSessionEvent,
-  type ExecutionSessionRunOptions,
   type ManagedAgentCapabilitySnapshotInput,
   type ManagedAgentInvocationRequest,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import type { ExecutionSessionEvent, ExecutionSessionRunOptions } from "@kilnai/core/events";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/persistence/session-serializer.js";
 import { appendManagedInvocationSessionEvents } from "../../src/agents/managed-invocation/session-events.js";

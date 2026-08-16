@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ExecutionCatalog, ExecutionRouteDataPolicyEvidence } from "@kilnai/core";
+import type { ExecutionCatalog, ExecutionRouteDataPolicyEvidence } from "@kilnai/core/agents";
 import {
   ExecutionRouteDataPolicyAuthority,
   evaluateExecutionTargetDataPolicy,

@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  buildEffectivePromptManifest,
-  textParts,
-  type EffectivePromptManifest,
-  type ProviderAdapter,
-} from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { buildEffectivePromptManifest, type EffectivePromptManifest } from "@kilnai/core/context";
+import { textParts } from "@kilnai/core/engine";
 import {
   finalizeRuntimeSessionResponse,
   requestRuntimeSessionFallbackResponse,

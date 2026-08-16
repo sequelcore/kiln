@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { textParts } from "@kilnai/core";
-import type { VoiceConfig } from "@kilnai/core";
+import { textParts, type VoiceConfig } from "@kilnai/core/engine";
 import { selectVoiceOutputIntent } from "../../src/gateway/voice-output-intent-selector.js";
 
 const baseVoiceConfig: VoiceConfig = {

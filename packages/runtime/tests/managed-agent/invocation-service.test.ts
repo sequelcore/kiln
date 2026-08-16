@@ -5,20 +5,18 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type {
-  ManagedAgentCapabilitySnapshotInput,
-  ManagedAgentAdapterDescriptor,
-  ManagedAgentInvocationRequest,
-  ManagedAgentInvocationRecord,
-} from "@kilnai/core";
 import {
-  defineManagedAgentAdapterDescriptor,
   buildManagedAgentCapabilitySnapshot,
-  defineManagedAgentInvocationRequest,
+  defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineManagedAgentInvocationRequest,
   defineManagedAgentWriteAuthority,
   evaluateManagedAgentAdmission,
-} from "@kilnai/core";
+  type ManagedAgentAdapterDescriptor,
+  type ManagedAgentCapabilitySnapshotInput,
+  type ManagedAgentInvocationRecord,
+  type ManagedAgentInvocationRequest,
+} from "@kilnai/core/agents";
 import {
   ManagedInMemoryDevServerPortLeaseManager,
   ManagedRuntimeCredentialRouteLeaseManager,

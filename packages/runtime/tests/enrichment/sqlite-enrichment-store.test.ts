@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { SqliteEnrichmentStore } from "../../src/enrichment/sqlite-enrichment-store.js";
-import type { ConversationEnrichment } from "@kilnai/core";
+import type { ConversationEnrichment } from "@kilnai/core/enrichment";
 
 function makeEnrichment(overrides?: Partial<ConversationEnrichment>): ConversationEnrichment {
   return {

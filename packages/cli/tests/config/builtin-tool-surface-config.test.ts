@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDefaultBuiltinToolSurface } from "@kilnai/core";
+import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,

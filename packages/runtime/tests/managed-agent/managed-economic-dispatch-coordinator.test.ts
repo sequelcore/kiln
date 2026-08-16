@@ -7,7 +7,7 @@ import {
   digestManagedEconomicValue,
   type ManagedEconomicCommitment,
   type ManagedEconomicSettlement,
-} from "@kilnai/core";
+} from "@kilnai/core/cost";
 import {
   ManagedEconomicDispatchCoordinator,
   ManagedEconomicLifecycleTimeoutError,

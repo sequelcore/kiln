@@ -1,7 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventBus, InMemoryContextArtifactCache, KilnError, MemoryArtifactResourceStore, SkillRegistry, coordinationStateToContextCandidates, extractText, renderContextBlocks, textParts } from "@kilnai/core";
-import type { MultimodalRoutedEvent, SttAdapter, TenantConfig, TtsAdapter, VoiceConfig } from "@kilnai/core";
-import type { SkillConfig } from "@kilnai/core";
+import { coordinationStateToContextCandidates, renderContextBlocks } from "@kilnai/core/context";
+import {
+  extractText,
+  KilnError,
+  type SttAdapter,
+  type TenantConfig,
+  textParts,
+  type TtsAdapter,
+  type VoiceConfig,
+} from "@kilnai/core/engine";
+import { EventBus, type MultimodalRoutedEvent } from "@kilnai/core/events";
+import { InMemoryContextArtifactCache } from "@kilnai/core/memory";
+import { type SkillConfig, SkillRegistry } from "@kilnai/core/skill";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
 import { projectAdmittedTurnContext } from "../../src/gateway/message-pipeline/admitted-turn-context.js";
 import { sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline/assistant-egress-text.js";

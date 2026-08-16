@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderContextBlocks } from "@kilnai/core";
+import { renderContextBlocks } from "@kilnai/core/context";
 import { buildManagedInvocationResourceContext } from "../../src/agents/managed-invocation/resource-context.js";
 
 describe("managed invocation resource context semantics", () => {

@@ -1,11 +1,8 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import {
-  sha256ContentIdentity,
-  type ContextAuditEntry,
-  type ProjectedContextBlock,
-  type TurnTemporalContext,
-} from "@kilnai/core";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import type { ContextAuditEntry, ProjectedContextBlock } from "@kilnai/core/context";
+import type { TurnTemporalContext } from "@kilnai/core/tools";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import {
   buildRuntimeTurnSystemPrompt,

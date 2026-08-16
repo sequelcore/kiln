@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryArtifactResourceStore } from "@kilnai/core";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { PlaywrightBrowserCaptureRecorder } from "../../src/interactive/playwright-browser-capture-recorder.js";
 import type { PlaywrightBrowserVideoRenderer } from "../../src/interactive/playwright-browser-video-renderer.js";
 import {

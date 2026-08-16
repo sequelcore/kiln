@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ProviderAdapter, ToolDefinition, PromptInjectionConfig } from "@kilnai/core";
-import { EventBus, SafetyPipeline, textParts } from "@kilnai/core";
+import type { ProviderAdapter, ToolDefinition } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
+import { SafetyPipeline } from "@kilnai/core/safety";
+import type { PromptInjectionConfig } from "@kilnai/core/security";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { createRuntimeToolResultSanitizer } from "../../src/gateway/tool-result-sanitizer-factory.js";

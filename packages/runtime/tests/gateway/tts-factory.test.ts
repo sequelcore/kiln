@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createTtsAdapter } from "../../src/gateway/tts-factory.js";
-import { ElevenLabsTtsAdapter, OpenAITtsAdapter } from "@kilnai/core";
+import { ElevenLabsTtsAdapter, OpenAITtsAdapter } from "@kilnai/core/agents";
 import { KokoroLocalTtsAdapter } from "../../src/gateway/local-voice-adapters.js";
 
 describe("createTtsAdapter", () => {

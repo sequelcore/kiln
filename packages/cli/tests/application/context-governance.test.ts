@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DomainConfig } from "@kilnai/core";
+import type { DomainConfig } from "@kilnai/core/domain";
 import type { SessionContext } from "../../src/wrapper/index.js";
 import { governSessionContext } from "../../src/application/context-governance.js";
 

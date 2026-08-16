@@ -4,7 +4,7 @@ import {
   createExecutionAccountRef,
   defineExecutionCatalog,
   type ExecutionAccountAdmissionCandidate,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
 import {
   OperatorSessionExecutionRoutingService,
   type AccountCapacityAcquireInput,

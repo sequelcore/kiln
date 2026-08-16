@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { mergeKilnYaml, type ResolvedKilnConfig } from "../../src/kiln-yaml.js";
-import { MemoryArtifactResourceStore } from "@kilnai/core";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import {
   createInteractiveUseToolSurfaceOptions,
   describeInteractiveUseConfiguration,

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import type { DomainConfig } from "@kilnai/core";
+import type { DomainConfig } from "@kilnai/core/domain";
 import { runSession } from "../../src/application/run-session.js";
 import { createRunOutputController } from "../../src/application/run-output.js";
 import type { SessionContext } from "../../src/wrapper/index.js";

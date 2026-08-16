@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDefaultBuiltinToolSurface } from "@kilnai/core";
+import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";

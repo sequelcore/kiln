@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModelTurnResult } from "@kilnai/core";
+import type { ModelTurnResult } from "@kilnai/core/agents";
 import {
   OpenAIResponsesModelTurnError,
   inspectOpenAIResponsesModelTurnCapabilities,

@@ -1,7 +1,8 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildExternalEvidenceReport, type ResolvedSecret, type SecretResolver } from "@kilnai/core";
+import type { ResolvedSecret, SecretResolver } from "@kilnai/core/credentials";
+import { buildExternalEvidenceReport } from "@kilnai/core/external-engagement";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   externalEngagementCommand,

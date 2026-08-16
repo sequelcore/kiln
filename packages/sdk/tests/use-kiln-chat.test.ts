@@ -4,7 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { KilnProvider } from "../src/provider.js";
 import { useKilnChat } from "../src/use-kiln-chat.js";
 import type { KilnConfig, ChatMessage } from "../src/types.js";
-import type { ContentPart } from "@kilnai/core";
+import type { ContentPart } from "@kilnai/core/engine";
 
 const communicationEvidence = {
   version: "v1",

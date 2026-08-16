@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createKnowledgeAdminRoutes } from "../../src/gateway/knowledge-admin-routes.js";
 import type { KnowledgeAdminRoutesConfig } from "../../src/gateway/knowledge-admin-routes.js";
-import { KilnError } from "@kilnai/core";
-import type { KnowledgeSource } from "@kilnai/core";
+import { KilnError, type KnowledgeSource } from "@kilnai/core/engine";
 
 function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
   return {

@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
-import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
+import { type ModelGatewayConfig, parseGatewayYaml } from "@kilnai/core/engine";
 
 const syncMocks = vi.hoisted(() => ({
   mockedHomedir: "",

@@ -14,7 +14,8 @@ import {
   CLAUDE_PRIVATE_PLAN_ARTIFACT_CAPABILITY,
   CLAUDE_PRIVATE_PLAN_ARTIFACT_LOCK_FILE,
 } from "../../src/wrapper/claude-private-plan-artifacts.js";
-import { resolveCommunicationIntent, type DeliberationResolution, type ExecutionSessionEvent } from "@kilnai/core";
+import { type DeliberationResolution, resolveCommunicationIntent } from "@kilnai/core/agents";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>, onObserved?: () => void) {

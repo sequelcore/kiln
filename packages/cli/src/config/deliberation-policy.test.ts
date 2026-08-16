@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   KNOWN_DELIBERATION_LEVEL_IDS,
   type ModelDeliberationCapabilities,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
 import { resolveConfiguredDeliberation } from "./deliberation-policy.js";
 
 const LEVEL = KNOWN_DELIBERATION_LEVEL_IDS;

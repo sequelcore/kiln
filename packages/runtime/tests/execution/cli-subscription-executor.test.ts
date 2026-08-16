@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractText, type ExecutionSessionEvent } from "@kilnai/core";
+import { extractText } from "@kilnai/core/engine";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import { CliSubscriptionExecutor } from "../../src/execution/cli-subscription-executor.js";
 
 function eventStream(events: readonly ExecutionSessionEvent[]): AsyncIterable<ExecutionSessionEvent> {

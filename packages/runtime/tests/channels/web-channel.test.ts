@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { WebChannel } from "../../src/channels/web-channel.js";
 import type { WebSocketLike } from "../../src/channels/web-channel.js";
-import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import {
+  type EngineEvent,
+  type IncomingMessage,
+  type OutgoingMessage,
+  textParts,
+} from "@kilnai/core/engine";
 
 function makeMockWs(open = true): WebSocketLike {
   return {

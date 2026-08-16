@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IntegrationExecutor } from "../../src/gateway/integration-executor.js";
-import type { IntegrationAdapter, IntegrationResult, CredentialResolver, ResolvedCredential } from "@kilnai/core";
-import { KilnError } from "@kilnai/core";
+import {
+  type CredentialResolver,
+  type IntegrationAdapter,
+  type IntegrationResult,
+  KilnError,
+  type ResolvedCredential,
+} from "@kilnai/core/engine";
 
 function makeAdapter(overrides?: Partial<IntegrationAdapter>): IntegrationAdapter {
   return {

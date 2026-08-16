@@ -5,17 +5,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildManagedAgentCapabilitySnapshot,
-  GPT4O,
-  OPENCODE_BASE_URL,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
-  textParts,
+  GPT4O,
   type ManagedAgentInvocationRequest,
+  OPENCODE_BASE_URL,
   type OpenCodeAuthFile,
   type OpenCodeTier,
-  type ToolResourceProvider,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import type { ToolResourceProvider } from "@kilnai/core/tools";
 import {
   createOperatorCockpitReadOnlyViewState,
   projectOperatorCockpitReadOnlyView,

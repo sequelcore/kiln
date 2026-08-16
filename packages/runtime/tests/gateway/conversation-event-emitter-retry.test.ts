@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ConversationEventEmitter } from "../../src/gateway/conversation-event-emitter.js";
-import type { ConversationEvent, EventsConfig } from "@kilnai/core";
+import type { ConversationEvent, EventsConfig } from "@kilnai/core/engine";
 
 const originalFetch = globalThis.fetch;
 

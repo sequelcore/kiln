@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 import { isValidTransition, transitionSessionMode } from "../../src/session/session-mode.js";
 import type { SessionMode } from "../../src/session/session-mode.js";
 

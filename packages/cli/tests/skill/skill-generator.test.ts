@@ -2,9 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ProviderAdapter } from "@kilnai/core";
-import { SkillGenerator } from "@kilnai/core";
-import { SkillRegistry } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { SkillGenerator, SkillRegistry } from "@kilnai/core/skill";
 
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),

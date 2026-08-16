@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createContactMemoryAdminRoutes } from "../../src/gateway/contact-memory-admin-routes.js";
 import type { ContactMemoryAdminRoutesConfig } from "../../src/gateway/contact-memory-admin-routes.js";
-import type { ContactFact, ContactMemoryService } from "@kilnai/core";
+import type { ContactFact, ContactMemoryService } from "@kilnai/core/engine";
 
 function makeFact(overrides: Partial<ContactFact> = {}): ContactFact {
   return {

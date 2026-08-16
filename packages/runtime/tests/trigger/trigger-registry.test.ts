@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { TriggerRegistry } from "../../src/trigger/trigger-registry.js";
-import { EventBus } from "@kilnai/core";
-import type { Trigger, WebhookTrigger, EventTrigger, ScheduleTrigger } from "@kilnai/core";
+import type { EventTrigger, ScheduleTrigger, Trigger, WebhookTrigger } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
 
 describe("TriggerRegistry", () => {
   it("registers app with triggers", () => {

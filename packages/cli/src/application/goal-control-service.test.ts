@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { adoptBoundedWorkContractRevision, GoalRunStore } from "@kilnai/core";
+import { adoptBoundedWorkContractRevision, GoalRunStore } from "@kilnai/core/work-governance";
 import { TranscriptStore } from "../wrapper/session-store.js";
 import { GoalControlService } from "./goal-control-service.js";
 

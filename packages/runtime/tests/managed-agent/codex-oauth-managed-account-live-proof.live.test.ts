@@ -1,10 +1,8 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import {
-  buildManagedAgentBackgroundJobOrchestrationRequest,
-  createSessionBuiltinToolOptions,
-} from "@kilnai/core";
+import { buildManagedAgentBackgroundJobOrchestrationRequest } from "@kilnai/core/agents";
+import { createSessionBuiltinToolOptions } from "@kilnai/core/tools";
 import {
   CodexOAuthCredentialPoolService,
   ConfiguredExecutionAccountRuntime,

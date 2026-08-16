@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { MemoryArtifactResourceStore, textParts } from "@kilnai/core";
-import type { TtsAdapter, VoiceConfig } from "@kilnai/core";
+import { textParts, type TtsAdapter, type VoiceConfig } from "@kilnai/core/engine";
+import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
 import { synthesizeVoiceOutput, synthesizeVoiceOutputOnDemand } from "../../src/gateway/voice-output-synthesizer.js";
 
 const voiceConfig: VoiceConfig = {

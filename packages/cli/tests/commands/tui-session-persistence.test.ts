@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SessionStore, TranscriptStore, type SessionRecord } from "../../src/wrapper/session-store.js";
-import { createSessionEvent, InMemoryContextArtifactCache, resolveCommunicationIntent, type ContextArtifactCache, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { resolveCommunicationIntent } from "@kilnai/core/agents";
+import { createSessionEvent } from "@kilnai/core/events";
+import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
+import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";

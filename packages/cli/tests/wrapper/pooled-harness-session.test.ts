@@ -1,10 +1,10 @@
-import { CredentialPool, type Credential } from "@kilnai/core";
-import { describe, expect, it, vi } from "vitest";
-import { PooledHarnessSession } from "../../src/wrapper/pooled-harness-session.js";
+import { type Credential, CredentialPool } from "@kilnai/core/agents";
 import type {
   ExecutionSessionEphemeralHarnessStateEvidence,
   ExecutionSessionEvent,
-} from "@kilnai/core";
+} from "@kilnai/core/events";
+import { describe, expect, it, vi } from "vitest";
+import { PooledHarnessSession } from "../../src/wrapper/pooled-harness-session.js";
 import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "../../src/wrapper/session.js";
 
 const CAPABILITIES: SessionCapabilities = {

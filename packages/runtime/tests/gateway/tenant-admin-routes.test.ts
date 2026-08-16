@@ -6,7 +6,7 @@ import { TenantRegistry } from "../../src/tenant/tenant-registry.js";
 import { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { createTenantAdminRoutes, generateTenantId } from "../../src/gateway/tenant-admin-routes.js";
 import type { TenantAdminRoutesConfig } from "../../src/gateway/tenant-admin-routes.js";
-import type { TenantConfig } from "@kilnai/core";
+import type { TenantConfig } from "@kilnai/core/engine";
 
 function makeTenantBody(overrides: Partial<TenantConfig> = {}): Record<string, unknown> {
   return {

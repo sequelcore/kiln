@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SqliteMemoryRepository } from "@kilnai/core";
+import { SqliteMemoryRepository } from "@kilnai/core/memory";
 import { SwarmStore } from "../../src/mcp/swarm-store.js";
 
 describe("SwarmStore", () => {

@@ -3,14 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ToolDefinition } from "@kilnai/core/agents";
+import { estimateTextTokens, skillConfigToContextCandidate } from "@kilnai/core/context";
 import {
-  createDefaultBuiltinToolSurface,
-  estimateTextTokens,
   evaluateProgressiveLoadingPromotion,
-  skillConfigToContextCandidate,
   type ProgressiveLoadingObservation,
-  type ToolDefinition,
-} from "@kilnai/core";
+} from "@kilnai/core/eval";
+import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { withProgressiveRuntimeToolProjection } from "../../src/config/builtin-tool-surface-config.js";
 import { createConfiguredSkillRegistry } from "../../src/config/skill-registry.js";
 import { resolveTaskSkillSelection } from "../../src/config/task-skill-selection.js";

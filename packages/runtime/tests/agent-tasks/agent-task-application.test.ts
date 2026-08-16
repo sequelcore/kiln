@@ -21,7 +21,7 @@ import {
   adoptManagedEconomicSnapshot,
   digestManagedEconomicValue,
   type ManagedEconomicPriceEvidence,
-} from "@kilnai/core";
+} from "@kilnai/core/cost";
 import type { ManagedEconomicCandidateSet } from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import { ManagedEconomicDispatchCoordinator } from "../../src/agents/managed-invocation/economic-dispatch-coordinator.js";
 

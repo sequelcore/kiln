@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MemoryRecordCreatedEvent, ModelRoutedEvent } from "@kilnai/core";
+import type { MemoryRecordCreatedEvent, ModelRoutedEvent } from "@kilnai/core/events";
 import { projectMemoryLatticeInvalidationFrame } from "../../src/gateway/gui-memory-lattice-events.js";
 
 describe("projectMemoryLatticeInvalidationFrame", () => {

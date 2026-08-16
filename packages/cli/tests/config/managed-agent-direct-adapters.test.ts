@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentResponse, ProviderAdapter, ResolvedMcpServer, ToolResourceProvider } from "@kilnai/core";
-import { createSessionBuiltinToolOptions, defineManagedAgentInvocationRequest, textParts } from "@kilnai/core";
+import {
+  type AgentResponse,
+  defineManagedAgentInvocationRequest,
+  type ProviderAdapter,
+} from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
+import type { ResolvedMcpServer } from "@kilnai/core/mcp";
+import { createSessionBuiltinToolOptions, type ToolResourceProvider } from "@kilnai/core/tools";
 import {
   ManagedDirectProviderRuntimeAdapter,
   RuntimeManagedAgentInvocationService,

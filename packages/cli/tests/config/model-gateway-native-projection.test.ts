@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ModelGatewayConfig } from "@kilnai/core";
+import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import {
   buildClaudeMessagesProjection,
   buildOpenCodeResponsesProjection,

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WhatsAppChannel } from "../../src/channels/whatsapp-channel.js";
-import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import {
+  type EngineEvent,
+  type IncomingMessage,
+  type OutgoingMessage,
+  textParts,
+} from "@kilnai/core/engine";
 
 const CONFIG = {
   phoneNumberId: "123456789",

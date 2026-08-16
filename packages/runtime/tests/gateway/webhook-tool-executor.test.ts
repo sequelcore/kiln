@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebhookToolExecutor } from "../../src/gateway/webhook-tool-executor.js";
 import type { WebhookToolConfig } from "../../src/gateway/webhook-tool-executor.js";
 import { verifyHmacSha256 } from "../../src/utils/hmac.js";
-import { KilnError } from "@kilnai/core";
+import { KilnError } from "@kilnai/core/engine";
 
 const SECRET = "test-webhook-secret";
 

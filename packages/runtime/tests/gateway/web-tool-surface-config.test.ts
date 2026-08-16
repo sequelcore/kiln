@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SandboxPolicy, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import { SandboxPolicy } from "@kilnai/core/sandbox";
+import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
 import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface,

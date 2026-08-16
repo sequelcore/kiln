@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "yaml";
-import { createExecutionAccountRef } from "@kilnai/core";
+import { createExecutionAccountRef } from "@kilnai/core/agents";
 import { SqliteManagedAccountLeaseAuthority } from "@kilnai/runtime";
 import { validateGlobalConfig } from "../../src/config/global-config.js";
 import {

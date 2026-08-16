@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { textParts, validateTenantConfig } from "@kilnai/core";
-import type { TenantConfig } from "@kilnai/core";
+import { type TenantConfig, textParts, validateTenantConfig } from "@kilnai/core/engine";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { serializeSession, deserializeSession } from "../../src/session/persistence/session-serializer.js";
 

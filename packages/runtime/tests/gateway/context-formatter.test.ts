@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { formatKnowledgeContext, formatContactContext, mergeContextSources, appendGroundingDirective, formatUserContext } from "../../src/gateway/context-formatter.js";
-import type { VectorResult, ContactFact } from "@kilnai/core";
+import type { ContactFact, VectorResult } from "@kilnai/core/engine";
 
 describe("formatKnowledgeContext", () => {
   it("returns undefined for empty results", () => {

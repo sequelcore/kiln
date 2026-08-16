@@ -155,6 +155,15 @@ discarding it is preferred over carrying readers that exist only to parse it.
   parallelism. Tests that mutate process state, exercise real subprocesses, or
   share filesystem, port, database, or repository resources must run in an
   explicit sequential lane or integration project after isolated tests complete.
+- A test names the bounded context it exercises. When a workspace package
+  publishes bounded-context subpaths, import the context, never the package root
+  barrel: the root barrel re-exports every context and costs seconds of
+  module-graph instantiation per test file, because Vitest gives each file a
+  fresh module registry. `scripts/workspace-import-boundaries.test.ts` enforces
+  this and derives the rule from each package's exports map.
+- Package tests resolve workspace dependencies through the exports map, which
+  points at compiled output. Compilation is an explicit prerequisite of the test
+  lanes, not a side effect of typechecking.
 - Keep package worker limits proportional to available CPUs and validate them
   with repeated full-suite measurements. Do not disable isolation or increase
   timeouts to conceal shared state, leaked resources, or accidental integration

@@ -8,7 +8,8 @@ import { CodexSession, requiresCodexCliProcessTransport } from "../../src/wrappe
 import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
 import type { CodexSdkPort } from "../../src/wrapper/codex-sdk-session.js";
 import type { IKilnSession } from "../../src/wrapper/session.js";
-import { defineDeliberationLevelId, type ExecutionSessionEvent } from "@kilnai/core";
+import { defineDeliberationLevelId } from "@kilnai/core/agents";
+import type { ExecutionSessionEvent } from "@kilnai/core/events";
 
 function permissionWriter(onRequest: (profile: string) => void | Promise<void>) {
   return {

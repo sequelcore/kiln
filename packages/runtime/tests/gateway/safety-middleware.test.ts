@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { Hono } from "hono";
-import { SafetyPipeline } from "@kilnai/core";
-import type { SafetyPipelineResult, EventBus, AuditLog } from "@kilnai/core";
+import type { EventBus } from "@kilnai/core/events";
+import { SafetyPipeline, type SafetyPipelineResult } from "@kilnai/core/safety";
+import type { AuditLog } from "@kilnai/core/security";
 import { safetyMiddleware } from "../../src/gateway/safety-middleware.js";
 
 // ---------------------------------------------------------------------------

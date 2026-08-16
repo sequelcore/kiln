@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defineExecutionCatalog, type ProviderUsageSnapshot } from "@kilnai/core";
+import { defineExecutionCatalog, type ProviderUsageSnapshot } from "@kilnai/core/agents";
 import { createAccountUsageInspectionService } from "../../src/application/account-usage-inspection.js";
 
 const catalog = defineExecutionCatalog({

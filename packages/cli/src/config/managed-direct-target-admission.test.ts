@@ -1,4 +1,4 @@
-import { defineExecutionCatalog } from "@kilnai/core";
+import { defineExecutionCatalog } from "@kilnai/core/agents";
 import { describe, expect, it } from "vitest";
 import { admitManagedDirectTarget } from "./managed-direct-target-admission.js";
 import type { ResolvedManagedTargetConfig } from "./resolved-managed-target.js";

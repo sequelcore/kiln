@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MessengerChannel } from "../../src/channels/messenger-channel.js";
-import type { IncomingMessage, OutgoingMessage } from "@kilnai/core";
+import type { IncomingMessage, OutgoingMessage } from "@kilnai/core/engine";
 
 describe("MessengerChannel", () => {
   let fetchMock: ReturnType<typeof vi.fn>;

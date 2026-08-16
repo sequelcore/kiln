@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
-import { createExecutionAccountRef } from "@kilnai/core";
+import { createExecutionAccountRef } from "@kilnai/core/agents";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

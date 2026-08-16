@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createSessionEvent, type FeedbackEvidenceSelection } from "@kilnai/core";
+import { createSessionEvent } from "@kilnai/core/events";
+import type { FeedbackEvidenceSelection } from "@kilnai/core/feedback";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import { appendCanonicalTurnEvents } from "../../src/session/runtime-session-event-ledger.js";
 import { collectRuntimeFeedbackEvidence } from "../../src/session/session-feedback-evidence.js";

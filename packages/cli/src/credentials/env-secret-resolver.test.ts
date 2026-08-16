@@ -1,4 +1,4 @@
-import { createSecretRef } from "@kilnai/core";
+import { createSecretRef } from "@kilnai/core/credentials";
 import { describe, expect, it } from "vitest";
 import { EnvSecretResolver } from "./env-secret-resolver.js";
 

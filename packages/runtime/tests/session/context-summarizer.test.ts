@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import type { ProviderAdapter } from "@kilnai/core";
-import { textParts } from "@kilnai/core";
+import type { ProviderAdapter } from "@kilnai/core/agents";
+import { textParts } from "@kilnai/core/engine";
 import { DefaultContextSummarizer } from "../../src/session/support/summarization/context-summarizer.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 

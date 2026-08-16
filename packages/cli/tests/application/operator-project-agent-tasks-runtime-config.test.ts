@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deriveProviderModelEligibility, type ProviderModelEligibilityRequirements } from "@kilnai/core";
+import {
+  deriveProviderModelEligibility,
+  type ProviderModelEligibilityRequirements,
+} from "@kilnai/core/agents";
 import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
 import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 

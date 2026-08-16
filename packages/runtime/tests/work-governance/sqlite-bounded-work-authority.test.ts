@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   adoptBoundedWorkContractRevision,
-  supersedeBoundedWorkContractRevision,
   type BoundedWorkContract,
-} from "@kilnai/core";
+  supersedeBoundedWorkContractRevision,
+} from "@kilnai/core/work-governance";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   BoundedWorkAuthorityError,

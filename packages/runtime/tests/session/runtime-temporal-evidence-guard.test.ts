@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractText, textParts } from "@kilnai/core";
+import { extractText, textParts } from "@kilnai/core/engine";
 import {
   assessRuntimeTemporalEvidence,
   shouldRequestTemporalEvidenceRecovery,

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
-  type ManagedEconomicSettlement,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import type { ManagedEconomicSettlement } from "@kilnai/core/cost";
 import {
   createManagedAgentOrchestrateToolDefinition,
   createManagedInvocationLifecycleToolExecutors,

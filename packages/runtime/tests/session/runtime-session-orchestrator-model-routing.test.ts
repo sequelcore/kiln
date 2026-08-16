@@ -1,23 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type {
-  AuxiliaryModalityRoute,
-  ManagedAgentAdapterDescriptor,
-  ManagedAgentInvocationRequest,
-  ModelCapabilityRegistry,
-  ModelRouter,
-  ProviderAdapter,
-  RoutingDecision,
-  RoutingRequest,
-} from "@kilnai/core";
 import {
   buildManagedAgentCapabilitySnapshot,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
-  extractText,
-  textParts,
+  type ManagedAgentAdapterDescriptor,
+  type ManagedAgentInvocationRequest,
+  type ModelCapabilityRegistry,
+  type ProviderAdapter,
   resolveCommunicationIntent,
-  sha256ContentIdentity,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
+import { sha256ContentIdentity } from "@kilnai/core/content-addressing";
+import {
+  type AuxiliaryModalityRoute,
+  extractText,
+  type ModelRouter,
+  type RoutingDecision,
+  type RoutingRequest,
+  textParts,
+} from "@kilnai/core/engine";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";

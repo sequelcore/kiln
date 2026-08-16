@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ApiChannel } from "../../src/channels/api-channel.js";
 import type { SseWriter } from "../../src/channels/api-channel.js";
-import type { IncomingMessage, OutgoingMessage, EngineEvent } from "@kilnai/core";
-import { textParts, extractText } from "@kilnai/core";
+import {
+  type EngineEvent,
+  extractText,
+  type IncomingMessage,
+  type OutgoingMessage,
+  textParts,
+} from "@kilnai/core/engine";
 
 function makeMockWriter(): SseWriter {
   return {

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ModelGatewayConfig } from "@kilnai/core";
+import type { ModelGatewayConfig } from "@kilnai/core/engine";
 import { createModelGatewayConfigDigest, type ModelGatewayListenerIdentity } from "@kilnai/runtime";
 import {
   hasGlobalClaudeModelGatewayProjection,

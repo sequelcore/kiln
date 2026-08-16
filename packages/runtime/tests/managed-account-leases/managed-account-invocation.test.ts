@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRequest,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
 import {
   ManagedAgentRuntimeAdmissionError,
   RuntimeManagedAgentInvocationService,

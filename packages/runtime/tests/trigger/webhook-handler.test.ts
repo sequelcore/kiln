@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { validateWebhookSignature, createWebhookHandler } from "../../src/trigger/webhook-handler.js";
-import { EventBus } from "@kilnai/core";
-import type { WebhookTrigger } from "@kilnai/core";
+import type { WebhookTrigger } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
 import { createHmac } from "node:crypto";
 
 describe("validateWebhookSignature", () => {

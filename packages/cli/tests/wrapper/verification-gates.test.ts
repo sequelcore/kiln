@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionManager } from "../../src/wrapper/session-manager.js";
 import type { WrapperConfig } from "../../src/wrapper/index.js";
 import type { KilnAppConfig } from "../../src/config.js";
-import { DomainRegistry, InMemoryContextArtifactCache } from "@kilnai/core";
-import type { QualityGate, VerificationResult, ContextArtifactCache } from "@kilnai/core";
+import { DomainRegistry, type QualityGate } from "@kilnai/core/domain";
+import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
+import type { VerificationResult } from "@kilnai/core/verification";
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(() => false),

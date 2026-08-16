@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { interpolateTemplate, executeTrigger } from "../../src/trigger/trigger-executor.js";
 import type { TriggerExecutionContext } from "../../src/trigger/trigger-executor.js";
-import { EventBus } from "@kilnai/core";
-import type { WebhookTrigger, ScheduleTrigger } from "@kilnai/core";
+import type { ScheduleTrigger, WebhookTrigger } from "@kilnai/core/engine";
+import { EventBus } from "@kilnai/core/events";
 
 describe("interpolateTemplate", () => {
   it("replaces simple payload fields", () => {
