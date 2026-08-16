@@ -300,7 +300,6 @@ function commitDocumentAndState(input: {
     targetId: input.targetId,
     filePath: input.path,
     timestamp: input.timestamp,
-    retain: 3,
     mode: 0o600,
   });
   writeDocumentAtomically(input.harness, input.path, input.document);

@@ -95,8 +95,8 @@ describe("native-skill-projection", () => {
   });
 
   it("returns synced:0 and all true when no skill directories exist", async () => {
-    readdirSyncMock.mockImplementation(() => {
-      throw new Error("ENOENT");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      return readdirMissing(targetPath);
     });
 
     const result = await syncNativeSkillProjections("/workspace/project", SKILLS_DISABLED);
@@ -123,7 +123,7 @@ describe("native-skill-projection", () => {
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false), dirent("agents", true)];
       if (targetPath === join(skillSourceDir, "agents")) return [dirent("openai.yaml", false)];
       if (targetPath === projectDir) throw new Error("ENOENT");
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), "---\nname: planner\ndescription: Plan work.\nlicense: MIT\n---\nBody\n");
     fsMocks.files.set(join(skillSourceDir, "agents", "openai.yaml"), "interface:\n  display_name: Planner\n");
@@ -163,7 +163,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false), dirent("agents", true)];
       if (targetPath === join(skillSourceDir, "agents")) return [dirent("openai.yaml", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(
       join(skillSourceDir, "SKILL.md"),
@@ -193,7 +193,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
@@ -218,7 +218,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
@@ -253,7 +253,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
       if (targetPath === projectDir) throw new Error("ENOENT");
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     mkdirSyncMock.mockImplementation((targetPath: string) => {
@@ -285,9 +285,9 @@ describe("native-skill-projection", () => {
         return [dirent("SKILL.md", false)];
       }
       if (targetPath === projectDir) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const dirs = discoverSkillDirs(projectPath);
@@ -315,7 +315,7 @@ describe("native-skill-projection", () => {
       if (targetPath === join(projectDir, "planner")) {
         return [dirent("SKILL.md", false)];
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const dirs = discoverSkillDirs(projectPath);
@@ -341,7 +341,7 @@ describe("native-skill-projection", () => {
       if (targetPath === join(projectDir, "reviewer")) {
         return [dirent("SKILL.md", false)];
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const dirs = discoverSkillDirs(projectPath);
@@ -359,7 +359,7 @@ describe("native-skill-projection", () => {
 
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
       if (targetPath === projectDir) {
         return [dirent("repo-context-review", true)];
@@ -367,7 +367,7 @@ describe("native-skill-projection", () => {
       if (targetPath === join(projectDir, "repo-context-review")) {
         return [];
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const dirs = discoverSkillDirs(projectPath);
@@ -391,7 +391,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("user.md", false), dirent("invalid.md", false)];
       if (targetPath === projectDir) return [dirent("project.md", false)];
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const sources = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig);
@@ -415,7 +415,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === userSkillDir) return [dirent("SKILL.md", false)];
       if (targetPath === projectDir) return [dirent("planner.md", false)];
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
@@ -438,7 +438,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner.md", false)];
       if (targetPath === projectDir) return [dirent("planner", true)];
       if (targetPath === projectSkillDir) return [dirent("SKILL.md", false)];
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
@@ -458,7 +458,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true), dirent("planner.md", false)];
       if (targetPath === skillDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
 
     const source = discoverSkillProjectionSources(projectPath, SKILLS_DISABLED.skillConfig).get("planner");
@@ -471,7 +471,7 @@ describe("native-skill-projection", () => {
     const globalDir = join("/home/tester", ".kiln", "skills");
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("invalid.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(globalDir, "invalid.md"), "---\nname: C:\\escape\ndescription: invalid\n---\n");
 
@@ -489,7 +489,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false), dirent("../escape", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
@@ -506,7 +506,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
@@ -534,7 +534,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(codexSkillPath, "operator-owned content\n");
@@ -578,7 +578,7 @@ describe("native-skill-projection", () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
-      throw new Error("ENOENT");
+      return readdirMissing(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
@@ -612,9 +612,9 @@ describe("native-skill-projection", () => {
   it("projects configured Kiln builtin skills to native skill directories", async () => {
     readdirSyncMock.mockImplementation((targetPath: string) => {
       if (targetPath.endsWith(join(".kiln", "skills"))) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     const result = await syncNativeSkillProjections("/workspace/project", {
@@ -635,8 +635,8 @@ describe("native-skill-projection", () => {
   });
 
   it("plans every builtin skill file without creating directories, files, backups, or install state", async () => {
-    readdirSyncMock.mockImplementation(() => {
-      throw new Error("ENOENT");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      return readdirMissing(targetPath);
     });
 
     const result = await syncNativeSkillProjections("/workspace/project", {
@@ -651,8 +651,8 @@ describe("native-skill-projection", () => {
   });
 
   it("reports disabled harness skill paths as skipped", async () => {
-    readdirSyncMock.mockImplementation(() => {
-      throw new Error("ENOENT");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      return readdirMissing(targetPath);
     });
 
     const result = await syncNativeSkillProjections("/workspace/project", {
@@ -690,9 +690,9 @@ describe("native-skill-projection", () => {
         return [dirent("icon.svg", false)];
       }
       if (targetPath === projectDir) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
@@ -740,9 +740,9 @@ describe("native-skill-projection", () => {
         return [dirent("SKILL.md", false)];
       }
       if (targetPath === projectDir) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
 
     writeFileSyncMock.mockImplementation((targetPath: string, content: string) => {
@@ -775,9 +775,9 @@ describe("native-skill-projection", () => {
         return [dirent("SKILL.md", false), dirent("notes.txt", false)];
       }
       if (targetPath === projectDir) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(join(skillSourceDir, "notes.txt"), "notes\n");
@@ -827,7 +827,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
       if (targetPath === projectDir) throw new Error("ENOENT");
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
@@ -874,7 +874,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
       if (targetPath === projectDir) throw new Error("ENOENT");
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
@@ -912,7 +912,7 @@ describe("native-skill-projection", () => {
       }
       if (targetPath === referenceDir) return [dirent("workflow.md", false)];
       if (targetPath === projectDir) throw new Error("ENOENT");
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
     fsMocks.files.set(join(referenceDir, "workflow.md"), "# Workflow\n");
@@ -946,9 +946,9 @@ describe("native-skill-projection", () => {
         return [dirent("SKILL.md", false)];
       }
       if (targetPath === projectDir) {
-        throw new Error("ENOENT");
+        return readdirMissing(targetPath);
       }
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
@@ -994,8 +994,8 @@ describe("native-skill-projection", () => {
         },
       },
     }));
-    readdirSyncMock.mockImplementation(() => {
-      throw new Error("ENOENT");
+    readdirSyncMock.mockImplementation((targetPath: string) => {
+      return readdirMissing(targetPath);
     });
 
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);
@@ -1034,7 +1034,7 @@ describe("native-skill-projection", () => {
       if (targetPath === globalDir) return [dirent("planner", true)];
       if (targetPath === skillSourceDir) return [dirent("SKILL.md", false)];
       if (targetPath === projectDir) throw new Error("ENOENT");
-      throw new Error(`Unexpected path: ${targetPath}`);
+      return readdirFallback(targetPath);
     });
     fsMocks.files.set(join(skillSourceDir, "SKILL.md"), PLANNER_SKILL);
 
@@ -1049,3 +1049,19 @@ describe("native-skill-projection", () => {
     expect(state.targets).toHaveProperty("codex-skill:planner/SKILL.md");
   });
 });
+
+/**
+ * Backup pruning reads the backup directory it just created. `mkdirSync` is a
+ * no-op here, so model that directory as freshly empty; retention itself is
+ * covered against the real filesystem in native-projection-backup.test.ts.
+ */
+function readdirFallback(targetPath: string): never[] {
+  if (targetPath.includes("backups")) return [];
+  throw new Error(`Unexpected path: ${targetPath}`);
+}
+
+/** As `readdirFallback`, for mocks whose terminal case is a missing directory. */
+function readdirMissing(targetPath: string): never[] {
+  if (targetPath.includes("backups")) return [];
+  throw new Error("ENOENT");
+}

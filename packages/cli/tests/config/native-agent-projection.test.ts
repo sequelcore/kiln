@@ -9,6 +9,10 @@ const fsMocks = vi.hoisted(() => ({
 
 vi.mock("node:fs", () => ({
   mkdirSync: vi.fn(),
+  // Only backup pruning reads directories here, and it reads the backup
+  // directory it just created. Retention itself is covered against the real
+  // filesystem in native-projection-backup.test.ts.
+  readdirSync: vi.fn(() => []),
   writeFileSync: vi.fn((path: string, content: string) => {
     fsMocks.files.set(path, content);
   }),
