@@ -480,8 +480,10 @@ describe("tuiCommand startup provider catalog guard", () => {
   });
 
   afterEach(() => {
-    process.env.KILN_TUI_TRANSPORT = originalTransport;
-    process.env.KILN_STARTUP_PROFILE = originalStartupProfile;
+    if (originalTransport === undefined) delete process.env.KILN_TUI_TRANSPORT;
+    else process.env.KILN_TUI_TRANSPORT = originalTransport;
+    if (originalStartupProfile === undefined) delete process.env.KILN_STARTUP_PROFILE;
+    else process.env.KILN_STARTUP_PROFILE = originalStartupProfile;
     if (cwd) {
       rmSync(cwd, { recursive: true, force: true });
       cwd = undefined;

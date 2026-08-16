@@ -50,15 +50,21 @@ function containsPathRepresentation(content: string, path: string): boolean {
   ));
 }
 
+// A home path is only operator-specific when a real account directory follows.
+// Restricting the captured segment to account-name characters keeps a bare
+// `C:\Users\` prefix -- which detector patterns legitimately contain -- from
+// reading as somebody's home directory.
+const ACCOUNT_SEGMENT = "[\\w.-]+";
+
 function containsNonSyntheticHomePath(content: string): boolean {
   const windowsOrWslUsers = content.matchAll(
-    /(?:[A-Za-z]:|\/mnt\/[a-z])[\\/]+Users[\\/]+([^\\/"'\s]+)/giu,
+    new RegExp(`(?:[A-Za-z]:|/mnt/[a-z])[\\\\/]+Users[\\\\/]+(${ACCOUNT_SEGMENT})`, "giu"),
   );
   const posixUsers = content.matchAll(
-    /(?:^|[\s"'=(\[{>`])\/(?:home|Users)\/([^/"'\s]+)/gu,
+    new RegExp(`(?:^|[\\s"'=(\\[{>\`])/(?:home|Users)/(${ACCOUNT_SEGMENT})`, "gu"),
   );
   const fileUriUsers = content.matchAll(
-    /file:\/\/\/(?:home|Users)\/([^/"'\s]+)/gu,
+    new RegExp(`file:///(?:home|Users)/(${ACCOUNT_SEGMENT})`, "gu"),
   );
   return [...windowsOrWslUsers, ...posixUsers, ...fileUriUsers].some((match) => (
     !SYNTHETIC_USER_NAMES.has(match[1]!.toLowerCase())

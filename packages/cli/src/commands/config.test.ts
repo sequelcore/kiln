@@ -33,7 +33,8 @@ describe("config command", () => {
     if (originalXdgConfigHome === undefined) {
       delete process.env.XDG_CONFIG_HOME;
     } else {
-      process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     }
     for (const root of tempRoots.splice(0)) {
       rmSync(root, { recursive: true, force: true });

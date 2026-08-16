@@ -116,7 +116,8 @@ describe("global-config", () => {
     if (originalXdgConfigHome === undefined) {
       delete process.env.XDG_CONFIG_HOME;
     } else {
-      process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
     }
     vi.restoreAllMocks();
   });

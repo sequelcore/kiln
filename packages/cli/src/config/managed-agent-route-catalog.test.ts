@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  deriveProviderModelEligibility,
   defineManagedAgentAdapterDescriptor,
+  deriveProviderModelEligibility,
   type ExecutionCatalog,
   type ProviderModelEligibilityRequirements,
-} from "@kilnai/core";
+} from "@kilnai/core/agents";
 import {
   normalizeRuntimeProviderDiscoveryCatalog,
   RuntimeManagedAgentInvocationService,
@@ -645,7 +645,7 @@ describe("managed agent route catalog", () => {
     });
 
     expect(resolution.managedInvocation?.agentCatalog?.some((agent) => agent.name === "contradictory") ?? false).toBe(false);
-    expect(resolution.agentHealth.some((agent) => agent.agentName === "contradictory")).toBe(false);
+    expect(resolution.agentHealth?.some((agent) => agent.agentName === "contradictory") ?? false).toBe(false);
   });
 
   it("projects isolated worktree routes with a shared runtime invocation service", async () => {
