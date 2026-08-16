@@ -1,0 +1,5 @@
+# The frontend and backend benchmark verifiers are pinned by a SHA-256 digest
+# taken over their raw bytes, and the Dockerfile carries that digest as a label.
+# Without a fixed end-of-line, a checkout on a machine with core.autocrlf=true
+# rewrites these files and the digest lock fails there while passing on CI.
+packages/cli/verifiers/** text eol=lf
