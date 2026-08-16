@@ -10,7 +10,6 @@
       "**",
       "!**/dist/**",
       "!**/node_modules/**",
-      "!packages/gui/.reference/**",
       "!packages/gui/.tanstack/**",
       "!packages/gui/src/routeTree.gen.ts"
     ]

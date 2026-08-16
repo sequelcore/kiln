@@ -14,7 +14,6 @@
     }
   },
   "include": ["src"],
-  "exclude": [".reference"],
   "references": [
     { "path": "../core" },
     { "path": "../gateway-contracts" }
