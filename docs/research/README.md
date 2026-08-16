@@ -74,7 +74,3 @@ updates. Process each dossier by bounded concern:
 2. promote stable contracts and accepted decisions to their owning documents;
 3. record completed delivery in the changelog or release notes;
 4. delete the residual dossier and repair its consumers.
-
-[`04-current-state-mapping.md`](04-current-state-mapping.md) is the highest
-priority because current-state ownership belongs in architecture and roadmap,
-not research.
