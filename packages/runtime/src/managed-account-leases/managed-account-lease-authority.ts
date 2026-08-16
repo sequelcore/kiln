@@ -251,50 +251,9 @@ export class SqliteManagedAccountLeaseAuthority {
           `Managed economic authority schema version ${openedVersion} is newer than supported version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
         );
       }
-      this.#db.exec(`CREATE TABLE IF NOT EXISTS participants (
-        participant_kind TEXT NOT NULL, recovery_domain TEXT NOT NULL,
-        owner_id TEXT NOT NULL, owner_generation TEXT NOT NULL, heartbeat INTEGER NOT NULL,
-        config_revision TEXT NOT NULL, PRIMARY KEY(participant_kind,recovery_domain)
-      );`);
-      this.#migrateLeaseSchema();
+      this.#ensureSchema();
       this.#claimOwner();
       ownerClaimed = true;
-      this.#db.exec(`
-        CREATE TABLE IF NOT EXISTS account_leases (
-          lease_id TEXT PRIMARY KEY,
-          account_policy_id TEXT NOT NULL,
-          account_ref TEXT NOT NULL,
-          capacity_identity TEXT NOT NULL,
-          provider_id TEXT NOT NULL,
-          model_id TEXT NOT NULL,
-          route_scope TEXT NOT NULL,
-          job_id TEXT NOT NULL,
-          runtime_invocation_id TEXT,
-          economic_attempt_id TEXT,
-          commitment_id TEXT,
-          credential_revision_id TEXT NOT NULL,
-          owner_id TEXT NOT NULL,
-          acquired_at TEXT NOT NULL,
-          lifecycle_state TEXT NOT NULL,
-          released_at TEXT,
-          selection_reason TEXT NOT NULL,
-          candidate_rejections TEXT NOT NULL,
-          usage_evidence TEXT NOT NULL,
-          affinity_outcome TEXT,
-          purpose TEXT NOT NULL,
-          resource_uris TEXT NOT NULL,
-          diagnostic_uris TEXT NOT NULL,
-          affinity_key TEXT,
-          affinity_expected_capacity_identity TEXT,
-          affinity_commit_outcome TEXT
-        );
-        CREATE TABLE IF NOT EXISTS managed_account_affinities (
-          affinity_key TEXT PRIMARY KEY,
-          capacity_identity TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-      `);
       this.#hardenDatabaseFiles(options.path);
     } catch (error) {
       if (ownerClaimed) this.#releaseOwnerClaim();
@@ -727,7 +686,7 @@ export class SqliteManagedAccountLeaseAuthority {
     }
   }
 
-  #migrateLeaseSchema(): void {
+  #ensureSchema(): void {
     const version = Number(
       this.#db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0,
     );
@@ -736,13 +695,14 @@ export class SqliteManagedAccountLeaseAuthority {
         `Managed economic authority schema version ${version} is newer than supported version ${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION}.`,
       );
     }
-    // SQLite only honors foreign_keys changes outside transactions; rebuilding
-    // the canonical lease table must not leave enforcement disabled afterward.
-    this.#db.exec("PRAGMA foreign_keys=OFF;");
-    try {
-      this.#db
-        .transaction(() => {
-          this.#db.exec(`
+    this.#db
+      .transaction(() => {
+        this.#db.exec(`
+        CREATE TABLE IF NOT EXISTS participants (
+          participant_kind TEXT NOT NULL, recovery_domain TEXT NOT NULL,
+          owner_id TEXT NOT NULL, owner_generation TEXT NOT NULL, heartbeat INTEGER NOT NULL,
+          config_revision TEXT NOT NULL, PRIMARY KEY(participant_kind,recovery_domain)
+        );
         CREATE TABLE IF NOT EXISTS account_leases (
           lease_id TEXT PRIMARY KEY, account_policy_id TEXT NOT NULL, account_ref TEXT NOT NULL,
           capacity_identity TEXT NOT NULL, provider_id TEXT NOT NULL, model_id TEXT NOT NULL,
@@ -753,67 +713,19 @@ export class SqliteManagedAccountLeaseAuthority {
           candidate_rejections TEXT NOT NULL, usage_evidence TEXT NOT NULL DEFAULT '{"health":"healthy","freshness":"missing"}',
           affinity_outcome TEXT, purpose TEXT NOT NULL, resource_uris TEXT NOT NULL,
           diagnostic_uris TEXT NOT NULL, affinity_key TEXT,
-          affinity_expected_capacity_identity TEXT, affinity_commit_outcome TEXT
+          affinity_expected_capacity_identity TEXT, affinity_commit_outcome TEXT,
+          participant_kind TEXT, recovery_domain TEXT, owner_generation TEXT,
+          dispatch_fence_id TEXT, settlement_json TEXT, intent_fingerprint TEXT,
+          configuration_revision TEXT
         );
         CREATE TABLE IF NOT EXISTS managed_account_affinities (
           affinity_key TEXT PRIMARY KEY, capacity_identity TEXT NOT NULL,
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL
         );
-      `);
-
-          const leaseTable = this.#db
-            .query<{ sql: string | null }, []>(
-              "SELECT sql FROM sqlite_master WHERE type='table' AND name='account_leases'",
-            )
-            .get();
-          const leaseColumns = this.#db
-            .query<{ name: string; notnull: number }, []>("PRAGMA table_info(account_leases)")
-            .all();
-          const runtimeInvocationColumn = leaseColumns.find((column) => column.name === "runtime_invocation_id");
-          if (
-            leaseTable?.sql &&
-            (/(?:job_id|runtime_invocation_id)\s+TEXT\s+NOT\s+NULL\s+UNIQUE/iu.test(leaseTable.sql) ||
-              runtimeInvocationColumn?.notnull === 1 ||
-              !leaseColumns.some((column) => column.name === "economic_attempt_id") ||
-              !leaseColumns.some((column) => column.name === "commitment_id"))
-          ) {
-            this.#rebuildLeaseTable();
-          }
-          const columns = new Set(
-            this.#db
-              .query<{ name: string }, []>("PRAGMA table_info(account_leases)")
-              .all()
-              .map((column) => column.name),
-          );
-          if (!columns.has("affinity_key")) {
-            this.#db.exec("ALTER TABLE account_leases ADD COLUMN affinity_key TEXT;");
-          }
-          if (!columns.has("affinity_expected_capacity_identity")) {
-            this.#db.exec("ALTER TABLE account_leases ADD COLUMN affinity_expected_capacity_identity TEXT;");
-          }
-          if (!columns.has("affinity_commit_outcome")) {
-            this.#db.exec("ALTER TABLE account_leases ADD COLUMN affinity_commit_outcome TEXT;");
-          }
-          if (!columns.has("usage_evidence")) {
-            this.#db.exec(
-              `ALTER TABLE account_leases ADD COLUMN usage_evidence TEXT NOT NULL
-           DEFAULT '{"health":"healthy","freshness":"missing"}';`,
-            );
-          }
-          for (const column of [
-            "participant_kind",
-            "recovery_domain",
-            "owner_generation",
-            "dispatch_fence_id",
-            "settlement_json",
-            "intent_fingerprint",
-            "configuration_revision",
-          ]) {
-            if (!columns.has(column)) this.#db.exec(`ALTER TABLE account_leases ADD COLUMN ${column} TEXT;`);
-          }
-          this.#db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS account_leases_runtime_invocation ON account_leases(runtime_invocation_id) WHERE runtime_invocation_id IS NOT NULL;
-        CREATE INDEX IF NOT EXISTS account_leases_capacity_state ON account_leases(capacity_identity, lifecycle_state);`);
-          this.#db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS account_leases_runtime_invocation
+        ON account_leases(runtime_invocation_id) WHERE runtime_invocation_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS account_leases_capacity_state
+        ON account_leases(capacity_identity, lifecycle_state);
         CREATE TABLE IF NOT EXISTS economic_commitments (
           commitment_id TEXT PRIMARY KEY, reservation_id TEXT NOT NULL UNIQUE,
           job_id TEXT NOT NULL, economic_attempt_id TEXT NOT NULL,
@@ -829,12 +741,9 @@ export class SqliteManagedAccountLeaseAuthority {
         CREATE INDEX IF NOT EXISTS economic_commitments_route_state
         ON economic_commitments(selected_route_id, state);
       `);
-          this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
-        })
-        .immediate();
-    } finally {
-      this.#db.exec("PRAGMA foreign_keys=ON;");
-    }
+        this.#db.exec(`PRAGMA user_version=${SQLITE_MANAGED_AUTHORITY_SCHEMA_VERSION};`);
+      })
+      .immediate();
   }
 
   acquireCommitment(input: ManagedEconomicCommitmentAcquireInput): ManagedEconomicCommitmentAcquireResult {
@@ -1687,77 +1596,6 @@ export class SqliteManagedAccountLeaseAuthority {
         throw new Error("Gateway capacity participant generation is stale or unavailable.");
       return accountCapacityRecord(operation(row));
     });
-  }
-
-  #rebuildLeaseTable(): void {
-    this.#db.exec(`
-      CREATE TABLE account_leases_rebuilt (
-        lease_id TEXT PRIMARY KEY, account_policy_id TEXT NOT NULL, account_ref TEXT NOT NULL,
-        capacity_identity TEXT NOT NULL, provider_id TEXT NOT NULL, model_id TEXT NOT NULL,
-        route_scope TEXT NOT NULL, job_id TEXT NOT NULL, runtime_invocation_id TEXT,
-        economic_attempt_id TEXT, commitment_id TEXT,
-        credential_revision_id TEXT NOT NULL, owner_id TEXT NOT NULL, acquired_at TEXT NOT NULL,
-        lifecycle_state TEXT NOT NULL, released_at TEXT, selection_reason TEXT NOT NULL,
-        candidate_rejections TEXT NOT NULL, usage_evidence TEXT NOT NULL DEFAULT '{"health":"healthy","freshness":"missing"}',
-        affinity_outcome TEXT, purpose TEXT NOT NULL, resource_uris TEXT NOT NULL,
-        diagnostic_uris TEXT NOT NULL, affinity_key TEXT,
-        affinity_expected_capacity_identity TEXT, affinity_commit_outcome TEXT,
-        participant_kind TEXT, recovery_domain TEXT, owner_generation TEXT,
-        dispatch_fence_id TEXT, settlement_json TEXT, intent_fingerprint TEXT,
-        configuration_revision TEXT
-      );
-    `);
-    const oldColumns = new Set(
-      this.#db
-        .query<{ name: string }, []>("PRAGMA table_info(account_leases)")
-        .all()
-        .map((c) => c.name),
-    );
-    const columns = [
-      "lease_id",
-      "account_policy_id",
-      "account_ref",
-      "capacity_identity",
-      "provider_id",
-      "model_id",
-      "route_scope",
-      "job_id",
-      "runtime_invocation_id",
-      "economic_attempt_id",
-      "commitment_id",
-      "credential_revision_id",
-      "owner_id",
-      "acquired_at",
-      "lifecycle_state",
-      "released_at",
-      "selection_reason",
-      "candidate_rejections",
-      "usage_evidence",
-      "affinity_outcome",
-      "purpose",
-      "resource_uris",
-      "diagnostic_uris",
-      "affinity_key",
-      "affinity_expected_capacity_identity",
-      "affinity_commit_outcome",
-      "participant_kind",
-      "recovery_domain",
-      "owner_generation",
-      "dispatch_fence_id",
-      "settlement_json",
-      "intent_fingerprint",
-      "configuration_revision",
-    ];
-    const select = columns.map((column) =>
-      oldColumns.has(column)
-        ? column
-        : column === "usage_evidence"
-          ? '\'{"health":"healthy","freshness":"missing"}\''
-          : "NULL",
-    );
-    this.#db.exec(
-      `INSERT INTO account_leases_rebuilt(${columns.join(",")}) SELECT ${select.join(",")} FROM account_leases; DROP TABLE account_leases; ALTER TABLE account_leases_rebuilt RENAME TO account_leases;`,
-    );
   }
 
   #claimOwner(): void {
