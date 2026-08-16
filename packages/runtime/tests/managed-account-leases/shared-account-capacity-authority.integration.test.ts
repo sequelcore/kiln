@@ -51,8 +51,12 @@ function capacityInput(id: string, revision = "a".repeat(64)) {
   } as const;
 }
 
+// Strictly below the process case's own timeout, so a worker that never becomes
+// ready reports that instead of being killed by the runner first.
+const WORKER_READINESS_TIMEOUT_MS = 30_000;
+
 async function waitFor(paths: readonly string[]): Promise<void> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + WORKER_READINESS_TIMEOUT_MS;
   while (paths.some((path) => !existsSync(path))) {
     if (Date.now() > deadline) throw new Error("Timed out waiting for process-capacity worker readiness.");
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -578,5 +582,9 @@ describe("shared account capacity in managed authority", () => {
     expect(outcomes.map(({ code, stderr }) => ({ code, stderr }))).toEqual([{ code: 0, stderr: "" }, { code: 0, stderr: "" }]);
     expect(outcomes.every(({ stdout }) => stdout === "")).toBe(true);
     expect(result.filter((path) => JSON.parse(readFileSync(path, "utf8")).status === "acquired")).toHaveLength(1);
-  });
+    // This case bundles a worker with `bun build` and then starts two cold Bun
+    // processes. The package default of ten seconds is sized for in-process
+    // work and cannot cover that on a shared runner, where the case passed and
+    // failed across consecutive runs.
+  }, 60_000);
 });
