@@ -31,6 +31,10 @@ Identity, control model, and the invariants everything else is built on.
 - [`core/governed-work-execution.md`](core/governed-work-execution.md)
   Governed work execution contract tying identity, coordination, and
   work-governance doctrine together.
+- [`core/bounded-work-authority.md`](core/bounded-work-authority.md)
+  Canonical bounded-work contract: immutable content-digested revisions, scope
+  envelope, limits versus tripwires, admission and closeout decisions, and
+  project-scoped reservation, settlement, and terminal truth.
 - [`core/session-model.md`](core/session-model.md)
   Canonical provider-agnostic session identity, provider-thread metadata,
   resume semantics, and cross-surface invariants.

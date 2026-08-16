@@ -180,10 +180,12 @@ claim full tau/tau2 parity until a simulator-backed environment adapter exists.
 
 ## Bounded-Work Authority Benchmark
 
-The [bounded-work research record](../../research/41-bounded-work-authority-2026.md)
+The contract under test is
+[`bounded-work-authority.md`](../core/bounded-work-authority.md). The
+[bounded-work research record](../../research/41-bounded-work-authority-2026.md)
 defines the Slice 0 methodology for testing scope fidelity and overengineering
-control. This is a future paired experiment, not a current default or
-efficiency claim.
+control, which remains research because the experiment has not been run. This is
+a future paired experiment, not a current default or efficiency claim.
 
 The control and bounded-authority arms must freeze the same task definitions,
 repository/project snapshot, target and acceptance tests, provider/model,

@@ -164,9 +164,9 @@ syncs repo shims with a Kiln version that includes this contract.
 
 ## Bounded Work Authority
 
-The [bounded-work research record](../../research/41-bounded-work-authority-2026.md)
-ratifies the contract owned by this Work Governance boundary. It is a contract
-extension, not a second workflow or task database:
+[`bounded-work-authority.md`](bounded-work-authority.md) is the canonical
+contract owned by this Work Governance boundary. It is a contract extension,
+not a second workflow or task database:
 
 - Core owns the canonical bounded-work revision, policy value types, scope
   envelope, limits, tripwires, candidate/evidence relations, and typed

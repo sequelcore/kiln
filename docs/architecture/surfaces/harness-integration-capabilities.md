@@ -45,8 +45,10 @@ The capability tier is evaluated at admission from source, observation time,
 harness/route identity, and operation-specific evidence. Stale, missing, or
 lossy evidence is not silently upgraded. If a required dimension is unknown,
 the work item records a capability pause or uses a separately admitted
-alternate. See the [bounded-work research record](../../research/41-bounded-work-authority-2026.md)
-for the contract and its benchmark limitations.
+alternate. See [`bounded-work-authority.md`](../core/bounded-work-authority.md)
+for the contract, and the
+[bounded-work research record](../../research/41-bounded-work-authority-2026.md)
+for its benchmark limitations.
 
 There is no claim of parity between native harnesses and Kiln Runtime, direct
 provider routes and native processes, route availability and usage evidence,

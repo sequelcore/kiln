@@ -20,12 +20,11 @@ route, job, evidence, or replay owner.
 
 ## Bounded Work Contract
 
-The [bounded-work authority record](../../research/41-bounded-work-authority-2026.md)
-is the research basis for the contract that this outer loop executes. Work
-Governance remains the owner: Core defines an immutable, content-digested
-revision; Runtime enforces admission, project-scoped CAS reservation and
-settlement, accounting, transitions, and terminal truth; surfaces only project
-or report the canonical state.
+[`bounded-work-authority.md`](bounded-work-authority.md) owns the contract that
+this outer loop executes. Work Governance remains the owner: Core defines an
+immutable, content-digested revision; Runtime enforces admission, project-scoped
+CAS reservation and settlement, accounting, transitions, and terminal truth;
+surfaces only project or report the canonical state.
 
 The revision separates semantic scope from hard ceilings, configurable
 tripwires, and diagnostics. Scope names permitted effects, roots, non-goals,
