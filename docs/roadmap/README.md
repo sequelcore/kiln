@@ -37,6 +37,7 @@ roadmap reorganization.
 | 6 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Normal | Define workload fixture governance after release and control-plane work. |
 | 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
 | 8 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Normal | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
+| 9 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Resolve the provider-terms premise, then land the bounded verification surface as locally useful work. |
 
 ## Dependency Rules
 
@@ -50,6 +51,12 @@ roadmap reorganization.
 - The 2026-08-14 urgent operator priority decision supersedes the 2026-07-24
   sequencing of `08` behind `07`. Neither Connect track admits a Kiln-hosted
   cloud; a managed relay requires a separate future decision.
+- `08.75` owns inbound agents Kiln did not launch: their identity, bounded
+  verification surface, lease-scoped sandboxes, and settlement. It consumes `08`
+  identity and `08.5` transport and widens neither. An agent identity never
+  becomes an operator identity. Its Slice 1 verification surface is
+  independently useful to local and outbound delegates, so it is admissible
+  before the inbound premise resolves.
 - `09` is a decision boundary, not queued implementation.
 - `10` owns native surface promotion and remains sequenced behind stable release,
   gateway, and benchmark evidence.
