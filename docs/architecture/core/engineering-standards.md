@@ -170,6 +170,17 @@ discarding it is preferred over carrying readers that exist only to parse it.
   never leaves it; the gate ratchets forward one package at a time and never
   carries a tolerated-error baseline. Until a package is admitted, its tests can
   assert against shapes the production types no longer have.
+- A test's observable contract is the set of failures it can detect. Changes made
+  to satisfy a compiler, a linter, or a refactor must not shrink that set. Never
+  select a value by a predicate and then assert that predicate: it restates the
+  search and cannot fail. Where positional access carried an ordering guarantee,
+  keep it positional and guard it with a length assertion rather than replacing it
+  with a search. Loosening an assertion — an existence check in place of an
+  equality check, a partial match in place of a whole-value match — is a behavior
+  change to the test and needs the same justification as any other.
+- Prove an assertion still detects what it claims by breaking its subject and
+  confirming the test fails. A suite that passes both before and after its input
+  is invalidated asserts nothing, and compiling clean does not reveal that.
 - Keep package worker limits proportional to available CPUs and validate them
   with repeated full-suite measurements. Do not disable isolation or increase
   timeouts to conceal shared state, leaked resources, or accidental integration
