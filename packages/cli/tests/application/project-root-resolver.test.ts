@@ -63,6 +63,69 @@ describe("project-root-resolver", () => {
     expect(resolved.source).toBe("git");
   });
 
+  it("stops the ancestor walk at the user home", () => {
+    const root = resetFixture();
+    const home = join(root, "home");
+    const scratch = join(home, "tmp", "scratch");
+    mkdirSync(join(home, ".git"), { recursive: true });
+    mkdirSync(join(home, ".kiln"), { recursive: true });
+    mkdirSync(scratch, { recursive: true });
+    writeFileSync(join(home, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+
+    const resolved = resolveProjectRoot({ cwd: scratch, userHome: home });
+
+    expect(resolved.rootPath).toBe(scratch);
+    expect(resolved.source).toBe("cwd");
+    expect(resolved.hasKilnYaml).toBe(false);
+    expect(resolved.hasGitRoot).toBe(false);
+    expect(resolved.projectName).toBe("scratch");
+  });
+
+  it("keeps an explicit path out of a git-tracked user home", () => {
+    const root = resetFixture();
+    const home = join(root, "home");
+    mkdirSync(join(home, ".git"), { recursive: true });
+    mkdirSync(join(home, "tmp", "fixture"), { recursive: true });
+
+    const resolved = resolveProjectRoot({
+      cwd: home,
+      explicitPath: join("tmp", "fixture"),
+      userHome: home,
+    });
+
+    expect(resolved.rootPath).toBe(join(home, "tmp", "fixture"));
+    expect(resolved.source).toBe("explicit");
+    expect(resolved.hasGitRoot).toBe(false);
+  });
+
+  it("still adopts a project nested under the user home", () => {
+    const root = resetFixture();
+    const home = join(root, "home");
+    const project = join(home, "projects", "service");
+    mkdirSync(join(home, ".git"), { recursive: true });
+    mkdirSync(join(project, ".git"), { recursive: true });
+    mkdirSync(join(project, "src"), { recursive: true });
+
+    const resolved = resolveProjectRoot({ cwd: join(project, "src"), userHome: home });
+
+    expect(resolved.rootPath).toBe(project);
+    expect(resolved.source).toBe("git");
+    expect(resolved.hasGitRoot).toBe(true);
+  });
+
+  it("adopts the user home when the caller starts there", () => {
+    const root = resetFixture();
+    const home = join(root, "home");
+    mkdirSync(join(home, ".kiln"), { recursive: true });
+    writeFileSync(join(home, ".kiln", "kiln.yaml"), "version: \"1\"\n", "utf-8");
+
+    const resolved = resolveProjectRoot({ cwd: home, userHome: home });
+
+    expect(resolved.rootPath).toBe(home);
+    expect(resolved.source).toBe("kiln-yaml");
+    expect(resolved.hasKilnYaml).toBe(true);
+  });
+
   it("ignores nested Kiln state that is not a project config", () => {
     const root = resetFixture();
     mkdirSync(join(root, ".git"), { recursive: true });

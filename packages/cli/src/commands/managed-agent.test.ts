@@ -1121,9 +1121,8 @@ class FakeManagedAgentGatewaySocket implements ManagedAgentGatewaySocket {
 async function tempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "kiln-managed-agent-command-"));
   roots.push(root);
-  // Anchor the fixture as its own project root. Without a marker,
-  // resolveProjectRoot walks past the temporary directory into whatever
-  // ancestor happens to carry a .git or .kiln/kiln.yaml on the host machine.
+  // Anchor the fixture as an adopted project so the command resolves it the
+  // way it resolves a real workspace rather than as a bare directory.
   await mkdir(join(root, ".kiln"), { recursive: true });
   await writeFile(join(root, ".kiln", "kiln.yaml"), "project:\n  name: managed-agent-command-fixture\n", "utf-8");
   return root;

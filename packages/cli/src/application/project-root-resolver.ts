@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type ProjectRootSource = "kiln-yaml" | "git" | "explicit" | "cwd";
 
@@ -15,12 +15,14 @@ export interface ProjectRootResolution {
 export interface ResolveProjectRootOptions {
   readonly cwd?: string;
   readonly explicitPath?: string;
+  readonly userHome?: string;
 }
 
 export function resolveProjectRoot(options: ResolveProjectRootOptions = {}): ProjectRootResolution {
   const cwd = resolve(options.cwd ?? process.cwd());
   const start = normalizeStartPath(resolve(cwd, options.explicitPath ?? "."));
-  const kilnRoot = findAncestor(start, (candidate) => existsSync(join(candidate, ".kiln", "kiln.yaml")));
+  const candidates = collectCandidateRoots(start, resolve(options.userHome ?? homedir()));
+  const kilnRoot = candidates.find(hasKilnMarker);
 
   if (kilnRoot) {
     return {
@@ -32,7 +34,7 @@ export function resolveProjectRoot(options: ResolveProjectRootOptions = {}): Pro
     };
   }
 
-  const gitRoot = findAncestor(start, hasGitMarker);
+  const gitRoot = candidates.find(hasGitMarker);
   if (gitRoot) {
     return {
       rootPath: gitRoot,
@@ -59,24 +61,50 @@ function normalizeStartPath(path: string): string {
   return statSync(path).isFile() ? dirname(path) : path;
 }
 
-function findAncestor(start: string, predicate: (candidate: string) => boolean): string | null {
+/**
+ * The directories eligible to be adopted as the project root, nearest first:
+ * the starting directory, then each ancestor that stays below the user home.
+ *
+ * The user home and everything above it hold shared operator state, never a
+ * single project. Without that boundary a git-tracked home — an ordinary
+ * dotfiles setup — makes every directory nested under it resolve to the home
+ * repository, so Kiln reads and writes `.kiln` state outside the workspace the
+ * caller is actually in. The Windows temporary directory lives under the home
+ * directory, which puts scratch and test runs in that position by default.
+ *
+ * The starting directory itself always stays eligible: a caller who names a
+ * directory has already stated where the project is, and a home directory the
+ * operator adopted deliberately still resolves when it is the starting point.
+ */
+function collectCandidateRoots(start: string, userHome: string): string[] {
+  const candidates = [start];
   let current = start;
   while (true) {
-    if (predicate(current)) {
-      return current;
-    }
     const parent = dirname(current);
-    if (parent === current) {
-      return null;
+    if (parent === current || contains(parent, userHome)) {
+      return candidates;
     }
+    candidates.push(parent);
     current = parent;
   }
 }
 
-function hasGitMarker(candidate: string): boolean {
-  if (resolve(candidate) === resolve(homedir())) {
+function contains(ancestor: string, descendant: string): boolean {
+  const relativePath = relative(ancestor, descendant);
+  if (relativePath === "") {
+    return true;
+  }
+  if (isAbsolute(relativePath)) {
     return false;
   }
+  return relativePath !== ".." && !relativePath.startsWith(`..${sep}`);
+}
+
+function hasKilnMarker(candidate: string): boolean {
+  return existsSync(join(candidate, ".kiln", "kiln.yaml"));
+}
+
+function hasGitMarker(candidate: string): boolean {
   return existsSync(join(candidate, ".git"));
 }
 

@@ -400,6 +400,14 @@ resolution order is:
 2. nearest ancestor containing `.kiln/kiln.yaml`
 3. nearest repository root when it can be treated as a Kiln project root
 
+The ancestor search for steps 2 and 3 is bounded by the user home directory.
+The home directory and everything above it hold shared operator state, never a
+single project, so no marker found there may be adopted while walking upward: a
+git-tracked home directory would otherwise capture every nested directory,
+including the Windows temporary directory. The starting directory named by step
+1, or the current working directory when no explicit path is given, stays
+eligible on its own; only the walk above it is bounded.
+
 If the root is ambiguous or lacks enough Kiln project identity for a repo-local
 shim, sync must fail closed instead of writing generated instructions into an
 incidental current working directory. Running sync from a subdirectory of the
