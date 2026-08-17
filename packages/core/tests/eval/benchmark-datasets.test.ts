@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseDatasetJsonl } from "../../src/eval/dataset-loader.js";
 
-const DATASET_DIR = join(process.cwd(), "evals", "benchmark");
+// Resolve from this module, not process.cwd(): the working directory depends on
+// how Vitest was invoked, and cwd-relative resolution made this read a
+// non-existent directory at the repository root instead of the package.
+const DATASET_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "evals", "benchmark");
 const REQUIRED_DATASETS = [
   "kiln-tool-agent-v1.jsonl",
   "kiln-managed-child-agent-v1.jsonl",

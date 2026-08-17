@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   DefaultEscalationDetector,
@@ -47,7 +48,10 @@ describe("session exports", () => {
   });
 
   it("runtime root barrel references the session barrel", () => {
-    const runtimeIndexPath = join(process.cwd(), "src", "index.ts");
+    // Resolve from this module, not process.cwd(): the working directory
+    // depends on how Vitest was invoked, and cwd-relative resolution made this
+    // assertion read the repository root instead of the package.
+    const runtimeIndexPath = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "index.ts");
     const source = readFileSync(runtimeIndexPath, "utf-8");
     expect(source).toContain('} from "./session/index.js";');
   });
