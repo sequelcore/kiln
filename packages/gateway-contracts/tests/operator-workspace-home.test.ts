@@ -720,6 +720,7 @@ describe("operator workspace home projection", () => {
           details: "Codex native projection drifted from resolved Kiln config.",
         },
       ],
+      globalInstructionShims: [],
       permissionIntegrity: [],
       recommendedActions: ["review-project-context", "sync-repo-shims", "review-native-projection-drift"],
     });
@@ -847,6 +848,7 @@ describe("operator workspace home projection", () => {
       },
       repoShims: [],
       nativeProjections: [],
+      globalInstructionShims: [],
       permissionIntegrity: [{
         harness: "codex",
         desired: {
@@ -879,6 +881,8 @@ describe("operator workspace home projection", () => {
           revocable: true,
         },
         semanticLoss: [],
+        semanticLimitations: [],
+        limitationAcceptances: [],
         classification: "runtime-policy-mismatch",
         recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
         remediationRequiresApproval: true,

@@ -74,14 +74,14 @@ describe("operator surface capability contract", () => {
   });
 
   it("allows native as an operator session event source surface", () => {
-    const frame: GuiInboundFrame = {
+    const frame = {
       type: "session_event",
       event: {
         eventId: "session-1:native:1",
         kilnSessionId: "session-1",
         sequence: 1,
         timestamp: "2026-05-14T12:00:00.000Z",
-        kind: "session_started",
+        kind: "turn_started",
         source: {
           actor: "runtime",
           surface: "native",
@@ -89,7 +89,7 @@ describe("operator surface capability contract", () => {
         },
         payload: {},
       },
-    };
+    } satisfies GuiInboundFrame;
 
     expect(frame.event.source?.surface).toBe("native");
   });

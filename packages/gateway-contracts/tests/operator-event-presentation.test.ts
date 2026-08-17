@@ -5,11 +5,11 @@ import {
   operatorEventTargetsSurface,
   presentOperatorEventPayload,
 } from "../src/operator-event-presentation.js";
-import { managedAccountLeaseEvents } from "./fixtures/managed-account-lease.js";
+import { managedAccountLeaseSettledEvent } from "./fixtures/managed-account-lease.js";
 
 describe("operator event presentation", () => {
   it("presents canonical managed account affinity commit evidence", () => {
-    const completed = structuredClone(managedAccountLeaseEvents[1]);
+    const completed = structuredClone(managedAccountLeaseSettledEvent);
     const payload = completed.payload as Record<string, unknown> & {
       managedInvocationEvidence: {
         lifecycle: {

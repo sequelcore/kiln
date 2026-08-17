@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { EffectivePromptObservation } from "../src/index.js";
 import {
   EffectivePromptObservationSchema,
   formatEffectivePromptObservation,
   presentOperatorEventPayload,
 } from "../src/index.js";
 
-const observation = {
+const observation: EffectivePromptObservation = {
   version: "v1",
   requestIndex: 1,
   providerId: "codex-oauth",
@@ -36,7 +37,7 @@ const observation = {
     estimatedTokens: 120,
   },
   evidenceIdentity: `sha256:${"2".repeat(64)}`,
-} as const;
+};
 
 const communicationResolution = {
   version: "v1",

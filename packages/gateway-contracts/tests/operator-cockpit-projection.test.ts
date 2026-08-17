@@ -13,6 +13,7 @@ import {
 import {
   MANAGED_ACCOUNT_LEASE_FIXTURE,
   managedAccountLeaseEvents,
+  managedAccountLeaseSettledEvent,
 } from "./fixtures/managed-account-lease.js";
 import {
   MANAGED_ECONOMIC_LIFECYCLE_FIXTURE,
@@ -87,7 +88,7 @@ describe("operator cockpit read-only projection", () => {
   });
 
   it("rejects contradictory managed account usage evidence", () => {
-    const event = structuredClone(managedAccountLeaseEvents[1]) as OperatorSessionEvent;
+    const event = structuredClone(managedAccountLeaseSettledEvent);
     const payload = event.payload as Record<string, unknown> & {
       managedInvocationEvidence: {
         lifecycle: {
@@ -117,7 +118,10 @@ describe("operator cockpit read-only projection", () => {
   });
 
   it("projects successful managed affinity commit evidence without deriving policy", () => {
-    const completed = structuredClone(managedAccountLeaseEvents[1]) as OperatorSessionEvent;
+    const completed: OperatorSessionEvent = {
+      ...structuredClone(managedAccountLeaseSettledEvent),
+      kind: "agent_invocation_completed",
+    };
     const payload = completed.payload as Record<string, unknown> & {
       lifecycleState: string;
       managedInvocationEvidence: {
@@ -131,7 +135,6 @@ describe("operator cockpit read-only projection", () => {
         };
       };
     };
-    completed.kind = "agent_invocation_completed";
     payload.lifecycleState = "completed";
     payload.managedInvocationEvidence.lifecycle.accountLease.affinityCommitOutcome = "won";
     payload.managedInvocationEvidence.lifecycle.accountLease.diagnosticUris = [];

@@ -3,7 +3,7 @@ import { renderHook, act } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { KilnProvider } from "../src/provider.js";
 import { useKilnChat } from "../src/use-kiln-chat.js";
-import type { KilnConfig, ChatMessage } from "../src/types.js";
+import type { KilnConfig } from "../src/types.js";
 import type { ContentPart } from "@kilnai/core/engine";
 
 const communicationEvidence = {
@@ -32,29 +32,33 @@ const communicationEvidence = {
 
 function createWrapper(config: KilnConfig) {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(KilnProvider, { config }, children);
+    return createElement(KilnProvider, { config, children });
   };
 }
 
 function mockFetch(response: unknown) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(response),
-    }),
-  );
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve(response),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 function mockFetchError(status: number, statusText: string) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: false,
-      status,
-      statusText,
-    }),
-  );
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: false,
+    status,
+    statusText,
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function capturedFetchCall(fetchMock: ReturnType<typeof mockFetch>) {
+  const call = fetchMock.mock.calls[0];
+  expect(call).toBeDefined();
+  return call!;
 }
 
 describe("useKilnChat", () => {
@@ -132,7 +136,7 @@ describe("useKilnChat", () => {
     });
 
     expect(result.current.messages).toHaveLength(2);
-    const assistantMsg = result.current.messages[1];
+    const assistantMsg = result.current.messages[1]!;
     expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.content).toBe("assistant reply");
     expect(result.current.communicationEvidence).toEqual(communicationEvidence);
@@ -153,12 +157,14 @@ describe("useKilnChat", () => {
       await result.current.send("hello");
     });
 
-    const assistantMsg = result.current.messages[1];
+    expect(result.current.messages).toHaveLength(2);
+    const assistantMsg = result.current.messages[1]!;
+    expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.parts).toEqual(responseParts);
   });
 
   it("send() posts parts in request body when content is ContentPart[]", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const parts: ContentPart[] = [
       { type: "text", text: "describe this" },
@@ -172,13 +178,13 @@ describe("useKilnChat", () => {
       await result.current.send(parts);
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.parts).toEqual(parts);
   });
 
   it("send() posts requestedAuthority from per-send options", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -191,14 +197,14 @@ describe("useKilnChat", () => {
       });
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.requestedAuthority).toBe("audited");
     expect(body.communicationIntent).toEqual({ responseDetail: "concise", requiredContent: ["warning"] });
   });
 
   it("send() posts requestedAuthority from hook options", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat({ requestedAuthority: "read_only" }), {
       wrapper: createWrapper(config),
@@ -208,13 +214,13 @@ describe("useKilnChat", () => {
       await result.current.send("just text");
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.requestedAuthority).toBe("read_only");
   });
 
   it("send() does not include parts in request body for string content", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -224,7 +230,7 @@ describe("useKilnChat", () => {
       await result.current.send("just text");
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.parts).toBeUndefined();
   });
@@ -324,8 +330,9 @@ describe("useKilnChat", () => {
       await result.current.send("first");
     });
 
-    expect(result.current.messages[0].id).toBe("1"); // user
-    expect(result.current.messages[1].id).toBe("2"); // assistant
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]!.id).toBe("1"); // user
+    expect(result.current.messages[1]!.id).toBe("2"); // assistant
 
     mockFetch({ content: "reply 2" });
 
@@ -333,12 +340,13 @@ describe("useKilnChat", () => {
       await result.current.send("second");
     });
 
-    expect(result.current.messages[2].id).toBe("3"); // user
-    expect(result.current.messages[3].id).toBe("4"); // assistant
+    expect(result.current.messages).toHaveLength(4);
+    expect(result.current.messages[2]!.id).toBe("3"); // user
+    expect(result.current.messages[3]!.id).toBe("4"); // assistant
   });
 
   it("sends to correct URL with appName from config", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const { result } = renderHook(() => useKilnChat(), {
       wrapper: createWrapper(config),
@@ -348,12 +356,12 @@ describe("useKilnChat", () => {
       await result.current.send("hello");
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     expect(fetchCall[0]).toBe("http://localhost:4000/apps/test-app/message");
   });
 
   it("uses appName from options over config", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const { result } = renderHook(
       () => useKilnChat({ appName: "override-app" }),
@@ -364,12 +372,12 @@ describe("useKilnChat", () => {
       await result.current.send("hello");
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     expect(fetchCall[0]).toBe("http://localhost:4000/apps/override-app/message");
   });
 
   it("includes userId and sessionId in request body", async () => {
-    mockFetch({ content: "ok" });
+    const fetchMock = mockFetch({ content: "ok" });
 
     const { result } = renderHook(
       () => useKilnChat({ sessionId: "sess-42" }),
@@ -380,7 +388,7 @@ describe("useKilnChat", () => {
       await result.current.send("hello");
     });
 
-    const fetchCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const fetchCall = capturedFetchCall(fetchMock);
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.userId).toBe("user-1");
     expect(body.sessionId).toBe("sess-42");

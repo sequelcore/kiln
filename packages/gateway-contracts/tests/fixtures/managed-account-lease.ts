@@ -9,10 +9,12 @@ export const MANAGED_ACCOUNT_LEASE_FIXTURE = {
   leaseId: "fixture-account-lease",
   lifecycleState: "released",
   pendingLifecycleState: "settlement-pending",
+  releasedAt: "2026-07-28T12:00:01.000Z",
   selectionReason: "least-pressure",
 } as const;
 
-export const managedAccountLeaseEvents: readonly OperatorSessionEvent[] = [{
+/** Lease evidence while settlement is still pending, so no release instant is observable yet. */
+export const managedAccountLeasePendingEvent: OperatorSessionEvent = {
   eventId: "fixture-account-lease-event",
   kilnSessionId: MANAGED_ACCOUNT_LEASE_FIXTURE.sessionId,
   sequence: 1,
@@ -61,7 +63,10 @@ export const managedAccountLeaseEvents: readonly OperatorSessionEvent[] = [{
       },
     },
   },
-}, {
+};
+
+/** Lease evidence after settlement, carrying the release instant the contract requires. */
+export const managedAccountLeaseSettledEvent: OperatorSessionEvent = {
   eventId: "fixture-account-lease-settled-event",
   kilnSessionId: MANAGED_ACCOUNT_LEASE_FIXTURE.sessionId,
   sequence: 2,
@@ -104,11 +109,16 @@ export const managedAccountLeaseEvents: readonly OperatorSessionEvent[] = [{
           },
           acquiredAt: "2026-07-28T11:59:00.000Z",
           lifecycleState: MANAGED_ACCOUNT_LEASE_FIXTURE.lifecycleState,
-          releasedAt: "2026-07-28T12:00:01.000Z",
+          releasedAt: MANAGED_ACCOUNT_LEASE_FIXTURE.releasedAt,
           resourceUris: ["kiln://managed-accounts/leases/fixture-account-lease"],
           diagnosticUris: ["kiln://managed-accounts/leases/fixture-account-lease/settlement-pending"],
         },
       },
     },
   },
-}];
+};
+
+export const managedAccountLeaseEvents: readonly OperatorSessionEvent[] = [
+  managedAccountLeasePendingEvent,
+  managedAccountLeaseSettledEvent,
+];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  AvailableModelCatalog,
   ExecutionRouteCatalog,
   GuiInboundFrame,
   GuiProviderModelDiscoveryProjection,
@@ -121,6 +122,51 @@ function createCatalog(): ExecutionRouteCatalog {
   };
 }
 
+/**
+ * Discovery/configuration evidence for the same models. None of the discovered
+ * models matches the single configured route, so every entry is unconfigured.
+ */
+function createAvailableModels(): AvailableModelCatalog {
+  return {
+    observedAt: "2026-07-01T16:00:00.000Z",
+    entries: [
+      {
+        providerId: "anthropic",
+        providerRouteId: "account:primary",
+        providerModelId: "claude-4-stale",
+        discoveryState: "stale",
+        eligibilityState: "ineligible",
+        availabilityState: "unknown",
+        configuredState: "unconfigured",
+        configuredRouteRefs: [],
+        reasonCodes: ["discovery-stale", "policy-ineligible", "availability-unknown", "route-not-configured"],
+      },
+      {
+        providerId: "codex-oauth",
+        providerRouteId: "account:primary",
+        providerModelId: "gpt-5.5",
+        discoveryState: "observed",
+        eligibilityState: "eligible",
+        availabilityState: "available",
+        configuredState: "unconfigured",
+        configuredRouteRefs: [],
+        reasonCodes: ["discovery-observed", "model-eligible", "model-available", "route-not-configured"],
+      },
+      {
+        providerId: "opencode-go",
+        providerRouteId: "account:primary",
+        providerModelId: "deepseek-v4-pro",
+        discoveryState: "observed",
+        eligibilityState: "ineligible",
+        availabilityState: "unavailable",
+        configuredState: "unconfigured",
+        configuredRouteRefs: [],
+        reasonCodes: ["discovery-observed", "policy-ineligible", "model-unavailable", "route-not-configured"],
+      },
+    ],
+  };
+}
+
 describe("provider model discovery frames", () => {
   it("retains the provider-neutral public projection as setup evidence after auth", () => {
     const providerModelDiscovery = createProjection();
@@ -132,6 +178,7 @@ describe("provider model discovery frames", () => {
       models: { "codex-oauth": ["gpt-5.5"] },
       providerDiscovery: [],
       providerModelDiscovery,
+      availableModels: createAvailableModels(),
     };
 
     if (frame.type !== "provider_auth_completed") throw new Error("unexpected frame");

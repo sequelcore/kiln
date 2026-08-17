@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  AvailableModelCatalog,
   ExecutionRouteCatalog,
   ExecutionRouteSelectionIntent,
   GuiInboundFrame,
@@ -52,6 +53,46 @@ const catalog: ExecutionRouteCatalog = {
       availability: "unresolved",
       reasonCodes: ["route-evidence-pending"],
       repairActions: ["refresh-route-catalog"],
+    },
+  ],
+};
+
+/** Discovery/configuration evidence for the same routes; never a selection authority. */
+const availableModels: AvailableModelCatalog = {
+  observedAt: "2026-08-11T00:00:00.000Z",
+  entries: [
+    {
+      providerId: "codex-oauth",
+      providerRouteId: "terra",
+      providerModelId: "gpt-5.6-terra",
+      discoveryState: "observed",
+      eligibilityState: "eligible",
+      availabilityState: "available",
+      configuredState: "configured",
+      configuredRouteRefs: [{ routeId: "terra", label: "Terra" }],
+      reasonCodes: ["discovery-observed", "model-available", "configured-route-present"],
+    },
+    {
+      providerId: "anthropic",
+      providerRouteId: "sonnet",
+      providerModelId: "claude-sonnet",
+      discoveryState: "observed",
+      eligibilityState: "unknown",
+      availabilityState: "unavailable",
+      configuredState: "configured",
+      configuredRouteRefs: [{ routeId: "sonnet", label: "Sonnet" }],
+      reasonCodes: ["discovery-observed", "model-unavailable", "configured-route-present"],
+    },
+    {
+      providerId: "ollama",
+      providerRouteId: "local",
+      providerModelId: "llama",
+      discoveryState: "stale",
+      eligibilityState: "unknown",
+      availabilityState: "unknown",
+      configuredState: "configured",
+      configuredRouteRefs: [{ routeId: "local", label: "Local" }],
+      reasonCodes: ["discovery-stale", "availability-unknown", "configured-route-present"],
     },
   ],
 };
@@ -118,10 +159,11 @@ describe("execution target wire contract", () => {
   });
 
   it("uses route identity for welcome, done, and session evidence while retaining derived provider/model facts", () => {
-    const welcome: GuiInboundFrame = {
+    const welcome = {
       type: "welcome",
       executionRouteCatalog: catalog,
-    };
+      availableModels,
+    } satisfies GuiInboundFrame;
     const done: GuiInboundFrame = {
       type: "done",
       kilnSessionId: "session-1",

@@ -44,7 +44,7 @@ describe("harness-neutral ingress contract", () => {
   });
 
   it("parses content parts as the alternate, unambiguous turn content form", () => {
-    expect(parseHarnessIngressClientFrame({
+    const parsed = parseHarnessIngressClientFrame({
       protocolVersion: HARNESS_INGRESS_PROTOCOL_VERSION,
       type: "turn_start",
       requestId: "request:turn-parts",
@@ -53,7 +53,10 @@ describe("harness-neutral ingress contract", () => {
         { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
         { type: "file", mimeType: "text/plain", artifactUri: "kiln://artifacts/fixture-1", filename: "fixture.txt" },
       ],
-    }, transportIdentity).parts).toHaveLength(3);
+    }, transportIdentity);
+
+    if (parsed.type !== "turn_start") throw new Error("expected a turn_start frame");
+    expect(parsed.parts).toHaveLength(3);
   });
 
   it("parses a versioned cancellation request without client-controlled tenancy identity", () => {

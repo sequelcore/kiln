@@ -185,34 +185,48 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
 - [#85](https://github.com/sequelcore/kiln/issues/85) — Test sources are largely untypechecked. Package build configs use
   `include: ["src"]` and exclude `src/**/*.test.ts`, while suites live in
   `tests/`, so type drift between tests and source has been invisible. The
-  `typecheck:tests` gate now exists and admits packages one at a time; only
-  `@kilnai/tools` currently qualifies.
+  `typecheck:tests` gate now exists and admits packages one at a time;
+  `@kilnai/tools`, `@kilnai/gateway-contracts`, and `@kilnai/sdk` currently
+  qualify.
 
-  Measured backlog, compiling each package's `src` and `tests` together with
-  `rootDir` at the package root:
+  Remaining backlog, measured by extending each package's own `tsconfig.json`
+  with `rootDir` at the package root so `src` and `tests` compile together:
 
   | Package | Errors |
   | --- | --- |
-  | tools | 0 |
-  | gateway-contracts | 16 |
-  | sdk | 90 |
+  | tools | 0 (admitted) |
+  | gateway-contracts | 0 (admitted) |
+  | sdk | 0 (admitted) |
   | tui | 129 |
-  | cli | 280 |
+  | cli | 281 |
   | core | 488 |
-  | native | 596 |
-  | runtime | 1092 |
+  | native | 262 |
+  | runtime | 1087 |
 
-  The `native`, `tui`, and `sdk` counts are inflated by configuration rather
-  than drift: `native` reports mostly `TS17004` because the probe config does
-  not enable JSX, and `tui` and `sdk` report `TS6059` for paths outside their
-  `rootDir`. Those need a per-package config before their real counts are known.
+  The `sdk` admission needed one structural deviation from the package-root
+  `rootDir`: its `operator-governance-exports` suite imports
+  `gateway-contracts/tests/fixtures/*`, which pulls `gateway-contracts/src`
+  into the `sdk` program. A package-root `rootDir` therefore reports 44
+  `TS6059` violations that cannot be resolved from inside `sdk`, so
+  `packages/sdk/tsconfig.test.json` uses `"rootDir": "../.."` (the monorepo
+  root) instead. No compiler option is loosened; the same pattern will apply
+  to `tui`, `native`, `cli`, and `gui`, which share the fixtures.
 
-  The remainder are genuine. Samples: `content` asserted on `IncomingMessage`
+  Extending each package's own config resolves the measurement artifacts of the
+  first probe: `native` fell from 596 to 262 because the package config enables
+  JSX, removing the `TS17004` inflation, and `tui` and `sdk` no longer report
+  `TS6059` for paths outside their `rootDir`. These counts are drift.
+
+  The drift is genuine. Samples: `content` asserted on `IncomingMessage`
   which no longer declares it; `expiresAt` on a route-capability snapshot that
   no longer declares it; `"session_started"` used where `OperatorSessionEventKind`
   no longer admits it; `.sort()` called on a `readonly` array. These tests pass
   because the extra properties are ignored at runtime, so they assert against
-  contracts that no longer exist. The defect fixed in
+  contracts that no longer exist. The `gateway-contracts` admission confirmed the
+  class empirically: a lease-projection test read `releasedAt` from a fixture
+  constant that never declared it, so its rejection assertion passed on a missing
+  release instant rather than on the invalid affinity discriminator it named. The
+  defect fixed in
   `managed-agent-route-catalog.test.ts` during this work — calling `.some()` on
   an optional `agentHealth` — is the same class and would have been a compile
   error under this gate.

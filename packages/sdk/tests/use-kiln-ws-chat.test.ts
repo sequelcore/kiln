@@ -71,7 +71,7 @@ class MockWebSocket {
 
 function createWrapper(config: KilnConfig) {
   return function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(KilnProvider, { config }, children);
+    return createElement(KilnProvider, { config, children });
   };
 }
 
@@ -95,7 +95,7 @@ describe("useKilnWsChat", () => {
     renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
 
     expect(MockWebSocket.instances).toHaveLength(1);
-    expect(MockWebSocket.instances[0].url).toBe(
+    expect(MockWebSocket.instances[0]!.url).toBe(
       "ws://localhost:4000/apps/test-app/ws?userId=user-1",
     );
   });
@@ -104,7 +104,7 @@ describe("useKilnWsChat", () => {
     const httpsConfig: KilnConfig = { ...config, baseUrl: "https://api.example.com" };
     renderHook(() => useKilnWsChat(), { wrapper: createWrapper(httpsConfig) });
 
-    expect(MockWebSocket.instances[0].url).toMatch(/^wss:\/\//);
+    expect(MockWebSocket.instances[0]!.url).toMatch(/^wss:\/\//);
   });
 
   it("adds user message to messages on send", async () => {
@@ -113,7 +113,7 @@ describe("useKilnWsChat", () => {
     // Wait for WS to connect
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
-      MockWebSocket.instances[0].readyState = WebSocket.OPEN;
+      MockWebSocket.instances[0]!.readyState = WebSocket.OPEN;
     });
 
     await act(async () => {
@@ -121,13 +121,13 @@ describe("useKilnWsChat", () => {
     });
 
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].role).toBe("user");
-    expect(result.current.messages[0].content).toBe("hello");
+    expect(result.current.messages[0]!.role).toBe("user");
+    expect(result.current.messages[0]!.content).toBe("hello");
   });
 
   it("sends requestedAuthority in the message frame", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -151,7 +151,7 @@ describe("useKilnWsChat", () => {
 
   it("sets isLoading true on send, false on done frame", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -173,7 +173,7 @@ describe("useKilnWsChat", () => {
 
   it("parses done frame and adds assistant message with content + parts", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -197,7 +197,7 @@ describe("useKilnWsChat", () => {
     });
 
     expect(result.current.messages).toHaveLength(2);
-    const assistantMsg = result.current.messages[1];
+    const assistantMsg = result.current.messages[1]!;
     expect(assistantMsg.role).toBe("assistant");
     expect(assistantMsg.content).toBe("response");
     expect(assistantMsg.parts).toEqual(responseParts);
@@ -206,7 +206,7 @@ describe("useKilnWsChat", () => {
 
   it("handles error frame by setting error state", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -240,7 +240,7 @@ describe("useKilnWsChat", () => {
 
   it("clearMessages resets state", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -267,7 +267,7 @@ describe("useKilnWsChat", () => {
 
   it("closes WebSocket on unmount", async () => {
     const { unmount } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
@@ -281,7 +281,7 @@ describe("useKilnWsChat", () => {
 
   it("sends correctly formatted message frame via WebSocket", async () => {
     const { result } = renderHook(() => useKilnWsChat(), { wrapper: createWrapper(config) });
-    const ws = MockWebSocket.instances[0];
+    const ws = MockWebSocket.instances[0]!;
 
     await act(async () => {
       await new Promise((r) => setTimeout(r, 10));
