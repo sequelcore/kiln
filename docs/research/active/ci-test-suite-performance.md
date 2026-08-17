@@ -199,9 +199,9 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   | sdk | 0 (admitted) |
   | tui | 0 (admitted) |
   | native | 0 (admitted) |
-  | cli | 281 (provisional) |
-  | core | 488 (provisional) |
-  | runtime | 1087 (provisional) |
+  | cli | 281 |
+  | core | 488 |
+  | runtime | 996 |
 
   The `sdk` admission needed one structural deviation from the package-root
   `rootDir`: its `operator-governance-exports` suite imports
@@ -224,9 +224,14 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   `TS17004` at all. Extending `tsconfig.renderer.json`, which is where native's
   JSX and bundler resolution live, exposes the real figure: 5.
 
-  Read the remaining `cli`, `core`, and `runtime` counts with the same caution.
-  Treat the baseline a worker measures against a correct config as authoritative
-  over the number in this table.
+  The remaining three were re-measured after that correction. Each has a real
+  package config rather than a solution file, so extending it is correct, and
+  their error codes are ordinary drift — `TS2322`, `TS2353`, `TS2339`, `TS2345` —
+  with none of the duplicate-identifier clustering that exposed the `native`
+  artifact. `cli` and `core` are confirmed unchanged. `runtime` falls from 1087 to
+  996 once the monorepo-root `rootDir` removes 91 `TS6059` violations from the
+  shared-fixture import. Treat a baseline measured against a correct config as
+  authoritative over this table.
 
   The drift is genuine. Samples: `content` asserted on `IncomingMessage`
   which no longer declares it; `expiresAt` on a route-capability snapshot that
