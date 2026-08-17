@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { coordinationStateToContextCandidates, renderContextBlocks } from "@kilnai/core/context";
+import { coordinationStateToContextCandidates, renderContextBlocks, type ProjectedContextBlock } from "@kilnai/core/context";
 import {
   extractText,
   KilnError,
@@ -9,7 +9,7 @@ import {
   type TtsAdapter,
   type VoiceConfig,
 } from "@kilnai/core/engine";
-import { EventBus, type MultimodalRoutedEvent } from "@kilnai/core/events";
+import { EventBus, type EventMap, type MultimodalRoutedEvent } from "@kilnai/core/events";
 import { InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import { type SkillConfig, SkillRegistry } from "@kilnai/core/skill";
 import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
@@ -17,6 +17,7 @@ import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-
 import { projectAdmittedTurnContext } from "../../src/gateway/message-pipeline/admitted-turn-context.js";
 import { sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline/assistant-egress-text.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
+import type { CanonicalSessionEvent, Capability, AuthorityDescriptor } from "@kilnai/core";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -28,6 +29,7 @@ import { buildTenantSystemPrompt } from "../../src/tenant/system-prompt-builder.
 const processInboundMessage = processAdmittedTurn;
 
 const originalFetch = globalThis.fetch;
+let fetchMock: ReturnType<typeof vi.fn>;
 
 function memoryCandidates(content: string) {
   return [{
@@ -216,10 +218,10 @@ function makeBaseContext(overrides: Partial<AdmittedTurnContext> = {}): Admitted
 
 function getGovernedContextContent(orchestrator: RuntimeSessionOrchestrator): string {
   const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-  const governedContextArg = callArgs[2] as {
-    readonly directives?: string;
-    readonly guidance?: string;
-    readonly evidence?: string;
+  const governedContextArg = callArgs![2] as {
+    readonly directives?: readonly ProjectedContextBlock[];
+    readonly guidance?: readonly ProjectedContextBlock[];
+    readonly evidence?: readonly ProjectedContextBlock[];
   } | undefined;
   return [governedContextArg?.directives, governedContextArg?.guidance, governedContextArg?.evidence]
     .map((blocks) => blocks ? renderContextBlocks(blocks) : undefined)
@@ -229,10 +231,11 @@ function getGovernedContextContent(orchestrator: RuntimeSessionOrchestrator): st
 
 describe("processAdmittedTurn", () => {
   beforeEach(() => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ allowed: true, remaining: 50000, unit: "tokens" }),
     });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
 
   afterEach(() => {
@@ -301,7 +304,7 @@ describe("processAdmittedTurn", () => {
   it("publishes persisted completion context usage through the canonical event stream", async () => {
     const session = makeMockSession();
     const sessionRegistry = makeMockSessionRegistry(session);
-    const published: Array<readonly Record<string, unknown>[]> = [];
+    const published: Array<readonly CanonicalSessionEvent[]> = [];
 
     const result = await processInboundMessage(makeBaseContext({
       sessionRegistry,
@@ -418,10 +421,11 @@ describe("processAdmittedTurn", () => {
   });
 
   it("returns ok:false with budgetDenied when budget exhausted", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ allowed: false, remaining: 0, unit: "tokens" }),
     });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const ctx = makeBaseContext({ billing: makeBillingConfig() });
 
@@ -533,7 +537,7 @@ describe("processAdmittedTurn", () => {
       processMessage: vi.fn().mockImplementation(async (...args: unknown[]) => {
         observedProviderCalls.push(args);
         expect(session.sessionEvents).toEqual([]);
-        eventBus.emit({
+        const __event_0: EventMap["cost_update"] = {
           type: "cost_update",
           provider: "codex-oauth",
           model: "gpt-5.5",
@@ -547,7 +551,8 @@ describe("processAdmittedTurn", () => {
           byRoleModel: {},
           timestamp: new Date("2026-06-30T12:00:01.000Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_0);
         return {
           parts: textParts("neutral response"),
           inputTokens: 400,
@@ -630,7 +635,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_1: EventMap["cost_update"] = {
           type: "cost_update",
           provider: "codex-oauth",
           model: "gpt-5.5",
@@ -642,7 +647,8 @@ describe("processAdmittedTurn", () => {
           byRoleModel: {},
           timestamp: new Date("2026-06-30T12:00:01.000Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_1);
         return {
           parts: textParts("done"),
           inputTokens: 10,
@@ -709,7 +715,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_2: EventMap["cost_update"] = {
           type: "cost_update",
           provider: "codex-oauth",
           model: "gpt-5.5",
@@ -721,7 +727,8 @@ describe("processAdmittedTurn", () => {
           byRoleModel: {},
           timestamp: new Date("2026-06-30T12:00:01.000Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_2);
         return {
           parts: textParts("done"),
           inputTokens: 10,
@@ -746,7 +753,8 @@ describe("processAdmittedTurn", () => {
       orchestrator,
       sessionRegistry: makeMockSessionRegistry(session),
       voiceConfig: {
-        tts: { provider: "failing-tts", command: "failing-tts" },
+        stt: { provider: "openai" },
+        tts: { provider: "openai", command: "failing-tts" },
         policy: {
           surfaces: {
             api: {
@@ -782,7 +790,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_3: EventMap["cost_update"] = {
           type: "cost_update",
           provider: "codex-oauth",
           model: "gpt-5.5",
@@ -794,7 +802,8 @@ describe("processAdmittedTurn", () => {
           byRoleModel: {},
           timestamp: new Date("2026-06-30T12:00:01.000Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_3);
         return {
           parts: textParts("done"),
           inputTokens: 10,
@@ -836,14 +845,15 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_4: EventMap["error"] = {
           type: "error",
           code: "EXECUTABLE_SESSION_ERROR",
           message: "Operation aborted",
           taskId: null,
           timestamp: new Date("2026-07-16T01:47:57.582Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_4);
         throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
       }),
       registerTools: vi.fn(),
@@ -876,22 +886,24 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_5: EventMap["error"] = {
           type: "error",
           code: "TOOL_EXECUTION_FAILED",
           message: "Read failed before cancellation",
           taskId: null,
           timestamp: new Date("2026-07-16T01:47:56.000Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_5);
+        const __event_6: EventMap["error"] = {
           type: "error",
           code: "EXECUTABLE_SESSION_ERROR",
           message: "Operation aborted",
           taskId: null,
           timestamp: new Date("2026-07-16T01:47:57.582Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_6);
         throw new KilnError("PROVIDER_UNAVAILABLE", "Runtime provider request was aborted before completion");
       }),
       registerTools: vi.fn(),
@@ -1504,10 +1516,10 @@ describe("processAdmittedTurn", () => {
     // fetch called twice: budget check + usage report
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
 
-    const usageCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
-    expect(usageCall[0]).toBe("https://api.example.com/users/{userId}/ai-usage");
-    expect(usageCall[1]).toMatchObject({ method: "POST" });
-    const usageBody = JSON.parse(usageCall[1].body as string);
+    const usageCall = fetchMock.mock.calls[1];
+    expect(usageCall![0]).toBe("https://api.example.com/users/{userId}/ai-usage");
+    expect(usageCall![1]).toMatchObject({ method: "POST" });
+    const usageBody = JSON.parse(usageCall![1].body as string);
     expect(usageBody.tenantId).toBe("test-tenant");
     expect(usageBody.messages).toBe(1);
     expect(usageBody.tokens).toBe(150); // 100 input + 50 output
@@ -1687,7 +1699,7 @@ describe("processAdmittedTurn", () => {
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
-      knowledgePipeline: knowledgePipeline as AdmittedTurnContext["knowledgePipeline"],
+      knowledgePipeline: knowledgePipeline as unknown as AdmittedTurnContext["knowledgePipeline"],
       knowledgeMode: "auto",
     });
 
@@ -1719,10 +1731,15 @@ describe("processAdmittedTurn", () => {
       },
       tags: new Set(["builtin"]),
     }];
-    const capabilities = new Map<string, unknown>([
-      ["mock_tool", { name: "mock_tool" }],
+    const capabilities = new Map<string, Capability>([
+      ["mock_tool", {
+        name: "mock_tool",
+        description: "Mock tool",
+        schema: { type: "object", properties: { value: { type: "string" } } },
+        tags: ["builtin"],
+      }],
     ]);
-    const toolAuthority = new Map<string, unknown>([
+    const toolAuthority = new Map<string, AuthorityDescriptor>([
       ["mock_tool", {
         level: 2,
         allowed: true,
@@ -1734,6 +1751,7 @@ describe("processAdmittedTurn", () => {
     const rateLimiter = {
       check: vi.fn().mockReturnValue({ allowed: true }),
       record: vi.fn(),
+      reset: vi.fn(),
     };
 
     const resolveSpy = vi
@@ -1745,8 +1763,8 @@ describe("processAdmittedTurn", () => {
         toolDefinitions,
         capabilities,
         toolAuthority,
-        toolAuthorityClassification: undefined,
-        integrationAuthorityRollup: undefined,
+        toolAuthorityClassification: new Map(),
+        integrationAuthorityRollup: new Map(),
         toolAllowlist,
         rateLimiter,
         executionEnvelope: undefined,
@@ -1766,7 +1784,7 @@ describe("processAdmittedTurn", () => {
     const tenant = {
       tenantId: "tenant-1",
       displayName: "Tenant One",
-    } as AdmittedTurnContext["tenant"];
+    } as unknown as AdmittedTurnContext["tenant"];
     const ctx = makeBaseContext({
       orchestrator,
       sessionRegistry,
@@ -1830,8 +1848,8 @@ describe("processAdmittedTurn", () => {
     await processInboundMessage(ctx);
 
     const governedContext = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[2] as {
-      readonly directives?: readonly { readonly content: string }[];
-      readonly evidence?: readonly { readonly content: string }[];
+      readonly directives?: readonly ProjectedContextBlock[];
+      readonly evidence?: readonly ProjectedContextBlock[];
     };
     expect(renderContextBlocks(governedContext.directives ?? [])).toContain("Authority mode: auto.");
     expect(renderContextBlocks(governedContext.evidence ?? [])?.startsWith("[User Context]:")).toBe(true);
@@ -1866,6 +1884,8 @@ describe("processAdmittedTurn", () => {
       decision: {
         resumeStrategy: "none",
         cachedResumeSignalCount: 0,
+        hasCachedResumeContext: false,
+        shouldUseProviderNativeResume: false,
       },
     } as ReturnType<typeof readRuntimeSupportArtifactsDetailed>);
     const orchestrator = makeMockOrchestrator();
@@ -1910,6 +1930,8 @@ describe("processAdmittedTurn", () => {
       decision: {
         resumeStrategy: "none",
         cachedResumeSignalCount: 0,
+        hasCachedResumeContext: false,
+        shouldUseProviderNativeResume: false,
       },
     } as ReturnType<typeof readRuntimeSupportArtifactsDetailed>);
     const orchestrator = makeMockOrchestrator();
@@ -1965,7 +1987,7 @@ describe("processAdmittedTurn", () => {
 
     const callArgs = (orchestrator.processMessage as ReturnType<typeof vi.fn>).mock.calls[0];
     const governedContextContent = getGovernedContextContent(orchestrator);
-    const perCallConfigArg = callArgs[4] as Record<string, unknown> | undefined;
+    const perCallConfigArg = callArgs![4] as Record<string, unknown> | undefined;
 
     expect(governedContextContent).toBeDefined();
     expect(governedContextContent).toContain("Skill");
@@ -2383,8 +2405,8 @@ describe("processAdmittedTurn", () => {
     await processInboundMessage(ctx);
 
     // Budget check should use tenantId
-    const budgetCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(budgetCall[0]).toBe("https://api.example.com/users/tenant-1/ai-budget");
+    const budgetCall = fetchMock.mock.calls[0];
+    expect(budgetCall![0]).toBe("https://api.example.com/users/tenant-1/ai-budget");
   });
 
   it("allow egress decision keeps assistant response unchanged", async () => {
@@ -2673,23 +2695,25 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_7: EventMap["approval_requested"] = {
           type: "approval_requested",
           approvalId: "approval-main",
           taskId: "",
           description: "Need confirmation",
           timestamp: new Date(),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_7);
+        const __event_8: EventMap["approval_requested"] = {
           type: "approval_requested",
           approvalId: "approval-other",
           taskId: "",
           description: "Other session request",
           timestamp: new Date(),
           sessionId: "other-session",
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_8);
+        const __event_9: EventMap["approval_received"] = {
           type: "approval_received",
           approvalId: "approval-main",
           taskId: "",
@@ -2697,7 +2721,8 @@ describe("processAdmittedTurn", () => {
           reason: "Denied by policy",
           timestamp: new Date(),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_9);
         return {
           parts: textParts("ok"),
           inputTokens: 7,
@@ -2728,7 +2753,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_10: EventMap["tool_authorized"] = {
           type: "tool_authorized",
           toolName: "read_file",
           level: 1,
@@ -2736,8 +2761,9 @@ describe("processAdmittedTurn", () => {
           reason: "Read-only tool, auto-execute",
           timestamp: new Date(),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_10);
+        const __event_11: EventMap["tool_authorized"] = {
           type: "tool_authorized",
           toolName: "delete_file",
           level: 4,
@@ -2745,7 +2771,8 @@ describe("processAdmittedTurn", () => {
           reason: "Destructive operation denied",
           timestamp: new Date(),
           sessionId: "other-session",
-        });
+        };
+        eventBus.emit(__event_11);
         return {
           parts: textParts("ok"),
           inputTokens: 7,
@@ -3004,10 +3031,9 @@ describe("processAdmittedTurn", () => {
   it("captures canonical session ledger events in turn order from runtime bus emissions", async () => {
     const session = makeMockSession();
     const eventBus = new EventBus();
-    const startedAt = new Date("2026-04-23T19:00:00.000Z");
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_12: EventMap["model_routed"] = {
           type: "model_routed",
           provider: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -3015,8 +3041,9 @@ describe("processAdmittedTurn", () => {
           reason: "configured",
           timestamp: new Date("2026-04-23T19:00:01.000Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_12);
+        const __event_13: EventMap["tool_called"] = {
           type: "tool_called",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-write",
@@ -3024,8 +3051,9 @@ describe("processAdmittedTurn", () => {
           toolInput: { filePath: "src/demo.txt", content: "hello" },
           timestamp: new Date("2026-04-23T19:00:02.000Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_13);
+        const __event_14: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-write",
@@ -3035,8 +3063,9 @@ describe("processAdmittedTurn", () => {
           resultSummary: "Wrote src/demo.txt",
           timestamp: new Date("2026-04-23T19:00:03.000Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_14);
+        const __event_15: EventMap["cost_update"] = {
           type: "cost_update",
           provider: "codex-oauth",
           model: "gpt-5.4-mini",
@@ -3048,15 +3077,17 @@ describe("processAdmittedTurn", () => {
           byRoleModel: {},
           timestamp: new Date("2026-04-23T19:00:04.000Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_15);
+        const __event_16: EventMap["error"] = {
           type: "error",
           code: "MODE_B_ERROR",
           message: "Synthetic runtime error",
           taskId: null,
           timestamp: new Date("2026-04-23T19:00:05.000Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_16);
         return {
           parts: textParts("done"),
           inputTokens: 10,
@@ -3134,7 +3165,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_17: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-work-start-failed",
@@ -3150,7 +3181,8 @@ describe("processAdmittedTurn", () => {
           },
           timestamp: new Date("2026-05-18T22:06:40.618Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_17);
         return {
           parts: textParts("Managed scout timed out; the goal is blocked."),
           inputTokens: 10,
@@ -3463,7 +3495,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_18: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-assess",
@@ -3475,8 +3507,9 @@ describe("processAdmittedTurn", () => {
           resultSummary: "recommendation: orchestrate",
           timestamp: new Date("2026-05-19T17:24:41.077Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_18);
+        const __event_19: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-work-item-update",
@@ -3502,8 +3535,9 @@ describe("processAdmittedTurn", () => {
           },
           timestamp: new Date("2026-05-19T17:24:52.365Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_19);
+        const __event_20: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-managed-scout",
@@ -3522,7 +3556,8 @@ describe("processAdmittedTurn", () => {
           },
           timestamp: new Date("2026-05-19T17:25:38.752Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_20);
         return {
           parts: textParts("Created work-1 and completed read-only scouting, but implementation is blocked on write authority."),
           inputTokens: 10,
@@ -3727,7 +3762,7 @@ describe("processAdmittedTurn", () => {
     const eventBus = new EventBus();
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_21: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-work-start-paused",
@@ -3744,8 +3779,9 @@ describe("processAdmittedTurn", () => {
           }),
           timestamp: new Date("2026-05-19T03:42:23.197Z"),
           sessionId: session.id,
-        });
-        eventBus.emit({
+        };
+        eventBus.emit(__event_21);
+        const __event_22: EventMap["tool_result"] = {
           type: "tool_result",
           toolCallScopeId: "turn-1:response:1",
           toolCallId: "tool-managed-scout",
@@ -3762,7 +3798,8 @@ describe("processAdmittedTurn", () => {
           },
           timestamp: new Date("2026-05-19T03:43:06.229Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_22);
         return {
           parts: textParts("I started the governed work; the next concrete step is implementation."),
           inputTokens: 10,
@@ -4059,7 +4096,7 @@ describe("processAdmittedTurn", () => {
       const eventBus = new EventBus();
       const orchestrator = {
         processMessage: vi.fn().mockImplementation(async () => {
-          eventBus.emit({
+          const __event_23: EventMap["tool_result"] = {
             type: "tool_result",
             toolCallScopeId: "turn-1:response:1",
             toolCallId: `tool-managed-${status}`,
@@ -4076,7 +4113,8 @@ describe("processAdmittedTurn", () => {
             },
             timestamp: new Date("2026-05-18T23:37:13.855Z"),
             sessionId: session.id,
-          });
+          };
+          eventBus.emit(__event_23);
           return {
             parts: textParts("The managed child failed; the goal is blocked."),
             inputTokens: 10,
@@ -4242,7 +4280,7 @@ describe("processAdmittedTurn", () => {
     );
     const orchestrator = {
       processMessage: vi.fn().mockImplementation(async () => {
-        eventBus.emit({
+        const __event_24: EventMap["multimodal_routed"] = {
           type: "multimodal_routed",
           provider: "deepseek",
           model: "deepseek-chat",
@@ -4261,7 +4299,8 @@ describe("processAdmittedTurn", () => {
           }],
           timestamp: new Date("2026-05-13T12:00:01.000Z"),
           sessionId: session.id,
-        });
+        };
+        eventBus.emit(__event_24);
         throw unsupported;
       }),
       model: "deepseek-chat",
@@ -4323,7 +4362,7 @@ describe("processAdmittedTurn", () => {
     const orchestrator = {
       processMessage: vi.fn()
         .mockImplementationOnce(async () => {
-          eventBus.emit({
+          const __event_25: EventMap["multimodal_routed"] = {
             type: "multimodal_routed",
             provider: "deepseek",
             model: "deepseek-chat",
@@ -4336,7 +4375,8 @@ describe("processAdmittedTurn", () => {
             diagnostics: [],
             timestamp: new Date("2026-05-13T12:00:01.000Z"),
             sessionId: session.id,
-          });
+          };
+          eventBus.emit(__event_25);
           throw unsupported;
         })
         .mockImplementationOnce(async (runtimeSession: RuntimeSession, userParts: Parameters<RuntimeSession["addUserMessage"]>[0]) => {

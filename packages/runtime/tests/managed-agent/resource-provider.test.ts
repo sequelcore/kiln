@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { MemoryArtifactResourceStore } from "@kilnai/core/tools";
+import { MemoryArtifactResourceStore, type ToolResourceContent } from "@kilnai/core/tools";
 import {
   createManagedAgentInvocationResourceProvider as createScopedManagedAgentInvocationResourceProvider,
   type ManagedAgentRuntimeInvocationSnapshot,
 } from "../../src/agents/managed-invocation/index.js";
 import { buildManagedAgentCoordinationUsage } from "../../src/agents/managed-invocation/coordination-usage.js";
+
+function isTextResourceContent(
+  content: ToolResourceContent,
+): content is Extract<ToolResourceContent, { readonly text: string }> {
+  return "text" in content;
+}
+
+function textOf(content: ToolResourceContent): string {
+  if (!isTextResourceContent(content)) {
+    throw new Error("expected text resource content, got blob");
+  }
+  return content.text;
+}
 
 type ProviderInput = Parameters<typeof createScopedManagedAgentInvocationResourceProvider>[0];
 
@@ -44,7 +57,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(listedUris).toContain("kiln://managed-agents/invocations/child-1");
     expect(listedUris.some((uri) => uri.includes("child-foreign"))).toBe(false);
     const aggregate = await provider.read("kiln://managed-agents/invocations");
-    expect(JSON.parse(aggregate?.contents[0]?.text ?? "{}")).toMatchObject({
+    expect(JSON.parse(textOf(aggregate!.contents[0]!))).toMatchObject({
       total: 1,
       invocations: [{ invocationId: "child-1" }],
     });
@@ -143,7 +156,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         providerIds: ["codex"],
       },
     });
-    const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
+    const aggregatePayload = JSON.parse(textOf(aggregate!.contents[0]!));
     expect(aggregatePayload.invocations[0]).toMatchObject({
       transcriptUri: canonicalTranscriptUri,
       handoffResourceUris: [canonicalTranscriptUri, canonicalSiblingHandoffUri],
@@ -158,7 +171,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(JSON.stringify(aggregatePayload)).not.toContain("kiln://managed-invocations/");
 
     const detail = await provider.read("kiln://managed-agents/invocations/child-1");
-    const detailPayload = JSON.parse(detail!.contents[0]!.text);
+    const detailPayload = JSON.parse(textOf(detail!.contents[0]!));
     expect(detailPayload.invocation).toMatchObject({
       request: {
         resourceUris: [canonicalContextUri, canonicalSiblingHandoffUri],
@@ -190,7 +203,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(JSON.stringify(detailPayload)).not.toContain("kiln://managed-invocations/");
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
-    const resourcePayload = JSON.parse(resources!.contents[0]!.text);
+    const resourcePayload = JSON.parse(textOf(resources!.contents[0]!));
     expect(resourcePayload.sourceResourceUris).toContain(canonicalContextUri);
     expect(resourcePayload.resourceUris).toContain(canonicalContextUri);
     expect(resourcePayload.resourceUris).toContain(canonicalTranscriptUri);
@@ -201,9 +214,9 @@ describe("createManagedAgentInvocationResourceProvider", () => {
       uri: canonicalTranscriptUri,
       mimeType: "text/markdown",
     });
-    expect(transcript!.contents[0]!.text).toContain("# Managed Invocation Transcript");
-    expect(transcript!.contents[0]!.text).toContain("Invocation ID: child-1");
-    expect(transcript!.contents[0]!.text).not.toContain("kiln://managed-invocations/");
+    expect(textOf(transcript!.contents[0]!)).toContain("# Managed Invocation Transcript");
+    expect(textOf(transcript!.contents[0]!)).toContain("Invocation ID: child-1");
+    expect(textOf(transcript!.contents[0]!)).not.toContain("kiln://managed-invocations/");
   });
 
   it("does not summarize cancelled stale or recovered invocations as running", async () => {
@@ -250,10 +263,10 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const detail = await provider.read("kiln://managed-agents/invocations/child-1");
-    expect(JSON.parse(detail!.contents[0]!.text).invocation).toMatchObject({
+    expect(JSON.parse(textOf(detail!.contents[0]!)).invocation).toMatchObject({
       efficiencyEvidenceStatus: "unavailable",
     });
-    expect(JSON.parse(detail!.contents[0]!.text).invocation).not.toHaveProperty("efficiencyEvidence");
+    expect(JSON.parse(textOf(detail!.contents[0]!)).invocation).not.toHaveProperty("efficiencyEvidence");
   });
 
   it.each([
@@ -287,7 +300,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const detail = await provider.read("kiln://managed-agents/invocations/child-1");
-    expect(JSON.parse(detail!.contents[0]!.text).invocation).toMatchObject({
+    expect(JSON.parse(textOf(detail!.contents[0]!)).invocation).toMatchObject({
       efficiencyEvidenceStatus: "unavailable",
     });
   });
@@ -319,7 +332,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
-    expect(JSON.parse(resources!.contents[0]!.text).resourceUris).toContain(canonicalResultUri);
+    expect(JSON.parse(textOf(resources!.contents[0]!)).resourceUris).toContain(canonicalResultUri);
 
     const resultResource = await provider.read(canonicalResultUri);
     expect(resultResource!.contents[0]).toMatchObject({
@@ -362,7 +375,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
-    expect(JSON.parse(resources!.contents[0]!.text).resourceUris).toContain(canonicalExecutionUri);
+    expect(JSON.parse(textOf(resources!.contents[0]!)).resourceUris).toContain(canonicalExecutionUri);
 
     const childExecutionResource = await provider.read(canonicalExecutionUri);
     expect(childExecutionResource!.contents[0]).toMatchObject({
@@ -400,7 +413,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
-    const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
+    const aggregatePayload = JSON.parse(textOf(aggregate!.contents[0]!));
     const resultArtifactUri = aggregatePayload.invocations[0].handoffResourceUris.find((uri: string) =>
       uri.startsWith("kiln://artifacts/managed-invocations/")
     );
@@ -439,7 +452,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
-    expect(JSON.parse(aggregate!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(aggregate!.contents[0]!))).toMatchObject({
       total: 1,
       invocations: [{
         invocationId: "child-1",
@@ -461,12 +474,12 @@ describe("createManagedAgentInvocationResourceProvider", () => {
       uri: "kiln://managed-agents/invocations/child-1/transcript",
       mimeType: "text/markdown",
     });
-    expect(transcript!.contents[0]!.text).toContain("# Managed Invocation Transcript");
-    expect(transcript!.contents[0]!.text).toContain("Invocation ID: child-1");
-    expect(transcript!.contents[0]!.text).toContain("Child completed.");
+    expect(textOf(transcript!.contents[0]!)).toContain("# Managed Invocation Transcript");
+    expect(textOf(transcript!.contents[0]!)).toContain("Invocation ID: child-1");
+    expect(textOf(transcript!.contents[0]!)).toContain("Child completed.");
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-1/resources");
-    expect(JSON.parse(resources!.contents[0]!.text)).toEqual({
+    expect(JSON.parse(textOf(resources!.contents[0]!))).toEqual({
       invocationId: "child-1",
       sourceResourceUris: ["kiln://session/work-items/work-1"],
       resourceUris: [
@@ -482,11 +495,11 @@ describe("createManagedAgentInvocationResourceProvider", () => {
         "kiln://artifacts/child-1/decision-worktree-review-required",
       ],
     });
-    const resourceUris = JSON.parse(resources!.contents[0]!.text).resourceUris as readonly string[];
+    const resourceUris = JSON.parse(textOf(resources!.contents[0]!)).resourceUris as readonly string[];
     expect(resourceUris.filter((uri) => uri === "kiln://artifacts/child-1/shared-worktree-review")).toHaveLength(1);
 
     const invocation = await provider.read("kiln://managed-agents/invocations/child-1");
-    const invocationPayload = JSON.parse(invocation!.contents[0]!.text);
+    const invocationPayload = JSON.parse(textOf(invocation!.contents[0]!));
     expect(invocationPayload).toMatchObject({
       invocation: {
         invocationId: "child-1",
@@ -522,7 +535,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
-    expect(JSON.parse(aggregate!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(aggregate!.contents[0]!))).toMatchObject({
       total: 1,
       invocations: [{
         invocationId: "child-timeout",
@@ -535,7 +548,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const invocation = await provider.read("kiln://managed-agents/invocations/child-timeout");
-    expect(JSON.parse(invocation!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(invocation!.contents[0]!))).toMatchObject({
       invocation: {
         invocationId: "child-timeout",
         lifecycleState: "timed_out",
@@ -547,7 +560,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-timeout/resources");
-    expect(JSON.parse(resources!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(resources!.contents[0]!))).toMatchObject({
       invocationId: "child-timeout",
       resourceUris: expect.arrayContaining([
         timeoutUri,
@@ -555,7 +568,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const diagnostic = await provider.read(timeoutUri);
-    const diagnosticPayload = JSON.parse(diagnostic!.contents[0]!.text);
+    const diagnosticPayload = JSON.parse(textOf(diagnostic!.contents[0]!));
     expect(diagnosticPayload).toMatchObject({
       invocationId: "child-timeout",
       resource: {
@@ -583,7 +596,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
-    expect(JSON.parse(aggregate!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(aggregate!.contents[0]!))).toMatchObject({
       total: 1,
       invocations: [{
         invocationId: "child-partial-write",
@@ -601,7 +614,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const resources = await provider.read("kiln://managed-agents/invocations/child-partial-write/resources");
-    const resourceUris = JSON.parse(resources!.contents[0]!.text).resourceUris as readonly string[];
+    const resourceUris = JSON.parse(textOf(resources!.contents[0]!)).resourceUris as readonly string[];
     expect(resourceUris).toEqual(expect.arrayContaining([
       attemptUri,
       diffUri,
@@ -609,7 +622,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     expect(resourceUris.filter((uri) => uri === diffUri)).toHaveLength(1);
 
     const nestedResource = await provider.read(diffUri);
-    expect(JSON.parse(nestedResource!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(nestedResource!.contents[0]!))).toMatchObject({
       invocationId: "child-partial-write",
       resource: {
         invocationId: "child-partial-write",
@@ -627,7 +640,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const invocation = await provider.read("kiln://managed-agents/invocations/child-partial-write");
-    expect(JSON.parse(invocation!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(textOf(invocation!.contents[0]!))).toMatchObject({
       invocation: {
         invocationId: "child-partial-write",
         writeEvidenceResourceUris: [
@@ -653,12 +666,12 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const aggregate = await provider.read("kiln://managed-agents/invocations");
-    const aggregatePayload = JSON.parse(aggregate!.contents[0]!.text);
+    const aggregatePayload = JSON.parse(textOf(aggregate!.contents[0]!));
     expect(JSON.stringify(aggregatePayload)).not.toContain("kiln://managed-invocations/");
     expect(JSON.stringify(aggregatePayload)).toContain("kiln://artifacts/managed-invocations/");
 
     const nestedResource = await provider.read(diffUri);
-    const nestedPayload = JSON.parse(nestedResource!.contents[0]!.text);
+    const nestedPayload = JSON.parse(textOf(nestedResource!.contents[0]!));
     expect(nestedPayload).toMatchObject({
       invocationId: "child-partial-write",
       resource: {
@@ -691,7 +704,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const detail = await provider.read("kiln://managed-agents/invocations/child-1");
-    const invocation = JSON.parse(detail!.contents[0]!.text).invocation;
+    const invocation = JSON.parse(textOf(detail!.contents[0]!)).invocation;
 
     expect(invocation.lifecycleAttribution.summary).toMatchObject({ totalTokens: 120 });
     expect(invocation.lifecycleAttribution.ledger.records).toEqual(expect.arrayContaining([
@@ -760,7 +773,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
               invocationId: snapshot.invocationId,
               childSessionId: snapshot.record!.childSessionId,
               parentPrompt: "Inspect the contract",
-              sourceResourceUris: snapshot.request.input.resourceUris,
+              sourceResourceUris: snapshot.request.input.resourceUris ?? [],
               resultHandoff,
             }),
             resultHandoff,
@@ -770,7 +783,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const detail = await provider.read("kiln://managed-agents/invocations/child-1");
-    const invocation = JSON.parse(detail!.contents[0]!.text).invocation;
+    const invocation = JSON.parse(textOf(detail!.contents[0]!)).invocation;
 
     expect(invocation.efficiencyEvidence.totals.providerTotalTokens).toBe(170);
     expect(invocation.lifecycleAttribution.summary.totalTokens).toBe(170);
@@ -802,7 +815,7 @@ describe("createManagedAgentInvocationResourceProvider", () => {
     });
 
     const detail = await provider.read("kiln://managed-agents/invocations/child-1");
-    const verification = JSON.parse(detail!.contents[0]!.text).invocation.efficiencyEvidence.verification;
+    const verification = JSON.parse(textOf(detail!.contents[0]!)).invocation.efficiencyEvidence.verification;
 
     expect(verification.results).toHaveLength(expectedResults);
     expect(verification.status).toBe(expectedResults === 1 ? "passed" : "not_run");
@@ -830,6 +843,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
     profile: "foundation-apply-approved-writes",
     providerRoute: {
       providerId: "codex",
+      surface: "cli-harness",
       model: "gpt-5.5",
     },
     adapterKind: "harness",
@@ -850,6 +864,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
       requestedAuthority: "audited",
       providerRoute: {
         providerId: "codex",
+        surface: "cli-harness",
         model: "gpt-5.5",
       },
       adapterKind: "harness",
@@ -870,7 +885,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
           expectedEvidence: ["tests"],
         },
       },
-    } as ManagedAgentRuntimeInvocationSnapshot["request"],
+    } as unknown as ManagedAgentRuntimeInvocationSnapshot["request"],
     decision: {
       status: "admitted",
       reason: "admitted",
@@ -913,7 +928,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
           },
         },
       },
-    } as ManagedAgentRuntimeInvocationSnapshot["decision"],
+    } as unknown as ManagedAgentRuntimeInvocationSnapshot["decision"],
     record: {
       invocationId: "child-1",
       agentId: "agent-reviewer",
@@ -923,11 +938,12 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
       lifecycleState: "completed",
       providerRoute: {
         providerId: "codex",
+        surface: "cli-harness",
         model: "gpt-5.5",
       },
       adapterKind: "harness",
       executionMode: "cli-harness",
-      authority: {} as ManagedAgentRuntimeInvocationSnapshot["record"]["authority"],
+      authority: {} as NonNullable<ManagedAgentRuntimeInvocationSnapshot["record"]>["authority"],
       capabilitySnapshot: {
         snapshotId: "child-1:snapshot",
         capturedAt: "2026-05-22T00:00:00.000Z",
@@ -994,7 +1010,7 @@ function managedInvocationSnapshot(): ManagedAgentRuntimeInvocationSnapshot {
           diagnosticUris: ["kiln://artifacts/child-1/record-worktree-review-required"],
         },
       },
-    } as ManagedAgentRuntimeInvocationSnapshot["record"],
+    } as unknown as ManagedAgentRuntimeInvocationSnapshot["record"],
   };
 }
 
@@ -1096,6 +1112,11 @@ function managedInvocationWithLifecycleState(
       invocationId: `child-${lifecycleState}`,
       lifecycleState,
       resultHandoff: {
+        provenance: {
+          delivery: "assistant-text",
+          configuredModelId: "gpt-5.5",
+          observedModelIds: ["gpt-5.5"],
+        },
         summary: `Child ${lifecycleState}.`,
         resourceUris: [],
         memoryWriteProposalUris: [],
@@ -1115,6 +1136,11 @@ function managedInvocationWithPartialWriteEvidence(): ManagedAgentRuntimeInvocat
       invocationId: "child-partial-write",
       lifecycleState: "timed_out",
       resultHandoff: {
+        provenance: {
+          delivery: "assistant-text",
+          configuredModelId: "gpt-5.5",
+          observedModelIds: ["gpt-5.5"],
+        },
         summary: "Managed child timed out after partial write evidence.",
         resourceUris: ["kiln://managed-invocations/child-partial-write/diffs/1"],
         memoryWriteProposalUris: [],
@@ -1150,6 +1176,11 @@ function managedInvocationWithTerminalDiagnostic(): ManagedAgentRuntimeInvocatio
         kind: "timeout",
       }],
       resultHandoff: {
+        provenance: {
+          delivery: "assistant-text",
+          configuredModelId: "gpt-5.5",
+          observedModelIds: ["gpt-5.5"],
+        },
         summary: "Managed child timed out before handoff.",
         resourceUris: [],
         memoryWriteProposalUris: [],

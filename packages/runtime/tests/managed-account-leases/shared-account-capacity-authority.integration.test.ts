@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
-import { createExecutionAccountRef } from "@kilnai/core/agents";
+import { createExecutionAccountRef, createExecutionAccountPolicyId } from "@kilnai/core/agents";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +23,7 @@ afterEach(() => {
 function createAuthority(
   path: string,
   kind: "agent-task-runtime" | "model-gateway-ingress" | "operator-session",
-  domain = kind,
+  domain: string = kind,
   now = () => Date.now(),
 ) {
   const authority = new SqliteManagedAccountLeaseAuthority({
@@ -39,7 +39,7 @@ function capacityInput(id: string, revision = "a".repeat(64)) {
   return {
     runtimeInvocationId: id,
     intentFingerprint: `sha256:${"a".repeat(64)}`,
-    accountPolicyId: "policy",
+    accountPolicyId: createExecutionAccountPolicyId("policy"),
     route,
     candidates: [{
       candidate: { account: createExecutionAccountRef("configured:account"), route, health: "healthy" as const, leaseCapacity: "available" as const, pressure: 0, reservedForNewWork: false },
