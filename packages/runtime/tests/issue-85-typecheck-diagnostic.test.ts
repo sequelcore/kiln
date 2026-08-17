@@ -1,5 +1,15 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, it } from "vitest";
+
+function printBase64(path: string, label: string): void {
+  const encoded = readFileSync(path).toString("base64");
+  console.error(`ISSUE_85_SOURCE_BEGIN ${label}`);
+  for (let offset = 0; offset < encoded.length; offset += 8_000) {
+    console.error(encoded.slice(offset, offset + 8_000));
+  }
+  console.error(`ISSUE_85_SOURCE_END ${label}`);
+}
 
 // Disposable probe: removed before review.
 describe("issue 85 diagnostic probe", () => {
@@ -19,6 +29,8 @@ describe("issue 85 diagnostic probe", () => {
       .split(/\r?\n/u)
       .filter((line) => line.includes("message-pipeline.test.ts") || line.includes("managed-agent/resource-provider.test.ts"));
     console.error(`ISSUE_85_TARGET_DIAGNOSTICS\n${targeted.join("\n")}`);
+    printBase64("packages/runtime/tests/gateway/message-pipeline.test.ts", "message-pipeline.test.ts");
+    printBase64("packages/runtime/tests/managed-agent/resource-provider.test.ts", "resource-provider.test.ts");
     throw new Error("issue 85 diagnostic probe intentionally fails");
   });
 });
