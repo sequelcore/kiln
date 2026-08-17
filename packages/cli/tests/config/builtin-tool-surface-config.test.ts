@@ -74,7 +74,8 @@ describe("builtin tool surface config", () => {
 
       expect(resourceUris).toContain("kiln://external-engagement/artifacts");
       expect(resourceUris).toContain("kiln://external-engagement/artifacts/feature-intake.json");
-      expect(JSON.parse(result.contents[0]?.text ?? "{}")).toMatchObject({
+      const content = result.contents[0];
+      expect(JSON.parse(content && "text" in content ? content.text : "{}")).toMatchObject({
         reportId: "intake-report-1",
       });
     } finally {

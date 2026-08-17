@@ -60,35 +60,6 @@ function mockCoalescedSSEStream(events: string[]): ReadableStream<Uint8Array> {
   });
 }
 
-/**
- * Creates a ReadableStream that fails after emitting N chunks.
- */
-function mockFailingSSEStream(
-  events: string[],
-  failAfter: number,
-  error: Error,
-): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  let emitted = 0;
-  return new ReadableStream({
-    start(controller) {
-      for (const event of events) {
-        if (emitted >= failAfter) {
-          controller.error(error);
-          return;
-        }
-        controller.enqueue(encoder.encode(`data: ${event}\n\n`));
-        emitted++;
-      }
-      if (emitted >= failAfter) {
-        controller.error(error);
-        return;
-      }
-      controller.close();
-    },
-  });
-}
-
 function makeChunk(delta: Record<string, unknown>): string {
   return JSON.stringify({ choices: [{ delta }] });
 }

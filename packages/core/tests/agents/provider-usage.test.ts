@@ -101,6 +101,7 @@ describe("provider usage snapshot", () => {
       validUntil: "2026-07-22T11:59:59.000Z",
       source: "unknown",
       confidence: "unknown",
+      exhaustionReason: null,
     })).toThrow(/validUntil/);
   });
 

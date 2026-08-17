@@ -25,14 +25,6 @@ function makePlan(tasks: ArchitectPlan["tasks"]): ArchitectPlan {
   };
 }
 
-const successHandler = async (task: TaskNode, _workerIndex: number): Promise<BatchResult> => ({
-  taskId: task.id,
-  success: true,
-  output: `Completed: ${task.statement}`,
-  evidence: [`Evidence for ${task.statement}`],
-  durationMs: 100,
-});
-
 describe("Orchestrator tree integration", () => {
   it("loadPlan populates tree from Architect plan (root tasks)", () => {
     const orch = new Orchestrator(makeConfig());

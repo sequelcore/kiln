@@ -21,7 +21,7 @@ describe("resource tools", () => {
     const uri = `kiln://artifacts/transcripts/${artifact.id}/content`;
     const resourceReadTool = surface.registry.lookup("resource_read");
 
-    const first = await resourceReadTool?.execute({ input: { uri, limit: 2 } });
+    const first = await resourceReadTool?.execute({ name: "resource_read", input: { uri, limit: 2 } });
     expect(first).toMatchObject({
       isError: false,
       output: expect.stringContaining("line 1\nline 2"),
@@ -44,9 +44,12 @@ describe("resource tools", () => {
     const firstOutput = String(first?.output);
     expect(firstOutput).toContain('"resource_read"');
     expect(firstOutput).toContain('"nextCursor"');
-    expect(firstOutput).toContain(String(first?.metadata?.nextCursor));
+    const firstMetadata = first?.metadata;
+    if (firstMetadata?.kind !== "resource") throw new Error("expected resource metadata");
+    expect(firstOutput).toContain(String(firstMetadata.nextCursor));
 
     const second = await resourceReadTool?.execute({
+      name: "resource_read",
       input: {
         uri,
         cursor: readModelVisibleNextCursor(firstOutput),
@@ -90,7 +93,7 @@ describe("resource tools", () => {
     const resourceReadTool = surface.tools.find((tool) => tool.name === "resource_read");
     const uri = `kiln://artifacts/managed-invocations/${artifact.id}/content`;
 
-    const first = await resourceReadTool?.execute({ input: { uri, limit: 2 } });
+    const first = await resourceReadTool?.execute({ name: "resource_read", input: { uri, limit: 2 } });
 
     expect(first).toMatchObject({
       isError: false,
@@ -109,9 +112,12 @@ describe("resource tools", () => {
     });
     const firstOutput = String(first?.output);
     expect(firstOutput).toContain('"resource_read"');
-    expect(firstOutput).toContain(String(first?.metadata?.nextCursor));
+    const firstMetadata = first?.metadata;
+    if (firstMetadata?.kind !== "resource") throw new Error("expected resource metadata");
+    expect(firstOutput).toContain(String(firstMetadata.nextCursor));
 
     const second = await resourceReadTool?.execute({
+      name: "resource_read",
       input: {
         uri,
         cursor: readModelVisibleNextCursor(firstOutput),
@@ -145,6 +151,9 @@ function readModelVisibleNextCursor(output: string): string {
       readonly nextCursor?: unknown;
     };
   };
-  expect(typeof controls.resource_read?.nextCursor).toBe("string");
-  return controls.resource_read.nextCursor;
+  const nextCursor = controls.resource_read?.nextCursor;
+  if (typeof nextCursor !== "string") {
+    throw new Error("expected resource_read nextCursor");
+  }
+  return nextCursor;
 }

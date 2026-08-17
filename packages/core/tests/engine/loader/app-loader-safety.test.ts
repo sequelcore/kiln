@@ -90,8 +90,8 @@ safety:
     expect((topic as { type: "topic"; block?: string[] }).block).toContain("politics");
 
     const competitor = rails.find((r) => r.type === "competitor");
-    expect(competitor).toBeDefined();
-    expect((competitor as { type: "competitor"; competitors: string[] }).competitors).toContain("acme");
+    if (competitor?.type !== "competitor") throw new Error("expected competitor rail");
+    expect(competitor.competitors).toContain("acme");
 
     const escalation = rails.find((r) => r.type === "escalation");
     expect(escalation).toBeDefined();

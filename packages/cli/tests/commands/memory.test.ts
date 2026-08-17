@@ -6,15 +6,10 @@ import { memoryCommand } from "../../src/commands/memory.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => {
     throw new Error("createRegistry not called in memory tests");
   },
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
   kilnYaml: { version: "1" },
 };
 
@@ -35,7 +30,7 @@ describe("memoryCommand", () => {
   it("prints help when no subcommand given", async () => {
     await memoryCommand(MOCK_APP_CONFIG, "", [], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Usage: kiln memory");
     expect(output).toContain("graph");
     expect(output).not.toContain("stats");
@@ -44,7 +39,7 @@ describe("memoryCommand", () => {
   it("reads the Memory Lattice graph through the shared resource plane", async () => {
     await memoryCommand(MOCK_APP_CONFIG, "graph", ["--scope", "project:kiln", "--query", "lattice", "--limit", "25"], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     const payload = JSON.parse(output);
     expect(payload.snapshot).toMatchObject({
       nodes: [],
@@ -61,7 +56,7 @@ describe("memoryCommand", () => {
   it("lists Memory Lattice resource templates for CLI and MCP parity", async () => {
     await memoryCommand(MOCK_APP_CONFIG, "templates", [], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     const templates = JSON.parse(output) as { uriTemplate: string }[];
     expect(templates.map((template) => template.uriTemplate)).toEqual(expect.arrayContaining([
       "kiln://memory/graph{?scope,scopeKind,scopeId,layer,query,depth,limit}",

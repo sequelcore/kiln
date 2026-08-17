@@ -68,7 +68,7 @@ describe("ExecutionRoute data policy", () => {
     ["provider drift", { ...evidence(), providerId: "provider-b" }, "provider-mismatch"],
     ["model drift", { ...evidence(), providerModelId: "model-b" }, "model-mismatch"],
     ["classification widening", { ...evidence(), permittedMaximumClassification: "internal", permittedClassifications: ["public", "internal"] }, "classification-not-permitted"],
-  ])("denies %s before execution", (_case, policy, reason) => {
+  ] as [string, ExecutionRouteDataPolicyEvidence | undefined, string][])("denies %s before execution", (_case, policy, reason) => {
     expect(decideExecutionRouteDataPolicy({
       evidence: policy, providerId: "provider-a", providerModelId: "model-a",
       requestedClassification: "confidential",
@@ -85,7 +85,7 @@ describe("ExecutionRoute data policy", () => {
   });
 
   it("rejects malformed evidence at the canonical definition boundary", () => {
-    expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), sourceDigest: "raw" })).toThrow("sourceDigest");
+    expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), sourceDigest: "raw" } as never)).toThrow("sourceDigest");
     expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), retention: { posture: "zero", days: 1 } })).toThrow("retention");
     expect(() => defineExecutionRouteDataPolicyEvidence({ ...evidence(), permittedClassifications: ["public", "confidential"] })).toThrow("downward-closed");
   });

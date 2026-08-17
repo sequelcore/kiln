@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  FilesystemAgentTaskStore,
   AgentTaskApplicationService,
   RuntimeManagedAgentInvocationService,
   SqliteManagedAccountLeaseAuthority,
@@ -319,7 +318,7 @@ describe("operator project agent-task production composition", () => {
       }],
     });
     const agents = [
-      { name: "economic-worker", role: "Policy-only worker", economicPolicyId: "bounded-policy", authorityProfileId: "test-readonly" },
+      { name: "economic-worker", role: "Policy-only worker", goal: "Policy-only economic worker.", tier: "fast" as const, scope: "project" as const, economicPolicyId: "bounded-policy", authorityProfileId: "test-readonly" },
     ];
 
     expect(summarizeOperatorProjectManagedAgents(agents, undefined)).toMatchObject([{
@@ -391,7 +390,7 @@ describe("operator project agent-task production composition", () => {
     };
 
     expect(summarizeOperatorProjectManagedAgents([
-      { name: "native-reviewer", role: "Native reviewer", targetId: nativeRoute.routeId, authorityProfileId: "test-readonly" },
+      { name: "native-reviewer", role: "Native reviewer", goal: "Native reviewer.", tier: "fast", scope: "project", targetId: nativeRoute.routeId, authorityProfileId: "test-readonly" },
     ], {
       routes: [nativeRoute],
       agentCatalog: [{

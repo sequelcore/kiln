@@ -169,7 +169,7 @@ describe("DefaultContextGovernor", () => {
       id: "memory:memory-record-2",
       memoryRecordId: "memory-record-2",
     });
-    expect(result.auditTrail?.[0].blocks.map((block) => block.memoryRecordId)).toEqual([
+    expect(result.auditTrail?.[0]!.blocks.map((block) => block.memoryRecordId)).toEqual([
       "memory-record-1",
       "memory-record-2",
     ]);

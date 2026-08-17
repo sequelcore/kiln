@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PlanStateStore,
   type PlanSubmissionInput,
+  type SessionPlanWorkItemDraftInput,
 } from "../../../src/tools/infrastructure/plan-state-store.js";
 
 describe("plan state store", () => {
@@ -30,6 +31,9 @@ describe("plan state store", () => {
       resourceNotifications: {
         notifyResourceUpdated(uri: string): void {
           notifications.push(uri);
+        },
+        notifyResourceListChanged(): void {
+          notifications.push("kiln://session/plans");
         },
       },
     });
@@ -279,7 +283,11 @@ describe("plan state store", () => {
   });
 });
 
-function baseInput(overrides: Partial<PlanSubmissionInput> = {}): PlanSubmissionInput {
+type PlanInputOverrides = Omit<Partial<PlanSubmissionInput>, "proposedWorkItems"> & {
+  readonly proposedWorkItems?: readonly SessionPlanWorkItemDraftInput[];
+};
+
+function baseInput(overrides: PlanInputOverrides = {}): PlanSubmissionInput {
   return {
     objective: "Deliver Slice 4 approval state for session plans.",
     nonGoals: ["No runtime or gateway behavior changes."],
@@ -314,7 +322,7 @@ function baseInput(overrides: Partial<PlanSubmissionInput> = {}): PlanSubmission
       instructionProfileIds: ["sequel-engineering"],
     },
     ...overrides,
-  };
+  } as PlanSubmissionInput;
 }
 
 interface ClassifiedWorkItemDraftInput {
@@ -333,7 +341,7 @@ interface ClassifiedWorkItemDraftInput {
 
 function classifiedWorkItem(
   overrides: ClassifiedWorkItemDraftInput = {},
-): PlanSubmissionInput["proposedWorkItems"][number] {
+): SessionPlanWorkItemDraftInput {
   return {
     id: "wi-1",
     summary: "Implement content-hash-aware plan approval state.",
@@ -342,14 +350,14 @@ function classifiedWorkItem(
     expectedEvidence: ["unit-tests"],
     verificationGates: ["bun test"],
     dependencies: [],
-    workClassification: {
+     workClassification: {
       intents: ["write"],
       artifacts: ["document"],
       domains: ["education"],
       effects: ["write-artifact"],
       modes: ["coauthor"],
     },
-    workClassificationProvenance: {
+     workClassificationProvenance: {
       sourceKind: "plan-work-item",
       sourceId: "wi-1",
     },

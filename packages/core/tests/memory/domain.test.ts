@@ -39,6 +39,7 @@ describe("Memory Lattice domain", () => {
       });
 
       expect(relation.type).toBe("contradicts");
+      if (relation.target.kind !== "memory_record") throw new Error("expected memory record target");
       expect(relation.target.id).toBe("mem-2");
     });
 
@@ -129,6 +130,7 @@ function revision(overrides: Partial<MemoryRevision>): MemoryRevision {
     sequence: 1,
     kind: "created",
     content: "memory content",
+    provenance: { sourceType: "operator", sourceId: "memory-domain-test", capturedAt: "2026-04-30T00:00:00.000Z" },
     createdAt: "2026-04-30T00:00:00.000Z",
     ...overrides,
   };

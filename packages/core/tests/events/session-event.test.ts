@@ -13,7 +13,7 @@ import { testBoundedWorkRevision } from "../work-governance/bounded-work-fixture
 describe("session event envelope", () => {
   it("fills eventId and timestamp with deterministic injection", () => {
     const fixedTimestamp = new Date("2026-04-23T18:00:00.000Z");
-    const event = createSessionEvent(
+    const event = createSessionEvent<"turn_started">(
       {
         kind: "turn_started",
         kilnSessionId: "kiln-session-1",
@@ -32,7 +32,7 @@ describe("session event envelope", () => {
   });
 
   it("rejects sequence lower than 1", () => {
-    expect(() => createSessionEvent({
+    expect(() => createSessionEvent<"turn_started">({
       kind: "turn_started",
       kilnSessionId: "kiln-session-1",
       sequence: 0,
@@ -77,6 +77,8 @@ describe("session event envelope", () => {
       },
       routePolicy: { workflowProfile: "architecture-change" },
       evidenceRequirements: [],
+      evidence: [],
+      activeDurationMs: 0,
       createdAt: "2026-05-12T18:00:00.000Z",
       updatedAt: "2026-05-12T18:00:00.000Z",
       sequence: 1,
@@ -98,6 +100,7 @@ describe("session event envelope", () => {
       id: "goal-1:wi-1:attempt:1",
       workItemId: "wi-1",
       goalRunId: "goal-1",
+      boundedWorkContractRevisionDigest: boundedWorkContractRevision.revisionDigest,
       status: "started",
       executionMode: "direct",
       startedAt: "2026-05-12T18:10:00.000Z",
@@ -116,6 +119,7 @@ describe("session event envelope", () => {
       expectedEvidence: ["tests"],
       providedEvidence: [],
       verificationGates: ["bun test"],
+      skippedVerificationGates: [],
       verificationGateResults: [],
       dependencies: [],
       executionAttempts: [workItemAttempt],
@@ -174,7 +178,7 @@ describe("session event envelope", () => {
     ];
 
     const events: CanonicalSessionEvent[] = [
-      createSessionEvent({
+      createSessionEvent<"turn_started">({
         kind: "turn_started",
         kilnSessionId: "kiln-session-1",
         sequence: 1,
@@ -182,7 +186,7 @@ describe("session event envelope", () => {
         turnOrdinal: 1,
         trigger: "user_message",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"user_message">({
         kind: "user_message",
         kilnSessionId: "kiln-session-1",
         sequence: 2,
@@ -190,7 +194,7 @@ describe("session event envelope", () => {
         messageId: "msg-user-1",
         content: "Hello",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"assistant_message">({
         kind: "assistant_message",
         kilnSessionId: "kiln-session-1",
         sequence: 3,
@@ -199,7 +203,7 @@ describe("session event envelope", () => {
         content: "Hi there",
         provider,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"assistant_delta">({
         kind: "assistant_delta",
         kilnSessionId: "kiln-session-1",
         sequence: 4,
@@ -208,7 +212,7 @@ describe("session event envelope", () => {
         delta: "Hi",
         deltaIndex: 0,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"plan_analysis_reported">({
         kind: "plan_analysis_reported",
         kilnSessionId: "kiln-session-1",
         sequence: 5,
@@ -232,7 +236,7 @@ describe("session event envelope", () => {
         }],
         summary: "No critical findings. Ready for approval.",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"plan_approved">({
         kind: "plan_approved",
         kilnSessionId: "kiln-session-1",
         sequence: 6,
@@ -246,34 +250,34 @@ describe("session event envelope", () => {
         fromMode: "plan",
         toMode: "execute",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"goal.created">({
         kind: "goal.created",
         kilnSessionId: "kiln-session-1",
         sequence: 7,
         goal,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"goal.updated">({
         kind: "goal.updated",
         kilnSessionId: "kiln-session-1",
         sequence: 8,
         goal: { ...goal, currentPhase: "verification", sequence: 2 },
         changedFields: ["currentPhase"],
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"goal.completed">({
         kind: "goal.completed",
         kilnSessionId: "kiln-session-1",
         sequence: 9,
         goal: { ...goal, status: "completed", closeoutSummary: "Done.", sequence: 3 },
         closeoutSummary: "Done.",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"goal.failed">({
         kind: "goal.failed",
         kilnSessionId: "kiln-session-1",
         sequence: 10,
         goal: { ...goal, id: "goal-2", status: "failed", terminalReason: "Verification failed.", sequence: 1 },
         reason: "Verification failed.",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"goal.cancelled">({
         kind: "goal.cancelled",
         kilnSessionId: "kiln-session-1",
         sequence: 11,
@@ -281,14 +285,14 @@ describe("session event envelope", () => {
         reason: "Operator cancelled.",
         cancelledBy: "operator",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"provider_routed">({
         kind: "provider_routed",
         kilnSessionId: "kiln-session-1",
         sequence: 12,
         provider,
         reason: "latency policy",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"multimodal_routed">({
         kind: "multimodal_routed",
         kilnSessionId: "kiln-session-1",
         sequence: 13,
@@ -301,7 +305,7 @@ describe("session event envelope", () => {
         artifactUris: ["kiln://runtime/session-artifact/0"],
         diagnostics: [],
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"tool_call_started">({
         kind: "tool_call_started",
         kilnSessionId: "kiln-session-1",
         sequence: 14,
@@ -311,7 +315,7 @@ describe("session event envelope", () => {
         toolName: "read_file",
         input: { path: "README.md" },
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"tool_call_output_delta">({
         kind: "tool_call_output_delta",
         kilnSessionId: "kiln-session-1",
         sequence: 15,
@@ -323,7 +327,7 @@ describe("session event envelope", () => {
         delta: "chunk",
         chunkIndex: 0,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"tool_call_completed">({
         kind: "tool_call_completed",
         kilnSessionId: "kiln-session-1",
         sequence: 15,
@@ -344,7 +348,7 @@ describe("session event envelope", () => {
           relation: "source",
         }],
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"approval_requested">({
         kind: "approval_requested",
         kilnSessionId: "kiln-session-1",
         sequence: 16,
@@ -352,7 +356,7 @@ describe("session event envelope", () => {
         action: "write_file",
         justification: "modify core contract",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"approval_resolved">({
         kind: "approval_resolved",
         kilnSessionId: "kiln-session-1",
         sequence: 17,
@@ -363,13 +367,12 @@ describe("session event envelope", () => {
           reason: "safe change",
         },
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"file_changed">({
         kind: "file_changed",
         kilnSessionId: "kiln-session-1",
         sequence: 18,
         turnId: "turn-1",
         toolCallId: "tool-1",
-        toolCallScopeId: "turn-1:response:1",
         change: {
           changeType: "updated",
           path: "packages/core/src/events/session-event.ts",
@@ -377,7 +380,7 @@ describe("session event envelope", () => {
           linesRemoved: 4,
         },
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"cost_updated">({
         kind: "cost_updated",
         kilnSessionId: "kiln-session-1",
         sequence: 19,
@@ -385,7 +388,7 @@ describe("session event envelope", () => {
         usage,
         cost,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"work_item_execution_started">({
         kind: "work_item_execution_started",
         kilnSessionId: "kiln-session-1",
         sequence: 20,
@@ -394,7 +397,7 @@ describe("session event envelope", () => {
         workItem,
         attempt: workItemAttempt,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"work_item_execution_finished">({
         kind: "work_item_execution_finished",
         kilnSessionId: "kiln-session-1",
         sequence: 21,
@@ -408,7 +411,7 @@ describe("session event envelope", () => {
         failedVerificationGates: [],
         missingResidualRisk: false,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_requested">({
         kind: "agent_invocation_requested",
         kilnSessionId: "kiln-session-1",
         sequence: 22,
@@ -421,7 +424,7 @@ describe("session event envelope", () => {
         requestSource: "manual",
         inputSummary: "Implement contract slice B4",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_started">({
         kind: "agent_invocation_started",
         kilnSessionId: "kiln-session-1",
         sequence: 23,
@@ -434,7 +437,7 @@ describe("session event envelope", () => {
         requestSource: "manual",
         attempt: 1,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_completed">({
         kind: "agent_invocation_completed",
         kilnSessionId: "kiln-session-1",
         sequence: 24,
@@ -449,7 +452,7 @@ describe("session event envelope", () => {
         resultSummary: "Applied contract updates",
         outputMessageId: "msg-assistant-2",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_failed">({
         kind: "agent_invocation_failed",
         kilnSessionId: "kiln-session-1",
         sequence: 25,
@@ -462,7 +465,7 @@ describe("session event envelope", () => {
         errorMessage: "Worker pool exhausted",
         retriable: true,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"agent_invocation_cancelled">({
         kind: "agent_invocation_cancelled",
         kilnSessionId: "kiln-session-1",
         sequence: 26,
@@ -474,7 +477,7 @@ describe("session event envelope", () => {
         reason: "User stopped execution",
         cancelledBy: "operator",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"continuity_decided">({
         kind: "continuity_decided",
         kilnSessionId: "kiln-session-1",
         sequence: 27,
@@ -482,7 +485,7 @@ describe("session event envelope", () => {
         reason: "await user follow-up",
         nextTurnId: "turn-2",
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"error_recorded">({
         kind: "error_recorded",
         kilnSessionId: "kiln-session-1",
         sequence: 28,
@@ -491,13 +494,13 @@ describe("session event envelope", () => {
         message: "Tool timed out",
         retriable: true,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"work_items.materialized">({
         kind: "work_items.materialized",
         kilnSessionId: "kiln-session-1",
         sequence: 29,
         materialization,
       }, { generateEventId: () => `evt-${++idCounter}` }),
-      createSessionEvent({
+      createSessionEvent<"turn_completed">({
         kind: "turn_completed",
         kilnSessionId: "kiln-session-1",
         sequence: 30,
@@ -513,7 +516,7 @@ describe("session event envelope", () => {
   });
 
   it("requires versioned staged economic denial evidence", () => {
-    const event = createSessionEvent({
+    const event = createSessionEvent<"managed_economic_lifecycle">({
       kind: "managed_economic_lifecycle",
       kilnSessionId: "kiln-session-economic",
       sequence: 1,
@@ -547,7 +550,7 @@ describe("session event envelope", () => {
 
   it("sorts by sequence and tie-breakers (timestamp, then eventId)", () => {
     const events = [
-      createSessionEvent({
+      createSessionEvent<"turn_started">({
         kind: "turn_started",
         eventId: "evt-b",
         timestamp: new Date("2026-04-23T20:00:01.000Z"),
@@ -556,7 +559,7 @@ describe("session event envelope", () => {
         turnOrdinal: 1,
         trigger: "user_message",
       }),
-      createSessionEvent({
+      createSessionEvent<"turn_started">({
         kind: "turn_started",
         eventId: "evt-a",
         timestamp: new Date("2026-04-23T20:00:01.000Z"),
@@ -565,7 +568,7 @@ describe("session event envelope", () => {
         turnOrdinal: 1,
         trigger: "user_message",
       }),
-      createSessionEvent({
+      createSessionEvent<"turn_started">({
         kind: "turn_started",
         eventId: "evt-z",
         timestamp: new Date("2026-04-23T20:00:00.000Z"),
@@ -574,7 +577,7 @@ describe("session event envelope", () => {
         turnOrdinal: 1,
         trigger: "user_message",
       }),
-      createSessionEvent({
+      createSessionEvent<"turn_started">({
         kind: "turn_started",
         eventId: "evt-next",
         timestamp: new Date("2026-04-23T20:00:00.000Z"),
@@ -595,7 +598,7 @@ describe("session event envelope", () => {
   });
 
   it("uses kilnSessionId as the canonical session key", () => {
-    const event = createSessionEvent({
+    const event = createSessionEvent<"provider_routed">({
       kind: "provider_routed",
       kilnSessionId: "kiln-session-canonical",
       sequence: 7,

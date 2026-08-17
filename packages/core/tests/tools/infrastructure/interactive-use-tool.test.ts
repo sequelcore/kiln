@@ -175,7 +175,7 @@ describe("interactive use tools", () => {
         observation: {
           application: "Calculator",
           windowTitle: "Calculator",
-          closeMethod: "win32-sc-close",
+          closeMethod: "win32-sc-close" as const,
         },
       })),
     };
@@ -196,7 +196,7 @@ describe("interactive use tools", () => {
       observation: {
         application: "Calculator",
         windowTitle: "Calculator",
-        closeMethod: "win32-sc-close",
+        closeMethod: "win32-sc-close" as const,
       },
     });
   });

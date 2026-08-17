@@ -17,6 +17,7 @@ function makeMockProvider(response: string): ProviderAdapter {
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       toolCalls: [],
+      stopReason: "stop",
     })),
     streamMessage: async function* () {},
   };

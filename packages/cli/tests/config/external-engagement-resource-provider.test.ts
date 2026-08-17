@@ -102,7 +102,8 @@ describe("ExternalEngagementResourceProvider", () => {
     const provider = new ExternalEngagementResourceProvider(root);
 
     const result = await provider.read("kiln://external-engagement/evidence/1000000000000000001");
-    const payload = JSON.parse(result?.contents[0]?.text ?? "{}") as Record<string, unknown>;
+    const content = result?.contents[0];
+    const payload = JSON.parse(content && "text" in content ? content.text : "{}") as Record<string, unknown>;
 
     expect(payload).toMatchObject({
       artifact: {
@@ -171,7 +172,8 @@ describe("ExternalEngagementResourceProvider", () => {
     const provider = new ExternalEngagementResourceProvider(root);
 
     const result = await provider.read("kiln://external-engagement/artifacts");
-    const payload = JSON.parse(result?.contents[0]?.text ?? "{}") as Record<string, unknown>;
+    const content = result?.contents[0];
+    const payload = JSON.parse(content && "text" in content ? content.text : "{}") as Record<string, unknown>;
 
     expect(result?.summary).toEqual({
       kind: "external-engagement",

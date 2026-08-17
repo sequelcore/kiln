@@ -526,15 +526,6 @@ describe("syncCommand", () => {
     const { readKilnYaml } = await import("../../src/kiln-yaml.js");
     const originalRead = readKilnYaml;
 
-    const appConfig = {
-      appName: "kiln",
-      dirName: ".kiln",
-      version: "0.1.0",
-      description: "Test",
-      createRegistry: () => { throw new Error("test"); },
-      mcpServerName: "kiln",
-    };
-
     expect(() => {
       originalRead("/nonexistent");
     }).toBeDefined();

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearToolEnvironmentCache,
   detectToolEnvironment,
-  type ToolEnvironment,
   type ToolEnvironmentCommandExecutor,
 } from "../../../src/tools/domain/tool-environment.js";
 

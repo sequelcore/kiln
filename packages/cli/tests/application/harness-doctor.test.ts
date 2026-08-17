@@ -78,6 +78,8 @@ function permissionIntegrity(): TrustedExecutionIntegrity {
       revocable: true,
     },
     semanticLoss: [],
+    semanticLimitations: [],
+    limitationAcceptances: [],
     classification: "runtime-policy-mismatch",
     recommendation: "Restart the child with a proven Full Access runtime or choose a narrower trusted profile.",
     remediationRequiresApproval: true,

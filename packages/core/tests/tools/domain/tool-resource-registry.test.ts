@@ -9,6 +9,7 @@ import { MemoryArtifactResourceStore } from "../../../src/tools/infrastructure/a
 import { PlanStateStore } from "../../../src/tools/infrastructure/plan-state-store.js";
 import { SpecificationStateStore } from "../../../src/tools/infrastructure/specification-state-store.js";
 import { GoalRunStore, startGoalExecutionAttempt, WorkItemStore } from "../../../src/work-governance/index.js";
+import { defineDeliberationLevelId } from "../../../src/agents/deliberation-policy.js";
 import { makeSandbox, makeTempDir, removeTempDir } from "../infrastructure/test-utils.js";
 import { testBoundedWorkRevision } from "../../work-governance/bounded-work-fixtures.js";
 
@@ -101,7 +102,9 @@ describe("ToolResourceRegistry", () => {
         resourceUri: "kiln://custom/resource",
       },
     });
-    expect(JSON.parse(result.contents[0]!.text)).toEqual({ ok: true });
+    const content0 = result.contents[0]!;
+    if (!("text" in content0)) throw new Error("expected text content");
+    expect(JSON.parse(content0.text)).toEqual({ ok: true });
     expect(observedTarget).toEqual({
       gatewayTargetId: "app-gateway:support:tenant:acme",
       appId: "support",
@@ -173,7 +176,9 @@ describe("ToolResourceRegistry", () => {
       uri: "kiln://tools/catalog",
       mimeType: "application/json",
     });
-    const payload = JSON.parse(result.contents[0]!.text);
+    const content1 = result.contents[0]!;
+    if (!("text" in content1)) throw new Error("expected text content");
+    const payload = JSON.parse(content1.text);
     expect(payload.totalIndexed).toBe(47);
     expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("operator_elicit");
     expect(payload.entries.map((entry: { name: string }) => entry.name)).toContain("json_query");
@@ -208,7 +213,7 @@ describe("ToolResourceRegistry", () => {
       routingRecommendation: {
         routeId: "codex-worker",
         agentProfile: "coder",
-        deliberationIntent: { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+        deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" },
         modelTaskSuitability: "verification-heavy:high",
         rationale: "Derived from approved plan.",
       },
@@ -240,7 +245,13 @@ describe("ToolResourceRegistry", () => {
         parentSessionId: "session-1",
         goalRunId: goal.id,
         workItemId: item.id,
+        candidateCaptureRoot: "/workspace/candidate-capture-1",
         resultHandoff: {
+          provenance: {
+            delivery: "remote-harness",
+            configuredModelId: "gpt-5.6-sol",
+            observedModelIds: ["gpt-5.6-sol"],
+          },
           summary: "Managed verifier returned resource-backed evidence.",
           resourceUris: ["kiln://artifacts/invocation-1/handoff"],
           memoryWriteProposalUris: [],
@@ -276,7 +287,9 @@ describe("ToolResourceRegistry", () => {
         goalRunIds: ["goal-1"],
       },
     });
-    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+    const contentSnapshot = snapshot.contents[0]!;
+    if (!("text" in contentSnapshot)) throw new Error("expected text content");
+    expect(JSON.parse(contentSnapshot.text)).toMatchObject({
       sequence: started.item.sequence,
       items: [
         {
@@ -307,7 +320,9 @@ describe("ToolResourceRegistry", () => {
     });
 
     const single = await surface.resources.read(`kiln://session/work-items/${item.id}`);
-    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+    const contentSingle = single.contents[0]!;
+    if (!("text" in contentSingle)) throw new Error("expected text content");
+    expect(JSON.parse(contentSingle.text)).toMatchObject({
       id: item.id,
       resourceUri: `kiln://session/work-items/${item.id}`,
       expectedEvidence: ["tests", "typecheck"],
@@ -367,7 +382,9 @@ describe("ToolResourceRegistry", () => {
         workflowProfiles: ["architecture-change"],
       },
     });
-    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+    const contentSnapshot = snapshot.contents[0]!;
+    if (!("text" in contentSnapshot)) throw new Error("expected text content");
+    expect(JSON.parse(contentSnapshot.text)).toMatchObject({
       sequence: goal.sequence,
       goals: [
         {
@@ -380,7 +397,9 @@ describe("ToolResourceRegistry", () => {
     });
 
     const single = await surface.resources.read(`kiln://session/goals/${goal.id}`);
-    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+    const contentSingle = single.contents[0]!;
+    if (!("text" in contentSingle)) throw new Error("expected text content");
+    expect(JSON.parse(contentSingle.text)).toMatchObject({
       id: "goal-1",
       authorityEnvelope: {
         maximumAuthority: "audited",
@@ -420,7 +439,9 @@ describe("ToolResourceRegistry", () => {
           includeFiles: true,
         },
       });
-      expect(JSON.parse(tree.contents[0]!.text)).toMatchObject({
+      const contentTree = tree.contents[0]!;
+      if (!("text" in contentTree)) throw new Error("expected text content");
+      expect(JSON.parse(contentTree.text)).toMatchObject({
         root: ".",
         entryCount: 3,
         truncated: false,
@@ -463,7 +484,9 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/authority/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/authority");
-    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+    const contentSnapshot = snapshot.contents[0]!;
+    if (!("text" in contentSnapshot)) throw new Error("expected text content");
+    expect(JSON.parse(contentSnapshot.text)).toMatchObject({
       sequence: authority.sequence,
       latest: {
         id: authority.id,
@@ -485,7 +508,9 @@ describe("ToolResourceRegistry", () => {
     });
 
     const single = await surface.resources.read(`kiln://session/authority/${authority.id}`);
-    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+    const contentSingle = single.contents[0]!;
+    if (!("text" in contentSingle)) throw new Error("expected text content");
+    expect(JSON.parse(contentSingle.text)).toMatchObject({
       id: authority.id,
       authority: {
         executionMode: "execute",
@@ -530,7 +555,9 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/clarifications/{specificationId}");
 
     const snapshot = await surface.resources.read("kiln://session/specifications");
-    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+    const contentSnapshot = snapshot.contents[0]!;
+    if (!("text" in contentSnapshot)) throw new Error("expected text content");
+    expect(JSON.parse(contentSnapshot.text)).toMatchObject({
       specifications: [
         {
           id: specification.id,
@@ -541,7 +568,9 @@ describe("ToolResourceRegistry", () => {
     });
 
     const clarifications = await surface.resources.read(`kiln://session/clarifications/${specification.id}`);
-    expect(JSON.parse(clarifications.contents[0]!.text)).toMatchObject({
+    const contentClarifications = clarifications.contents[0]!;
+    if (!("text" in contentClarifications)) throw new Error("expected text content");
+    expect(JSON.parse(contentClarifications.text)).toMatchObject({
       specificationId: specification.id,
       clarifications: [
         {
@@ -594,13 +623,17 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/plans/{id}");
 
     const snapshot = await surface.resources.read("kiln://session/plans");
-    expect(JSON.parse(snapshot.contents[0]!.text)).toMatchObject({
+    const contentSnapshot = snapshot.contents[0]!;
+    if (!("text" in contentSnapshot)) throw new Error("expected text content");
+    expect(JSON.parse(contentSnapshot.text)).toMatchObject({
       sequence: plan.sequence,
       plans: [{ id: plan.id, status: "ready_for_approval" }],
     });
 
     const single = await surface.resources.read(`kiln://session/plans/${plan.id}`);
-    expect(JSON.parse(single.contents[0]!.text)).toMatchObject({
+    const contentSingle = single.contents[0]!;
+    if (!("text" in contentSingle)) throw new Error("expected text content");
+    expect(JSON.parse(contentSingle.text)).toMatchObject({
       id: plan.id,
       riskClassification: "high",
       sourceSpecificationId: "spec_1",
@@ -675,7 +708,9 @@ describe("ToolResourceRegistry", () => {
     expect(surface.resources.listTemplates().map((template) => template.uriTemplate)).toContain("kiln://session/analysis-findings/{id}");
 
     const reports = await surface.resources.read("kiln://session/analysis-reports");
-    expect(JSON.parse(reports.contents[0]!.text)).toMatchObject({
+    const contentReports = reports.contents[0]!;
+    if (!("text" in contentReports)) throw new Error("expected text content");
+    expect(JSON.parse(contentReports.text)).toMatchObject({
       reports: [
         {
           id: analysis.report.id,
@@ -688,7 +723,9 @@ describe("ToolResourceRegistry", () => {
     const findingId = analysis.findings[0]?.id;
     expect(findingId).toBeDefined();
     const finding = await surface.resources.read(`kiln://session/analysis-findings/${findingId}`);
-    expect(JSON.parse(finding.contents[0]!.text)).toMatchObject({
+    const contentFinding = finding.contents[0]!;
+    if (!("text" in contentFinding)) throw new Error("expected text content");
+    expect(JSON.parse(contentFinding.text)).toMatchObject({
       id: findingId,
       status: "open",
     });
@@ -699,7 +736,9 @@ describe("ToolResourceRegistry", () => {
 
     const result = await surface.resources.read("kiln://tools/catalog/read_many");
 
-    const payload = JSON.parse(result.contents[0]!.text);
+    const contentResult = result.contents[0]!;
+    if (!("text" in contentResult)) throw new Error("expected text content");
+    const payload = JSON.parse(contentResult.text);
     expect(payload).toMatchObject({
       name: "read_many",
       sourcePackage: "@kilnai/core",
@@ -719,11 +758,15 @@ describe("ToolResourceRegistry", () => {
     const listResult = await surface.resources.read("kiln://session/tasks");
     const taskResult = await surface.resources.read("kiln://session/tasks/task_1");
 
-    expect(JSON.parse(listResult.contents[0]!.text)).toMatchObject({
+    const contentListResult = listResult.contents[0]!;
+    if (!("text" in contentListResult)) throw new Error("expected text content");
+    expect(JSON.parse(contentListResult.text)).toMatchObject({
       sequence: 1,
       tasks: [{ id: "task_1", status: "in_progress", title: "Document Slice 18" }],
     });
-    expect(JSON.parse(taskResult.contents[0]!.text)).toMatchObject({
+    const contentTaskResult = taskResult.contents[0]!;
+    if (!("text" in contentTaskResult)) throw new Error("expected text content");
+    expect(JSON.parse(contentTaskResult.text)).toMatchObject({
       id: "task_1",
       status: "in_progress",
       title: "Document Slice 18",
@@ -752,10 +795,14 @@ describe("ToolResourceRegistry", () => {
     const listResult = await surface.resources.read("kiln://session/monitors");
     const monitorResult = await surface.resources.read(`kiln://session/monitors/${started.id}`);
 
-    expect(JSON.parse(listResult.contents[0]!.text)).toEqual({
+    const contentListResult2 = listResult.contents[0]!;
+    if (!("text" in contentListResult2)) throw new Error("expected text content");
+    expect(JSON.parse(contentListResult2.text)).toEqual({
       monitors: [expect.objectContaining({ id: started.id, status: "exited" })],
     });
-    expect(JSON.parse(monitorResult.contents[0]!.text)).toMatchObject({
+    const contentMonitorResult = monitorResult.contents[0]!;
+    if (!("text" in contentMonitorResult)) throw new Error("expected text content");
+    expect(JSON.parse(contentMonitorResult.text)).toMatchObject({
       snapshot: { id: started.id, status: "exited" },
       events: [
         { stream: "stdout", text: "ready\n" },
@@ -880,7 +927,9 @@ describe("ToolResourceRegistry", () => {
       });
 
       const result = await surface.resources.read("kiln://workspace/file/evidence.png");
-      const payload = JSON.parse(result.contents[0]!.text);
+      const contentResult = result.contents[0]!;
+    if (!("text" in contentResult)) throw new Error("expected text content");
+    const payload = JSON.parse(contentResult.text);
 
       expect(result.contents[0]).toMatchObject({
         uri: "kiln://workspace/file/evidence.png",
@@ -916,7 +965,9 @@ describe("ToolResourceRegistry", () => {
       });
 
       const result = await surface.resources.read("kiln://workspace/tree?path=.&depth=1&includeFiles=true");
-      const payload = JSON.parse(result.contents[0]!.text);
+      const contentResult = result.contents[0]!;
+    if (!("text" in contentResult)) throw new Error("expected text content");
+    const payload = JSON.parse(contentResult.text);
 
       expect(payload.entries.map((entry: { path: string }) => entry.path)).toEqual([
         "docs",

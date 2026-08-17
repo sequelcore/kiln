@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OperatorRuntimeState, OperatorRuntimeSupervisorStatus } from "@kilnai/runtime";
+import type { OperatorRuntimeChildCredentials, OperatorRuntimeState, OperatorRuntimeSupervisorStatus } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
 import { operatorRuntimeCommand } from "../../src/commands/operator-runtime.js";
 import { createCli } from "../../src/index.js";
@@ -144,6 +144,7 @@ describe("operatorRuntimeCommand", () => {
     const service = {
       onSessionOpen: vi.fn(),
       onMcpRequest: vi.fn(),
+      onApplicationRequest: vi.fn(),
       close: vi.fn(async () => { throw new Error("service close"); }),
     };
     const registerShutdown = vi.fn();
@@ -171,7 +172,7 @@ function readyStatus(): OperatorRuntimeSupervisorStatus {
   return {
     state: "ready",
     identity: {
-      protocolVersion: "1",
+      protocolVersion: "2",
       service: "kiln-operator-runtime",
       instanceId: "instance-1",
       version: launch.version,
@@ -195,17 +196,17 @@ function stateFixture(): OperatorRuntimeState {
 }
 
 function fakeLifecycle() {
-  const stopped = { state: "stopped" as const };
+  const stopped: OperatorRuntimeSupervisorStatus = { state: "stopped" as const };
   const supervisor = {
-    start: vi.fn(async () => stopped),
-    ensure: vi.fn(async () => stopped),
-    stop: vi.fn(async () => stopped),
-    restart: vi.fn(async () => stopped),
-    status: vi.fn(async () => stopped),
+    start: vi.fn(async (): Promise<OperatorRuntimeSupervisorStatus> => stopped),
+    ensure: vi.fn(async (): Promise<OperatorRuntimeSupervisorStatus> => stopped),
+    stop: vi.fn(async (): Promise<OperatorRuntimeSupervisorStatus> => stopped),
+    restart: vi.fn(async (): Promise<OperatorRuntimeSupervisorStatus> => stopped),
+    status: vi.fn(async (): Promise<OperatorRuntimeSupervisorStatus> => stopped),
     doctor: vi.fn(),
     readState: vi.fn(async () => null as OperatorRuntimeState | null),
   };
-  const readChildCredentials = vi.fn(async () => null);
+  const readChildCredentials = vi.fn(async (): Promise<OperatorRuntimeChildCredentials | null> => null);
   return {
     supervisor,
     readChildCredentials,

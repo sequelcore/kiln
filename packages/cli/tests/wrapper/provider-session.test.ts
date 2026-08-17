@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { AllCredentialsExhaustedError, resolveCommunicationIntent } from "@kilnai/core/agents";
 import { KilnError } from "@kilnai/core/engine";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
@@ -7,9 +7,13 @@ import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
 
+type AnyMock = Mock<(...args: unknown[]) => unknown>;
+type StreamEvent = { type: string; content: string; inputTokens?: number; outputTokens?: number };
+type StreamMock = Mock<(...args: unknown[]) => AsyncGenerator<StreamEvent>>;
+
 type MockAdapter = {
-  readonly ctor: ReturnType<typeof vi.fn>;
-  readonly stream: ReturnType<typeof vi.fn>;
+  readonly ctor: AnyMock;
+  readonly stream: StreamMock;
 };
 
 const adapterMocks = vi.hoisted(
@@ -436,7 +440,11 @@ function deferredCatalogSurface(materializableTool: {
   const catalogSearchTool = {
     name: "tool_catalog_search",
     description: "Search the canonical tool catalog",
-    inputSchema: { type: "object", properties: {}, required: [] },
+    inputSchema: {
+      type: "object",
+      properties: {} as Record<string, unknown>,
+      required: [] as readonly string[],
+    },
     tags: new Set<string>(["catalog"]),
   };
   const catalogSearchCapability = {
@@ -451,7 +459,7 @@ function deferredCatalogSurface(materializableTool: {
       dataEgress: "metadata",
       identityUse: "none",
       reversibility: "reversible",
-      consequences: [],
+      consequences: [] as string[],
       idempotency: "idempotent",
     },
   };
@@ -698,7 +706,10 @@ describe("ProviderSession.run()", () => {
     expect(adapterMocks.openai.stream).not.toHaveBeenCalled();
   });
 
-  it.each([
+  const textOnlyRows: Array<{
+    readonly provider: "codex-oauth" | "anthropic" | "openai";
+    readonly config: Partial<ProviderSessionConfig>;
+  }> = [
     {
       provider: "codex-oauth",
       config: { model: "gpt-5.4", executionMode: "text-only" as const },
@@ -719,10 +730,9 @@ describe("ProviderSession.run()", () => {
         executionMode: "text-only" as const,
       },
     },
-  ] satisfies Array<{
-    readonly provider: ProviderSessionConfig["provider"];
-    readonly config: Partial<ProviderSessionConfig>;
-  }>)("keeps $provider tool frames typed in text-only mode", async ({ provider, config }) => {
+  ];
+
+  it.each(textOnlyRows)("keeps $provider tool frames typed in text-only mode", async ({ provider, config }) => {
     adapterMocks[provider].stream.mockReturnValue(
       streamEvents([
         {
@@ -759,7 +769,10 @@ describe("ProviderSession.run()", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "completed", outcome: "failed" }));
   });
 
-  it.each([
+  const executableRows: Array<{
+    readonly provider: "codex-oauth" | "anthropic" | "openai";
+    readonly config: Partial<ProviderSessionConfig>;
+  }> = [
     {
       provider: "codex-oauth",
       config: { model: "gpt-5.4" },
@@ -772,10 +785,9 @@ describe("ProviderSession.run()", () => {
       provider: "openai",
       config: { model: "gpt-5.4", env: { OPENAI_API_KEY: "cfg-key" } },
     },
-  ] satisfies Array<{
-    readonly provider: ProviderSessionConfig["provider"];
-    readonly config: Partial<ProviderSessionConfig>;
-  }>)("emits canonical tool_result and file_changed events for executable $provider sessions", async ({ provider, config }) => {
+  ];
+
+  it.each(executableRows)("emits canonical tool_result and file_changed events for executable $provider sessions", async ({ provider, config }) => {
     runtimeMocks.processMessage.mockResolvedValueOnce({
       parts: [{ type: "text", text: "applied changes" }],
       toolExecutions: [

@@ -295,6 +295,7 @@ describe("interactive use config", () => {
         computerEnvironment: "local-active-desktop",
       }),
       {
+        version: "1",
         interactiveUse: {
           enabled: true,
           browserProvider: "playwright",

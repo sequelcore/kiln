@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../src/config.js";
+import type { ToolResourceReadResult } from "@kilnai/core/tools";
 
 const coreMocks = vi.hoisted(() => {
   const connect = vi.fn().mockResolvedValue(undefined);
@@ -40,7 +41,7 @@ const coreMocks = vi.hoisted(() => {
       title: "Tool Catalog",
       mimeType: "application/json",
     }]),
-    read: vi.fn(async () => ({
+    read: vi.fn(async (): Promise<ToolResourceReadResult> => ({
       contents: [{
         uri: "kiln://tools/catalog",
         mimeType: "application/json",

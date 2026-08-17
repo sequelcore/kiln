@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { KilnConfigStatusSnapshot } from "@kilnai/gateway-contracts";
-import type { AgentTaskRecord } from "@kilnai/runtime";
+import type { AgentTaskDataPolicyProof, AgentTaskRecord } from "@kilnai/runtime";
+import type { AccountUsageInspectionService } from "../../src/application/account-usage-inspection.js";
 import { discoverNativeHarnessProjectRoot } from "../../src/application/native-harness-project-root.js";
 import {
   NativeHarnessMcpTools,
@@ -19,6 +20,39 @@ const CodexMcpTools = class extends NativeHarnessMcpTools {
 
 const OBSERVED_AT = "2026-07-13T18:01:00.000Z";
 const TEMPORARY_CWD = join(tmpdir(), "kiln-codex-app-mcp-unrelated-cwd");
+
+function nativeHarnessDispatchFixture(overrides: {
+  readonly routeId?: string;
+  readonly providerId?: string;
+  readonly model?: string;
+} = {}) {
+  const routeId = overrides.routeId ?? "route-go";
+  const providerId = overrides.providerId ?? "opencode-go";
+  const model = overrides.model ?? "go-test";
+  return {
+    kind: "native-harness" as const,
+    routeId,
+    routeRevision: "r1",
+    providerId,
+    model,
+    admissionProfileId: "foundation-readonly-plan" as const,
+    adapterCapabilityId: "opencode-cli",
+    adapterCapabilityVersion: "v1",
+    acknowledgement: {
+      version: 1 as const,
+      source: "managed-route-admission" as const,
+      credentialMode: "credentialless" as const,
+      acknowledgedAt: OBSERVED_AT,
+      routeId,
+      routeRevision: "r1",
+      providerId,
+      model,
+      admissionProfileId: "foundation-readonly-plan" as const,
+      adapterCapabilityId: "opencode-cli",
+      adapterCapabilityVersion: "v1",
+    },
+  };
+}
 
 function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfigStatusSnapshot {
   return {
@@ -86,24 +120,31 @@ function createServer(
 
 function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
   const state = overrides.state ?? "succeeded";
-  const candidateSet = {
+  const dispatch = {
+    kind: "economic" as const,
+    economicAttemptId: "economic-attempt:test-0001",
     economicPolicyId: "economy-policy",
     economicPolicyRevision: "revision-001",
-    admissionProfileId: "foundation-readonly-plan" as const,
     constraints: {},
-    candidates: [{
-      routeId: "route-go",
-      routeSource: "explicit-managed-route" as const,
-      providerId: "opencode-go",
-      surface: "direct-provider" as const,
-      adapterCapabilityId: "opencode-go-direct",
-      adapterCapabilityVersion: "1",
-      profileAuthorityDigest: `sha256:${"9".repeat(64)}`,
-    }],
-    rejections: [],
+    candidateSet: {
+      economicPolicyId: "economy-policy",
+      economicPolicyRevision: "revision-001",
+      admissionProfileId: "foundation-readonly-plan" as const,
+      constraints: {},
+      candidates: [{
+        routeId: "route-go",
+        routeSource: "explicit-managed-route" as const,
+        providerId: "opencode-go",
+        surface: "direct-provider" as const,
+        adapterCapabilityId: "opencode-go-direct",
+        adapterCapabilityVersion: "1",
+        profileAuthorityDigest: `sha256:${"9".repeat(64)}`,
+      }],
+      rejections: [],
+    },
   };
   return {
-    version: 10,
+    version: 13,
     id: "agent-task-0001",
     adoptedDecisionAt: OBSERVED_AT,
     state,
@@ -112,14 +153,7 @@ function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
     callerId: "trusted-codex-user",
     configuredAgentProfileId: "scout",
     admissionProfileId: "foundation-readonly-plan",
-    dispatch: {
-      kind: "economic",
-      economicAttemptId: "economic-attempt:test-0001",
-      economicPolicyId: "economy-policy",
-      economicPolicyRevision: "revision-001",
-      constraints: {},
-      candidateSet,
-    },
+    dispatch,
     governanceSource: "kiln-governance",
     admissionId: "admission-001",
     requestFingerprint: `sha256:${"a".repeat(64)}`,
@@ -151,9 +185,36 @@ function agentTask(overrides: Partial<AgentTaskRecord> = {}): AgentTaskRecord {
           resourceUris: [],
           memoryWriteProposalUris: [],
         },
+        dataPolicyProof: {
+          version: 1,
+          jobId: "agent-task-0001",
+          dispatchFenceId: "fence-safe-001",
+          routeId: "route-go",
+          providerId: "opencode-go",
+          providerModelId: "go-test",
+          decision: { status: "admitted" as const, freshness: "current" as const, reason: "policy-admitted" as const },
+          evidence: {
+            providerId: "opencode-go",
+            providerModelId: "go-test",
+            sourceIdentity: "fixture",
+            sourceRevision: "rev-1",
+            sourceDigest: `sha256:${"a".repeat(64)}`,
+            trainingPosture: "prohibited" as const,
+            retentionPosture: "zero" as const,
+            retentionDays: 0,
+            maximumClassification: "internal" as const,
+            observedAt: OBSERVED_AT,
+            expiresAt: "2027-07-13T18:01:00.000Z",
+          },
+        },
       },
     } : {}),
     ...overrides,
+    run: {
+      runId: "run-0001",
+      state: overrides.state ?? state,
+      dispatch: overrides.dispatch ?? dispatch,
+    },
   };
 }
 
@@ -182,7 +243,7 @@ describe("NativeHarnessMcpTools", () => {
         getStatus: async () => agentTask(),
         getResult: async () => ({ jobId: "agent-task-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }),
         cancel: async () => agentTask(),
-        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }),
+        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", dispatch: nativeHarnessDispatchFixture(), diagnostic: "replay_unavailable" }),
       },
     });
 
@@ -206,7 +267,7 @@ describe("NativeHarnessMcpTools", () => {
         getStatus,
         getResult: async () => ({ jobId: "agent-task-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan" }),
         cancel: async () => agentTask(),
-        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", lifecycle: [], resultAvailability: "unavailable" }),
+        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", lifecycle: [], resultAvailability: "unavailable", dispatch: nativeHarnessDispatchFixture() }),
       },
       requestIdentity: () => { throw new Error("identity unavailable"); },
     });
@@ -236,10 +297,10 @@ describe("NativeHarnessMcpTools", () => {
   });
 
   it("returns sanitized account usage without accepting account selection arguments", async () => {
-    const inspect = vi.fn(async () => ({
+    const inspect = vi.fn<AccountUsageInspectionService["inspect"]>(async () => ({
       operation: "account-usage",
       accounts: [{ provider: "codex-oauth", accountId: "plus", credentialId: "opaque-id", plan: "plus", availability: "available", freshness: "fresh", source: "provider-endpoint", confidence: "authoritative", eligibleRoutes: ["codex-managed"] }],
-      evidence: { authority: "global-model-gateway" },
+      evidence: { authority: "global-execution-catalog", observedAt: OBSERVED_AT },
     }));
     const server = new NativeHarnessMcpTools({ harness: "codex", accountUsage: { inspect } });
     const result = await server.callTool("kiln_account_usage_inspect", {});
@@ -269,9 +330,9 @@ describe("NativeHarnessMcpTools", () => {
       agentTasks: {
         accept: async (input) => { accepted.push(input); return agentTask(); },
         getStatus: async () => agentTask(),
-        getResult: async () => ({ jobId: "agent-task-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", handoff: { summary: "done", resourceUris: [], memoryWriteProposalUris: [] } }),
+        getResult: async () => ({ jobId: "agent-task-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", handoff: { provenance: { delivery: "native-structured-output", configuredModelId: "go-test", primaryObservedModelId: "go-test", observedModelIds: ["go-test"], harness: { id: "opencode", executable: "<operator-harness>/opencode", version: "1.0.0" } }, summary: "done", resourceUris: [], memoryWriteProposalUris: [] } }),
         cancel: async () => agentTask({ state: "cancelled", diagnostic: "cancelled" }),
-        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }),
+        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", dispatch: nativeHarnessDispatchFixture(), diagnostic: "replay_unavailable" }),
       },
       requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "trusted-request" }),
     });
@@ -308,7 +369,8 @@ describe("NativeHarnessMcpTools", () => {
           configuredAgentProfileId: "scout",
           admissionProfileId: "foundation-readonly-plan",
           lifecycle: [],
-          resultAvailability: "failed",
+           resultAvailability: "failed",
+           dispatch: nativeHarnessDispatchFixture(),
           diagnostic: "replay_unavailable",
         }),
       },
@@ -513,7 +575,7 @@ describe("NativeHarnessMcpTools", () => {
 
   it("rejects unknown invoke fields and malformed status or result identifiers before the application owner", async () => {
     let calls = 0;
-    const server = new CodexMcpTools({ agentTasks: { accept: async () => { calls++; return agentTask(); }, getStatus: async () => { calls++; return agentTask(); }, getResult: async () => { calls++; return { jobId: "agent-task-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }; }, cancel: async () => { calls++; return agentTask(); }, getReplay: async () => { calls++; return { jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }; } } });
+    const server = new CodexMcpTools({ agentTasks: { accept: async () => { calls++; return agentTask(); }, getStatus: async () => { calls++; return agentTask(); }, getResult: async () => { calls++; return { jobId: "agent-task-0001", availability: "pending", lifecycleState: "running", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go" }; }, cancel: async () => { calls++; return agentTask(); }, getReplay: async () => { calls++; return { jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", dispatch: nativeHarnessDispatchFixture(), diagnostic: "replay_unavailable" }; } } });
     await expect(server.callTool("kiln_agent_task_submit", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", provider: "opencode-go" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_agent_task_submit", { objective: "work", configuredAgentProfileId: "scout", idempotencyKey: "key", admissionProfileId: "foundation-readonly-plan" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
     await expect(server.callTool("kiln_agent_task_status", { jobId: "not valid" })).resolves.toMatchObject({ isError: true, structuredContent: { error: { code: "invalid_request" } } });
@@ -546,7 +608,7 @@ describe("NativeHarnessMcpTools", () => {
             providerId: "opencode-go",
             completedAt: OBSERVED_AT,
             provenance: { source: "runtime-managed-invocation", trust: "untrusted-child-output" },
-            handoff: { summary: "bounded child answer", resourceUris: ["kiln://artifacts/agent-task-0001/result"], memoryWriteProposalUris: [] },
+            handoff: { provenance: { delivery: "native-structured-output", configuredModelId: "go-test", primaryObservedModelId: "go-test", observedModelIds: ["go-test"], harness: { id: "opencode", executable: "<operator-harness>/opencode", version: "1.0.0" } }, summary: "bounded child answer", resourceUris: ["kiln://artifacts/agent-task-0001/result"], memoryWriteProposalUris: [] },
             dataPolicyProof: {
               version: 1, jobId, dispatchFenceId: "fence-safe-001", routeId: "route-go", providerId: "opencode-go", providerModelId: "go-test",
               decision: { status: "admitted", freshness: "current", reason: "policy-admitted" },
@@ -555,7 +617,7 @@ describe("NativeHarnessMcpTools", () => {
           };
         },
         cancel: async () => agentTask({ state: "cancelled", diagnostic: "cancelled" }),
-        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", diagnostic: "replay_unavailable" }),
+        getReplay: async () => ({ jobId: "agent-task-0001", availability: "unavailable", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "unavailable", dispatch: nativeHarnessDispatchFixture(), diagnostic: "replay_unavailable" }),
       },
       requestIdentity: () => ({ callerId: "trusted-codex-user", requestId: "result-request" }),
     });
@@ -567,7 +629,7 @@ describe("NativeHarnessMcpTools", () => {
   });
 
   it("projects the exact sanitized data-policy proof through status, result, and replay", async () => {
-    const proof = {
+    const proof: AgentTaskDataPolicyProof = {
       version: 1 as const, jobId: "agent-task-0001", dispatchFenceId: "fence-safe-001", routeId: "route-go", providerId: "opencode-go", providerModelId: "go-test",
       decision: { status: "admitted" as const, freshness: "current" as const, reason: "policy-admitted" as const },
       evidence: { providerId: "opencode-go", providerModelId: "go-test", sourceIdentity: "fixture", sourceRevision: "rev-1", sourceDigest: `sha256:${"a".repeat(64)}`, trainingPosture: "prohibited" as const, retentionPosture: "zero" as const, retentionDays: 0, maximumClassification: "internal" as const, observedAt: OBSERVED_AT, expiresAt: "2027-07-13T18:01:00.000Z" },
@@ -577,7 +639,7 @@ describe("NativeHarnessMcpTools", () => {
       getStatus: async () => agentTask({ result: { routeId: "route-go", providerId: "opencode-go", dataPolicyProof: proof } } as never),
       getResult: async () => ({ jobId: "agent-task-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", dataPolicyProof: proof }),
       cancel: async () => agentTask(),
-      getReplay: async () => ({ jobId: "agent-task-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "available" as const, dispatch: { kind: "native-harness" as const, routeId: "route-go", routeRevision: "r1", providerId: "opencode-go", model: "go-test", dispatchFenceId: "fence-safe-001" }, dataPolicyProof: proof }),
+       getReplay: async () => ({ jobId: "agent-task-0001", availability: "available", lifecycleState: "succeeded", configuredAgentProfileId: "scout", admissionProfileId: "foundation-readonly-plan", routeId: "route-go", providerId: "opencode-go", lifecycle: [], resultAvailability: "available" as const, dispatch: nativeHarnessDispatchFixture(), dataPolicyProof: proof }),
     } });
     for (const name of ["kiln_agent_task_status", "kiln_agent_task_result", "kiln_agent_task_replay"] as const) {
       const response = await server.callTool(name, { jobId: "agent-task-0001" });
@@ -895,8 +957,8 @@ describe("NativeHarnessMcpTools", () => {
 
   it("rejects malformed status, projection, route, and capability evidence without leaking it", async () => {
     const malformed = snapshot({
-      projections: [{ targetId: "codex", path: "C:\\secret", kind: "native", status: "current", routeIntegrity: { routeStatus: "unknown", credentialStatus: "valid", classification: "x" } }] as KilnConfigStatusSnapshot["projections"],
-      harnessCapabilities: [{ harness: "codex", displayName: "Codex", runtimeConfigInjection: "supported", nativeProjection: "install-state", nativeConfigImport: "supported", mcpRuntimeTools: 7, hooks: "supported" }] as KilnConfigStatusSnapshot["harnessCapabilities"],
+      projections: [{ targetId: "codex", path: "C:\\secret", kind: "native", status: "current", routeIntegrity: { catalogStatus: { status: "invalid" }, explicitProbeStatus: "invalid", credentialSource: "unknown", bareProofSupported: false, routeStatus: "unknown", credentialStatus: "valid", classification: "x" } }],
+      harnessCapabilities: [{ harness: "codex", displayName: "Codex", runtimeConfigInjection: "supported", nativeProjection: "install-state", nativeConfigImport: "supported", mcpRuntimeTools: "invalid", hooks: "supported" }],
     });
 
     const result = await createServer(malformed).callTool("kiln_status_inspect", {});

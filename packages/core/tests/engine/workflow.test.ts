@@ -11,9 +11,9 @@ describe("Workflow interface", () => {
       },
     };
     expect(workflow.phases).toHaveLength(6);
-    expect(workflow.phases[0]).toBe("Analyze");
-    expect(workflow.gates["Architect"].requires).toContain("tests_pass");
-    expect(workflow.gates["Verify"].requires).toContain("coverage_80");
+    expect(workflow.phases[0]!).toBe("Analyze");
+    expect(workflow.gates["Architect"]!.requires).toContain("tests_pass");
+    expect(workflow.gates["Verify"]!.requires).toContain("coverage_80");
   });
 
   it("accepts a valid Ehrlich-style 6-phase workflow with different phases", () => {
@@ -25,8 +25,8 @@ describe("Workflow interface", () => {
       },
     };
     expect(workflow.phases).toHaveLength(6);
-    expect(workflow.phases[1]).toBe("Literature");
-    expect(workflow.gates["Report"].requires).toContain("statistical_significance");
+    expect(workflow.phases[1]!).toBe("Literature");
+    expect(workflow.gates["Report"]!.requires).toContain("statistical_significance");
   });
 
   it("accepts a minimal 2-phase workflow (Artu-style)", () => {

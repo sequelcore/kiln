@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PathValidator } from "../../../src/sandbox/path-validator.js";
-import { SandboxPolicy, type SandboxConfig } from "../../../src/sandbox/policies.js";
+import { SandboxPolicy } from "../../../src/sandbox/policies.js";
+import type { SandboxConfig } from "../../../src/sandbox/index.js";
 
 export async function makeTempDir(prefix = "kiln-tools-"): Promise<string> {
   return mkdtemp(join(tmpdir(), prefix));

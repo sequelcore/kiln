@@ -58,20 +58,20 @@ describe("BashTool", () => {
       expect(result.isError).toBe(false);
       expect(result.output).toBe("ok");
       expect(commandRunner).toHaveBeenCalledWith("echo ok", nested, 5_000);
-      expect(result.metadata?.["toolName"]).toBe("bash");
-      expect(result.metadata?.["kind"]).toBe("command");
-      expect(result.metadata?.["cwd"]).toBe(nested);
-      expect(result.metadata?.["command"]).toBe("echo ok");
-      expect(result.metadata?.["timeoutMs"]).toBe(5_000);
-      expect(result.metadata?.["stdout"]).toBe("ok\n");
-      expect(result.metadata?.["stderr"]).toBe("");
-      expect(result.metadata?.["stdoutBytes"]).toBe(Buffer.byteLength("ok\n"));
-      expect(result.metadata?.["stderrBytes"]).toBe(0);
-      expect(result.metadata?.["exitCode"]).toBe(0);
-      expect(result.metadata?.["timedOut"]).toBe(false);
-      expect(result.metadata?.["truncated"]).toBe(false);
-      expect(result.metadata?.["durationMs"]).toEqual(expect.any(Number));
-      expect(result.metadata?.["durationMs"]).toBeGreaterThanOrEqual(0);
+      if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+      expect(result.metadata.toolName).toBe("bash");
+      expect(result.metadata.cwd).toBe(nested);
+      expect(result.metadata.command).toBe("echo ok");
+      expect(result.metadata.timeoutMs).toBe(5_000);
+      expect(result.metadata.stdout).toBe("ok\n");
+      expect(result.metadata.stderr).toBe("");
+      expect(result.metadata.stdoutBytes).toBe(Buffer.byteLength("ok\n"));
+      expect(result.metadata.stderrBytes).toBe(0);
+      expect(result.metadata.exitCode).toBe(0);
+      expect(result.metadata.timedOut).toBe(false);
+      expect(result.metadata.truncated).toBe(false);
+      expect(result.metadata.durationMs).toEqual(expect.any(Number));
+      expect(result.metadata.durationMs).toBeGreaterThanOrEqual(0);
     } finally {
       await removeTempDir(tempDir);
     }
@@ -80,7 +80,7 @@ describe("BashTool", () => {
   it("runs real bash commands through the detected exact executable path", async () => {
     const tempDir = await makeTempDir();
     try {
-      const start = vi.fn((request, sink) => {
+      const start = vi.fn((_request, sink) => {
         sink.output({ stream: "stdout", text: "ok\n" });
         sink.finish({ exitCode: 0 });
         return { pid: 42, completed: Promise.resolve({ exitCode: 0 }), stop: vi.fn(async () => {}) };
@@ -110,7 +110,8 @@ describe("BashTool", () => {
         }),
         expect.any(Object),
       );
-      expect(result.metadata?.["cwd"]).toBe(tempDir);
+      if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+      expect(result.metadata.cwd).toBe(tempDir);
     } finally {
       await removeTempDir(tempDir);
     }
@@ -120,7 +121,7 @@ describe("BashTool", () => {
     const tempDir = await makeTempDir();
     try {
       const controller = new AbortController();
-      const start = vi.fn((request, sink) => {
+      const start = vi.fn((_request, sink) => {
         sink.output({ stream: "stdout", text: "building\n" });
         sink.output({ stream: "stderr", text: "warning\n" });
         sink.output({ stream: "stdout", text: "done\n" });
@@ -174,7 +175,8 @@ describe("BashTool", () => {
 
       expect(result.isError).toBe(true);
       expect(result.output).toContain("bash executable is not available");
-      expect(result.metadata?.["code"]).toBe("BASH_NOT_FOUND");
+      if (!result.metadata || result.metadata.kind !== "command") throw new Error("expected command metadata");
+      expect(result.metadata.code).toBe("BASH_NOT_FOUND");
       expect(start).not.toHaveBeenCalled();
     } finally {
       await removeTempDir(tempDir);
@@ -206,7 +208,8 @@ describe("BashTool", () => {
       windowsWorkspace,
       5_000,
     );
-    expect(result.metadata?.["cwd"]).toBe(windowsWorkspace);
+    if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+    expect(result.metadata.cwd).toBe(windowsWorkspace);
   });
 
   it("normalizes MSYS drive cwd paths before sandbox validation and execution", async () => {
@@ -230,7 +233,8 @@ describe("BashTool", () => {
 
     expect(result.isError).toBe(false);
     expect(commandRunner).toHaveBeenCalledWith("pwd", windowsWorkspace, 5_000);
-    expect(result.metadata?.["cwd"]).toBe(windowsWorkspace);
+    if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+    expect(result.metadata.cwd).toBe(windowsWorkspace);
   });
 
   it("preserves failed execution output and metadata when injected runner rejects", async () => {
@@ -259,22 +263,22 @@ describe("BashTool", () => {
       expect(result.isError).toBe(true);
       expect(result.output).toBe("permission denied\npartial output");
       expect(commandRunner).toHaveBeenCalledWith("cat secret.txt", nested, 1_500);
-      expect(result.metadata?.["toolName"]).toBe("bash");
-      expect(result.metadata?.["kind"]).toBe("command");
-      expect(result.metadata?.["cwd"]).toBe(nested);
-      expect(result.metadata?.["command"]).toBe("cat secret.txt");
-      expect(result.metadata?.["timeoutMs"]).toBe(1_500);
-      expect(result.metadata?.["stdout"]).toBe("partial output\n");
-      expect(result.metadata?.["stderr"]).toBe("permission denied\n");
-      expect(result.metadata?.["stdoutBytes"]).toBe(Buffer.byteLength("partial output\n"));
-      expect(result.metadata?.["stderrBytes"]).toBe(Buffer.byteLength("permission denied\n"));
-      expect(result.metadata?.["exitCode"]).toBe(17);
-      expect(result.metadata?.["code"]).toBe(17);
-      expect(result.metadata?.["signal"]).toBe("SIGTERM");
-      expect(result.metadata?.["timedOut"]).toBe(false);
-      expect(result.metadata?.["truncated"]).toBe(false);
-      expect(result.metadata?.["durationMs"]).toEqual(expect.any(Number));
-      expect(result.metadata?.["durationMs"]).toBeGreaterThanOrEqual(0);
+      if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+      expect(result.metadata.toolName).toBe("bash");
+      expect(result.metadata.cwd).toBe(nested);
+      expect(result.metadata.command).toBe("cat secret.txt");
+      expect(result.metadata.timeoutMs).toBe(1_500);
+      expect(result.metadata.stdout).toBe("partial output\n");
+      expect(result.metadata.stderr).toBe("permission denied\n");
+      expect(result.metadata.stdoutBytes).toBe(Buffer.byteLength("partial output\n"));
+      expect(result.metadata.stderrBytes).toBe(Buffer.byteLength("permission denied\n"));
+      expect(result.metadata.exitCode).toBe(17);
+      expect(result.metadata.code).toBe(17);
+      expect(result.metadata.signal).toBe("SIGTERM");
+      expect(result.metadata.timedOut).toBe(false);
+      expect(result.metadata.truncated).toBe(false);
+      expect(result.metadata.durationMs).toEqual(expect.any(Number));
+      expect(result.metadata.durationMs).toBeGreaterThanOrEqual(0);
     } finally {
       await removeTempDir(tempDir);
     }
@@ -289,14 +293,15 @@ describe("BashTool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain("bash command timed out");
-    expect(result.metadata?.["timedOut"]).toBe(true);
-    expect(result.metadata?.["status"]).toBe("timed_out");
-    expect(result.metadata?.["truncated"]).toBe(false);
-    expect(result.metadata?.["signal"]).toBe("SIGTERM");
-    expect(result.metadata?.["stdout"]).toBe("");
-    expect(result.metadata?.["stderr"]).toBe("");
-    expect(result.metadata?.["durationMs"]).toEqual(expect.any(Number));
-    expect(result.metadata?.["durationMs"]).toBeGreaterThanOrEqual(0);
+    if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+    expect(result.metadata.timedOut).toBe(true);
+    expect(result.metadata.status).toBe("timed_out");
+    expect(result.metadata.truncated).toBe(false);
+    expect(result.metadata.signal).toBe("SIGTERM");
+    expect(result.metadata.stdout).toBe("");
+    expect(result.metadata.stderr).toBe("");
+    expect(result.metadata.durationMs).toEqual(expect.any(Number));
+    expect(result.metadata.durationMs).toBeGreaterThanOrEqual(0);
   }, 10_000);
 
   it("marks max buffer failures as truncated without reporting timeout", async () => {
@@ -317,18 +322,18 @@ describe("BashTool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toBe(maxBufferOutput);
-    expect(result.metadata?.["toolName"]).toBe("bash");
-    expect(result.metadata?.["kind"]).toBe("command");
-    expect(result.metadata?.["code"]).toBe("ERR_CHILD_PROCESS_STDIO_MAXBUFFER");
-    expect(result.metadata?.["timedOut"]).toBe(false);
-    expect(result.metadata?.["truncated"]).toBe(true);
-    expect(result.metadata?.["maxBufferBytes"]).toBe(2 * 1024 * 1024);
-    expect(result.metadata?.["stdout"]).toBe("x".repeat(8 * 1024));
-    expect(result.metadata?.["stdoutTruncated"]).toBe(true);
-    expect(result.metadata?.["stdoutBytes"]).toBe(2 * 1024 * 1024);
-    expect(result.metadata?.["stderrBytes"]).toBe(0);
-    expect(result.metadata?.["durationMs"]).toEqual(expect.any(Number));
-    expect(result.metadata?.["durationMs"]).toBeGreaterThanOrEqual(0);
+    if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+    expect(result.metadata.toolName).toBe("bash");
+    expect(result.metadata.code).toBe("ERR_CHILD_PROCESS_STDIO_MAXBUFFER");
+    expect(result.metadata.timedOut).toBe(false);
+    expect(result.metadata.truncated).toBe(true);
+    expect(result.metadata.maxBufferBytes).toBe(2 * 1024 * 1024);
+    expect(result.metadata.stdout).toBe("x".repeat(8 * 1024));
+    expect(result.metadata.stdoutTruncated).toBe(true);
+    expect(result.metadata.stdoutBytes).toBe(2 * 1024 * 1024);
+    expect(result.metadata.stderrBytes).toBe(0);
+    expect(result.metadata.durationMs).toEqual(expect.any(Number));
+    expect(result.metadata.durationMs).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -364,9 +369,9 @@ describe("GitTool", () => {
       expect(result.isError).toBe(false);
       expect(result.output).toContain("On branch main");
       expect(commandRunner).toHaveBeenCalledWith(["status", "--short"], tempDir, 30_000);
-      expect(result.metadata?.["toolName"]).toBe("git");
-      expect(result.metadata?.["kind"]).toBe("command");
-      expect(result.metadata?.["cwd"]).toBe(tempDir);
+      if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+      expect(result.metadata.toolName).toBe("git");
+      expect(result.metadata.cwd).toBe(tempDir);
     } finally {
       await removeTempDir(tempDir);
     }

@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   CostTracker,
-  MODEL_PRICING,
   STT_PRICING,
   EMBEDDING_PRICING,
   resolveExecutionPricing,

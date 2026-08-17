@@ -16,6 +16,7 @@ function makeProvider(response: string): ProviderAdapter & { lastCall: CreateMes
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         toolCalls: [],
+        stopReason: "stop",
       };
     },
     async *streamMessage(): AsyncGenerator<AgentStreamEvent> {

@@ -178,10 +178,11 @@ describe("managed agent admission policy", () => {
       authority: { ...request.authority, memoryScope: undefined },
     })],
   ])("denies foundation-readonly-plan when %s is missing", (_label, mutate) => {
-    const malformed = mutate(makeRequest()) as ManagedAgentInvocationRequest;
+    const malformed = mutate(makeRequest()) as never;
     const decision = evaluateManagedAgentAdmission(malformed, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
+    if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.reason).toContain("foundation-readonly-plan");
     expect(decision.missingCapabilities.length).toBeGreaterThan(0);
   });
@@ -207,6 +208,7 @@ describe("managed agent admission policy", () => {
       invocationId: "invocation-1",
       profile: "foundation-readonly-plan",
     });
+    if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.missingCapabilities).toEqual(expect.arrayContaining([
       "timeout.supported",
       "transcript.persistenceKnown",

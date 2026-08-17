@@ -130,12 +130,11 @@ describe("ToolCatalogSearchTool", () => {
   });
 });
 
-function fakeTool(name: string, annotations: NonNullable<DevTool["annotations"]>): DevTool {
+function fakeTool(name: string, _annotations: Record<string, boolean>): DevTool {
   return {
     name,
     description: `${name} tool`,
     inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
-    annotations,
     async execute(_input: ToolInput): Promise<ToolResult> {
       return { output: "", isError: false };
     },

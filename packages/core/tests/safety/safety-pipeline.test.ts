@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { SafetyPipeline } from "../../src/safety/safety-pipeline.js";
 import type { SafetyConfig } from "../../src/engine/domain/safety-config.js";
 

@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+
+type AnyMock = Mock<(...args: unknown[]) => unknown>;
 import type { DirectProviderId } from "@kilnai/core/agents";
 
 type MockAdapterName =
@@ -12,20 +14,20 @@ type MockAdapterName =
   | "openrouter";
 
 const adapterMocks = vi.hoisted(
-  (): Record<MockAdapterName, ReturnType<typeof vi.fn>> & {
-    readonly codexPoolCreateAdapter: ReturnType<typeof vi.fn>;
-    readonly codexPoolCreateExactAdapter: ReturnType<typeof vi.fn>;
-    readonly codexPoolCreateAdapterFromCredential: ReturnType<typeof vi.fn>;
-    readonly codexPoolListExecutionAccounts: ReturnType<typeof vi.fn>;
-    readonly directPoolCreateAdapter: ReturnType<typeof vi.fn>;
-    readonly directPoolCreateAdapterFromCredential: ReturnType<typeof vi.fn>;
-    readonly directPoolListStatus: ReturnType<typeof vi.fn>;
-    readonly opencodeAuthLoad: ReturnType<typeof vi.fn>;
-    readonly opencodePoolListStatus: ReturnType<typeof vi.fn>;
-    readonly opencodePoolCreateAdapter: ReturnType<typeof vi.fn>;
-    readonly opencodePoolCreateExactAdapter: ReturnType<typeof vi.fn>;
-    readonly opencodePoolCreateAdapterFromCredential: ReturnType<typeof vi.fn>;
-    readonly opencodePoolListExecutionAccounts: ReturnType<typeof vi.fn>;
+  (): Record<MockAdapterName, AnyMock> & {
+    readonly codexPoolCreateAdapter: AnyMock;
+    readonly codexPoolCreateExactAdapter: AnyMock;
+    readonly codexPoolCreateAdapterFromCredential: AnyMock;
+    readonly codexPoolListExecutionAccounts: AnyMock;
+    readonly directPoolCreateAdapter: AnyMock;
+    readonly directPoolCreateAdapterFromCredential: AnyMock;
+    readonly directPoolListStatus: AnyMock;
+    readonly opencodeAuthLoad: AnyMock;
+    readonly opencodePoolListStatus: AnyMock;
+    readonly opencodePoolCreateAdapter: AnyMock;
+    readonly opencodePoolCreateExactAdapter: AnyMock;
+    readonly opencodePoolCreateAdapterFromCredential: AnyMock;
+    readonly opencodePoolListExecutionAccounts: AnyMock;
   } => ({
     anthropic: vi.fn(),
     codexPoolCreateAdapter: vi.fn(),

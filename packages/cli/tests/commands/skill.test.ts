@@ -9,13 +9,8 @@ import type { KilnAppConfig } from "../../src/config.js";
 const mockExit = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
 
 const TEST_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.0.0-test",
-  description: "Test",
   createRegistry: () => new DomainRegistry(),
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 const VALID_SKILL_MD = `---

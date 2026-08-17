@@ -210,6 +210,7 @@ describe("GoalRunStore", () => {
       goalRunStore: store,
       workItemStore: new WorkItemStore(),
       goalRunId: paused.id,
+      boundedWorkCloseoutDecision: testBoundedWorkCloseoutDecision(paused.id, paused.boundedWorkContractRevision),
     })).toThrow("Goal goal-lifecycle is paused and cannot start or close execution");
 
     now = "2026-05-12T18:12:30.000Z";
@@ -318,7 +319,7 @@ describe("GoalRunStore", () => {
       id: "goal-terminal",
       objective: "Complete once.",
       ownerSessionId: "session-1",
-      source: { kind: "approved_plan", planId: "plan-1" },
+      source: { kind: "approved_plan" as const, planId: "plan-1" },
       boundedWorkContractRevision: testBoundedWorkRevision("goal-terminal", ["test-work-item"], "Complete once."),
       workItemIds: [],
       authorityEnvelope: {
@@ -352,7 +353,7 @@ describe("GoalRunStore", () => {
       id: "goal-evidence",
       objective: "Close the governed release.",
       ownerSessionId: "session-1",
-      source: { kind: "approved_plan", planId: "plan-1" },
+      source: { kind: "approved_plan" as const, planId: "plan-1" },
       boundedWorkContractRevision: testBoundedWorkRevision("goal-evidence", ["wi-1"], "Close the governed release."),
       workItemIds: ["wi-1"],
       authorityEnvelope: {
@@ -396,7 +397,7 @@ describe("GoalRunStore", () => {
       id: "goal-validation",
       objective: "Validate goal input.",
       ownerSessionId: "session-1",
-      source: { kind: "approved_plan", planId: "plan-1" },
+      source: { kind: "approved_plan" as const, planId: "plan-1" },
       boundedWorkContractRevision: testBoundedWorkRevision("goal-validation", ["wi-1"], "Validate goal input."),
       workItemIds: ["wi-1"],
       authorityEnvelope: {
@@ -445,7 +446,7 @@ describe("GoalRunStore", () => {
       id: "goal-replay",
       objective: "Replay goal from session events.",
       ownerSessionId: "session-1",
-      source: { kind: "approved_plan", planId: "plan-1", planHash: "sha256:plan" },
+      source: { kind: "approved_plan" as const, planId: "plan-1", planHash: "sha256:plan" },
       boundedWorkContractRevision,
       boundedWorkContractRevisionHistory: [boundedWorkContractRevision],
       status: "active" as const,
@@ -458,19 +459,21 @@ describe("GoalRunStore", () => {
       },
       routePolicy: { workflowProfile: "architecture-change" },
       evidenceRequirements: [{ id: "tests", description: "Tests pass.", required: true }],
+      evidence: [],
+      activeDurationMs: 0,
       createdAt: created.toISOString(),
       updatedAt: created.toISOString(),
       sequence: 1,
     };
 
     const snapshot = reconstructGoalRunsFromSessionEvents([
-      createSessionEvent({
+      createSessionEvent<"goal.created">({
         kind: "goal.created",
         kilnSessionId: "session-1",
         sequence: 1,
         goal: baseGoal,
       }),
-      createSessionEvent({
+      createSessionEvent<"goal.updated">({
         kind: "goal.updated",
         kilnSessionId: "session-1",
         sequence: 2,
@@ -482,7 +485,7 @@ describe("GoalRunStore", () => {
         },
         changedFields: ["currentPhase"],
       }),
-      createSessionEvent({
+      createSessionEvent<"goal.completed">({
         kind: "goal.completed",
         kilnSessionId: "session-1",
         sequence: 3,

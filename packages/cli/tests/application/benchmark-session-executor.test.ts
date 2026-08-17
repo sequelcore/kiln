@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { BenchmarkItemExecutionContext } from "@kilnai/core";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
@@ -234,11 +235,11 @@ const MOCK_APP_CONFIG = {
 function makeBenchmarkContext(item: {
   readonly id: string;
   readonly input: string;
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  readonly metadata?: Record<string, unknown>;
 }, profile: {
   readonly id?: string;
   readonly authorityProfile?: string;
-} = {}) {
+} = {}): BenchmarkItemExecutionContext {
   return {
     profile: {
       id: profile.id ?? "kiln-tool-agent",
@@ -248,8 +249,13 @@ function makeBenchmarkContext(item: {
       purpose: "Tool calling.",
       authorityProfile: profile.authorityProfile ?? "foundation-readonly-plan",
       requiredScorers: [],
+      admissionScorers: [],
+      minimumDatasetItems: 1,
+      minimumPassRate: 0,
       minimumPassAtK: 1,
       minimumK: 1,
+      maximumInvalidTrialRate: 1,
+      maxInvalidAttempts: 0,
       reproducibilityRequirements: [],
       externalTrackCandidates: [],
     },
@@ -257,7 +263,7 @@ function makeBenchmarkContext(item: {
     datasetVersion: "1",
     runIndex: 0,
     item,
-  } as never;
+  };
 }
 
 describe("createBenchmarkSessionExecutor", () => {

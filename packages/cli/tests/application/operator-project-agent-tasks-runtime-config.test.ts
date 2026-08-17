@@ -6,8 +6,10 @@ import {
   deriveProviderModelEligibility,
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core/agents";
-import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService } from "@kilnai/runtime";
+import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService, type ManagedCommittedInvocationRequest } from "@kilnai/runtime";
 import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import type { ResolvedManagedTargetConfig } from "../../src/config/resolved-managed-target.js";
+import type { DirectProviderCredentialBinding } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
 function persistGlobalConfig(config: KilnGlobalConfig): void {
   mutateGlobalConfig(() => config);
@@ -127,7 +129,12 @@ vi.mock("../../src/config/managed-agent-direct-adapters.js", async (importOrigin
   const actual = await importOriginal<typeof import("../../src/config/managed-agent-direct-adapters.js")>();
   return {
     ...actual,
-    createManagedDirectProviderAdapterFactory: vi.fn(() => async (route, credentialBinding, _abortSignal, committedRequest) => {
+    createManagedDirectProviderAdapterFactory: vi.fn(() => async (
+      route: ResolvedManagedTargetConfig,
+      credentialBinding: DirectProviderCredentialBinding | undefined,
+      _abortSignal: AbortSignal | undefined,
+      committedRequest: ManagedCommittedInvocationRequest,
+    ) => {
       adapterTrace.createCalls += 1;
       adapterTrace.requests.push({ route, credentialBinding, committedRequest });
       return adapterTrace.adapter as never;
@@ -193,6 +200,7 @@ function eligibleDirectProviderCatalog(providerId: string, model: string): Manag
       {
         catalogDiagnosticEvidence: route,
         catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
+        provenProfiles: ["foundation-readonly-plan"],
       },
     ])),
   };
@@ -355,19 +363,22 @@ function openCodeGoEconomicConfig(): KilnGlobalConfig {
         id: "opencode-go-policy",
         accountIds: ["opencode-go-account"],
       })),
-      targets: configured.targetCatalog!.targets.map((target) => ({
-        ...target,
-        id: "opencode-go-direct",
-        providerId: "opencode-go",
-        providerModelId: "kimi-k2.6",
-        dataPolicyEvidence: {
-          ...target.dataPolicyEvidence,
+      targets: configured.targetCatalog!.targets.map((target) => {
+        if (target.kind !== "direct") throw new Error("expected a direct execution target");
+        return {
+          ...target,
+          id: "opencode-go-direct",
           providerId: "opencode-go",
           providerModelId: "kimi-k2.6",
-        },
-        accountSelection: { mode: "automatic" as const, accountPolicyId: "opencode-go-policy" },
-        economics: { ...target.economics, adapterCapabilityId: "opencode-go-direct" },
-      })),
+          dataPolicyEvidence: {
+            ...target.dataPolicyEvidence,
+            providerId: "opencode-go",
+            providerModelId: "kimi-k2.6",
+          },
+          accountSelection: { mode: "automatic" as const, accountPolicyId: "opencode-go-policy" },
+          economics: { ...target.economics, adapterCapabilityId: "opencode-go-direct" },
+        };
+      }),
     },
     targetRouting: { defaultTargetId: "opencode-go-direct" },
   };

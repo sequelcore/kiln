@@ -411,7 +411,7 @@ describe("modelGatewayCommand", () => {
 
   it("runs doctor through the same global supervisor", async () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-doctor-"));
-    const doctor = vi.fn(async () => ({ status: { state: "stopped" as const }, stateFile: "absent" as const, configDigest: "a".repeat(64), version: "3.0.0-test", diagnostics: [] }));
+    const doctor = vi.fn(async () => ({ status: { state: "stopped" as const }, stateFile: "absent" as const, configDigest: "a".repeat(64), version: "3.0.0-test", host: { desired: TEST_MODEL_GATEWAY_HOST.host, observed: undefined }, diagnostics: [] }));
     const log = vi.fn();
     await modelGatewayCommand(["doctor", "--json"], {
       readGlobalConfig: () => globalConfig, resolveGlobalConfigPath: () => join(root!, "config.yaml"),
@@ -838,7 +838,7 @@ describe("modelGatewayCommand", () => {
     root = await mkdtemp(join(tmpdir(), "kiln-model-gateway-not-ready-"));
     const syncOpenCodeNativeProjection = vi.fn();
     await expect(modelGatewayCommand(["sync-native", "--client", "opencode"], {
-      readGlobalConfig: () => globalConfig, resolveGlobalConfigPath: () => join(root!, "config.yaml"), createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => ({ state: "foreign", reason: "identity-mismatch" })), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
+      readGlobalConfig: () => globalConfig, resolveGlobalConfigPath: () => join(root!, "config.yaml"), createSupervisor: () => ({ start: vi.fn(), ensure: vi.fn(async () => ({ state: "foreign" as const, reason: "identity-mismatch" })), stop: vi.fn(), restart: vi.fn(), status: vi.fn(), doctor: vi.fn() }),
       syncOpenCodeNativeProjection, env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) }, entrypoint: "cli.js",
     })).rejects.toThrow("not owned and ready");
     expect(syncOpenCodeNativeProjection).not.toHaveBeenCalled();

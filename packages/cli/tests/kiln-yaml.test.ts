@@ -17,6 +17,7 @@ import {
   defaultKilnYaml,
   KilnYamlError,
   type ResolvedKilnConfig,
+  type KilnProjectConfig,
 } from "../src/kiln-yaml.js";
 
 describe("readKilnYaml", () => {
@@ -144,14 +145,14 @@ describe("mergeKilnYaml", () => {
   });
   it("override wins on scalar conflict", () => {
     const base: ResolvedKilnConfig = { version: "1", domain: "python" };
-    const override: Partial<ResolvedKilnConfig> = { domain: "react-ts" };
+    const override: KilnProjectConfig = { version: "1", domain: "react-ts" };
     const result = mergeKilnYaml(base, override);
     expect(result.domain).toBe("react-ts");
   });
 
   it("preserves base fields not in override", () => {
     const base: ResolvedKilnConfig = { version: "1", domain: "python", provider: "claude" };
-    const override: Partial<ResolvedKilnConfig> = { domain: "react-ts" };
+    const override: KilnProjectConfig = { version: "1", domain: "react-ts" };
     const result = mergeKilnYaml(base, override);
     expect(result.provider).toBe("claude");
   });
@@ -165,7 +166,8 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<ResolvedKilnConfig> = {
+    const override: KilnProjectConfig = {
+      version: "1",
       mcp: {
         servers: {
           kiln: { enabled: true },
@@ -185,7 +187,8 @@ describe("mergeKilnYaml", () => {
       version: "1",
       mcp: { servers: { kiln: { transport: "stdio", command: "kiln-mcp" } } },
     };
-    const override: Partial<ResolvedKilnConfig> = {
+    const override: KilnProjectConfig = {
+      version: "1",
       mcp: {
         servers: {
           custom: { transport: "streamable-http", url: "http://localhost:3001/mcp" },
@@ -208,14 +211,20 @@ describe("mergeKilnYaml", () => {
         reason: "Global operator preference.",
       }],
     };
-    const override: Partial<ResolvedKilnConfig> = {
-      modelTaskSuitability: [{
-        provider: "codex-oauth",
-        model: "gpt-5.4-mini",
-        task: "frontend-design",
-        level: "capable",
-        reason: "Project has a strong frontend skill profile.",
-      }],
+    const override: KilnProjectConfig = {
+      version: "1",
+      // Spread so an object literal assigned to `KilnProjectConfig` can still carry a
+      // field the project schema no longer declares, simulating untyped YAML input that
+      // slips a global-only key past the schema — production must still ignore it.
+      ...{
+        modelTaskSuitability: [{
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          task: "frontend-design",
+          level: "capable" as const,
+          reason: "Project has a strong frontend skill profile.",
+        }],
+      },
     };
 
     const result = mergeKilnYaml(base, override);
@@ -240,7 +249,8 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<ResolvedKilnConfig> = {
+    const override: KilnProjectConfig = {
+      version: "1",
       skills: {
         builtin: {
           include: ["code-review-findings"],
@@ -273,6 +283,7 @@ describe("mergeKilnYaml", () => {
         },
       },
       {
+        version: "1",
         skills: {
           selection: { mode: "auto" },
         },
@@ -301,7 +312,8 @@ describe("mergeKilnYaml", () => {
         requiredEvidence: ["surface-map"],
       },
     };
-    const override: Partial<ResolvedKilnConfig> = {
+    const override: KilnProjectConfig = {
+      version: "1",
       workGovernance: {
         directExecution: {
           maxFiles: 2,
@@ -338,7 +350,8 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<ResolvedKilnConfig> = {
+    const override: KilnProjectConfig = {
+      version: "1",
       web: {
         enabled: true,
         netPolicy: "documentation",
@@ -377,7 +390,8 @@ describe("mergeKilnYaml", () => {
         },
       },
     };
-    const override: Partial<ResolvedKilnConfig> = {
+    const override: KilnProjectConfig = {
+      version: "1",
       web: {
         enabled: true,
         netPolicy: "documentation",
@@ -394,7 +408,7 @@ describe("mergeKilnYaml", () => {
 
   it("ignores undefined override values", () => {
     const base: ResolvedKilnConfig = { version: "1", domain: "python" };
-    const override: Partial<ResolvedKilnConfig> = { domain: undefined };
+    const override: KilnProjectConfig = { version: "1", domain: undefined };
     const result = mergeKilnYaml(base, override);
     expect(result.domain).toBe("python");
   });

@@ -514,7 +514,7 @@ describe("native-skill-projection", () => {
     const state = JSON.parse(fsMocks.files.get(statePath) ?? "{}") as {
       targets: Record<string, Record<string, unknown>>;
     };
-    state.targets["codex-skill:planner/SKILL.md"].sourceIdentity = "skill:other/SKILL.md";
+    state.targets["codex-skill:planner/SKILL.md"]!.sourceIdentity = "skill:other/SKILL.md";
     fsMocks.files.set(statePath, JSON.stringify(state));
 
     const result = await syncNativeSkillProjections(projectPath, SKILLS_DISABLED);

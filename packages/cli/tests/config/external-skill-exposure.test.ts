@@ -4,11 +4,14 @@ import { compileCodexExternalSkillExposure, computeCodexExternalInventoryFingerp
 
 const digest = (char: string) => `sha256:${char.repeat(64)}`;
 const healthy = { status: "healthy" as const, fileCount: 1, packageBytes: 10, brokenResourceCount: 0, riskSignals: [], diagnostics: [] };
+const trusted = { level: "external-unverified" as const, reason: "External source; not locally reviewed." };
+const fresh = { status: "current" as const, reason: "Synced from source." };
+const noDependencies = { allowedTools: [], executableResources: 0 };
 function inventory(complete = true): KilnSkillSourceInventorySnapshot {
   return { complete, candidates: [
-    { name: "one", canonicalName: "one", sourceKind: "shared-agents", sourceId: "shared:one", exposureScope: "user", sourcePath: "one/SKILL.md", relationship: "external", packageDigest: digest("a"), descriptionBytes: 3, health: healthy, applicableHarnesses: ["codex", "opencode"], effectiveVisibility: "implicit" },
-    { name: "two", canonicalName: "two", sourceKind: "plugin", sourceId: "plugin:two", exposureScope: "user", sourcePath: "two/SKILL.md", relationship: "external", packageDigest: digest("b"), descriptionBytes: 3, health: healthy, applicableHarnesses: ["codex"], effectiveVisibility: "implicit" },
-    { name: "manual", canonicalName: "manual", sourceKind: "system", sourceId: "system:manual", exposureScope: "harness", sourcePath: "manual/SKILL.md", relationship: "external", packageDigest: digest("c"), descriptionBytes: 3, health: healthy, applicableHarnesses: ["codex"], effectiveVisibility: "explicit-only" },
+    { name: "one", canonicalName: "one", sourceKind: "shared-agents", sourceId: "shared:one", exposureScope: "user", sourcePath: "one/SKILL.md", relationship: "external", packageDigest: digest("a"), descriptionBytes: 3, trust: trusted, freshness: fresh, dependencies: noDependencies, health: healthy, applicableHarnesses: ["codex", "opencode"], effectiveVisibility: "implicit" },
+    { name: "two", canonicalName: "two", sourceKind: "plugin", sourceId: "plugin:two", exposureScope: "user", sourcePath: "two/SKILL.md", relationship: "external", packageDigest: digest("b"), descriptionBytes: 3, trust: trusted, freshness: fresh, dependencies: noDependencies, health: healthy, applicableHarnesses: ["codex"], effectiveVisibility: "implicit" },
+    { name: "manual", canonicalName: "manual", sourceKind: "system", sourceId: "system:manual", exposureScope: "harness", sourcePath: "manual/SKILL.md", relationship: "external", packageDigest: digest("c"), descriptionBytes: 3, trust: trusted, freshness: fresh, dependencies: noDependencies, health: healthy, applicableHarnesses: ["codex"], effectiveVisibility: "explicit-only" },
   ], sources: [], identities: [], resolutions: [], harnesses: [], diagnostics: complete ? [] : [{ code: "incomplete", message: "failed" }] };
 }
 

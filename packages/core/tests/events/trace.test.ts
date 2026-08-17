@@ -28,7 +28,7 @@ describe("startSpan", () => {
   it("creates a span with a new UUID spanId and records operation start", () => {
     const ctx = createTraceContext("session-1");
     const before = new Date();
-    const { span, childContext } = startSpan(ctx, "plan", "phase");
+    const { span } = startSpan(ctx, "plan", "phase");
     const after = new Date();
 
     expect(span.spanId).toMatch(
@@ -156,9 +156,9 @@ describe("addSpanEvent", () => {
     const after = new Date();
 
     expect(updated.events).toHaveLength(1);
-    expect(updated.events[0].name).toBe("checkpoint-saved");
-    expect(updated.events[0].timestamp.getTime()).toBeGreaterThanOrEqual(before.getTime());
-    expect(updated.events[0].timestamp.getTime()).toBeLessThanOrEqual(after.getTime());
+    expect(updated.events[0]!.name).toBe("checkpoint-saved");
+    expect(updated.events[0]!.timestamp.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(updated.events[0]!.timestamp.getTime()).toBeLessThanOrEqual(after.getTime());
   });
 
   it("includes attributes when provided", () => {
@@ -166,7 +166,7 @@ describe("addSpanEvent", () => {
     const { span } = startSpan(ctx, "work", "phase");
     const updated = addSpanEvent(span, "retry", { attempt: 3, reason: "timeout" });
 
-    expect(updated.events[0].attributes).toEqual({ attempt: 3, reason: "timeout" });
+    expect(updated.events[0]!.attributes).toEqual({ attempt: 3, reason: "timeout" });
   });
 
   it("leaves attributes undefined when not provided", () => {
@@ -174,7 +174,7 @@ describe("addSpanEvent", () => {
     const { span } = startSpan(ctx, "work", "phase");
     const updated = addSpanEvent(span, "done");
 
-    expect(updated.events[0].attributes).toBeUndefined();
+    expect(updated.events[0]!.attributes).toBeUndefined();
   });
 
   it("appends multiple events in order", () => {
@@ -186,9 +186,9 @@ describe("addSpanEvent", () => {
     const s3 = addSpanEvent(s2, "third");
 
     expect(s3.events).toHaveLength(3);
-    expect(s3.events[0].name).toBe("first");
-    expect(s3.events[1].name).toBe("second");
-    expect(s3.events[2].name).toBe("third");
+    expect(s3.events[0]!.name).toBe("first");
+    expect(s3.events[1]!.name).toBe("second");
+    expect(s3.events[2]!.name).toBe("third");
   });
 
   it("does not mutate the original span (immutable)", () => {

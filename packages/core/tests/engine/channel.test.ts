@@ -7,13 +7,19 @@ import type {
   EngineEvent,
 } from "../../src/engine/domain/channel.js";
 
+function textOf(parts: readonly { readonly type: string; readonly text?: string }[]): string {
+  const part = parts[0];
+  if (part?.type !== "text" || part.text === undefined) throw new Error("expected text content");
+  return part.text;
+}
+
 describe("Channel interface", () => {
   it("IncomingMessage accepts required fields only", () => {
     const msg: IncomingMessage = {
-      content: "Hello",
+      parts: [{ type: "text", text: "Hello" }],
       source: "cli",
     };
-    expect(msg.content).toBe("Hello");
+    expect(textOf(msg.parts)).toBe("Hello");
     expect(msg.source).toBe("cli");
     expect(msg.metadata).toBeUndefined();
     expect(msg.userId).toBeUndefined();
@@ -22,7 +28,7 @@ describe("Channel interface", () => {
 
   it("IncomingMessage accepts optional routing fields", () => {
     const msg: IncomingMessage = {
-      content: "Hello",
+      parts: [{ type: "text", text: "Hello" }],
       source: "slack",
       userId: "U123",
       threadId: "T456",
@@ -35,10 +41,10 @@ describe("Channel interface", () => {
 
   it("OutgoingMessage accepts required fields only", () => {
     const response: OutgoingMessage = {
-      content: "Here is the result",
+      parts: [{ type: "text", text: "Here is the result" }],
       target: "cli",
     };
-    expect(response.content).toBe("Here is the result");
+    expect(textOf(response.parts)).toBe("Here is the result");
     expect(response.target).toBe("cli");
     expect(response.format).toBeUndefined();
     expect(response.metadata).toBeUndefined();
@@ -46,7 +52,7 @@ describe("Channel interface", () => {
 
   it("OutgoingMessage accepts format and routing fields", () => {
     const response: OutgoingMessage = {
-      content: "Result",
+      parts: [{ type: "text", text: "Result" }],
       target: "slack",
       format: "full",
       userId: "U123",
@@ -82,6 +88,7 @@ describe("Channel interface", () => {
     const channel: Channel = {
       name: "test-channel",
       defaultFormat: "full",
+      supportedModalities: ["text"],
       async receive(message) {
         received.push(message);
       },
@@ -91,11 +98,11 @@ describe("Channel interface", () => {
       async stream(_events) {},
     };
 
-    await channel.receive({ content: "task", source: "cli" });
-    await channel.send({ content: "done", target: "cli", format: "full" });
+    await channel.receive({ parts: [{ type: "text", text: "task" }], source: "cli" });
+    await channel.send({ parts: [{ type: "text", text: "done" }], target: "cli", format: "full" });
 
     expect(received).toHaveLength(1);
-    expect(received[0]!.content).toBe("task");
+    expect(textOf(received[0]!.parts)).toBe("task");
     expect(sent).toHaveLength(1);
     expect(sent[0]!.format).toBe("full");
     expect(channel.name).toBe("test-channel");
@@ -108,6 +115,7 @@ describe("Channel interface", () => {
     const channel: Channel = {
       name: "stream-channel",
       defaultFormat: "full",
+      supportedModalities: ["text"],
       async receive() {},
       async send() {},
       async stream(events) {

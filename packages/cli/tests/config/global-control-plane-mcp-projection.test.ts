@@ -7,13 +7,6 @@ import {
   resolveGlobalControlPlaneMcpProjectionPaths,
   syncGlobalControlPlaneMcpProjections,
 } from "../../src/config/global-control-plane-mcp-projection.js";
-import {
-  createNativeProjectionSnapshot,
-  emptyNativeProjectionInstallState,
-  upsertNativeProjectionTargetState,
-  writeNativeProjectionInstallState,
-} from "../../src/config/native-projection-state.js";
-
 const roots: string[] = [];
 
 afterEach(() => {

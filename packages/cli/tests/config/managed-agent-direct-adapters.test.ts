@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   type AgentResponse,
+  createExecutionAccountPolicyId,
   defineManagedAgentInvocationRequest,
   type ProviderAdapter,
 } from "@kilnai/core/agents";
@@ -83,7 +84,7 @@ const READONLY_PROFILE: ManagedInvocationRouteProfile = {
   allowedToolNames: ["read", "grep"],
   workingDirectory: { path: "C:/repo", mode: "read-only" },
   timeoutMs: 60_000,
-  credentialRoute: { mode: "account-lease" },
+  credentialRoute: { mode: "account-leased", routeId: "readonly-plan", accountPolicyId: createExecutionAccountPolicyId("policy:readonly-plan") },
   memoryScope: { scope: { kind: "project", id: "test" }, access: "read-only" },
 };
 
@@ -117,7 +118,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       id: "openai-managed",
       kind: "direct",
       authorityProfiles: [],
-    }, undefined, undefined, committedRequestFor("openai-managed", "openai", "gpt-5.4-mini")))
+    }, undefined, undefined, committedRequestFor("openai-managed", "openai", "gpt-5.4-mini"), READONLY_PROFILE))
       .rejects.toThrow("has no committed credential binding");
 
     expect(createProviderAdapter).not.toHaveBeenCalled();
@@ -164,7 +165,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       id: "codex-managed",
       kind: "direct",
       authorityProfiles: [],
-    }, credentialBindingFor("codex-managed"), undefined, committedRequest)).rejects.toThrow(/committed economic route/u);
+    }, credentialBindingFor("codex-managed"), undefined, committedRequest, READONLY_PROFILE)).rejects.toThrow(/committed economic route/u);
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
 
@@ -385,7 +386,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       provider: "codex",
       model: "gpt-5.3-codex-spark",
       authorityProfiles: [],
-    }, undefined, undefined, committedRequestFor("codex-readonly", "codex", "gpt-5.3-codex-spark")))
+    }, undefined, undefined, committedRequestFor("codex-readonly", "codex", "gpt-5.3-codex-spark"), READONLY_PROFILE))
       .resolves.toBeUndefined();
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
@@ -399,7 +400,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       id: "codex-direct",
       kind: "direct",
       authorityProfiles: [],
-    }, credentialBindingFor("codex-direct"), undefined, committedRequestFor("codex-direct", "codex", "gpt-5.3-codex-spark")))
+    }, credentialBindingFor("codex-direct"), undefined, committedRequestFor("codex-direct", "codex", "gpt-5.3-codex-spark"), READONLY_PROFILE))
       .rejects.toThrow("Provider 'codex' is not a direct provider.");
   });
 
@@ -411,7 +412,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       id: "ollama-readonly",
       kind: "direct",
       authorityProfiles: [],
-    }, credentialBindingFor("ollama-readonly"), undefined, committedRequestFor("ollama-readonly", "ollama", "ollama-local")))
+    }, credentialBindingFor("ollama-readonly"), undefined, committedRequestFor("ollama-readonly", "ollama", "ollama-local"), READONLY_PROFILE))
       .rejects.toThrow("requires a tool-call-capable model");
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });
@@ -424,7 +425,7 @@ describe("createManagedDirectProviderAdapterFactory", () => {
       id: "openai-readonly",
       kind: "direct",
       authorityProfiles: [],
-    }, undefined, undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini")))
+    }, undefined, undefined, committedRequestFor("openai-readonly", "openai", "gpt-5.4-mini"), READONLY_PROFILE))
       .rejects.toThrow("has no committed credential binding");
     expect(createProviderAdapter).not.toHaveBeenCalled();
   });

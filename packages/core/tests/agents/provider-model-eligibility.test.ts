@@ -16,7 +16,7 @@ import {
 const NOW = "2026-07-01T12:00:00.000Z";
 const SOURCE = { kind: "catalog", id: "fixture-catalog", version: "1" } as const;
 
-const DEFAULT_STATES = {
+const DEFAULT_STATES: Record<ProviderModelEvidenceState, ProviderModelEvidenceValue> = {
   advertised: "confirmed",
   discovered: "confirmed",
   configured: "confirmed",

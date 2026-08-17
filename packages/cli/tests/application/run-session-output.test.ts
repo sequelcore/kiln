@@ -21,10 +21,10 @@ function makeContext(): SessionContext {
     domain: DOMAIN,
     systemPrompt: "",
     projectedContext: { blocks: [], estimatedTokens: 0 },
-    memorySnapshot: undefined,
     mcpServerEntryPath: "",
     workingDirectory: process.cwd(),
     task: "Return exact output",
+    resumeStrategy: "none",
   };
 }
 

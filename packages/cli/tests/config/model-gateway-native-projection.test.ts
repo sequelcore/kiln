@@ -56,7 +56,7 @@ function claudeConfig(tokenEnv = "ANTHROPIC_AUTH_TOKEN", modelIds = ["claude-mod
 
 describe("model gateway native projections", () => {
   it("adds an OpenCode Responses provider without synthesizing the native allowlist or default", () => {
-    const projected = buildOpenCodeResponsesProjection({ config: config([principal("opencode")]), existingEnabledProviders: ["anthropic"] });
+    const projected = buildOpenCodeResponsesProjection({ config: config([principal("opencode")]) });
     expect(projected?.patch).toEqual({
       provider: { kiln: { npm: "@ai-sdk/openai", name: "Kiln", options: { baseURL: "http://127.0.0.1:4910/v1", apiKey: "{env:OPENCODE_TOKEN}" }, models: { "model-a": { name: "Model A", limit: { context: 200000, output: 8192 } } } } },
     });

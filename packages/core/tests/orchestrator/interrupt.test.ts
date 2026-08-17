@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { Orchestrator } from "../../src/orchestrator/orchestrator.js";
 import type { CheckpointStore } from "../../src/orchestrator/checkpoint-store.js";
 import type { Checkpoint, CheckpointOptions } from "../../src/orchestrator/checkpoint-types.js";

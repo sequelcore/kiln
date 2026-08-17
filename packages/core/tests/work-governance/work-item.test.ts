@@ -79,8 +79,8 @@ describe("WorkItemStore evidence consistency", () => {
       providedEvidence: ["surface-map"],
       skippedVerificationGates: ["tests"],
       verificationGateResults: [
-        { gate: "typecheck", status: "skipped", summary: "Not executable in the read-only review." },
-        { gate: "review", status: "passed", summary: "Review completed." },
+        { gate: "typecheck", status: "skipped" },
+        { gate: "review", status: "passed" },
       ],
     })).toEqual(["surface-map", "tests", "typecheck"]);
   });
@@ -286,7 +286,10 @@ describe("WorkItemStore pause requirement supersession", () => {
       ],
     }));
 
-    const superseded = item.pauseRequirements.find((requirement) => requirement.id === "requirement-a");
+    const pauseRequirements = item.pauseRequirements;
+    if (pauseRequirements === undefined) throw new Error("expected pause requirements");
+    const superseded = pauseRequirements.find((requirement) => requirement.id === "requirement-a");
+    if (superseded === undefined) throw new Error("expected superseded requirement");
     expect(superseded).toMatchObject({
       status: "superseded",
       supersededByRequirementId: "requirement-b",

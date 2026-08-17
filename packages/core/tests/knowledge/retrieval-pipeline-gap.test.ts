@@ -3,11 +3,11 @@ import { RetrievalPipeline } from "../../src/knowledge/retrieval-pipeline.js";
 import { EventBus } from "../../src/events/event-bus.js";
 import type { KnowledgeGapEvent } from "../../src/events/index.js";
 import type { EmbeddingAdapter } from "../../src/engine/domain/embedding.js";
-import type { VectorStore, VectorEntry, VectorQueryOptions, VectorResult } from "../../src/engine/domain/vector-store.js";
+import type { VectorStore, VectorResult } from "../../src/engine/domain/vector-store.js";
 import type { Chunker, ChunkConfig, Document } from "../../src/engine/domain/chunker.js";
 
 class MockChunker implements Chunker {
-  chunk(document: Document, config: ChunkConfig) {
+  chunk(document: Document, _config: ChunkConfig) {
     return [{ id: "chunk-0", content: document.content, metadata: document.metadata }];
   }
 }

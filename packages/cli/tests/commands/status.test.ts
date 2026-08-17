@@ -17,15 +17,10 @@ import type { KilnAppConfig } from "../../src/config.js";
 import type { ProviderModelEligibilityRequirements } from "@kilnai/core/agents";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => {
     throw new Error("createRegistry not called in status tests");
   },
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 const emptyPluginProvider = () => ({ roots: [], diagnostics: [] });
@@ -110,7 +105,7 @@ describe("statusCommand", () => {
   it("prints error when not initialized", async () => {
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Not initialized");
     expect(output).toContain("kiln init");
   });
@@ -122,7 +117,7 @@ describe("statusCommand", () => {
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("python");
   });
 
@@ -141,7 +136,7 @@ describe("statusCommand", () => {
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("react-typescript");
     expect(output).toContain("false");
     expect(output).toContain("5");
@@ -157,7 +152,7 @@ describe("statusCommand", () => {
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Memory files:     2");
   });
 
@@ -190,7 +185,7 @@ describe("statusCommand", () => {
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Managed execution targets:");
     expect(output).toContain("codex-readonly");
     expect(output).toContain("harness/codex gpt-5.3-codex-spark");
@@ -219,7 +214,7 @@ describe("statusCommand", () => {
 
     await expect(statusCommand(MOCK_APP_CONFIG, tempDir)).resolves.toBeUndefined();
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Managed execution targets:");
     expect(output).toMatch(/openai-uncovered:.*admission-unavailable/);
   });
@@ -245,7 +240,7 @@ describe("statusCommand", () => {
       },
     });
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Engine routes:");
     expect(output).toContain("codex");
     expect(output).toContain("unavailable - not found");
@@ -284,7 +279,7 @@ describe("statusCommand", () => {
     try {
       await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
       expect(output).toContain("Web access:");
       expect(output).toContain("Enabled: true");
       expect(output).toContain("Network policy: documentation");
@@ -333,7 +328,7 @@ describe("statusCommand", () => {
     try {
       await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-      const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
       expect(output).toContain("Search provider: tavily (global)");
       expect(output).toContain("Extract provider: firecrawl (global)");
       expect(output).toContain("Network policy: documentation");
@@ -359,7 +354,7 @@ describe("statusCommand", () => {
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Skill catalog:");
     expect(output).toContain("Selection mode: advisory");
     expect(output).toContain("Inventory:");
@@ -391,7 +386,7 @@ describe("statusCommand", () => {
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Search provider: tavily (missing)");
     expect(output).toContain("Issues: web.search_provider_env_missing:KILN_TEST_MISSING_WEB_KEY");
   });

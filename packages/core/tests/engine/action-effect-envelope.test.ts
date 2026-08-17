@@ -12,7 +12,6 @@ import {
   tagsFromEnvelope,
   resolveInvocationEffect,
   CONSERVATIVE_UNKNOWN_ENVELOPE,
-  DEFAULT_ACTION_EFFECT_POLICY,
   type ActionEffectEnvelope,
   type ActionEffectPolicy,
   type ResolvedInvocationEffect,
@@ -60,6 +59,7 @@ describe("Exhaustive Declared Effect Envelopes", () => {
     for (const toolName of ALL_DEV_TOOL_NAMES) {
       expect(toolName in BUILTIN_TOOL_EFFECT_ENVELOPES, `Missing envelope for tool: ${toolName}`).toBe(true);
       const envelope = BUILTIN_TOOL_EFFECT_ENVELOPES[toolName as DevToolName];
+      if (envelope === undefined) throw new Error(`Missing envelope for tool: ${toolName}`);
       expect(envelope.operation, `${toolName} operation`).toBeDefined();
       expect(envelope.boundaries.length, `${toolName} boundaries`).toBeGreaterThan(0);
       expect(envelope.reversibility, `${toolName} reversibility`).toBeDefined();
@@ -72,6 +72,7 @@ describe("Exhaustive Declared Effect Envelopes", () => {
 
   it("getBuiltinEffectEnvelope returns envelope for known tools", () => {
     const envelope = getBuiltinEffectEnvelope("read");
+    if (envelope === undefined) throw new Error("expected read envelope");
     expect(envelope.operation).toBe("observe");
   });
 

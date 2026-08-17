@@ -88,7 +88,14 @@ describe("admitManagedRoute", () => {
 
   it("reports stale proof as unresolved using only the injected evaluation time", () => {
     const decision = admitManagedRoute({ route: route({
-      proof: { ...route().proof, expiresAt: "2026-08-07T23:59:59.000Z" },
+      proof: {
+        status: "live-proven",
+        source: "synthetic",
+        freshness: "fresh",
+        observedAt: "2026-08-07T00:00:00.000Z",
+        expiresAt: "2026-08-07T23:59:59.000Z",
+        provenProfiles: ["foundation-readonly-plan"],
+      },
     }), work, caller });
 
     expect(decision).toEqual({

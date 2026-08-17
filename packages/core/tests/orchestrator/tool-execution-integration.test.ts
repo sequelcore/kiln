@@ -259,7 +259,7 @@ describe("Orchestrator native tool execution path", () => {
     const orchestrator = new Orchestrator();
     orchestrator.initSandbox("C:/workspace");
     orchestrator.registerDevTool(
-      makeTool("inspect", async (_input, sandbox) => {
+      makeTool("inspect", async (_input, sandbox?) => {
         const context = sandbox as { cwd?: string; policy?: unknown } | undefined;
         return {
           output: "ok",
@@ -267,7 +267,7 @@ describe("Orchestrator native tool execution path", () => {
           metadata: {
             hasPolicy: Boolean(context?.policy),
             cwd: context?.cwd ?? null,
-          },
+          } as never,
         };
       }, READ_ONLY_EFFECT),
     );

@@ -24,8 +24,8 @@ function makeTeam(overrides?: Partial<Team>): Team {
       maxIterations: 3,
     },
     capabilities: [
-      { name: "tool_a", description: "Tool A", schema: {}, tags: [], annotations: {} },
-      { name: "tool_b", description: "Tool B", schema: {}, tags: [], annotations: {} },
+      { name: "tool_a", description: "Tool A", schema: {}, tags: [] },
+      { name: "tool_b", description: "Tool B", schema: {}, tags: [] },
     ],
     qualityGates: [],
     ...overrides,

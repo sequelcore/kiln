@@ -4,14 +4,14 @@ import { KilnError } from "../../../src/engine/errors.js";
 
 describe("UrlExtractor", () => {
   const extractor = new UrlExtractor();
-  const originalFetch = globalThis.fetch;
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -20,21 +20,22 @@ describe("UrlExtractor", () => {
   });
 
   it("extracts via Jina Reader on success", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: () => Promise.resolve("# Extracted Markdown"),
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await extractor.extract("https://example.com", "url");
 
     expect(result.content).toBe("# Extracted Markdown");
     expect(result.metadata.source).toBe("https://example.com");
     expect(result.metadata.extractedAt).toBeDefined();
-    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toContain("r.jina.ai");
+    expect(fetchMock.mock.calls[0]![0]).toContain("r.jina.ai");
   });
 
   it("falls back to raw fetch on Jina failure", async () => {
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    fetchMock = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("r.jina.ai")) {
         return Promise.resolve({ ok: false, status: 403, text: () => Promise.resolve("") });
       }
@@ -42,7 +43,8 @@ describe("UrlExtractor", () => {
         ok: true,
         text: () => Promise.resolve("<html><body><p>Hello World</p></body></html>"),
       });
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await extractor.extract("https://example.com", "url");
 
@@ -51,7 +53,7 @@ describe("UrlExtractor", () => {
   });
 
   it("strips script and style tags in fallback", async () => {
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    fetchMock = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("r.jina.ai")) {
         return Promise.resolve({ ok: false, status: 403, text: () => Promise.resolve("") });
       }
@@ -62,7 +64,8 @@ describe("UrlExtractor", () => {
             '<html><head><style>body{color:red}</style></head><body><script>alert("x")</script><p>Clean text</p></body></html>',
           ),
       });
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await extractor.extract("https://example.com", "url");
 
@@ -72,11 +75,12 @@ describe("UrlExtractor", () => {
   });
 
   it("throws SOURCE_EXTRACTION_FAILED when both Jina and fallback fail", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 403,
       text: () => Promise.resolve("Forbidden"),
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(extractor.extract("https://example.com", "url")).rejects.toThrow(KilnError);
 
@@ -89,23 +93,24 @@ describe("UrlExtractor", () => {
   });
 
   it("passes custom headers to Jina fetch", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: () => Promise.resolve("# Content"),
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     await extractor.extract("https://example.com", "url", {
       headers: { Authorization: "Bearer tok-123" },
     });
 
-    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const call = fetchMock.mock.calls[0]!;
     expect(call[1].headers).toEqual(
       expect.objectContaining({ Authorization: "Bearer tok-123", Accept: "text/markdown" }),
     );
   });
 
   it("passes custom headers to fallback fetch", async () => {
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    fetchMock = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("r.jina.ai")) {
         return Promise.resolve({ ok: false, status: 403, text: () => Promise.resolve("") });
       }
@@ -113,28 +118,30 @@ describe("UrlExtractor", () => {
         ok: true,
         text: () => Promise.resolve("<html><body><p>OK</p></body></html>"),
       });
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     await extractor.extract("https://example.com", "url", {
       headers: { "X-Custom": "value" },
     });
 
-    const fallbackCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]!;
+    const fallbackCall = fetchMock.mock.calls[1]!;
     expect(fallbackCall[1].headers).toEqual(
       expect.objectContaining({ "X-Custom": "value" }),
     );
   });
 
   it("works without options (backward compat)", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: () => Promise.resolve("# No Headers"),
-    }) as unknown as typeof fetch;
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await extractor.extract("https://example.com", "url");
 
     expect(result.content).toBe("# No Headers");
-    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const call = fetchMock.mock.calls[0]!;
     expect(call[1].headers).toEqual({ Accept: "text/markdown" });
   });
 });

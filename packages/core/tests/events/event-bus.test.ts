@@ -13,11 +13,7 @@ import type {
 } from "../../src/events/index.js";
 
 function makeEvent<T extends KilnEvent>(overrides: T): T {
-  return {
-    timestamp: new Date(),
-    sessionId: "test-session",
-    ...overrides,
-  };
+  return overrides;
 }
 
 function makePhaseEvent(phase = "plan"): PhaseChangedEvent {
@@ -45,6 +41,8 @@ function makeErrorEvent(message = "something failed"): ErrorEvent {
 function makeToolEvent(toolName = "read_file"): ToolCalledEvent {
   return makeEvent<ToolCalledEvent>({
     type: "tool_called",
+    toolCallId: "tool-call-1",
+    toolCallScopeId: "turn-1:response:1",
     toolName,
     taskId: "task-1",
     workerIndex: 0,

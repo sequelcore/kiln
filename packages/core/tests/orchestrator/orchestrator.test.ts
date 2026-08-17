@@ -69,7 +69,7 @@ describe("Orchestrator", () => {
 
   it("start() emits phase_changed for initial analyze phase", () => {
     const orch = new Orchestrator(makeConfig());
-    const handler = vi.fn();
+    const handler = vi.fn<(event: PhaseChangedEvent) => void>();
     orch.eventBus.on("phase_changed", handler);
 
     const sessionId = orch.start("task");
@@ -96,7 +96,7 @@ describe("Orchestrator", () => {
 
   it("emits phase_changed events for each advance", () => {
     const orch = new Orchestrator(makeConfig());
-    const handler = vi.fn();
+    const handler = vi.fn<(event: PhaseChangedEvent) => void>();
     orch.eventBus.on("phase_changed", handler);
 
     orch.start("task"); // emits analyze
@@ -104,9 +104,7 @@ describe("Orchestrator", () => {
     orch.advancePhase(); // emits architect
 
     expect(handler).toHaveBeenCalledTimes(3);
-    const phases = handler.mock.calls.map(
-      (call: [PhaseChangedEvent]) => call[0].phase,
-    );
+    const phases = handler.mock.calls.map(([event]) => event.phase);
     expect(phases).toEqual(["analyze", "research", "architect"]);
   });
 

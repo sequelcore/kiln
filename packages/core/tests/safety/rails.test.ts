@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { TopicRail, CompetitorRail, EscalationRail, ComplianceRail, createRail } from "../../src/safety/rails.js";
-import type { RailConfig } from "../../src/engine/domain/safety-config.js";
 
 describe("TopicRail", () => {
   it("blocks on matched blocked topic (case-insensitive)", () => {

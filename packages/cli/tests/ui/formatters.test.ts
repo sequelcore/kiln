@@ -13,7 +13,7 @@ import {
   formatActivityLog,
   stripAnsi,
 } from "../../src/formatters.js";
-import type { TaskStatus } from "@kilnai/core/engine";
+import type { TaskStatus } from "@kilnai/core";
 import type {
   ErrorEvent,
   KilnEvent,

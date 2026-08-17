@@ -315,7 +315,7 @@ describe("createOperatorRuntimeService", () => {
   it("isolates project A and B runtime owners", async () => {
     const projectA = adoptedProject("project-a");
     const projectB = adoptedProject("project-b");
-    const createComposition = vi.fn(async () => composition());
+    const createComposition = vi.fn(async (_options: { readonly projectPath: string }) => composition());
     const service = createOperatorRuntimeService({ sessionSecret: SECRET, createComposition, nowEpochSeconds: () => 100 });
     const claimsA = await openClaims(service, projectA, "codex", "session-a");
     const claimsB = await openClaims(service, projectB, "opencode", "session-b");
@@ -803,6 +803,9 @@ function composition(
       },
       getReplay: async (identity) => {
         observeCaller?.(identity.callerId);
+        return unavailable();
+      },
+      approveWrite: async (_jobId, _expiresAt) => {
         return unavailable();
       },
     },

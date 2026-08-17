@@ -14,7 +14,15 @@ function projected(profile: "restricted" | "workspace-write" | "trusted-full-acc
   return createPermissionProjectionIntegrity({
     harness: "codex",
     policy,
-    translated: { backend: "codex", config: {}, nativeRules: {}, representableRules: [], unsupportedRules: [], constraintInstructions: [], warnings: [] },
+    translated: {
+      backend: "codex",
+      config: { approvalMode: "on-request", sandboxMode: "workspace-write" },
+      nativeRules: { coarseOnly: true },
+      representableRules: [],
+      unsupportedRules: [],
+      constraintInstructions: [],
+      warnings: [],
+    },
     enforcement: { approvalControl: "enforced", filesystemSandbox: "enforced", networkBoundary: "enforced", strength: "strong" },
     now,
   });
@@ -77,7 +85,15 @@ describe("permission integrity runtime assembler", () => {
     const integrity = createPermissionProjectionIntegrity({
       harness: "opencode",
       policy: { approval: "on-request", sandbox: "workspace-write" },
-      translated: { backend: "opencode", config: {}, nativeRules: {}, representableRules: [], unsupportedRules: [], constraintInstructions: [], warnings: [] },
+      translated: {
+        backend: "opencode",
+        config: { permissionDefault: "ask" },
+        nativeRules: { tools: [], commands: [], fileGovernance: { denyGlobs: [], askGlobs: [], allowGlobs: [] } },
+        representableRules: [],
+        unsupportedRules: [],
+        constraintInstructions: [],
+        warnings: [],
+      },
       enforcement: { approvalControl: "not-enforced", filesystemSandbox: "not-enforced", networkBoundary: "unknown", strength: "rules-only" },
       semanticLimitations: [OPENCODE_NO_FILESYSTEM_SANDBOX], now,
     });

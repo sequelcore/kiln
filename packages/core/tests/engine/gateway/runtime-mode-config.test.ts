@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { RuntimeModeConfig, RuntimeModeValidationError } from "../../../src/engine/gateway/runtime-mode-config.js";
+import type { RuntimeModeConfig } from "../../../src/engine/gateway/runtime-mode-config.js";
 import { validateRuntimeModeConfig } from "../../../src/engine/gateway/runtime-mode-config.js";
 
 function makeProviderConfig() {

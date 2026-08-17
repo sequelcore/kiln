@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  type ManagedAgentObservedRuntimeAuthorityEvidence,
 } from "@kilnai/core/agents";
 import {
   RuntimeManagedAgentInvocationService,
@@ -17,15 +18,10 @@ import { runCommand, runParallelWorkers } from "../../src/commands/run.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "test",
   createRegistry: () => {
     throw new Error("not called");
   },
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 const LIVE_PROVEN_WRITE_AUTHORITY = {
@@ -66,7 +62,10 @@ describe("runParallelWorkers", () => {
     const records = await Promise.all(
       invocationService?.list().map((snapshot) => invocationService.join(snapshot.invocationId)) ?? [],
     );
-    expect(records.map((result) => result.record.capabilitySnapshot.authorityEvidence.classification)).toEqual([
+    expect(records.map((result) => {
+      if (result.status !== "completed") throw new Error("expected a completed invocation result");
+      return result.record.capabilitySnapshot.authorityEvidence.classification;
+    })).toEqual([
       "current-verified",
       "current-verified",
     ]);
@@ -155,6 +154,7 @@ describe("runParallelWorkers", () => {
     await expect(runParallelWorkers({
       ...MOCK_APP_CONFIG,
       kilnYaml: {
+        version: "1",
         parallelWorkers: 1,
       },
     }, "test task", {}, 2, managedInvocation)).rejects.toThrow("process.exit called");
@@ -233,6 +233,7 @@ describe("runParallelWorkers", () => {
     await expect(runParallelWorkers({
       ...MOCK_APP_CONFIG,
       kilnYaml: {
+        version: "1",
         parallelWorkers: 1,
       },
     }, "test task", {}, 2, managedInvocation, { exitOnFailure: false })).rejects.toMatchObject({
@@ -435,7 +436,7 @@ function createManagedInvocation(input: {
 
 function sessionTurnBudgetGlobalConfig() {
   return {
-    version: "1",
+    version: "3",
     engines: {
       codex: {
         enabled: true,
@@ -464,7 +465,7 @@ function createWorktreeLeaseManager(): ManagedAgentWorktreeLeaseManager {
 
 function createRuntimeAuthorityObserver(): ManagedAgentRuntimeAuthorityObserver {
   return {
-    observe: vi.fn(async ({ request }) => ({
+    observe: vi.fn(async ({ request }): Promise<ManagedAgentObservedRuntimeAuthorityEvidence> => ({
       approval: "on-request",
       sandbox: request.authority.toolAuthority.writeAllowed === true && request.authority.workingDirectory.mode !== "read-only"
         ? "workspace-write"

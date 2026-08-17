@@ -91,7 +91,7 @@ describe("computeEffortScore", () => {
     const str = score.toString();
     const parts = str.split(".");
     if (parts.length > 1) {
-      expect(parts[1].length).toBeLessThanOrEqual(2);
+      expect(parts[1]!.length).toBeLessThanOrEqual(2);
     }
   });
 });

@@ -9,6 +9,7 @@ import {
   MemoryArtifactResourceStore,
   projectMultimodalArtifactResource,
 } from "../../../src/tools/infrastructure/artifact-resource-store.js";
+import type { ToolResourceContent } from "../../../src/tools/domain/tool-resource-registry.js";
 
 describe("FileArtifactResourceStore", () => {
   it("reopens persisted artifacts with stable ids and sequence", () => {
@@ -347,12 +348,12 @@ describe("ArtifactResourceProvider", () => {
         modalities: [],
       },
     });
-    expect(JSON.parse(namespace!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(readTextContent(namespace!.contents))).toMatchObject({
       namespace: "plans",
       artifactCount: 1,
       artifacts: [{ id: artifact.id, title: "Slice Plan" }],
     });
-    expect(JSON.parse(metadata!.contents[0]!.text)).toMatchObject({
+    expect(JSON.parse(readTextContent(metadata!.contents))).toMatchObject({
       id: artifact.id,
       namespace: "plans",
       title: "Slice Plan",
@@ -408,3 +409,9 @@ describe("ArtifactResourceProvider", () => {
     });
   });
 });
+
+function readTextContent(contents: readonly ToolResourceContent[]): string {
+  const content = contents[0];
+  if (content === undefined || !("text" in content)) throw new Error("expected text resource content");
+  return content.text;
+}

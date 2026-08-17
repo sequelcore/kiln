@@ -104,8 +104,8 @@ const registryMocks = vi.hoisted(() => {
       group: "direct-api",
       models: ["gpt-5.4"],
       free: false,
-      health: "healthy" as const,
-      isAvailable: () => false,
+      health: "healthy" as "healthy" | "suppressed" | "half-open",
+      isAvailable: (() => false) as (() => boolean) | undefined,
     }],
     createDefaultRegistry: vi.fn(() => ({
       registry: {
@@ -214,7 +214,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     if (!input) {
       return sessionOptions;
     }
-    const providers = (sessionOptions.resourceProviders as readonly unknown[] | undefined) ?? [];
+    const providers = ((sessionOptions as Record<string, unknown>).resourceProviders as readonly unknown[] | undefined) ?? [];
     if (providers.some((provider) => (
       typeof provider === "object"
       && provider !== null

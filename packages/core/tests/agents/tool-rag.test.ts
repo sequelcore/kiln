@@ -65,6 +65,14 @@ class MockVectorStore implements VectorStore {
   async delete(ids: string[]): Promise<void> {
     this.entries = this.entries.filter((e) => !ids.includes(e.id));
   }
+
+  async deleteByMetadata(filter: Record<string, unknown>): Promise<number> {
+    const before = this.entries.length;
+    this.entries = this.entries.filter((entry) =>
+      Object.entries(filter).some(([key, value]) => entry.metadata?.[key] !== value),
+    );
+    return before - this.entries.length;
+  }
 }
 
 function createTool(name: string, description: string): Capability {

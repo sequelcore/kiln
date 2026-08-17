@@ -52,6 +52,14 @@ function createServer(registry?: DevToolRegistry): DevToolsMcpServer {
   return new DevToolsMcpServer({ bridge });
 }
 
+function readTextContent(content: NonNullable<ToolResult["content"]>): string {
+  const textPart = content.find((part) => part.type === "text");
+  if (textPart === undefined) {
+    throw new Error("expected a text content part");
+  }
+  return textPart.text;
+}
+
 describe("DevToolsMcpServer", () => {
   it("lists the 47 native tool schemas", () => {
     const server = createServer();
@@ -851,7 +859,7 @@ describe("DevToolsMcpServer", () => {
         data: PNG_BASE64,
         mimeType: "image/png",
       });
-      const payload = JSON.parse(response.content[0]!.text) as {
+      const payload = JSON.parse(readTextContent(response.content)) as {
         result: ToolResult;
       };
       expect(payload.result).toMatchObject({
@@ -889,7 +897,7 @@ describe("DevToolsMcpServer", () => {
       attempts: 1,
       fallbackUsed: false,
     });
-    const payload = JSON.parse(response.content[0]!.text) as {
+    const payload = JSON.parse(readTextContent(response.content)) as {
       result: ToolResult;
       attempts: number;
       fallbackUsed: boolean;
@@ -968,7 +976,7 @@ describe("DevToolsMcpServer", () => {
       attempts: 1,
       fallbackUsed: false,
     });
-    expect(JSON.parse(response.content[0]!.text)).toEqual(response.structuredContent);
+    expect(JSON.parse(readTextContent(response.content))).toEqual(response.structuredContent);
   });
 
   it("does not impose the default 30s bridge timeout when MCP bash input requests longer", async () => {
@@ -992,14 +1000,18 @@ describe("DevToolsMcpServer", () => {
 
       const response = await responsePromise;
       expect(response.isError).toBeUndefined();
-      const payload = JSON.parse(response.content[0]!.text) as {
+      const payload = JSON.parse(readTextContent(response.content)) as {
         result: ToolResult;
         attempts: number;
         fallbackUsed: boolean;
       };
       expect(payload.result.output).toBe("late success");
       expect(payload.result.isError).toBe(false);
-      expect(payload.result.metadata?.["timeoutMs"]).toBe(60_000);
+      const metadata = payload.result.metadata;
+      if (metadata?.kind !== "command") {
+        throw new Error("expected command metadata");
+      }
+      expect(metadata.timeoutMs).toBe(60_000);
       expect(payload.attempts).toBe(1);
       expect(payload.fallbackUsed).toBe(false);
     } finally {
@@ -1069,8 +1081,9 @@ describe("DevToolsMcpServer", () => {
     const response = await server.callTool("missing", {});
 
     expect(response.isError).toBe(true);
-    expect(response.content[0]!.text).toContain("INTERNAL_ERROR");
-    expect(response.content[0]!.text).toContain("not registered");
+    const text = readTextContent(response.content);
+    expect(text).toContain("INTERNAL_ERROR");
+    expect(text).toContain("not registered");
   });
 
   it("surfaces tool execution failures as MCP error results", async () => {
@@ -1085,7 +1098,8 @@ describe("DevToolsMcpServer", () => {
     const response = await server.callTool("explode", {});
 
     expect(response.isError).toBe(true);
-    expect(response.content[0]!.text).toContain("TOOL_RETRY_EXHAUSTED");
-    expect(response.content[0]!.text).toContain("explode");
+    const text = readTextContent(response.content);
+    expect(text).toContain("TOOL_RETRY_EXHAUSTED");
+    expect(text).toContain("explode");
   });
 });

@@ -103,11 +103,11 @@ describe("memory lifecycle compaction planner", () => {
   });
 });
 
-function memoryRecord(overrides: Partial<MemoryRecord> & { readonly id: string }): MemoryRecord {
+function memoryRecord(overrides: Partial<MemoryRecord> & { readonly id: string; readonly scopeId?: string }): MemoryRecord {
   return {
     id: overrides.id,
     layer: overrides.layer ?? "episodic",
-    scope: { kind: "project", id: overrides.scopeId ?? "kiln" },
+    scope: overrides.scope ?? { kind: "project", id: overrides.scopeId ?? "kiln" },
     content: overrides.content ?? `memory ${overrides.id}`,
     topicKey: overrides.topicKey ?? `topic/${overrides.id}`,
     tags: ["memory"],

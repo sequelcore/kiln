@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ManagedAgentOrchestrationLifecycleInput } from "@kilnai/runtime";
 import type { KilnAppConfig } from "../../src/config.js";
+import type { ResolvedKilnConfig } from "../../src/kiln-yaml.js";
 import {
   buildRunSessionRequirements,
   createCliRuntimeApprovalHandler,
@@ -21,7 +22,7 @@ const runWiringMocks = vi.hoisted(() => {
   const builtinToolOptions = { id: "session-builtin-tool-options" };
   return {
     loadConfiguredWebToolSurfaceOptions: vi.fn().mockResolvedValue(builtinToolSurfaceOptions),
-    createSessionBuiltinToolOptions: vi.fn(() => builtinToolOptions),
+    createSessionBuiltinToolOptions: vi.fn((_options?: unknown) => builtinToolOptions),
     runSession: vi.fn().mockResolvedValue({
       finalCostUsd: 0,
       sessionSucceeded: true,
@@ -42,7 +43,7 @@ const runWiringMocks = vi.hoisted(() => {
     cleanupWorktree: vi.fn().mockResolvedValue(undefined),
     cleanupRegistryRunAll: vi.fn().mockResolvedValue(undefined),
     cleanupRegistryRegister: vi.fn(),
-    createManagedAgentInvocationResourceProvider: vi.fn(() => ({ id: "managed-agent-resource-provider" })),
+    createManagedAgentInvocationResourceProvider: vi.fn((_options?: unknown) => ({ id: "managed-agent-resource-provider" })),
     runManagedAgentOrchestrationLifecycle: vi.fn(),
     runVerification: vi.fn().mockResolvedValue({ passed: true, checks: [] }),
     transcriptInit: vi.fn().mockResolvedValue(undefined),
@@ -123,10 +124,11 @@ const operatorCompositionMocks = vi.hoisted(() => {
           if (state.dispatchError) throw state.dispatchError;
           const route = input.catalog.routes.find((candidate) => candidate.id === request.intent.routeId);
           if (!route) throw new Error("Unknown test execution target '" + request.intent.routeId + "'.");
+          const accountSelection = route.accountSelection;
           const accountId = request.intent.accountOverrideId
-            ?? (route.accountSelection.mode === "exact"
-              ? route.accountSelection.accountId
-              : input.catalog.accountPolicies.find((policy) => policy.id === route.accountSelection.accountPolicyId)
+            ?? (accountSelection.mode === "exact"
+              ? accountSelection.accountId
+              : input.catalog.accountPolicies.find((policy) => policy.id === accountSelection.accountPolicyId)
                 ?.accountIds[0]);
           if (!accountId) throw new Error("No test account is available for route '" + route.id + "'.");
           const account = input.catalog.accounts.find((candidate) => candidate.id === accountId);
@@ -202,7 +204,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     toolAuthority: new Map(),
   })),
   RuntimeSessionTurnBudgetService: class MockRuntimeSessionTurnBudgetService {
-    constructor(private readonly policy: { readonly tokenLimit: number }, private readonly usageReader: (sessionId: string) => Promise<unknown>) {}
+    constructor(_policy: { readonly tokenLimit: number }, private readonly usageReader: (sessionId: string) => Promise<unknown>) {}
 
     async admit(sessionId: string) {
       return {
@@ -540,16 +542,18 @@ vi.mock("../../src/application/session-hooks.js", () => ({
   },
 }));
 
+const APP_KILN_YAML: ResolvedKilnConfig = {
+  version: "1",
+  skillGeneration: {
+    enabled: false,
+  },
+};
+
 const APP_CONFIG: KilnAppConfig = {
   createRegistry: () => {
     throw new Error("createRegistry should not be called in run builtin tool tests");
   },
-  kilnYaml: {
-    version: "1",
-    skillGeneration: {
-      enabled: false,
-    },
-  },
+  kilnYaml: APP_KILN_YAML,
 };
 
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
@@ -725,7 +729,7 @@ describe("run command builtin tool wiring", () => {
 
     await runCommand({
       ...APP_CONFIG,
-      managedInvocation,
+      managedInvocation: managedInvocation as never,
     }, "ship it", {});
 
     expect(runWiringMocks.createManagedAgentInvocationResourceProvider).toHaveBeenCalledWith(expect.objectContaining({
@@ -759,7 +763,7 @@ describe("run command builtin tool wiring", () => {
 
     await runCommand({
       ...APP_CONFIG,
-      managedInvocation: parallelManagedInvocation(),
+      managedInvocation: parallelManagedInvocation() as never,
     }, "parallel budget", { workers: 2 });
 
     const input = runWiringMocks.runManagedAgentOrchestrationLifecycle.mock.calls[0]?.[0] as
@@ -1248,7 +1252,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand({
       ...APP_CONFIG,
       kilnYaml: {
-        ...APP_CONFIG.kilnYaml,
+        ...APP_KILN_YAML,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
     }, "verification throw cleanup failure", { output: "json" }, { exitOnFailure: false }))
@@ -1298,7 +1302,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand({
       ...APP_CONFIG,
       kilnYaml: {
-        ...APP_CONFIG.kilnYaml,
+        ...APP_KILN_YAML,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
     }, "verification failure", { output: "json" }, { exitOnFailure: false }))
@@ -1403,7 +1407,7 @@ describe("run command builtin tool wiring", () => {
     await expect(runCommand({
       ...APP_CONFIG,
       kilnYaml: {
-        ...APP_CONFIG.kilnYaml,
+        ...APP_KILN_YAML,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
     }, "verification cleanup failure", { output: "json" }, { exitOnFailure: false }))
@@ -1547,7 +1551,7 @@ describe("run command builtin tool wiring", () => {
 
   it("binds only the selected execution target without client-side fallback", async () => {
     configureExecutionRoute("openrouter", "openrouter/free", "openrouter-free");
-    await runCommand(APP_CONFIG, "ship it", { route: "openrouter-free" });
+    await runCommand(APP_CONFIG, "ship it", { target: "openrouter-free" });
 
     expect(runWiringMocks.capturedRunSessionInputs[0]).toMatchObject({
       routeCandidates: [expect.objectContaining({
@@ -1714,7 +1718,7 @@ describe("run command builtin tool wiring", () => {
 
     const run = runCommand({
       ...APP_CONFIG,
-      managedInvocation: parallelManagedInvocation(),
+      managedInvocation: parallelManagedInvocation() as never,
     }, "parallel cleanup", { workers: 2 }, { exitOnFailure: false });
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
@@ -1768,7 +1772,7 @@ describe("run command builtin tool wiring", () => {
 
     const run = runCommand({
       ...APP_CONFIG,
-      managedInvocation: parallelManagedInvocation(),
+      managedInvocation: parallelManagedInvocation() as never,
     }, "parallel cleanup", { workers: 2 }, { exitOnFailure: false });
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
@@ -1792,7 +1796,7 @@ describe("run command builtin tool wiring", () => {
     await runCommand({
       ...APP_CONFIG,
       kilnYaml: {
-        ...APP_CONFIG.kilnYaml,
+        ...APP_KILN_YAML,
         qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
       },
     }, "verify isolated cwd", { isolate: true });
@@ -1916,5 +1920,5 @@ function parallelManagedInvocation() {
           },
       }],
     }],
-  } as never;
+  };
 }

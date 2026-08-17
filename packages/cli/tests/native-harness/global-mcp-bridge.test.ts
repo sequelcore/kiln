@@ -1,18 +1,25 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import type { OperatorRuntimeHarness } from "@kilnai/gateway-contracts";
 import { KILN_CONTROL_PLANE_SERVER_INSTRUCTIONS } from "@kilnai/core/skill";
 import {
   OPERATOR_RUNTIME_BINDING_HEADERS,
   OPERATOR_RUNTIME_CONTROL_TOKEN_HEADER,
-  OPERATOR_RUNTIME_MCP_PATH,
   OPERATOR_RUNTIME_SESSION_PATH,
 } from "@kilnai/runtime";
 import {
   startGlobalMcpBridge,
   type GlobalMcpBridgeSdk,
 } from "../../src/native-harness/global-mcp-bridge.js";
+
+// Ambient `Request`/`Headers` resolve to conflicting declarations here (Bun's
+// global types vs. undici's, both pulled transitively into this program).
+// Deriving the captured-request type from the constructor call itself, rather
+// than naming the ambient `Request` type directly, keeps the two in sync.
+function captureFetchRequest(url: string | URL, init: RequestInit | undefined) {
+  return new Request(url.toString(), init);
+}
+type CapturedRequest = ReturnType<typeof captureFetchRequest>;
 
 const ROOT = "C:\\workspace\\kiln";
 const PROJECT_RUNTIME_ID = `krp_${"a".repeat(64)}`;
@@ -76,7 +83,7 @@ describe("global MCP bridge", () => {
 
   it("opens a strict bound session and proxies tool results unchanged", async () => {
     const fixture = sdkFixture();
-    const requests: Request[] = [];
+    const requests: CapturedRequest[] = [];
     const result = { content: [{ type: "text", text: "remote" }], structuredContent: { remote: true } };
     fixture.remoteResult = result;
     const handle = await startGlobalMcpBridge({
@@ -88,8 +95,8 @@ describe("global MCP bridge", () => {
       createSessionId: () => "session-01",
       nowEpochSeconds: () => 100,
       fetch: async (url, init) => {
-        const request = new Request(url, init);
-        requests.push(request.clone());
+        const request = captureFetchRequest(url, init);
+        requests.push(request.clone() as CapturedRequest);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           return Response.json({ credential: "v2.payload.signature", expiresAt: 300 });
         }
@@ -173,7 +180,7 @@ describe("global MCP bridge", () => {
       nowEpochSeconds: () => now,
       createSessionId: () => "session-renew",
       fetch: async (url, init) => {
-        const request = new Request(url, init);
+        const request = captureFetchRequest(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           sessionOpens += 1;
           return Response.json({ credential: `v2.payload${sessionOpens}.signature`, expiresAt: sessionOpens === 1 ? 140 : 400 });
@@ -207,7 +214,7 @@ describe("global MCP bridge", () => {
       createSessionId: () => "session-initial-401",
       nowEpochSeconds: () => 100,
       fetch: async (url, init) => {
-        const request = new Request(url, init);
+        const request = captureFetchRequest(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           sessionOpens += 1;
           return Response.json({ credential: `v2.payload${sessionOpens}.signature`, expiresAt: 500 });
@@ -251,7 +258,7 @@ describe("global MCP bridge", () => {
       sdkLoader: async () => fixture.sdk,
       createSessionId: () => ids.shift()!,
       fetch: async (url, init) => {
-        const request = new Request(url, init);
+        const request = captureFetchRequest(url, init);
         if (new URL(request.url).pathname === OPERATOR_RUNTIME_SESSION_PATH) {
           openedIds.push((await request.clone().json() as { sessionId: string }).sessionId);
           return Response.json({ credential: "v2.payload.signature", expiresAt: 500 });

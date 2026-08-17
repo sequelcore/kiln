@@ -187,6 +187,7 @@ describe("managed agent write admission policy", () => {
     const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
+    if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.missingCapabilities).toContain("request.authority.toolAuthority.networkAllowed.false");
   });
 
@@ -203,6 +204,7 @@ describe("managed agent write admission policy", () => {
     const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
+    if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.missingCapabilities).toContain("request.authority.writeAuthority.none");
   });
 
@@ -222,6 +224,7 @@ describe("managed agent write admission policy", () => {
     const decision = evaluateManagedAgentAdmission(makeRequest("foundation-apply-approved-writes"), descriptor, makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
+    if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.missingCapabilities).toEqual(expect.arrayContaining([
       "writeAuthority.proposalSupported",
       "writeAuthority.approvedApplySupported",
@@ -258,6 +261,7 @@ describe("managed agent write admission policy", () => {
     const decision = evaluateManagedAgentAdmission(request, makeDescriptor(), makeSnapshotInput());
 
     expect(decision.status).toBe("denied");
+    if (decision.status !== "denied") throw new Error("expected denied admission");
     expect(decision.missingCapabilities).toEqual(expect.arrayContaining([
       "request.authority.toolAuthority.writeAllowed.true",
       "request.authority.workingDirectory.writable",

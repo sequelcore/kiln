@@ -56,7 +56,7 @@ describe("context utility allocation", () => {
       positionProfile: "balanced",
       requiredOverflowPolicy: "admit-and-report",
     });
-    expect(result.auditTrail?.[0].blocks.find((block) => block.source === "verification-evidence")?.utilityEvidence)
+    expect(result.auditTrail?.[0]!.blocks.find((block) => block.source === "verification-evidence")?.utilityEvidence)
       .toMatchObject({
         policyId: "context-utility-v1",
         taskPhase: "verify",
@@ -142,7 +142,7 @@ describe("context utility allocation", () => {
       contextPositionProfile: "edge-biased",
     });
     expect(positioned.blocks.map((block) => block.source)).toEqual(["first", "third", "second"]);
-    expect(positioned.auditTrail?.[0].positionProfile).toBe("edge-biased");
+    expect(positioned.auditTrail?.[0]!.positionProfile).toBe("edge-biased");
   });
 });
 

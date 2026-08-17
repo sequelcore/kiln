@@ -8,8 +8,8 @@ describe("permission projection authorization", () => {
       policy: { approval: "never", sandbox: "danger-full-access" },
       translated: {
         backend: "codex",
-        config: {},
-        nativeRules: {},
+        config: { approvalMode: "never", sandboxMode: "danger-full-access" },
+        nativeRules: { coarseOnly: true },
         representableRules: [],
         unsupportedRules: [],
         constraintInstructions: [],
@@ -42,8 +42,8 @@ describe("permission projection authorization", () => {
       policy: { approval: "never", sandbox: "workspace-write" },
       translated: {
         backend: "codex",
-        config: {},
-        nativeRules: {},
+        config: { approvalMode: "never", sandboxMode: "danger-full-access" },
+        nativeRules: { coarseOnly: true },
         representableRules: [],
         unsupportedRules: [],
         constraintInstructions: [],

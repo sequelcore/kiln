@@ -44,6 +44,7 @@ describe("analysis state store", () => {
         notifyResourceUpdated(uri: string): void {
           notifications.push(uri);
         },
+        notifyResourceListChanged(): void {},
       },
     });
     const specification = baseSpecification();
@@ -210,6 +211,7 @@ function basePlan(overrides: Partial<SessionPlan> = {}): SessionPlan {
       instructionProfileHash: "hash-1",
       instructionProfileIds: ["sequel-engineering"],
     },
+    contentHash: "sha256:plan",
     status: "ready_for_approval",
     issues: [],
     createdAt: "2026-05-09T00:00:00.000Z",

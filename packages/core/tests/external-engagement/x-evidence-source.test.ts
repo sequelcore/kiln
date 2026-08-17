@@ -300,6 +300,7 @@ describe("X evidence source", () => {
       }],
       signals: [{
         kind: "objection",
+        theme: "workflow_controls",
         summary: "/goal needs explicit loop design and validation before execution.",
         evidenceArtifactIds: ["1000000000000000002"],
         recommendation: "adapt",

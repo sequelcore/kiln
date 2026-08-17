@@ -3,15 +3,10 @@ import { doctorCommand } from "../../src/commands/doctor.js";
 import type { KilnAppConfig } from "../../src/config.js";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => {
     throw new Error("createRegistry not called in doctor tests");
   },
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 describe("doctorCommand", () => {
@@ -25,10 +20,11 @@ describe("doctorCommand", () => {
         complete: false, healthyPackages: 0, warningPackages: 0, blockedPackages: 1, equivalentDuplicates: 0, divergentCollisions: 0, caseCollisions: 0,
         issueCount: 4, omittedIssueCount: 2,
         issues: [
-          { skillName: "planner", kind: "capability", harness: "opencode", projectionState: "missing", path: "C:\\skills\\planner\\SKILL.md" },
-          { skillName: "alpha", kind: "drifted", harness: "codex", projectionState: "drifted", path: "C:\\skills\\alpha\\SKILL.md" },
+          { skillName: "planner", kind: "capability" as const, harness: "opencode" as const, projectionState: "missing" as const, path: "C:\\skills\\planner\\SKILL.md" },
+          { skillName: "alpha", kind: "drifted" as const, harness: "codex" as const, projectionState: "drifted" as const, path: "C:\\skills\\alpha\\SKILL.md" },
         ],
         harnesses: [],
+        externalExposure: [],
       } })),
       discoverModels: vi.fn(async () => ({
         claudeModels: [], claudeDiscovery: missingDiscovery, codexModels: [], codexDiscovery: missingDiscovery,
@@ -117,7 +113,8 @@ describe("doctorCommand", () => {
           caseCollisions: 0,
           issueCount: 0,
           omittedIssueCount: 0,
-          harnesses: [{ harness: "codex", candidateCount: 3, descriptionBytes: 42, budget: { status: "unknown", reason: "No authority." } }],
+          harnesses: [{ harness: "codex" as const, candidateCount: 3, descriptionBytes: 42, budget: { status: "unknown" as const, reason: "No authority." } }],
+          externalExposure: [],
         },
       })),
       discoverModels: vi.fn(async () => ({

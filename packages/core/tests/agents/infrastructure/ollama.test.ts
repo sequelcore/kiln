@@ -46,16 +46,15 @@ function makeStreamBody(lines: string[]): ReadableStream<Uint8Array> {
 }
 
 describe("OllamaAdapter", () => {
-  const originalFetch = globalThis.fetch;
   let mockFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     mockFetch = vi.fn();
-    globalThis.fetch = mockFetch;
+    vi.stubGlobal("fetch", mockFetch);
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
   });
 
   describe("model constants", () => {

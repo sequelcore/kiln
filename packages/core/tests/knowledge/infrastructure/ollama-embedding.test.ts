@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { OllamaEmbeddingAdapter } from "../../../src/knowledge/infrastructure/ollama-embedding.js";
 
 describe("OllamaEmbeddingAdapter", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -11,13 +12,11 @@ describe("OllamaEmbeddingAdapter", () => {
   });
 
   function mockFetchOk(data: unknown) {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve(data),
-      }),
-    );
+      });
+    vi.stubGlobal("fetch", fetchMock);
   }
 
   it("sends correct URL and payload to Ollama", async () => {
@@ -55,7 +54,7 @@ describe("OllamaEmbeddingAdapter", () => {
 
     await adapter.embed(["test"]);
 
-    const url = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const url = fetchMock.mock.calls[0]![0];
     expect(url).toBe("http://gpu-server:11434/api/embed");
   });
 
@@ -70,7 +69,7 @@ describe("OllamaEmbeddingAdapter", () => {
     await adapter.embed(["test"]);
 
     const body = JSON.parse(
-      (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string,
+      fetchMock.mock.calls[0]![1].body as string,
     );
     expect(body.model).toBe("mxbai-embed-large");
   });
@@ -182,7 +181,7 @@ describe("OllamaEmbeddingAdapter", () => {
 
     await adapter.embed(["test"]);
 
-    const [url, options] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, options] = fetchMock.mock.calls[0]!;
     expect(url).toBe("http://localhost:11434/api/embed");
     const body = JSON.parse(options.body as string);
     expect(body.model).toBe("nomic-embed-text");

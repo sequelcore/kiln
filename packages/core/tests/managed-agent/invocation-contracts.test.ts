@@ -20,6 +20,7 @@ import type {
   ManagedAgentObservedRuntimeAuthorityEvidence,
   ManagedAgentUsageReport,
 } from "../../src/agents/managed-invocation/index.js";
+import { createExecutionAccountPolicyId, createExecutionAccountRef } from "../../src/agents/execution-routing/account-identity.js";
 
 describe("managed provider failure classification", () => {
   it.each([
@@ -144,7 +145,7 @@ describe("managed agent invocation contracts", () => {
       credentialRevisionId: "a".repeat(64),
       selectionReason: "least-pressure",
       candidateRejections: [{
-        account: "configured:secondary:opaque",
+        account: createExecutionAccountRef("configured:secondary:opaque"),
         reason: "unhealthy",
       }],
       usageEvidence: {
@@ -401,7 +402,7 @@ describe("managed agent invocation contracts", () => {
         credentialRoute: {
           mode: "account-leased",
           routeId: "credential-route:codex-oauth:managed",
-          accountPolicyId: "managed-codex",
+          accountPolicyId: createExecutionAccountPolicyId("managed-codex"),
         },
       },
     });
@@ -554,14 +555,6 @@ describe("managed agent invocation contracts", () => {
         attachmentId: " attachment:codex:session-parent ",
         evidenceId: " evidence:codex:session-parent ",
       },
-      invocationCapabilityEvidence: {
-        decision: "admitted",
-        reason: " cross-harness-managed-invocation ",
-        adapterEvidence: {
-          adapterDescriptorId: " adapter:codex-oauth:cli-harness ",
-          adapterId: " kiln-managed-invocation ",
-        },
-      },
     });
 
     expect(snapshot.callerIdentity).toEqual({
@@ -587,14 +580,6 @@ describe("managed agent invocation contracts", () => {
         kind: "kiln-runtime",
         surface: "gateway",
         attachmentId: "attachment:kiln-runtime:gateway:session-parent",
-      },
-      invocationCapabilityEvidence: {
-        decision: "admitted",
-        reason: "runtime-adapter-admitted",
-        adapterEvidence: {
-          adapterDescriptorId: "adapter:codex-oauth:cli-harness",
-          adapterId: "kiln-managed-invocation",
-        },
       },
     });
 
@@ -903,7 +888,7 @@ describe("managed agent invocation contracts", () => {
         ...snapshot.resourceLease,
         worktreeReview: {
           status: "required",
-          reason: " ",
+          reason: " " as never,
           resourceUris: [`kiln://artifacts/${snapshot.snapshotId}/worktree-review`],
           diagnosticUris: [`kiln://artifacts/${snapshot.snapshotId}/worktree-review-required`],
         },
@@ -985,7 +970,7 @@ describe("managed agent invocation contracts", () => {
     const handoff = defineManagedAgentInvocationRecord({
       ...makeCompletedRecordInput(),
       resultHandoff: {
-        ...makeCompletedRecordInput().resultHandoff,
+        ...makeCompletedRecordInput().resultHandoff!,
         structuredResult,
       },
     }).resultHandoff;

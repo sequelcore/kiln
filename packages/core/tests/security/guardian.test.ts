@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { Guardian } from "../../src/security/guardian.js";
 import { EventBus } from "../../src/events/event-bus.js";
 import type { GuardianConfig } from "../../src/security/types.js";
@@ -85,6 +85,7 @@ function makeApprovedProvider(): ProviderAdapter {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         toolCalls: [],
+        stopReason: "stop",
       };
     },
     async *streamMessage() {},
@@ -102,6 +103,7 @@ function makeDeniedProvider(): ProviderAdapter {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         toolCalls: [],
+        stopReason: "stop",
       };
     },
     async *streamMessage() {},
@@ -129,6 +131,7 @@ function makeMalformedProvider(): ProviderAdapter {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         toolCalls: [],
+        stopReason: "stop",
       };
     },
     async *streamMessage() {},

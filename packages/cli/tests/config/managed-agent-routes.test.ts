@@ -6,9 +6,11 @@ import {
   defineExecutionCatalog,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
+  defineDeliberationLevelId,
   defineManagedAgentInvocationRequest,
   type DeliberationResolution,
   deriveProviderModelEligibility,
+  type ManagedAgentAdmissionDecision,
   type ManagedAgentInvocationRequest,
   type ProviderModelEligibilityRequirements,
   type ProviderModelEvidenceFreshness,
@@ -23,7 +25,6 @@ import type {
 import { SessionRegistry } from "../../src/wrapper/session-registry.js";
 import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import {
-  createManagedInvocationToolOptionsCatalog,
   projectManagedEconomicJobAdoption,
   resolveManagedInvocationToolOptions,
 } from "../../src/config/managed-agent-routes.js";
@@ -89,6 +90,11 @@ function observedProviderModels(
         {
           catalogDiagnosticEvidence: route,
           catalogDiagnosticDecision: deriveProviderModelEligibility(route, managedCatalogRequirements(), []),
+          // Mirrors the production derivation in managed-agent-provider-models.ts:
+          // codex proves the write profiles, every other provider proves read-only.
+          provenProfiles: providerId === "codex"
+            ? ["foundation-readonly-plan", "foundation-propose-writes", "foundation-apply-approved-writes", "foundation-memory-write-proposals"]
+            : ["foundation-readonly-plan"],
         },
       ])),
     ];
@@ -131,8 +137,8 @@ function withDiscoveredDeliberation(
         deliberationCapabilities: {
           provider,
           model,
-          levels: [{ id: "low" }, { id: "high" }],
-          defaultLevel: "high",
+          levels: [{ id: defineDeliberationLevelId("low") }, { id: defineDeliberationLevelId("high") }],
+          defaultLevel: defineDeliberationLevelId("high"),
           supportsAdaptive: true,
         evidence: {
             sourceIdentity: provider === "claude"
@@ -192,6 +198,7 @@ function createRegistryForProviders(
     isAvailable: () => available,
     create: (_config: ProviderCreateConfig) => ({
       sessionId: `${provider}-session`,
+      providerSessionId: undefined,
       capabilities: {
         mcp: false,
         streaming: true,
@@ -209,7 +216,7 @@ function createRegistryForProviders(
           type: "completed" as const,
           totalUsd: 0,
           durationMs: 1,
-          isError: false,
+          outcome: "completed" as const,
           isPreflightCrash: false,
         };
       },
@@ -249,6 +256,7 @@ function createRegistryWithCapturedHarnessRun(
       captureConfig?.(config);
       return {
         sessionId: `${provider}-session`,
+        providerSessionId: undefined,
         capabilities: {
           mcp: false,
           streaming: true,
@@ -275,7 +283,7 @@ function createRegistryWithCapturedHarnessRun(
             type: "completed" as const,
             totalUsd: 0,
             durationMs: 1,
-            isError: false,
+            outcome: "completed" as const,
             isPreflightCrash: false,
           };
         },
@@ -517,29 +525,11 @@ function economicPolicyCovering(
   }];
 }
 
-const MANAGED_OPENAI_MODEL_GATEWAY: NonNullable<KilnGlobalConfig["modelGateway"]> = {
-  port: 4819,
-  replay: { ttlMs: 60_000, maxEntries: 10, hmacKeyEnv: "REPLAY_SECRET" },
-  surfaces: { openAIResponses: { maxBodyBytes: 1024, maxConcurrentRequests: 1 } },
-  principals: [],
-  virtualModels: [{
-    id: "managed-openai",
-    targetId: "openai-readonly",
-    capabilities: ["text", "reasoning-controls"],
-    deliberation: {
-      levels: ["low", "high"],
-      defaultLevel: "low",
-      supportsAdaptive: false,
-      evidenceRevision: "revision-1",
-    },
-    affinity: { continuity: "none" },
-  }],
-};
-
 const TEST_MANAGED_ACCOUNT_COMPOSITION = {
   routing: {} as never,
   authority: {} as never,
   updateCatalog() {},
+  close() {},
 };
 
 function makeDirectAdapter(providerId = "openai", writeCapable = false): ManagedAgentRuntimeAdapter {
@@ -589,7 +579,10 @@ function makeDirectAdapter(providerId = "openai", writeCapable = false): Managed
       unsupportedFieldPolicy: "reject",
       cleanup: { supported: true },
     }),
-    invoke: async ({ request }: { readonly request: ManagedAgentInvocationRequest }) =>
+    invoke: async ({ request, admission }: {
+      readonly request: ManagedAgentInvocationRequest;
+      readonly admission: Extract<ManagedAgentAdmissionDecision, { readonly status: "admitted" }>;
+    }) =>
       defineManagedAgentInvocationRecord({
         invocationId: request.invocationId,
         agentId: request.agentId,
@@ -601,16 +594,12 @@ function makeDirectAdapter(providerId = "openai", writeCapable = false): Managed
         adapterKind: request.adapterKind,
         executionMode: request.executionMode,
         authority: request.authority,
+        capabilitySnapshot: admission.capabilitySnapshot,
       }),
   };
 }
 
 describe("resolveManagedInvocationToolOptions", () => {
-  const OPENCODE_UNADVERTISED_MODEL_REASON =
-    "Provider 'opencode' has no eligible managed-agent decision for model 'openai/gpt-4o:free'.";
-  const OPENCODE_UNPROVEN_BOUNDARY_REASON =
-    "Provider 'opencode' native harness has no admitted hard filesystem boundary for managed child execution; use an authorized direct provider route or keep the route unavailable.";
-
   it("does not expose managed invocation when config is absent or disabled", async () => {
     await expect(resolveManagedInvocationToolOptions(null, {
       cwd: "C:/repo",
@@ -631,11 +620,10 @@ describe("resolveManagedInvocationToolOptions", () => {
 
   it("does not synthesize managed routes when no supported child engine is enabled", async () => {
     await expect(resolveManagedInvocationToolOptions({
-      version: "3",
       engines: {
-        claude: { enabled: true, billing: "subscription" },
-        codex: { enabled: false, billing: "plus-quota" },
-        opencode: { enabled: false, billing: "free" },
+        claude: { enabled: true },
+        codex: { enabled: false },
+        opencode: { enabled: false },
       },
     }, {
       cwd: "C:/repo",
@@ -662,7 +650,6 @@ describe("resolveManagedInvocationToolOptions", () => {
             writes: false,
           },
           memory: { access: "read-only" },
-          credentials: { mode: "credentialless" },
         }],
       }), {
         cwd: "C:/repo",
@@ -699,7 +686,6 @@ describe("resolveManagedInvocationToolOptions", () => {
             writes: false,
           },
           memory: { access: "read-only" },
-          credentials: { mode: "credentialless" },
         }],
       }),
       modelTaskSuitability: [{
@@ -809,7 +795,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
       }),
-      modelGateway: MANAGED_OPENAI_MODEL_GATEWAY,
     }, {
       cwd: "C:/repo",
       registry: createRegistry("openai"),
@@ -974,6 +959,8 @@ describe("resolveManagedInvocationToolOptions", () => {
     const profile = profileByAdmission(route, "foundation-readonly-plan");
     expect(profile).toBeDefined();
     const service = result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService();
+    const adapter = await route!.createAdapter!();
+    if (!adapter) throw new Error("expected the harness route to construct an adapter");
 
     const invokeResult = await service.invoke(defineManagedAgentInvocationRequest({
       invocationId: "cli-harness-resource-1",
@@ -1012,7 +999,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           mode: "resources",
         },
       },
-    }), await route!.createAdapter!(), {
+    }), adapter, {
       routeId: route!.routeId,
       routeSource: route!.routeSource,
     });
@@ -1034,7 +1021,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
       }],
       }),
-      modelGateway: MANAGED_OPENAI_MODEL_GATEWAY,
     }, {
       cwd: "C:/repo",
       registry: createRegistry("openai"),
@@ -1062,9 +1048,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         provider: "codex",
         model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
-        credentials: {
-          mode: "credentialless",
-        },
       }],
     }), {
       cwd: "C:/repo",
@@ -1107,7 +1090,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
     });
 
     expect(result.routeHealth).toEqual([{
@@ -1448,9 +1431,9 @@ describe("resolveManagedInvocationToolOptions", () => {
         ]),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-        directAdapterFactory: (route) => {
+        directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => {
           adapterConstructions += 1;
-          return makeDirectAdapter(route.provider);
+          return makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId);
         },
       });
 
@@ -1548,7 +1531,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         registry: createRegistry("codex-oauth"),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-        directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+        directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
       });
 
       expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
@@ -1564,7 +1547,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   });
 
   it("rejects a committed route mismatch before constructing its adapter", async () => {
-    const directAdapterFactory = vi.fn((route) => makeDirectAdapter(route.provider));
+    const directAdapterFactory = vi.fn((_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId));
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       economicPolicies: [{
         id: "bounded-policy",
@@ -1641,25 +1624,38 @@ describe("resolveManagedInvocationToolOptions", () => {
         "---",
         "Collect bounded evidence without modifying files.",
       ].join("\n"));
-      const result = await resolveManagedInvocationToolOptions(baseConfig({
-        economicPolicies: economicPolicyCovering(["codex-oauth-reasoning-readonly", "codex-oauth-bounded-readonly"]),
-        targetFixtures: [{
-          id: "codex-oauth-reasoning-readonly",
-          kind: "direct",
-          profiles: ["foundation-readonly-plan"],
-          taskSuitability: [{ task: "mechanical-edit", level: "limited" }],
+      const result = await resolveManagedInvocationToolOptions({
+        ...baseConfig({
+          economicPolicies: economicPolicyCovering(["codex-oauth-reasoning-readonly", "codex-oauth-bounded-readonly"]),
+          targetFixtures: [{
+            id: "codex-oauth-reasoning-readonly",
+            kind: "direct",
+            profiles: ["foundation-readonly-plan"],
+          }, {
+            id: "codex-oauth-bounded-readonly",
+            kind: "direct",
+            profiles: ["foundation-readonly-plan"],
+          }],
+        }),
+        modelTaskSuitability: [{
+          provider: "codex-oauth",
+          model: "gpt-5.5",
+          task: "mechanical-edit",
+          level: "limited",
+          reason: "Reasoning route is not preferred for mechanical edits.",
         }, {
-          id: "codex-oauth-bounded-readonly",
-          kind: "direct",
-          profiles: ["foundation-readonly-plan"],
-          taskSuitability: [{ task: "mechanical-edit", level: "preferred" }],
+          provider: "codex-oauth",
+          model: "gpt-5.4-mini",
+          task: "mechanical-edit",
+          level: "preferred",
+          reason: "Bounded route is preferred for mechanical edits.",
         }],
-      }), {
+      }, {
         cwd: root,
         registry: createRegistry("codex-oauth"),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-        directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+        directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
       });
 
       expect(result.managedInvocation?.agentCatalog).toContainEqual(expect.objectContaining({
@@ -1716,7 +1712,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           }],
         }),
         engines: {
-          "opencode-go": { enabled: true, billing: "subscription" },
+          "opencode-go": { enabled: true },
         },
       }, {
         cwd: root,
@@ -1724,7 +1720,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         registry: createRegistryForProviders([{ provider: "opencode-go" }]),
         surface: "gui",
         providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-        directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+        directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
       });
 
       const visualRoute = result.managedInvocation?.routes.find((route) =>
@@ -1762,7 +1758,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         }],
       }),
       engines: {
-        codex: { enabled: false, billing: "plus-quota" },
+        codex: { enabled: false },
       },
     }, {
       cwd: "C:/repo",
@@ -1876,7 +1872,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       providerModelEligibility: observedProviderModels({
         "codex-oauth": ["gpt-5.5", "codex-auto-review"],
       }),
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
     });
 
     expect(result.routeHealth).toEqual([{
@@ -2095,6 +2091,8 @@ describe("resolveManagedInvocationToolOptions", () => {
     const profile = profileByAdmission(route, "foundation-readonly-plan");
     expect(route).toBeDefined();
     expect(profile).toBeDefined();
+    const claudeDeliberationAdapter = await route!.createAdapter!();
+    if (!claudeDeliberationAdapter) throw new Error("expected the harness route to construct an adapter");
     await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
       defineManagedAgentInvocationRequest({
         invocationId: "claude-deliberation-route-1",
@@ -2108,7 +2106,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           providerId: "claude",
           surface: "cli-harness",
           model: "claude-fable-5[1m]",
-          deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
+          deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("low"), onUnsupported: "deny" },
         },
         adapterKind: "harness",
         executionMode: "cli-harness",
@@ -2127,7 +2125,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
         input: { summary: "Inspect the deliberation route." },
       }),
-      await route!.createAdapter!(),
+      claudeDeliberationAdapter,
       { routeId: route!.routeId, routeSource: route!.routeSource },
     );
 
@@ -2150,13 +2148,6 @@ describe("resolveManagedInvocationToolOptions", () => {
           tools: { allowed: ["read"], writes: false },
         }],
       }),
-      modelGateway: {
-        ...MANAGED_OPENAI_MODEL_GATEWAY,
-        virtualModels: [{
-          ...MANAGED_OPENAI_MODEL_GATEWAY.virtualModels[0],
-          id: "managed-claude",
-        }],
-      },
     }, {
       cwd: "C:/repo",
       registry: createRegistry("claude"),
@@ -2218,6 +2209,8 @@ describe("resolveManagedInvocationToolOptions", () => {
     const profile = profileByAdmission(route, "foundation-readonly-plan");
     expect(route).toBeDefined();
     expect(profile).toBeDefined();
+    const opencodeDeliberationAdapter = await route!.createAdapter!();
+    if (!opencodeDeliberationAdapter) throw new Error("expected the harness route to construct an adapter");
     await (result.managedInvocation?.invocationService ?? new RuntimeManagedAgentInvocationService()).invoke(
       defineManagedAgentInvocationRequest({
         invocationId: "opencode-deliberation-route-1",
@@ -2231,7 +2224,7 @@ describe("resolveManagedInvocationToolOptions", () => {
           providerId: "opencode",
           surface: "cli-harness",
           model: "opencode/gpt-5.4",
-          deliberationIntent: { mode: "fixed", preferredLevel: "low", onUnsupported: "deny" },
+          deliberationIntent: { mode: "fixed", preferredLevel: defineDeliberationLevelId("low"), onUnsupported: "deny" },
         },
         adapterKind: "harness",
         executionMode: "cli-harness",
@@ -2250,7 +2243,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         },
         input: { summary: "Inspect the native OpenCode deliberation route." },
       }),
-      await route!.createAdapter!(),
+      opencodeDeliberationAdapter,
       { routeId: route!.routeId, routeSource: route!.routeSource },
     );
 
@@ -2276,18 +2269,6 @@ describe("resolveManagedInvocationToolOptions", () => {
           tools: { allowed: ["read"], writes: false },
         }],
       }),
-      modelGateway: {
-        ...MANAGED_OPENAI_MODEL_GATEWAY,
-        virtualModels: [{
-          ...MANAGED_OPENAI_MODEL_GATEWAY.virtualModels[0],
-          id: "managed-opencode-native",
-          deliberation: {
-            levels: ["low", "high"],
-            supportsAdaptive: false,
-            evidenceRevision: "gateway-must-not-authorize-native",
-          },
-        }],
-      },
     }, {
       cwd: "C:/repo",
       registry: createRegistry("opencode"),
@@ -2581,7 +2562,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("codex-oauth"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider, true),
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId, true),
     });
 
     expect(result.routeHealth).toEqual([{
@@ -2647,7 +2628,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
       includeUnavailableRoutes: true,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider, true),
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId, true),
     });
 
     expect(result.managedInvocation?.routes).toEqual([]);
@@ -2677,7 +2658,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
     });
 
     expect(result.managedInvocation).toBeUndefined();
@@ -2714,7 +2695,7 @@ describe("resolveManagedInvocationToolOptions", () => {
       registry: createRegistry("openai"),
       surface: "gui",
       providerModelEligibility: COMMON_OBSERVED_PROVIDER_MODELS,
-      directAdapterFactory: (route) => makeDirectAdapter(route.provider),
+      directAdapterFactory: (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId),
     });
 
     const uncovered = result.routeHealth.find((route) => route.routeId === "openai-uncovered");
@@ -2735,7 +2716,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   // connection. The directAdapterFactory spy standing in for both proves
   // zero calls, which is the strongest evidence that neither ran.
   it("never calls the direct adapter factory (zero credential/MCP work) for a policy-uncovered direct route", async () => {
-    const directAdapterFactory = vi.fn(async (route: { readonly provider: string }) => makeDirectAdapter(route.provider));
+    const directAdapterFactory = vi.fn(async (_route, _credentialBinding, _abortSignal, committedRequest) => makeDirectAdapter(committedRequest.commitment.reservation.selectedIdentity.route.providerId));
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       targetFixtures: [{
         id: "openai-uncovered",

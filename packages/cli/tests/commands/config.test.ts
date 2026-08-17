@@ -9,13 +9,8 @@ import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry } from "@kilnai/core/domain";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => new DomainRegistry(),
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 function writeKiln(dir: string, config: ResolvedKilnConfig): void {
@@ -62,7 +57,7 @@ describe("configCommand", () => {
 
     await configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain('"domain": "generic"');
     expect(output).toContain('"requireApproval": true');
     expect(output).toContain('"maxDepth": 3');
@@ -109,7 +104,7 @@ describe("configCommand", () => {
   it("errors when not initialized", async () => {
     await configCommand(MOCK_APP_CONFIG, "show", [], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("Not initialized");
   });
 
@@ -212,7 +207,7 @@ describe("configCommand", () => {
 
     await configCommand(MOCK_APP_CONFIG, "read", ["projections"], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain("repo-shim:agents");
     expect(output).toContain("repo-shim:claude");
   });
@@ -222,7 +217,7 @@ describe("configCommand", () => {
 
     await configCommand(MOCK_APP_CONFIG, "read", ["setup"], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain('"projectRoot"');
     expect(output).toContain('"repoShims"');
     expect(output).toContain('"recommendedActions"');
@@ -233,7 +228,7 @@ describe("configCommand", () => {
 
     await configCommand(MOCK_APP_CONFIG, "setup", [], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain('"projectRoot"');
     expect(output).toContain('"recommendedActions"');
   });
@@ -243,7 +238,7 @@ describe("configCommand", () => {
 
     await configCommand(MOCK_APP_CONFIG, "setup", ["--action", "adopt-project-context"], tempDir);
 
-    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     expect(output).toContain('"action": "adopt-project-context"');
     expect(output).toContain('"status": "applied"');
   });

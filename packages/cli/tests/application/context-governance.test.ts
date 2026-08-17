@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DomainConfig } from "@kilnai/core/domain";
 import type { SessionContext } from "../../src/wrapper/index.js";
+import type { SessionRunOptions } from "../../src/wrapper/session.js";
 import { governSessionContext } from "../../src/application/context-governance.js";
 
 const runSessionMocks = vi.hoisted(() => ({
-  buildPreamble: vi.fn(() => "PROMPT"),
+  buildPreamble: vi.fn((_context: SessionContext) => "PROMPT"),
 }));
 
 vi.mock("../../src/wrapper/preamble-builder.js", () => ({
@@ -32,7 +33,6 @@ function makeContext(
     domain: DOMAIN,
     systemPrompt,
     projectedContext,
-    memorySnapshot: undefined,
     mcpServerEntryPath: "",
     workingDirectory: process.cwd(),
     task: "Test task",
@@ -41,7 +41,7 @@ function makeContext(
 }
 
 function makeRunSessionHarness(context: SessionContext) {
-  const run = vi.fn(async function* () {
+  const run = vi.fn(async function* (_options: SessionRunOptions) {
     yield {
       type: "completed",
       totalUsd: 0,
@@ -104,8 +104,8 @@ describe("governSessionContext", () => {
   it("removes memory blocks from projectedContext when excludeFromContext is true", () => {
     const context = makeContext({
       blocks: [
-        { id: "1", kind: "memory", source: "test", content: "sensitive memory", required: false, score: 0, estimatedTokens: 100 },
-        { id: "2", kind: "artifact", source: "test", content: "some artifact", required: false, score: 0, estimatedTokens: 50 },
+        { id: "1", kind: "memory", modelFacingSemantics: "evidence", source: "test", content: "sensitive memory", required: false, score: 0, estimatedTokens: 100 },
+        { id: "2", kind: "artifact", modelFacingSemantics: "evidence", source: "test", content: "some artifact", required: false, score: 0, estimatedTokens: 50 },
       ],
       estimatedTokens: 150,
     });
@@ -123,8 +123,8 @@ describe("governSessionContext", () => {
   it("preserves projectedContext when excludeFromContext is false", () => {
     const context = makeContext({
       blocks: [
-        { id: "1", kind: "memory", source: "test", content: "normal memory", required: false, score: 0, estimatedTokens: 100 },
-        { id: "2", kind: "artifact", source: "test", content: "some artifact", required: false, score: 0, estimatedTokens: 50 },
+        { id: "1", kind: "memory", modelFacingSemantics: "evidence", source: "test", content: "normal memory", required: false, score: 0, estimatedTokens: 100 },
+        { id: "2", kind: "artifact", modelFacingSemantics: "evidence", source: "test", content: "some artifact", required: false, score: 0, estimatedTokens: 50 },
       ],
       estimatedTokens: 150,
     });
@@ -144,7 +144,7 @@ describe("runSession context governance integration", () => {
     runSessionMocks.buildPreamble.mockClear();
     const context = makeContext({
       blocks: [
-        { id: "1", kind: "memory", source: "test", content: "sensitive memory", required: false, score: 0, estimatedTokens: 100 },
+        { id: "1", kind: "memory", modelFacingSemantics: "evidence", source: "test", content: "sensitive memory", required: false, score: 0, estimatedTokens: 100 },
       ],
       estimatedTokens: 100,
     });
@@ -159,7 +159,7 @@ describe("runSession context governance integration", () => {
 
     expect(result.sessionSucceeded).toBe(true);
     expect(runSessionMocks.buildPreamble).toHaveBeenCalledTimes(1);
-    const governedContext = runSessionMocks.buildPreamble.mock.calls[0]?.[0] as SessionContext;
+    const governedContext = runSessionMocks.buildPreamble.mock.calls[0]![0];
     expect(governedContext.projectedContext?.blocks?.length).toBe(0);
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "PROMPT",
@@ -179,7 +179,7 @@ describe("runSession context governance integration", () => {
     const context = makeContext(
       {
         blocks: [
-          { id: "1", kind: "memory", source: "test", content: excludedMarker, required: false, score: 0, estimatedTokens: 100 },
+          { id: "1", kind: "memory", modelFacingSemantics: "evidence", source: "test", content: excludedMarker, required: false, score: 0, estimatedTokens: 100 },
         ],
         estimatedTokens: 100,
       },
@@ -194,7 +194,7 @@ describe("runSession context governance integration", () => {
       fileGovernance: { excludeFromContext: true },
     });
 
-    const callOptions = run.mock.calls[0]?.[0] as { readonly system?: string; readonly prompt: string };
+    const callOptions = run.mock.calls[0]![0];
     expect(callOptions.system).toBeUndefined();
     expect(callOptions.prompt).not.toContain(excludedMarker);
   }, 10_000);
@@ -205,7 +205,7 @@ describe("runSession context governance integration", () => {
     const context = makeContext(
       {
         blocks: [
-          { id: "1", kind: "memory", source: "test", content: retainedMarker, required: false, score: 0, estimatedTokens: 100 },
+          { id: "1", kind: "memory", modelFacingSemantics: "evidence", source: "test", content: retainedMarker, required: false, score: 0, estimatedTokens: 100 },
         ],
         estimatedTokens: 100,
       },
@@ -220,10 +220,10 @@ describe("runSession context governance integration", () => {
       fileGovernance: { excludeFromContext: false },
     });
 
-    const governedContext = runSessionMocks.buildPreamble.mock.calls[0]?.[0] as SessionContext;
+    const governedContext = runSessionMocks.buildPreamble.mock.calls[0]![0];
     expect(governedContext.projectedContext?.blocks?.some((block) => block.content === retainedMarker)).toBe(true);
 
-    const callOptions = run.mock.calls[0]?.[0] as { readonly system?: string };
+    const callOptions = run.mock.calls[0]![0];
     expect(callOptions.system).toBeUndefined();
   }, 10_000);
 });

@@ -217,7 +217,7 @@ describe("withGuardrail", () => {
 
   it("retries with feedback when validation fails", async () => {
     let callCount = 0;
-    const handler = vi.fn(async (feedback?: string) => {
+    const handler = vi.fn(async (_feedback?: string) => {
       callCount++;
       if (callCount === 1) {
         return "not-an-object"; // fails validation

@@ -141,7 +141,8 @@ describe("web tool config", () => {
     const result = await surface.resources.read("kiln://memory/graph?depth=0&limit=25");
 
     expect(result?.contents[0]?.mimeType).toBe("application/json");
-    expect(JSON.parse(result?.contents[0]?.text ?? "{}")).toMatchObject({
+    const content = result?.contents[0];
+    expect(JSON.parse(content && "text" in content ? content.text : "{}")).toMatchObject({
       snapshot: {
         nodes: [],
         edges: [],

@@ -27,7 +27,7 @@ const route = (scope = "default"): ProviderModelRouteIdentity => ({
 
 const candidate = (
   id: string,
-  options: Partial<Omit<ExecutionAccountCapacityCandidate, "account" | "route">> = {},
+  options: Partial<Omit<ExecutionAccountCapacityCandidate, "account">> = {},
 ): ExecutionAccountCapacityCandidate => ({
   account: createExecutionAccountRef(id),
   route: route(),

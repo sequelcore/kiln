@@ -13,6 +13,7 @@ function mockProvider(response: string, name = "test-provider"): ProviderAdapter
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       toolCalls: [],
+      stopReason: "stop",
     } satisfies AgentResponse),
     streamMessage: vi.fn() as unknown as ProviderAdapter["streamMessage"],
   };
@@ -86,14 +87,14 @@ describe("GroundingRail", () => {
     await rail.evaluate(response, chunks, provider);
 
     expect(provider.createMessage).toHaveBeenCalledOnce();
-    const call = vi.mocked(provider.createMessage).mock.calls[0][0];
+    const call = vi.mocked(provider.createMessage).mock.calls[0]![0];
 
     expect(typeof call.system).toBe("string");
     expect(call.system).toContain("factual accuracy verifier");
     expect(call.messages).toHaveLength(1);
-    expect(call.messages[0].role).toBe("user");
+    expect(call.messages[0]!.role).toBe("user");
 
-    const userText = call.messages[0].parts[0];
+    const userText = call.messages[0]!.parts[0];
     expect(userText).toMatchObject({ type: "text" });
 
     const text = (userText as { type: "text"; text: string }).text;

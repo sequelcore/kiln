@@ -1204,8 +1204,14 @@ describe("goal execution loop", () => {
       attemptId: started.attempt.id,
       providedEvidence: ["managed-orchestration:result-handoff"],
       managedInvocationResultHandoff: {
+        provenance: {
+          delivery: "remote-harness" as const,
+          configuredModelId: "gpt-5.6-sol",
+          observedModelIds: ["gpt-5.6-sol"],
+        },
         summary: "Completed managed child handoff with reviewable resources.",
         resourceUris: ["kiln://artifacts/orch-adoption-goal/handoff"],
+        memoryWriteProposalUris: [] as readonly string[],
       },
       managedOrchestrationAdoption: {
         target: "slice-6-handoff-review-adoption",
@@ -1370,8 +1376,14 @@ describe("goal execution loop", () => {
         },
       ],
       managedInvocationResultHandoff: {
+        provenance: {
+          delivery: "remote-harness",
+          configuredModelId: "gpt-5.6-sol",
+          observedModelIds: ["gpt-5.6-sol"],
+        },
         summary: "Completed managed child handoff with reviewable resources.",
         resourceUris: ["kiln://artifacts/orch-readiness-goal/handoff"],
+        memoryWriteProposalUris: [],
       },
       managedOrchestrationAdoption: {
         target: "slice-6-handoff-review-adoption",
@@ -2025,27 +2037,29 @@ describe("goal execution loop", () => {
         },
       },
     });
+    const adoptedItem: typeof valid = {
+      ...valid,
+      managedOrchestrationAdoption: {
+        target: "slice-6-handoff-review-adoption",
+        adoptedBy: "reviewer",
+        adoptedAt: "2026-05-12T10:30:00.000Z",
+        resourceUris: [],
+      },
+    };
     const replayedMalformedAdoption = reconstructWorkItemsFromSessionEvents([
-      createSessionEvent({
+      createSessionEvent<"work_item_updated">({
         kind: "work_item_updated",
-        kilnSessionId: "session-1",
+        kilnSessionId: "test-session",
         sequence: 1,
-        workItem: {
-          ...valid,
-          managedOrchestrationAdoption: {
-            target: "slice-6-handoff-review-adoption",
-            adoptedBy: "reviewer",
-            adoptedAt: "2026-05-12T10:30:00.000Z",
-            resourceUris: [],
-          },
-        },
+        workItem: adoptedItem,
+        operation: "update",
       }),
     ]);
     const replayedMalformedHandoff = reconstructWorkItemsFromSessionEvents([
-      createSessionEvent({
+      createSessionEvent<"work_item_updated">({
         kind: "work_item_updated",
-        kilnSessionId: "session-1",
-        sequence: 1,
+        kilnSessionId: "test-session",
+        sequence: 2,
         workItem: {
           ...valid,
           managedOrchestrationResultHandoff: {
@@ -2057,6 +2071,7 @@ describe("goal execution loop", () => {
             resourceUris: ["kiln://artifacts/orch-replayed-adoption/handoff"],
           },
         },
+        operation: "update",
       }),
     ]);
 
@@ -2179,23 +2194,23 @@ describe("goal execution loop", () => {
     });
 
     const snapshot = reconstructWorkItemsFromSessionEvents([
-      createSessionEvent({
+      createSessionEvent<"work_item_execution_started">({
         kind: "work_item_execution_started",
-        kilnSessionId: "session-1",
-        sequence: 1,
+        kilnSessionId: "test-session",
+        sequence: 3,
         workItem: started.item,
         attempt: started.attempt,
       }),
-      createSessionEvent({
+      createSessionEvent<"work_item_execution_finished">({
         kind: "work_item_execution_finished",
-        kilnSessionId: "session-1",
-        sequence: 2,
+        kilnSessionId: "test-session",
+        sequence: 4,
         workItem: finished.item,
         attempt: finished.attempt,
-        missingEvidence: [],
-        missingGoalEvidence: [],
-        missingVerificationGates: [],
-        failedVerificationGates: [],
+        missingEvidence: [] as readonly string[],
+        missingGoalEvidence: [] as readonly string[],
+        missingVerificationGates: [] as readonly string[],
+        failedVerificationGates: [] as readonly string[],
         missingResidualRisk: false,
       }),
     ]);
@@ -2282,8 +2297,13 @@ function acceptanceDecision(goal: GoalRun, workItemStore: WorkItemStore, workIte
 
 function managedResultHandoff() {
   return {
+    provenance: {
+      delivery: "remote-harness" as const,
+      configuredModelId: "gpt-5.6-sol",
+      observedModelIds: ["gpt-5.6-sol"],
+    },
     summary: "Managed child returned substantive evidence.",
     resourceUris: ["kiln://artifacts/managed-child/handoff"],
-    memoryWriteProposalUris: [],
+    memoryWriteProposalUris: [] as readonly string[],
   };
 }

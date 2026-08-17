@@ -66,7 +66,7 @@ describe("monitor tools", () => {
       const readResult = await new MonitorReadTool({ registry }).execute({
         name: "monitor_read",
         input: { id: startPayload.id, sinceSequence: 0, limit: 10, verbosity: "structured" },
-      }, sandbox);
+      });
 
       expect(readResult.isError).toBe(false);
       expect(JSON.parse(readResult.output)).toMatchObject({
@@ -87,7 +87,7 @@ describe("monitor tools", () => {
       const listResult = await new MonitorListTool({ registry }).execute({
         name: "monitor_list",
         input: { status: "running", verbosity: "structured" },
-      }, sandbox);
+      });
 
       expect(listResult.isError).toBe(false);
       expect(JSON.parse(listResult.output)).toMatchObject({
@@ -103,7 +103,7 @@ describe("monitor tools", () => {
       const stopResult = await new MonitorStopTool({ registry }).execute({
         name: "monitor_stop",
         input: { id: startPayload.id, reason: "test done", verbosity: "structured" },
-      }, sandbox);
+      });
 
       expect(stopResult.isError).toBe(false);
       expect(JSON.parse(stopResult.output)).toMatchObject({
@@ -137,7 +137,6 @@ describe("monitor tools", () => {
         },
       });
       const sandbox = makeSandbox(tempDir);
-
       await expect(new MonitorStartTool({ registry }).execute({
         name: "monitor_start",
         input: { command: "rm -rf /" },
@@ -150,7 +149,7 @@ describe("monitor tools", () => {
       await expect(new MonitorReadTool({ registry }).execute({
         name: "monitor_read",
         input: { id: "missing", sinceSequence: -1 },
-      }, sandbox)).resolves.toMatchObject({
+      })).resolves.toMatchObject({
         isError: true,
         output: expect.stringContaining("sinceSequence"),
       });
@@ -158,7 +157,7 @@ describe("monitor tools", () => {
       await expect(new MonitorStopTool({ registry }).execute({
         name: "monitor_stop",
         input: { id: "missing" },
-      }, sandbox)).resolves.toMatchObject({
+      })).resolves.toMatchObject({
         isError: true,
         output: expect.stringContaining("Monitor not found"),
       });

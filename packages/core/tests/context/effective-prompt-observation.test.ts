@@ -32,7 +32,7 @@ function request(
     stablePrefixRegionCount: 1,
     volatileRegionBytes: 1,
     cacheRegions: [],
-    cachePartition: { dimensions: [] },
+    cachePartition: { dimensions: [], hash: "sha256:cache" },
     toolCount: 0,
     ...(finalPromptHash
       ? {

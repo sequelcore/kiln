@@ -333,7 +333,7 @@ describe("materializeApprovedPlanWorkItems", () => {
     });
 
     const snapshot = reconstructWorkItemMaterializationsFromSessionEvents([
-      createSessionEvent({
+      createSessionEvent<"work_items.materialized">({
         kind: "work_items.materialized",
         kilnSessionId: "session-1",
         sequence: 1,
@@ -568,8 +568,14 @@ describe("materializeApprovedPlanWorkItems", () => {
         "managed-orchestration:merge:collect-all",
       ],
       managedInvocationResultHandoff: {
+        provenance: {
+          delivery: "runtime-generated",
+          configuredModelId: "fixture-model",
+          observedModelIds: ["fixture-model"],
+        },
         summary: "Implemented runtime helper and captured reviewable handoff evidence.",
         resourceUris: ["kiln://artifacts/orch-decompose/child-1-handoff"],
+        memoryWriteProposalUris: [],
       },
       managedOrchestrationAdoption: {
         target: "slice-6-handoff-review-adoption",
@@ -611,8 +617,14 @@ describe("materializeApprovedPlanWorkItems", () => {
         "managed-orchestration:review",
       ],
       managedInvocationResultHandoff: {
+        provenance: {
+          delivery: "runtime-generated",
+          configuredModelId: "fixture-model",
+          observedModelIds: ["fixture-model"],
+        },
         summary: "Implemented runtime helper and captured reviewable handoff evidence.",
         resourceUris: ["kiln://artifacts/orch-decompose/child-1-handoff"],
+        memoryWriteProposalUris: [],
       },
       verificationGateResults: [
         {
@@ -713,8 +725,14 @@ describe("materializeApprovedPlanWorkItems", () => {
         "managed-orchestration:merge:collect-all",
       ],
       managedInvocationResultHandoff: {
+        provenance: {
+          delivery: "runtime-generated",
+          configuredModelId: "fixture-model",
+          observedModelIds: ["fixture-model"],
+        },
         summary: "Implemented CLI surface and captured reviewable handoff evidence.",
         resourceUris: ["kiln://artifacts/orch-decompose/child-2-handoff"],
+        memoryWriteProposalUris: [],
       },
       verificationGateResults: [{
         gate: "managed orchestration adoption gate",
@@ -883,12 +901,12 @@ function approvedPlanForClassification() {
         summary: "Write the governed report.",
         workflowProfile: "verification-heavy",
         workClassification: {
-          intents: [" write ", "write", "edit"],
-          artifacts: [" document ", "document"],
+          intents: [" write ", "edit"],
+          artifacts: [" document "],
           domains: [" business "],
           effects: [" write-artifact "],
           modes: [" coauthor "],
-        },
+        } as never,
         workClassificationProvenance: {
           sourceKind: "plan-work-item",
           sourceId: " write-report ",

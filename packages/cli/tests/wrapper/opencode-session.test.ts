@@ -21,10 +21,6 @@ function permissionWriter(onRequest: (profile: string) => void | Promise<void>, 
 }
 
 const createOpencodeClient = vi.fn();
-const viRuntime = vi as typeof vi & { mocked?: <T>(item: T) => T };
-if (typeof viRuntime.mocked !== "function") {
-  viRuntime.mocked = <T>(item: T): T => item;
-}
 
 vi.mock("@opencode-ai/sdk/v2", () => ({
   createOpencodeClient,
@@ -34,6 +30,7 @@ function baseConfig(overrides: Partial<OpenCodeSessionConfig> = {}): OpenCodeSes
   return {
     cwd: process.cwd(),
     baseUrl: "http://127.0.0.1:9999",
+    task: "test",
     ...overrides,
   };
 }
@@ -210,7 +207,7 @@ describe("OpenCode runtime config injection", () => {
       baseConfig({ permissionDefault: "deny" }),
     );
 
-    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toEqual({
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!)).toEqual({
       theme: "system",
       permission: {
         "*": "deny",
@@ -273,17 +270,25 @@ describe("OpenCodeSession.run() integration", () => {
 
   it.each(["exact", "clamped"] as const)("sends %s deliberation as the discovered native variant", async (status) => {
     const mock = makeMockClient("ses_deliberation", [], 0);
-    const resolution: DeliberationResolution = {
-      status,
-      selectedLevel: defineDeliberationLevelId("high"),
-      source: "operator",
-      ...(status === "clamped" ? { reason: "preferred-level-outside-bounds" as const } : {}),
-      capabilityEvidence: {
-        sourceIdentity: "opencode/model-catalog",
-        sourceRevision: "test-r1",
-        observedAt: "2026-08-10T00:00:00.000Z",
-      },
+    const capabilityEvidence = {
+      sourceIdentity: "opencode/model-catalog",
+      sourceRevision: "test-r1",
+      observedAt: "2026-08-10T00:00:00.000Z",
     };
+    const resolution: DeliberationResolution = status === "clamped"
+      ? {
+        status: "clamped",
+        selectedLevel: defineDeliberationLevelId("high"),
+        source: "operator",
+        reason: "preferred-level-outside-bounds",
+        capabilityEvidence,
+      }
+      : {
+        status: "exact",
+        selectedLevel: defineDeliberationLevelId("high"),
+        source: "operator",
+        capabilityEvidence,
+      };
     vi.mocked(createOpencodeClient).mockReturnValueOnce(mock as any);
     const session = new OpenCodeSession(baseConfig());
 

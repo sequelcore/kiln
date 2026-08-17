@@ -3,7 +3,6 @@ import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   ROLE_PRESETS,
-  SandboxPolicy,
   createPolicy,
 } from "../../src/sandbox/policies.js";
 

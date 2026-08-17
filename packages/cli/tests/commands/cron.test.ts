@@ -40,13 +40,8 @@ import type { KilnAppConfig } from "../../src/config.js";
 import { DomainRegistry } from "@kilnai/core/domain";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => new DomainRegistry(),
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 interface RawAppYaml {

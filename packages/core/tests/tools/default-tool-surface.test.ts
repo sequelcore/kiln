@@ -676,9 +676,10 @@ describe("default builtin tool surface", () => {
       mimeType: "text/plain",
       title: "bash full output",
     });
-    expect(result.result.metadata?.["stdoutBytes"]).toBe(Buffer.byteLength(largeOutput));
-    expect(result.result.metadata?.["stdoutTruncated"]).toBe(true);
-    expect(Buffer.byteLength(String(result.result.metadata?.["stdout"] ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
+    if (result.result.metadata?.kind !== "command") throw new Error("expected command metadata");
+    expect(result.result.metadata.stdoutBytes).toBe(Buffer.byteLength(largeOutput));
+    expect(result.result.metadata.stdoutTruncated).toBe(true);
+    expect(Buffer.byteLength(String(result.result.metadata.stdout ?? ""), "utf8")).toBeLessThanOrEqual(8 * 1024);
 
     const artifact = await surface.resources.read(linkUri!);
     const artifactText = artifact.contents[0] && "text" in artifact.contents[0]

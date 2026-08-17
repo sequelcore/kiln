@@ -7,6 +7,7 @@ import {
   SqliteMemoryRepository,
   type CreateMemoryRecordInput,
   type MemoryProvenance,
+  type ContextAuditBlock,
 } from "../../src/index.js";
 
 describe("DefaultContextGovernor memory admission provenance", () => {
@@ -58,7 +59,7 @@ describe("DefaultContextGovernor memory admission provenance", () => {
       sessionId: "session-1",
       turnId: "turn-1",
       admissionSink: repository,
-      admissionIdGenerator: (block) => `admission:${block.id}`,
+      admissionIdGenerator: (block: ContextAuditBlock) => `admission:${block.id}`,
       clock: () => "2026-04-30T12:00:00.000Z",
     } as const;
 

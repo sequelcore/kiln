@@ -696,7 +696,7 @@ describe("session feedback repair work item", () => {
     const tampered = {
       ...workItemInput,
       feedbackRepair: {
-        ...workItemInput.feedbackRepair,
+        ...workItemInput.feedbackRepair!,
         approvedBy: "Ricardo +1 (555) 123-4567",
         riskHypothesis: "Call +1 555 123 4567 and use sk-ant-secret123",
         verificationCriteria: ["Verify +1 555 123 4567 is absent"],

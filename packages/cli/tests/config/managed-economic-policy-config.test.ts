@@ -48,6 +48,12 @@ function economicJob(jobId: string, economicAttemptId: string) {
   } as never;
 }
 
+function economicPolicyFixtureTarget() {
+  const target = economicConfig().targetCatalog!.targets[0]!;
+  if (target.kind !== "direct") throw new Error("Economic policy fixture expects a direct target.");
+  return target;
+}
+
 function economicRoutingResolution() {
   return [{
     lease: {
@@ -85,7 +91,7 @@ function economicRoutingResolution() {
           },
           resetsAt: null,
         }],
-        evidence: economicConfig().targetCatalog!.targets[0]!.economics.priceEvidence.evidence,
+        evidence: economicPolicyFixtureTarget().economics.priceEvidence.evidence,
       },
       capacity: { maxConcurrency: 1, reservedAffinitySlots: 0 },
     },

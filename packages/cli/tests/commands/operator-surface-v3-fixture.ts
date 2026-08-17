@@ -16,6 +16,7 @@ export function makeOperatorSurfaceGlobalConfig(
   const policyId = `${targetId}-policy`;
   const account = base.targetCatalog!.accounts[0]!;
   const target = base.targetCatalog!.targets[0]!;
+  if (target.kind !== "direct") throw new Error("Operator surface fixture expects a direct target.");
   return {
     ...base,
     version: "3",

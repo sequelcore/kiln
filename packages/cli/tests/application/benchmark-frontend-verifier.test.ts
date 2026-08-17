@@ -106,7 +106,7 @@ describe("verifyFrontendBenchmarkLease", () => {
 function passingRunner(): FrontendVerifierRunner {
   return {
     inspectImage: vi.fn(async () => ({ imageId: IMAGE_ID, sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST, version: "2" })),
-    run: vi.fn(async (_containerName, args) => {
+    run: vi.fn(async (_containerName: string, args: readonly string[]) => {
       const outputMount = args.find((arg) => arg.endsWith(":/output:rw"));
       if (!outputMount) throw new Error("missing output mount");
       const outputRoot = outputMount.slice(0, -":/output:rw".length);

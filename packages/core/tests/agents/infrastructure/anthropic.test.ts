@@ -93,14 +93,6 @@ function createAsyncIterable<T>(items: T[]): AsyncIterable<T> {
   };
 }
 
-function makeMockAPIError(status: number, message: string): Error {
-  const err = new Error(message);
-  (err as Record<string, unknown>).status = status;
-  (err as Record<string, unknown>).name = "APIError";
-  // Make it match the instanceof check by giving it the right prototype
-  Object.setPrototypeOf(err, makeMockAPIError.prototype);
-  return err;
-}
 
 describe("AnthropicAdapter", () => {
   let adapter: AnthropicAdapter;

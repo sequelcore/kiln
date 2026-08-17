@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
+import type { ProviderDisplayInfo } from "../../src/wrapper/session-registry.js";
+import type { TuiGateway, TuiGatewayOptions } from "@kilnai/runtime";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
+
+type TuiGatewayMockResult = Omit<TuiGateway, "providerDiscovery" | "providerModelDiscovery">
+  & Partial<Pick<TuiGateway, "providerDiscovery" | "providerModelDiscovery">>;
 
 const tuiMocks = vi.hoisted(() => ({
   startTui: vi.fn().mockResolvedValue(undefined),
@@ -110,7 +115,7 @@ const runtimeMocks = vi.hoisted(() => ({
       }),
     };
   }),
-  startTuiGateway: vi.fn(async () => ({
+  startTuiGateway: vi.fn<(options: TuiGatewayOptions) => Promise<TuiGatewayMockResult>>(async (_options) => ({
     port: 4801,
     url: "ws://localhost:4801/ws",
     models: {
@@ -122,7 +127,7 @@ const runtimeMocks = vi.hoisted(() => ({
   })),
 }));
 
-function gatewayDiscovery(provider: string, models: readonly string[]) {
+function gatewayDiscovery(provider: string, models: readonly string[]): TuiGateway["providerDiscovery"] {
   return [{
     provider,
     available: true,
@@ -134,7 +139,7 @@ function gatewayDiscovery(provider: string, models: readonly string[]) {
   }];
 }
 
-function gatewayProjection(provider: string, model: string, eligible: boolean) {
+function gatewayProjection(provider: string, model: string, eligible: boolean): TuiGateway["providerModelDiscovery"] {
   return {
     catalogEvidence: {
       status: "complete",
@@ -144,8 +149,13 @@ function gatewayProjection(provider: string, model: string, eligible: boolean) {
     },
     entries: [{
       providerRoute: { providerId: provider, providerModelId: model, scope: "provider" },
-      normalizedModel: { providerId: provider, modelId: model },
+      normalizedModel: { family: model },
+      rawEvidence: { rawId: model, provenance: "test" },
+      credentialEvidence: { state: "authenticated", source: "test" },
+      entitlementEvidence: { state: "confirmed", source: "test" },
       freshness: { status: "fresh", observedAt: "2026-07-01T00:00:00.000Z" },
+      routeHealth: { status: "healthy" },
+      policyAdmission: { use: "interactive", status: eligible ? "admitted" : "unknown" },
       eligibility: { eligible, reasonCodes: eligible ? [] : ["missing-entitlement-evidence"] },
     }],
   };
@@ -169,10 +179,7 @@ const configMocks = vi.hoisted(() => ({
 
 const registryMocks = vi.hoisted(() => {
   const mock = {
-    providerDisplayInfo: [
-      { id: "codex", group: "harness", models: [], free: false },
-      { id: "opencode", group: "subscription", models: [], free: true },
-    ],
+    providerDisplayInfo: [] as ProviderDisplayInfo[],
     createDefaultRegistry: vi.fn(() => ({
       registry: {
         list: () =>
@@ -275,7 +282,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
   })),
   withManagedAgentInvocationResourceProvider: (options: Record<string, unknown> | undefined, input: Record<string, unknown> | undefined) => {
     const artifactStore = (options?.artifactResources as { store?: unknown } | undefined)?.store ?? {};
-    const sessionOptions = { ...(options ?? {}), artifactResources: { store: artifactStore } };
+    const sessionOptions: Record<string, unknown> = { ...(options ?? {}), artifactResources: { store: artifactStore } };
     if (!input) {
       return sessionOptions;
     }

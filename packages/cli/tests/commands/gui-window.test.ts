@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import type { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildGuiWindowLaunchSpec,
@@ -19,7 +20,7 @@ class FakeChildProcess extends EventEmitter {
 }
 
 class FakeBrowserWebSocket extends EventTarget {
-  readonly send = vi.fn((message: string) => {
+  readonly send = vi.fn((_message: string) => {
     queueMicrotask(() => {
       this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id: 1, result: {} }) }));
     });
@@ -77,7 +78,10 @@ describe("gui window launcher", () => {
   it("keeps the temporary profile while an Edge launcher hands off to the managed window", async () => {
     vi.useFakeTimers();
     const child = new FakeChildProcess();
-    const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    // `spawn` carries a dozen stdio-shaped overloads; a single-signature mock can never
+    // structurally match the full set, so the mock is cast at the boundary where it is
+    // handed to `launchGuiWindow`'s `spawnImpl` option (the one call site that consumes it).
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn;
     const cleanupProfileDir = vi.fn();
     const fetchImpl = vi.fn<typeof fetch>()
       .mockResolvedValueOnce({
@@ -135,7 +139,10 @@ describe("gui window launcher", () => {
   it("rejects shutdown when the browser profile cannot be removed", async () => {
     vi.useFakeTimers();
     const child = new FakeChildProcess();
-    const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    // `spawn` carries a dozen stdio-shaped overloads; a single-signature mock can never
+    // structurally match the full set, so the mock is cast at the boundary where it is
+    // handed to `launchGuiWindow`'s `spawnImpl` option (the one call site that consumes it).
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn;
     const cleanupError = Object.assign(new Error("profile busy"), { code: "EBUSY" });
     const cleanupProfileDir = vi.fn(() => {
       throw cleanupError;
@@ -163,7 +170,10 @@ describe("gui window launcher", () => {
   it("closes the dedicated browser before removing its profile", async () => {
     vi.useFakeTimers();
     const child = new FakeChildProcess();
-    const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    // `spawn` carries a dozen stdio-shaped overloads; a single-signature mock can never
+    // structurally match the full set, so the mock is cast at the boundary where it is
+    // handed to `launchGuiWindow`'s `spawnImpl` option (the one call site that consumes it).
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn;
     const socket = new FakeBrowserWebSocket();
     const cleanupProfileDir = vi.fn();
     const fetchImpl = vi.fn<typeof fetch>()
@@ -211,7 +221,10 @@ describe("gui window launcher", () => {
   it("does not settle the window session until asynchronous profile cleanup finishes", async () => {
     vi.useFakeTimers();
     const child = new FakeChildProcess();
-    const spawnImpl = vi.fn(() => child as unknown as ReturnType<typeof launchGuiWindow>["child"]);
+    // `spawn` carries a dozen stdio-shaped overloads; a single-signature mock can never
+    // structurally match the full set, so the mock is cast at the boundary where it is
+    // handed to `launchGuiWindow`'s `spawnImpl` option (the one call site that consumes it).
+    const spawnImpl = vi.fn(() => child) as unknown as typeof spawn;
     let finishCleanup: (() => void) | undefined;
     const cleanupProfileDir = vi.fn(() => new Promise<void>((resolve) => {
       finishCleanup = resolve;

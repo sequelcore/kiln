@@ -109,16 +109,18 @@ describe("validateVoiceConfig", () => {
           speedRange: [0.95, 1.05],
           intents: {
             neutral: { delivery: "", appliesWhen: [], speed: 1.2 },
-            excited: {
-              delivery: "Sound very excited.",
-              appliesWhen: ["Any response."],
-              speed: 1,
-            },
-            "": {
-              delivery: "No semantic intent.",
-              appliesWhen: ["Malformed config."],
-              speed: 1,
-            },
+            ...( {
+              excited: {
+                delivery: "Sound very excited.",
+                appliesWhen: ["Any response."],
+                speed: 1,
+              },
+              "": {
+                delivery: "No semantic intent.",
+                appliesWhen: ["Malformed config."],
+                speed: 1,
+              },
+            } as Record<string, { delivery: string; appliesWhen: string[]; speed: number }>),
           },
         },
       },

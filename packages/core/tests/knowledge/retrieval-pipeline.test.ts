@@ -37,7 +37,7 @@ class MockVectorStore implements VectorStore {
       this.entries.set(entry.id, entry);
     }
   }
-  async query(embedding: number[], options: VectorQueryOptions): Promise<VectorResult[]> {
+  async query(_embedding: number[], options: VectorQueryOptions): Promise<VectorResult[]> {
     const results: VectorResult[] = Array.from(this.entries.values()).map((entry) => ({
       id: entry.id,
       content: entry.content,

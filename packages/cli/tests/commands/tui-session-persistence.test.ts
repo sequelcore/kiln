@@ -189,7 +189,7 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
   })),
   withManagedAgentInvocationResourceProvider: (options: Record<string, unknown> | undefined, input: Record<string, unknown> | undefined) => {
     const artifactStore = (options?.artifactResources as { store?: unknown } | undefined)?.store ?? {};
-    const sessionOptions = {
+    const sessionOptions: Record<string, unknown> = {
       ...(options ?? {}),
       resourceNotifications: options?.resourceNotifications ?? {},
       monitorRegistry: options?.monitorRegistry ?? {},
@@ -229,19 +229,26 @@ vi.mock("@kilnai/runtime", async (importOriginal) => {
     options: Record<string, unknown> | undefined,
     sessionEventSink: { publish: (events: readonly unknown[], context: unknown) => void | Promise<void> },
   ) => {
-    if (!options) {
+    const attachment = options as { options?: Record<string, unknown> } | undefined;
+    const managedOptions = attachment?.options;
+    if (!attachment || !managedOptions) {
       return undefined;
     }
-    const existingSink = options.sessionEventSink as
+    const existingSink = managedOptions.sessionEventSink as
       | { publish?: (events: readonly unknown[], context: unknown) => void | Promise<void> }
       | undefined;
     return {
-      ...options,
-      sessionEventSink: {
-        publish: async (events: readonly unknown[], context: unknown) => {
-          await existingSink?.publish?.(events, context);
-          await sessionEventSink.publish(events, context);
-        },
+      ...attachment,
+      get options() {
+        return {
+          ...managedOptions,
+          sessionEventSink: {
+            publish: async (events: readonly unknown[], context: unknown) => {
+              await existingSink?.publish?.(events, context);
+              await sessionEventSink.publish(events, context);
+            },
+          },
+        };
       },
     };
   },
@@ -962,8 +969,9 @@ describe("makeMultiProviderSessionFactory", () => {
     );
     const session = factory("sys", "/proj");
     const run = session.run({ prompt: "start a managed child", kilnSessionId: "sess-managed-events" } as any);
-    await run.next();
-    await managedInvocation?.sessionEventSink?.publish([
+    const runIterator = run[Symbol.asyncIterator]();
+    await runIterator.next();
+    await managedInvocation?.options.sessionEventSink?.publish([
       createSessionEvent<"agent_invocation_requested">({
         eventId: "event-managed-requested",
         kilnSessionId: "sess-managed-events",
@@ -1047,7 +1055,7 @@ describe("makeMultiProviderSessionFactory", () => {
     ], {
       session: { id: "sess-managed-events" },
     } as never);
-    for await (const _ of run) {}
+    while (!(await runIterator.next()).done) {}
 
     const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
 
@@ -1114,7 +1122,7 @@ describe("makeMultiProviderSessionFactory", () => {
       },
     );
 
-    await managedInvocation?.sessionEventSink?.publish([
+    await managedInvocation?.options.sessionEventSink?.publish([
       createSessionEvent<"agent_invocation_completed">({
         eventId: "event-managed-background-completed",
         kilnSessionId: "sess-background-managed",
@@ -1483,8 +1491,8 @@ describe("makeMultiProviderSessionFactory", () => {
 
     const appendedEvents = vi.mocked(transcriptStore.append).mock.calls.map((call) => call[1]);
     expect(appendedEvents).not.toHaveLength(0);
-    expect(appendedEvents.every((event) => event.source.surface === "gui")).toBe(true);
-    expect(appendedEvents.every((event) => event.source.component === "gui-command")).toBe(true);
+    expect(appendedEvents.every((event) => event.source?.surface === "gui")).toBe(true);
+    expect(appendedEvents.every((event) => event.source?.component === "gui-command")).toBe(true);
   });
 
   it("links real tool call ids and inputs across started and completed events", async () => {
@@ -1874,8 +1882,11 @@ describe("makeMultiProviderSessionFactory", () => {
     mockGlobalConfig.value = makeOperatorSurfaceGlobalConfig("ollama", "llama3") as never;
 
     const events: Array<{ type: string; message?: string }> = [];
-    mockCreateProviderCatalogService.mockImplementationOnce((resolveDiscovery: () => Promise<readonly unknown[]>) => {
-      let discovery: readonly unknown[] = [];
+    mockCreateProviderCatalogService.mockImplementationOnce((
+      resolveDiscovery: () => Promise<readonly unknown[]>,
+      emptyDiscovery: readonly unknown[],
+    ) => {
+      let discovery: readonly unknown[] = emptyDiscovery;
       const snapshot = () => ({ status: discovery.length > 0 ? "ready" : "pending", discovery });
       return {
         snapshot,
@@ -1885,7 +1896,10 @@ describe("makeMultiProviderSessionFactory", () => {
           return snapshot();
         }),
         startBackgroundRefresh: vi.fn(),
-        subscribe: vi.fn(() => () => undefined),
+        subscribe: vi.fn((listener: (snapshot: { status: string; discovery: readonly unknown[] }) => void) => {
+          void listener;
+          return () => false;
+        }),
       };
     });
     mockStartTui.mockImplementation(async (createSession: () => Promise<unknown>) => {

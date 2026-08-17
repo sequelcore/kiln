@@ -1,15 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { CostTracker, MODEL_PRICING } from "../../src/cost/cost-tracker.js";
-import { EventBus } from "../../src/events/event-bus.js";
-import type { CostUpdateEvent } from "../../src/events/index.js";
-
-function makeBus(): EventBus {
-  return new EventBus();
-}
 
 describe("CostTracker", () => {
   it("records usage for a single role", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     tracker.record("architect", "claude-opus-4-6", {
@@ -30,7 +23,6 @@ describe("CostTracker", () => {
   });
 
   it("computes correct USD cost without cache tokens", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     // Opus: $15/M input, $75/M output
@@ -47,7 +39,6 @@ describe("CostTracker", () => {
   });
 
   it("computes correct cache-aware pricing", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     // Sonnet: $3/M input, $15/M output
@@ -68,7 +59,6 @@ describe("CostTracker", () => {
   });
 
   it("uncached input cannot go below zero", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     // cacheRead + cacheWrite > inputTokens
@@ -88,7 +78,6 @@ describe("CostTracker", () => {
   });
 
   it("accumulates across multiple records for the same role", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     tracker.record("worker", "claude-sonnet-4-6", {
@@ -114,7 +103,6 @@ describe("CostTracker", () => {
   });
 
   it("tracks multiple roles independently", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     tracker.record("architect", "claude-opus-4-6", {
@@ -160,7 +148,6 @@ describe("CostTracker", () => {
   });
 
   it("summary returns zero totals when no usage recorded", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
     const summary = tracker.summary;
 
@@ -174,7 +161,6 @@ describe("CostTracker", () => {
   });
 
   it("reset clears all accumulated usage", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     tracker.record("architect", "claude-opus-4-6", {
@@ -196,13 +182,11 @@ describe("CostTracker", () => {
   });
 
   it("costForRole returns 0 for unrecorded role", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
     expect(tracker.costForRole("optimizer")).toBe(0);
   });
 
   it("unknown model uses zero pricing (no crash)", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     tracker.record("worker", "unknown-model-xyz", {
@@ -264,7 +248,6 @@ describe("CostTracker", () => {
   });
 
   it("Haiku cache-aware pricing is correct", () => {
-    const bus = makeBus();
     const tracker = new CostTracker();
 
     // Haiku: $0.80/M input, $4/M output

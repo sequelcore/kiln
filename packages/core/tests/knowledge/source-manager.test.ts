@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { SourceManager } from "../../src/knowledge/source-manager.js";
 import { InMemorySourceStore } from "../../src/knowledge/infrastructure/memory-source-store.js";
 import { KilnError } from "../../src/engine/errors.js";
-import type { ContentExtractor, KnowledgeSource } from "../../src/engine/domain/knowledge-source.js";
+import type { ContentExtractor } from "../../src/engine/domain/knowledge-source.js";
 import type { RetrievalPipeline } from "../../src/knowledge/retrieval-pipeline.js";
 import type { VectorStore } from "../../src/engine/domain/vector-store.js";
 

@@ -104,6 +104,7 @@ describe("MemoryLifecycleApplicationService", () => {
     expect(events.map((event) => event.type)).toEqual(["memory_record_deleted"]);
 
     const [deletedEvent] = events;
+    if (deletedEvent === undefined) throw new Error("expected deletion event");
     expect(deletedEvent).toMatchObject({
       type: "memory_record_deleted",
       recordId: target.id,

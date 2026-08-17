@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { mapEventToSpan } from "../../src/observability/span-mapper.js";
-import type { KilnEvent } from "../../src/events/index.js";
+import type {
+    ConversationClosedInternalEvent,
+    ConversationEnrichedEvent,
+    CostUpdateEvent,
+    KilnEvent,
+    ModelRoutedEvent,
+} from "../../src/events/index.js";
 
 const BASE = { timestamp: new Date(), sessionId: "sess-1" } as const;
 
@@ -12,7 +18,7 @@ describe("mapEventToSpan (Phase 9)", () => {
     describe("model_routed", () => {
         it("returns addEvent with gen_ai attributes", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<ModelRoutedEvent>({
                     type: "model_routed",
                     model: "claude-sonnet-4-6",
                     provider: "anthropic",
@@ -34,7 +40,7 @@ describe("mapEventToSpan (Phase 9)", () => {
 
         it("includes previousModel when present", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<ModelRoutedEvent>({
                     type: "model_routed",
                     model: "claude-opus-4-6",
                     provider: "anthropic",
@@ -50,7 +56,7 @@ describe("mapEventToSpan (Phase 9)", () => {
 
         it("omits optional fields when not present", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<ModelRoutedEvent>({
                     type: "model_routed",
                     model: "claude-haiku-4-5-20251001",
                     provider: "anthropic",
@@ -68,7 +74,7 @@ describe("mapEventToSpan (Phase 9)", () => {
     describe("conversation_closed", () => {
         it("returns endSpan with ok status and close attributes", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<ConversationClosedInternalEvent>({
                     type: "conversation_closed",
                     closedBy: "user",
                     turnCount: 12,
@@ -88,7 +94,7 @@ describe("mapEventToSpan (Phase 9)", () => {
 
         it("omits effortScore when not present", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<ConversationClosedInternalEvent>({
                     type: "conversation_closed",
                     closedBy: "session_timeout",
                     turnCount: 5,
@@ -103,7 +109,7 @@ describe("mapEventToSpan (Phase 9)", () => {
         it("handles all closedBy values", () => {
             for (const closedBy of ["user", "operator", "session_timeout", "resolved"] as const) {
                 const result = mapEventToSpan(
-                    ev({
+                    ev<ConversationClosedInternalEvent>({
                         type: "conversation_closed",
                         closedBy,
                         turnCount: 1,
@@ -120,7 +126,7 @@ describe("mapEventToSpan (Phase 9)", () => {
     describe("conversation_enriched", () => {
         it("returns addEvent with enrichmentId", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<ConversationEnrichedEvent>({
                     type: "conversation_enriched",
                     enrichmentId: "enr-abc-123",
                 }),
@@ -136,11 +142,12 @@ describe("mapEventToSpan (Phase 9)", () => {
     describe("cost_update gen_ai attributes", () => {
         it("maps cost_update to gen_ai.* attributes", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<CostUpdateEvent>({
                     type: "cost_update",
                     inputTokens: 1500,
                     outputTokens: 800,
                     cacheReadTokens: 200,
+                    cacheWriteTokens: 0,
                     totalCostUsd: 0.05,
                     byRoleModel: {},
                 }),
@@ -156,11 +163,12 @@ describe("mapEventToSpan (Phase 9)", () => {
 
         it("includes agentId when present", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<CostUpdateEvent>({
                     type: "cost_update",
                     inputTokens: 100,
                     outputTokens: 50,
                     cacheReadTokens: 0,
+                    cacheWriteTokens: 0,
                     totalCostUsd: 0.01,
                     byRoleModel: {},
                     agentId: "sales-agent",

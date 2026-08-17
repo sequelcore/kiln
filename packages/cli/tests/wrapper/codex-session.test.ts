@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, type Mock } from "vitest";
 import { EventEmitter } from "node:events";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { SessionStore } from "../../src/wrapper/session-store.js";
 import { CodexSession, requiresCodexCliProcessTransport } from "../../src/wrapper/codex-session.js";
 import type { CodexSessionConfig } from "../../src/wrapper/codex-session.js";
-import type { CodexSdkPort } from "../../src/wrapper/codex-sdk-session.js";
+import type { CodexSdkPort, CodexSdkThread } from "../../src/wrapper/codex-sdk-session.js";
+import type { ThreadEvent } from "@openai/codex-sdk";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { defineDeliberationLevelId } from "@kilnai/core/agents";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
@@ -198,8 +199,12 @@ function baseConfig(overrides: Partial<CodexSessionConfig> = {}): CodexSessionCo
   };
 }
 
-function sdkPort(events: readonly object[], calls: { readonly start: ReturnType<typeof vi.fn>; readonly resume: ReturnType<typeof vi.fn>; readonly run: ReturnType<typeof vi.fn> }): CodexSdkPort {
-  const thread = {
+function sdkPort(events: readonly ThreadEvent[], calls: {
+  readonly start: Mock<(...args: unknown[]) => CodexSdkThread>;
+  readonly resume: Mock<(...args: unknown[]) => CodexSdkThread>;
+  readonly run: Mock<(...args: unknown[]) => Promise<{ readonly events: AsyncIterable<ThreadEvent> }>>;
+}): CodexSdkPort {
+  const thread: CodexSdkThread = {
     id: null,
     runStreamed: calls.run.mockResolvedValue({ events: (async function* () { for (const event of events) yield event; })() }),
   };
@@ -292,9 +297,9 @@ describe("CodexSession implements IKilnSession", () => {
     const port: CodexSdkPort = { startThread: calls.start, resumeThread: calls.resume };
     await collectEvents(new CodexSession(baseConfig({ ephemeral: false, sdkPort: port, runtimePermissionObservationSink: permissionWriter(() => { order.push("sink"); }) })).run({ prompt: "test" }));
     expect(order).toEqual(["sink", "sdk"]);
-    const blocked = { start: vi.fn(), resume: vi.fn() };
+    const blocked = { startThread: vi.fn(), resumeThread: vi.fn() };
     await expect(collectEvents(new CodexSession(baseConfig({ ephemeral: false, sdkPort: blocked as CodexSdkPort, runtimePermissionObservationSink: permissionWriter(() => { throw new Error("evidence unavailable"); }) })).run({ prompt: "test" }))).rejects.toThrow("evidence unavailable");
-    expect(blocked.start).not.toHaveBeenCalled();
+    expect(blocked.startThread).not.toHaveBeenCalled();
   });
 
   it("passes only official SDK thread and turn options for normal execution", async () => {
@@ -304,7 +309,7 @@ describe("CodexSession implements IKilnSession", () => {
     await writeFile(schema, JSON.stringify({ type: "object", properties: { answer: { type: "string" } } }), "utf8");
     const port = sdkPort([{ type: "turn.completed", usage: { input_tokens: 0, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 } }], calls);
     const controller = new AbortController();
-    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, model: "gpt-5.6-sol", sandboxMode: "workspace-write", approvalMode: "never", addDir: "C:/shared", outputSchema: schema, deliberationResolution: { selectedLevel: defineDeliberationLevelId("high") }, sdkPort: port })).run({ prompt: "test", abortSignal: controller.signal }));
+    await collectEvents(new CodexSession(baseConfig({ ephemeral: false, model: "gpt-5.6-sol", sandboxMode: "workspace-write", approvalMode: "never", addDir: "C:/shared", outputSchema: schema, deliberationResolution: { status: "exact", selectedLevel: defineDeliberationLevelId("high"), source: "task" }, sdkPort: port })).run({ prompt: "test", abortSignal: controller.signal }));
     expect(calls.start).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-sol", sandboxMode: "workspace-write", approvalPolicy: "never", workingDirectory: process.cwd(), additionalDirectories: ["C:/shared"], modelReasoningEffort: "high" }));
     expect(calls.run).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ outputSchema: { type: "object", properties: { answer: { type: "string" } } }, signal: expect.any(AbortSignal) }));
   });
@@ -403,7 +408,7 @@ describe("CodexSession implements IKilnSession", () => {
       sandboxMode: "workspace-write",
       runtimePermissionObservationSink: permissionWriter((profile) => { order.push(`sink:${profile}`); }),
     }));
-    const next = session.run({ prompt: "test" }).next();
+    const next = session.run({ prompt: "test" })[Symbol.asyncIterator]().next();
     await vi.waitFor(() => expect(order).toEqual(["sink:workspace-write", "spawn"]));
     resolveExit(0);
     await next.catch(() => undefined);
@@ -487,7 +492,7 @@ describe("CodexSession implements IKilnSession", () => {
     vi.mocked(mockSpawn).mockReturnValueOnce(proc as unknown);
 
     const session = new CodexSession(baseConfig());
-    const run = session.run({ prompt: "test" });
+    const run = session.run({ prompt: "test" })[Symbol.asyncIterator]();
     const next = run.next();
 
     expect(mockSpawn).toHaveBeenCalledWith(
@@ -579,7 +584,6 @@ describe("CodexSession.run() JSONL parsing", () => {
 
     await collectPromise;
 
-    const spawnArgs = vi.mocked(mockSpawn).mock.calls[0]?.[1] as string[] | undefined;
     const prompt = vi.mocked(proc.stdin.end).mock.calls[0]?.[0] as string;
     expect(prompt.indexOf("<kiln-preamble>")).toBeLessThan(prompt.indexOf("## Operator Identity"));
     expect(prompt).toContain("## Operator Identity");

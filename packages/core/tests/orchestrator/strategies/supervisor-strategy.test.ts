@@ -5,7 +5,6 @@ import { TaskTree } from "../../../src/tree/task-tree.js";
 import { BatchExecutor } from "../../../src/tree/batch-executor.js";
 import type { StrategyContext, StrategyHandler } from "../../../src/orchestrator/strategies/index.js";
 import type { Team } from "../../../src/engine/composites/team.js";
-import type { BatchResult } from "../../../src/tree/index.js";
 import type { HandoffRequestedEvent, HandoffCompletedEvent } from "../../../src/events/index.js";
 
 function makeTeam(overrides: Partial<Team> = {}): Team {

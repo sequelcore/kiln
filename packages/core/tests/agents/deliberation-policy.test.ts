@@ -22,7 +22,7 @@ const CAPABILITIES: ModelDeliberationCapabilities = {
   },
 };
 
-function intent(overrides: Partial<DeliberationIntent> = {}): DeliberationIntent {
+function intent(overrides: Partial<Extract<DeliberationIntent, { readonly mode: "fixed" }>> = {}): Extract<DeliberationIntent, { readonly mode: "fixed" }> {
   return {
     mode: "fixed",
     preferredLevel: LEVEL.medium,

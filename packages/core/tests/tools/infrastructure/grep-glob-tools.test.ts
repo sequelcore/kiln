@@ -51,10 +51,11 @@ describe("GrepTool", () => {
 
       expect(result.isError).toBe(true);
       expect(result.output).toContain("ripgrep runtime is required");
-      expect(result.metadata?.["toolName"]).toBe("grep");
-      expect(result.metadata?.["kind"]).toBe("search");
-      expect(result.metadata?.["strategy"]).toBe("rg");
-      expect(result.metadata?.["runtimeSource"]).toBe("unavailable");
+      if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(result.metadata.toolName).toBe("grep");
+      expect(result.metadata.kind).toBe("search");
+      expect(result.metadata.strategy).toBe("rg");
+      expect(result.metadata.runtimeSource).toBe("unavailable");
     } finally {
       await removeTempDir(tempDir);
     }
@@ -80,11 +81,12 @@ describe("GrepTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("src/file.ts:12:match here");
-    expect(result.metadata?.["toolName"]).toBe("grep");
-    expect(result.metadata?.["kind"]).toBe("search");
-    expect(result.metadata?.["strategy"]).toBe("rg");
-    expect(result.metadata?.["runtimeSource"]).toBe("system");
-    expect(result.metadata?.["runtimePath"]).toBe("rg-bin");
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.toolName).toBe("grep");
+    expect(result.metadata.kind).toBe("search");
+    expect(result.metadata.strategy).toBe("rg");
+    expect(result.metadata.runtimeSource).toBe("system");
+    expect(result.metadata.runtimePath).toBe("rg-bin");
     expect(commandRunner).toHaveBeenCalledWith(
       "rg-bin",
       [...boundedRgArgs(200), "match", "."],
@@ -123,8 +125,9 @@ describe("GrepTool", () => {
 
       expect(result.isError).toBe(false);
       expect(result.output).toBe("notes.txt:1:literal value: **/*kiln-context*");
-      expect(result.metadata?.["strategy"]).toBe("rg");
-      expect(result.metadata?.["matchMode"]).toBe("literal");
+      if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(result.metadata.strategy).toBe("rg");
+      expect(result.metadata.matchMode).toBe("literal");
       expect(commandRunner).toHaveBeenCalledWith(
         "rg-bin",
         [...boundedRgArgs(200), "--fixed-strings", "**/*kiln-context*", "notes.txt"],
@@ -156,7 +159,8 @@ describe("GrepTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("src/file.ts:12:literal (value");
-    expect(result.metadata?.["matchMode"]).toBe("literal");
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.matchMode).toBe("literal");
     expect(commandRunner).toHaveBeenCalledWith(
       "rg-bin",
       [...boundedRgArgs(200), "--fixed-strings", "literal (value", "."],
@@ -205,10 +209,11 @@ describe("GrepTool", () => {
     expect(result.output).toContain("src/file.ts:200:match");
     expect(result.output).not.toContain("src/file.ts:201:match");
     expect(result.output).toContain("[grep results truncated: returned 200 of 205 matches");
-    expect(result.metadata?.["count"]).toBe(200);
-    expect(result.metadata?.["totalCount"]).toBe(205);
-    expect(result.metadata?.["maxResults"]).toBe(200);
-    expect(result.metadata?.["truncated"]).toBe(true);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.count).toBe(200);
+    expect(result.metadata.totalCount).toBe(205);
+    expect(result.metadata.maxResults).toBe(200);
+    expect(result.metadata.truncated).toBe(true);
   });
 
   it("passes explicit maxResults to rg as an execution bound", async () => {
@@ -321,14 +326,20 @@ describe("GrepTool", () => {
     expect(result.isError).toBe(false);
     expect(result.output).toContain("src/file.ts:2:match");
     expect(result.output).not.toContain("src/file.ts:3:match");
-    expect(result.metadata?.["count"]).toBe(2);
-    expect(result.metadata?.["totalCount"]).toBe(3);
-    expect(result.metadata?.["maxResults"]).toBe(2);
-    expect(result.metadata?.["truncated"]).toBe(true);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.count).toBe(2);
+    expect(result.metadata.totalCount).toBe(3);
+    expect(result.metadata.maxResults).toBe(2);
+    expect(result.metadata.truncated).toBe(true);
   });
 
   it("does not cap per-file counts when count output is requested", async () => {
-    const commandRunner = vi.fn(async () => ({
+    const commandRunner = vi.fn(async (
+      _binary: string,
+      _args: readonly string[],
+      _cwd: string,
+      _timeoutMs: number,
+    ) => ({
       stdout: "src/file.ts:125\n",
       stderr: "",
     }));
@@ -346,7 +357,8 @@ describe("GrepTool", () => {
     });
 
     expect(result.isError).toBe(false);
-    const [, args] = commandRunner.mock.calls[0] ?? [];
+    expect(commandRunner.mock.calls).toHaveLength(1);
+    const args = commandRunner.mock.calls[0]![1];
     expect(args).toContain("--count");
     expect(args).not.toContain("--max-count");
   });
@@ -382,8 +394,9 @@ describe("GrepTool", () => {
       expect(result.isError).toBe(true);
       expect(result.output).toContain("ENOENT");
       expect(result.output).not.toContain("a.txt:2:needle line");
-      expect(result.metadata?.["strategy"]).toBe("rg");
-      expect(result.metadata?.["runtimeSource"]).toBe("system");
+      if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(result.metadata.strategy).toBe("rg");
+      expect(result.metadata.runtimeSource).toBe("system");
       expect(commandRunner).toHaveBeenCalledTimes(1);
     } finally {
       await removeTempDir(tempDir);
@@ -564,9 +577,10 @@ describe("GlobTool", () => {
       expect(result.isError).toBe(false);
       expect(result.output).toContain("src/match.ts");
       expect(result.output).not.toContain("skip.js");
-      expect(result.metadata?.["toolName"]).toBe("glob");
-      expect(result.metadata?.["kind"]).toBe("search");
-      expect(result.metadata?.["strategy"]).toBe("fallback");
+      if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(result.metadata.toolName).toBe("glob");
+      expect(result.metadata.kind).toBe("search");
+      expect(result.metadata.strategy).toBe("fallback");
     } finally {
       await removeTempDir(tempDir);
     }
@@ -599,7 +613,8 @@ describe("GlobTool", () => {
       expect(result.output).toContain("src/view.tsx");
       expect(result.output).toContain("src/model.ts");
       expect(result.output).not.toContain("src/notes.md");
-      expect(result.metadata?.["count"]).toBe(3);
+      if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(result.metadata.count).toBe(3);
     } finally {
       await removeTempDir(tempDir);
     }
@@ -625,9 +640,10 @@ describe("GlobTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("src/one.ts");
-    expect(result.metadata?.["toolName"]).toBe("glob");
-    expect(result.metadata?.["kind"]).toBe("search");
-    expect(result.metadata?.["strategy"]).toBe("fd");
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.toolName).toBe("glob");
+    expect(result.metadata.kind).toBe("search");
+    expect(result.metadata.strategy).toBe("fd");
     expect(commandRunner).toHaveBeenCalledWith(
       "fd-bin",
       ["--glob", "--type", "f", "**/*.ts", "."],
@@ -657,10 +673,11 @@ describe("GlobTool", () => {
     });
 
     expect(result.isError).toBe(false);
-    expect(result.metadata?.["strategy"]).toBe("fd");
-    expect(result.metadata?.["runtimeSource"]).toBe("bundled");
-    expect(result.metadata?.["runtimePath"]).toBe("vendored-fd");
-    expect(result.metadata?.["runtimeVersion"]).toBe("10.4.2");
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.strategy).toBe("fd");
+    expect(result.metadata.runtimeSource).toBe("bundled");
+    expect(result.metadata.runtimePath).toBe("vendored-fd");
+    expect(result.metadata.runtimeVersion).toBe("10.4.2");
     expect(commandRunner).toHaveBeenCalledWith(
       "vendored-fd",
       ["--glob", "--type", "f", "**/*.ts", "."],
@@ -701,7 +718,8 @@ describe("GlobTool", () => {
       expect(result.isError).toBe(false);
       expect(result.output).toContain("src/match.ts");
       expect(result.output).not.toContain("skip.js");
-      expect(result.metadata?.["strategy"]).toBe("fallback");
+      if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(result.metadata.strategy).toBe("fallback");
       expect(commandRunner).toHaveBeenCalledTimes(1);
     } finally {
       await removeTempDir(tempDir);
@@ -739,7 +757,8 @@ describe("GlobTool", () => {
     expect(result.output).toContain("src/layout.css");
     expect(result.output).toContain("src/view.tsx");
     expect(result.output).toContain("src/model.ts");
-    expect(result.metadata?.["count"]).toBe(3);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.count).toBe(3);
     expect(commandRunner).toHaveBeenNthCalledWith(
       1,
       "fd-bin",
@@ -793,7 +812,8 @@ describe("GlobTool", () => {
     expect(result.isError).toBe(false);
     expect(result.output).toContain("packages/gui/src/components/app-shell.tsx");
     expect(result.output).toContain("packages/widget/src/styles.ts");
-    expect(result.metadata?.["count"]).toBe(2);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.count).toBe(2);
   });
 
   it("preserves path glob semantics for fd fast path when the globbed segment is before a slash", async () => {
@@ -829,7 +849,8 @@ describe("GlobTool", () => {
     expect(result.output).toContain("opencode/package.json");
     expect(result.output).not.toContain("t1code/apps/web/package.json");
     expect(result.output).not.toContain("opencode/packages/app/package.json");
-    expect(result.metadata?.["count"]).toBe(2);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.count).toBe(2);
     expect(commandRunner).toHaveBeenCalledWith(
       "fd-bin",
       ["--glob", "--type", "f", "package.json", "."],
@@ -871,7 +892,8 @@ describe("GlobTool", () => {
     expect(result.output).toContain("packages/runtime/package.json");
     expect(result.output).not.toContain("packages/gui/examples/demo/package.json");
     expect(result.output).not.toContain("packages/runtime/fixtures/package.json");
-    expect(result.metadata?.["count"]).toBe(2);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.count).toBe(2);
     expect(commandRunner).toHaveBeenCalledWith(
       "fd-bin",
       ["--glob", "--type", "f", "package.json", "."],
@@ -905,8 +927,9 @@ describe("GlobTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.output).toBe("");
-    expect(result.metadata?.["strategy"]).toBe("fd");
-    expect(result.metadata?.["noMatches"]).toBe(true);
+    if (result.metadata?.kind !== "search") throw new Error("expected search metadata");
+    expect(result.metadata.strategy).toBe("fd");
+    expect(result.metadata.noMatches).toBe(true);
   });
 
   it("respects sandbox read validation for search root", async () => {

@@ -84,7 +84,7 @@ describe("LlmConversationEnricher", () => {
     await enricher.enrich(session);
 
     expect(provider.createMessage).toHaveBeenCalledTimes(1);
-    const callArgs = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const callArgs = (provider.createMessage as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(callArgs.system).toContain("conversation analyst");
     expect(callArgs.messages).toHaveLength(1);
     expect(callArgs.messages[0].role).toBe("user");
@@ -101,7 +101,7 @@ describe("LlmConversationEnricher", () => {
     expect(result).toBeDefined();
     expect(result!.summary).toContain("duplicate billing charge");
     expect(result!.topics).toHaveLength(1);
-    expect(result!.topics[0].label).toBe("billing");
+    expect(result!.topics[0]!.label).toBe("billing");
     expect(result!.resolution.status).toBe("resolved");
     expect(result!.overallSentiment.polarity).toBe("positive");
     expect(result!.csatPrediction.score).toBe(4.2);
@@ -189,10 +189,10 @@ describe("LlmConversationEnricher", () => {
     const result = await enricher.enrich(session);
 
     expect(result!.agentPerformance).toHaveLength(1);
-    expect(result!.agentPerformance[0].agentId).toBe("billing-agent");
-    expect(result!.agentPerformance[0].turnsHandled).toBe(4);
-    expect(result!.agentPerformance[0].resolutionContribution).toBe("primary");
-    expect(result!.agentPerformance[0].sentimentDelta).toBe(0.5);
+    expect(result!.agentPerformance[0]!.agentId).toBe("billing-agent");
+    expect(result!.agentPerformance[0]!.turnsHandled).toBe(4);
+    expect(result!.agentPerformance[0]!.resolutionContribution).toBe("primary");
+    expect(result!.agentPerformance[0]!.sentimentDelta).toBe(0.5);
   });
 
   it("limits topics to 5", async () => {

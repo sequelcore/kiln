@@ -40,12 +40,7 @@ vi.mock("../../src/config/mcp-runtime-state.js", () => ({
 }));
 
 const APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Test app",
   createRegistry: () => { throw new Error("not used"); },
-  mcpServerName: "kiln",
 };
 
 describe("mcpConfigCommand", () => {

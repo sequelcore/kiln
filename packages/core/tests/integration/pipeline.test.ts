@@ -9,8 +9,8 @@ import {
   Orchestrator,
   loadPresetConfig,
 } from "../../src/index.js";
-import type { KilnEvent } from "../../src/index.js";
-import type { ProviderAdapter, AgentMessage, AgentStreamEvent } from "../../src/index.js";
+import type { CostUpdateEvent, KilnEvent, PhaseChangedEvent, TaskCompletedEvent } from "../../src/index.js";
+import type { ProviderAdapter, AgentStreamEvent } from "../../src/index.js";
 import { textParts } from "../../src/index.js";
 
 // ---------------------------------------------------------------------------
@@ -232,20 +232,22 @@ describe("Pipeline Integration Tests", () => {
 
       const baseEvent = { timestamp: new Date(), sessionId: "test-session" };
 
-      eventBus.emit({
+      const phaseChanged: PhaseChangedEvent = {
         ...baseEvent,
         type: "phase_changed",
         phase: "implement",
         phaseName: "Implement",
         phaseDescription: "Implement phase",
-      });
-      eventBus.emit({
+      };
+      eventBus.emit(phaseChanged);
+      const taskCompleted: TaskCompletedEvent = {
         ...baseEvent,
         type: "task_completed",
         taskId: "t1",
         status: "done",
         action: "complete",
-      });
+      };
+      eventBus.emit(taskCompleted);
 
       expect(received).toEqual(["phase_changed", "task_completed"]);
     });
@@ -273,16 +275,18 @@ describe("Pipeline Integration Tests", () => {
       expect(costEvents).toHaveLength(0);
 
       // Verify EventBus can route cost_update events from external emitters
-      eventBus.emit({
+      const costUpdate: CostUpdateEvent = {
         type: "cost_update",
         timestamp: new Date(),
         sessionId: "test",
         inputTokens: 1000,
         outputTokens: 500,
         cacheReadTokens: 200,
+        cacheWriteTokens: 0,
         totalCostUsd: summary.totalCostUsd,
         byRoleModel: {},
-      });
+      };
+      eventBus.emit(costUpdate);
       expect(costEvents).toHaveLength(1);
 
       costTracker.reset();

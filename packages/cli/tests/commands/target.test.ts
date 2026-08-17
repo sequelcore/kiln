@@ -40,7 +40,7 @@ describe("targetCommand", () => {
 
   it("lists direct and harness targets with one explicit default", async () => {
     await targetCommand();
-    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    const output = consoleSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
     expect(output).toContain("Execution Targets:");
     expect(output).toContain("terra [direct] codex-oauth/gpt-5.6-terra *");
     expect(output).toContain("claude-cli [harness] claude/claude-opus-4-6");
@@ -64,7 +64,7 @@ describe("targetCommand", () => {
       observedAt: "2026-08-13T18:00:00.000Z",
       entries: [{ providerId: "provider", providerRouteId: "provider:direct", providerModelId: "model", discoveryState: "stale", eligibilityState: "unknown", availabilityState: "unknown", configuredState: "unconfigured", configuredRouteRefs: [], reasonCodes: ["discovery-stale", "eligibility-unknown", "availability-unknown", "route-not-configured"] }],
     }) });
-    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    const output = consoleSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
     expect(output).toContain("Available Models:");
     expect(output).toContain("discovery=stale");
     expect(output).toContain("configured=unconfigured");
@@ -72,7 +72,7 @@ describe("targetCommand", () => {
 
   it("sanitizes discovery failures", async () => {
     await targetAvailableModelsCommand({ readCatalog: async () => { throw new Error("token=secret C:\\operator"); } });
-    const output = consoleSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    const output = consoleSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
     expect(output).toContain("current provider discovery failed");
     expect(output).not.toMatch(/secret|operator/u);
   });

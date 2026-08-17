@@ -56,9 +56,9 @@ describe("Task interface", () => {
     };
 
     expect(root.children).toHaveLength(1);
-    expect(root.children[0].id).toBe("child-1");
-    expect(root.children[0].children[0].id).toBe("child-1-1");
-    expect(root.children[0].children[0].depth).toBe(2);
+    expect(root.children[0]!.id).toBe("child-1");
+    expect(root.children[0]!.children[0]!.id).toBe("child-1-1");
+    expect(root.children[0]!.children[0]!.depth).toBe(2);
   });
 
   it("supports all 4 TaskStatus values", () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { OpenAIEmbeddingAdapter } from "../../../src/knowledge/infrastructure/openai-embedding.js";
 
 describe("OpenAIEmbeddingAdapter", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.useFakeTimers();
@@ -13,13 +14,11 @@ describe("OpenAIEmbeddingAdapter", () => {
   });
 
   function mockFetchOk(data: unknown) {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
+    fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve(data),
-      }),
-    );
+      });
+    vi.stubGlobal("fetch", fetchMock);
   }
 
   it("sends correct URL, headers, and body to OpenAI", async () => {
@@ -209,7 +208,7 @@ describe("OpenAIEmbeddingAdapter", () => {
     await adapter.embed(["test"]);
 
     const body = JSON.parse(
-      (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string,
+      fetchMock.mock.calls[0]![1].body as string,
     );
     expect(body.model).toBe("text-embedding-3-small");
   });
@@ -230,7 +229,7 @@ describe("OpenAIEmbeddingAdapter", () => {
     await adapter.embed(["test"]);
 
     const body = JSON.parse(
-      (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body as string,
+      fetchMock.mock.calls[0]![1].body as string,
     );
     expect(body.model).toBe("text-embedding-3-large");
   });

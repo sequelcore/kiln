@@ -23,6 +23,7 @@ const MINIMAL_CONTEXT: SessionContext = {
   mcpServerEntryPath: "",
   workingDirectory: "/tmp",
   task: "Fix the login bug",
+  resumeStrategy: "none",
 };
 
 const FULL_DOMAIN: DomainConfig = {

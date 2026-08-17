@@ -1,6 +1,37 @@
 import { describe, it, expect } from "vitest";
 import { mapEventToSpan } from "../../src/observability/span-mapper.js";
-import type { KilnEvent } from "../../src/events/index.js";
+import type {
+  KilnEvent,
+  PhaseChangedEvent,
+  TaskStartedEvent,
+  TaskCompletedEvent,
+  ToolCalledEvent,
+  ToolResultEvent,
+  ApprovalRequestedEvent,
+  ApprovalReceivedEvent,
+  HandoffRequestedEvent,
+  HandoffCompletedEvent,
+  InterruptRequestedEvent,
+  InterruptResumedEvent,
+  MemorySavedEvent,
+  MemoryRecalledEvent,
+  MemorySyncEvent,
+  CostUpdateEvent,
+  ThinkingEvent,
+  VerificationResultEvent,
+  WorkerAssignedEvent,
+  ErrorEvent,
+  TraceSpanEvent,
+  InjectionScannedEvent,
+  GuardianReviewedEvent,
+  AuditEntryEvent,
+  TenantIsolationViolationEvent,
+  SecurityAlertEvent,
+  WebhookReceivedEvent,
+  TriggerFiredEvent,
+  TriggerFailedEvent,
+  ScheduleFiredEvent,
+} from "../../src/events/index.js";
 
 const BASE = { timestamp: new Date(), sessionId: "sess-1" } as const;
 
@@ -20,7 +51,7 @@ describe("mapEventToSpan", () => {
     describe("phase_changed", () => {
         it("returns startSpan with phase kind and phase attributes", () => {
             const result = mapEventToSpan(
-                ev({ type: "phase_changed", phase: "implement", phaseName: "Implement", phaseDescription: "Write code" }),
+                ev<PhaseChangedEvent>({ type: "phase_changed", phase: "implement", phaseName: "Implement", phaseDescription: "Write code" }),
             );
             expect(result.action).toBe("startSpan");
             if (result.action === "startSpan") {
@@ -34,7 +65,7 @@ describe("mapEventToSpan", () => {
     describe("task_started", () => {
         it("returns startSpan with task kind and taskId", () => {
             const result = mapEventToSpan(
-                ev({ type: "task_started", taskId: "t-1", statement: "Build the feature", parentId: null }),
+                ev<TaskStartedEvent>({ type: "task_started", taskId: "t-1", statement: "Build the feature", parentId: null }),
             );
             expect(result.action).toBe("startSpan");
             if (result.action === "startSpan") {
@@ -46,7 +77,7 @@ describe("mapEventToSpan", () => {
 
         it("includes parentId attribute when present", () => {
             const result = mapEventToSpan(
-                ev({ type: "task_started", taskId: "t-2", statement: "Sub-task", parentId: "t-1" }),
+                ev<TaskStartedEvent>({ type: "task_started", taskId: "t-2", statement: "Sub-task", parentId: "t-1" }),
             );
             if (result.action === "startSpan") {
                 expect(result.attributes["parentId"]).toBe("t-1");
@@ -57,7 +88,7 @@ describe("mapEventToSpan", () => {
     describe("task_completed", () => {
         it("returns endSpan with ok status for non-failed tasks", () => {
             const result = mapEventToSpan(
-                ev({ type: "task_completed", taskId: "t-1", status: "done", action: "complete" }),
+                ev<TaskCompletedEvent>({ type: "task_completed", taskId: "t-1", status: "done", action: "complete" }),
             );
             expect(result.action).toBe("endSpan");
             if (result.action === "endSpan") {
@@ -68,7 +99,7 @@ describe("mapEventToSpan", () => {
 
         it("returns endSpan with error status for failed tasks", () => {
             const result = mapEventToSpan(
-                ev({ type: "task_completed", taskId: "t-1", status: "failed", action: "abandon" }),
+                ev<TaskCompletedEvent>({ type: "task_completed", taskId: "t-1", status: "failed", action: "abandon" }),
             );
             if (result.action === "endSpan") {
                 expect(result.status).toBe("error");
@@ -79,7 +110,7 @@ describe("mapEventToSpan", () => {
     describe("tool_called", () => {
         it("returns startSpan with tool kind", () => {
             const result = mapEventToSpan(
-                ev({ type: "tool_called", toolName: "read_file", taskId: "t-1", workerIndex: 0 }),
+                ev<ToolCalledEvent>({ type: "tool_called", toolName: "read_file", taskId: "t-1", toolCallId: "tc-1", toolCallScopeId: "tcs-1", workerIndex: 0 }),
             );
             expect(result.action).toBe("startSpan");
             if (result.action === "startSpan") {
@@ -93,7 +124,7 @@ describe("mapEventToSpan", () => {
     describe("tool_result", () => {
         it("returns endSpan with ok when success=true", () => {
             const result = mapEventToSpan(
-                ev({ type: "tool_result", toolName: "read_file", taskId: "t-1", durationMs: 45, success: true }),
+                ev<ToolResultEvent>({ type: "tool_result", toolName: "read_file", taskId: "t-1", toolCallId: "tc-1", toolCallScopeId: "tcs-1", durationMs: 45, success: true }),
             );
             expect(result.action).toBe("endSpan");
             if (result.action === "endSpan") {
@@ -104,7 +135,7 @@ describe("mapEventToSpan", () => {
 
         it("returns endSpan with error when success=false", () => {
             const result = mapEventToSpan(
-                ev({ type: "tool_result", toolName: "read_file", taskId: "t-1", durationMs: 10, success: false }),
+                ev<ToolResultEvent>({ type: "tool_result", toolName: "read_file", taskId: "t-1", toolCallId: "tc-1", toolCallScopeId: "tcs-1", durationMs: 10, success: false }),
             );
             if (result.action === "endSpan") {
                 expect(result.status).toBe("error");
@@ -115,7 +146,7 @@ describe("mapEventToSpan", () => {
     describe("thinking", () => {
         it("returns addEvent named 'thinking' with role and content", () => {
             const result = mapEventToSpan(
-                ev({ type: "thinking", role: "architect", content: "Let me think about this..." }),
+                ev<ThinkingEvent>({ type: "thinking", role: "architect", content: "Let me think about this..." }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -127,7 +158,7 @@ describe("mapEventToSpan", () => {
 
         it("truncates content to 512 chars", () => {
             const long = "x".repeat(600);
-            const result = mapEventToSpan(ev({ type: "thinking", role: "r", content: long }));
+            const result = mapEventToSpan(ev<ThinkingEvent>({ type: "thinking", role: "r", content: long }));
             if (result.action === "addEvent") {
                 expect((result.attributes["content"] as string).length).toBe(512);
             }
@@ -137,7 +168,7 @@ describe("mapEventToSpan", () => {
     describe("verification_result", () => {
         it("returns addEvent named 'verification'", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<VerificationResultEvent>({
                     type: "verification_result",
                     passed: true,
                     iteration: 2,
@@ -157,11 +188,12 @@ describe("mapEventToSpan", () => {
     describe("cost_update", () => {
         it("returns setAttributes with token and cost values", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<CostUpdateEvent>({
                     type: "cost_update",
                     inputTokens: 100,
                     outputTokens: 200,
                     cacheReadTokens: 50,
+                    cacheWriteTokens: 0,
                     totalCostUsd: 0.005,
                     byRoleModel: {},
                 }),
@@ -177,7 +209,7 @@ describe("mapEventToSpan", () => {
     describe("memory_saved", () => {
         it("returns addEvent named 'memory.saved'", () => {
             const result = mapEventToSpan(
-                ev({ type: "memory_saved", memoryId: "m-1", layer: "user", tags: ["plan", "draft"] }),
+                ev<MemorySavedEvent>({ type: "memory_saved", memoryId: "m-1", layer: "user", tags: ["plan", "draft"] }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -190,7 +222,7 @@ describe("mapEventToSpan", () => {
     describe("memory_recalled", () => {
         it("returns addEvent named 'memory.recalled'", () => {
             const result = mapEventToSpan(
-                ev({ type: "memory_recalled", query: "previous decisions", resultsCount: 3 }),
+                ev<MemoryRecalledEvent>({ type: "memory_recalled", query: "previous decisions", resultsCount: 3 }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -203,7 +235,7 @@ describe("mapEventToSpan", () => {
     describe("memory_sync", () => {
         it("returns addEvent named 'memory.sync'", () => {
             const result = mapEventToSpan(
-                ev({ type: "memory_sync", imported: 5, entries: 120, developers: 2 }),
+                ev<MemorySyncEvent>({ type: "memory_sync", imported: 5, entries: 120, developers: 2 }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -216,7 +248,7 @@ describe("mapEventToSpan", () => {
     describe("approval_requested", () => {
         it("returns addEvent named 'approval.requested'", () => {
             const result = mapEventToSpan(
-                ev({ type: "approval_requested", approvalId: "approval-1", taskId: "t-1", description: "Deploy to prod?" }),
+                ev<ApprovalRequestedEvent>({ type: "approval_requested", approvalId: "approval-1", taskId: "t-1", description: "Deploy to prod?" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -229,7 +261,7 @@ describe("mapEventToSpan", () => {
     describe("approval_received", () => {
         it("returns addEvent named 'approval.received'", () => {
             const result = mapEventToSpan(
-                ev({ type: "approval_received", approvalId: "approval-1", taskId: "t-1", approved: true }),
+                ev<ApprovalReceivedEvent>({ type: "approval_received", approvalId: "approval-1", taskId: "t-1", approved: true }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -242,7 +274,7 @@ describe("mapEventToSpan", () => {
     describe("worker_assigned", () => {
         it("returns startSpan with agent kind", () => {
             const result = mapEventToSpan(
-                ev({ type: "worker_assigned", workerIndex: 2, taskId: "t-1" }),
+                ev<WorkerAssignedEvent>({ type: "worker_assigned", workerIndex: 2, taskId: "t-1" }),
             );
             expect(result.action).toBe("startSpan");
             if (result.action === "startSpan") {
@@ -256,7 +288,7 @@ describe("mapEventToSpan", () => {
     describe("error", () => {
         it("returns endSpan with error status and exception attributes", () => {
             const result = mapEventToSpan(
-                ev({ type: "error", message: "Something failed", code: "TOOL_FAILED", taskId: "t-1" }),
+                ev<ErrorEvent>({ type: "error", message: "Something failed", code: "TOOL_FAILED", taskId: "t-1" }),
             );
             expect(result.action).toBe("endSpan");
             if (result.action === "endSpan") {
@@ -268,7 +300,7 @@ describe("mapEventToSpan", () => {
 
         it("omits taskId attribute when taskId is null", () => {
             const result = mapEventToSpan(
-                ev({ type: "error", message: "Oops", code: "UNKNOWN", taskId: null }),
+                ev<ErrorEvent>({ type: "error", message: "Oops", code: "UNKNOWN", taskId: null }),
             );
             if (result.action === "endSpan") {
                 expect(result.attributes?.["taskId"]).toBeUndefined();
@@ -279,7 +311,7 @@ describe("mapEventToSpan", () => {
     describe("trace_span", () => {
         it("returns addEvent named 'trace_span' with span metadata", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<TraceSpanEvent>({
                     type: "trace_span",
                     span: {
                         spanId: "sp-1",
@@ -306,7 +338,7 @@ describe("mapEventToSpan", () => {
     describe("handoff_requested", () => {
         it("returns addEvent named 'handoff.requested'", () => {
             const result = mapEventToSpan(
-                ev({ type: "handoff_requested", fromAgent: "A", toAgent: "B", reason: "specialization" }),
+                ev<HandoffRequestedEvent>({ type: "handoff_requested", fromAgent: "A", toAgent: "B", reason: "specialization" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -319,7 +351,7 @@ describe("mapEventToSpan", () => {
     describe("handoff_completed", () => {
         it("returns addEvent named 'handoff.completed'", () => {
             const result = mapEventToSpan(
-                ev({ type: "handoff_completed", fromAgent: "A", toAgent: "B", accepted: true }),
+                ev<HandoffCompletedEvent>({ type: "handoff_completed", fromAgent: "A", toAgent: "B", accepted: true }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -332,7 +364,7 @@ describe("mapEventToSpan", () => {
     describe("interrupt_requested", () => {
         it("returns addEvent named 'interrupt.requested'", () => {
             const result = mapEventToSpan(
-                ev({ type: "interrupt_requested", checkpointId: "cp-1", reason: "waiting for user" }),
+                ev<InterruptRequestedEvent>({ type: "interrupt_requested", checkpointId: "cp-1", reason: "waiting for user" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -345,7 +377,7 @@ describe("mapEventToSpan", () => {
     describe("interrupt_resumed", () => {
         it("returns addEvent named 'interrupt.resumed'", () => {
             const result = mapEventToSpan(
-                ev({ type: "interrupt_resumed", checkpointId: "cp-1", resumeValue: "approved" }),
+                ev<InterruptResumedEvent>({ type: "interrupt_resumed", checkpointId: "cp-1", resumeValue: "approved" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -358,7 +390,7 @@ describe("mapEventToSpan", () => {
     describe("injection_scanned", () => {
         it("returns addEvent named 'security.injection_scan'", () => {
             const result = mapEventToSpan(
-                ev({ type: "injection_scanned", safe: true, threats: 0, tier: "heuristic", inputPreview: "hello" }),
+                ev<InjectionScannedEvent>({ type: "injection_scanned", safe: true, threats: 0, tier: "heuristic", inputPreview: "hello" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -373,7 +405,7 @@ describe("mapEventToSpan", () => {
     describe("guardian_reviewed", () => {
         it("returns addEvent named 'security.guardian_review'", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<GuardianReviewedEvent>({
                     type: "guardian_reviewed",
                     approved: false,
                     capabilityName: "delete_database",
@@ -395,7 +427,7 @@ describe("mapEventToSpan", () => {
     describe("audit_entry", () => {
         it("returns addEvent named 'security.audit'", () => {
             const result = mapEventToSpan(
-                ev({ type: "audit_entry", action: "read", actor: "agent-1", outcome: "success", resource: "file.txt" }),
+                ev<AuditEntryEvent>({ type: "audit_entry", action: "read", actor: "agent-1", outcome: "success", resource: "file.txt" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -408,7 +440,7 @@ describe("mapEventToSpan", () => {
     describe("tenant_isolation_violation", () => {
         it("returns addEvent named 'security.tenant_violation'", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<TenantIsolationViolationEvent>({
                     type: "tenant_isolation_violation",
                     tenantId: "tenant-a",
                     attemptedResource: "/data/tenant-b/",
@@ -427,7 +459,7 @@ describe("mapEventToSpan", () => {
     describe("security_alert", () => {
         it("returns addEvent named 'security.alert'", () => {
             const result = mapEventToSpan(
-                ev({ type: "security_alert", severity: "high", category: "injection", message: "Detected injection attempt" }),
+                ev<SecurityAlertEvent>({ type: "security_alert", severity: "high", category: "injection", message: "Detected injection attempt" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {
@@ -440,7 +472,7 @@ describe("mapEventToSpan", () => {
     describe("webhook_received", () => {
         it("returns startSpan named 'trigger.webhook'", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<WebhookReceivedEvent>({
                     type: "webhook_received",
                     path: "/webhooks/gh",
                     appName: "my-app",
@@ -461,7 +493,7 @@ describe("mapEventToSpan", () => {
     describe("trigger_fired", () => {
         it("returns addEvent named 'trigger.fired'", () => {
             const result = mapEventToSpan(
-                ev({
+                ev<TriggerFiredEvent>({
                     type: "trigger_fired",
                     triggerName: "on-push",
                     triggerType: "webhook",
@@ -480,7 +512,7 @@ describe("mapEventToSpan", () => {
     describe("trigger_failed", () => {
         it("returns endSpan with error status", () => {
             const result = mapEventToSpan(
-                ev({ type: "trigger_failed", triggerName: "on-push", triggerType: "webhook", error: "timeout" }),
+                ev<TriggerFailedEvent>({ type: "trigger_failed", triggerName: "on-push", triggerType: "webhook", error: "timeout" }),
             );
             expect(result.action).toBe("endSpan");
             if (result.action === "endSpan") {
@@ -493,7 +525,7 @@ describe("mapEventToSpan", () => {
     describe("schedule_fired", () => {
         it("returns addEvent named 'trigger.schedule_fired'", () => {
             const result = mapEventToSpan(
-                ev({ type: "schedule_fired", triggerName: "nightly", cron: "0 2 * * *", team: "ops" }),
+                ev<ScheduleFiredEvent>({ type: "schedule_fired", triggerName: "nightly", cron: "0 2 * * *", team: "ops" }),
             );
             expect(result.action).toBe("addEvent");
             if (result.action === "addEvent") {

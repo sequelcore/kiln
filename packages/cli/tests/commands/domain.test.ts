@@ -53,15 +53,10 @@ version: "0.5.0"
 `;
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
-  appName: "kiln",
-  dirName: ".kiln",
-  version: "0.1.0",
-  description: "Kiln AI orchestration engine",
   createRegistry: () => {
     throw new Error("createRegistry not called in domain tests");
   },
   buildSystemPrompt: () => "",
-  mcpServerName: "kiln",
 };
 
 function mockExecSuccess(stdout = "", stderr = "") {
@@ -104,11 +99,11 @@ describe("domainCommand", () => {
   });
 
   function getOutput() {
-    return logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    return logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
   }
 
   function getErrors() {
-    return errorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    return errorSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("\n");
   }
 
   // --- Help ---

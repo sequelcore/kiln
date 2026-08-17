@@ -69,6 +69,11 @@ const claudeSdkMocks = vi.hoisted(() => ({
   lastQuery: undefined as { options?: { env?: Record<string, string | undefined>; effort?: string } } | undefined,
 }));
 
+/** Reads the last captured Claude SDK query without control-flow narrowing bleeding across `it()` blocks. */
+function readLastClaudeQuery(): { options?: { env?: Record<string, string | undefined>; effort?: string } } | undefined {
+  return claudeSdkMocks.lastQuery;
+}
+
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: vi.fn((input: { options?: { env?: Record<string, string | undefined>; effort?: string } }) => {
     claudeSdkMocks.lastQuery = input;
@@ -215,25 +220,11 @@ function makeRegistry(ids: readonly string[] = ALL_PROVIDER_IDS): SessionRegistr
         id: providerId,
         deliberationTransport: "none" as const,
         costTier: COST_TIERS[providerId],
-        capabilities: CAPABILITIES[providerId],
+        capabilities: CAPABILITIES[providerId]!,
         create: () => makeMockSession(id),
       };
     }),
   );
-}
-
-async function importSessionRegistryWithOpenCodeAuth(options: {
-  readonly envApiKey?: string;
-  readonly authFile: MockOpenCodeAuthFile;
-}) {
-  writeOpenCodeAuthFile(options.authFile ? { ...options.authFile } : null);
-  if (options.envApiKey === undefined) {
-    delete process.env.OPENCODE_API_KEY;
-  } else {
-    process.env.OPENCODE_API_KEY = options.envApiKey;
-  }
-  vi.resetModules();
-  return import("../../src/wrapper/session-registry.js");
 }
 
 function restoreOpenCodeAuthDefaults(): void {
@@ -401,7 +392,7 @@ describe("SessionRegistry", () => {
         // consume the synthetic SDK result
       }
 
-      expect(claudeSdkMocks.lastQuery?.options?.env?.CLAUDE_CONFIG_DIR).toBe(isolatedConfigDir);
+      expect(readLastClaudeQuery()?.options?.env?.CLAUDE_CONFIG_DIR).toBe(isolatedConfigDir);
     });
 
     it("passes an admitted Claude deliberation resolution through the registry", async () => {
@@ -427,7 +418,7 @@ describe("SessionRegistry", () => {
         // Consume the synthetic SDK result so the wrapper constructs its options.
       }
 
-      expect(claudeSdkMocks.lastQuery?.options?.effort).toBe("high");
+      expect(readLastClaudeQuery()?.options?.effort).toBe("high");
     });
 
     it("binds the default Claude session to its native config home for private plan containment", async () => {
@@ -452,7 +443,7 @@ describe("SessionRegistry", () => {
         // consume the synthetic SDK result and private artifact evidence
       }
 
-      expect(claudeSdkMocks.lastQuery?.options?.env?.CLAUDE_CONFIG_DIR).toBe(nativeConfigDir);
+      expect(readLastClaudeQuery()?.options?.env?.CLAUDE_CONFIG_DIR).toBe(nativeConfigDir);
     });
 
     it("preserves configured runtime session identity for direct provider sessions", () => {
@@ -508,8 +499,9 @@ describe("SessionRegistry", () => {
     it("runtime availability honors descriptor availability for env-gated direct providers", () => {
       const registry = new SessionRegistry([{
         id: "openai",
+        deliberationTransport: "none" as const,
         costTier: "high",
-        capabilities: CAPABILITIES.openai,
+        capabilities: CAPABILITIES.openai!,
         isAvailable: () => false,
         create: () => makeMockSession("openai"),
       }]);
@@ -522,8 +514,9 @@ describe("SessionRegistry", () => {
       (provider) => {
         const registry = new SessionRegistry([{
           id: provider,
+          deliberationTransport: "none" as const,
           costTier: COST_TIERS[provider],
-          capabilities: CAPABILITIES[provider],
+          capabilities: CAPABILITIES[provider]!,
           isAvailable: () => false,
           create: () => makeMockSession(provider),
         }]);
@@ -536,8 +529,9 @@ describe("SessionRegistry", () => {
       const isAvailable = vi.fn(() => true);
       const registry = new SessionRegistry([{
         id: "openai",
+        deliberationTransport: "none" as const,
         costTier: "high",
-        capabilities: CAPABILITIES.openai,
+        capabilities: CAPABILITIES.openai!,
         isAvailable,
         create: () => makeMockSession("openai"),
       }]);
@@ -683,8 +677,9 @@ describe("SessionRegistry", () => {
       const create = vi.fn(() => makeMockSession("openai"));
       const registry = new SessionRegistry([{
         id: "openai",
+        deliberationTransport: "none" as const,
         costTier: "high",
-        capabilities: CAPABILITIES.openai,
+        capabilities: CAPABILITIES.openai!,
         isAvailable: () => false,
         create,
       }]);

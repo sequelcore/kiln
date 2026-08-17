@@ -54,7 +54,8 @@ describe("shared output verbosity", () => {
     expect(result.isError).toBe(false);
     expect(result.output).toContain("Command succeeded");
     expect(result.output).toContain("stdout 11 bytes");
-    expect(result.metadata?.["verbosity"]).toBe("summary");
+    if (result.metadata?.kind !== "command") throw new Error("expected command metadata");
+    expect(result.metadata.verbosity).toBe("summary");
   });
 
   it("formats glob structured output while keeping raw as the default", async () => {
@@ -78,7 +79,8 @@ describe("shared output verbosity", () => {
       );
 
       expect(raw.output).toBe("src/match.ts");
-      expect(raw.metadata?.["verbosity"]).toBe("raw");
+      if (raw.metadata?.kind !== "search") throw new Error("expected search metadata");
+      expect(raw.metadata.verbosity).toBe("raw");
       expect(JSON.parse(structured.output)).toEqual({
         matches: ["src/match.ts"],
         count: 1,
@@ -201,7 +203,8 @@ describe("shared output verbosity", () => {
         entryCount: 4,
         truncated: false,
       });
-      expect(result.metadata?.["verbosity"]).toBe("structured");
+      if (result.metadata?.kind !== "inspection") throw new Error("expected inspection metadata");
+      expect(result.metadata.verbosity).toBe("structured");
     } finally {
       await removeTempDir(tempDir);
     }

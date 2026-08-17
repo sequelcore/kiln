@@ -91,9 +91,16 @@ describe("GatewayConfig model gateway overlay", () => {
 
   it("rejects duplicate ownership in programmatic configs as well as YAML", () => {
     const parsed = parseGatewayYaml(overlayGatewayYaml);
-    const legacy = structuredClone(parsed) as Record<string, any>;
-    legacy.modelGateway.accounts = [];
-    legacy.modelGateway.virtualModels[0].providerModelId = "upstream";
+    const modelGateway = parsed.modelGateway;
+    if (modelGateway === undefined) throw new Error("expected model gateway config");
+    const legacy = {
+      ...structuredClone(parsed),
+      modelGateway: {
+        ...modelGateway,
+        accounts: [],
+        virtualModels: [{ ...modelGateway.virtualModels[0]!, providerModelId: "upstream" } as never],
+      },
+    } as GatewayConfig;
     const errors = validateGatewayConfig(legacy);
     expect(errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ field: "modelGateway.accounts" }),

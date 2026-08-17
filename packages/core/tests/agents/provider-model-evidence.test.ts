@@ -221,7 +221,7 @@ describe("provider-model evidence contract", () => {
   });
 
   it.each([
-    ["empty harness identity", () => evidence({ identity: { ...evidence().identity, harness: { ...evidence().identity.harness, harnessId: " " } } })],
+    ["empty harness identity", () => evidence({ identity: { ...evidence().identity, harness: { harnessId: " ", reportedProviderId: "provider", reportedModelId: "model" } } })],
     ["empty normalized family", () => evidence({ identity: { ...evidence().identity, normalizedModel: { family: "" } } })],
     ["empty route scope", () => evidence({ identity: { ...evidence().identity, route: { ...evidence().identity.route, scope: "" } } })],
     ["empty alias provenance", () => evidence({ aliases: [{ ...evidence().aliases[0]!, provenance: "" }] })],

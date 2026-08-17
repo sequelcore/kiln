@@ -19,6 +19,7 @@ describe("compareExperiments", () => {
         ],
         durationMs: 100,
         tokenUsage: { inputTokens: 10, outputTokens: 20 },
+        trial: { status: "valid" },
       },
       {
         itemId: "2",
@@ -29,6 +30,7 @@ describe("compareExperiments", () => {
         ],
         durationMs: 100,
         tokenUsage: { inputTokens: 10, outputTokens: 20 },
+        trial: { status: "valid" },
       },
     ],
     startedAt: "2024-01-01T00:00:00Z",
@@ -49,6 +51,7 @@ describe("compareExperiments", () => {
         ],
         durationMs: 100,
         tokenUsage: { inputTokens: 10, outputTokens: 20 },
+        trial: { status: "valid" },
       },
       {
         itemId: "2",
@@ -59,6 +62,7 @@ describe("compareExperiments", () => {
         ],
         durationMs: 100,
         tokenUsage: { inputTokens: 10, outputTokens: 20 },
+        trial: { status: "valid" },
       },
     ],
     startedAt: "2024-01-02T00:00:00Z",
@@ -107,6 +111,7 @@ describe("compareExperiments", () => {
           ],
           durationMs: 100,
           tokenUsage: { inputTokens: 10, outputTokens: 20 },
+          trial: { status: "valid" },
         },
       ],
       startedAt: "2024-01-03T00:00:00Z",
@@ -261,6 +266,7 @@ function cacheExperiment(
       ],
       durationMs: 100,
       tokenUsage: { inputTokens: 2000, outputTokens: 20 },
+      trial: { status: "valid" },
       metadata: {
         activeAgentId: "kiln-tool-agent",
         authority: options.authority ?? { scope: "read" },

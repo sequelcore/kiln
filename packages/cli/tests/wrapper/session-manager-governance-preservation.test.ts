@@ -73,7 +73,7 @@ describe("SessionManager governance context preservation under budget pressure",
     const instructionProfileCandidates = resolveInstructionProfileContextCandidates({
       projectPath,
       userHome,
-      globalConfig: { version: "1", activeInstructionProfiles: [PROFILE_NAME] },
+      globalConfig: { version: "3", activeInstructionProfiles: [PROFILE_NAME] },
     });
 
     expect(identityCandidate).toBeDefined();

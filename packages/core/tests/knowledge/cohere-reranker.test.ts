@@ -10,19 +10,25 @@ const mockResults: VectorResult[] = [
 ];
 
 describe("CohereReranker", () => {
-  const originalFetch = globalThis.fetch;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  function stubFetch(implementation?: Parameters<typeof vi.fn>[0]): ReturnType<typeof vi.fn> {
+    fetchMock = implementation ? vi.fn(implementation) : vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
 
   beforeEach(() => {
     vi.useFakeTimers();
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
   it("returns results in new order with relevance scores", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    stubFetch().mockResolvedValue({
       ok: true,
       json: async () => ({
         results: [
@@ -41,7 +47,7 @@ describe("CohereReranker", () => {
     expect(reranked[1]).toEqual({ id: "a", content: "First document about AI", score: 0.85, metadata: { source: "doc1" } });
     expect(reranked[2]).toEqual({ id: "b", content: "Second document about ML", score: 0.42, metadata: { source: "doc2" } });
 
-    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const fetchCall = fetchMock.mock.calls[0]!;
     expect(fetchCall[0]).toBe("https://api.cohere.com/v2/rerank");
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.model).toBe("rerank-v3.5");
@@ -55,17 +61,17 @@ describe("CohereReranker", () => {
   });
 
   it("returns empty array for empty input", async () => {
-    globalThis.fetch = vi.fn();
+    stubFetch();
 
     const reranker = new CohereReranker({ apiKey: "test-key" });
     const reranked = await reranker.rerank("query", []);
 
     expect(reranked).toEqual([]);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses custom model when provided", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    stubFetch().mockResolvedValue({
       ok: true,
       json: async () => ({ results: [{ index: 0, relevance_score: 0.9 }] }),
     });
@@ -73,12 +79,12 @@ describe("CohereReranker", () => {
     const reranker = new CohereReranker({ apiKey: "test-key", model: "rerank-v2.0" });
     await reranker.rerank("query", [mockResults[0]!]);
 
-    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].body as string);
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
     expect(body.model).toBe("rerank-v2.0");
   });
 
   it("sends authorization header", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    stubFetch().mockResolvedValue({
       ok: true,
       json: async () => ({ results: [{ index: 0, relevance_score: 0.9 }] }),
     });
@@ -86,12 +92,12 @@ describe("CohereReranker", () => {
     const reranker = new CohereReranker({ apiKey: "my-secret-key" });
     await reranker.rerank("query", [mockResults[0]!]);
 
-    const headers = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].headers;
+    const headers = fetchMock.mock.calls[0]![1].headers;
     expect(headers.Authorization).toBe("Bearer my-secret-key");
   });
 
   it("throws KilnError on non-retryable API error", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    stubFetch().mockResolvedValue({
       ok: false,
       status: 401,
       text: async () => "Unauthorized",
@@ -107,7 +113,7 @@ describe("CohereReranker", () => {
 
   it("retries on 429 then succeeds", async () => {
     let callCount = 0;
-    globalThis.fetch = vi.fn().mockImplementation(async () => {
+    stubFetch().mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
         return { ok: false, status: 429, text: async () => "Rate limited" };
@@ -134,7 +140,7 @@ describe("CohereReranker", () => {
 
   it("retries on 500 errors", async () => {
     let callCount = 0;
-    globalThis.fetch = vi.fn().mockImplementation(async () => {
+    stubFetch().mockImplementation(async () => {
       callCount++;
       if (callCount <= 2) {
         return { ok: false, status: 500, text: async () => "Server error" };
@@ -160,7 +166,7 @@ describe("CohereReranker", () => {
   });
 
   it("throws after exhausting retries on persistent 429", async () => {
-    globalThis.fetch = vi.fn().mockImplementation(async () => ({
+    stubFetch().mockImplementation(async () => ({
       ok: false,
       status: 429,
       text: async () => "Rate limited",
@@ -181,11 +187,11 @@ describe("CohereReranker", () => {
   });
 
   it("throws on network error without retrying", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    stubFetch().mockRejectedValue(new TypeError("fetch failed"));
 
     const reranker = new CohereReranker({ apiKey: "test-key" });
 
     await expect(reranker.rerank("query", mockResults)).rejects.toThrow("fetch failed");
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

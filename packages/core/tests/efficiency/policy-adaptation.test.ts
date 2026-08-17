@@ -15,7 +15,6 @@ import {
   projectCostUpdatedEventToLifecycleLedger,
   summarizeLifecycleAttributionLedger,
   type CanonicalCostUpdatedEvent,
-  type PolicyAdaptationCohort,
   type PolicyAdaptationMonitorObservation,
   type PolicyAdaptationObservation,
 } from "../../src/index.js";

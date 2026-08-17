@@ -61,6 +61,8 @@ describe("managed invocation attachment factory", () => {
     const options = makeStubOptions();
     const attachment = createKilnRuntimeManagedInvocationAttachment("gui", options, "read_only");
     expect(attachment.options).toBe(options);
-    expect(attachment.callerIdentity.surface).toBe("gui");
+    const callerIdentity = attachment.callerIdentity;
+    if (callerIdentity.kind !== "kiln-runtime") throw new Error("expected kiln-runtime caller identity");
+    expect(callerIdentity.surface).toBe("gui");
   });
 });

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { DomainRegistry } from "../../src/domain/domain-registry.js";
-import { validateDomainYaml } from "../../src/domain/yaml-schema.js";
 import { loadDomainYaml } from "../../src/domain/yaml-parser.js";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -51,15 +51,15 @@ describe("Memory interface", () => {
     const store: MemoryEntry[] = [];
 
     const memory: Memory = {
-      async store(scope: MemoryScope, entry: MemoryEntry): Promise<string> {
+      async store(_scope: MemoryScope, entry: MemoryEntry): Promise<string> {
         store.push(entry);
         return entry.id;
       },
-      async recall(scope: MemoryScope, query: string, budget?: number): Promise<MemoryEntry[]> {
+      async recall(_scope: MemoryScope, query: string, budget?: number): Promise<MemoryEntry[]> {
         const results = store.filter((e) => e.content.includes(query));
         return budget !== undefined ? results.slice(0, budget) : results;
       },
-      async forget(scope: MemoryScope, id: string): Promise<void> {
+      async forget(_scope: MemoryScope, id: string): Promise<void> {
         const index = store.findIndex((e) => e.id === id);
         if (index !== -1) store.splice(index, 1);
       },
@@ -77,7 +77,7 @@ describe("Memory interface", () => {
 
     const recalled = await memory.recall("user", "validate");
     expect(recalled).toHaveLength(1);
-    expect(recalled[0].id).toBe("e1");
+    expect(recalled[0]!.id).toBe("e1");
 
     await memory.forget("user", "e1");
     const afterForget = await memory.recall("user", "validate");

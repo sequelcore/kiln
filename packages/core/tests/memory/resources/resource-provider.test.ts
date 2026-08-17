@@ -53,8 +53,8 @@ describe("MemoryGraphResourceProvider", () => {
       "kiln://memory/admissions{?sessionId,recordId,scope,scopeKind,scopeId,layer,limit}",
     ]));
 
-    const listResult = await new ResourceListTool({ resources: () => registry }).execute({ input: { limit: 10 } });
-    const templateResult = await new ResourceTemplateListTool({ resources: () => registry }).execute({ input: { limit: 20 } });
+    const listResult = await new ResourceListTool({ resources: () => registry }).execute({ name: "resource_list", input: { limit: 10 } });
+    const templateResult = await new ResourceTemplateListTool({ resources: () => registry }).execute({ name: "resource_template_list", input: { limit: 20 } });
 
     expect(listResult.isError).toBe(false);
     expect(JSON.parse(listResult.output).resources.map((resource: { uri: string }) => resource.uri)).toContain("kiln://memory/graph");
@@ -74,7 +74,9 @@ describe("MemoryGraphResourceProvider", () => {
     repository.saveRelation(relationInput("relation-1", root.id, child.id, "supports"));
 
     const result = await registry.read("kiln://memory/graph?scope=project%3Akiln&query=lattice&depth=1&limit=2");
-    const payload = JSON.parse(result.contents[0]!.text);
+    const content = result.contents[0]!;
+    if (!("text" in content)) throw new Error("expected text content");
+    const payload = JSON.parse(content.text);
 
     expect(payload.snapshot.nodes.map((node: { recordId: string }) => node.recordId)).toEqual([child.id, root.id]);
     expect(payload.snapshot.edges.map((edge: { id: string }) => edge.id)).toEqual(["relation-1"]);
@@ -128,11 +130,21 @@ describe("MemoryGraphResourceProvider", () => {
       createdAt: "2026-04-30T12:03:00.000Z",
     });
 
-    const node = JSON.parse((await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!.text);
-    const provenance = JSON.parse((await registry.read("kiln://memory/nodes/root/provenance?scope=project%3Akiln")).contents[0]!.text);
-    const neighbors = JSON.parse((await registry.read("kiln://memory/nodes/root/neighbors?depth=1&limit=5&scope=project%3Akiln")).contents[0]!.text);
-    const relationPayload = JSON.parse((await registry.read("kiln://memory/relations/relation-1?scope=project%3Akiln")).contents[0]!.text);
-    const admissions = JSON.parse((await registry.read("kiln://memory/admissions?recordId=root&sessionId=session-1&limit=5")).contents[0]!.text);
+    const nodeContent = (await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in nodeContent)) throw new Error("expected text content");
+    const node = JSON.parse(nodeContent.text);
+    const provenanceContent = (await registry.read("kiln://memory/nodes/root/provenance?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in provenanceContent)) throw new Error("expected text content");
+    const provenance = JSON.parse(provenanceContent.text);
+    const neighborsContent = (await registry.read("kiln://memory/nodes/root/neighbors?depth=1&limit=5&scope=project%3Akiln")).contents[0]!;
+    if (!("text" in neighborsContent)) throw new Error("expected text content");
+    const neighbors = JSON.parse(neighborsContent.text);
+    const relationContent = (await registry.read("kiln://memory/relations/relation-1?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in relationContent)) throw new Error("expected text content");
+    const relationPayload = JSON.parse(relationContent.text);
+    const admissionsContent = (await registry.read("kiln://memory/admissions?recordId=root&sessionId=session-1&limit=5")).contents[0]!;
+    if (!("text" in admissionsContent)) throw new Error("expected text content");
+    const admissions = JSON.parse(admissionsContent.text);
 
     expect(node.record).toMatchObject({ id: root.id, content: "Root memory." });
     expect(node.revisions.map((revision: { id: string }) => revision.id)).toEqual(["revision-1"]);
@@ -212,7 +224,9 @@ describe("MemoryGraphResourceProvider", () => {
       createdAt: "2026-04-30T12:03:00.000Z",
     });
 
-    const lifecycle = JSON.parse((await registry.read("kiln://memory/nodes/root/lifecycle?scope=project%3Akiln")).contents[0]!.text);
+    const lifecycleContent = (await registry.read("kiln://memory/nodes/root/lifecycle?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in lifecycleContent)) throw new Error("expected text content");
+    const lifecycle = JSON.parse(lifecycleContent.text);
 
     expect(lifecycle.recordId).toBe(root.id);
     expect(lifecycle.lifecycle).toEqual({
@@ -263,9 +277,15 @@ describe("MemoryGraphResourceProvider", () => {
       });
     }
 
-    const lifecycle = JSON.parse((await registry.read("kiln://memory/nodes/root/lifecycle?scope=project%3Akiln")).contents[0]!.text);
-    const node = JSON.parse((await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!.text);
-    const graph = JSON.parse((await registry.read("kiln://memory/graph?scope=project%3Akiln&depth=0&limit=5")).contents[0]!.text);
+    const lifecycleContent = (await registry.read("kiln://memory/nodes/root/lifecycle?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in lifecycleContent)) throw new Error("expected text content");
+    const lifecycle = JSON.parse(lifecycleContent.text);
+    const nodeContent2 = (await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in nodeContent2)) throw new Error("expected text content");
+    const node = JSON.parse(nodeContent2.text);
+    const graphContent = (await registry.read("kiln://memory/graph?scope=project%3Akiln&depth=0&limit=5")).contents[0]!;
+    if (!("text" in graphContent)) throw new Error("expected text content");
+    const graph = JSON.parse(graphContent.text);
     const graphRoot = graph.snapshot.nodes.find((candidate: { recordId: string }) => candidate.recordId === root.id);
 
     expect(lifecycle.lifecycle.latestAdmissionDecision).toBe("deferred");
@@ -315,7 +335,9 @@ describe("MemoryGraphResourceProvider", () => {
       createdAt: "2026-04-30T12:02:00.000Z",
     });
 
-    const graph = JSON.parse((await registry.read("kiln://memory/graph?scope=project%3Akiln&depth=1&limit=5")).contents[0]!.text);
+    const graphContent1 = (await registry.read("kiln://memory/graph?scope=project%3Akiln&depth=1&limit=5")).contents[0]!;
+    if (!("text" in graphContent1)) throw new Error("expected text content");
+    const graph = JSON.parse(graphContent1.text);
     const rootNode = graph.snapshot.nodes.find((node: { recordId: string }) => node.recordId === root.id);
 
     expect(rootNode.lifecycleEvidence).toEqual({
@@ -335,8 +357,12 @@ describe("MemoryGraphResourceProvider", () => {
     repository.saveRelation(relationInput("relation-deleted", root.id, deleted.id, "related_to"));
     repository.deleteRecord(deleted.id);
 
-    const graph = JSON.parse((await registry.read("kiln://memory/graph?scope=project%3Akiln&depth=1&limit=10")).contents[0]!.text);
-    const node = JSON.parse((await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!.text);
+    const graphContent2 = (await registry.read("kiln://memory/graph?scope=project%3Akiln&depth=1&limit=10")).contents[0]!;
+    if (!("text" in graphContent2)) throw new Error("expected text content");
+    const graph = JSON.parse(graphContent2.text);
+    const nodeContent3 = (await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in nodeContent3)) throw new Error("expected text content");
+    const node = JSON.parse(nodeContent3.text);
 
     expect(graph.snapshot.nodes.map((candidate: { recordId: string }) => candidate.recordId)).toEqual([live.id, root.id]);
     expect(graph.snapshot.edges.map((candidate: { id: string }) => candidate.id)).toEqual(["relation-live"]);
@@ -384,7 +410,9 @@ describe("MemoryGraphResourceProvider", () => {
     repository.saveRelation(relationInput("relation-local", root.id, local.id, "related_to"));
     insertRawCrossScopeRelation(join(tmpDir, "memory.db"), relationInput("relation-foreign", root.id, foreign.id, "related_to"));
 
-    const node = JSON.parse((await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!.text);
+    const nodeContent3 = (await registry.read("kiln://memory/nodes/root?scope=project%3Akiln")).contents[0]!;
+    if (!("text" in nodeContent3)) throw new Error("expected text content");
+    const node = JSON.parse(nodeContent3.text);
 
     expect(node.relations.map((relation: { id: string }) => relation.id)).toEqual(["relation-local"]);
   });
@@ -392,7 +420,9 @@ describe("MemoryGraphResourceProvider", () => {
   it("decodes path ids once and fails closed for malformed path escapes", async () => {
     repository.saveRecord(recordInput({ id: "root%", content: "Root memory.", topicKey: "root-percent" }));
 
-    const node = JSON.parse((await registry.read("kiln://memory/nodes/root%25")).contents[0]!.text);
+    const nodeContent4 = (await registry.read("kiln://memory/nodes/root%25")).contents[0]!;
+    if (!("text" in nodeContent4)) throw new Error("expected text content");
+    const node = JSON.parse(nodeContent4.text);
 
     expect(node.record.id).toBe("root%");
     await expect(registry.read("kiln://memory/nodes/root%")).rejects.toThrow("Invalid resource URI path encoding");
@@ -425,7 +455,9 @@ describe("MemoryGraphResourceProvider", () => {
       });
     }
 
-    const exactLimit = JSON.parse((await registry.read("kiln://memory/nodes/root/provenance")).contents[0]!.text);
+    const exactLimitContent = (await registry.read("kiln://memory/nodes/root/provenance")).contents[0]!;
+    if (!("text" in exactLimitContent)) throw new Error("expected text content");
+    const exactLimit = JSON.parse(exactLimitContent.text);
     expect(exactLimit.revisions).toHaveLength(50);
     expect(exactLimit.admissions).toHaveLength(50);
     expect(exactLimit.truncated).toBe(false);
@@ -461,7 +493,9 @@ describe("MemoryGraphResourceProvider", () => {
       repository.saveRelation(relationInput(`relation-${index}`, root.id, child.id, "related_to"));
     }
 
-    const overflow = JSON.parse((await registry.read("kiln://memory/nodes/root")).contents[0]!.text);
+    const overflowContent = (await registry.read("kiln://memory/nodes/root")).contents[0]!;
+    if (!("text" in overflowContent)) throw new Error("expected text content");
+    const overflow = JSON.parse(overflowContent.text);
     expect(overflow.revisions).toHaveLength(50);
     expect(overflow.relations).toHaveLength(50);
     expect(overflow.admissions).toHaveLength(50);
@@ -485,7 +519,9 @@ describe("MemoryGraphResourceProvider", () => {
       });
     }
 
-    const payload = JSON.parse((await registry.read("kiln://memory/admissions?recordId=root&limit=500")).contents[0]!.text);
+    const payloadContent = (await registry.read("kiln://memory/admissions?recordId=root&limit=500")).contents[0]!;
+    if (!("text" in payloadContent)) throw new Error("expected text content");
+    const payload = JSON.parse(payloadContent.text);
 
     expect(payload.admissions).toHaveLength(500);
     expect(payload.truncated).toBe(true);
@@ -495,7 +531,7 @@ describe("MemoryGraphResourceProvider", () => {
     repository.saveRecord(recordInput({ id: "root", content: "Root memory.", topicKey: "root" }));
     const tool = new ResourceReadTool({ resources: () => registry });
 
-    const result = await tool.execute({ input: { uri: "kiln://memory/graph?query=root&limit=5" } });
+    const result = await tool.execute({ name: "resource_read", input: { uri: "kiln://memory/graph?query=root&limit=5" } });
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.output).snapshot.nodes.map((node: { recordId: string }) => node.recordId)).toEqual(["root"]);
@@ -505,7 +541,9 @@ describe("MemoryGraphResourceProvider", () => {
     repository.saveRecord(recordInput({ id: "root", content: "Root memory.", topicKey: "root" }));
     const governedRegistry = createRegistryWithAuthority(repository);
 
-    const payload = JSON.parse((await governedRegistry.read("kiln://memory/graph?scope=project%3Akiln&layer=semantic&limit=5")).contents[0]!.text);
+    const payloadContent2 = (await governedRegistry.read("kiln://memory/graph?scope=project%3Akiln&layer=semantic&limit=5")).contents[0]!;
+    if (!("text" in payloadContent2)) throw new Error("expected text content");
+    const payload = JSON.parse(payloadContent2.text);
 
     expect(payload.snapshot.nodes.map((node: { recordId: string }) => node.recordId)).toEqual(["root"]);
   });
@@ -609,9 +647,11 @@ describe("MemoryGraphResourceProvider", () => {
     });
     const governedRegistry = createRegistryWithAuthority(repository);
 
-    const payload = JSON.parse((
+    const payloadContent3 = (
       await governedRegistry.read("kiln://memory/admissions?scope=project%3Akiln&layer=semantic&sessionId=session-1&limit=5")
-    ).contents[0]!.text);
+    ).contents[0]!;
+    if (!("text" in payloadContent3)) throw new Error("expected text content");
+    const payload = JSON.parse(payloadContent3.text);
 
     expect(payload.admissions.map((admission: { recordId: string; id: string }) => ({
       id: admission.id,
