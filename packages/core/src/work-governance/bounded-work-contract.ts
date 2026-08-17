@@ -3,20 +3,20 @@ import {
   freezeBoundedWorkValue,
   requireBoundedWorkDigest,
 } from "./bounded-work-content.js";
+import {
+  assessBoundedWorkScopePolicy,
+  boundedWorkTripwireDiagnostics,
+} from "./bounded-work-scope-policy.js";
+import type {
+  BoundedWorkChangeAuthority,
+  BoundedWorkEffect,
+  BoundedWorkScope,
+  BoundedWorkScopeViolation,
+  BoundedWorkTripwireDiagnostic,
+  BoundedWorkTripwires,
+} from "./bounded-work-scope-policy.js";
 
 export const BOUNDED_WORK_CONTRACT_SCHEMA = "kiln.bounded-work-contract/v1" as const;
-
-export type BoundedWorkEffect =
-  | "inspect"
-  | "modify_source"
-  | "modify_tests"
-  | "modify_documentation"
-  | "modify_configuration"
-  | "run_verification"
-  | "invoke_managed_agent"
-  | "external_write";
-
-export type BoundedWorkChangeAuthority = "none" | "scoped" | "unrestricted";
 
 export type BoundedWorkHarnessCapability =
   | "authoritative"
@@ -29,17 +29,6 @@ export interface BoundedWorkIntent {
   readonly nonGoals: readonly string[];
 }
 
-export interface BoundedWorkScope {
-  readonly allowedWorkItemIds: readonly string[];
-  readonly permittedEffects: readonly BoundedWorkEffect[];
-  readonly permittedSurfaces: readonly string[];
-  readonly allowedRoots: readonly string[];
-  readonly deniedRoots: readonly string[];
-  readonly refactorAuthority: BoundedWorkChangeAuthority;
-  readonly migrationAuthority: BoundedWorkChangeAuthority;
-  readonly dependencyAuthority: BoundedWorkChangeAuthority;
-}
-
 export interface BoundedWorkLimits {
   readonly maxExecutionAttempts: number;
   readonly maxManagedInvocations: number;
@@ -49,13 +38,6 @@ export interface BoundedWorkLimits {
   readonly maxRemediationRounds: number;
   readonly maxToolCalls?: number;
   readonly maxActiveDurationMs?: number;
-}
-
-export interface BoundedWorkTripwires {
-  readonly changedFiles?: number;
-  readonly changedLines?: number;
-  readonly activeDurationMs?: number;
-  readonly toolCalls?: number;
 }
 
 export interface BoundedWorkPolicy {
@@ -111,26 +93,6 @@ export interface SupersedeBoundedWorkContractRevisionInput {
   readonly adoptedAt: string;
   readonly adoptedBy: BoundedWorkAdoptionAuthority;
   readonly accountingLineageId: string;
-}
-
-export type BoundedWorkScopeViolationKind =
-  | "work_item_not_permitted"
-  | "effect_not_permitted"
-  | "surface_not_permitted"
-  | "path_not_permitted"
-  | "path_denied"
-  | "non_goal_requested";
-
-export interface BoundedWorkScopeViolation {
-  readonly kind: BoundedWorkScopeViolationKind;
-  readonly value: string;
-}
-
-export interface BoundedWorkTripwireDiagnostic {
-  readonly kind: "tripwire_exceeded";
-  readonly metric: "changed_files" | "changed_lines" | "active_duration_ms" | "tool_calls";
-  readonly actual: number;
-  readonly threshold: number;
 }
 
 export type BoundedWorkScopeAssessment =
@@ -251,33 +213,18 @@ export function normalizeBoundedWorkContractRevision(
 
 export function assessBoundedWorkScope(input: AssessBoundedWorkScopeInput): BoundedWorkScopeAssessment {
   const contract = input.revision.contract;
-  const workItemId = requireText(input.workItemId, "workItemId");
-  const surface = requireText(input.surface, "surface");
-  const violations: BoundedWorkScopeViolation[] = [];
-  if (!contract.scope.allowedWorkItemIds.includes(workItemId)) {
-    violations.push({ kind: "work_item_not_permitted", value: workItemId });
-  }
-  if (!contract.scope.permittedEffects.includes(input.effect)) {
-    violations.push({ kind: "effect_not_permitted", value: input.effect });
-  }
-  if (!contract.scope.permittedSurfaces.includes(surface)) {
-    violations.push({ kind: "surface_not_permitted", value: surface });
-  }
-  for (const rawPath of input.paths) {
-    const path = normalizeRelativePath(rawPath, "paths");
-    if (contract.scope.deniedRoots.some((root) => pathWithinRoot(path, root))) {
-      violations.push({ kind: "path_denied", value: path });
-    } else if (!contract.scope.allowedRoots.some((root) => pathWithinRoot(path, root))) {
-      violations.push({ kind: "path_not_permitted", value: path });
-    }
-  }
-  for (const requestedOutcome of input.requestedOutcomes ?? []) {
-    const normalized = requireText(requestedOutcome, "requestedOutcomes");
-    if (contract.intent.nonGoals.includes(normalized)) {
-      violations.push({ kind: "non_goal_requested", value: normalized });
-    }
-  }
-  const diagnostics = tripwireDiagnostics(contract.tripwires, input);
+  const violations = assessBoundedWorkScopePolicy({
+    scope: contract.scope,
+    nonGoals: contract.intent.nonGoals,
+    workItemId: requireText(input.workItemId, "workItemId"),
+    effect: input.effect,
+    surface: requireText(input.surface, "surface"),
+    paths: input.paths.map((path) => normalizeRelativePath(path, "paths")),
+    requestedOutcomes: (input.requestedOutcomes ?? []).map((outcome) =>
+      requireText(outcome, "requestedOutcomes"),
+    ),
+  });
+  const diagnostics = boundedWorkTripwireDiagnostics(contract.tripwires, input);
   return violations.length === 0
     ? { status: "within_scope", diagnostics }
     : { status: "scope_revision_required", violations, diagnostics };
@@ -378,29 +325,6 @@ function normalizeTripwires(input: BoundedWorkTripwires): BoundedWorkTripwires {
   };
 }
 
-function tripwireDiagnostics(
-  tripwires: BoundedWorkTripwires,
-  input: AssessBoundedWorkScopeInput,
-): readonly BoundedWorkTripwireDiagnostic[] {
-  const diagnostics: BoundedWorkTripwireDiagnostic[] = [];
-  pushTripwire(diagnostics, "changed_files", input.changedFiles, tripwires.changedFiles);
-  pushTripwire(diagnostics, "changed_lines", input.changedLines, tripwires.changedLines);
-  pushTripwire(diagnostics, "active_duration_ms", input.activeDurationMs, tripwires.activeDurationMs);
-  pushTripwire(diagnostics, "tool_calls", input.toolCalls, tripwires.toolCalls);
-  return diagnostics;
-}
-
-function pushTripwire(
-  diagnostics: BoundedWorkTripwireDiagnostic[],
-  metric: BoundedWorkTripwireDiagnostic["metric"],
-  actual: number | undefined,
-  threshold: number | undefined,
-): void {
-  if (actual !== undefined && threshold !== undefined && actual > threshold) {
-    diagnostics.push({ kind: "tripwire_exceeded", metric, actual, threshold });
-  }
-}
-
 function uniqueEffects(values: readonly BoundedWorkEffect[]): readonly BoundedWorkEffect[] {
   const allowed: readonly BoundedWorkEffect[] = [
     "inspect",
@@ -437,10 +361,6 @@ function normalizeRelativePath(value: string, field: string): string {
     throw new Error(`${field} must contain normalized repository-relative paths`);
   }
   return normalized;
-}
-
-function pathWithinRoot(path: string, root: string): boolean {
-  return root === "." || path === root || path.startsWith(`${root}/`);
 }
 
 function uniqueRequired(values: readonly string[], field: string): readonly string[] {

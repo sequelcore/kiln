@@ -7,20 +7,13 @@ export type {
   AdoptBoundedWorkContractRevisionInput,
   AssessBoundedWorkScopeInput,
   BoundedWorkAdoptionAuthority,
-  BoundedWorkChangeAuthority,
   BoundedWorkContract,
   BoundedWorkContractRevision,
-  BoundedWorkEffect,
   BoundedWorkHarnessCapability,
   BoundedWorkIntent,
   BoundedWorkLimits,
   BoundedWorkPolicy,
-  BoundedWorkScope,
   BoundedWorkScopeAssessment,
-  BoundedWorkScopeViolation,
-  BoundedWorkScopeViolationKind,
-  BoundedWorkTripwireDiagnostic,
-  BoundedWorkTripwires,
   SupersedeBoundedWorkContractRevisionInput,
 } from "./bounded-work-contract.js";
 export {
@@ -31,6 +24,23 @@ export {
   normalizeBoundedWorkContractRevision,
   supersedeBoundedWorkContractRevision,
 } from "./bounded-work-contract.js";
+export type {
+  BoundedWorkChangeAuthority,
+  BoundedWorkEffect,
+  BoundedWorkMeasuredUsage,
+  BoundedWorkScope,
+  BoundedWorkScopePolicyQuery,
+  BoundedWorkScopeViolation,
+  BoundedWorkScopeViolationKind,
+  BoundedWorkTripwireDiagnostic,
+  BoundedWorkTripwireMetric,
+  BoundedWorkTripwires,
+} from "./bounded-work-scope-policy.js";
+export {
+  assessBoundedWorkScopePolicy,
+  boundedWorkTripwireDiagnostics,
+  pathWithinRoot,
+} from "./bounded-work-scope-policy.js";
 export type {
   BindBoundedWorkEvidenceInput,
   BoundedWorkBaselineIdentity,

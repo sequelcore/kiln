@@ -3,9 +3,11 @@ import {
   type AssessBoundedWorkScopeInput,
   type BoundedWorkContractRevision,
   type BoundedWorkHarnessCapability,
-  type BoundedWorkScopeViolation,
-  type BoundedWorkTripwireDiagnostic,
 } from "./bounded-work-contract.js";
+import type {
+  BoundedWorkScopeViolation,
+  BoundedWorkTripwireDiagnostic,
+} from "./bounded-work-scope-policy.js";
 import { requireBoundedWorkDigest } from "./bounded-work-content.js";
 
 export type BoundedWorkMeasuredValue =
