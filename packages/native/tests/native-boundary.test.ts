@@ -110,7 +110,7 @@ describe("native operator surface foundation", () => {
         kilnSessionId: "session-1",
         sequence: 1,
         timestamp: "2026-05-14T12:00:00.000Z",
-        kind: "session_started",
+        kind: "turn_started",
         source: {
           actor: "runtime",
           surface: "native",
@@ -125,8 +125,13 @@ describe("native operator surface foundation", () => {
     expect(projection.sessionId).toBe("session-1");
     expect(projection.authority).toBe("audited");
     expect(projection.providerRoute).toBe("codex-oauth/gpt-5.4");
-    expect(projection.latestEvent?.title).toBe("Session Started");
-    expect(projection.latestEvent?.payload).toBeUndefined();
+    expect(projection.latestEvent).toEqual({
+      eventId: "session-1:1",
+      title: "Turn Started",
+      summary: "",
+      compactText: "Turn Started",
+      tone: "info",
+    });
   });
 
   it("records performance telemetry without reading runtime-owned config", () => {
@@ -220,7 +225,11 @@ describe("native operator surface foundation", () => {
     expect(state.latestCapture?.transport).toBe("electron-webcontents");
     expect(state.stream.status).toBe("live");
     expect(event.kind).toBe("browser_operator_evidence");
-    expect(event.source.surface).toBe("native");
+    expect(event.source).toEqual({
+      actor: "runtime",
+      surface: "native",
+      component: "embedded-browser-host",
+    });
     expect(event.payload).toMatchObject({
       hostTransport: "electron-webcontents",
       browserSessionId: "browser-1",
@@ -548,8 +557,8 @@ describe("native operator surface foundation", () => {
     const initial = createNativeGatewayCockpitFrameState();
     const welcomed = reduceNativeGatewayCockpitFrame(initial, {
       type: "welcome",
-      providers: [],
-      models: {},
+      executionRouteCatalog: { routes: [] },
+      availableModels: { observedAt: "2026-05-23T12:00:00.000Z", entries: [] },
       executionMode: "execute",
       authorityStatus: {
         effective: "read_only",
@@ -744,8 +753,8 @@ describe("native operator surface foundation", () => {
     const openState = reduceNativeGatewayCockpitFrame(
       reduceNativeGatewayCockpitFrame(createNativeGatewayCockpitFrameState(), {
         type: "welcome",
-        providers: [],
-        models: {},
+        executionRouteCatalog: { routes: [] },
+        availableModels: { observedAt: "2026-05-23T12:00:00.000Z", entries: [] },
         executionMode: "execute",
         authorityStatus: {
           effective: "read_only",

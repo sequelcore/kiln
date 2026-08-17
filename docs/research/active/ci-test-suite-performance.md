@@ -186,8 +186,8 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   `include: ["src"]` and exclude `src/**/*.test.ts`, while suites live in
   `tests/`, so type drift between tests and source has been invisible. The
   `typecheck:tests` gate now exists and admits packages one at a time;
-  `@kilnai/tools`, `@kilnai/gateway-contracts`, `@kilnai/sdk`, and `@kilnai/tui`
-  currently qualify.
+  `@kilnai/tools`, `@kilnai/gateway-contracts`, `@kilnai/sdk`, `@kilnai/tui`, and
+  `@kilnai/native` currently qualify.
 
   Remaining backlog, measured by extending each package's own `tsconfig.json`
   with `rootDir` at the package root so `src` and `tests` compile together:
@@ -198,10 +198,10 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   | gateway-contracts | 0 (admitted) |
   | sdk | 0 (admitted) |
   | tui | 0 (admitted) |
-  | cli | 281 |
-  | core | 488 |
-  | native | 262 |
-  | runtime | 1087 |
+  | native | 0 (admitted) |
+  | cli | 281 (provisional) |
+  | core | 488 (provisional) |
+  | runtime | 1087 (provisional) |
 
   The `sdk` admission needed one structural deviation from the package-root
   `rootDir`: its `operator-governance-exports` suite imports
@@ -210,13 +210,23 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   `TS6059` violations that cannot be resolved from inside `sdk`, so
   `packages/sdk/tsconfig.test.json` uses `"rootDir": "../.."` (the monorepo
   root) instead. No compiler option is loosened; the same pattern now applies
-  to `tui` and will apply to `native`, `cli`, and `gui`, which share the
+  to `tui` and `native`, and will apply to `cli` and `gui`, which share the
   fixtures.
 
-  Extending each package's own config resolves the measurement artifacts of the
-  first probe: `native` fell from 596 to 262 because the package config enables
-  JSX, removing the `TS17004` inflation, and `tui` and `sdk` no longer report
-  `TS6059` for paths outside their `rootDir`. These counts are drift.
+  Backlog counts are provisional until a package is actually admitted, because
+  each one is only as good as the probe config that produced it. Both `native`
+  figures were artifacts. The first probe reported 596, mostly `TS17004`, because
+  it did not enable JSX. Extending `packages/native/tsconfig.json` reported 262
+  and was recorded here as drift, but that file is a solution file — `files: []`
+  and references only, carrying no `compilerOptions` — so the probe inherited no
+  `lib`, `types`, or JSX setting. Its 262 were 146 `TS2300` and 88 `TS2451`
+  duplicate-identifier errors from doubly-declared globals, and contained no
+  `TS17004` at all. Extending `tsconfig.renderer.json`, which is where native's
+  JSX and bundler resolution live, exposes the real figure: 5.
+
+  Read the remaining `cli`, `core`, and `runtime` counts with the same caution.
+  Treat the baseline a worker measures against a correct config as authoritative
+  over the number in this table.
 
   The drift is genuine. Samples: `content` asserted on `IncomingMessage`
   which no longer declares it; `expiresAt` on a route-capability snapshot that

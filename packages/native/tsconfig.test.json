@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.renderer.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "rootDir": "../..",
+    "types": ["react", "vite/client", "bun"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "tests/**/*.tsx"]
+}
