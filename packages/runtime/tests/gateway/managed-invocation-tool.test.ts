@@ -8,6 +8,7 @@ import {
   type ManagedAgentAdmissionProfile,
   type ManagedAgentCallerAttachmentIdentity,
   type ManagedAgentInvocationRequest,
+  type ManagedAgentInvocationRecord,
   type ManagedAgentLifecycleState,
   type RouteCapability,
 } from "@kilnai/core/agents";
@@ -40,6 +41,11 @@ import {
   type ManagedInvocationToolOptions,
   withManagedInvocationService,
 } from "../../src/agents/managed-invocation/runtime-tool/index.js";
+import type {
+  ManagedInvocationToolResult,
+  ManagedInvocationToolRoute,
+  ManagedInvocationContextResolver,
+} from "../../src/agents/managed-invocation/runtime-tool/types.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
 
@@ -48,6 +54,23 @@ const TEST_HANDOFF_PROVENANCE = {
   configuredModelId: "test-model",
   observedModelIds: [],
 } as const;
+
+function assertManagedToolResult(value: unknown): ManagedInvocationToolResult {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !("output" in value)
+    || typeof value.output !== "string"
+    || !("isError" in value)
+    || typeof value.isError !== "boolean"
+    || !("metadata" in value)
+    || typeof value.metadata !== "object"
+    || value.metadata === null
+  ) {
+    throw new Error("Expected a managed invocation tool result.");
+  }
+  return value as ManagedInvocationToolResult;
+}
 
 function createAttachedRuntimeBuiltinToolSurface(
   options: Omit<NonNullable<Parameters<typeof createRuntimeBuiltinToolSurface>[0]>, "managedInvocation"> & {
@@ -593,7 +616,7 @@ function makeManagedRoute(
   model: string,
   createAdapter: () => Promise<ManagedAgentRuntimeAdapter | undefined> = async () => makeAdapter(),
   providerId = "opencode",
-) {
+): ManagedInvocationToolRoute {
   return {
     routeId,
     routeSource: "explicit-managed-route" as const,
@@ -652,7 +675,7 @@ describe("managed invocation runtime tool", () => {
     });
     const session = makeSession();
 
-    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+    const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       routeId: "opencode-go-readonly",
       profile: "foundation-readonly-plan",
       providerRoute: {
@@ -683,7 +706,7 @@ describe("managed invocation runtime tool", () => {
           readonly authorityProfile?: Record<string, unknown>;
         };
       };
-    };
+    });
 
     expect(result.isError).toBe(false);
     expect(result.metadata).toMatchObject({
@@ -745,7 +768,7 @@ describe("managed invocation runtime tool", () => {
     });
     const session = makeSession();
 
-    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+    const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       routeId: "opencode-readonly",
       profile: "foundation-readonly-plan",
       providerRoute: {
@@ -764,7 +787,7 @@ describe("managed invocation runtime tool", () => {
       readonly output: string;
       readonly isError: boolean;
       readonly metadata: Record<string, unknown>;
-    };
+    });
 
     expect(result.isError).toBe(false);
     expect(result.metadata).toMatchObject({
@@ -877,6 +900,7 @@ describe("managed invocation runtime tool", () => {
       task: "Inspect the managed invocation tool contract and report risks.",
       requestedAuthority: "read_only",
     }, context) as {
+      readonly output: string;
       readonly isError: boolean;
       readonly metadata: {
         readonly invocationId: string;
@@ -977,6 +1001,7 @@ describe("managed invocation runtime tool", () => {
       ...context,
       toolCall: { id: "tool-call-status", name: "managed_agent.status", input: {} },
     }) as {
+      readonly output: string;
       readonly isError: boolean;
       readonly metadata: {
         readonly status?: string;
@@ -1039,6 +1064,7 @@ describe("managed invocation runtime tool", () => {
       ...context,
       toolCall: { id: "tool-call-list", name: "managed_agent.list", input: {} },
     }) as {
+      readonly output: string;
       readonly isError: boolean;
       readonly metadata: {
         readonly invocations?: readonly {
@@ -1112,6 +1138,7 @@ describe("managed invocation runtime tool", () => {
       ...context,
       toolCall: { id: "tool-call-status-complete", name: "managed_agent.status", input: {} },
     }) as {
+      readonly output: string;
       readonly metadata: {
         readonly lifecycleState?: string;
         readonly childSessionId?: string;
@@ -1150,6 +1177,7 @@ describe("managed invocation runtime tool", () => {
       ...context,
       toolCall: { id: "tool-call-list-complete", name: "managed_agent.list", input: {} },
     }) as {
+      readonly output: string;
       readonly metadata: {
         readonly invocations?: readonly {
           readonly lifecycleState?: string;
@@ -1451,7 +1479,7 @@ describe("managed invocation runtime tool", () => {
       },
     };
 
-    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+    const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
         profile: "foundation-readonly-plan",
         providerRoute: { providerId: "opencode" },
         task: "Collect visual reference research from local cloned harnesses.",
@@ -1468,7 +1496,7 @@ describe("managed invocation runtime tool", () => {
           finalPhase: false,
           autoStartAllowed: false,
         },
-    }, context);
+        }, context));
 
     expect(result?.isError).toBe(true);
     expect(result?.output).toContain("cannot execute this phase because it cannot read required paths");
@@ -1509,7 +1537,7 @@ describe("managed invocation runtime tool", () => {
       },
     };
 
-    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+    const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       profile: "foundation-readonly-plan",
       providerRoute: { providerId: "opencode" },
       task: "Collect visual reference research from local cloned harnesses.",
@@ -1518,7 +1546,7 @@ describe("managed invocation runtime tool", () => {
       requiredToolNames: ["read", "grep", "glob"],
       requiredReadPaths: ["/workspace/references/cloned"],
       expectedEvidence: ["visual-reference-research"],
-    }, context);
+    }, context));
 
     expect(result?.isError).toBe(false);
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
@@ -1537,7 +1565,7 @@ describe("managed invocation runtime tool", () => {
       },
     };
 
-    const result = await surface.callBuiltinTools.get("managed_agent.invoke")?.({
+    const result = assertManagedToolResult(await surface.callBuiltinTools.get("managed_agent.invoke")?.({
       profile: "foundation-readonly-plan",
       providerRoute: { providerId: "opencode" },
       task: "Inspect local managed-agent files.",
@@ -1549,7 +1577,7 @@ describe("managed invocation runtime tool", () => {
         "packages/runtime/src/agents/managed-invocation/runtime-tool.ts",
       ],
       expectedEvidence: ["route admission evidence"],
-    }, context);
+    }, context));
 
     expect(result?.isError).toBe(false);
     expect(adapter.invoke).toHaveBeenCalledTimes(1);
@@ -1963,6 +1991,9 @@ describe("managed invocation runtime tool", () => {
     await waitForCondition(() => signal() !== undefined);
     parentAbort.abort("Parent runtime turn interrupted.");
     const joined = await invocationService.join(started.metadata.invocationId);
+    if (joined.status !== "completed") {
+      throw new Error("Expected the cancelled invocation to settle with a record.");
+    }
 
     expect(signal()?.aborted).toBe(true);
     expect(joined.record.lifecycleState).toBe("cancelled");
@@ -1971,6 +2002,9 @@ describe("managed invocation runtime tool", () => {
     terminal.resolve(joined.record);
     await flushMicrotasks();
     const joinedAfterLateOutput = await invocationService.join(started.metadata.invocationId);
+    if (joinedAfterLateOutput.status !== "completed") {
+      throw new Error("Expected the late-output invocation to retain its terminal record.");
+    }
     expect(joinedAfterLateOutput.record.lifecycleState).toBe("cancelled");
     expect(joinedAfterLateOutput.record.resultHandoff?.summary).toBe("Parent runtime turn interrupted.");
   });
@@ -3774,6 +3808,7 @@ describe("managed invocation runtime tool", () => {
         ],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
           profiles: ["foundation-readonly-plan"],
@@ -3929,7 +3964,7 @@ describe("managed invocation runtime tool", () => {
         input: {},
       },
     };
-    const events = [];
+    const events: Parameters<NonNullable<ManagedInvocationSessionEventSink["publish"]>>[0] = [];
 
     await attachment?.options.sessionEventSink?.publish(events, context);
 
@@ -4006,7 +4041,7 @@ describe("managed invocation runtime tool", () => {
         input: {},
       },
     };
-    const events = [];
+    const events: Parameters<NonNullable<ManagedInvocationSessionEventSink["publish"]>>[0] = [];
 
     await expect(attachment?.options.sessionEventSink?.publish(events, context)).resolves.toBeUndefined();
 
@@ -4449,10 +4484,10 @@ describe("managed invocation runtime tool", () => {
     } as const;
 
     const invokeFailure = async (toolCallId: string) => {
-      const result = await invoke(input, {
+      const result = assertManagedToolResult(await invoke(input, {
         session: makeSession(),
         toolCall: { id: toolCallId, name: "managed_agent.invoke", input: {} },
-      });
+      }));
       const output = JSON.parse(result.output) as {
         readonly recovery: {
           readonly blockedWorkItemUpdateInputTemplate: {
@@ -4467,28 +4502,35 @@ describe("managed invocation runtime tool", () => {
         ...current,
         ...output.recovery.blockedWorkItemUpdateInputTemplate,
       });
-      return workItemStore.get("work-recovery-chain")!.pauseRequirements;
+      const updated = workItemStore.get("work-recovery-chain")!;
+      if (!updated.pauseRequirements) {
+        throw new Error("Expected managed recovery pause requirements.");
+      }
+      return updated.pauseRequirements;
     };
 
     const firstRequirements = await invokeFailure("tool-call-recovery-chain-1");
     expect(firstRequirements).toHaveLength(1);
-    expect(firstRequirements[0]).toMatchObject({
+    const firstRequirement = firstRequirements[0]!;
+    expect(firstRequirement).toMatchObject({
       status: "pending",
       id: expect.stringContaining("managed-invocation-capability:work-recovery-chain:"),
     });
 
     const secondRequirements = await invokeFailure("tool-call-recovery-chain-2");
     expect(secondRequirements).toHaveLength(2);
-    expect(secondRequirements[0]).toMatchObject({
-      id: firstRequirements[0]!.id,
+    const supersededRequirement = secondRequirements[0]!;
+    const replacementRequirement = secondRequirements[1]!;
+    expect(supersededRequirement).toMatchObject({
+      id: firstRequirement.id,
       status: "superseded",
       supersededByRequirementId: secondRequirements[1]!.id,
     });
-    expect(secondRequirements[1]).toMatchObject({
+    expect(replacementRequirement).toMatchObject({
       status: "pending",
       id: expect.stringContaining("managed-invocation-capability:work-recovery-chain:"),
     });
-    expect(secondRequirements[1]!.id).not.toBe(firstRequirements[0]!.id);
+    expect(replacementRequirement.id).not.toBe(firstRequirement.id);
   });
 
   it("returns a phase completion handoff when an explicit intermediate managed child succeeds", async () => {
@@ -5194,6 +5236,10 @@ describe("managed invocation runtime tool", () => {
       readonly isError: boolean;
       readonly metadata: {
         readonly missingRequiredTools?: readonly string[];
+        readonly admissionReasons?: readonly {
+          readonly code: string;
+          readonly requiredToolName?: string;
+        }[];
         readonly presentationIntent?: {
           readonly rows?: readonly Record<string, unknown>[];
         };
@@ -5314,6 +5360,10 @@ describe("managed invocation runtime tool", () => {
       readonly metadata: {
         readonly status?: string;
         readonly missingRequiredTools?: readonly string[];
+        readonly admissionReasons?: readonly {
+          readonly code: string;
+          readonly requiredToolName?: string;
+        }[];
         readonly presentationIntent?: {
           readonly source?: string;
           readonly rows?: readonly Record<string, unknown>[];
@@ -5771,7 +5821,7 @@ describe("managed invocation runtime tool", () => {
 
   it("admits requested agent profile and skills through the configured context resolver", async () => {
     const adapter = makeAdapter();
-    const contextResolver = vi.fn(async () => ({
+    const contextResolver = vi.fn<ManagedInvocationContextResolver>(async () => ({
       promptPrefix: "## Child Agent Profile\nname: architecture-reviewer\n\nSkill\nname: ddd-review",
       admittedAgentProfile: "architecture-reviewer",
       admittedSkills: ["ddd-review"],
@@ -5846,7 +5896,7 @@ describe("managed invocation runtime tool", () => {
 
   it("passes explicit work classification through the context resolver and records diagnostic metadata", async () => {
     const adapter = makeAdapter();
-    const contextResolver = vi.fn(async () => ({
+    const contextResolver = vi.fn<ManagedInvocationContextResolver>(async () => ({
       admittedSkills: ["clear-writing"],
       workClassification: {
         intents: ["write"],
@@ -6623,6 +6673,7 @@ describe("managed invocation runtime tool", () => {
         routes: [],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
           profiles: ["foundation-readonly-plan"],
@@ -6684,6 +6735,7 @@ describe("managed invocation runtime tool", () => {
         routes: [],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
           profiles: ["foundation-readonly-plan"],
@@ -6725,6 +6777,7 @@ describe("managed invocation runtime tool", () => {
         routes: [],
         unavailableRoutes: [{
           routeId: "openrouter-readonly",
+          routeSource: "explicit-managed-route",
           providerId: "openrouter",
           model: "openrouter/free",
           profiles: ["foundation-readonly-plan"],
@@ -7410,6 +7463,7 @@ describe("managed invocation runtime tool", () => {
             readonly errorCode?: string;
             readonly requestedAttachment?: unknown;
             readonly routeAttachment?: unknown;
+            readonly admissionReasons?: readonly { readonly code: string }[];
           };
         };
 
@@ -7433,7 +7487,10 @@ describe("managed invocation runtime tool", () => {
           toolCall: { id: `tool-call-${toolName}-missing`, name: toolName, input: {} },
         }) as {
           readonly isError: boolean;
-          readonly metadata: { readonly errorCode?: string };
+          readonly metadata: {
+            readonly errorCode?: string;
+            readonly admissionReasons?: readonly { readonly code: string }[];
+          };
         };
 
         expect(result.isError).toBe(true);
@@ -7459,7 +7516,10 @@ describe("managed invocation runtime tool", () => {
           toolCall: { id: `tool-call-${toolName}-unsupported-route`, name: toolName, input: {} },
         }) as {
           readonly isError: boolean;
-          readonly metadata: { readonly errorCode?: string };
+          readonly metadata: {
+            readonly errorCode?: string;
+            readonly admissionReasons?: readonly { readonly code: string }[];
+          };
         };
 
         expect(result.isError).toBe(true);
@@ -7633,7 +7693,11 @@ describe("managed invocation runtime tool", () => {
           toolCall: { id: "tool-call-attachment-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
         }) as {
           readonly isError: boolean;
-          readonly metadata: { readonly errorCode?: string; readonly requestedAttachment?: unknown };
+          readonly metadata: {
+            readonly errorCode?: string;
+            readonly requestedAttachment?: unknown;
+            readonly admissionReasons?: readonly { readonly code: string }[];
+          };
         };
 
         expect(result.isError).toBe(true);
@@ -7654,7 +7718,11 @@ describe("managed invocation runtime tool", () => {
           toolCall: { id: "tool-call-runtime-id-whitespace-mismatch", name: "managed_agent.invoke", input: {} },
         }) as {
           readonly isError: boolean;
-          readonly metadata: { readonly errorCode?: string; readonly requestedAttachment?: unknown };
+          readonly metadata: {
+            readonly errorCode?: string;
+            readonly requestedAttachment?: unknown;
+            readonly admissionReasons?: readonly { readonly code: string }[];
+          };
         };
 
         expect(result.isError).toBe(true);

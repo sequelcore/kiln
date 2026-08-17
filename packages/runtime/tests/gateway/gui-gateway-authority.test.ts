@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { type ProviderAdapter, resolveCommunicationIntent } from "@kilnai/core/agents";
+import { defineDeliberationLevelId, type ProviderAdapter, resolveCommunicationIntent } from "@kilnai/core/agents";
 import { textParts } from "@kilnai/core/engine";
 import { RuntimeSessionOrchestrator } from "../../src/session/runtime-session-orchestrator.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
@@ -516,7 +516,7 @@ describe("GUI authority forwarding", () => {
           evidence: { sourceIdentity: "codex/models", sourceRevision: "test-r1", observedAt: "2026-05-12T00:00:00.000Z" },
         },
       },
-      { mode: "fixed", preferredLevel: "high", onUnsupported: "deny" },
+      { mode: "fixed", preferredLevel: defineDeliberationLevelId("high"), onUnsupported: "deny" },
     );
 
     expect(cfg.deliberationIntent).toEqual({ mode: "fixed", preferredLevel: "high", onUnsupported: "deny" });

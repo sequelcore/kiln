@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildManagedAgentCapabilitySnapshot,
+  CredentialPool,
   defineManagedAgentAdapterDescriptor,
   defineManagedAgentInvocationRecord,
   defineManagedAgentWriteAuthority,
   GPT4O,
+  type ManagedAgentInvocationRecord,
   type ManagedAgentInvocationRequest,
   OPENCODE_BASE_URL,
   type OpenCodeAuthFile,
@@ -20,10 +22,13 @@ import {
   createOperatorCockpitReadOnlyViewState,
   projectOperatorCockpitReadOnlyView,
   type KilnConfigSetupAction,
-  type GuiProviderDescriptor,
+  type OperatorSessionEvent,
 } from "@kilnai/gateway-contracts";
 import { Hono } from "hono";
-import type { UpgradeWebSocket } from "hono/ws";
+import type { Context, Next } from "hono";
+import type { WSEvents } from "hono/ws";
+import type { OperatorGuiSessionTransportOptions } from "../../src/gateway/operator-gateway.js";
+import type { OperatorExecutionRouteSelectionPort } from "../../src/gateway/operator-execution-route-selection.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { processAdmittedTurn } from "../../src/gateway/message-pipeline/index.js";
 import { mountGuiStaticAssets, resolveGuiDistPath } from "../../src/gateway/gui-static-assets.js";
@@ -45,6 +50,7 @@ import type {
   ManagedInvocationToolAttachment,
   ManagedInvocationToolOptions,
 } from "../../src/agents/managed-invocation/runtime-tool/index.js";
+import type { ManagedInvocationToolResult } from "../../src/agents/managed-invocation/runtime-tool/types.js";
 import { createManagedInvocationLifecycleToolExecutors } from "../../src/agents/managed-invocation/runtime-tool/index.js";
 import {
   ManagedAgentWorktreeReviewRequiredError,
@@ -58,12 +64,12 @@ import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 
 const guiSocketHarness = vi.hoisted(() => {
-  type HandlerFactory = Parameters<UpgradeWebSocket>[0];
+  type HandlerFactory = (context: Context) => WSEvents<unknown>;
   let capturedFactory: HandlerFactory | null = null;
 
-  const upgradeWebSocket: UpgradeWebSocket = (factory) => {
+  const upgradeWebSocket = (factory: HandlerFactory) => {
     capturedFactory = factory;
-    return async (_c, next) => next();
+    return async (_c: Context, next: Next) => next();
   };
 
   function simulateConnection(queryParams: Record<string, string> = {}) {
@@ -78,16 +84,16 @@ const guiSocketHarness = vi.hoisted(() => {
       req: {
         query: (key: string) => url.searchParams.get(key) ?? undefined,
       },
-    } as Parameters<HandlerFactory>[0];
+    } as Context;
 
     const handlers = capturedFactory(ctx);
     const mockWs = {
-      send: vi.fn(),
+      send: vi.fn<(data: string) => void>(),
       readyState: 1,
       close: vi.fn(),
     };
 
-    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<typeof handlers.onOpen>[1] };
+    return { handlers, mockWs, wsCtx: mockWs as unknown as Parameters<NonNullable<typeof handlers.onOpen>>[1] };
   }
 
   function reset(): void {
@@ -109,8 +115,8 @@ const guiTestRouting = vi.hoisted(() => ({
       providerId: providerId?.trim() || "claude",
       providerModelId: providerModelId?.trim() || "claude-sonnet-4-6",
     };
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
+    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
+      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
         routes: [{
           routeId: admission.routeId,
           label: "Test route",
@@ -122,7 +128,7 @@ const guiTestRouting = vi.hoisted(() => ({
           repairActions: [],
         }],
       })),
-      admit: vi.fn(async (intent: { readonly routeId: string }) => ({
+      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async (intent) => ({
         ok: true,
         admission: { ...admission, routeId: intent.routeId },
       })),
@@ -183,6 +189,14 @@ const guiTestRouting = vi.hoisted(() => ({
   },
 }));
 
+const guiOperatorTransportDefaults = (() => {
+  const routing = guiTestRouting.create();
+  return {
+    operatorTurnDispatcher: routing.operatorTurnDispatcher as unknown as OperatorGuiSessionTransportOptions["operatorTurnDispatcher"],
+    operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as unknown as OperatorGuiSessionTransportOptions["operatorTurnExecutionBridge"],
+  } satisfies Pick<OperatorGuiSessionTransportOptions, "operatorTurnDispatcher" | "operatorTurnExecutionBridge">;
+})();
+
 vi.mock("hono/bun", () => ({
   createBunWebSocket: () => ({
     upgradeWebSocket: guiSocketHarness.upgradeWebSocket,
@@ -206,9 +220,10 @@ vi.mock("../../src/gateway/gui-gateway.js", async (importOriginal) => {
         ...input,
         executionRouteSelection: input.executionRouteSelection ?? routing.executionRouteSelection as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           ...input.operatorTransport,
-          operatorTurnDispatcher: input.operatorTransport.operatorTurnDispatcher ?? routing.operatorTurnDispatcher as never,
-          operatorTurnExecutionBridge: input.operatorTransport.operatorTurnExecutionBridge ?? routing.operatorTurnExecutionBridge as never,
+          operatorTurnDispatcher: routing.operatorTurnDispatcher as never,
+          operatorTurnExecutionBridge: routing.operatorTurnExecutionBridge as never,
         },
       });
     },
@@ -910,24 +925,25 @@ function projectDirectProviderDiscoveryForTest(
 function mockOpenCodeCredentialPool(
   credentialsForTier: (tier: OpenCodeTier) => readonly OpenCodeAuthFile[] = () => [],
 ) {
-  type OpenCodePool = Awaited<ReturnType<OpenCodeCredentialPoolService["createPool"]>>;
-  return vi.spyOn(OpenCodeCredentialPoolService.prototype, "createPool").mockImplementation(async (tier) => ({
-    getAllCredentials: () => credentialsForTier(tier).map((auth, index) => ({
-      id: `${tier}-${index}`,
-      label: `${tier}-${index}`,
-      providerId: "opencode",
-      source: "manual",
-      priority: 0,
-      tier: auth.tier,
-      auth,
-      requestCount: 0,
-      lastSuccess: null,
-      lastExhausted: null,
-      cooldownUntil: null,
-      invalidReason: null,
-      softLeaseCount: 0,
-    })),
-  }) as OpenCodePool);
+  return vi.spyOn(OpenCodeCredentialPoolService.prototype, "createPool").mockImplementation(async (tier) =>
+    new CredentialPool("opencode-api", {
+      credentials: credentialsForTier(tier).map((auth, index) => ({
+        id: `${tier}-${index}`,
+        label: `${tier}-${index}`,
+        providerId: "opencode-api",
+        source: "manual" as const,
+        priority: 0,
+        tier: auth.tier,
+        auth,
+        requestCount: 0,
+        lastSuccess: null,
+        lastExhausted: null,
+        cooldownUntil: null,
+        invalidReason: null,
+        softLeaseCount: 0,
+      })),
+    }),
+  );
 }
 
 afterEach(() => {
@@ -941,6 +957,22 @@ const TEST_HANDOFF_PROVENANCE = {
   configuredModelId: "test-model",
   observedModelIds: [],
 } as const;
+
+function assertManagedToolResult(value: unknown): asserts value is ManagedInvocationToolResult {
+  if (
+    typeof value !== "object"
+    || value === null
+    || !("output" in value)
+    || typeof value.output !== "string"
+    || !("isError" in value)
+    || typeof value.isError !== "boolean"
+    || !("metadata" in value)
+    || typeof value.metadata !== "object"
+    || value.metadata === null
+  ) {
+    throw new Error("Expected a managed invocation tool result.");
+  }
+}
 
 describe("startGuiGateway static mount", () => {
   it("serves /gui/index.html and falls back to index.html for unknown /gui routes", async () => {
@@ -1264,6 +1296,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -1315,6 +1348,7 @@ describe("startGuiGateway static mount", () => {
         initialOperatorDiscovery: discovery,
         initialOperatorDiscoveryFreshness: "fresh",
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "claude",
@@ -1473,8 +1507,9 @@ describe("startGuiGateway static mount", () => {
     try {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        operatorTransport: {
+       getSnapshot: async () => ({ } as never),
+      operatorTransport: {
+        ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -1613,6 +1648,7 @@ describe("startGuiGateway static mount", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -1654,8 +1690,8 @@ describe("startGuiGateway static mount", () => {
     const resolveGuiOperatorDiscoverySpy = vi
       .spyOn(await import("../../src/gateway/gui-provider-models.js"), "resolveGuiOperatorDiscoveryResults")
       .mockResolvedValue(makeGuiOperatorDiscoveryFromModels({ claude: [] }));
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
+    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
+      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
         routes: [{
           routeId: "claude-default",
           label: "Claude",
@@ -1667,7 +1703,7 @@ describe("startGuiGateway static mount", () => {
           repairActions: [],
         }],
       })),
-      admit: vi.fn(async () => ({
+      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async () => ({
         ok: true as const,
         admission: {
           routeId: "claude-default",
@@ -1693,6 +1729,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         executionRouteSelection,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -1749,9 +1786,10 @@ describe("startGuiGateway static mount", () => {
         workingDirectory: distDir,
         getSnapshot: async () => ({ } as never),
         discoverOperatorProviders: async () => [],
-        executionRouteSelection: { getCatalog } as never,
-        createExecutionRoute,
-        operatorTransport: {
+       executionRouteSelection: { getCatalog } as never,
+       createExecutionRoute,
+      operatorTransport: {
+        ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -1802,6 +1840,7 @@ describe("startGuiGateway static mount", () => {
         executionRouteSelection: { getCatalog } as never,
         createExecutionRoute,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -1836,8 +1875,8 @@ describe("startGuiGateway static mount", () => {
     const distDir = createGuiDist();
     const stop = vi.fn();
     let routeAvailable = false;
-    const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
+    const executionRouteSelection: OperatorExecutionRouteSelectionPort = {
+      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
         routes: [{
           routeId: "openai-gpt",
           label: "OpenAI GPT",
@@ -1849,7 +1888,7 @@ describe("startGuiGateway static mount", () => {
           repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
         }],
       })),
-      admit: vi.fn(async () => ({
+      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async () => ({
         ok: true as const,
         admission: { routeId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
       })),
@@ -1871,9 +1910,10 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        getProviderAvailability: () => ({ openai: true }),
-        executionRouteSelection,
-        operatorTransport: {
+       getProviderAvailability: () => ({ openai: true }),
+       executionRouteSelection,
+      operatorTransport: {
+        ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -1929,6 +1969,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         operatorTransport: {
           onContinueSession,
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -2007,6 +2048,7 @@ describe("startGuiGateway static mount", () => {
           input: {},
         },
       });
+      assertManagedToolResult(toolResult);
       await input.turnCapture?.finish?.(session.id);
 
       expect(toolResult.isError).toBe(false);
@@ -2019,7 +2061,6 @@ describe("startGuiGateway static mount", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          queued: false,
           sessionId: session.id,
           sessionMode: "mode-a",
           traceId: "trace-managed-gui",
@@ -2040,9 +2081,10 @@ describe("startGuiGateway static mount", () => {
     try {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
-        getSnapshot: async () => ({ } as never),
-        managedInvocation: makeManagedInvocationAttachment(),
-        operatorTransport: {
+       getSnapshot: async () => ({ } as never),
+       managedInvocation: makeManagedInvocationAttachment(),
+       operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -2259,8 +2301,9 @@ describe("startGuiGateway static mount", () => {
       gateway = await startGuiGateway({
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
-        managedInvocation: makeManagedInvocationAttachment(managedInvocation),
-        operatorTransport: {
+       managedInvocation: makeManagedInvocationAttachment(managedInvocation),
+      operatorTransport: {
+        ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: factory as never,
             getProvider: () => "openai",
@@ -2286,7 +2329,7 @@ describe("startGuiGateway static mount", () => {
         content?: string;
         event?: {
           eventId: string;
-          kind: string;
+            kind: OperatorSessionEvent["kind"];
           parentEventId?: string;
           payload: Record<string, unknown>;
         };
@@ -2549,6 +2592,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: factory as never,
             getProvider: () => "openai",
@@ -2665,8 +2709,9 @@ describe("startGuiGateway static mount", () => {
           name: "managed_agent.start",
           input: startInput,
         },
-        requestApproval,
+       requestApproval,
       });
+      assertManagedToolResult(active);
       if (active.isError) {
         throw new Error(active.output);
       }
@@ -2680,6 +2725,7 @@ describe("startGuiGateway static mount", () => {
         },
         requestApproval,
       });
+      assertManagedToolResult(denied);
       if (!denied.isError) {
         throw new Error("Expected second same-checkout managed_agent.start to be denied");
       }
@@ -2719,6 +2765,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -2748,7 +2795,7 @@ describe("startGuiGateway static mount", () => {
             kilnSessionId: string;
             sequence: number;
             timestamp: string;
-            kind: string;
+            kind: OperatorSessionEvent["kind"];
             payload: Record<string, unknown>;
           };
         });
@@ -2892,8 +2939,9 @@ describe("startGuiGateway static mount", () => {
         name: "managed_agent.start",
         input: startInput,
       },
-      requestApproval,
+     requestApproval,
     });
+    assertManagedToolResult(active);
     if (active.isError) {
       throw new Error(active.output);
     }
@@ -2908,6 +2956,7 @@ describe("startGuiGateway static mount", () => {
       },
       requestApproval,
     });
+    assertManagedToolResult(denied);
     if (!denied.isError) {
       throw new Error("Expected second same-checkout managed_agent.start to be denied");
     }
@@ -2966,6 +3015,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: factory as never,
             getProvider: () => "openai",
@@ -3095,7 +3145,7 @@ describe("startGuiGateway static mount", () => {
         target: "browser",
         status: "running",
         updatedAt: "2026-05-12T12:00:00.000Z",
-        provider: "playwright",
+        provider: "playwright" as const,
         sessionId: "browser-live",
         ownership: "agent",
         viewMode: "live",
@@ -3117,7 +3167,11 @@ describe("startGuiGateway static mount", () => {
           outputTokens: 1,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          outcome: "completed",
           queued: false,
+          sessionId: "gui-browser-session",
+          sessionMode: "ai_active",
+          traceId: "trace-browser-stream",
         },
       };
     });
@@ -3140,8 +3194,9 @@ describe("startGuiGateway static mount", () => {
           browserUse: {
             provider: browserProvider,
           },
-        } as never,
+       } as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -3241,22 +3296,24 @@ describe("startGuiGateway static mount", () => {
         browserSessionUpdateHandler = handler;
       }),
     };
-    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input: {
-      readonly turnCapture?: {
-        readonly start: (sessionId: string, nextSequence: number) => void;
-        readonly finish: (sessionId: string) => void;
-      };
-    }) => {
-      input.turnCapture?.start("gui-browser-session", 1);
-      input.turnCapture?.finish("gui-browser-session");
+    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input) => {
+      await input.turnCapture?.start?.("gui-browser-session", 1);
+      await input.turnCapture?.finish?.("gui-browser-session");
       return {
         ok: true,
         result: {
           parts: [{ type: "text", text: "watching" }],
           inputTokens: 1,
           outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outcome: "completed",
+          queued: false,
+          sessionId: "gui-browser-session",
+          sessionMode: "ai_active",
+          traceId: "trace-browser-watch",
         },
-      } as never;
+      };
     });
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
@@ -3279,6 +3336,7 @@ describe("startGuiGateway static mount", () => {
           },
         } as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -3360,7 +3418,7 @@ describe("startGuiGateway static mount", () => {
         target: "browser" as const,
         status: "running" as const,
         updatedAt: "2026-05-12T12:00:00.000Z",
-        provider: "playwright",
+        provider: "playwright" as const,
         sessionId: "browser-live",
         ownership: "operator" as const,
         viewMode: "live" as const,
@@ -3400,6 +3458,7 @@ describe("startGuiGateway static mount", () => {
           },
         } as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -3479,6 +3538,7 @@ describe("startGuiGateway static mount", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -3561,7 +3621,7 @@ describe("startGuiGateway static mount", () => {
           });
         }
         abortObserved = true;
-        await new Promise<never>(() => undefined);
+        return new Promise<ManagedAgentInvocationRecord>(() => undefined);
       },
     };
     vi.mocked(processAdmittedTurn).mockReset();
@@ -3593,6 +3653,7 @@ describe("startGuiGateway static mount", () => {
           input: {},
         },
       });
+      assertManagedToolResult(toolResult);
       if (toolResult.isError) {
         throw new Error(toolResult.output);
       }
@@ -3638,6 +3699,7 @@ describe("startGuiGateway static mount", () => {
           }],
         }),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -3677,7 +3739,7 @@ describe("startGuiGateway static mount", () => {
       );
       await flushAsyncWork();
       const cancelState = await Promise.race([
-        cancelMessage.then(() => "resolved" as const),
+        Promise.resolve(cancelMessage).then(() => "resolved" as const),
         new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 0)),
       ]);
 
@@ -3828,6 +3890,7 @@ describe("startGuiGateway static mount", () => {
           input: {},
         },
       });
+      assertManagedToolResult(toolResult);
       if (toolResult.isError) {
         throw new Error(toolResult.output);
       }
@@ -3873,6 +3936,7 @@ describe("startGuiGateway static mount", () => {
           }],
         }),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -4052,6 +4116,7 @@ describe("startGuiGateway static mount", () => {
           input: {},
         },
       });
+      assertManagedToolResult(toolResult);
       if (toolResult.isError) {
         throw new Error(toolResult.output);
       }
@@ -4096,6 +4161,7 @@ describe("startGuiGateway static mount", () => {
           }],
         }),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -4240,6 +4306,7 @@ describe("startGuiGateway static mount", () => {
           reason: "operator approved isolated worktree write",
         })),
       });
+      assertManagedToolResult(toolResult);
       if (toolResult.isError) {
         throw new Error(toolResult.output);
       }
@@ -4278,6 +4345,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         managedInvocation: makeManagedInvocationAttachment(managedInvocation),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -4330,7 +4398,7 @@ describe("startGuiGateway static mount", () => {
             kilnSessionId: string;
             sequence: number;
             timestamp: string;
-            kind: string;
+            kind: OperatorSessionEvent["kind"];
             payload: Record<string, unknown>;
           };
         });
@@ -4459,21 +4527,21 @@ describe("startGuiGateway static mount", () => {
       lifecycleState: "timed_out" as const,
       expectedKind: "agent_invocation_failed",
       errorCode: "ENGINE_TIMEOUT",
-      diagnosticKind: "timeout",
+      diagnosticKind: "timeout" as const,
       attentionState: "timed_out",
     },
     {
       lifecycleState: "stale" as const,
       expectedKind: "agent_invocation_failed",
       errorCode: "ENGINE_STALE",
-      diagnosticKind: "heartbeat",
+      diagnosticKind: "failure" as const,
       attentionState: "stale",
     },
     {
       lifecycleState: "failed" as const,
       expectedKind: "agent_invocation_failed",
       errorCode: "ENGINE_FAILURE",
-      diagnosticKind: "failure",
+      diagnosticKind: "failure" as const,
       attentionState: "failed",
     },
   ])("streams terminal managed-agent $lifecycleState evidence through shared cockpit projection", async (terminalCase) => {
@@ -4569,6 +4637,7 @@ describe("startGuiGateway static mount", () => {
           input: {},
         },
       });
+      assertManagedToolResult(toolResult);
       if (toolResult.isError) {
         throw new Error(toolResult.output);
       }
@@ -4613,6 +4682,7 @@ describe("startGuiGateway static mount", () => {
           }],
         }),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -4665,7 +4735,7 @@ describe("startGuiGateway static mount", () => {
             kilnSessionId: string;
             sequence: number;
             timestamp: string;
-            kind: string;
+            kind: OperatorSessionEvent["kind"];
             payload: Record<string, unknown>;
           };
         });
@@ -4761,22 +4831,24 @@ describe("startGuiGateway static mount", () => {
       execute: vi.fn(),
       requestBrowserOperatorInput,
     };
-    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input: {
-      readonly turnCapture?: {
-        readonly start: (sessionId: string, nextSequence: number) => void;
-        readonly finish: (sessionId: string) => void;
-      };
-    }) => {
-      input.turnCapture?.start("gui-browser-session", 1);
-      input.turnCapture?.finish("gui-browser-session");
+    vi.mocked(processAdmittedTurn).mockImplementationOnce(async (input) => {
+      await input.turnCapture?.start?.("gui-browser-session", 1);
+      await input.turnCapture?.finish?.("gui-browser-session");
       return {
         ok: true,
         result: {
           parts: [{ type: "text", text: "ready" }],
           inputTokens: 1,
           outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          outcome: "completed",
+          queued: false,
+          sessionId: "browser-live",
+          sessionMode: "ai_active",
+          traceId: "trace-browser-input",
         },
-      } as never;
+      };
     });
     vi.stubGlobal("Bun", {
       serve: vi.fn().mockImplementation(({ port }: { port?: number }) => ({
@@ -4799,6 +4871,7 @@ describe("startGuiGateway static mount", () => {
           },
         } as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -4861,7 +4934,7 @@ describe("startGuiGateway static mount", () => {
         .map(([payload]) => JSON.parse(payload as string) as {
           type: string;
           event?: {
-            kind: string;
+            kind: OperatorSessionEvent["kind"];
             kilnSessionId: string;
             payload: Record<string, unknown>;
           };
@@ -4912,6 +4985,7 @@ describe("startGuiGateway static mount", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({ } as never),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -4974,7 +5048,8 @@ describe("startGuiGateway static mount", () => {
 
       expect(mockWs.send).toHaveBeenCalledTimes(1);
 
-      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+      const welcomeCall = mockWs.send.mock.calls[0]!;
+      const welcomeFrame = JSON.parse(welcomeCall[0]) as {
         type: string;
         executionRouteCatalog?: { routes: unknown[] };
       };
@@ -4993,7 +5068,7 @@ describe("startGuiGateway static mount", () => {
     const stop = vi.fn();
     let routeAvailable = true;
     const executionRouteSelection = {
-      getCatalog: vi.fn(async () => ({
+      getCatalog: vi.fn<OperatorExecutionRouteSelectionPort["getCatalog"]>(async () => ({
         routes: [{
           routeId: "openai-gpt",
           label: "OpenAI GPT",
@@ -5005,7 +5080,7 @@ describe("startGuiGateway static mount", () => {
           repairActions: routeAvailable ? [] as const : ["authenticate-provider"] as const,
         }],
       })),
-      admit: vi.fn(async () => ({
+      admit: vi.fn<OperatorExecutionRouteSelectionPort["admit"]>(async () => ({
         ok: true as const,
         admission: { routeId: "openai-gpt", providerId: "openai", providerModelId: GPT4O },
       })),
@@ -5033,6 +5108,7 @@ describe("startGuiGateway static mount", () => {
         getProviderAvailability: () => ({ openai: true }),
         executionRouteSelection,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -5045,7 +5121,8 @@ describe("startGuiGateway static mount", () => {
       const { handlers, mockWs, wsCtx } = guiSocketHarness.simulateConnection({ userId: "operator-1" });
       await handlers.onOpen!(new Event("open"), wsCtx);
 
-      const welcomeFrame = JSON.parse(mockWs.send.mock.calls[0][0] as string) as {
+      const welcomeCall = mockWs.send.mock.calls[0]!;
+      const welcomeFrame = JSON.parse(welcomeCall[0]) as {
         type: string;
         executionRouteCatalog: {
           routes: Array<{ routeId: string; availability: string }>;
@@ -5115,6 +5192,7 @@ describe("startGuiGateway static mount", () => {
         getSnapshot: async () => ({ } as never),
         getProviderAvailability: () => ({ "codex-oauth": true }),
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "",
@@ -5163,7 +5241,8 @@ describe("projectGuiOperatorModels", () => {
       counts: { total: 397, returned: 397, omitted: 0 },
     });
     expect(projection.entries).toHaveLength(397);
-    expect(projection.entries[0]).toMatchObject({
+    const firstEntry = projection.entries[0]!;
+    expect(firstEntry).toMatchObject({
       providerRoute: {
         providerId: "opencode",
         providerModelId: "provider-0/model-0",
@@ -5197,7 +5276,7 @@ describe("projectGuiOperatorModels", () => {
         eligible: false,
       },
     });
-    expect(projection.entries[0].eligibility.reasonCodes).toEqual(expect.arrayContaining([
+    expect(firstEntry.eligibility.reasonCodes).toEqual(expect.arrayContaining([
       "missing-entitlement-evidence",
     ]));
   });
@@ -5219,7 +5298,8 @@ describe("projectGuiOperatorModels", () => {
     });
 
     expect(projection.entries).toHaveLength(1);
-    expect(projection.entries[0]).toMatchObject({
+    const firstEntry = projection.entries[0]!;
+    expect(firstEntry).toMatchObject({
       credentialEvidence: { state: "authenticated" },
       entitlementEvidence: { state: "unknown" },
       routeHealth: { status: "healthy" },
@@ -5231,7 +5311,7 @@ describe("projectGuiOperatorModels", () => {
         ]),
       },
     });
-    expect(projection.entries[0].eligibility.reasonCodes).not.toContain("missing-route-health-evidence");
+    expect(firstEntry.eligibility.reasonCodes).not.toContain("missing-route-health-evidence");
   });
 
   it("marks account-scoped direct service models eligible for interactive GUI selection", () => {
@@ -5304,11 +5384,12 @@ describe("projectGuiOperatorModels", () => {
 
     expect(projection.catalogEvidence.status).toBe("partial");
     expect(projection.entries).toHaveLength(1);
-    expect(projection.entries[0]).toMatchObject({
+    const firstEntry = projection.entries[0]!;
+    expect(firstEntry).toMatchObject({
       freshness: { status: "stale" },
       eligibility: { eligible: false },
     });
-    expect(projection.entries[0].eligibility.reasonCodes).toContain("stale-discovered-evidence");
+    expect(firstEntry.eligibility.reasonCodes).toContain("stale-discovered-evidence");
   });
 
   it("includes discovered codex-oauth subscription models from direct OAuth discovery", () => {
@@ -5653,8 +5734,12 @@ describe("discoverOpencodeCliModelDiscovery", () => {
     budget = 32000;
     const second = await discoverOpencodeCliModelDiscovery();
 
-    expect(first.modelCapabilities?.["provider/reasoning-model"]?.deliberation.evidence.sourceRevision)
-      .not.toBe(second.modelCapabilities?.["provider/reasoning-model"]?.deliberation.evidence.sourceRevision);
+    const firstDeliberation = first.modelCapabilities?.["provider/reasoning-model"]?.deliberation;
+    const secondDeliberation = second.modelCapabilities?.["provider/reasoning-model"]?.deliberation;
+    if (!firstDeliberation || !secondDeliberation) {
+      throw new Error("Expected OpenCode reasoning deliberation evidence in both discoveries.");
+    }
+    expect(firstDeliberation.evidence.sourceRevision).not.toBe(secondDeliberation.evidence.sourceRevision);
   });
 
   it("diagnoses missing OpenCode CLI executable", async () => {
@@ -6995,7 +7080,7 @@ describe("discoverGuiDirectProviderModelDiscovery", () => {
     const codexAuthSpy = vi
       .spyOn(CodexOAuthCredentialPoolService.prototype, "listValidAccessTokenCandidates")
       .mockResolvedValue([{ credentialId: "test", accessToken: "test-codex-token" }]);
-    const fetchSpy = vi.fn(async (url: string) => {
+    const fetchSpy = vi.fn(async (url: string, _options?: RequestInit) => {
       const requestedUrl = new URL(url);
       return {
         ok: (
@@ -7426,6 +7511,7 @@ describe("GUI active turn lifecycle", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({}) as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -7509,6 +7595,7 @@ describe("GUI active turn lifecycle", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({}) as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
@@ -7597,6 +7684,7 @@ describe("GUI active turn lifecycle", () => {
         guiDistPath: distDir,
         getSnapshot: async () => ({}) as never,
         operatorTransport: {
+          ...guiOperatorTransportDefaults,
           sessionManager: {
             factory: vi.fn() as never,
             getProvider: () => "openai",
