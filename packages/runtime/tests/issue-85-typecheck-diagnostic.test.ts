@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { describe, it } from "vitest";
 
+// Disposable probe: removed before review.
 describe("issue 85 diagnostic probe", () => {
   it("prints targeted runtime test typecheck diagnostics", () => {
     let output = "";
