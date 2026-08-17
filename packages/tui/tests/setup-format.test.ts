@@ -54,6 +54,8 @@ function setupSnapshot(): KilnConfigSetupSnapshot {
         revocable: true,
       },
       semanticLoss: [],
+      semanticLimitations: [],
+      limitationAcceptances: [],
       classification: "runtime-policy-mismatch",
       recommendation: "Restart Codex with proven Full Access or choose a narrower trusted profile.",
       remediationRequiresApproval: true,
@@ -80,6 +82,7 @@ function skillCatalog(): KilnSkillCatalogSummarySnapshot {
       { harness: "codex", candidateCount: 12, descriptionBytes: 1200, budget: { status: "unknown", reason: "No authority." } },
       { harness: "claude", candidateCount: 9, descriptionBytes: 900, budget: { status: "unknown", reason: "No authority." } },
     ],
+    externalExposure: [],
   };
 }
 

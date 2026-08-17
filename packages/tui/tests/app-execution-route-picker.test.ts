@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExecutionRouteCatalog } from "@kilnai/gateway-contracts";
+import type { ExecutionRouteCatalog, GuiProviderDiscoveryResult } from "@kilnai/gateway-contracts";
 import type { ReactiveState } from "../src/state.js";
+import type { KilnTheme } from "../src/theme.js";
 
 const harness = vi.hoisted(() => ({
   renderer: null as {
@@ -220,9 +221,9 @@ vi.mock("@opentui/core", () => {
   };
 });
 
-import { startTui } from "../src/app.tsx";
+import { startTui } from "../src/app.js";
 
-const TEST_THEME = {
+const TEST_THEME: KilnTheme = {
   background: "#000000",
   backgroundElement: "#111111",
   backgroundPanel: "#161616",
@@ -233,8 +234,16 @@ const TEST_THEME = {
   warning: "#ffaa00",
   error: "#ff3366",
   border: "#444444",
+  borderActive: "#00aaee",
+  success: "#22dd88",
+  info: "#00aaee",
+  userFg: "#ffffff",
   userBg: "#1b1b1b",
+  userBorder: "#444444",
   assistantBg: "#222222",
+  toolFg: "#22dd88",
+  thinkingFg: "#999999",
+  cursorFg: "#ffffff",
 };
 
 async function flushUi(): Promise<void> {
@@ -575,7 +584,7 @@ describe("TUI execution-route picker", () => {
 
   it("keeps configured route evidence separate from provider model discovery", async () => {
     harness.switchExecutionRoute.mockResolvedValue("openai-gpt-5");
-    const providerModelsRef = {
+    const providerModelsRef: { current: Record<string, string[]> } = {
       current: {
         claude: ["claude-sonnet-4-6"],
         openai: ["gpt-5.4"],
@@ -882,13 +891,16 @@ describe("TUI execution-route picker", () => {
       switchExecutionRoute: harness.switchExecutionRoute,
       authenticateProvider: harness.authenticateProvider,
     }));
-    const providerDiscoveryRef = {
+    const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = {
       current: [
         {
           provider: "codex-oauth",
           available: false,
+          models: [],
+          status: "missing_auth",
           reason: "Codex OAuth authentication is missing.",
-          authState: "missing" as const,
+          authState: "missing",
+          lastCheckedAt: "2026-08-01T00:00:00.000Z",
         },
       ],
     };
@@ -970,13 +982,16 @@ describe("TUI execution-route picker", () => {
       authenticateProvider,
     };
     const createSession = vi.fn(async () => session);
-    const providerDiscoveryRef = {
+    const providerDiscoveryRef: { current: readonly GuiProviderDiscoveryResult[] } = {
       current: [
         {
           provider: "codex-oauth",
           available: false,
+          models: [],
+          status: "missing_auth",
           reason: "Codex OAuth authentication is missing.",
-          authState: "missing" as const,
+          authState: "missing",
+          lastCheckedAt: "2026-08-01T00:00:00.000Z",
         },
       ],
     };

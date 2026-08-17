@@ -68,6 +68,7 @@ describe("TUI handler managed-agent projection", () => {
       async *run() {
         // The projection must clear before completion evidence is available.
       },
+      dispose: vi.fn(),
     });
     ctx.theme = { userBg: "user-bg", userFg: "user-fg" } as HandlerContext["theme"];
     ctx.chatScrollBox = { content: { add: vi.fn() } } as unknown as HandlerContext["chatScrollBox"];

@@ -163,7 +163,8 @@ describe("GatewaySession execution-route switching", () => {
 
   it("rejects immediately when execution_route_changed does not match the pending request", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const promise = session.switchExecutionRoute("openai-gpt-5", "work");
@@ -187,7 +188,8 @@ describe("GatewaySession execution-route switching", () => {
 
   it("sends a requestId and resolves the matching execution_route_changed acknowledgement", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const promise = session.switchExecutionRoute("openai-gpt-5");
@@ -206,7 +208,8 @@ describe("GatewaySession execution-route switching", () => {
 
   it("rejects a pending route switch from its correlated failure frame", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const promise = session.switchExecutionRoute("openai-gpt-5");
@@ -214,9 +217,9 @@ describe("GatewaySession execution-route switching", () => {
 
     const frame = sentExecutionRouteFrame(ws);
 
-    let rejection: Error | null = null;
+    const rejections: Error[] = [];
     promise.catch((error: Error) => {
-      rejection = error;
+      rejections.push(error);
       return "";
     });
 
@@ -231,15 +234,17 @@ describe("GatewaySession execution-route switching", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(rejection).toBeInstanceOf(Error);
-    expect(rejection?.message).toBe("Provider switch failed");
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0]!).toBeInstanceOf(Error);
+    expect(rejections[0]!.message).toBe("Provider switch failed");
     await expect(promise).rejects.toThrow("Provider switch failed");
     await session.dispose();
   });
 
   it("requires an active connection before sending route selection intent", async () => {
     const disconnectedSession = new GatewaySession("ws://localhost:4801/tui/ws");
-    const disconnectedWs = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const disconnectedWs = wsInstances[0]!;
 
     await expect(disconnectedSession.switchExecutionRoute("openai-gpt-5")).rejects.toThrow("active TUI gateway connection");
     expect(disconnectedWs.send).not.toHaveBeenCalled();
@@ -266,7 +271,8 @@ describe("GatewaySession execution-route switching", () => {
 
   it("refreshes and exposes the canonical execution-route catalog", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const promise = session.refreshExecutionRoutes();
@@ -311,7 +317,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("projects voice audio parts from done frames as terminal artifact text", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -345,7 +352,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("preserves restored context evidence as historical TUI activity metadata", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
     const events: unknown[] = [];
     const collect = (async () => {
@@ -402,7 +410,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("projects canonical tool and file events with session identity", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -598,7 +607,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("projects canonical work item execution events with attempt state", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -692,7 +702,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("projects lifecycle attribution as canonical activity evidence", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -785,7 +796,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("projects read and tree tool results from full payload envelopes", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -937,7 +949,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("uses presentation intent text fallback for terminal tool results", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -1014,7 +1027,8 @@ describe("GatewaySession canonical session events", () => {
 
   it("uses presentation intent text fallback for denied-skills terminal tool results", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const events: unknown[] = [];
@@ -1118,7 +1132,8 @@ describe("GatewaySession execution modes", () => {
 
   it("sends shared executionMode instead of a local plan flag", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: "welcome",
@@ -1152,7 +1167,8 @@ describe("GatewaySession execution modes", () => {
 
   it("sends requestedAuthority when provided on run options", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const collect = (async () => {
@@ -1184,7 +1200,8 @@ describe("GatewaySession execution modes", () => {
 
   it("sends provider-neutral communication intent on the message frame", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
     const collect = (async () => {
       for await (const _event of session.run({
@@ -1219,7 +1236,8 @@ describe("GatewaySession provider authentication", () => {
   it("sends provider_auth and resolves matching completion", async () => {
     const onWelcome = vi.fn();
     const session = new GatewaySession("ws://localhost:4801/tui/ws", onWelcome);
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     const promise = session.authenticateProvider("opencode-go", { apiKey: "sk-test", tier: "go" });
@@ -1254,7 +1272,8 @@ describe("GatewaySession provider authentication", () => {
 
   it("forwards device code auth start details before completion", async () => {
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     const onStarted = vi.fn();
     ws.simulateOpen();
 
@@ -1308,7 +1327,8 @@ describe("GatewaySession operator theme frames", () => {
     const applyTheme = vi.fn().mockResolvedValue({ ok: true, appliedTheme: "vesper" });
     const clearHandler = setTuiOperatorThemeHandler(applyTheme);
     const session = new GatewaySession("ws://localhost:4801/tui/ws");
-    const ws = wsInstances[0];
+    expect(wsInstances).toHaveLength(1);
+    const ws = wsInstances[0]!;
     ws.simulateOpen();
 
     ws.simulateMessage(JSON.stringify({

@@ -186,8 +186,8 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   `include: ["src"]` and exclude `src/**/*.test.ts`, while suites live in
   `tests/`, so type drift between tests and source has been invisible. The
   `typecheck:tests` gate now exists and admits packages one at a time;
-  `@kilnai/tools`, `@kilnai/gateway-contracts`, and `@kilnai/sdk` currently
-  qualify.
+  `@kilnai/tools`, `@kilnai/gateway-contracts`, `@kilnai/sdk`, and `@kilnai/tui`
+  currently qualify.
 
   Remaining backlog, measured by extending each package's own `tsconfig.json`
   with `rootDir` at the package root so `src` and `tests` compile together:
@@ -197,7 +197,7 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   | tools | 0 (admitted) |
   | gateway-contracts | 0 (admitted) |
   | sdk | 0 (admitted) |
-  | tui | 129 |
+  | tui | 0 (admitted) |
   | cli | 281 |
   | core | 488 |
   | native | 262 |
@@ -209,8 +209,9 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   into the `sdk` program. A package-root `rootDir` therefore reports 44
   `TS6059` violations that cannot be resolved from inside `sdk`, so
   `packages/sdk/tsconfig.test.json` uses `"rootDir": "../.."` (the monorepo
-  root) instead. No compiler option is loosened; the same pattern will apply
-  to `tui`, `native`, `cli`, and `gui`, which share the fixtures.
+  root) instead. No compiler option is loosened; the same pattern now applies
+  to `tui` and will apply to `native`, `cli`, and `gui`, which share the
+  fixtures.
 
   Extending each package's own config resolves the measurement artifacts of the
   first probe: `native` fell from 596 to 262 because the package config enables
