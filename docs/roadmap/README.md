@@ -37,7 +37,7 @@ roadmap reorganization.
 | 6 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Normal | Define workload fixture governance after release and control-plane work. |
 | 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
 | 8 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Normal | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
-| 9 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Resolve the provider-terms premise, then land the bounded verification surface as locally useful work. |
+| 9 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
 
 ## Dependency Rules
 
