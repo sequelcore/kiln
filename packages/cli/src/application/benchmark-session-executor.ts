@@ -448,6 +448,11 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         activeAgentId: context.profile.id,
         providerId: result.successfulProviderId,
         modelId: result.successfulModelId,
+        // The route the trial asked for, recorded alongside the route it got.
+        // A benchmark comparing conditions assumes the model was held fixed, and
+        // a silent fallback would otherwise be indistinguishable from a clean run.
+        ...(preferredProvider ? { expectedProviderId: preferredProvider } : {}),
+        ...(effectiveModel ? { expectedModelId: effectiveModel } : {}),
         costEvidence: result.finalCostEvidence,
         sessionSucceeded: result.sessionSucceeded,
         providerRequests: result.providerRequests,

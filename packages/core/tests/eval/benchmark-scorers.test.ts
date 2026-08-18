@@ -458,3 +458,56 @@ describe("createBenchmarkProfileScorers", () => {
     })).resolves.toMatchObject({ score: 0, reasoning: expect.stringContaining("cache gain") });
   });
 });
+
+describe("execution integrity route identity", () => {
+  const integrityScorer = () => createBenchmarkProfileScorers(
+    KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-tool-agent")!,
+  ).find((scorer) => scorer.name === "execution-integrity")!;
+
+  const clean = {
+    sessionSucceeded: true,
+    providerId: "opencode-go",
+    modelId: "kimi-k3",
+    expectedToolCalls: [{ name: "read" }],
+    toolCalls: [{ name: "read" }],
+  };
+
+  it("fails when the trial ran on a different model than it requested", async () => {
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: { ...clean, expectedProviderId: "opencode-go", expectedModelId: "glm-5.3" },
+    });
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("not the requested");
+  });
+
+  it("fails when the trial ran on a different provider than it requested", async () => {
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: { ...clean, expectedProviderId: "codex-oauth", expectedModelId: "kimi-k3" },
+    });
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("not the requested");
+  });
+
+  it("passes when the resolved route is the requested route", async () => {
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: { ...clean, expectedProviderId: "opencode-go", expectedModelId: "kimi-k3" },
+    });
+    expect(result.score).toBe(1);
+  });
+
+  it("says so when no route was requested, rather than implying a match", async () => {
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: clean,
+    });
+    expect(result.score).toBe(1);
+    expect(result.reasoning).toContain("no route was requested");
+  });
+});

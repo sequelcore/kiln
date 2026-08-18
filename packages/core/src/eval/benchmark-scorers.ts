@@ -259,10 +259,31 @@ class ExecutionIntegrityScorer implements Scorer {
         reasoning: "successful session is missing resolved provider/model route identity",
       };
     }
+    // Identity is only integrity evidence when it is the identity the trial
+    // asked for. Recording a resolved route proves a route ran, not that the
+    // intended one did, so a silent fallback would otherwise score as clean.
+    const expectedProviderId = input.metadata.expectedProviderId;
+    const expectedModelId = input.metadata.expectedModelId;
+    const mismatches: string[] = [];
+    if (typeof expectedProviderId === "string" && expectedProviderId !== providerId) {
+      mismatches.push(`provider ${providerId} is not the requested ${expectedProviderId}`);
+    }
+    if (typeof expectedModelId === "string" && expectedModelId !== modelId) {
+      mismatches.push(`model ${modelId} is not the requested ${expectedModelId}`);
+    }
+    if (mismatches.length > 0) {
+      return {
+        name: this.name,
+        score: 0,
+        reasoning: `route identity differs from the requested route: ${mismatches.join("; ")}`,
+      };
+    }
     return {
       name: this.name,
       score: 1,
-      reasoning: "successful terminal state and resolved route identity observed",
+      reasoning: expectedProviderId === undefined && expectedModelId === undefined
+        ? "successful terminal state and resolved route identity observed; no route was requested to compare against"
+        : "successful terminal state and route identity matching the requested route",
     };
   }
 }
