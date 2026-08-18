@@ -46,8 +46,10 @@ export {
   pathWithinRoot,
 } from "./bounded-work-scope-policy.js";
 export type {
+  CandidateSubjectDigests,
   FormalProofObligation,
   FormalProofOutcome,
+  FormalProofSubject,
   FormalProofVerdict,
   FormalProofVerifier,
   RecordFormalProofVerdictInput,

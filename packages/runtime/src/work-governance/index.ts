@@ -30,3 +30,5 @@ export type {
   CapturedGitWorktreeCandidate,
   GitWorktreeCaptureFailureReason,
 } from "./bounded-work-candidate-capture.js";
+export { resolveCandidateSubjectDigests } from "./bounded-work-candidate-subjects.js";
+export type { ResolveCandidateSubjectDigestsInput } from "./bounded-work-candidate-subjects.js";

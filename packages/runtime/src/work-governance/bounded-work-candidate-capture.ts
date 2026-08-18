@@ -1,5 +1,3 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +9,7 @@ import {
   type BoundedWorkEvidenceKind,
   type CreateBoundedWorkCandidateInput,
 } from "@kilnai/core";
+import { digestContent, gitText, gitTreeContentDigest } from "./git-object-access.js";
 
 type CandidateIdentityInput = Omit<
   CreateBoundedWorkCandidateInput,
@@ -215,32 +214,6 @@ async function materializeWorktreeTree(root: string): Promise<string> {
 async function hasGitlinks(root: string): Promise<boolean> {
   const entries = await gitText(root, ["ls-files", "--stage"]);
   return entries.split("\n").some((entry) => entry.startsWith("160000 "));
-}
-
-async function gitTreeContentDigest(root: string, objectId: string): Promise<string> {
-  return digestContent(await git(root, ["cat-file", "tree", objectId]));
-}
-
-function git(root: string, args: readonly string[], indexPath?: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    execFile("git", [...args], {
-      cwd: root,
-      encoding: "buffer",
-      maxBuffer: 64 * 1024 * 1024,
-      env: indexPath === undefined ? process.env : { ...process.env, GIT_INDEX_FILE: indexPath },
-    }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
-    });
-  });
-}
-
-async function gitText(root: string, args: readonly string[], indexPath?: string): Promise<string> {
-  return (await git(root, args, indexPath)).toString("utf8");
-}
-
-function digestContent(value: Uint8Array): string {
-  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 function reconciliation(reason: BoundedWorkCaptureReconciliation["reason"]): BoundedWorkCaptureReconciliation {

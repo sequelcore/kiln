@@ -1,7 +1,7 @@
 /**
  * Deterministic-verifier verdicts admitted as bounded-work evidence.
  *
- * A verdict records what a formal verifier proved, about which exact source,
+ * A verdict records what a formal verifier proved, about which exact sources,
  * with which toolchain. It is inert on its own: it carries no completion
  * authority and does not decide acceptance. Binding it to a candidate is what
  * makes it evidence, and the work-governance boundary decides whether that
@@ -9,9 +9,16 @@
  *
  * Two properties are load-bearing:
  *
- * - A verdict names the content it was produced against. Evidence bound to a
- *   candidate whose content has since changed is rejected rather than reused,
- *   so a proof cannot outlive the code it proved.
+ * - A verdict names the coverage it was produced against: one or more
+ *   candidate-relative paths, each with the content digest the verifier ran
+ *   against. Binding proves that every covered path still has that exact
+ *   content in the candidate; a path the candidate has changed or dropped
+ *   voids the binding, so a proof cannot outlive the code it proved. A
+ *   verifier's subject is rarely a whole candidate — a captured candidate is
+ *   an entire git worktree — so binding does not require the covered paths to
+ *   exhaust the candidate, and it does not decide whether partial coverage is
+ *   sufficient for any acceptance criterion; that policy question belongs to
+ *   the work-governance boundary, not to this module.
  * - A verdict is `proved` only when every declared obligation is proved.
  *   Unresolved and refuted obligations fail closed; an empty obligation set is
  *   not a proof of anything.
@@ -28,7 +35,7 @@ import {
   requireBoundedWorkDigest,
 } from "./bounded-work-content.js";
 
-export const FORMAL_PROOF_VERDICT_SCHEMA = "kiln.formal-proof-verdict/v1" as const;
+export const FORMAL_PROOF_VERDICT_SCHEMA = "kiln.formal-proof-verdict/v2" as const;
 
 /** Outcome of one proof obligation, or of a verdict as a whole. */
 export type FormalProofOutcome = "proved" | "refuted" | "unresolved";
@@ -55,10 +62,36 @@ export interface FormalProofObligation {
   readonly detail?: string;
 }
 
+/** One source the verifier ran against, named in the candidate's content namespace. */
+export interface FormalProofSubject {
+  readonly path: string;
+  readonly contentDigest: string;
+}
+
+/**
+ * Per-path content digests resolved from one candidate, carrying the content
+ * digest of the candidate they were resolved from so a map cannot be applied
+ * to a candidate it does not describe.
+ *
+ * This ties a digest map to *which* candidate it claims to describe; it does
+ * not and cannot prove the map was actually derived from that candidate — core
+ * is pure and has no git access. That derivation proof is a runtime concern
+ * (the resolver recomputes the tree digest and requires it to match before
+ * emitting this shape). The two checks are not redundant: this one rejects a
+ * map asserted about the wrong candidate, the runtime one rejects a map that
+ * lies about the right one.
+ */
+export interface CandidateSubjectDigests {
+  /** `candidateContentDigest` of the candidate these were resolved from. */
+  readonly candidateContentDigest: string;
+  /** Content digest per candidate-relative POSIX path. */
+  readonly digests: ReadonlyMap<string, string>;
+}
+
 export interface RecordFormalProofVerdictInput {
   readonly verifier: FormalProofVerifier;
-  /** Content digest of the exact source the verifier ran against. */
-  readonly subjectContentDigest: string;
+  /** Every source the verifier ran against. At least one is required. */
+  readonly subjects: readonly FormalProofSubject[];
   readonly obligations: readonly FormalProofObligation[];
   readonly producedAt: string;
 }
@@ -66,7 +99,8 @@ export interface RecordFormalProofVerdictInput {
 export interface FormalProofVerdict {
   readonly schema: typeof FORMAL_PROOF_VERDICT_SCHEMA;
   readonly verifier: FormalProofVerifier;
-  readonly subjectContentDigest: string;
+  /** Sorted by path so `verdictDigest` is stable regardless of caller order. */
+  readonly subjects: readonly FormalProofSubject[];
   readonly obligations: readonly FormalProofObligation[];
   readonly outcome: FormalProofOutcome;
   readonly producedAt: string;
@@ -83,15 +117,16 @@ export function recordFormalProofVerdict(input: RecordFormalProofVerdictInput): 
   if (input.obligations.length === 0) {
     throw new Error("formal-proof verdict must declare at least one obligation");
   }
+  if (input.subjects.length === 0) {
+    throw new Error("formal-proof verdict must cover at least one subject");
+  }
   const obligations = input.obligations.map(normalizeObligation);
   assertUniqueObligationIds(obligations);
+  const subjects = normalizeSubjects(input.subjects);
   const verdict = {
     schema: FORMAL_PROOF_VERDICT_SCHEMA,
     verifier: normalizeVerifier(input.verifier),
-    subjectContentDigest: requireBoundedWorkDigest(
-      input.subjectContentDigest,
-      "subjectContentDigest",
-    ),
+    subjects,
     obligations,
     outcome: deriveOutcome(obligations),
     producedAt: requireTimestamp(input.producedAt, "producedAt"),
@@ -102,18 +137,44 @@ export function recordFormalProofVerdict(input: RecordFormalProofVerdictInput): 
 /**
  * Bind a verdict to the candidate it was produced against.
  *
- * Rejects a verdict whose subject content differs from the candidate's, which
- * is the case where the source changed after the proof ran. A refuted or
- * unresolved verdict still binds: a negative result is evidence, and hiding it
- * would let a failed proof leave no trace.
+ * First checks that `candidateSubjects` was resolved from this candidate, not
+ * some other one — a caller-supplied map with no such tie would let evidence
+ * for candidate A bind silently to candidate B. Then checks every subject the
+ * verdict covers against the candidate's per-path digests, rather than the
+ * candidate's whole-tree digest: a verifier's subject is one file, a
+ * candidate is an entire git worktree, and a file digest never equals a tree
+ * digest. Throws naming the first covered path that is missing from the
+ * candidate or whose content has changed. A refuted or unresolved verdict
+ * still binds: a negative result is evidence, and hiding it would let a
+ * failed proof leave no trace.
  */
 export function bindFormalProofEvidence(input: {
   readonly candidate: BoundedWorkCandidateIdentity;
+  readonly candidateSubjects: CandidateSubjectDigests;
   readonly verdict: FormalProofVerdict;
   readonly recordedAt: string;
 }): BoundedWorkCandidateEvidence {
-  if (input.verdict.subjectContentDigest !== input.candidate.candidateContentDigest) {
-    throw new Error("formal-proof verdict subject does not match candidate content");
+  const candidateSubjectsDigest = requireBoundedWorkDigest(
+    input.candidateSubjects.candidateContentDigest,
+    "candidateSubjects.candidateContentDigest",
+  );
+  if (candidateSubjectsDigest !== input.candidate.candidateContentDigest) {
+    throw new Error(
+      "candidateSubjects were resolved from a different candidate than the one being bound",
+    );
+  }
+  for (const subject of input.verdict.subjects) {
+    const candidateDigest = input.candidateSubjects.digests.get(subject.path);
+    if (candidateDigest === undefined) {
+      throw new Error(
+        `formal-proof verdict covers ${subject.path}, which is absent from the candidate`,
+      );
+    }
+    if (candidateDigest !== subject.contentDigest) {
+      throw new Error(
+        `formal-proof verdict covers ${subject.path}, whose content changed after the proof ran`,
+      );
+    }
   }
   return bindBoundedWorkEvidence({
     candidate: input.candidate,
@@ -153,6 +214,41 @@ function normalizeObligation(obligation: FormalProofObligation): FormalProofObli
     outcome,
     ...(detail === undefined || detail.length === 0 ? {} : { detail }),
   };
+}
+
+function normalizeSubjects(subjects: readonly FormalProofSubject[]): readonly FormalProofSubject[] {
+  const normalized = subjects.map((subject) => ({
+    path: requireSubjectPath(subject.path),
+    contentDigest: requireBoundedWorkDigest(subject.contentDigest, "subject.contentDigest"),
+  }));
+  const seen = new Set<string>();
+  for (const subject of normalized) {
+    if (seen.has(subject.path)) {
+      throw new Error(`duplicate subject path ${subject.path}`);
+    }
+    seen.add(subject.path);
+  }
+  return normalized.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/** Rejects anything that could resolve outside the candidate it names paths in. */
+function requireSubjectPath(path: string): string {
+  const trimmed = path.trim();
+  if (trimmed.length === 0) throw new Error("subject path is required");
+  if (trimmed.includes("\\")) {
+    throw new Error(`subject path ${trimmed} must use POSIX separators`);
+  }
+  if (trimmed.startsWith("/")) {
+    throw new Error(`subject path ${trimmed} must be candidate-relative`);
+  }
+  if (/^[A-Za-z]:/u.test(trimmed)) {
+    throw new Error(`subject path ${trimmed} must not carry a drive letter`);
+  }
+  const segments = trimmed.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new Error(`subject path ${trimmed} must not contain empty, '.', or '..' segments`);
+  }
+  return trimmed;
 }
 
 function assertUniqueObligationIds(obligations: readonly FormalProofObligation[]): void {
