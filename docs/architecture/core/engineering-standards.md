@@ -76,6 +76,37 @@ discarding it is preferred over carrying readers that exist only to parse it.
 - Safety is fail-closed unless the owning architecture document explicitly
   defines a fail-open exception.
 
+## Evidence And Authority
+
+- Measurement is evidence. It never confers or revokes authority by itself. A
+  law, an operator policy, or a declared release rule may use evidence to confer
+  or withhold authority; a benchmark result may not become that rule silently.
+- The operator configures routes, models, and providers. A Kiln measurement
+  reports what was observed on a route and never removes a route from the
+  operator's selector.
+- Where evidence does condition something, it conditions the privilege or the
+  deployment profile, not the model. A configuration unqualified for production
+  writes may still be admitted for read-only work, a sandbox, or a supervised
+  run. Withdrawing a model from every purpose because it lacks evidence for one
+  is disproportionate and usually wrong.
+- Evidence covers the configuration it was produced against: model version,
+  scaffold, tools, permissions, environment, and task class. A result attached
+  to a bare model name overstates its own scope, and a model, prompt, tool,
+  permission, or retrieval change invalidates or narrows it.
+- Keep `unmeasured`, `failed`, `stale`, and `incompatible` distinct. Collapsing
+  them into "did not pass" treats an untested new model as equivalent to one
+  that demonstrably failed, and treats a missing capability as a competence
+  judgment.
+- A gate declares its protected action, required evidence, threshold, and
+  expiry before the result is observed. A threshold chosen after seeing the
+  number is not a gate.
+- An authorized risk owner may override a gate. Record the scope and expiry of
+  that override, and who accepted the residual risk. Only a legal or
+  nondelegable rule forecloses the override entirely.
+- Passing a gate grants nothing beyond the privilege it names. Least privilege,
+  sandboxing, approval boundaries, and rollback remain in force, because a
+  measurement predicts behavior and does not constrain it.
+
 ## Native Acceleration Boundary
 
 - Rust, WASM, and sidecars must consume and produce canonical contract-shaped
