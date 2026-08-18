@@ -17,7 +17,8 @@ import { processAdmittedTurn } from "../../src/gateway/message-pipeline/process-
 import { projectAdmittedTurnContext } from "../../src/gateway/message-pipeline/admitted-turn-context.js";
 import { sanitizeAssistantEgressText } from "../../src/gateway/message-pipeline/assistant-egress-text.js";
 import type { AdmittedTurnContext } from "../../src/gateway/message-pipeline/process-admitted-turn.js";
-import type { CanonicalSessionEvent, Capability, AuthorityDescriptor } from "@kilnai/core";
+import type { CanonicalSessionEvent } from "@kilnai/core/events";
+import type { Capability, AuthorityDescriptor } from "@kilnai/core/engine";
 import type { RuntimeSessionOrchestrator, OrchestrateResult } from "../../src/session/runtime-session-orchestrator.js";
 import type { SessionRegistry } from "../../src/session/persistence/session-registry.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";

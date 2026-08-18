@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BenchmarkItemExecutionContext } from "@kilnai/core";
+import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
