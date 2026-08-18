@@ -42,6 +42,19 @@ export {
   pathWithinRoot,
 } from "./bounded-work-scope-policy.js";
 export type {
+  FormalProofObligation,
+  FormalProofOutcome,
+  FormalProofVerdict,
+  FormalProofVerifier,
+  RecordFormalProofVerdictInput,
+} from "./formal-proof-verdict.js";
+export {
+  FORMAL_PROOF_VERDICT_SCHEMA,
+  bindFormalProofEvidence,
+  recordFormalProofVerdict,
+  unprovenCriteria,
+} from "./formal-proof-verdict.js";
+export type {
   BindBoundedWorkEvidenceInput,
   BoundedWorkBaselineIdentity,
   BoundedWorkCandidateEvidence,
