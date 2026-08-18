@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createFormalVerifyTool,
+  formalProofObligations,
   FORMAL_VERIFY_CAPABILITY,
 } from "../../src/tools/infrastructure/formal-verify-tool.js";
+import type { DafnyProofLog } from "../../src/verification/dafny-proof-log.js";
 import { TOOL_SCHEMAS } from "../../src/tools/domain/tool.js";
 import { BUILTIN_TOOL_EFFECT_ENVELOPES } from "../../src/tools/domain/tool-effect-envelopes.js";
 import type {
@@ -80,5 +82,59 @@ describe("formal_verify execution", () => {
     // The scripted runner writes no log, so the run completes with no efforts.
     const result = await tool().execute(call("policy.dfy"));
     expect(result.isError).toBe(true);
+  });
+});
+
+describe("formalProofObligations", () => {
+  const log = (outcome: "passed" | "failed"): DafnyProofLog => ({
+    efforts: [
+      { symbol: "admitPath", check: "correctness", outcome, durationMs: 50, resourceCount: 26991 },
+      { symbol: "admitPath", check: "well-formedness", outcome: "passed", durationMs: 20, resourceCount: 100 },
+      { symbol: "helperOnly", check: "correctness", outcome: "passed", durationMs: 10, resourceCount: 50 },
+    ],
+    diagnostics:
+      outcome === "failed"
+        ? [{ file: "policy.dfy", line: 44, character: 4, message: "a postcondition could not be proved", related: ["this is the postcondition"] }]
+        : [],
+  });
+
+  it("maps a discharged correctness effort to a proved obligation", () => {
+    const obligations = formalProofObligations({
+      log: log("passed"),
+      criterionBySymbol: { admitPath: "AC-1" },
+    });
+    expect(obligations).toEqual([
+      { id: "admitPath/correctness", criterionId: "AC-1", outcome: "proved" },
+    ]);
+  });
+
+  it("omits symbols the contract did not map, so they cannot credit a criterion", () => {
+    const obligations = formalProofObligations({
+      log: log("passed"),
+      criterionBySymbol: { admitPath: "AC-1" },
+    });
+    expect(obligations.some((o) => o.id.startsWith("helperOnly"))).toBe(false);
+  });
+
+  it("ignores well-formedness efforts, which do not establish implementation correctness", () => {
+    const obligations = formalProofObligations({
+      log: log("passed"),
+      criterionBySymbol: { admitPath: "AC-1" },
+    });
+    expect(obligations).toHaveLength(1);
+    expect(obligations[0]?.id).toBe("admitPath/correctness");
+  });
+
+  it("carries the verifier diagnostic as detail on a refuted obligation", () => {
+    const [obligation] = formalProofObligations({
+      log: log("failed"),
+      criterionBySymbol: { admitPath: "AC-1" },
+    });
+    expect(obligation?.outcome).toBe("refuted");
+    expect(obligation?.detail).toContain("policy.dfy:44:4");
+  });
+
+  it("returns nothing when the contract mapped no symbol", () => {
+    expect(formalProofObligations({ log: log("passed"), criterionBySymbol: {} })).toEqual([]);
   });
 });

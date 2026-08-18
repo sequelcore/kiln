@@ -23,6 +23,7 @@
 import { dirname, join } from "node:path";
 import { correctnessEfforts } from "../../verification/dafny-proof-log.js";
 import type { DafnyProofEffort, DafnyProofLog } from "../../verification/dafny-proof-log.js";
+import type { FormalProofObligation } from "../../work-governance/formal-proof-verdict.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { getBuiltinEffectEnvelope } from "../domain/tool-effect-envelopes.js";
 import { DafnyVerifier } from "./dafny-verifier.js";
@@ -78,6 +79,50 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
       return toSuccessResult(renderRun(run.log));
     },
   };
+}
+
+/**
+ * Turn a verifier log into proof obligations, using the criterion mapping the
+ * caller resolved from its adopted contract.
+ *
+ * The mapping is a parameter, never inferred from the log. Which acceptance
+ * criterion a proof discharges is a claim about intent, and only the contract
+ * can make it. A symbol absent from the mapping proves something real but
+ * discharges no declared criterion, so it is not an obligation and is omitted
+ * rather than credited against the contract.
+ *
+ * Only correctness efforts are considered: a well-formedness effort establishes
+ * that a specification is meaningful, not that the implementation satisfies it.
+ */
+export function formalProofObligations(input: {
+  readonly log: DafnyProofLog;
+  readonly criterionBySymbol: Readonly<Record<string, string>>;
+}): readonly FormalProofObligation[] {
+  const detail = renderDiagnostics(input.log);
+  const obligations: FormalProofObligation[] = [];
+  for (const effort of correctnessEfforts(input.log)) {
+    const criterionId = input.criterionBySymbol[effort.symbol];
+    if (criterionId === undefined) continue;
+    const outcome =
+      effort.outcome === "passed" ? "proved" : effort.outcome === "failed" ? "refuted" : "unresolved";
+    obligations.push({
+      id: `${effort.symbol}/${effort.check}`,
+      criterionId,
+      outcome,
+      ...(outcome === "proved" ? {} : { detail }),
+    });
+  }
+  return obligations;
+}
+
+function renderDiagnostics(log: DafnyProofLog): string {
+  if (log.diagnostics.length === 0) return "verifier reported no diagnostic";
+  return log.diagnostics
+    .map((diagnostic) =>
+      [`${diagnostic.file}:${diagnostic.line}:${diagnostic.character} ${diagnostic.message}`, ...diagnostic.related]
+        .join(" | "),
+    )
+    .join(" ;; ");
 }
 
 function renderRun(log: DafnyProofLog): string {
