@@ -31,6 +31,7 @@ import {
 import { BashTool, type BashToolOptions } from "./infrastructure/bash-tool.js";
 import { CodeIntelligenceTool, type CodeIntelligenceToolOptions } from "./infrastructure/code-intelligence-tool.js";
 import { EditTool } from "./infrastructure/edit-tool.js";
+import { createFormalVerifyTool, type FormalVerifyToolOptions } from "./infrastructure/formal-verify-tool.js";
 import { GitTool, type GitToolOptions } from "./infrastructure/git-tool.js";
 import { GlobTool, type GlobToolOptions } from "./infrastructure/glob-tool.js";
 import { GrepTool, type GrepToolOptions } from "./infrastructure/grep-tool.js";
@@ -114,6 +115,12 @@ export interface DefaultBuiltinToolRegistryOptions {
   readonly browserUse?: InteractiveUseToolOptions;
   readonly computerUse?: InteractiveUseToolOptions;
   readonly git?: GitToolOptions;
+  /**
+   * Deterministic verifier for `formal_verify`. The tool is offered only when a
+   * verifier executable is configured: Kiln bundles none, and a tool that can
+   * only fail is worse than an absent one.
+   */
+  readonly formalVerify?: FormalVerifyToolOptions;
   readonly codeIntelligence?: CodeIntelligenceToolOptions;
   readonly monitor?: MonitorRegistryOptions;
   readonly monitorRegistry?: MonitorRegistry;
@@ -315,6 +322,7 @@ export function createDefaultBuiltinTools(
     new ResourceListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceTemplateListTool({ resources: options.resourceRegistry ?? (() => undefined) }),
     new ResourceReadTool({ resources: options.resourceRegistry ?? (() => undefined) }),
+    ...(options.formalVerify ? [createFormalVerifyTool(options.formalVerify)] : []),
     ...(options.additionalTools ?? []),
   ];
   catalog = ToolCatalogIndex.fromTools(tools);

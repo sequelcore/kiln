@@ -6,6 +6,7 @@ import {
 } from "../../src/tools/infrastructure/formal-verify-tool.js";
 import type { DafnyProofLog } from "../../src/verification/dafny-proof-log.js";
 import { TOOL_SCHEMAS } from "../../src/tools/domain/tool.js";
+import { createDefaultBuiltinTools } from "../../src/tools/default-tool-surface.js";
 import { BUILTIN_TOOL_EFFECT_ENVELOPES } from "../../src/tools/domain/tool-effect-envelopes.js";
 import type {
   CommandProcessRequest,
@@ -136,5 +137,24 @@ describe("formalProofObligations", () => {
 
   it("returns nothing when the contract mapped no symbol", () => {
     expect(formalProofObligations({ log: log("passed"), criterionBySymbol: {} })).toEqual([]);
+  });
+});
+
+describe("formal_verify in the default tool surface", () => {
+  it("is absent when no verifier executable is configured", () => {
+    const names = createDefaultBuiltinTools({}).map((tool) => tool.name);
+    expect(names).not.toContain("formal_verify");
+  });
+
+  it("is offered once a verifier is configured", () => {
+    const names = createDefaultBuiltinTools({ formalVerify: { executable: "dafny" } })
+      .map((tool) => tool.name);
+    expect(names).toContain("formal_verify");
+  });
+
+  it("carries its effect envelope into the surface", () => {
+    const tool = createDefaultBuiltinTools({ formalVerify: { executable: "dafny" } })
+      .find((entry) => entry.name === "formal_verify");
+    expect(tool?.effectEnvelope?.operation).toBe("mutate");
   });
 });
