@@ -97,15 +97,74 @@ export interface BoundedWorkMeasuredUsage {
  * `.` denotes the repository root and therefore contains every path.
  */
 export function pathWithinRoot(path: string, root: string): boolean {
+  //@ verify
+  //@ ensures root === "." ==> \result === true
+  //@ ensures path === root ==> \result === true
+
   return root === "." || path === root || path.startsWith(`${root}/`);
+}
+
+/** Whether any root in `roots` contains `path`. */
+export function matchesAnyRoot(roots: readonly string[], path: string): boolean {
+  //@ verify
+  //@ ensures \result === true ==> exists(k: nat, k < roots.length && pathWithinRoot(path, roots[k]))
+  //@ ensures \result === false ==> forall(k: nat, k < roots.length ==> !pathWithinRoot(path, roots[k]))
+
+  let found = false;
+  for (const root of roots) {
+    //@ invariant found === false ==> forall(k: nat, k < _root_idx ==> !pathWithinRoot(path, roots[k]))
+    //@ invariant found === true ==> exists(k: nat, k < roots.length && pathWithinRoot(path, roots[k]))
+    //@ done_with found === true || !(_root_idx < roots.length)
+    if (pathWithinRoot(path, root)) {
+      found = true;
+      break;
+    }
+  }
+  return found;
+}
+
+/** Whether a scope admits one path, and if not, why. */
+export type PathAdmission = "admitted" | "denied" | "not_permitted";
+
+/**
+ * The path admission rule. A denied root always wins over an allowed root.
+ */
+export function admitPath(scope: BoundedWorkScope, path: string): PathAdmission {
+  //@ verify
+  //@ ensures exists(k: nat, k < scope.deniedRoots.length && pathWithinRoot(path, scope.deniedRoots[k])) ==> \result === "denied"
+  //@ ensures \result === "admitted" ==> forall(k: nat, k < scope.deniedRoots.length ==> !pathWithinRoot(path, scope.deniedRoots[k]))
+  //@ ensures \result === "admitted" ==> exists(k: nat, k < scope.allowedRoots.length && pathWithinRoot(path, scope.allowedRoots[k]))
+
+  if (matchesAnyRoot(scope.deniedRoots, path)) {
+    return "denied";
+  }
+  if (!matchesAnyRoot(scope.allowedRoots, path)) {
+    return "not_permitted";
+  }
+  return "admitted";
+}
+
+/** Display form of an effect. Makes the widening to `string` explicit. */
+export function effectLabel(effect: BoundedWorkEffect): string {
+  switch (effect) {
+    case "inspect": return "inspect";
+    case "modify_source": return "modify_source";
+    case "modify_tests": return "modify_tests";
+    case "modify_documentation": return "modify_documentation";
+    case "modify_configuration": return "modify_configuration";
+    case "run_verification": return "run_verification";
+    case "invoke_managed_agent": return "invoke_managed_agent";
+    case "external_write": return "external_write";
+  }
 }
 
 /**
  * Scope violations for one normalized admission query, in declaration order:
  * work item, effect, surface, paths, then requested outcomes.
  *
- * A denied root always takes precedence over an allowed root: a path matching
- * any denied root is rejected without consulting the allowed roots at all.
+ * Path admission is delegated to `admitPath`, which owns the denied-over-
+ * allowed precedence rule; this function only turns each decision into its
+ * reportable violation.
  */
 export function assessBoundedWorkScopePolicy(
   query: BoundedWorkScopePolicyQuery,
@@ -115,15 +174,16 @@ export function assessBoundedWorkScopePolicy(
     violations.push({ kind: "work_item_not_permitted", value: query.workItemId });
   }
   if (!query.scope.permittedEffects.includes(query.effect)) {
-    violations.push({ kind: "effect_not_permitted", value: query.effect });
+    violations.push({ kind: "effect_not_permitted", value: effectLabel(query.effect) });
   }
   if (!query.scope.permittedSurfaces.includes(query.surface)) {
     violations.push({ kind: "surface_not_permitted", value: query.surface });
   }
   for (const path of query.paths) {
-    if (query.scope.deniedRoots.some((root) => pathWithinRoot(path, root))) {
+    const admission = admitPath(query.scope, path);
+    if (admission === "denied") {
       violations.push({ kind: "path_denied", value: path });
-    } else if (!query.scope.allowedRoots.some((root) => pathWithinRoot(path, root))) {
+    } else if (admission === "not_permitted") {
       violations.push({ kind: "path_not_permitted", value: path });
     }
   }

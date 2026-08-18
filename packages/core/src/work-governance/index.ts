@@ -35,10 +35,14 @@ export type {
   BoundedWorkTripwireDiagnostic,
   BoundedWorkTripwireMetric,
   BoundedWorkTripwires,
+  PathAdmission,
 } from "./bounded-work-scope-policy.js";
 export {
+  admitPath,
   assessBoundedWorkScopePolicy,
   boundedWorkTripwireDiagnostics,
+  effectLabel,
+  matchesAnyRoot,
   pathWithinRoot,
 } from "./bounded-work-scope-policy.js";
 export type {

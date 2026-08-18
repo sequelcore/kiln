@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  admitPath,
   assessBoundedWorkScopePolicy,
   boundedWorkTripwireDiagnostics,
+  effectLabel,
+  matchesAnyRoot,
   pathWithinRoot,
   type BoundedWorkScopePolicyQuery,
 } from "../../src/work-governance/index.js";
@@ -103,5 +106,50 @@ describe("boundedWorkTripwireDiagnostics", () => {
 
   it("reports nothing when no threshold is configured", () => {
     expect(boundedWorkTripwireDiagnostics({}, { changedFiles: 9000 })).toEqual([]);
+  });
+});
+
+describe("matchesAnyRoot", () => {
+  it("is true when any root contains the path", () => {
+    expect(matchesAnyRoot(["packages/cli", "packages/core"], "packages/core/src/a.ts")).toBe(true);
+  });
+
+  it("is false when no root contains the path", () => {
+    expect(matchesAnyRoot(["packages/cli"], "packages/core/src/a.ts")).toBe(false);
+  });
+
+  it("is false for an empty root list", () => {
+    expect(matchesAnyRoot([], "packages/core/src/a.ts")).toBe(false);
+  });
+});
+
+describe("admitPath", () => {
+  it("denies a path under a denied root even when it is also under an allowed root", () => {
+    expect(admitPath(
+      scope({ allowedRoots: ["packages/core"], deniedRoots: ["packages/core/src/security"] }),
+      "packages/core/src/security/keys.ts",
+    )).toBe("denied");
+  });
+
+  it("denies before consulting the allowed roots at all", () => {
+    expect(admitPath(
+      scope({ allowedRoots: ["."], deniedRoots: ["packages/core"] }),
+      "packages/core/src/index.ts",
+    )).toBe("denied");
+  });
+
+  it("reports a path outside every allowed root as not permitted", () => {
+    expect(admitPath(scope(), "packages/cli/src/index.ts")).toBe("not_permitted");
+  });
+
+  it("admits a path inside an allowed root and outside every denied root", () => {
+    expect(admitPath(scope(), "packages/core/src/index.ts")).toBe("admitted");
+  });
+});
+
+describe("effectLabel", () => {
+  it("returns the effect unchanged as its display form", () => {
+    expect(effectLabel("modify_source")).toBe("modify_source");
+    expect(effectLabel("external_write")).toBe("external_write");
   });
 });
