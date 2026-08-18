@@ -97,6 +97,7 @@ describe("tool domain types", () => {
       "resource_list",
       "resource_template_list",
       "resource_read",
+      "formal_verify",
     ]);
   });
 

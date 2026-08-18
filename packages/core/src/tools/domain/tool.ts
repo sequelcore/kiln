@@ -200,7 +200,8 @@ export type DevToolName =
   | "memory_save"
   | "resource_list"
   | "resource_template_list"
-  | "resource_read";
+  | "resource_read"
+  | "formal_verify";
 
 export const TOOL_SCHEMAS: Record<
   DevToolName,
@@ -1460,6 +1461,23 @@ export const TOOL_SCHEMAS: Record<
         },
       },
       required: ["uri"],
+      additionalProperties: false,
+    },
+  },
+  formal_verify: {
+    name: "formal_verify",
+    description:
+      "Run a deterministic verifier over a file that declares formal specifications, and report which proof obligations were discharged. Returns unproven obligations with the verifier's diagnostic so they can be repaired. This reports verifier output only: it does not accept work, and it does not decide which acceptance criterion an obligation satisfies.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: {
+          type: "string",
+          minLength: 1,
+          description: "Path to the file to verify, relative to the workspace root.",
+        },
+      },
+      required: ["file"],
       additionalProperties: false,
     },
   },

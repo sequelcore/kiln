@@ -206,6 +206,29 @@ const MEMORY_OBSERVE: ActionEffectEnvelope = {
 };
 
 /**
+ * Runs an external verifier process over workspace sources and writes its
+ * verification log beside them.
+ *
+ * Declared as a mutation rather than an observation: the run is analytically
+ * read-only, but it spawns a machine-boundary process and leaves a log file
+ * behind. Declaring it `observe` would understate the authority an invocation
+ * actually needs, and tool authority derives from this envelope.
+ *
+ * Idempotency is conditional: the same source yields the same proof, but a
+ * resource or time limit can turn a discharged obligation into an unresolved
+ * one between runs.
+ */
+const VERIFIER_EXECUTION: ActionEffectEnvelope = {
+  operation: "mutate" as OperationType,
+  boundaries: ["process", "workspace", "machine"] as readonly BoundaryType[],
+  reversibility: "compensatable" as ReversibilityType,
+  dataEgress: "none" as DataEgressType,
+  identityUse: "none" as IdentityUseType,
+  consequences: ["local-state"] as readonly ConsequenceType[],
+  idempotency: "conditionally-idempotent" as IdempotencyType,
+};
+
+/**
  * Complete declared effect envelopes for all builtin developer tools.
  *
  * These represent the MAXIMUM effects each tool can produce.
@@ -396,6 +419,9 @@ export const BUILTIN_TOOL_EFFECT_ENVELOPES: Record<DevToolName, ActionEffectEnve
   resource_list: OBSERVE_METADATA_EGRESS,
   resource_template_list: OBSERVE_METADATA_EGRESS,
   resource_read: OBSERVE_METADATA_EGRESS,
+
+  // --- Verification ---
+  formal_verify: VERIFIER_EXECUTION,
 } as const;
 
 /**
