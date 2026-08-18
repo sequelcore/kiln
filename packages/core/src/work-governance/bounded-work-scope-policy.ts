@@ -100,6 +100,7 @@ export function pathWithinRoot(path: string, root: string): boolean {
   //@ verify
   //@ ensures root === "." ==> \result === true
   //@ ensures path === root ==> \result === true
+  //@ ensures (root !== "." && path !== root && !path.startsWith(root + "/")) ==> \result === false
 
   return root === "." || path === root || path.startsWith(`${root}/`);
 }
@@ -134,6 +135,8 @@ export function admitPath(scope: BoundedWorkScope, path: string): PathAdmission 
   //@ ensures exists(k: nat, k < scope.deniedRoots.length && pathWithinRoot(path, scope.deniedRoots[k])) ==> \result === "denied"
   //@ ensures \result === "admitted" ==> forall(k: nat, k < scope.deniedRoots.length ==> !pathWithinRoot(path, scope.deniedRoots[k]))
   //@ ensures \result === "admitted" ==> exists(k: nat, k < scope.allowedRoots.length && pathWithinRoot(path, scope.allowedRoots[k]))
+  //@ ensures \result === "not_permitted" ==> forall(k: nat, k < scope.deniedRoots.length ==> !pathWithinRoot(path, scope.deniedRoots[k]))
+  //@ ensures \result === "not_permitted" ==> forall(k: nat, k < scope.allowedRoots.length ==> !pathWithinRoot(path, scope.allowedRoots[k]))
 
   if (matchesAnyRoot(scope.deniedRoots, path)) {
     return "denied";
