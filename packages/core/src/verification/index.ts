@@ -24,3 +24,15 @@ export { GateRunner } from "./gate-runner.js";
 export { VerificationLoop } from "./verification-loop.js";
 export type { FixHandler, GateRunnerPort } from "./verification-loop.js";
 export { parseCoverageFromOutput, checkCoverage } from "./coverage-parser.js";
+export type {
+  DafnyProofDiagnostic,
+  DafnyProofEffort,
+  DafnyProofLog,
+  DafnyProofOutcome,
+} from "./dafny-proof-log.js";
+export {
+  correctnessEfforts,
+  parseDafnyProofDiagnostics,
+  parseDafnyProofEfforts,
+  parseDafnyProofLog,
+} from "./dafny-proof-log.js";
