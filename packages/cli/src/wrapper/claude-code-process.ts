@@ -163,6 +163,17 @@ const CLAUDE_RESULT_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   error_during_execution: "Claude Code failed during execution.",
 };
 
+/**
+ * The SDK can report `is_error: true` alongside a non-failure subtype: an
+ * unresolvable model id returns `subtype: "success"` together with
+ * `api_error_status: 404`. Only a declared failure subtype may name the error,
+ * so a failed run cannot carry a success label as its error code.
+ */
+function claudeResultErrorCode(subtype: string | undefined): string {
+  if (subtype !== undefined && subtype in CLAUDE_RESULT_ERROR_MESSAGES) return subtype;
+  return CLAUDE_RESULT_ERROR_CODE;
+}
+
 function claudeResultErrorMessage(subtype: string | undefined, errors: readonly string[] | undefined): string {
   const reported = (errors ?? []).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
   if (reported.length > 0) return reported.join("; ");
@@ -585,7 +596,7 @@ export class ClaudeSession implements IKilnSession {
           if (resultMsg.is_error === true && options.abortSignal?.aborted !== true) {
             yield {
               type: "error",
-              code: resultMsg.subtype ?? CLAUDE_RESULT_ERROR_CODE,
+              code: claudeResultErrorCode(resultMsg.subtype),
               message: claudeResultErrorMessage(resultMsg.subtype, resultMsg.errors),
               // Every declared subtype is bound exhaustion or an unclassified failure;
               // replaying the identical request reproduces it.  Fail closed.

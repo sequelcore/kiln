@@ -648,6 +648,21 @@ describe("ClaudeSession implements IKilnSession", () => {
     expect((error as { message: string }).message.length).toBeGreaterThan(0);
   });
 
+  it("does not label a failed result with a non-failure subtype", async () => {
+    // The SDK reports an unresolvable model id as is_error with subtype "success"
+    // and api_error_status 404 in the same result object.
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: true };
+    })());
+
+    const session = new ClaudeSession(baseConfig());
+    const events = await collectEvents(session.run({ prompt: "test prompt", cwd: process.cwd() }));
+
+    const error = events.find((event) => event.type === "error");
+    expect(error).toMatchObject({ type: "error", code: "claude_result_error", isRetryable: false });
+    expect((error as { code: string }).code).not.toBe("success");
+  });
+
   it("emits no error event for a successful result", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
       yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
