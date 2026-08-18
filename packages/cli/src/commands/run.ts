@@ -929,10 +929,33 @@ export async function runCommand(
     text: task,
     agentTaskAffinity: resolvedAgent?.taskAffinity,
   });
-  const configuredRouteCandidates = resolveExecutionRouteCandidates({
-    globalConfig,
-    routeId: flags.target,
-  });
+  // A misconfigured target is a caller error, not a crash. The resolver throws
+  // for an unknown id, and that must still reach the caller in the output mode
+  // it asked for: a consumer parsing JSON cannot distinguish a stack trace from
+  // a failed run.
+  let configuredRouteCandidates: ReturnType<typeof resolveExecutionRouteCandidates>;
+  try {
+    configuredRouteCandidates = resolveExecutionRouteCandidates({
+      globalConfig,
+      routeId: flags.target,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    runOutput.writeErrorLine(`Error: ${errorMessage}`);
+    emitRunFailureOutput(runOutput, {
+      answer: "",
+      sessionId,
+      task,
+      domain: "unknown",
+      provider: undefined,
+      model: undefined,
+      startedAt,
+      startedAtMs,
+      lastError: errorMessage,
+    });
+    exitRunCommand(1, executionOptions);
+    throw error;
+  }
   if (configuredRouteCandidates.length === 0) {
     const errorMessage = "No execution targets are configured. Configure targetCatalog and targetRouting before running a session.";
     runOutput.writeErrorLine(`Error: ${errorMessage}`);

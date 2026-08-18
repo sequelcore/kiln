@@ -1514,11 +1514,39 @@ describe("run command builtin tool wiring", () => {
   });
 
   it("rejects an unknown explicit execution target before running a session", async () => {
-    await expect(runCommand(APP_CONFIG, "ship it", {
-      target: "missing-route",
-    })).rejects.toThrow("Execution target 'missing-route' is not configured.");
+    // A misconfigured target must reach the caller as a failed run in the
+    // requested output mode, not as an unhandled throw: a consumer parsing the
+    // run output cannot distinguish a stack trace from a session that failed.
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit");
+    }) as never);
+    const written: string[] = [];
+    const outSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as never);
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as never);
+    const logSpy = vi.spyOn(console, "error").mockImplementation(((...args: unknown[]) => {
+      written.push(args.map(String).join(" "));
+    }) as never);
 
-    expect(runWiringMocks.runSession).not.toHaveBeenCalled();
+    try {
+      await expect(runCommand(APP_CONFIG, "ship it", {
+        target: "missing-route",
+      })).rejects.toThrow("process.exit");
+
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(written.join("")).toContain("Execution target 'missing-route' is not configured.");
+      expect(runWiringMocks.runSession).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      outSpy.mockRestore();
+      exit.mockRestore();
+    }
   });
 
   it("binds the explicit execution target into canonical dispatch", async () => {
