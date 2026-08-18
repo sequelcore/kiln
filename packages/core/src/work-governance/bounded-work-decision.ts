@@ -9,6 +9,7 @@ import type {
   BoundedWorkTripwireDiagnostic,
 } from "./bounded-work-scope-policy.js";
 import { requireBoundedWorkDigest } from "./bounded-work-content.js";
+import type { BoundedWorkCandidateEvidence } from "./bounded-work-candidate.js";
 
 export type BoundedWorkMeasuredValue =
   | { readonly kind: "observed"; readonly value: number }
@@ -282,14 +283,30 @@ export function decideBoundedWorkCloseout(input: {
   readonly snapshot: BoundedWorkAccountingSnapshot;
   readonly candidateDigest: string;
   readonly satisfiedCriteria: readonly BoundedWorkSatisfiedCriterion[];
+  /**
+   * Evidence already bound to this candidate. A satisfied criterion may only
+   * name a digest that appears here, so a claim cannot cite evidence that was
+   * never recorded against the candidate being accepted.
+   */
+  readonly candidateEvidence: readonly BoundedWorkCandidateEvidence[];
 }): BoundedWorkCloseoutDecision {
   assertAccountingBinding(input.revision, input.snapshot);
   const candidateDigest = requireBoundedWorkDigest(input.candidateDigest, "candidateDigest");
+  const boundEvidence = new Set(
+    input.candidateEvidence
+      .filter((record) => record.candidateDigest === candidateDigest)
+      .map((record) => record.evidenceDigest),
+  );
   for (const evidence of input.satisfiedCriteria) {
     if (requireBoundedWorkDigest(evidence.candidateDigest, "criterion.candidateDigest") !== candidateDigest) {
       throw new Error("acceptance evidence is stale for the current candidate");
     }
-    requireBoundedWorkDigest(evidence.evidenceDigest, "criterion.evidenceDigest");
+    // Canonical syntax is necessary but not sufficient: a well-formed digest
+    // that names nothing would otherwise satisfy a criterion, and the party
+    // supplying it is the party whose work is being accepted.
+    if (!boundEvidence.has(requireBoundedWorkDigest(evidence.evidenceDigest, "criterion.evidenceDigest"))) {
+      throw new Error("acceptance evidence is not bound to the current candidate");
+    }
   }
   const satisfied = new Set(input.satisfiedCriteria.map((evidence) => evidence.criterion.trim()));
   const missingCriteria = input.revision.contract.intent.acceptanceCriteria.filter(

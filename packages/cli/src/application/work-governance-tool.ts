@@ -163,6 +163,7 @@ export type BoundedWorkGoalCloseout = (input: {
   readonly candidate: BoundedWorkCandidateIdentity;
   readonly candidateCaptureRoot?: string;
   readonly satisfiedCriteria: readonly BoundedWorkSatisfiedCriterion[];
+  readonly candidateEvidence: readonly BoundedWorkCandidateEvidence[];
 }) => BoundedWorkCloseoutDecision | Promise<BoundedWorkCloseoutDecision>;
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
 type ManagedInvocationPhaseId =
@@ -2844,6 +2845,7 @@ export class GoalCompleteTool implements DevTool {
           ? { candidateCaptureRoot: latestCandidateAttempt.candidateCaptureRoot }
           : {}),
         satisfiedCriteria: acceptanceEvidence,
+        candidateEvidence: latestCandidateAttempt.candidateEvidence ?? [],
       });
       if (closeout.kind !== "stop_acceptance_complete") {
         return { output: JSON.stringify({ status: "paused", decision: closeout }, null, 2), isError: true };

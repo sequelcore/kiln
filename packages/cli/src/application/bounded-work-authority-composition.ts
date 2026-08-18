@@ -213,7 +213,7 @@ export function createProjectBoundedWorkAuthority(
       }
       return { captured: true, candidate: captured.candidate, evidence };
     },
-    async closeoutGoal({ goal, candidate, candidateCaptureRoot, satisfiedCriteria }) {
+    async closeoutGoal({ goal, candidate, candidateCaptureRoot, satisfiedCriteria, candidateEvidence }) {
       const current = await captureGitWorktreeCandidate({
         worktreePath: candidateCaptureRoot ?? projectRoot,
         goalRunId: goal.id,
@@ -235,6 +235,7 @@ export function createProjectBoundedWorkAuthority(
         snapshot,
         candidateDigest: candidate.candidateDigest,
         satisfiedCriteria,
+        candidateEvidence,
       });
     },
     close: () => authority.close(),

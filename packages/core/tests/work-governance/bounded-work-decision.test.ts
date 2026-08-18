@@ -193,10 +193,21 @@ describe("bounded work decision", () => {
   });
 
   it("cannot claim acceptance without exact candidate-bound criteria evidence", () => {
+    const bound = (evidenceDigest: string, candidateDigest = sha("c")) => ({
+      schema: "kiln.bounded-work-candidate-evidence/v1" as const,
+      kind: "verification" as const,
+      candidateDigest,
+      candidateContentDigest: sha("2"),
+      contractRevisionDigest: revision.revisionDigest,
+      evidenceDigest,
+      recordedAt: "2026-08-17T12:00:00.000Z",
+    });
+
     expect(decideBoundedWorkCloseout({
       revision,
       snapshot: snapshot(),
       candidateDigest: sha("c"),
+      candidateEvidence: [bound(sha("d"))],
       satisfiedCriteria: [
         { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("d") },
       ],
@@ -209,6 +220,7 @@ describe("bounded work decision", () => {
       revision,
       snapshot: snapshot(),
       candidateDigest: sha("c"),
+      candidateEvidence: [bound(sha("d")), bound(sha("e"))],
       satisfiedCriteria: [
         { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("d") },
         { criterion: "review", candidateDigest: sha("c"), evidenceDigest: sha("e") },
@@ -219,10 +231,45 @@ describe("bounded work decision", () => {
       revision,
       snapshot: snapshot(),
       candidateDigest: sha("c"),
+      candidateEvidence: [bound(sha("d")), bound(sha("e"))],
       satisfiedCriteria: [
         { criterion: "tests", candidateDigest: sha("f"), evidenceDigest: sha("d") },
         { criterion: "review", candidateDigest: sha("c"), evidenceDigest: sha("e") },
       ],
     })).toThrow("acceptance evidence is stale");
+  });
+
+  it("rejects a well-formed digest that names no bound evidence", () => {
+    expect(() => decideBoundedWorkCloseout({
+      revision,
+      snapshot: snapshot(),
+      candidateDigest: sha("c"),
+      candidateEvidence: [],
+      satisfiedCriteria: [
+        { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("9") },
+        { criterion: "review", candidateDigest: sha("c"), evidenceDigest: sha("8") },
+      ],
+    })).toThrow("acceptance evidence is not bound to the current candidate");
+  });
+
+  it("rejects evidence bound to a different candidate", () => {
+    const otherCandidate = {
+      schema: "kiln.bounded-work-candidate-evidence/v1" as const,
+      kind: "verification" as const,
+      candidateDigest: sha("7"),
+      candidateContentDigest: sha("2"),
+      contractRevisionDigest: revision.revisionDigest,
+      evidenceDigest: sha("d"),
+      recordedAt: "2026-08-17T12:00:00.000Z",
+    };
+    expect(() => decideBoundedWorkCloseout({
+      revision,
+      snapshot: snapshot(),
+      candidateDigest: sha("c"),
+      candidateEvidence: [otherCandidate],
+      satisfiedCriteria: [
+        { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("d") },
+      ],
+    })).toThrow("acceptance evidence is not bound to the current candidate");
   });
 });
