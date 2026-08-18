@@ -7,6 +7,12 @@
  * used to accept: a fabricated digest, an absent record, and a proof that
  * outlived the code it proved.
  *
+ * The candidate here is an `artifact` whose content digest is the verified file.
+ * That is deliberate and it is not what the governed path produces: a captured
+ * git-worktree candidate digests the whole tree, which a file-scoped verdict can
+ * never equal (#93). This demonstration is therefore sound for an artifact
+ * candidate and unproven for a worktree candidate.
+ *
  * Not part of any build or test lane. It needs two external tools that Kiln
  * does not bundle, and it exits with a preflight message when they are absent.
  *
@@ -188,6 +194,11 @@ try {
 
   rule("What this does not show");
   console.log([
+    "The candidate above is an artifact whose content digest is the verified file.",
+    "A governed candidate is a captured git worktree, digested over the whole tree,",
+    "which a file-scoped verdict can never equal, so formal-proof evidence does not",
+    "yet bind on the production path at all (#93).",
+    "",
     "The bound evidence digest is computed over the verdict here, but the production",
     "path digests self-reported labels instead (#91), and closeout never checks that",
     "evidence establishes the criterion it is credited with (#92). Nothing yet carries",
