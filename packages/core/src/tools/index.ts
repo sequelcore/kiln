@@ -1,12 +1,22 @@
 export type {
   DevTool,
   DevToolName,
+  DevToolExecutionContext,
   ToolInput,
   ToolResult,
   ToolResultContentPart,
   ToolResultResourcePayload,
 } from "./domain/tool.js";
 export { TOOL_SCHEMAS } from "./domain/tool.js";
+export {
+  FORMAL_VERIFICATION_FINISH_TRANSPORT,
+} from "./domain/formal-verification-finish-transport.js";
+export type {
+  FormalVerificationFinishExecutionScope,
+  FormalVerificationFinishTransportEnvelope,
+  FormalVerificationFinishTransportObservation,
+  FormalVerificationFinishTransportProducer,
+} from "./domain/formal-verification-finish-transport.js";
 export type {
   TemporalEvidenceDecision,
   TemporalEvidenceObservation,
@@ -74,6 +84,11 @@ export type {
   ElicitationToolResultMetadata,
   ExternalToolFailureCategory,
   ExternalToolFailureResultMetadata,
+  FormalVerificationArtifact,
+  FormalVerificationCheck,
+  FormalVerificationOutcome,
+  FormalVerificationToolResultMetadata,
+  FormalVerifyToolName,
   FileToolChangeMetadata,
   FileToolName,
   FileToolOperation,
@@ -146,6 +161,10 @@ export {
   elicitationToolMetadata,
   externalToolFailureMetadata,
   fileToolMetadata,
+  FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
+  formalVerificationToolMetadata,
+  isFormalVerificationToolResultMetadata,
+  parseFormalVerificationToolResultMetadata,
   goalToolMetadata,
   inspectionToolMetadata,
   isFileToolResultMetadata,
@@ -373,6 +392,8 @@ export {
 export { ReadTool } from "./infrastructure/read-tool.js";
 export { ReadManyTool } from "./infrastructure/read-many-tool.js";
 export { ResourceListTool, ResourceReadTool, ResourceTemplateListTool } from "./infrastructure/resource-tools.js";
+export type { FormalVerifyToolOptions } from "./infrastructure/formal-verify-tool.js";
+export { createFormalVerifyTool, FORMAL_VERIFY_CAPABILITY } from "./infrastructure/formal-verify-tool.js";
 export type { MemorySaveToolOptions } from "./infrastructure/memory-save-tool.js";
 export { MemorySaveTool } from "./infrastructure/memory-save-tool.js";
 export type { MemorySearchToolOptions } from "./infrastructure/memory-search-tool.js";

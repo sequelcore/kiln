@@ -9,7 +9,10 @@ import type {
   BoundedWorkTripwireDiagnostic,
 } from "./bounded-work-scope-policy.js";
 import { requireBoundedWorkDigest } from "./bounded-work-content.js";
-import type { BoundedWorkCandidateEvidence } from "./bounded-work-candidate.js";
+import {
+  parseBoundedWorkCandidateEvidence,
+  type BoundedWorkCandidateEvidence,
+} from "./bounded-work-evidence.js";
 
 export type BoundedWorkMeasuredValue =
   | { readonly kind: "observed"; readonly value: number }
@@ -104,12 +107,6 @@ export type BoundedWorkAdmissionDecision =
       readonly snapshot: BoundedWorkAccountingSnapshot;
       readonly continuation: BoundedWorkContinuation;
     };
-
-export interface BoundedWorkSatisfiedCriterion {
-  readonly criterion: string;
-  readonly candidateDigest: string;
-  readonly evidenceDigest: string;
-}
 
 export type BoundedWorkCloseoutDecision =
   | {
@@ -282,33 +279,19 @@ export function decideBoundedWorkCloseout(input: {
   readonly revision: BoundedWorkContractRevision;
   readonly snapshot: BoundedWorkAccountingSnapshot;
   readonly candidateDigest: string;
-  readonly satisfiedCriteria: readonly BoundedWorkSatisfiedCriterion[];
-  /**
-   * Evidence already bound to this candidate. A satisfied criterion may only
-   * name a digest that appears here, so a claim cannot cite evidence that was
-   * never recorded against the candidate being accepted.
-   */
   readonly candidateEvidence: readonly BoundedWorkCandidateEvidence[];
 }): BoundedWorkCloseoutDecision {
   assertAccountingBinding(input.revision, input.snapshot);
   const candidateDigest = requireBoundedWorkDigest(input.candidateDigest, "candidateDigest");
-  const boundEvidence = new Set(
+  const satisfied = new Set(
     input.candidateEvidence
-      .filter((record) => record.candidateDigest === candidateDigest)
-      .map((record) => record.evidenceDigest),
+      .map((record) => parseBoundedWorkCandidateEvidence(record))
+      .filter((record) =>
+        record.candidate.candidateDigest === candidateDigest
+        && record.candidate.accountingLineageId === input.snapshot.accountingLineageId
+        && record.candidate.contractRevisionDigest === input.revision.revisionDigest)
+      .flatMap((record) => [...record.attestation.establishes] as readonly string[]),
   );
-  for (const evidence of input.satisfiedCriteria) {
-    if (requireBoundedWorkDigest(evidence.candidateDigest, "criterion.candidateDigest") !== candidateDigest) {
-      throw new Error("acceptance evidence is stale for the current candidate");
-    }
-    // Canonical syntax is necessary but not sufficient: a well-formed digest
-    // that names nothing would otherwise satisfy a criterion, and the party
-    // supplying it is the party whose work is being accepted.
-    if (!boundEvidence.has(requireBoundedWorkDigest(evidence.evidenceDigest, "criterion.evidenceDigest"))) {
-      throw new Error("acceptance evidence is not bound to the current candidate");
-    }
-  }
-  const satisfied = new Set(input.satisfiedCriteria.map((evidence) => evidence.criterion.trim()));
   const missingCriteria = input.revision.contract.intent.acceptanceCriteria.filter(
     (criterion) => !satisfied.has(criterion),
   );

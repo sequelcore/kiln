@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  bindBoundedWorkEvidence,
   createBoundedWorkCandidate,
   type CreateBoundedWorkCandidateInput,
 } from "../../src/work-governance/index.js";
@@ -43,31 +42,6 @@ describe("bounded work candidate", () => {
       contractRevisionDigest: first.contractRevisionDigest,
       accountingLineageId: first.accountingLineageId,
     });
-  });
-
-  it("binds verification and review evidence only to the exact candidate", () => {
-    const candidate = createBoundedWorkCandidate(candidateInput());
-    const evidence = bindBoundedWorkEvidence({
-      candidate,
-      kind: "verification",
-      subjectCandidateDigest: candidate.candidateDigest,
-      evidenceDigest: sha("e"),
-      recordedAt: "2026-08-12T18:25:00.000Z",
-    });
-
-    expect(evidence).toMatchObject({
-      candidateDigest: candidate.candidateDigest,
-      candidateContentDigest: candidate.candidateContentDigest,
-      contractRevisionDigest: candidate.contractRevisionDigest,
-      kind: "verification",
-    });
-    expect(() => bindBoundedWorkEvidence({
-      candidate,
-      kind: "review",
-      subjectCandidateDigest: sha("f"),
-      evidenceDigest: sha("e"),
-      recordedAt: "2026-08-12T18:25:00.000Z",
-    })).toThrow("evidence subject does not match candidate");
   });
 
   it("rejects a correction linked across contract revisions", () => {

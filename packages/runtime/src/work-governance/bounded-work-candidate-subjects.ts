@@ -1,4 +1,4 @@
-import type { BoundedWorkCandidateIdentity, CandidateSubjectDigests } from "@kilnai/core";
+import type { BoundedWorkCandidateIdentity, CandidateSubjectDigests } from "@kilnai/core/work-governance";
 import { digestContent, git, gitTreeContentDigest } from "./git-object-access.js";
 
 export interface ResolveCandidateSubjectDigestsInput {

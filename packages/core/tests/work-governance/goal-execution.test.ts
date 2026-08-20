@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   completeGoalExecution,
-  bindBoundedWorkEvidence,
   createBoundedWorkCandidate,
+  createBoundedWorkCandidateEvidence,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   GoalRunStore,
@@ -12,8 +12,10 @@ import {
   startGoalExecutionAttempt,
   WorkItemStore,
   type GoalRun,
+  type WorkItemExecutionAttempt,
 } from "../../src/work-governance/index.js";
 import { createSessionEvent } from "../../src/events/index.js";
+import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
 import { testBoundedWorkRevision } from "./bounded-work-fixtures.js";
 
 describe("goal execution loop", () => {
@@ -239,7 +241,7 @@ describe("goal execution loop", () => {
       workItemId: item.id,
       attemptId: started.attempt.id,
       providedEvidence: ["tests"],
-      ...candidateBinding(goal, item.id, started.attempt.startedAt),
+      ...candidateBinding(goal, item.id, started.attempt),
     });
     expect(finished.goal.currentPhase).toBe("paused:goal-closeout");
     expect(finished.missingGoalEvidence).toEqual(["release-contract"]);
@@ -1219,7 +1221,7 @@ describe("goal execution loop", () => {
         adoptedAt: "2026-05-12T10:30:00.000Z",
         resourceUris: ["kiln://artifacts/orch-adoption-goal/adoption"],
       },
-      ...candidateBinding(goal, item.id, started.attempt.startedAt),
+      ...candidateBinding(goal, item.id, started.attempt),
     });
 
     expect(completed).toMatchObject({
@@ -2124,7 +2126,7 @@ describe("goal execution loop", () => {
         { gate: "bun test", status: "passed", summary: "Focused tests passed." },
         { gate: "bun run typecheck", status: "passed", summary: "Typecheck passed." },
       ],
-      ...candidateBinding(goal, item.id, started.attempt.startedAt),
+      ...candidateBinding(goal, item.id, started.attempt),
     });
 
     expect(completed.goal).toMatchObject({
@@ -2249,7 +2251,7 @@ function managedProof(goalRunId: string, workItemId: string, invocationId: strin
   };
 }
 
-function candidateBinding(goal: GoalRun, workItemId: string, createdAt: string) {
+function candidateBinding(goal: GoalRun, workItemId: string, attempt: WorkItemExecutionAttempt) {
   const candidate = createBoundedWorkCandidate({
     goalRunId: goal.id,
     workItemId,
@@ -2258,16 +2260,30 @@ function candidateBinding(goal: GoalRun, workItemId: string, createdAt: string) 
     kind: "git_worktree",
     baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
     candidateContentDigest: `sha256:${"b".repeat(64)}`,
-    createdAt,
+    createdAt: attempt.startedAt,
   });
   return {
     candidate,
-    candidateEvidence: [bindBoundedWorkEvidence({
+    candidateEvidence: [createBoundedWorkCandidateEvidence({
       candidate,
-      kind: "verification",
-      subjectCandidateDigest: candidate.candidateDigest,
-      evidenceDigest: `sha256:${"c".repeat(64)}`,
-      recordedAt: createdAt,
+      executionAttempt: {
+        goalRunId: attempt.goalRunId,
+        workItemId: attempt.workItemId,
+        attemptId: attempt.id,
+        ...(Object.prototype.hasOwnProperty.call(attempt, "managedInvocationId")
+          ? { managedInvocationId: attempt.managedInvocationId }
+          : {}),
+      },
+      invocation: { toolCallScopeId: "scope-1", toolCallId: "call-1" },
+      attestation: {
+        producer: { kind: "registered_tool", toolName: "formal_verify" },
+        payload: formalVerificationToolMetadata({
+          verifier: { name: "dafny", version: "4.11.0" },
+          artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+          checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
+        }),
+      },
+      recordedAt: attempt.startedAt,
     })],
   };
 }

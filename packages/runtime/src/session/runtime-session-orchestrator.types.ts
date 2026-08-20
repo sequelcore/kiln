@@ -55,6 +55,7 @@ import type { RuntimeSessionTurnBudgetAuthority } from "./session-turn-budget-au
 import type { EscalationDetector, EscalationSignal } from "./support/escalation/escalation-detector.js";
 import type { ContextSummarizer } from "./support/summarization/context-summarizer.js";
 import type { RuntimeSession } from "./runtime-session.js";
+import type { RuntimeFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
 
 export const RUNTIME_SESSION_TOOL_ROUND_BUDGET_EXHAUSTED_STOP_REASON = "tool_round_budget_exhausted";
 export const RUNTIME_SESSION_NO_TOOL_FINALIZATION_FAILED_STOP_REASON = "no_tool_finalization_failed";
@@ -82,6 +83,8 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly toolCall: ToolCall;
   /** Runtime-owned scope; tool input cannot override or remove this attribution. */
   readonly executionScope?: SessionExecutionScope;
+  /** Formal-verification facts for this exact work-item execution scope only. */
+  readonly formalVerificationObservations?: readonly RuntimeFormalVerificationObservation[];
   readonly abortSignal?: AbortSignal;
   readonly emitOutput?: (output: {
     readonly stream: "stdout" | "stderr";

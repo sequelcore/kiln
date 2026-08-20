@@ -17,6 +17,8 @@ import { SandboxPolicy } from "@kilnai/core/sandbox";
 import {
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
+  FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  formalVerificationToolMetadata,
   type DevTool,
   type ToolInput,
   type ToolResult,
@@ -30,8 +32,11 @@ import {
   buildAttachedRuntimePerCallToolConfig,
   createAttachedRuntimeBuiltinToolSurface as createRuntimeBuiltinToolSurface,
 } from "../../src/gateway/attached-runtime-tool-surface.js";
+import { readRuntimeFormalVerificationFinishTransport } from "../../src/index.js";
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
+import { collectRuntimeFormalVerificationObservations } from "../../src/work-governance/formal-verification-observations.js";
 import { SqliteBoundedWorkAuthority } from "../../src/work-governance/index.js";
+import type { RuntimeFormalVerificationObservation } from "../../src/work-governance/index.js";
 import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-invocation/phase-recovery.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
@@ -201,6 +206,27 @@ function makeRuntimeSession(): RuntimeSession {
   });
   session.addUserMessage(textParts("Start the governed managed work item."));
   return session;
+}
+
+function makeBrandedFormalVerificationObservation(
+  executionScope: NonNullable<RuntimeBuiltinToolExecutionContext["executionScope"]>,
+  toolCallScopeId: string,
+  toolCallId: string,
+  metadata: ReturnType<typeof formalVerificationToolMetadata>,
+): RuntimeFormalVerificationObservation {
+  const [observation] = collectRuntimeFormalVerificationObservations({
+    currentScope: executionScope,
+    currentTurnToolExecutions: [{
+      toolCallScopeId,
+      toolCallId,
+      toolName: "formal_verify",
+      success: true,
+      metadata,
+      executionScope,
+    }],
+  });
+  if (!observation) throw new Error("expected a branded formal-verification observation");
+  return observation;
 }
 
 function makeManagedDescriptor(overrides: Partial<ManagedAgentAdapterDescriptor> = {}): ManagedAgentAdapterDescriptor {
@@ -444,6 +470,252 @@ function makeManagedExecutionStartTool(
 }
 
 describe("attached runtime builtin tool surface", () => {
+  it("carries an opaque frozen formal-verification envelope to the registered finish tool", async () => {
+    let finishInput: ToolInput | undefined;
+    let finishContext: unknown;
+    let runtimeInvocationTransport: unknown;
+    let otherContext: unknown;
+    const finishTool: DevTool = {
+      name: "work_item.execution.finish",
+      description: "Finish a work item.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
+      async execute(input, _sandbox, context) {
+        finishInput = input;
+        finishContext = context;
+        runtimeInvocationTransport = readRuntimeFormalVerificationFinishTransport();
+        return { output: "finished", isError: false };
+      },
+    };
+    const otherTool: DevTool = {
+      name: "transport.other",
+      description: "Observe a non-finish execution context.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
+      async execute(_input, _sandbox, context) {
+        otherContext = context;
+        return { output: "other", isError: false };
+      },
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        additionalTools: [finishTool, otherTool],
+      }),
+      boundedWork: {
+        projectRuntimeId: "project:transport",
+        authority: {} as SqliteBoundedWorkAuthority,
+      },
+    });
+    const executionScope = {
+      kind: "work_item",
+      goalRunId: "goal-transport",
+      workItemId: "work-transport",
+      attemptId: "attempt-transport",
+      managedInvocationId: "managed-transport",
+    } as const;
+    const observationMetadata = formalVerificationToolMetadata({
+      verifier: { name: "dafny", version: "4.11.0" },
+      artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
+      checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+    });
+    const observation = makeBrandedFormalVerificationObservation(
+      executionScope,
+      "scope-transport",
+      "formal-transport",
+      observationMetadata,
+    );
+    const abortController = new AbortController();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport", name: "work_item.execution.finish", input: {} },
+      executionScope,
+      formalVerificationObservations: Object.freeze([observation, observation]),
+      abortSignal: abortController.signal,
+      emitOutput: vi.fn(),
+    };
+
+    await expect(runtimeSurface.callBuiltinTools.get("work_item.execution.finish")?.({}, context)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+
+    const finishTransport = (finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT] as {
+      readonly observations: readonly unknown[];
+      readonly executionScope: typeof executionScope;
+      readonly recordedAt: string;
+      readonly producer: { readonly kind: string; readonly toolName: string };
+    } | undefined;
+    expect(finishTransport).toBeDefined();
+    expect(finishTransport?.observations).toEqual([observation]);
+    expect(finishTransport?.observations[0]).not.toBe(observation);
+    expect((finishTransport?.observations[0] as { readonly metadata?: unknown } | undefined)?.metadata)
+      .not.toBe(observation.metadata);
+    expect(finishTransport?.executionScope).toEqual(executionScope);
+    expect(finishTransport?.recordedAt).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
+    expect(finishTransport?.producer).toEqual({ kind: "registered_tool", toolName: "formal_verify" });
+    expect(runtimeInvocationTransport).toBe(finishTransport);
+    expect(Object.isFrozen(finishTransport)).toBe(true);
+    expect(Object.isFrozen(finishTransport?.observations)).toBe(true);
+    expect(Object.isFrozen(finishTransport?.observations[0])).toBe(true);
+    expect(Object.keys(finishInput?.input ?? {})).not.toContain("formalVerificationObservations");
+    expect(JSON.stringify(finishInput)).not.toContain("formalVerification");
+    expect((finishContext as { readonly abortSignal?: AbortSignal }).abortSignal).toBe(abortController.signal);
+    expect((finishContext as { readonly onOutput?: unknown }).onOutput).toBe(context.emitOutput);
+    expect(Object.keys(finishContext as object)).not.toContain("formalVerification");
+    expect(JSON.stringify(finishContext)).not.toContain("formalVerification");
+    expect(Object.getOwnPropertyDescriptor(finishContext, FORMAL_VERIFICATION_FINISH_TRANSPORT)?.enumerable).toBe(false);
+    await expect(runtimeSurface.callBuiltinTools.get("transport.other")?.({}, context)).resolves.toMatchObject({
+      output: "other",
+      isError: false,
+    });
+    expect(otherContext).toBeDefined();
+    expect(Object.getOwnPropertySymbols(otherContext as object)).not.toContain(FORMAL_VERIFICATION_FINISH_TRANSPORT);
+  });
+
+  it("does not attach the transport for direct finish calls or an exact-scope mismatch", async () => {
+    let directContext: unknown;
+    let finishContext: unknown;
+    const finishTool: DevTool = {
+      name: "work_item.execution.finish",
+      description: "Finish a work item.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
+      async execute(_input, _sandbox, context) {
+        directContext = context;
+        finishContext = context;
+        return { output: "finished", isError: false };
+      },
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+        additionalTools: [finishTool],
+      }),
+    });
+    const executionScope = {
+      kind: "work_item",
+      goalRunId: "goal-transport-mismatch",
+      workItemId: "work-transport-mismatch",
+      attemptId: "attempt-transport-mismatch",
+    } as const;
+    const observation = makeBrandedFormalVerificationObservation(
+      executionScope,
+      "scope-transport-mismatch",
+      "formal-transport-mismatch",
+      formalVerificationToolMetadata({
+        verifier: { name: "dafny", version: "4.11.0" },
+        artifact: { contentDigest: `sha256:${"b".repeat(64)}` },
+        checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+      }),
+    );
+    await finishTool.execute({ name: finishTool.name, input: {} }, undefined, {
+      abortSignal: new AbortController().signal,
+    });
+    expect((directContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+
+    const mismatchedContext: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport-mismatch", name: finishTool.name, input: {} },
+      executionScope: { ...executionScope, attemptId: "another-attempt" },
+      formalVerificationObservations: Object.freeze([observation]),
+      abortSignal: new AbortController().signal,
+    };
+    await expect(runtimeSurface.callBuiltinTools.get(finishTool.name)?.({}, mismatchedContext)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+    expect((finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+
+    const unbrandedFrozenObservation = Object.freeze({
+      metadata: observation.metadata,
+      toolCallScopeId: observation.toolCallScopeId,
+      toolCallId: observation.toolCallId,
+      executionScope: observation.executionScope,
+    }) as unknown as RuntimeFormalVerificationObservation;
+    const unbrandedFrozenContext: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport-unbranded", name: finishTool.name, input: {} },
+      executionScope,
+      formalVerificationObservations: Object.freeze([unbrandedFrozenObservation]),
+      abortSignal: new AbortController().signal,
+    };
+    await expect(runtimeSurface.callBuiltinTools.get(finishTool.name)?.({}, unbrandedFrozenContext)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+    expect((finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+
+    const forgedFrozenObservation = Object.freeze({
+      ...observation,
+      metadata: Object.freeze({
+        ...observation.metadata,
+        establishes: ["criterion-forged"],
+      }),
+    }) as unknown as RuntimeFormalVerificationObservation;
+    const forgedFrozenContext: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport-forged", name: finishTool.name, input: {} },
+      executionScope,
+      formalVerificationObservations: Object.freeze([forgedFrozenObservation]),
+      abortSignal: new AbortController().signal,
+    };
+    await expect(runtimeSurface.callBuiltinTools.get(finishTool.name)?.({}, forgedFrozenContext)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+    expect((finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+
+    const conflictingObservation = Object.freeze({
+      ...observation,
+      metadata: formalVerificationToolMetadata({
+        verifier: { name: "dafny", version: "4.12.0" },
+        artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+        checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
+      }),
+    });
+    const conflictingContext: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport-conflict", name: finishTool.name, input: {} },
+      executionScope,
+      formalVerificationObservations: Object.freeze([observation, conflictingObservation]),
+      abortSignal: new AbortController().signal,
+    };
+    await expect(runtimeSurface.callBuiltinTools.get(finishTool.name)?.({}, conflictingContext)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+    expect((finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+
+    const missingScopeContext: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport-missing", name: finishTool.name, input: {} },
+      formalVerificationObservations: Object.freeze([observation]),
+      abortSignal: new AbortController().signal,
+    };
+    await expect(runtimeSurface.callBuiltinTools.get(finishTool.name)?.({}, missingScopeContext)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+    expect((finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+
+    const unregisteredProducerSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({ additionalTools: [finishTool] }),
+    });
+    const exactContextWithoutRegisteredProducer: RuntimeBuiltinToolExecutionContext = {
+      session: makeRuntimeSession(),
+      toolCall: { id: "finish-transport-unregistered", name: finishTool.name, input: {} },
+      executionScope,
+      formalVerificationObservations: Object.freeze([observation]),
+      abortSignal: new AbortController().signal,
+    };
+    await expect(unregisteredProducerSurface.callBuiltinTools.get(finishTool.name)?.({}, exactContextWithoutRegisteredProducer)).resolves.toMatchObject({
+      output: "finished",
+      isError: false,
+    });
+    expect((finishContext as Record<PropertyKey, unknown>)[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+  });
+
   it("records expected skipped evidence as a skip while ignoring unrelated phase results", () => {
     const handoff: ManagedAgentResultHandoff = {
       summary: "Verification could not run in the read-only environment.",

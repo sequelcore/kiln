@@ -178,12 +178,17 @@ export class RuntimeSession {
       (session as unknown as { _exactArtifacts: string[] })._exactArtifacts = [...data.exactArtifacts];
     }
     if (data.sessionEvents) {
-      (session as unknown as { _sessionEvents: CanonicalSessionEvent[] })._sessionEvents = data.sessionEvents
+      const replayEvents = data.sessionEvents
+        .filter((event) => event.kilnSessionId === session.id)
         .map((event) => ({
           ...event,
           timestamp: new Date(event.timestamp),
         }) as CanonicalSessionEvent)
         .sort((left, right) => compareSessionEvents(left, right));
+      // Hydrate through the same session authority used by live appends. A
+      // persisted payload may be mixed or foreign; foreign events are not
+      // allowed into this session's replay ledger.
+      session.appendSessionEvents(replayEvents);
     }
     // Restore version and record loaded version for conflict detection
     const storedVersion = data.version;

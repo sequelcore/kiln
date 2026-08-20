@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { assessBoundedWorkScope, decideBoundedWorkCloseout, type BoundedWorkEffect } from "@kilnai/core";
 import {
-  bindCapturedCandidateEvidence,
+  assessBoundedWorkScope,
+  createBoundedWorkCandidateEvidence,
+  decideBoundedWorkCloseout,
+  type BoundedWorkEffect,
+} from "@kilnai/core";
+import { FORMAL_VERIFICATION_FINISH_TRANSPORT } from "@kilnai/core/tools";
+import {
   captureGitWorktreeCandidate,
+  readRuntimeFormalVerificationFinishTransport,
   SqliteBoundedWorkAuthority,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
 } from "@kilnai/runtime";
@@ -14,8 +20,10 @@ import type {
   BoundedWorkGoalCloseout,
 } from "./work-governance-tool.js";
 
+export type ProjectBoundedWorkSurface = NonNullable<AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"]>;
+
 export interface ProjectBoundedWorkAuthorityComposition {
-  readonly surface: NonNullable<AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"]>;
+  readonly surface: ProjectBoundedWorkSurface;
   readonly admitExecutionAttempt: BoundedWorkExecutionAttemptAdmission;
   readonly closeoutCandidate: BoundedWorkCandidateCloseout;
   readonly closeoutGoal: BoundedWorkGoalCloseout;
@@ -35,8 +43,7 @@ export function createProjectBoundedWorkAuthority(
     path: join(runtimeDirectory, "bounded-work-authority.sqlite"),
   });
   const projectRuntimeId = `project:${createHash("sha256").update(projectIdentityRoot).digest("hex").slice(0, 32)}`;
-
-  return {
+  const composition: ProjectBoundedWorkAuthorityComposition = {
     surface: { projectRuntimeId, authority },
     admitExecutionAttempt({ goal, workItem, attemptId }) {
       const admission = authority.reserve({
@@ -98,7 +105,24 @@ export function createProjectBoundedWorkAuthority(
         },
       };
     },
-    async closeoutCandidate({ goal, workItem, attempt, providedEvidence, verificationGateResults }) {
+    async closeoutCandidate(input) {
+      const formalVerificationFinishTransport = input[FORMAL_VERIFICATION_FINISH_TRANSPORT];
+      if (
+        formalVerificationFinishTransport !== undefined
+        && readRuntimeFormalVerificationFinishTransport() !== formalVerificationFinishTransport
+      ) {
+        return {
+          captured: false,
+          code: "formal_verification_transport_untrusted",
+          message: "Formal verification transport must come from the registered Runtime finish path.",
+        };
+      }
+      const {
+        goal,
+        workItem,
+        attempt,
+        providedEvidence,
+      } = input;
       const previousCandidate = [...workItem.executionAttempts]
         .reverse()
         .find((entry) => entry.id !== attempt.id && entry.candidate)?.candidate;
@@ -161,14 +185,26 @@ export function createProjectBoundedWorkAuthority(
           message: "Candidate size crossed a configured tripwire and requires review evidence.",
         };
       }
-      const evidenceDigest = digest({ providedEvidence, verificationGateResults });
-      const evidence = [bindCapturedCandidateEvidence({
+      const evidence = formalVerificationFinishTransport?.observations.map((observation) => createBoundedWorkCandidateEvidence({
         candidate: captured.candidate,
-        kind: "verification",
-        subjectCandidateDigest: captured.candidate.candidateDigest,
-        evidenceDigest,
-        recordedAt: new Date().toISOString(),
-      })];
+        executionAttempt: {
+          goalRunId: attempt.goalRunId,
+          workItemId: attempt.workItemId,
+          attemptId: attempt.id,
+          ...(Object.prototype.hasOwnProperty.call(attempt, "managedInvocationId")
+            ? { managedInvocationId: attempt.managedInvocationId }
+            : {}),
+        },
+        invocation: {
+          toolCallScopeId: observation.toolCallScopeId,
+          toolCallId: observation.toolCallId,
+        },
+        attestation: {
+          producer: formalVerificationFinishTransport.producer,
+          payload: observation.metadata,
+        },
+        recordedAt: formalVerificationFinishTransport.recordedAt,
+      })) ?? [];
       if (providedEvidence.some((entry) => entry.includes("review"))) {
         const review = authority.reserve({
           projectRuntimeId,
@@ -183,13 +219,6 @@ export function createProjectBoundedWorkAuthority(
         if (review.decision.kind !== "admitted") {
           return { captured: false, code: review.decision.kind, message: boundedWorkAttemptDecisionMessage(review.decision) };
         }
-        evidence.push(bindCapturedCandidateEvidence({
-          candidate: captured.candidate,
-          kind: "review",
-          subjectCandidateDigest: captured.candidate.candidateDigest,
-          evidenceDigest,
-          recordedAt: new Date().toISOString(),
-        }));
       }
       if (previousCandidate) {
         const remediation = authority.reserve({
@@ -213,7 +242,7 @@ export function createProjectBoundedWorkAuthority(
       }
       return { captured: true, candidate: captured.candidate, evidence };
     },
-    async closeoutGoal({ goal, candidate, candidateCaptureRoot, satisfiedCriteria, candidateEvidence }) {
+    async closeoutGoal({ goal, candidate, candidateCaptureRoot, candidateEvidence }) {
       const current = await captureGitWorktreeCandidate({
         worktreePath: candidateCaptureRoot ?? projectRoot,
         goalRunId: goal.id,
@@ -234,12 +263,12 @@ export function createProjectBoundedWorkAuthority(
         revision: goal.boundedWorkContractRevision,
         snapshot,
         candidateDigest: candidate.candidateDigest,
-        satisfiedCriteria,
         candidateEvidence,
       });
     },
     close: () => authority.close(),
   };
+  return composition;
 }
 
 function boundedWorkEffectForPath(path: string): BoundedWorkEffect {

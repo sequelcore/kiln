@@ -1,6 +1,10 @@
 // Engine domain: developer tool types for Phase 9a (native runtime)
 
 import type { ToolResultMetadata } from "./tool-result-metadata.js";
+import {
+  FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  type FormalVerificationFinishTransportEnvelope,
+} from "./formal-verification-finish-transport.js";
 
 const OUTPUT_VERBOSITY_PROPERTY = {
   type: "string",
@@ -80,6 +84,8 @@ export interface ToolExecutionOutputDelta {
 export interface DevToolExecutionContext {
   readonly abortSignal?: AbortSignal;
   readonly onOutput?: (delta: ToolExecutionOutputDelta) => void;
+  /** Internal Runtime authority transport; never model input or serialized context. */
+  readonly [FORMAL_VERIFICATION_FINISH_TRANSPORT]?: FormalVerificationFinishTransportEnvelope;
 }
 
 export type ToolResultResourcePayload = {

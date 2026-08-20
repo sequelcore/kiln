@@ -61,6 +61,7 @@ export type GoalToolName =
 export type ElicitationToolName = "operator_elicit";
 export type MemoryToolName = "memory_search" | "memory_save";
 export type ResourceToolName = "resource_list" | "resource_template_list" | "resource_read";
+export type FormalVerifyToolName = "formal_verify";
 
 export type FileToolOperation = "read" | "read_many" | "write" | "edit" | "patch";
 export type InspectionToolOperation = "stat" | "tree";
@@ -615,6 +616,43 @@ export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = Mem
   readonly errorCode?: "invalid_input" | "service_unavailable" | "registry_unavailable" | "authorization_denied" | "not_found" | "repository_error";
 }
 
+/** Versioned, facts-only observation emitted by the formal verifier tool. */
+export const FORMAL_VERIFICATION_OBSERVATION_SCHEMA =
+  "kiln.formal-verification-observation/v1" as const;
+
+export type FormalVerificationOutcome = "proved" | "refuted" | "unresolved";
+
+export interface FormalVerificationArtifact {
+  /** Digest of the verifier input bytes; this is not a candidate subject. */
+  readonly contentDigest: string;
+}
+
+export interface FormalVerificationCheck {
+  readonly symbol: string;
+  readonly check: "correctness";
+  readonly outcome: FormalVerificationOutcome;
+  /** Verifier diagnostic required when the check was not proved. */
+  readonly detail?: string;
+}
+
+/**
+ * What the configured Dafny verifier observed during one run.
+ *
+ * This arm deliberately carries no candidate path, criterion, criterionId, or
+ * mapping. Runtime owns occurrence time and later evidence binding; the empty
+ * `establishes` tuple makes it impossible for this first transport slice to
+ * credit an acceptance criterion.
+ */
+export interface FormalVerificationToolResultMetadata extends ToolResultResourceLinkMetadata {
+  readonly schema: typeof FORMAL_VERIFICATION_OBSERVATION_SCHEMA;
+  readonly toolName: "formal_verify";
+  readonly kind: "formal_verification";
+  readonly verifier: { readonly name: "dafny"; readonly version: string };
+  readonly artifact: FormalVerificationArtifact;
+  readonly checks: readonly FormalVerificationCheck[];
+  readonly establishes: readonly [];
+}
+
 export type ToolSpecificResultMetadata =
   | CommandToolResultMetadata
   | FileToolResultMetadata
@@ -633,7 +671,8 @@ export type ToolSpecificResultMetadata =
   | ElicitationToolResultMetadata
   | MemoryToolResultMetadata
   | ResourceToolResultMetadata
-  | ExternalToolFailureResultMetadata;
+  | ExternalToolFailureResultMetadata
+  | FormalVerificationToolResultMetadata;
 
 export type ToolResultMetadata = ToolSpecificResultMetadata & ToolResultResourceLinkMetadata;
 
@@ -856,4 +895,231 @@ export function resourceToolMetadata<TToolName extends ResourceToolName>(
     kind: "resource",
     ...metadata,
   };
+}
+
+export function formalVerificationToolMetadata(
+  metadata: Omit<
+    FormalVerificationToolResultMetadata,
+    "schema" | "toolName" | "kind" | "establishes"
+  >,
+): FormalVerificationToolResultMetadata {
+  return parseFormalVerificationToolResultMetadata({
+    schema: FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
+    toolName: "formal_verify",
+    kind: "formal_verification",
+    establishes: [],
+    ...metadata,
+  });
+}
+
+/** Parse and strictly validate one formal-verification observation. */
+export function parseFormalVerificationToolResultMetadata(
+  value: unknown,
+): FormalVerificationToolResultMetadata {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "schema",
+    "toolName",
+    "kind",
+    "verifier",
+    "artifact",
+    "checks",
+    "establishes",
+  ], ["resourceLinks"])) {
+    throw new Error("formal verification metadata has an invalid shape or extra field");
+  }
+  if (value.schema !== FORMAL_VERIFICATION_OBSERVATION_SCHEMA) {
+    throw new Error(`formal verification metadata schema must be ${FORMAL_VERIFICATION_OBSERVATION_SCHEMA}`);
+  }
+  if (value.toolName !== "formal_verify" || value.kind !== "formal_verification") {
+    throw new Error("formal verification metadata identity is invalid");
+  }
+  const verifier = parseFormalVerificationVerifier(value.verifier);
+  const artifact = parseFormalVerificationArtifact(value.artifact);
+  const checks = parseFormalVerificationChecks(value.checks);
+  const resourceLinks = parseFormalVerificationResourceLinks(value.resourceLinks);
+  if (!Array.isArray(value.establishes) || value.establishes.length !== 0) {
+    throw new Error("formal verification metadata establishes must be empty");
+  }
+  return freezeFormalVerificationMetadata({
+    schema: FORMAL_VERIFICATION_OBSERVATION_SCHEMA,
+    toolName: "formal_verify",
+    kind: "formal_verification",
+    verifier,
+    artifact,
+    checks,
+    establishes: [],
+    ...(resourceLinks === undefined ? {} : { resourceLinks }),
+  });
+}
+
+/** Strict runtime discriminator used by Runtime when collecting observations. */
+export function isFormalVerificationToolResultMetadata(
+  value: unknown,
+): value is FormalVerificationToolResultMetadata {
+  try {
+    parseFormalVerificationToolResultMetadata(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseFormalVerificationVerifier(value: unknown): FormalVerificationToolResultMetadata["verifier"] {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["name", "version"])) {
+    throw new Error("formal verification verifier has an invalid shape or extra field");
+  }
+  if (value.name !== "dafny") {
+    throw new Error("formal verification verifier name must be dafny");
+  }
+  if (!isNonEmptyString(value.version)) {
+    throw new Error("formal verification verifier version is required");
+  }
+  return { name: "dafny", version: value.version };
+}
+
+function parseFormalVerificationArtifact(value: unknown): FormalVerificationArtifact {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["contentDigest"])) {
+    throw new Error("formal verification artifact has an invalid shape or extra field");
+  }
+  if (!isCanonicalSha256(value.contentDigest)) {
+    throw new Error("formal verification artifact contentDigest must be canonical sha256 evidence");
+  }
+  return { contentDigest: value.contentDigest };
+}
+
+function parseFormalVerificationChecks(value: unknown): readonly FormalVerificationCheck[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("formal verification metadata checks must be non-empty");
+  }
+  const seen = new Set<string>();
+  let previousSymbol: string | undefined;
+  const checks = Array.from(value, (entry) => {
+    if (!isRecord(entry) || !hasOnlyKeys(entry, ["symbol", "check", "outcome"], ["detail"])) {
+      throw new Error("formal verification check has an invalid shape or extra field");
+    }
+    if (!isNonEmptyString(entry.symbol) || entry.check !== "correctness") {
+      throw new Error("formal verification check identity is invalid");
+    }
+    if (entry.outcome !== "proved" && entry.outcome !== "refuted" && entry.outcome !== "unresolved") {
+      throw new Error("formal verification check outcome is invalid");
+    }
+    const symbol = entry.symbol;
+    const outcome = entry.outcome as FormalVerificationOutcome;
+    const detail = entry.detail;
+    if (detail !== undefined && !isNonEmptyString(detail)) {
+      throw new Error("formal verification check detail must be non-empty when present");
+    }
+    if (outcome === "proved" && detail !== undefined) {
+      throw new Error("formal verification proved checks must not carry detail");
+    }
+    if (outcome !== "proved" && detail === undefined) {
+      throw new Error("formal verification check detail is required when not proved");
+    }
+    if (previousSymbol !== undefined && symbol <= previousSymbol) {
+      throw new Error("formal verification checks must be in canonical sorted order");
+    }
+    previousSymbol = symbol;
+    const identity = `${symbol}/correctness`;
+    if (seen.has(identity)) {
+      throw new Error(`duplicate formal verification check ${identity}`);
+    }
+    seen.add(identity);
+    return {
+      symbol,
+      check: "correctness" as const,
+      outcome,
+      ...(detail === undefined ? {} : { detail }),
+    };
+  });
+  return checks;
+}
+
+function parseFormalVerificationResourceLinks(
+  value: unknown,
+): readonly ToolResourceLinkMetadata[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("formal verification resourceLinks must be an array");
+  }
+  return Array.from(value, (entry) => {
+    if (!isRecord(entry) || !hasOnlyKeys(entry, ["uri", "relation"], ["title", "label", "sequence", "mimeType", "size"])) {
+      throw new Error("formal verification resource link has an invalid shape or extra field");
+    }
+    if (!isNonEmptyString(entry.uri) || !isResourceLinkRelation(entry.relation)) {
+      throw new Error("formal verification resource link identity is invalid");
+    }
+    if (entry.title !== undefined && !isNonEmptyString(entry.title)) {
+      throw new Error("formal verification resource link title is invalid");
+    }
+    if (entry.label !== undefined && !isNonEmptyString(entry.label)) {
+      throw new Error("formal verification resource link label is invalid");
+    }
+    if (entry.mimeType !== undefined && !isNonEmptyString(entry.mimeType)) {
+      throw new Error("formal verification resource link mimeType is invalid");
+    }
+    if (entry.sequence !== undefined && !isNonNegativeSafeInteger(entry.sequence)) {
+      throw new Error("formal verification resource link sequence is invalid");
+    }
+    if (entry.size !== undefined && !isNonNegativeSafeInteger(entry.size)) {
+      throw new Error("formal verification resource link size is invalid");
+    }
+    return {
+      uri: entry.uri,
+      relation: entry.relation,
+      ...(entry.title === undefined ? {} : { title: entry.title }),
+      ...(entry.label === undefined ? {} : { label: entry.label }),
+      ...(entry.sequence === undefined ? {} : { sequence: entry.sequence }),
+      ...(entry.mimeType === undefined ? {} : { mimeType: entry.mimeType }),
+      ...(entry.size === undefined ? {} : { size: entry.size }),
+    };
+  });
+}
+
+function freezeFormalVerificationMetadata(
+  value: FormalVerificationToolResultMetadata,
+): FormalVerificationToolResultMetadata {
+  return Object.freeze({
+    ...value,
+    verifier: Object.freeze({ ...value.verifier }),
+    artifact: Object.freeze({ ...value.artifact }),
+    checks: Object.freeze(value.checks.map((check) => Object.freeze({ ...check }))),
+    establishes: Object.freeze([]) as readonly [],
+    ...(value.resourceLinks === undefined
+      ? {}
+      : { resourceLinks: Object.freeze(value.resourceLinks.map((link) => Object.freeze({ ...link }))) }),
+  });
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const keys = Object.keys(value);
+  return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    && keys.every((key) => required.includes(key) || optional.includes(key));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.trim() === value;
+}
+
+function isResourceLinkRelation(value: unknown): value is ToolResourceLinkRelation {
+  return value === "full_output"
+    || value === "snapshot"
+    || value === "events"
+    || value === "source"
+    || value === "summary";
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isCanonicalSha256(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
 }

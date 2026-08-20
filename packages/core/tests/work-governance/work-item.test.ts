@@ -161,6 +161,125 @@ describe("WorkItemStore terminal state", () => {
     })).toThrow("Terminal work item 'completed-work' cannot transition from completed to pending");
     expect(store.get("completed-work")?.status).toBe("completed");
   });
+
+  it("rejects finishing a completed execution attempt without rewriting its terminal snapshot", () => {
+    const store = new WorkItemStore({ now: () => "2026-07-01T00:00:00.000Z" });
+    const item = store.upsert(workItemInput({
+      id: "completed-attempt-work",
+      expectedEvidence: [],
+      verificationGates: [],
+    }));
+    const revision = testBoundedWorkRevision("completed-attempt-goal", [item.id], "Finish once.");
+    const started = store.startExecutionAttempt({
+      id: item.id,
+      goalRunId: "completed-attempt-goal",
+      boundedWorkContractRevisionDigest: revision.revisionDigest,
+      executionMode: "direct",
+    });
+    if (!started) throw new Error("expected execution attempt");
+    const first = store.finishExecutionAttempt({
+      id: item.id,
+      attemptId: started.attempt.id,
+    });
+    if (!first) throw new Error("expected completed execution attempt");
+
+    expect(() => store.finishExecutionAttempt({
+      id: item.id,
+      attemptId: started.attempt.id,
+    })).toThrow("already terminal");
+    expect(store.get(item.id)?.executionAttempts[0]).toEqual(first.attempt);
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "rejects %s terminalization while finish closeout is in flight and permits retry after release",
+    (terminalStatus) => {
+      const store = new WorkItemStore({ now: () => "2026-07-01T00:00:00.000Z" });
+      const item = store.upsert(workItemInput({
+        id: `terminalizer-race-${terminalStatus}`,
+        expectedEvidence: [],
+        verificationGates: [],
+      }));
+      const revision = testBoundedWorkRevision(`terminalizer-race-goal-${terminalStatus}`, [item.id], "Serialize terminalization.");
+      const started = store.startExecutionAttempt({
+        id: item.id,
+        goalRunId: revision.accountingLineageId,
+        boundedWorkContractRevisionDigest: revision.revisionDigest,
+        executionMode: "direct",
+      });
+      if (!started) throw new Error("expected execution attempt");
+      const claim = { id: item.id, attemptId: started.attempt.id };
+      expect(store.claimExecutionAttemptFinish(claim)).toBe(true);
+
+      expect(() => store.failExecutionAttempt({
+        ...claim,
+        terminalStatus,
+        failureReason: terminalStatus,
+        summary: "Terminalizer raced with candidate closeout.",
+      })).toThrow("already being finished");
+      expect(store.get(item.id)?.executionAttempts[0]?.status).toBe("started");
+
+      store.releaseExecutionAttemptFinish(claim);
+      const terminal = store.failExecutionAttempt({
+        ...claim,
+        terminalStatus,
+        failureReason: terminalStatus,
+        summary: "Terminalizer retried after closeout release.",
+      });
+      expect(terminal?.attempt.status).toBe(terminalStatus);
+    },
+  );
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "does not rewrite a %s execution attempt through fail terminalization",
+    (terminalAttemptStatus) => {
+      const store = new WorkItemStore({ now: () => "2026-07-01T00:00:00.000Z" });
+      const item = store.upsert(workItemInput({
+        id: `terminal-rewrite-${terminalAttemptStatus}`,
+        expectedEvidence: [],
+        verificationGates: [],
+      }));
+      const goalRunId = `terminal-rewrite-goal-${terminalAttemptStatus}`;
+      const revision = testBoundedWorkRevision(goalRunId, [item.id], "Keep terminal attempts immutable.");
+      const started = store.startExecutionAttempt({
+        id: item.id,
+        goalRunId,
+        boundedWorkContractRevisionDigest: revision.revisionDigest,
+        executionMode: "direct",
+      });
+      if (!started) throw new Error("expected execution attempt");
+      const terminalInput = {
+        id: item.id,
+        attemptId: started.attempt.id,
+        terminalStatus: terminalAttemptStatus === "completed" ? undefined : terminalAttemptStatus,
+        failureReason: terminalAttemptStatus === "completed" ? "failed" as const : terminalAttemptStatus,
+        summary: "Record the original terminal snapshot.",
+      };
+      if (terminalAttemptStatus === "completed") {
+        const completed = store.finishExecutionAttempt({
+          id: item.id,
+          attemptId: started.attempt.id,
+        });
+        if (!completed) throw new Error("expected completed execution attempt");
+      } else {
+        const terminal = store.failExecutionAttempt({
+          ...terminalInput,
+          terminalStatus: terminalAttemptStatus,
+        });
+        if (!terminal) throw new Error("expected terminal execution attempt");
+      }
+      const before = store.get(item.id);
+      if (!before) throw new Error("expected stored terminal work item");
+
+      expect(() => store.failExecutionAttempt({
+        id: item.id,
+        attemptId: started.attempt.id,
+        terminalStatus: "failed",
+        failureReason: "failed",
+        summary: "Attempt to rewrite the terminal snapshot.",
+      })).toThrow("already terminal");
+      expect(JSON.stringify(store.get(item.id))).toBe(JSON.stringify(before));
+    },
+  );
 });
 
 describe("WorkItemStore pause requirement supersession", () => {

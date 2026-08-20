@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  bindCapturedCandidateEvidence,
   captureArtifactCandidate,
   captureExternalStateCandidate,
   captureGitWorktreeCandidate,
@@ -79,7 +78,7 @@ describe("bounded work candidate capture", () => {
     });
   });
 
-  it("binds artifact bytes and immutable external-version content, while refusing unversioned external state", () => {
+  it("captures artifact bytes and immutable external-version content, while refusing unversioned external state", () => {
     const artifact = captureArtifactCandidate({
       ...identity(),
       baselineContent: new TextEncoder().encode("before"),
@@ -88,13 +87,6 @@ describe("bounded work candidate capture", () => {
     expect(artifact.candidate.kind).toBe("artifact");
     expect(artifact.candidate.baseline.kind).toBe("content_snapshot");
     expect(artifact.candidate.candidateContentDigest).not.toBe(artifact.candidate.baseline.digest);
-    expect(bindCapturedCandidateEvidence({
-      candidate: artifact.candidate,
-      kind: "verification",
-      subjectCandidateDigest: artifact.candidate.candidateDigest,
-      evidenceDigest: digest("d"),
-      recordedAt: "2026-08-12T00:01:00.000Z",
-    })).toMatchObject({ candidateDigest: artifact.candidate.candidateDigest });
 
     expect(captureExternalStateCandidate({
       ...identity(),

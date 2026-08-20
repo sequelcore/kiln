@@ -5,6 +5,7 @@ import type {
   AuthorityStateStore,
   AuthorityDescriptor,
   Capability,
+  DevTool,
   DefaultBuiltinToolSurface,
   DefaultBuiltinToolRegistryOptions,
   DiscoveredDirectProviderModelCapabilities,
@@ -43,6 +44,14 @@ import {
   type OperatorTurnRequestedAuthority,
   type OperatorThemeScope,
 } from "@kilnai/gateway-contracts";
+import {
+  FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  parseFormalVerificationToolResultMetadata,
+  type DevToolExecutionContext,
+  type FormalVerificationFinishExecutionScope,
+  type FormalVerificationFinishTransportEnvelope,
+  type FormalVerificationFinishTransportObservation,
+} from "@kilnai/core/tools";
 import type {
   OperatorSurfaceController,
   OperatorSurfaceThemeController,
@@ -52,6 +61,8 @@ import type {
   RuntimeBuiltinToolExecutionContext,
   RuntimeBuiltinToolExecutor,
 } from "../session/runtime-session-orchestrator.js";
+import { isRuntimeOwnedFormalVerificationObservation } from "../work-governance/formal-verification-observations.js";
+import { runRuntimeFormalVerificationFinishInvocation } from "../work-governance/formal-verification-invocation-state.js";
 import type { EffectiveTurnAuthorityAdmissionContext } from "../session/effective-turn-authority.js";
 import { projectEffectiveTurnAuthorityPerCallConfig } from "../session/effective-turn-authority.js";
 import {
@@ -469,7 +480,9 @@ export function createAttachedRuntimeBuiltinToolSurface(
       ? createDefaultBuiltinToolSurface(createSessionBuiltinToolOptions())
       : DEFAULT_CORE_BUILTIN_TOOL_SURFACE;
   const baseSurface = options.builtinToolOptions || requiresPlanningStores
-    ? buildRuntimeSurface(coreSurface, { requireSessionStores: requiresPlanningStores })
+      ? buildRuntimeSurface(coreSurface, {
+        requireSessionStores: requiresPlanningStores,
+      })
     : DEFAULT_BUILTIN_TOOL_SURFACE;
   const managedInvocation = managedInvocationAttachment
     ? {
@@ -1595,7 +1608,9 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
 
 function buildRuntimeSurface(
   coreSurface: DefaultBuiltinToolSurface,
-  options: { readonly requireSessionStores?: boolean } = {},
+  options: {
+    readonly requireSessionStores?: boolean;
+  } = {},
 ): AttachedRuntimeBuiltinToolSurface {
   const analysisStateStore = coreSurface.analysisStateStore;
   const authorityStateStore = coreSurface.authorityStateStore;
@@ -1947,20 +1962,23 @@ function buildBuiltinToolExecutors(
     const toolName = tool.name;
     executors.set(toolName, async (input, context) => {
       const sandbox = mergeToolSandboxContext(context?.sandbox, context?.allowedToolNames);
-        const execution = await surface.bridge.execute({
-          name: toolName,
-          input,
-          ...(context?.authority ? { authority: context.authority } : {}),
-          ...(sandbox !== undefined ? { sandbox } : {}),
-          ...((context?.abortSignal || context?.emitOutput)
-            ? {
-              executionContext: {
-                ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
-                ...(context.emitOutput ? { onOutput: context.emitOutput } : {}),
-              },
-            }
-            : {}),
-        });
+      const executionContext = createCoreToolExecutionContext(
+        toolName,
+        surface,
+        context,
+        tool,
+      );
+      const execute = () => surface.bridge.execute({
+        name: toolName,
+        input,
+        ...(context?.authority ? { authority: context.authority } : {}),
+        ...(sandbox !== undefined ? { sandbox } : {}),
+        ...(executionContext ? { executionContext } : {}),
+      });
+      const transport = executionContext?.[FORMAL_VERIFICATION_FINISH_TRANSPORT];
+      const execution = transport && toolName === "work_item.execution.finish"
+        ? await runRuntimeFormalVerificationFinishInvocation(tool, transport, execute)
+        : await execute();
       const result = execution.result;
       const resourceLinks = projectToolResultResourceLinks(result);
       const resourceLinkContent = (result.content ?? []).filter(isResourceLinkContent);
@@ -1974,6 +1992,157 @@ function buildBuiltinToolExecutors(
     });
   }
   return executors;
+}
+
+function createCoreToolExecutionContext(
+  toolName: string,
+  surface: DefaultBuiltinToolSurface,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  registeredTool: DevTool,
+): DevToolExecutionContext | undefined {
+  const transport = toolName === "work_item.execution.finish"
+    ? createFormalVerificationFinishTransport(surface, context, registeredTool)
+    : undefined;
+  if (!context?.abortSignal && !context?.emitOutput && !transport) return undefined;
+
+  const executionContext: DevToolExecutionContext = {
+    ...(context?.abortSignal ? { abortSignal: context.abortSignal } : {}),
+    ...(context?.emitOutput ? { onOutput: context.emitOutput } : {}),
+  };
+  if (transport) {
+    Object.defineProperty(executionContext, FORMAL_VERIFICATION_FINISH_TRANSPORT, {
+      configurable: false,
+      enumerable: false,
+      value: transport,
+      writable: false,
+    });
+  }
+  return executionContext;
+}
+
+function createFormalVerificationFinishTransport(
+  surface: DefaultBuiltinToolSurface,
+  context: RuntimeBuiltinToolExecutionContext | undefined,
+  registeredFinishTool: DevTool,
+): FormalVerificationFinishTransportEnvelope | undefined {
+  const executionScope = normalizeFormalVerificationFinishScope(context?.executionScope);
+  const observations = context?.formalVerificationObservations;
+  if (
+    !executionScope
+    || !observations
+    || !Array.isArray(observations)
+    || observations.length === 0
+    || !Object.isFrozen(observations)
+  ) return undefined;
+
+  const registeredFormalVerify = surface.registry.lookup("formal_verify");
+  if (
+    registeredFinishTool.name !== "work_item.execution.finish"
+    || !registeredFormalVerify
+    || registeredFormalVerify.name !== "formal_verify"
+  ) return undefined;
+
+  const observationsByIdentity = new Map<string, FormalVerificationFinishTransportObservation | null>();
+  for (const observation of observations) {
+    if (
+      !observation
+      || typeof observation !== "object"
+      || !isRuntimeOwnedFormalVerificationObservation(observation)
+      || !Object.isFrozen(observation)
+      || !isCanonicalTransportId(observation.toolCallScopeId)
+      || !isCanonicalTransportId(observation.toolCallId)
+    ) {
+      return undefined;
+    }
+    const observationScope = normalizeFormalVerificationFinishScope(observation.executionScope);
+    if (!observationScope || !sameFormalVerificationFinishScope(observationScope, executionScope)) return undefined;
+    let metadata: FormalVerificationTransportMetadata;
+    try {
+      metadata = parseFormalVerificationToolResultMetadata(observation.metadata);
+    } catch {
+      return undefined;
+    }
+    const normalizedObservation = Object.freeze({
+      metadata,
+      toolCallScopeId: observation.toolCallScopeId,
+      toolCallId: observation.toolCallId,
+      executionScope: observationScope,
+    });
+    const identity = JSON.stringify([normalizedObservation.toolCallScopeId, normalizedObservation.toolCallId]);
+    const previous = observationsByIdentity.get(identity);
+    if (!observationsByIdentity.has(identity)) {
+      observationsByIdentity.set(identity, normalizedObservation);
+    } else if (previous && sameFormalVerificationTransportObservation(previous, normalizedObservation)) {
+      continue;
+    } else {
+      observationsByIdentity.set(identity, null);
+    }
+  }
+  const normalizedObservations = [...observationsByIdentity.values()].filter(
+    (observation): observation is FormalVerificationFinishTransportObservation => observation !== null,
+  );
+  if (normalizedObservations.length === 0) return undefined;
+
+  const envelope: FormalVerificationFinishTransportEnvelope = {
+    observations: Object.freeze(normalizedObservations),
+    executionScope,
+    recordedAt: new Date().toISOString(),
+    producer: Object.freeze({ kind: "registered_tool", toolName: registeredFormalVerify.name }),
+  };
+  return Object.freeze(envelope);
+}
+
+type FormalVerificationTransportMetadata = FormalVerificationFinishTransportObservation["metadata"];
+
+function sameFormalVerificationTransportObservation(
+  left: FormalVerificationFinishTransportObservation,
+  right: FormalVerificationFinishTransportObservation,
+): boolean {
+  return left.toolCallScopeId === right.toolCallScopeId
+    && left.toolCallId === right.toolCallId
+    && sameFormalVerificationFinishScope(left.executionScope, right.executionScope)
+    && JSON.stringify(left.metadata) === JSON.stringify(right.metadata);
+}
+
+function normalizeFormalVerificationFinishScope(
+  value: RuntimeBuiltinToolExecutionContext["executionScope"] | FormalVerificationFinishExecutionScope | undefined,
+): FormalVerificationFinishExecutionScope | undefined {
+  if (!value || value.kind !== "work_item") return undefined;
+  if (!isNonEmptyTransportString(value.goalRunId) || !isNonEmptyTransportString(value.workItemId)) return undefined;
+  if (!isNonEmptyTransportString(value.attemptId)) return undefined;
+  if (hasOwnTransportProperty(value, "managedInvocationId") && !isNonEmptyTransportString(value.managedInvocationId)) {
+    return undefined;
+  }
+  return Object.freeze({
+    kind: "work_item",
+    goalRunId: value.goalRunId,
+    workItemId: value.workItemId,
+    attemptId: value.attemptId,
+    ...(hasOwnTransportProperty(value, "managedInvocationId") ? { managedInvocationId: value.managedInvocationId } : {}),
+  });
+}
+
+function sameFormalVerificationFinishScope(
+  left: FormalVerificationFinishExecutionScope,
+  right: FormalVerificationFinishExecutionScope,
+): boolean {
+  return left.goalRunId === right.goalRunId
+    && left.workItemId === right.workItemId
+    && left.attemptId === right.attemptId
+    && hasOwnTransportProperty(left, "managedInvocationId") === hasOwnTransportProperty(right, "managedInvocationId")
+    && (!hasOwnTransportProperty(left, "managedInvocationId") || left.managedInvocationId === right.managedInvocationId);
+}
+
+function hasOwnTransportProperty(value: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isNonEmptyTransportString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.trim() === value;
+}
+
+function isCanonicalTransportId(value: unknown): value is string {
+  return isNonEmptyTransportString(value);
 }
 
 function mergeToolSandboxContext(

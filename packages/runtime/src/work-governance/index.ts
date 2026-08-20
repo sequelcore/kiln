@@ -14,7 +14,6 @@ export type {
   SqliteBoundedWorkAuthorityOptions,
 } from "./sqlite-bounded-work-authority.js";
 export {
-  bindCapturedCandidateEvidence,
   captureArtifactCandidate,
   captureExternalStateCandidate,
   captureGitWorktreeCandidate,
@@ -32,3 +31,4 @@ export type {
 } from "./bounded-work-candidate-capture.js";
 export { resolveCandidateSubjectDigests } from "./bounded-work-candidate-subjects.js";
 export type { ResolveCandidateSubjectDigestsInput } from "./bounded-work-candidate-subjects.js";
+export type { RuntimeFormalVerificationObservation } from "./formal-verification-observations.js";

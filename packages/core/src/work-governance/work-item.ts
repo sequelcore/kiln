@@ -11,7 +11,11 @@ import {
 } from "../agents/work-classification.js";
 import type { DeliberationIntent } from "../agents/deliberation-policy.js";
 import { requireBoundedWorkDigest } from "./bounded-work-content.js";
-import type { BoundedWorkCandidateEvidence, BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
+import {
+  parseBoundedWorkCandidateEvidence,
+  type BoundedWorkCandidateEvidence,
+} from "./bounded-work-evidence.js";
+import type { BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
 
@@ -38,6 +42,9 @@ export interface WorkItemFeedbackRepairSource {
 
 export type WorkItemExecutionMode = "direct" | "managed_delegation";
 export type WorkItemExecutionAttemptStatus = "started" | "completed" | "blocked" | "failed" | "cancelled";
+export function isTerminalWorkItemExecutionAttemptStatus(status: WorkItemExecutionAttemptStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
 export type WorkItemExecutionFailureReason =
   | "failed"
   | "denied"
@@ -367,6 +374,11 @@ export interface WorkItemFinishExecutionAttemptResult extends WorkItemCompletion
   readonly attempt: WorkItemExecutionAttempt;
 }
 
+export interface WorkItemExecutionAttemptClaimInput {
+  readonly id: string;
+  readonly attemptId: string;
+}
+
 export interface WorkItemFailExecutionAttemptInput {
   readonly id: string;
   readonly attemptId: string;
@@ -396,6 +408,7 @@ export interface WorkItemStoreOptions {
 
 export class WorkItemStore {
   private readonly items = new Map<string, WorkItem>();
+  private readonly inFlightExecutionAttemptFinishes = new Set<string>();
   private readonly now: () => string;
   private sequence = 0;
   private resourceNotifications?: WorkItemResourceChangeNotifier;
@@ -505,6 +518,29 @@ export class WorkItemStore {
 
   get(id: string): WorkItem | undefined {
     return this.items.get(id);
+  }
+
+  /**
+   * Atomically reserve one non-terminal attempt for asynchronous finish
+   * closeout. The claim is process-local and deliberately not persisted as a
+   * WorkItem status; callers must release it when closeout does not complete.
+   */
+  claimExecutionAttemptFinish(input: WorkItemExecutionAttemptClaimInput): boolean {
+    const item = this.items.get(input.id);
+    const attempt = item?.executionAttempts.find((candidate) => candidate.id === input.attemptId);
+    if (!attempt || isTerminalWorkItemExecutionAttemptStatus(attempt.status)) {
+      return false;
+    }
+    const key = executionAttemptFinishKey(input.id, input.attemptId);
+    if (this.inFlightExecutionAttemptFinishes.has(key)) {
+      return false;
+    }
+    this.inFlightExecutionAttemptFinishes.add(key);
+    return true;
+  }
+
+  releaseExecutionAttemptFinish(input: WorkItemExecutionAttemptClaimInput): void {
+    this.inFlightExecutionAttemptFinishes.delete(executionAttemptFinishKey(input.id, input.attemptId));
   }
 
   restore(item: WorkItem): WorkItem {
@@ -633,7 +669,14 @@ export class WorkItemStore {
     if (!attempt) {
       return undefined;
     }
-    assertAttemptCandidateBinding(attempt, input.candidate, input.candidateEvidence);
+    if (isTerminalWorkItemExecutionAttemptStatus(attempt.status)) {
+      throw new Error(
+        `Execution attempt '${attempt.id}' is already terminal (${attempt.status}) and cannot be finished again.`,
+      );
+    }
+    const normalizedCandidateEvidence = input.candidateEvidence === undefined
+      ? undefined
+      : assertAttemptCandidateBinding(attempt, input.candidate, input.candidateEvidence);
     const providedEvidence = unique([
       ...existing.providedEvidence,
       ...attempt.providedEvidence,
@@ -707,7 +750,7 @@ export class WorkItemStore {
           ? { verificationUsage: attempt.verificationUsage }
           : {}),
       ...(input.candidate ? { candidate: input.candidate } : {}),
-      ...(input.candidateEvidence ? { candidateEvidence: [...input.candidateEvidence] } : {}),
+      ...(normalizedCandidateEvidence ? { candidateEvidence: normalizedCandidateEvidence } : {}),
     };
     const item = this.upsert({
       ...existing,
@@ -739,6 +782,14 @@ export class WorkItemStore {
     const attempt = existing.executionAttempts.find((candidate) => candidate.id === input.attemptId);
     if (!attempt) {
       return undefined;
+    }
+    if (isTerminalWorkItemExecutionAttemptStatus(attempt.status)) {
+      throw new Error(
+        `Execution attempt '${attempt.id}' is already terminal (${attempt.status}) and cannot be failed again.`,
+      );
+    }
+    if (this.inFlightExecutionAttemptFinishes.has(executionAttemptFinishKey(input.id, input.attemptId))) {
+      throw new Error(`Execution attempt '${attempt.id}' is already being finished.`);
     }
     const terminalStatus = resolveFailedAttemptStatus(input);
     const providedEvidence = unique([
@@ -1686,10 +1737,11 @@ function assertAttemptCandidateBinding(
   attempt: WorkItemExecutionAttempt,
   candidate: BoundedWorkCandidateIdentity | undefined,
   evidence: readonly BoundedWorkCandidateEvidence[] | undefined,
-): void {
+): readonly BoundedWorkCandidateEvidence[] {
+  const normalizedEvidence = (evidence ?? []).map((record) => parseBoundedWorkCandidateEvidence(record));
   if (!candidate) {
-    if (evidence && evidence.length > 0) throw new Error("Candidate evidence requires an exact candidate identity.");
-    return;
+    if (normalizedEvidence.length > 0) throw new Error("Candidate evidence requires an exact candidate identity.");
+    return normalizedEvidence;
   }
   if (
     candidate.goalRunId !== attempt.goalRunId
@@ -1699,13 +1751,31 @@ function assertAttemptCandidateBinding(
   ) {
     throw new Error("Execution candidate does not match the governed attempt lineage.");
   }
-  for (const record of evidence ?? []) {
+  for (const record of normalizedEvidence) {
     if (
-      record.candidateDigest !== candidate.candidateDigest
-      || record.candidateContentDigest !== candidate.candidateContentDigest
-      || record.contractRevisionDigest !== candidate.contractRevisionDigest
+      record.candidate.goalRunId !== candidate.goalRunId
+      || record.candidate.workItemId !== candidate.workItemId
+      || record.candidate.accountingLineageId !== candidate.accountingLineageId
+      || record.candidate.contractRevisionDigest !== candidate.contractRevisionDigest
+      || record.candidate.candidateDigest !== candidate.candidateDigest
+      || record.candidate.candidateContentDigest !== candidate.candidateContentDigest
+      || record.executionAttempt.goalRunId !== attempt.goalRunId
+      || record.executionAttempt.workItemId !== attempt.workItemId
+      || record.executionAttempt.attemptId !== attempt.id
+      || hasOptionalManagedInvocationId(record.executionAttempt) !== hasOptionalManagedInvocationId(attempt)
+      || (hasOptionalManagedInvocationId(record.executionAttempt)
+        && record.executionAttempt.managedInvocationId !== attempt.managedInvocationId)
     ) {
-      throw new Error("Execution evidence is not bound to the exact candidate.");
+      throw new Error("Execution evidence is not bound to the exact candidate and attempt.");
     }
   }
+  return normalizedEvidence;
+}
+
+function hasOptionalManagedInvocationId(value: object): boolean {
+  return Object.prototype.hasOwnProperty.call(value, "managedInvocationId");
+}
+
+function executionAttemptFinishKey(workItemId: string, attemptId: string): string {
+  return `${workItemId}\u0000${attemptId}`;
 }

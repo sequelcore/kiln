@@ -859,6 +859,7 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeBuiltinToolExecutionContext,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
   RuntimeToolRoundBudget,
@@ -1008,7 +1009,6 @@ export {
   BoundedWorkAuthorityError,
   SQLITE_BOUNDED_WORK_AUTHORITY_SCHEMA_VERSION,
   SqliteBoundedWorkAuthority,
-  bindCapturedCandidateEvidence,
   captureArtifactCandidate,
   captureExternalStateCandidate,
   captureGitWorktreeCandidate,
@@ -1021,8 +1021,13 @@ export type {
   BoundedWorkReservationState,
   BoundedWorkRouteIdentity,
   BoundedWorkTerminalOutcome,
+  RuntimeFormalVerificationObservation,
   SqliteBoundedWorkAuthorityOptions,
 } from "./work-governance/index.js";
+export {
+  isRuntimeOwnedFormalVerificationFinishInvocation,
+  readRuntimeFormalVerificationFinishTransport,
+} from "./work-governance/formal-verification-invocation-state.js";
 
 export {
   projectAvailableModelCatalog,

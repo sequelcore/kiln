@@ -47,32 +47,42 @@ export {
 } from "./bounded-work-scope-policy.js";
 export type {
   CandidateSubjectDigests,
-  FormalProofObligation,
-  FormalProofOutcome,
   FormalProofSubject,
-  FormalProofVerdict,
-  FormalProofVerifier,
-  RecordFormalProofVerdictInput,
-} from "./formal-proof-verdict.js";
+} from "./formal-proof-subjects.js";
 export {
-  FORMAL_PROOF_VERDICT_SCHEMA,
-  bindFormalProofEvidence,
-  recordFormalProofVerdict,
-  unprovenCriteria,
-} from "./formal-proof-verdict.js";
+  normalizeCandidateSubjectDigests,
+  normalizeFormalProofSubjects,
+} from "./formal-proof-subjects.js";
 export type {
-  BindBoundedWorkEvidenceInput,
   BoundedWorkBaselineIdentity,
-  BoundedWorkCandidateEvidence,
   BoundedWorkCandidateIdentity,
   BoundedWorkCandidateKind,
-  BoundedWorkEvidenceKind,
   CreateBoundedWorkCandidateInput,
 } from "./bounded-work-candidate.js";
 export {
-  bindBoundedWorkEvidence,
   createBoundedWorkCandidate,
 } from "./bounded-work-candidate.js";
+export type {
+  BoundedWorkCandidateEvidence,
+  BoundedWorkCandidateProjection,
+  BoundedWorkEvidenceExecutionAttempt,
+  BoundedWorkEvidenceInvocation,
+  BoundedWorkEvidenceKind,
+  BoundedWorkFormalVerificationAttestation,
+  BoundedWorkRegisteredToolProducer,
+  CreateBoundedWorkCandidateEvidenceInput,
+  CreateBoundedWorkFormalVerificationAttestationInput,
+} from "./bounded-work-evidence.js";
+export {
+  BOUNDED_WORK_CANDIDATE_EVIDENCE_SCHEMA,
+  BOUNDED_WORK_FORMAL_VERIFICATION_ATTESTATION_SCHEMA,
+  createBoundedWorkCandidateEvidence,
+  createBoundedWorkFormalVerificationAttestation,
+  isBoundedWorkCandidateEvidence,
+  isBoundedWorkFormalVerificationAttestation,
+  parseBoundedWorkCandidateEvidence,
+  parseBoundedWorkFormalVerificationAttestation,
+} from "./bounded-work-evidence.js";
 export type {
   BoundedWorkAccountingSnapshot,
   BoundedWorkAdmissionDecision,
@@ -81,7 +91,6 @@ export type {
   BoundedWorkLimitName,
   BoundedWorkMeasuredValue,
   BoundedWorkReservation,
-  BoundedWorkSatisfiedCriterion,
 } from "./bounded-work-decision.js";
 export {
   decideBoundedWorkAdmission,
@@ -178,6 +187,7 @@ export type {
   WorkItemExecutionAttempt,
   WorkItemExecutionFailureReason,
   WorkItemExecutionAttemptStatus,
+  WorkItemExecutionAttemptClaimInput,
   WorkItemExecutionMode,
   WorkItemFeedbackRepairSource,
   WorkItemFailExecutionAttemptInput,
@@ -229,6 +239,7 @@ export {
   WORK_ITEM_PAUSE_REQUIREMENT_KINDS,
   WORK_ITEM_PAUSE_REQUIREMENT_STATUSES,
   accountedWorkItemEvidence,
+  isTerminalWorkItemExecutionAttemptStatus,
   managedOrchestrationAdoptionReadinessContract,
   projectManagedOrchestrationAdoptionGate,
   projectManagedOrchestrationResultHandoff,

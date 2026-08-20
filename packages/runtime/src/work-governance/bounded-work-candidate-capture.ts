@@ -2,11 +2,8 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindBoundedWorkEvidence,
   createBoundedWorkCandidate,
-  type BoundedWorkCandidateEvidence,
   type BoundedWorkCandidateIdentity,
-  type BoundedWorkEvidenceKind,
   type CreateBoundedWorkCandidateInput,
 } from "@kilnai/core";
 import { digestContent, gitText, gitTreeContentDigest } from "./git-object-access.js";
@@ -176,16 +173,6 @@ export function captureExternalStateCandidate(
     }),
     candidateVersionDigest: requireDigest(input.candidateVersionDigest, "candidateVersionDigest"),
   };
-}
-
-export function bindCapturedCandidateEvidence(input: Readonly<{
-  readonly candidate: BoundedWorkCandidateIdentity;
-  readonly kind: BoundedWorkEvidenceKind;
-  readonly subjectCandidateDigest: string;
-  readonly evidenceDigest: string;
-  readonly recordedAt: string;
-}>): BoundedWorkCandidateEvidence {
-  return bindBoundedWorkEvidence(input);
 }
 
 function identityInput(input: CandidateIdentityInput): CandidateIdentityInput {

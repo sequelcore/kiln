@@ -37,26 +37,6 @@ export interface BoundedWorkCandidateIdentity {
   readonly candidateDigest: string;
 }
 
-export type BoundedWorkEvidenceKind = "verification" | "review" | "acceptance";
-
-export interface BindBoundedWorkEvidenceInput {
-  readonly candidate: BoundedWorkCandidateIdentity;
-  readonly kind: BoundedWorkEvidenceKind;
-  readonly subjectCandidateDigest: string;
-  readonly evidenceDigest: string;
-  readonly recordedAt: string;
-}
-
-export interface BoundedWorkCandidateEvidence {
-  readonly schema: "kiln.bounded-work-candidate-evidence/v1";
-  readonly kind: BoundedWorkEvidenceKind;
-  readonly candidateDigest: string;
-  readonly candidateContentDigest: string;
-  readonly contractRevisionDigest: string;
-  readonly evidenceDigest: string;
-  readonly recordedAt: string;
-}
-
 export function createBoundedWorkCandidate(
   input: CreateBoundedWorkCandidateInput,
 ): BoundedWorkCandidateIdentity {
@@ -113,34 +93,9 @@ function assertCorrectionLineage(
   }
 }
 
-export function bindBoundedWorkEvidence(
-  input: BindBoundedWorkEvidenceInput,
-): BoundedWorkCandidateEvidence {
-  const subject = requireBoundedWorkDigest(input.subjectCandidateDigest, "subjectCandidateDigest");
-  if (subject !== input.candidate.candidateDigest) {
-    throw new Error("evidence subject does not match candidate");
-  }
-  return freezeBoundedWorkValue({
-    schema: "kiln.bounded-work-candidate-evidence/v1",
-    kind: requireEvidenceKind(input.kind),
-    candidateDigest: input.candidate.candidateDigest,
-    candidateContentDigest: input.candidate.candidateContentDigest,
-    contractRevisionDigest: input.candidate.contractRevisionDigest,
-    evidenceDigest: requireBoundedWorkDigest(input.evidenceDigest, "evidenceDigest"),
-    recordedAt: requireTimestamp(input.recordedAt, "recordedAt"),
-  });
-}
-
 function requireCandidateKind(value: BoundedWorkCandidateKind): BoundedWorkCandidateKind {
   if (value !== "git_worktree" && value !== "artifact" && value !== "external_state") {
     throw new Error("kind must be git_worktree, artifact, or external_state");
-  }
-  return value;
-}
-
-function requireEvidenceKind(value: BoundedWorkEvidenceKind): BoundedWorkEvidenceKind {
-  if (value !== "verification" && value !== "review" && value !== "acceptance") {
-    throw new Error("evidence kind must be verification, review, or acceptance");
   }
   return value;
 }

@@ -10,7 +10,8 @@ import {
   projectManagedOrchestrationResultHandoff,
 } from "./work-item.js";
 import type { BoundedWorkCloseoutDecision } from "./bounded-work-decision.js";
-import type { BoundedWorkCandidateEvidence, BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
+import type { BoundedWorkCandidateEvidence } from "./bounded-work-evidence.js";
+import type { BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
 import type {
   ManagedAgentResultHandoff,
 } from "../agents/managed-invocation/index.js";

@@ -23,8 +23,15 @@ import type {
   BoundedWorkCandidateEvidence,
   BoundedWorkCandidateIdentity,
   BoundedWorkCloseoutDecision,
-  BoundedWorkSatisfiedCriterion,
 } from "@kilnai/core";
+import {
+  FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  parseFormalVerificationToolResultMetadata,
+  type DevToolExecutionContext,
+  type FormalVerificationFinishExecutionScope,
+  type FormalVerificationFinishTransportEnvelope,
+} from "@kilnai/core/tools";
+import { isRuntimeOwnedFormalVerificationFinishInvocation } from "@kilnai/runtime";
 import {
   accountedWorkItemEvidence,
   adoptBoundedWorkContractRevision,
@@ -37,6 +44,7 @@ import {
   isCanonicalArtifactContentUri,
   isKilnWorkGovernanceEvidence,
   isTerminalGoalStatus,
+  isTerminalWorkItemExecutionAttemptStatus,
   KILN_WORK_GOVERNANCE_EVIDENCE,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
   projectManagedOrchestrationAdoptionGate,
@@ -100,7 +108,6 @@ const WORK_ITEM_EXECUTION_FAILURE_REASONS: readonly WorkItemExecutionFailureReas
   "cancelled",
   "skipped",
 ];
-
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
 const WORK_ITEM_UPDATE_STATUSES: readonly WorkItemStatus[] = ["pending", "blocked", "completed", "cancelled"];
 const VISUAL_REFERENCE_PHASE_ROUTE = "visual-reference-research";
@@ -150,6 +157,7 @@ export type BoundedWorkCandidateCloseout = (input: {
   readonly attempt: WorkItemExecutionAttempt;
   readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
   readonly verificationGateResults: readonly VerificationGateResult[];
+  readonly [FORMAL_VERIFICATION_FINISH_TRANSPORT]?: FormalVerificationFinishTransportEnvelope;
 }) => Promise<
   | {
       readonly captured: true;
@@ -162,7 +170,6 @@ export type BoundedWorkGoalCloseout = (input: {
   readonly goal: GoalRun;
   readonly candidate: BoundedWorkCandidateIdentity;
   readonly candidateCaptureRoot?: string;
-  readonly satisfiedCriteria: readonly BoundedWorkSatisfiedCriterion[];
   readonly candidateEvidence: readonly BoundedWorkCandidateEvidence[];
 }) => BoundedWorkCloseoutDecision | Promise<BoundedWorkCloseoutDecision>;
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
@@ -199,6 +206,11 @@ export function createWorkGovernanceTools(
 ): readonly DevTool[] {
   const store = options.workItemStore ?? new WorkItemStore();
   const goalRunStore = options.goalRunStore ?? new GoalRunStore();
+  const finishTool = new WorkItemExecutionFinishTool(
+    goalRunStore,
+    store,
+    options.boundedWorkCandidateCloseout,
+  );
   return [
     new WorkGovernanceAssessTool(config),
     new WorkProfileListTool(),
@@ -216,7 +228,7 @@ export function createWorkGovernanceTools(
       options.managedInvocationProofResolver,
       options.boundedWorkExecutionAttemptAdmission,
     ),
-    new WorkItemExecutionFinishTool(goalRunStore, store, options.boundedWorkCandidateCloseout),
+    finishTool,
     new WorkItemExecutionFailTool(goalRunStore, store),
   ];
 }
@@ -1690,7 +1702,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
     private readonly boundedWorkCandidateCloseout?: BoundedWorkCandidateCloseout,
   ) {}
 
-  async execute(input: ToolInput): Promise<ToolResult> {
+  async execute(input: ToolInput, _sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
     const goalRunId = readText(input.input.goalRunId);
     const workItemId = readText(input.input.workItemId);
     const attemptId = readText(input.input.attemptId);
@@ -1701,6 +1713,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
       };
     }
 
+    let finishClaimed = false;
     try {
       const providedEvidence = readEvidence(input.input.providedEvidence);
       const verificationGateResults = readVerificationGateResults(input.input.verificationGateResults);
@@ -1720,17 +1733,47 @@ export class WorkItemExecutionFinishTool implements DevTool {
       if (!goal || !workItem || !attempt) {
         return { output: "Bounded candidate closeout requires the current goal, work item, and attempt.", isError: true };
       }
+      if (isTerminalWorkItemExecutionAttemptStatus(attempt.status)) {
+        return {
+          output: `Execution attempt '${attempt.id}' is already terminal (${attempt.status}) and cannot be finished again.`,
+          isError: true,
+        };
+      }
       if (!this.boundedWorkCandidateCloseout) {
         return { output: "Bounded-work candidate capture authority is unavailable on this surface.", isError: true };
       }
-      const candidateCloseout = await this.boundedWorkCandidateCloseout({
+      if (!this.workItemStore.claimExecutionAttemptFinish({ id: workItem.id, attemptId: attempt.id })) {
+        return {
+          output: `Execution attempt '${attempt.id}' is already being finished.`,
+          isError: true,
+        };
+      }
+      finishClaimed = true;
+      const formalVerificationFinishTransport = readFormalVerificationFinishTransport(context, {
+        kind: "work_item",
+        goalRunId: goal.id,
+        workItemId: workItem.id,
+        attemptId: attempt.id,
+        ...(hasOwn(attempt, "managedInvocationId")
+          ? { managedInvocationId: attempt.managedInvocationId }
+          : {}),
+      }, this);
+      const candidateCloseoutInput = {
         goal,
         workItem,
         attempt,
         providedEvidence,
         verificationGateResults,
-      });
+        ...(formalVerificationFinishTransport
+          ? { [FORMAL_VERIFICATION_FINISH_TRANSPORT]: formalVerificationFinishTransport }
+          : {}),
+      };
+      const candidateCloseout = await this.boundedWorkCandidateCloseout(
+        candidateCloseoutInput,
+      );
       if (!candidateCloseout.captured) {
+        this.workItemStore.releaseExecutionAttemptFinish({ id: workItem.id, attemptId: attempt.id });
+        finishClaimed = false;
         return {
           output: JSON.stringify({ status: "paused", errorCode: candidateCloseout.code, reason: candidateCloseout.message }, null, 2),
           isError: true,
@@ -1752,6 +1795,8 @@ export class WorkItemExecutionFinishTool implements DevTool {
         candidate: candidateCloseout.candidate,
         candidateEvidence: candidateCloseout.evidence,
       });
+      this.workItemStore.releaseExecutionAttemptFinish({ id: workItem.id, attemptId: attempt.id });
+      finishClaimed = false;
       const workItemBlockers = [
         ...finished.missingEvidence,
         ...finished.missingVerificationGates.map((gate) => `missing gate: ${gate}`),
@@ -1815,6 +1860,9 @@ export class WorkItemExecutionFinishTool implements DevTool {
         isError: workItemBlockers.length > 0,
       };
     } catch (error) {
+      if (finishClaimed) {
+        this.workItemStore.releaseExecutionAttemptFinish({ id: workItemId, attemptId });
+      }
       return { output: error instanceof Error ? error.message : String(error), isError: true };
     }
   }
@@ -2031,21 +2079,101 @@ function hasExactKeys(value: Record<string, unknown>, expectedKeys: readonly str
     && actualKeys.every((key) => expectedKeys.includes(key));
 }
 
-function readAcceptanceEvidence(
-  value: unknown,
-  candidateDigest: string,
-): readonly BoundedWorkSatisfiedCriterion[] {
-  if (!Array.isArray(value)) throw new Error("acceptanceEvidence must be an array");
-  return value.map((entry) => {
-    if (!isRecord(entry) || !readText(entry.criterion) || !readText(entry.evidenceDigest)) {
-      throw new Error("Every acceptance evidence record requires criterion and evidenceDigest.");
+function readFormalVerificationFinishTransport(
+  context: DevToolExecutionContext | undefined,
+  expectedScope: FormalVerificationFinishExecutionScope,
+  expectedFinishTool: Pick<DevTool, "name">,
+): FormalVerificationFinishTransportEnvelope | undefined {
+  const value = context?.[FORMAL_VERIFICATION_FINISH_TRANSPORT];
+  if (value === undefined) return undefined;
+  if (
+    expectedFinishTool.name !== "work_item.execution.finish"
+    || !isRuntimeOwnedFormalVerificationFinishInvocation(expectedFinishTool, value)
+  ) {
+    throw new Error("Formal verification finish transport was not issued by the attached Runtime finish path.");
+  }
+  if (!isRecord(value) || !hasExactKeys(value, ["observations", "executionScope", "recordedAt", "producer"])) {
+    throw new Error("Formal verification finish transport is malformed.");
+  }
+  const executionScope = readFormalVerificationFinishExecutionScope(value.executionScope);
+  assertExactFormalVerificationFinishScope(executionScope, expectedScope);
+  if (!Array.isArray(value.observations)) {
+    throw new Error("Formal verification finish transport observations are malformed.");
+  }
+  for (const observation of value.observations) {
+    if (!isRecord(observation) || !hasExactKeys(observation, ["metadata", "toolCallScopeId", "toolCallId", "executionScope"])) {
+      throw new Error("Formal verification finish transport observation is malformed.");
     }
-    return {
-      criterion: readText(entry.criterion)!,
-      candidateDigest,
-      evidenceDigest: readText(entry.evidenceDigest)!,
-    };
-  });
+    if (!isCanonicalTransportText(observation.toolCallScopeId) || !isCanonicalTransportText(observation.toolCallId)) {
+      throw new Error("Formal verification finish transport observation invocation is malformed.");
+    }
+    const observationScope = readFormalVerificationFinishExecutionScope(observation.executionScope);
+    assertExactFormalVerificationFinishScope(observationScope, executionScope);
+    if (!isRecord(observation.metadata)) {
+      throw new Error("Formal verification finish transport observation metadata is malformed.");
+    }
+    parseFormalVerificationToolResultMetadata(observation.metadata);
+  }
+  if (!isCanonicalTransportTimestamp(value.recordedAt)) {
+    throw new Error("Formal verification finish transport recordedAt is malformed.");
+  }
+  if (!isRecord(value.producer)
+    || !hasExactKeys(value.producer, ["kind", "toolName"])
+    || value.producer.kind !== "registered_tool"
+    || value.producer.toolName !== "formal_verify") {
+    throw new Error("Formal verification finish transport producer is malformed.");
+  }
+  return value as unknown as FormalVerificationFinishTransportEnvelope;
+}
+
+function readFormalVerificationFinishExecutionScope(value: unknown): FormalVerificationFinishExecutionScope {
+  if (!isRecord(value)
+    || (hasOwn(value, "managedInvocationId")
+      ? !hasExactKeys(value, ["kind", "goalRunId", "workItemId", "attemptId", "managedInvocationId"])
+      : !hasExactKeys(value, ["kind", "goalRunId", "workItemId", "attemptId"]))
+    || value.kind !== "work_item"
+    || !isCanonicalTransportText(value.goalRunId)
+    || !isCanonicalTransportText(value.workItemId)
+    || !isCanonicalTransportText(value.attemptId)
+    || (hasOwn(value, "managedInvocationId") && !isCanonicalTransportText(value.managedInvocationId))) {
+    throw new Error("Formal verification finish transport execution scope is malformed.");
+  }
+  return {
+    kind: "work_item",
+    goalRunId: value.goalRunId as string,
+    workItemId: value.workItemId as string,
+    attemptId: value.attemptId as string,
+    ...(hasOwn(value, "managedInvocationId") ? { managedInvocationId: value.managedInvocationId as string } : {}),
+  };
+}
+
+function isCanonicalTransportText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.trim() === value;
+}
+
+function isCanonicalTransportTimestamp(value: unknown): value is string {
+  return isCanonicalTransportText(value)
+    && !Number.isNaN(new Date(value).getTime())
+    && new Date(value).toISOString() === value;
+}
+
+function assertExactFormalVerificationFinishScope(
+  actual: FormalVerificationFinishExecutionScope,
+  expected: FormalVerificationFinishExecutionScope,
+): void {
+  const actualManagedInvocation = hasOwn(actual, "managedInvocationId");
+  const expectedManagedInvocation = hasOwn(expected, "managedInvocationId");
+  if (actual.goalRunId !== expected.goalRunId
+    || actual.workItemId !== expected.workItemId
+    || actual.attemptId !== expected.attemptId
+    || actualManagedInvocation !== expectedManagedInvocation
+    || (actualManagedInvocation && actual.managedInvocationId !== expected.managedInvocationId)) {
+    throw new Error("Formal verification finish transport scope does not match the governed attempt.");
+  }
+}
+
+function hasOwn(value: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2797,20 +2925,8 @@ export class GoalCompleteTool implements DevTool {
     properties: {
       goalRunId: { type: "string", minLength: 1 },
       closeoutSummary: { type: "string", minLength: 1 },
-      acceptanceEvidence: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            criterion: { type: "string", minLength: 1 },
-            evidenceDigest: { type: "string", pattern: "^sha256:[a-f0-9]{64}$" },
-          },
-          required: ["criterion", "evidenceDigest"],
-          additionalProperties: false,
-        },
-      },
     },
-    required: ["goalRunId", "acceptanceEvidence"],
+    required: ["goalRunId"],
     additionalProperties: false,
   };
 
@@ -2837,14 +2953,12 @@ export class GoalCompleteTool implements DevTool {
         .at(-1);
       const candidate = latestCandidateAttempt?.candidate;
       if (!candidate) return { output: "Goal closeout requires an exact captured candidate.", isError: true };
-      const acceptanceEvidence = readAcceptanceEvidence(input.input.acceptanceEvidence, candidate.candidateDigest);
       const closeout = await this.boundedWorkGoalCloseout({
         goal: currentGoal,
         candidate,
         ...(latestCandidateAttempt.candidateCaptureRoot
           ? { candidateCaptureRoot: latestCandidateAttempt.candidateCaptureRoot }
           : {}),
-        satisfiedCriteria: acceptanceEvidence,
         candidateEvidence: latestCandidateAttempt.candidateEvidence ?? [],
       });
       if (closeout.kind !== "stop_acceptance_complete") {

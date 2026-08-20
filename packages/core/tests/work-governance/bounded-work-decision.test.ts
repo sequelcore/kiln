@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   adoptBoundedWorkContractRevision,
+  createBoundedWorkCandidate,
+  createBoundedWorkCandidateEvidence,
   decideBoundedWorkAdmission,
   decideBoundedWorkCloseout,
   type BoundedWorkAccountingSnapshot,
   type BoundedWorkContract,
 } from "../../src/work-governance/index.js";
+import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
 
 const sha = (character: string): string => `sha256:${character.repeat(64)}`;
 
@@ -192,84 +195,45 @@ describe("bounded work decision", () => {
     })).toThrow("accounting.executionAttempts must be a non-negative integer");
   });
 
-  it("cannot claim acceptance without exact candidate-bound criteria evidence", () => {
-    const bound = (evidenceDigest: string, candidateDigest = sha("c")) => ({
-      schema: "kiln.bounded-work-candidate-evidence/v1" as const,
-      kind: "verification" as const,
-      candidateDigest,
-      candidateContentDigest: sha("2"),
+  it("does not credit a candidate from an empty-establishes verification record", () => {
+    const candidate = createBoundedWorkCandidate({
+      goalRunId: "run-1",
+      workItemId: "work-1",
       contractRevisionDigest: revision.revisionDigest,
-      evidenceDigest,
-      recordedAt: "2026-08-17T12:00:00.000Z",
+      accountingLineageId: "goal-1",
+      kind: "git_worktree",
+      baseline: { kind: "git_tree", digest: sha("a") },
+      candidateContentDigest: sha("b"),
+      createdAt: "2026-08-19T12:00:00.000Z",
+    });
+    const evidence = createBoundedWorkCandidateEvidence({
+      candidate,
+      executionAttempt: { goalRunId: "run-1", workItemId: "work-1", attemptId: "attempt-1" },
+      invocation: { toolCallScopeId: "scope-1", toolCallId: "call-1" },
+      attestation: {
+        producer: { kind: "registered_tool", toolName: "formal_verify" },
+        payload: formalVerificationToolMetadata({
+          verifier: { name: "dafny", version: "4.11.0" },
+          artifact: { contentDigest: sha("c") },
+          checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
+        }),
+      },
+      recordedAt: "2026-08-19T12:01:00.000Z",
     });
 
     expect(decideBoundedWorkCloseout({
       revision,
       snapshot: snapshot(),
-      candidateDigest: sha("c"),
-      candidateEvidence: [bound(sha("d"))],
-      satisfiedCriteria: [
-        { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("d") },
-      ],
+      candidateDigest: candidate.candidateDigest,
+      candidateEvidence: [evidence],
     })).toMatchObject({
       kind: "pause_acceptance_incomplete",
-      missingCriteria: ["review"],
+      missingCriteria: ["tests", "review"],
     });
-
-    expect(decideBoundedWorkCloseout({
-      revision,
-      snapshot: snapshot(),
-      candidateDigest: sha("c"),
-      candidateEvidence: [bound(sha("d")), bound(sha("e"))],
-      satisfiedCriteria: [
-        { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("d") },
-        { criterion: "review", candidateDigest: sha("c"), evidenceDigest: sha("e") },
-      ],
-    })).toMatchObject({ kind: "stop_acceptance_complete", candidateDigest: sha("c") });
-
-    expect(() => decideBoundedWorkCloseout({
-      revision,
-      snapshot: snapshot(),
-      candidateDigest: sha("c"),
-      candidateEvidence: [bound(sha("d")), bound(sha("e"))],
-      satisfiedCriteria: [
-        { criterion: "tests", candidateDigest: sha("f"), evidenceDigest: sha("d") },
-        { criterion: "review", candidateDigest: sha("c"), evidenceDigest: sha("e") },
-      ],
-    })).toThrow("acceptance evidence is stale");
-  });
-
-  it("rejects a well-formed digest that names no bound evidence", () => {
-    expect(() => decideBoundedWorkCloseout({
-      revision,
-      snapshot: snapshot(),
-      candidateDigest: sha("c"),
-      candidateEvidence: [],
-      satisfiedCriteria: [
-        { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("9") },
-        { criterion: "review", candidateDigest: sha("c"), evidenceDigest: sha("8") },
-      ],
-    })).toThrow("acceptance evidence is not bound to the current candidate");
-  });
-
-  it("rejects evidence bound to a different candidate", () => {
-    const otherCandidate = {
-      schema: "kiln.bounded-work-candidate-evidence/v1" as const,
-      kind: "verification" as const,
-      candidateDigest: sha("7"),
-      candidateContentDigest: sha("2"),
-      contractRevisionDigest: revision.revisionDigest,
-      evidenceDigest: sha("d"),
-      recordedAt: "2026-08-17T12:00:00.000Z",
-    };
-    expect(() => decideBoundedWorkCloseout({
-      revision,
-      snapshot: snapshot(),
-      candidateDigest: sha("c"),
-      candidateEvidence: [otherCandidate],
-      satisfiedCriteria: [
-        { criterion: "tests", candidateDigest: sha("c"), evidenceDigest: sha("d") },
-      ],
-    })).toThrow("acceptance evidence is not bound to the current candidate");
+    // The execution identity is intentionally distinct from the accounting lineage.
+    // If this attestation arm later establishes criteria, this bound record must remain eligible.
+    expect(evidence.candidate.goalRunId).not.toBe(snapshot().accountingLineageId);
+    expect(evidence.candidate.accountingLineageId).toBe(snapshot().accountingLineageId);
+    expect(evidence.candidate.contractRevisionDigest).toBe(revision.revisionDigest);
   });
 });

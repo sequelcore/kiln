@@ -47,7 +47,10 @@ function listTrackedTestFiles(): readonly string[] {
     ["ls-files", "-z", "--", "packages/*.test.ts", "packages/*.test.tsx"],
     { cwd: REPOSITORY_ROOT, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
   );
-  return output.split("\0").filter(Boolean);
+  return output
+    .split("\0")
+    .filter(Boolean)
+    .filter((file) => existsSync(resolve(REPOSITORY_ROOT, file)));
 }
 
 function rootBarrelSpecifier(packageName: string): RegExp {

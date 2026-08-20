@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { ManagedAgentResultHandoff } from "@kilnai/core/agents";
 import {
+  FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  DevToolRegistry,
+  formalVerificationToolMetadata,
+  type FormalVerificationFinishTransportEnvelope,
+} from "@kilnai/core/tools";
+import {
   adoptBoundedWorkContractRevision,
-  bindBoundedWorkEvidence,
+  createBoundedWorkCandidateEvidence,
   createBoundedWorkCandidate,
   finishGoalExecutionAttempt,
+  type GoalRun,
   GoalRunStore,
   startGoalExecutionAttempt,
+  type WorkItem,
+  type WorkItemExecutionAttempt,
   WorkItemStore,
 } from "@kilnai/core/work-governance";
 import { assessWorkGovernance } from "./work-governance-policy.js";
@@ -37,11 +46,25 @@ function createWorkGovernanceTools(
       return {
         captured: true as const,
         candidate,
-        evidence: [bindBoundedWorkEvidence({
+        evidence: [createBoundedWorkCandidateEvidence({
           candidate,
-          kind: "verification",
-          subjectCandidateDigest: candidate.candidateDigest,
-          evidenceDigest: `sha256:${"c".repeat(64)}`,
+          executionAttempt: {
+            goalRunId: attempt.goalRunId,
+            workItemId: attempt.workItemId,
+            attemptId: attempt.id,
+            ...(Object.prototype.hasOwnProperty.call(attempt, "managedInvocationId")
+              ? { managedInvocationId: attempt.managedInvocationId }
+              : {}),
+          },
+          invocation: { toolCallScopeId: "scope-test", toolCallId: "call-test" },
+          attestation: {
+            producer: { kind: "registered_tool", toolName: "formal_verify" },
+            payload: formalVerificationToolMetadata({
+              verifier: { name: "dafny", version: "4.11.0" },
+              artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+              checks: [{ symbol: "test", check: "correctness", outcome: "proved" }],
+            }),
+          },
           recordedAt: attempt.startedAt,
         })],
       };
@@ -66,6 +89,8 @@ function createWorkGovernanceTools(
     })),
   });
 }
+
+type CandidateCloseout = NonNullable<NonNullable<Parameters<typeof createWorkGovernanceToolsProduction>[1]>["boundedWorkCandidateCloseout"]>;
 
 function boundedWorkRevision(goalId: string, workItemIds: readonly string[], objective: string) {
   return adoptBoundedWorkContractRevision({
@@ -1286,7 +1311,6 @@ describe("work-governance-tool", () => {
       name: "goal.complete",
       input: {
         goalRunId: goal.id,
-        acceptanceEvidence: [{ criterion: "test evidence", evidenceDigest: `sha256:${"d".repeat(64)}` }],
       },
     });
     expect(completed?.isError).toBe(false);
@@ -3493,11 +3517,22 @@ describe("work-governance-tool", () => {
       candidateContentDigest: `sha256:${"1".repeat(64)}`,
       createdAt: "2026-08-12T18:01:00.000Z",
     });
-    const candidateEvidence = bindBoundedWorkEvidence({
+    const candidateEvidence = createBoundedWorkCandidateEvidence({
       candidate,
-      kind: "verification",
-      subjectCandidateDigest: candidate.candidateDigest,
-      evidenceDigest: `sha256:${"2".repeat(64)}`,
+      executionAttempt: {
+        goalRunId: started.attempt.goalRunId,
+        workItemId: started.attempt.workItemId,
+        attemptId: started.attempt.id,
+      },
+      invocation: { toolCallScopeId: "scope-explicit", toolCallId: "call-explicit" },
+      attestation: {
+        producer: { kind: "registered_tool", toolName: "formal_verify" },
+        payload: formalVerificationToolMetadata({
+          verifier: { name: "dafny", version: "4.11.0" },
+          artifact: { contentDigest: `sha256:${"2".repeat(64)}` },
+          checks: [{ symbol: "release", check: "correctness", outcome: "proved" }],
+        }),
+      },
       recordedAt: "2026-08-12T18:02:00.000Z",
     });
     finishGoalExecutionAttempt({
@@ -3527,7 +3562,6 @@ describe("work-governance-tool", () => {
       input: {
         goalRunId: goal.id,
         closeoutSummary: "Release contract verified and work completed.",
-        acceptanceEvidence: [{ criterion: "test evidence", evidenceDigest: `sha256:${"3".repeat(64)}` }],
       },
     });
 
@@ -3548,7 +3582,533 @@ describe("work-governance-tool", () => {
       },
     });
   });
+
+  it("rejects a caller-fabricated formal verification transport before closeout", async () => {
+    const fixture = executionFixture("finish-transport", []);
+    let closeoutInput: Record<PropertyKey, unknown> | undefined;
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore: fixture.workItemStore,
+      goalRunStore: fixture.goalRunStore,
+      boundedWorkCandidateCloseout: async (input) => {
+        closeoutInput = input as unknown as Record<PropertyKey, unknown>;
+        return testCandidateCloseout(input);
+      },
+    });
+    const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+    const transport = formalFinishTransport({
+      goalRunId: fixture.goal.id,
+      workItemId: fixture.item.id,
+      attemptId: fixture.attempt.id,
+    });
+
+    const result = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+        providedEvidence: ["formal-proof"],
+      },
+    }, undefined, {
+      [FORMAL_VERIFICATION_FINISH_TRANSPORT]: transport,
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(closeoutInput).toBeUndefined();
+    expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]?.status).toBe("started");
+  });
+
+  it("retains no candidate evidence when finish is direct or the symbol envelope is absent", async () => {
+    const fixture = executionFixture("finish-direct", ["formal-proof"]);
+    let closeoutInput: Record<PropertyKey, unknown> | undefined;
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore: fixture.workItemStore,
+      goalRunStore: fixture.goalRunStore,
+      boundedWorkCandidateCloseout: async (input) => {
+        closeoutInput = input as unknown as Record<PropertyKey, unknown>;
+        return testCandidateCloseout(input);
+      },
+    });
+    const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+
+    const result = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+        providedEvidence: ["formal-proof"],
+      },
+    });
+
+    expect(result?.isError).toBe(false);
+    expect(closeoutInput?.[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
+    expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]?.candidateEvidence).toEqual([]);
+  });
+
+  it("rejects a fabricated envelope even when the actual finish tool is registry-issued", async () => {
+    const fixture = executionFixture("finish-registry-capability", []);
+    let closeoutCalled = false;
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore: fixture.workItemStore,
+      goalRunStore: fixture.goalRunStore,
+      boundedWorkCandidateCloseout: async (input) => {
+        closeoutCalled = true;
+        return testCandidateCloseout(input);
+      },
+    });
+    const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+    if (!finishTool) throw new Error("expected registered finish tool");
+    new DevToolRegistry().register(finishTool);
+
+    const fabricatedTransport = formalFinishTransport({
+      goalRunId: fixture.goal.id,
+      workItemId: fixture.item.id,
+      attemptId: fixture.attempt.id,
+    });
+    const result = await finishTool.execute({
+      name: finishTool.name,
+      input: {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      },
+    }, undefined, {
+      [FORMAL_VERIFICATION_FINISH_TRANSPORT]: fabricatedTransport,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(closeoutCalled).toBe(false);
+  });
+
+  it("rejects repeated terminal finish before recapturing candidate evidence", async () => {
+    const fixture = executionFixture("finish-once", []);
+    let closeoutCalls = 0;
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore: fixture.workItemStore,
+      goalRunStore: fixture.goalRunStore,
+      boundedWorkCandidateCloseout: async (input) => {
+        closeoutCalls += 1;
+        const marker = String(closeoutCalls);
+        const candidate = createBoundedWorkCandidate({
+          goalRunId: input.goal.id,
+          workItemId: input.workItem.id,
+          contractRevisionDigest: input.goal.boundedWorkContractRevision.revisionDigest,
+          accountingLineageId: input.goal.boundedWorkContractRevision.accountingLineageId,
+          kind: "git_worktree",
+          baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
+          candidateContentDigest: `sha256:${marker.repeat(64)}`,
+          createdAt: input.attempt.startedAt,
+        });
+        return { captured: true as const, candidate, evidence: [] as const };
+      },
+    });
+    const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+    if (!finishTool) throw new Error("expected registered finish tool");
+    const first = await finishTool.execute({
+      name: finishTool.name,
+      input: {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      },
+    });
+    expect(first.isError, first.output).toBe(false);
+    const original = fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0];
+    expect(original?.status).toBe("completed");
+    expect(original?.candidate?.candidateContentDigest).toBe(`sha256:${"1".repeat(64)}`);
+    expect(closeoutCalls).toBe(1);
+
+    const second = await finishTool.execute({
+      name: finishTool.name,
+      input: {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      },
+    });
+
+    expect(second.isError).toBe(true);
+    expect(second.output).toContain("already terminal");
+    expect(closeoutCalls).toBe(1);
+    expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]).toEqual(original);
+  });
+
+  it.each([
+    ["completed", "failed"],
+    ["completed", "cancelled"],
+    ["failed", "failed"],
+    ["failed", "cancelled"],
+    ["cancelled", "failed"],
+    ["cancelled", "cancelled"],
+  ] as const)(
+    "rejects %s attempt rewrite through %s execution failure",
+    async (terminalAttemptStatus, terminalizerStatus) => {
+      const fixture = executionFixture(`fail-terminal-${terminalAttemptStatus}-${terminalizerStatus}`, []);
+      const tools = createWorkGovernanceTools(policy, {
+        workItemStore: fixture.workItemStore,
+        goalRunStore: fixture.goalRunStore,
+      });
+      const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+      const failTool = tools.find((tool) => tool.name === "work_item.execution.fail");
+      if (!finishTool || !failTool) throw new Error("expected finish and fail tools");
+      const input = {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      };
+
+      if (terminalAttemptStatus === "completed") {
+        const finished = await finishTool.execute({ name: finishTool.name, input });
+        expect(finished.isError, finished.output).toBe(false);
+      } else {
+        const terminalized = await failTool.execute({
+          name: failTool.name,
+          input: {
+            ...input,
+            terminalStatus: terminalAttemptStatus,
+            failureReason: terminalAttemptStatus,
+            summary: "Record the original terminal snapshot.",
+          },
+        });
+        expect(terminalized.isError).toBe(true);
+      }
+      const before = fixture.workItemStore.get(fixture.item.id);
+      if (!before) throw new Error("expected stored terminal work item");
+
+      const rewritten = await failTool.execute({
+        name: failTool.name,
+        input: {
+          ...input,
+          terminalStatus: terminalizerStatus,
+          failureReason: terminalizerStatus,
+          summary: "Attempt to rewrite the terminal snapshot.",
+        },
+      });
+      expect(rewritten.isError, rewritten.output).toBe(true);
+      expect(rewritten.output).toContain("already terminal");
+      expect(JSON.stringify(fixture.workItemStore.get(fixture.item.id))).toBe(JSON.stringify(before));
+    },
+  );
+
+  it("serializes concurrent finish closeout across tool instances sharing a WorkItemStore", async () => {
+    const fixture = executionFixture("finish-concurrent", []);
+    let closeoutCalls = 0;
+    let releaseFirstCloseout!: () => void;
+    let signalFirstCloseoutEntered!: () => void;
+    const firstCloseoutEntered = new Promise<void>((resolve) => {
+      signalFirstCloseoutEntered = resolve;
+    });
+    const closeout: CandidateCloseout = async (input) => {
+      closeoutCalls += 1;
+      if (closeoutCalls === 1) {
+        signalFirstCloseoutEntered();
+        await new Promise<void>((release) => {
+          releaseFirstCloseout = release;
+        });
+      }
+      return testCandidateCloseout(input);
+    };
+    const options = {
+      workItemStore: fixture.workItemStore,
+      goalRunStore: fixture.goalRunStore,
+      boundedWorkCandidateCloseout: closeout,
+    };
+    const firstFinishTool = createWorkGovernanceTools(policy, options).find((tool) => tool.name === "work_item.execution.finish");
+    const secondFinishTool = createWorkGovernanceTools(policy, options).find((tool) => tool.name === "work_item.execution.finish");
+    if (!firstFinishTool || !secondFinishTool) throw new Error("expected finish tools");
+    const input = {
+      goalRunId: fixture.goal.id,
+      workItemId: fixture.item.id,
+      attemptId: fixture.attempt.id,
+    };
+
+    const firstResultPromise = firstFinishTool.execute({ name: firstFinishTool.name, input });
+    await firstCloseoutEntered;
+    const secondResult = await secondFinishTool.execute({ name: secondFinishTool.name, input });
+    expect(secondResult.isError, secondResult.output).toBe(true);
+    expect(secondResult.output).toContain("already being finished");
+    expect(closeoutCalls).toBe(1);
+
+    releaseFirstCloseout();
+    const firstResult = await firstResultPromise;
+    expect(firstResult.isError, firstResult.output).toBe(false);
+    expect(closeoutCalls).toBe(1);
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "rejects concurrent %s terminalization while finish closeout is in flight",
+    async (terminalStatus) => {
+      const fixture = executionFixture(`finish-terminalizer-${terminalStatus}`, []);
+      let closeoutCalls = 0;
+      let releaseFirstCloseout!: () => void;
+      let signalFirstCloseoutEntered!: () => void;
+      const firstCloseoutEntered = new Promise<void>((resolve) => {
+        signalFirstCloseoutEntered = resolve;
+      });
+      const closeout: CandidateCloseout = async (input) => {
+        closeoutCalls += 1;
+        if (closeoutCalls === 1) {
+          signalFirstCloseoutEntered();
+          await new Promise<void>((release) => {
+            releaseFirstCloseout = release;
+          });
+        }
+        return testCandidateCloseout(input);
+      };
+      const tools = createWorkGovernanceTools(policy, {
+        workItemStore: fixture.workItemStore,
+        goalRunStore: fixture.goalRunStore,
+        boundedWorkCandidateCloseout: closeout,
+      });
+      const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+      const failTool = tools.find((tool) => tool.name === "work_item.execution.fail");
+      if (!finishTool || !failTool) throw new Error("expected finish and fail tools");
+      const finishInput = {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      };
+
+      const finishResultPromise = finishTool.execute({ name: finishTool.name, input: finishInput });
+      await firstCloseoutEntered;
+      const failResult = await failTool.execute({
+        name: failTool.name,
+        input: {
+          ...finishInput,
+          terminalStatus,
+          failureReason: terminalStatus,
+          summary: "Terminalizer raced with candidate closeout.",
+        },
+      });
+      expect(failResult.isError, failResult.output).toBe(true);
+      expect(failResult.output).toContain("already being finished");
+      expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]?.status).toBe("started");
+      expect(closeoutCalls).toBe(1);
+
+      releaseFirstCloseout();
+      const finishResult = await finishResultPromise;
+      expect(finishResult.isError, finishResult.output).toBe(false);
+      expect(closeoutCalls).toBe(1);
+    },
+  );
+
+  it.each(["captured-false", "throws"] as const)(
+    "releases the finish claim when candidate closeout %s so retry remains possible",
+    async (failureMode) => {
+      const fixture = executionFixture(`finish-retry-${failureMode}`, []);
+      let closeoutCalls = 0;
+      const tools = createWorkGovernanceTools(policy, {
+        workItemStore: fixture.workItemStore,
+        goalRunStore: fixture.goalRunStore,
+        boundedWorkCandidateCloseout: async (input) => {
+          closeoutCalls += 1;
+          if (closeoutCalls === 1) {
+            if (failureMode === "throws") throw new Error("candidate capture failed");
+            return { captured: false as const, code: "candidate_capture_failed", message: "candidate capture failed" };
+          }
+          return testCandidateCloseout(input);
+        },
+      });
+      const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+      if (!finishTool) throw new Error("expected finish tool");
+      const input = {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      };
+
+      const first = await finishTool.execute({ name: finishTool.name, input });
+      expect(first.isError, first.output).toBe(true);
+
+      const second = await finishTool.execute({ name: finishTool.name, input });
+      expect(second.isError, second.output).toBe(false);
+      expect(closeoutCalls).toBe(2);
+    },
+  );
+
+  it.each([
+    ["goal", { goalRunId: "other-goal" }],
+    ["work item", { workItemId: "other-work" }],
+    ["attempt", { attemptId: "other-attempt" }],
+  ] as const)("rejects a finish transport with a mismatched %s scope before candidate capture", async (_label, mismatch) => {
+    const fixture = executionFixture(`finish-mismatch-${_label}`, []);
+    let closeoutCalled = false;
+    const tools = createWorkGovernanceTools(policy, {
+      workItemStore: fixture.workItemStore,
+      goalRunStore: fixture.goalRunStore,
+      boundedWorkCandidateCloseout: async (input) => {
+        closeoutCalled = true;
+        return testCandidateCloseout(input);
+      },
+    });
+    const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+    const scope = {
+      goalRunId: fixture.goal.id,
+      workItemId: fixture.item.id,
+      attemptId: fixture.attempt.id,
+      ...mismatch,
+    };
+
+    const result = await finishTool?.execute({
+      name: "work_item.execution.finish",
+      input: {
+        goalRunId: fixture.goal.id,
+        workItemId: fixture.item.id,
+        attemptId: fixture.attempt.id,
+      },
+    }, undefined, {
+      [FORMAL_VERIFICATION_FINISH_TRANSPORT]: formalFinishTransport(scope),
+    });
+
+    expect(result?.isError).toBe(true);
+    expect(closeoutCalled).toBe(false);
+    expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]?.status).toBe("started");
+  });
+
+  it("rejects malformed or managed-invocation-mismatched transport without candidate capture", async () => {
+    for (const [label, transport] of [
+      ["malformed", {
+        ...formalFinishTransport({
+          goalRunId: "finish-malformed-goal",
+          workItemId: "finish-malformed-work",
+          attemptId: "finish-malformed-attempt",
+        }),
+        extra: true,
+      }],
+      ["managed mismatch", formalFinishTransport({
+        goalRunId: "finish-managed-goal",
+        workItemId: "finish-managed-work",
+        attemptId: "finish-managed-work:attempt:1",
+        managedInvocationId: "managed-forged",
+      })],
+    ] as const) {
+      const fixture = executionFixture(`finish-${label.replaceAll(" ", "-")}`, []);
+      let closeoutCalled = false;
+      const tools = createWorkGovernanceTools(policy, {
+        workItemStore: fixture.workItemStore,
+        goalRunStore: fixture.goalRunStore,
+        boundedWorkCandidateCloseout: async (input) => {
+          closeoutCalled = true;
+          return testCandidateCloseout(input);
+        },
+      });
+      const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
+      const adjustedTransport = label === "malformed"
+        ? transport
+        : formalFinishTransport({
+          goalRunId: fixture.goal.id,
+          workItemId: fixture.item.id,
+          attemptId: fixture.attempt.id,
+          managedInvocationId: "managed-forged",
+        });
+      const result = await finishTool?.execute({
+        name: "work_item.execution.finish",
+        input: {
+          goalRunId: fixture.goal.id,
+          workItemId: fixture.item.id,
+          attemptId: fixture.attempt.id,
+        },
+      }, undefined, {
+        [FORMAL_VERIFICATION_FINISH_TRANSPORT]: adjustedTransport,
+      });
+
+      expect(result?.isError, label).toBe(true);
+      expect(closeoutCalled, label).toBe(false);
+    }
+  });
+
+  it("removes caller acceptance mapping from goal completion and leaves v2 closeout non-crediting", async () => {
+    const tool = createWorkGovernanceTools(policy).find((candidate) => candidate.name === "goal.complete");
+    const schema = tool?.inputSchema as {
+      readonly properties?: Record<string, unknown>;
+      readonly required?: readonly string[];
+    };
+
+    expect(schema.properties).not.toHaveProperty("acceptanceEvidence");
+    expect(schema.required).toEqual(["goalRunId"]);
+  });
 });
+
+function executionFixture(prefix: string, expectedEvidence: readonly string[]) {
+  const goalRunStore = new GoalRunStore({ now: fixedNow });
+  const workItemStore = new WorkItemStore({ now: fixedNow });
+  const item = workItemStore.upsert({
+    id: `${prefix}-work`,
+    summary: "Execute the formal verification finish path.",
+    workflowProfile: "verification-heavy",
+    triggers: ["formal-proof-candidate"],
+    expectedEvidence,
+    verificationGates: [],
+    goalRunId: `${prefix}-goal`,
+  });
+  const goal = goalRunStore.create({
+    id: `${prefix}-goal`,
+    objective: "Verify formal finish transport.",
+    ownerSessionId: "session-1",
+    source: { kind: "approved_plan", planId: `${prefix}-plan` },
+    boundedWorkContractRevision: boundedWorkRevision(`${prefix}-goal`, [item.id], "Verify formal finish transport."),
+    workItemIds: [item.id],
+    authorityEnvelope: {
+      maximumAuthority: "audited",
+      escalationPolicy: "approval_required",
+      reason: "Approved plan.",
+    },
+    routePolicy: { workflowProfile: "verification-heavy" },
+    evidenceRequirements: [],
+  });
+  const started = startGoalExecutionAttempt({
+    goalRunStore,
+    workItemStore,
+    goalRunId: goal.id,
+    workItemId: item.id,
+    executionMode: "direct",
+  });
+  return { goalRunStore, workItemStore, goal, item: started.item, attempt: started.attempt };
+}
+
+function testCandidateCloseout(input: {
+  readonly goal: GoalRun;
+  readonly workItem: WorkItem;
+  readonly attempt: WorkItemExecutionAttempt;
+}) {
+  const candidate = createBoundedWorkCandidate({
+    goalRunId: input.goal.id,
+    workItemId: input.workItem.id,
+    contractRevisionDigest: input.goal.boundedWorkContractRevision.revisionDigest,
+    accountingLineageId: input.goal.boundedWorkContractRevision.accountingLineageId,
+    kind: "git_worktree",
+    baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
+    candidateContentDigest: `sha256:${"b".repeat(64)}`,
+    createdAt: input.attempt.startedAt,
+  });
+  return { captured: true as const, candidate, evidence: [] as const };
+}
+
+function formalFinishTransport(
+  executionScope: {
+    readonly goalRunId: string;
+    readonly workItemId: string;
+    readonly attemptId: string;
+    readonly managedInvocationId?: string;
+  },
+): FormalVerificationFinishTransportEnvelope {
+  return {
+    executionScope: { kind: "work_item", ...executionScope },
+    observations: [{
+      metadata: formalVerificationToolMetadata({
+        verifier: { name: "dafny", version: "4.11.0" },
+        artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+        checks: [{ symbol: "finish", check: "correctness", outcome: "proved" }],
+      }),
+      toolCallScopeId: "scope-formal-finish",
+      toolCallId: "call-formal-finish",
+      executionScope: { kind: "work_item", ...executionScope },
+    }],
+    recordedAt: "2026-08-19T12:01:00.000Z",
+    producer: { kind: "registered_tool", toolName: "formal_verify" },
+  };
+}
 
 function fixedNow(): string {
   return "2026-05-12T20:00:00.000Z";

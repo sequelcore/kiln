@@ -36,6 +36,7 @@ export type {
   OrchestratorDeps,
   OrchestrateResult,
   PerCallToolConfig,
+  RuntimeBuiltinToolExecutionContext,
   RuntimeExecutionEnvelope,
   RuntimeConversationExecutionEnvelope,
   RuntimeToolRoundBudget,

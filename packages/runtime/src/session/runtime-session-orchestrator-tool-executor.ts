@@ -39,6 +39,11 @@ import type {
   ToolExecutionSummary,
   CommandShell,
 } from "./runtime-session-orchestrator.types.js";
+import {
+  collectRuntimeFormalVerificationObservations,
+  type RuntimeFormalVerificationObservation,
+  type RuntimeFormalVerificationObservationExecution,
+} from "../work-governance/formal-verification-observations.js";
 
 function mergePerCallSandbox(sandbox: unknown, workingDirectory: string | undefined): unknown {
   const base = sandbox && typeof sandbox === "object" && !Array.isArray(sandbox)
@@ -382,12 +387,58 @@ export interface RuntimeSessionToolExecutionResult {
   readonly toolExecutions: readonly ToolExecutionSummary[];
 }
 
+function runtimeTurnIdentity(toolCallScopeId: string): string {
+  const responseMarker = ":response:";
+  const responseIndex = toolCallScopeId.lastIndexOf(responseMarker);
+  return responseIndex > 0 ? toolCallScopeId.slice(0, responseIndex) : toolCallScopeId;
+}
+
+function toFormalVerificationExecution(
+  summary: ToolExecutionSummary,
+  toolCallScopeId: string,
+): RuntimeFormalVerificationObservationExecution {
+  return {
+    toolCallScopeId,
+    ...(summary.toolCallId !== undefined ? { toolCallId: summary.toolCallId } : {}),
+    toolName: summary.toolName,
+    success: summary.success,
+    ...(summary.metadata !== undefined ? { metadata: summary.metadata } : {}),
+    ...(summary.executionScope !== undefined ? { executionScope: summary.executionScope } : {}),
+  };
+}
+
+function collectOwnedFormalVerificationObservations(
+  toolExecutions: readonly ToolExecutionSummary[],
+  toolCallScopeId: string,
+): readonly RuntimeFormalVerificationObservation[] {
+  const observations: RuntimeFormalVerificationObservation[] = [];
+  for (const summary of toolExecutions) {
+    if (!summary.executionScope) continue;
+    observations.push(
+      ...collectRuntimeFormalVerificationObservations({
+        currentScope: summary.executionScope,
+        currentTurnToolExecutions: [toFormalVerificationExecution(summary, toolCallScopeId)],
+      }),
+    );
+  }
+  return Object.freeze(observations);
+}
+
 export class RuntimeSessionToolExecutor {
   private currentSession: RuntimeSession | undefined;
   private currentExecutionScope: PerCallToolConfig["executionScope"];
   private activeExecutionScope: PerCallToolConfig["executionScope"];
   private currentToolCallScopeId: string | undefined;
   private readonly turnToolCallCounts = new Map<string, number>();
+  /**
+   * Runtime-owned normalized observations for this executor's current turn.
+   * The orchestrator creates one executor per processMessage; direct reuse
+   * with a different turn identity resets this history and the active scope.
+   * No returned ToolExecutionSummary reference is retained.
+   */
+  private currentTurnFormalVerificationObservations: readonly RuntimeFormalVerificationObservation[] = Object.freeze([]);
+  private currentTurnSessionId: string | undefined;
+  private currentTurnIdentity: string | undefined;
 
   constructor(
     private readonly deps: OrchestratorDeps,
@@ -407,6 +458,13 @@ export class RuntimeSessionToolExecutor {
     toolCallScopeId: string,
     perCallConfig?: PerCallToolConfig,
   ): Promise<RuntimeSessionToolExecutionResult> {
+    const turnIdentity = perCallConfig?.turnId ?? runtimeTurnIdentity(toolCallScopeId);
+    if (this.currentTurnSessionId !== session.id || this.currentTurnIdentity !== turnIdentity) {
+      this.currentTurnSessionId = session.id;
+      this.currentTurnIdentity = turnIdentity;
+      this.currentTurnFormalVerificationObservations = Object.freeze([]);
+      this.activeExecutionScope = undefined;
+    }
     this.currentSession = session;
     this.currentToolCallScopeId = toolCallScopeId;
     if (perCallConfig?.executionScope) {
@@ -417,8 +475,22 @@ export class RuntimeSessionToolExecutor {
     try {
     const resultParts: RuntimeSessionToolResultPart[] = [];
     const toolExecutions: ToolExecutionSummary[] = [];
+    let formalVerificationObservations = collectRuntimeFormalVerificationObservations({
+      currentScope: this.currentExecutionScope,
+      sessionEvents: session.sessionEvents,
+      currentTurnObservations: this.currentTurnFormalVerificationObservations,
+    });
 
     for (const toolCall of toolCalls) {
+      // Reconstruct immediately before every builtin so same-batch ordering
+      // also covers cached, blocked, or otherwise non-standard tool paths.
+      formalVerificationObservations = collectRuntimeFormalVerificationObservations({
+        currentScope: this.currentExecutionScope,
+        sessionEvents: session.sessionEvents,
+        currentTurnToolExecutions: toolExecutions.map((summary) =>
+          toFormalVerificationExecution(summary, toolCallScopeId)),
+        currentTurnObservations: this.currentTurnFormalVerificationObservations,
+      });
       const normalizedToolCall = normalizeToolCall(toolCall);
       let toolCallStarted = false;
       const emitStarted = (
@@ -686,6 +758,7 @@ export class RuntimeSessionToolExecutor {
           capability,
           perCallConfig,
           executionAuthority,
+          formalVerificationObservations,
         );
         const durationMs = Date.now() - startMs;
         const envelopeIsError = extractToolResultIsError(execution.resultValueRaw);
@@ -874,6 +947,13 @@ export class RuntimeSessionToolExecutor {
       }
     }
 
+    const newObservations = collectOwnedFormalVerificationObservations(toolExecutions, toolCallScopeId);
+    if (newObservations.length > 0) {
+      this.currentTurnFormalVerificationObservations = Object.freeze([
+        ...this.currentTurnFormalVerificationObservations,
+        ...newObservations,
+      ]);
+    }
     return { resultParts, toolExecutions };
     } finally {
       this.currentSession = undefined;
@@ -1266,6 +1346,7 @@ export class RuntimeSessionToolExecutor {
     capability: Capability | undefined,
     perCallConfig: PerCallToolConfig | undefined,
     authority: AuthorityDescriptor | undefined,
+    formalVerificationObservations: readonly RuntimeFormalVerificationObservation[],
   ): Promise<{
     readonly resultValueRaw: unknown;
     readonly resultValue: string;
@@ -1276,12 +1357,13 @@ export class RuntimeSessionToolExecutor {
 
     if (capability?.retry) {
       const executor = (name: string, input: Record<string, unknown>) =>
-        this.executeTool({ id: toolCall.id, name, input }, perCallConfig, authority);
+        this.executeTool({ id: toolCall.id, name, input }, perCallConfig, authority, formalVerificationObservations);
       const fallbackExecutor = capability.retry.fallback
         ? (name: string, input: Record<string, unknown>) => this.executeTool(
             { id: toolCall.id, name, input },
             perCallConfig,
             perCallConfig?.toolAuthority?.get(name),
+            formalVerificationObservations,
           )
         : undefined;
 
@@ -1295,7 +1377,7 @@ export class RuntimeSessionToolExecutor {
       resultValueRaw = execResult.result;
       retryAttempt = execResult.attempts > 1 ? execResult.attempts : undefined;
     } else {
-      resultValueRaw = await this.executeTool(toolCall, perCallConfig, authority);
+      resultValueRaw = await this.executeTool(toolCall, perCallConfig, authority, formalVerificationObservations);
     }
 
     return {
@@ -1480,6 +1562,7 @@ export class RuntimeSessionToolExecutor {
     toolCall: ToolCall,
     perCallConfig?: PerCallToolConfig,
     authority?: AuthorityDescriptor,
+    formalVerificationObservations: readonly RuntimeFormalVerificationObservation[] = [],
   ): Promise<unknown> {
     const session = this.currentSession;
     const turnId = session
@@ -1494,6 +1577,7 @@ export class RuntimeSessionToolExecutor {
           ...(turnId ? { turnId } : {}),
           toolCall,
           ...(this.currentExecutionScope ? { executionScope: this.currentExecutionScope } : {}),
+          ...(formalVerificationObservations.length > 0 ? { formalVerificationObservations } : {}),
           ...(perCallConfig?.abortSignal ? { abortSignal: perCallConfig.abortSignal } : {}),
           emitOutput: (output: { readonly stream: "stdout" | "stderr"; readonly delta: string }) => {
             if (outputTruncated || output.delta.length === 0) return;
