@@ -475,6 +475,9 @@ describe("Transcript", () => {
     expect(rows[0]).toHaveAttribute("data-role", "user");
     expect(rows[1]).toHaveAttribute("data-role", "assistant");
     expect(rows[2]).toHaveAttribute("data-role", "error");
+    expect(rows[1]).toHaveAccessibleName("Assistant response");
+    expect(within(rows[1]!).getByText("world")).toBeInTheDocument();
+    expect(within(rows[1]!).queryByText("Assistant", { exact: true })).not.toBeInTheDocument();
     expect(document.querySelector('[data-slot="message-avatar"]')).toBeNull();
   });
 

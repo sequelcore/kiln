@@ -140,20 +140,11 @@ interface MessageRowProps {
   readonly loadResourceDataUrl?: ResourceDataUrlLoader;
 }
 
-function roleLabel(role: Message["role"]): string {
-  switch (role) {
-    case "user":
-      return "User";
-    case "assistant":
-      return "Assistant";
-    case "tool":
-      return "Tool";
-    case "error":
-      return "Error";
-    default:
-      return "Message";
-  }
-}
+const nonAssistantRoleLabels = {
+  user: "User",
+  tool: "Tool",
+  error: "Error",
+} as const satisfies Record<Exclude<Message["role"], "assistant">, string>;
 
 function VoiceAudioParts(props: {
   readonly parts: readonly VoiceAudioOutputProjection[];
@@ -344,7 +335,7 @@ export function MessageRow(props: MessageRowProps) {
   const executionRouteCatalog = useSessionStore((state) => state.executionRouteCatalog);
   const activeRouteId = useSessionStore((state) => state.activeRouteId);
   const requestVoiceSynthesis = useSessionStore((state) => state.requestVoiceSynthesis);
-  const label = roleLabel(message.role);
+  const nonAssistantRoleLabel = message.role === "assistant" ? null : nonAssistantRoleLabels[message.role];
   const showMarkdown = message.role === "assistant";
   const activeRoute = executionRouteCatalog.routes.find((route) => route.routeId === activeRouteId) ?? null;
   const assistantProvider = message.routedProvider
@@ -357,22 +348,30 @@ export function MessageRow(props: MessageRowProps) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
   const isOperational = message.role === "tool" || message.role === "error";
+  const hasProviderMetadata = assistantProvider !== null && assistantProviderLabel !== null;
+  const hasHeader = nonAssistantRoleLabel !== null || hasProviderMetadata;
   const voiceAudioParts = isAssistant ? projectVoiceAudioOutputParts(message.parts ?? []) : [];
   const captionTrackSrc = createAudioCaptionTrackSrc(message.content);
   return (
-    <TranscriptSurface data-role={message.role} kind="message">
+    <TranscriptSurface
+      aria-label={isAssistant ? "Assistant response" : undefined}
+      data-role={message.role}
+      kind="message"
+    >
       <ConversationMessage align={isUser ? "end" : "start"}>
         <MessageContent className={cn(isUser ? "items-end" : "items-start")}>
-          <MessageHeader className={cn("gap-2 px-0", isUser ? "sr-only" : "")}>
-            <span>{label}</span>
-            {assistantProvider && assistantProviderLabel ? (
-              <Badge variant="outline" className="max-w-full gap-1.5 truncate">
-                <ProviderGlyph providerId={assistantProvider} className="size-3.5" />
-                {assistantProviderLabel}
-                {assistantModel ? ` / ${assistantModel}` : " / —"}
-              </Badge>
-            ) : null}
-          </MessageHeader>
+          {hasHeader ? (
+            <MessageHeader className={cn("gap-2 px-0", isUser ? "sr-only" : "")}>
+              {nonAssistantRoleLabel ? <span>{nonAssistantRoleLabel}</span> : null}
+              {hasProviderMetadata ? (
+                <Badge variant="outline" className="max-w-full gap-1.5 truncate">
+                  <ProviderGlyph providerId={assistantProvider} className="size-3.5" />
+                  {assistantProviderLabel}
+                  {assistantModel ? ` / ${assistantModel}` : " / —"}
+                </Badge>
+              ) : null}
+            </MessageHeader>
+          ) : null}
           {isAssistant && props.beforeContent ? (
             <div className="mb-2 flex w-full min-w-0 max-w-[min(44rem,90%)] flex-col gap-1.5">
               {props.beforeContent}

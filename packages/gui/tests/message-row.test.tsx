@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageRow } from "../src/components/message-row.js";
 import { useSessionStore } from "../src/lib/session-store/index.js";
@@ -122,6 +122,7 @@ describe("MessageRow", () => {
     const header = container.querySelector('[data-slot="message-header"]');
     const bubbleContent = container.querySelector('[data-slot="bubble-content"]');
     expect(container.querySelector('[data-slot="message-avatar"]')).toBeNull();
+    expect(within(header as HTMLElement).queryByText("Assistant", { exact: true })).not.toBeInTheDocument();
     expect(header?.querySelector('[data-provider-brand="codex"]')).not.toBeNull();
     expect(header?.querySelector('[data-provider-brand="claude"]')).toBeNull();
     expect(header).toHaveClass("min-h-5", "leading-5");
