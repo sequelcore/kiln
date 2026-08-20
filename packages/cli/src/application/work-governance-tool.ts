@@ -1,10 +1,7 @@
 import type {
   ActionEffectEnvelope,
-  DeliberationIntent,
   DevTool,
   ManagedInvocationExecutionProof,
-  ManagedAgentResultField,
-  ModelTaskSuitabilityTask,
   ToolInput,
   ToolResult,
   WorkItem,
@@ -17,9 +14,6 @@ import type {
   WorkClassificationInput,
   WorkClassificationProvenanceInput,
   VerificationGateResult,
-  BoundedWorkAdoptionAuthority,
-  BoundedWorkContract,
-  BoundedWorkHarnessCapability,
   BoundedWorkCandidateEvidence,
   BoundedWorkCandidateIdentity,
   BoundedWorkCloseoutDecision,
@@ -28,16 +22,11 @@ import type {
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
   OPERATOR_ADOPTION_DECISION_TRANSPORT,
-  parseFormalVerificationToolResultMetadata,
   type DevToolExecutionContext,
-  type FormalVerificationFinishExecutionScope,
   type FormalVerificationFinishTransportEnvelope,
 } from "@kilnai/core/tools";
-import { isRuntimeOwnedFormalVerificationFinishInvocation } from "@kilnai/runtime";
 import {
-  accountedWorkItemEvidence,
   adoptBoundedWorkContractRevision,
-  containsFrontendReferenceEvidence,
   completeGoalExecution,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
@@ -49,8 +38,6 @@ import {
   isTerminalWorkItemExecutionAttemptStatus,
   KILN_WORK_GOVERNANCE_EVIDENCE,
   MANAGED_ORCHESTRATION_ADOPTION_GATE_TARGET,
-  projectManagedOrchestrationAdoptionGate,
-  projectManagedOrchestrationResultHandoff,
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WORK_ITEM_PAUSE_REQUIREMENT_KINDS,
@@ -58,10 +45,8 @@ import {
   WORK_CLASSIFICATION_EVIDENCE_SCOPES,
   WorkItemStore,
   workItemToolMetadata,
-  defineDeliberationLevelId,
 } from "@kilnai/core";
 import type {
-  GoalExecutionStep,
   GoalRun,
   GoalRunAuthorityLevel,
   GoalRunEscalationPolicy,
@@ -83,6 +68,34 @@ import {
   verificationGatesForWorkflowProfile,
   WORK_GOVERNANCE_WORKFLOW_PROFILES,
 } from "./work-governance-workflows.js";
+import {
+  executionAttemptToolOutputProjection,
+  goalToolOutputProjection,
+  workItemToolOutputProjection,
+} from "./work-governance-tool-projections.js";
+import {
+  hasOwn,
+  readText,
+  readTextArray,
+  requireInputRecord,
+  uniqueText,
+} from "./work-governance-tool-input.js";
+import {
+  buildManagedInvocationRequest,
+  MANAGED_INVOCATION_AUTHORITIES,
+  MANAGED_INVOCATION_PROFILES,
+  validatePhaseRouteContract,
+  validateVisualReferenceEvidence,
+  VISUAL_REFERENCE_PHASE_ROUTE,
+  VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER,
+} from "./work-governance-managed-invocation.js";
+import {
+  assertBoundedWorkPolicyCeiling,
+  boundedWorkContractSchema,
+  readBoundedWorkContract,
+  readBoundedWorkContractAuthority,
+} from "./bounded-work-contract-tool-input.js";
+import { readFormalVerificationFinishTransport } from "./formal-verification-finish-transport.js";
 
 const TRIGGERS: readonly KilnWorkGovernanceTrigger[] = [
   "architecture",
@@ -111,17 +124,8 @@ const WORK_ITEM_EXECUTION_FAILURE_REASONS: readonly WorkItemExecutionFailureReas
 ];
 const WORK_ITEM_STATUSES: readonly WorkItemStatus[] = ["pending", "in_progress", "blocked", "completed", "cancelled"];
 const WORK_ITEM_UPDATE_STATUSES: readonly WorkItemStatus[] = ["pending", "blocked", "completed", "cancelled"];
-const VISUAL_REFERENCE_PHASE_ROUTE = "visual-reference-research";
-const VISUAL_REFERENCE_PHASE_ROUTE_PLACEHOLDER = "<read-only web/frontend-reference capable route id>";
 const GOAL_AUTHORITY_LEVELS: readonly GoalRunAuthorityLevel[] = ["read_only", "audited", "destructive"];
 const GOAL_ESCALATION_POLICIES: readonly GoalRunEscalationPolicy[] = ["deny", "approval_required"];
-const MANAGED_INVOCATION_PROFILES = [
-  "foundation-readonly-plan",
-  "foundation-propose-writes",
-  "foundation-apply-approved-writes",
-  "foundation-memory-write-proposals",
-] as const;
-const MANAGED_INVOCATION_AUTHORITIES = ["auto", "read_only", "audited", "destructive"] as const;
 const WORK_GOVERNANCE_READ_EFFECT: ActionEffectEnvelope = {
   operation: "observe",
   boundaries: ["process"],
@@ -140,8 +144,6 @@ const WORK_GOVERNANCE_MUTATION_EFFECT: ActionEffectEnvelope = {
   consequences: ["local-state"],
   idempotency: "non-idempotent",
 };
-type ManagedInvocationProfile = typeof MANAGED_INVOCATION_PROFILES[number];
-type ManagedInvocationAuthority = typeof MANAGED_INVOCATION_AUTHORITIES[number];
 export type ManagedInvocationExecutionProofResolver = (
   invocationId: string,
 ) => ManagedInvocationExecutionProof | undefined;
@@ -175,26 +177,6 @@ export type BoundedWorkGoalCloseout = (input: {
   readonly candidateEvidence: readonly BoundedWorkCandidateEvidence[];
   readonly assuranceEvaluation: BoundedWorkAssuranceEvaluation;
 }) => BoundedWorkCloseoutDecision | Promise<BoundedWorkCloseoutDecision>;
-type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
-type ManagedInvocationPhaseId =
-  | "visual-reference-research"
-  | "surface-diagnosis"
-  | "planning"
-  | "implementation-verification"
-  | "managed-review-closeout";
-
-interface ManagedInvocationPhase {
-  readonly id: ManagedInvocationPhaseId;
-  readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
-  readonly verificationRequirementIds: readonly string[];
-  readonly requiredToolNames: readonly string[];
-  readonly taskAffinity: readonly ModelTaskSuitabilityTask[];
-  readonly remainingEvidenceAfterPhase: readonly KilnWorkGovernanceEvidence[];
-  readonly finalPhase: boolean;
-  readonly completionTool: "work_item.update" | "work_item.execution.finish";
-  readonly instruction: string;
-}
-
 export function createWorkGovernanceTools(
   config: KilnWorkGovernanceConfig | undefined,
   options: {
@@ -307,7 +289,7 @@ export class WorkGovernanceAssessTool implements DevTool {
   }
 }
 
-export class WorkProfileListTool implements DevTool {
+class WorkProfileListTool implements DevTool {
   readonly name = "work_profile.list";
 
   readonly description = [
@@ -354,7 +336,7 @@ export class WorkProfileListTool implements DevTool {
   }
 }
 
-export class WorkItemUpdateTool implements DevTool {
+class WorkItemUpdateTool implements DevTool {
   readonly name = "work_item.update";
 
   readonly description = [
@@ -792,7 +774,7 @@ function normalizeGoalRoutePolicy(input: {
   };
 }
 
-export class WorkItemListTool implements DevTool {
+class WorkItemListTool implements DevTool {
   readonly name = "work_item.list";
 
   readonly description = "List session governed work items and their evidence status.";
@@ -827,7 +809,7 @@ export class WorkItemListTool implements DevTool {
   }
 }
 
-export class WorkItemCompleteTool implements DevTool {
+class WorkItemCompleteTool implements DevTool {
   readonly name = "work_item.complete";
 
   readonly description = [
@@ -975,7 +957,7 @@ export class WorkItemCompleteTool implements DevTool {
   }
 }
 
-export class GoalCreateTool implements DevTool {
+class GoalCreateTool implements DevTool {
   readonly name = "goal.create";
 
   readonly description = [
@@ -1243,7 +1225,7 @@ export class GoalCreateTool implements DevTool {
   }
 }
 
-export class GoalBoundedWorkContractSupersedeTool implements DevTool {
+class GoalBoundedWorkContractSupersedeTool implements DevTool {
   readonly name = "goal.bounded_work_contract.supersede";
   readonly description = "Adopt an explicitly authorized successor bounded-work contract without resetting accounting lineage.";
   readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
@@ -1301,7 +1283,7 @@ export class GoalBoundedWorkContractSupersedeTool implements DevTool {
   }
 }
 
-export class GoalWorkItemsAttachTool implements DevTool {
+class GoalWorkItemsAttachTool implements DevTool {
   readonly name = "goal.work_items.attach";
   readonly description = "Attach existing work items already admitted by the current bounded-work contract.";
   readonly effectEnvelope = WORK_GOVERNANCE_MUTATION_EFFECT;
@@ -1343,7 +1325,7 @@ export class GoalWorkItemsAttachTool implements DevTool {
   }
 }
 
-export class WorkItemExecutionStartTool implements DevTool {
+class WorkItemExecutionStartTool implements DevTool {
   readonly name = "work_item.execution.start";
 
   readonly description = [
@@ -1643,7 +1625,7 @@ export class WorkItemExecutionStartTool implements DevTool {
   }
 }
 
-export class WorkItemExecutionFinishTool implements DevTool {
+class WorkItemExecutionFinishTool implements DevTool {
   readonly name = "work_item.execution.finish";
 
   readonly description = [
@@ -1867,7 +1849,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
   }
 }
 
-export class WorkItemExecutionFailTool implements DevTool {
+class WorkItemExecutionFailTool implements DevTool {
   readonly name = "work_item.execution.fail";
 
   readonly description = [
@@ -2001,489 +1983,6 @@ function goalCreateContractError(input: {
   };
 }
 
-function boundedWorkContractSchema(): Record<string, unknown> {
-  const boundedWorkEffects = [
-    "inspect",
-    "modify_source",
-    "modify_tests",
-    "modify_documentation",
-    "modify_configuration",
-    "run_verification",
-    "invoke_managed_agent",
-    "external_write",
-  ] as const;
-  const changeAuthorities = ["none", "scoped", "unrestricted"] as const;
-  return {
-    type: "object",
-    properties: {
-      schema: { type: "string", const: "kiln.bounded-work-contract/v2" },
-      intent: {
-        type: "object",
-        properties: {
-          objective: { type: "string", minLength: 1 },
-          acceptanceCriteria: {
-            type: "array",
-            minItems: 1,
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string", minLength: 1 },
-                statement: { type: "string", minLength: 1 },
-              },
-              required: ["id", "statement"],
-              additionalProperties: false,
-            },
-          },
-          nonGoals: { type: "array", items: { type: "string", minLength: 1 } },
-        },
-        required: ["objective", "acceptanceCriteria", "nonGoals"],
-        additionalProperties: false,
-      },
-      assurance: {
-        type: "object",
-        properties: {
-          formalVerification: {
-            type: "object",
-            properties: {
-              semantics: { type: "string", const: "allOf" },
-              obligations: {
-                type: "array",
-                minItems: 1,
-                items: {
-                  type: "object",
-                  properties: {
-                    id: { type: "string", minLength: 1 },
-                    symbol: { type: "string", minLength: 1 },
-                    subjectPaths: {
-                      type: "array",
-                      minItems: 1,
-                      items: { type: "string", minLength: 1 },
-                    },
-                  },
-                  required: ["id", "symbol", "subjectPaths"],
-                  additionalProperties: false,
-                },
-              },
-              mappings: {
-                type: "array",
-                minItems: 1,
-                items: {
-                  type: "object",
-                  properties: {
-                    criterionId: { type: "string", minLength: 1 },
-                    obligationIds: {
-                      type: "array",
-                      minItems: 1,
-                      items: { type: "string", minLength: 1 },
-                    },
-                  },
-                  required: ["criterionId", "obligationIds"],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ["semantics", "obligations", "mappings"],
-            additionalProperties: false,
-          },
-        },
-        required: ["formalVerification"],
-        additionalProperties: false,
-      },
-      scope: {
-        type: "object",
-        properties: {
-          allowedWorkItemIds: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
-          permittedEffects: { type: "array", minItems: 1, items: { type: "string", enum: boundedWorkEffects } },
-          permittedSurfaces: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
-          allowedRoots: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
-          deniedRoots: { type: "array", items: { type: "string", minLength: 1 } },
-          refactorAuthority: { type: "string", enum: changeAuthorities },
-          migrationAuthority: { type: "string", enum: changeAuthorities },
-          dependencyAuthority: { type: "string", enum: changeAuthorities },
-        },
-        required: [
-          "allowedWorkItemIds",
-          "permittedEffects",
-          "permittedSurfaces",
-          "allowedRoots",
-          "deniedRoots",
-          "refactorAuthority",
-          "migrationAuthority",
-          "dependencyAuthority",
-        ],
-        additionalProperties: false,
-      },
-      limits: {
-        type: "object",
-        properties: {
-          maxExecutionAttempts: { type: "integer", minimum: 1 },
-          maxManagedInvocations: { type: "integer", minimum: 0 },
-          maxConcurrentManagedInvocations: { type: "integer", minimum: 0 },
-          maxChildDepth: { type: "integer", minimum: 0 },
-          maxReviewRounds: { type: "integer", minimum: 0 },
-          maxRemediationRounds: { type: "integer", minimum: 0 },
-          maxToolCalls: { type: "integer", minimum: 1 },
-          maxActiveDurationMs: { type: "integer", minimum: 1 },
-        },
-        required: [
-          "maxExecutionAttempts",
-          "maxManagedInvocations",
-          "maxConcurrentManagedInvocations",
-          "maxChildDepth",
-          "maxReviewRounds",
-          "maxRemediationRounds",
-        ],
-        additionalProperties: false,
-      },
-      tripwires: {
-        type: "object",
-        properties: {
-          changedFiles: { type: "integer", minimum: 1 },
-          changedLines: { type: "integer", minimum: 1 },
-          activeDurationMs: { type: "integer", minimum: 1 },
-          toolCalls: { type: "integer", minimum: 1 },
-        },
-        additionalProperties: false,
-      },
-      policy: {
-        type: "object",
-        properties: {
-          scopeExpansion: { type: "string", enum: ["deny", "approval_required"] },
-          budgetExhaustion: { type: "string", enum: ["pause", "stop"] },
-          minimumHarnessCapability: {
-            type: "string",
-            enum: ["authoritative", "partially_enforced", "advisory_only"],
-          },
-        },
-        required: ["scopeExpansion", "budgetExhaustion", "minimumHarnessCapability"],
-        additionalProperties: false,
-      },
-    },
-    required: ["schema", "intent", "assurance", "scope", "limits", "tripwires", "policy"],
-    additionalProperties: false,
-  };
-}
-
-function readBoundedWorkContract(value: unknown): BoundedWorkContract | undefined {
-  if (!isRecord(value)) return undefined;
-  try {
-    assertBoundedWorkContractShape(value);
-    const contract = value as unknown as BoundedWorkContract;
-    // Core normalizes and rejects every malformed or incomplete field before it can become authority.
-    const revision = adoptBoundedWorkContractRevision({
-      contract,
-      adoptedAt: new Date().toISOString(),
-      adoptedBy: { kind: "operator", actorId: "validation", decisionId: "validation" },
-      accountingLineageId: "validation",
-    });
-    return revision.contract;
-  } catch {
-    return undefined;
-  }
-}
-
-function readBoundedWorkContractAuthority(value: unknown): BoundedWorkAdoptionAuthority | undefined {
-  if (!isRecord(value)) return undefined;
-  if (value.kind === "operator"
-    && hasExactKeys(value, ["kind", "actorId", "decisionId"])
-    && readText(value.actorId)
-    && readText(value.decisionId)) {
-    return { kind: "operator", actorId: readText(value.actorId)!, decisionId: readText(value.decisionId)! };
-  }
-  if (value.kind === "approved_plan"
-    && hasExactKeys(value, ["kind", "planId", "planDigest"])
-    && readText(value.planId)
-    && readText(value.planDigest)) {
-    return { kind: "approved_plan", planId: readText(value.planId)!, planDigest: readText(value.planDigest)! };
-  }
-  return undefined;
-}
-
-function hasExactKeys(value: Record<string, unknown>, expectedKeys: readonly string[]): boolean {
-  const actualKeys = Object.keys(value);
-  return actualKeys.length === expectedKeys.length
-    && actualKeys.every((key) => expectedKeys.includes(key));
-}
-
-function readFormalVerificationFinishTransport(
-  context: DevToolExecutionContext | undefined,
-  expectedScope: FormalVerificationFinishExecutionScope,
-  expectedFinishTool: Pick<DevTool, "name">,
-): FormalVerificationFinishTransportEnvelope | undefined {
-  const value = context?.[FORMAL_VERIFICATION_FINISH_TRANSPORT];
-  if (value === undefined) return undefined;
-  if (
-    expectedFinishTool.name !== "work_item.execution.finish"
-    || !isRuntimeOwnedFormalVerificationFinishInvocation(expectedFinishTool, value)
-  ) {
-    throw new Error("Formal verification finish transport was not issued by the attached Runtime finish path.");
-  }
-  if (!isRecord(value) || !hasExactKeys(value, ["observations", "executionScope", "recordedAt", "producer"])) {
-    throw new Error("Formal verification finish transport is malformed.");
-  }
-  const executionScope = readFormalVerificationFinishExecutionScope(value.executionScope);
-  assertExactFormalVerificationFinishScope(executionScope, expectedScope);
-  if (!Array.isArray(value.observations)) {
-    throw new Error("Formal verification finish transport observations are malformed.");
-  }
-  for (const observation of value.observations) {
-    if (!isRecord(observation) || !hasExactKeys(observation, ["metadata", "toolCallScopeId", "toolCallId", "executionScope"])) {
-      throw new Error("Formal verification finish transport observation is malformed.");
-    }
-    if (!isCanonicalTransportText(observation.toolCallScopeId) || !isCanonicalTransportText(observation.toolCallId)) {
-      throw new Error("Formal verification finish transport observation invocation is malformed.");
-    }
-    const observationScope = readFormalVerificationFinishExecutionScope(observation.executionScope);
-    assertExactFormalVerificationFinishScope(observationScope, executionScope);
-    if (!isRecord(observation.metadata)) {
-      throw new Error("Formal verification finish transport observation metadata is malformed.");
-    }
-    parseFormalVerificationToolResultMetadata(observation.metadata);
-  }
-  if (!isCanonicalTransportTimestamp(value.recordedAt)) {
-    throw new Error("Formal verification finish transport recordedAt is malformed.");
-  }
-  if (!isRecord(value.producer)
-    || !hasExactKeys(value.producer, ["kind", "toolName"])
-    || value.producer.kind !== "registered_tool"
-    || value.producer.toolName !== "formal_verify") {
-    throw new Error("Formal verification finish transport producer is malformed.");
-  }
-  return value as unknown as FormalVerificationFinishTransportEnvelope;
-}
-
-function readFormalVerificationFinishExecutionScope(value: unknown): FormalVerificationFinishExecutionScope {
-  if (!isRecord(value)
-    || (hasOwn(value, "managedInvocationId")
-      ? !hasExactKeys(value, ["kind", "goalRunId", "workItemId", "attemptId", "managedInvocationId"])
-      : !hasExactKeys(value, ["kind", "goalRunId", "workItemId", "attemptId"]))
-    || value.kind !== "work_item"
-    || !isCanonicalTransportText(value.goalRunId)
-    || !isCanonicalTransportText(value.workItemId)
-    || !isCanonicalTransportText(value.attemptId)
-    || (hasOwn(value, "managedInvocationId") && !isCanonicalTransportText(value.managedInvocationId))) {
-    throw new Error("Formal verification finish transport execution scope is malformed.");
-  }
-  return {
-    kind: "work_item",
-    goalRunId: value.goalRunId as string,
-    workItemId: value.workItemId as string,
-    attemptId: value.attemptId as string,
-    ...(hasOwn(value, "managedInvocationId") ? { managedInvocationId: value.managedInvocationId as string } : {}),
-  };
-}
-
-function isCanonicalTransportText(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.trim() === value;
-}
-
-function isCanonicalTransportTimestamp(value: unknown): value is string {
-  return isCanonicalTransportText(value)
-    && !Number.isNaN(new Date(value).getTime())
-    && new Date(value).toISOString() === value;
-}
-
-function assertExactFormalVerificationFinishScope(
-  actual: FormalVerificationFinishExecutionScope,
-  expected: FormalVerificationFinishExecutionScope,
-): void {
-  const actualManagedInvocation = hasOwn(actual, "managedInvocationId");
-  const expectedManagedInvocation = hasOwn(expected, "managedInvocationId");
-  if (actual.goalRunId !== expected.goalRunId
-    || actual.workItemId !== expected.workItemId
-    || actual.attemptId !== expected.attemptId
-    || actualManagedInvocation !== expectedManagedInvocation
-    || (actualManagedInvocation && actual.managedInvocationId !== expected.managedInvocationId)) {
-    throw new Error("Formal verification finish transport scope does not match the governed attempt.");
-  }
-}
-
-function assertBoundedWorkContractShape(value: Record<string, unknown>): void {
-  assertExactKeys(value, ["schema", "intent", "assurance", "scope", "limits", "tripwires", "policy"], "boundedWorkContract");
-
-  const intent = requireInputRecord(value.intent, "boundedWorkContract.intent");
-  assertExactKeys(intent, ["objective", "acceptanceCriteria", "nonGoals"], "boundedWorkContract.intent");
-  for (const [index, criterion] of requireInputArray(
-    intent.acceptanceCriteria,
-    "boundedWorkContract.intent.acceptanceCriteria",
-  ).entries()) {
-    const record = requireInputRecord(criterion, `boundedWorkContract.intent.acceptanceCriteria[${index}]`);
-    assertExactKeys(
-      record,
-      ["id", "statement"],
-      `boundedWorkContract.intent.acceptanceCriteria[${index}]`,
-    );
-  }
-  requireInputArray(intent.nonGoals, "boundedWorkContract.intent.nonGoals");
-
-  const assurance = requireInputRecord(value.assurance, "boundedWorkContract.assurance");
-  assertExactKeys(assurance, ["formalVerification"], "boundedWorkContract.assurance");
-  const formalVerification = requireInputRecord(
-    assurance.formalVerification,
-    "boundedWorkContract.assurance.formalVerification",
-  );
-  assertExactKeys(
-    formalVerification,
-    ["semantics", "obligations", "mappings"],
-    "boundedWorkContract.assurance.formalVerification",
-  );
-  for (const [index, obligation] of requireInputArray(
-    formalVerification.obligations,
-    "boundedWorkContract.assurance.formalVerification.obligations",
-  ).entries()) {
-    const record = requireInputRecord(
-      obligation,
-      `boundedWorkContract.assurance.formalVerification.obligations[${index}]`,
-    );
-    assertExactKeys(
-      record,
-      ["id", "symbol", "subjectPaths"],
-      `boundedWorkContract.assurance.formalVerification.obligations[${index}]`,
-    );
-    requireInputArray(
-      record.subjectPaths,
-      `boundedWorkContract.assurance.formalVerification.obligations[${index}].subjectPaths`,
-    );
-  }
-  for (const [index, mapping] of requireInputArray(
-    formalVerification.mappings,
-    "boundedWorkContract.assurance.formalVerification.mappings",
-  ).entries()) {
-    const record = requireInputRecord(
-      mapping,
-      `boundedWorkContract.assurance.formalVerification.mappings[${index}]`,
-    );
-    assertExactKeys(
-      record,
-      ["criterionId", "obligationIds"],
-      `boundedWorkContract.assurance.formalVerification.mappings[${index}]`,
-    );
-    requireInputArray(
-      record.obligationIds,
-      `boundedWorkContract.assurance.formalVerification.mappings[${index}].obligationIds`,
-    );
-  }
-
-  const scope = requireInputRecord(value.scope, "boundedWorkContract.scope");
-  assertExactKeys(
-    scope,
-    [
-      "allowedWorkItemIds",
-      "permittedEffects",
-      "permittedSurfaces",
-      "allowedRoots",
-      "deniedRoots",
-      "refactorAuthority",
-      "migrationAuthority",
-      "dependencyAuthority",
-    ],
-    "boundedWorkContract.scope",
-  );
-  for (const field of ["allowedWorkItemIds", "permittedEffects", "permittedSurfaces", "allowedRoots", "deniedRoots"] as const) {
-    requireInputArray(scope[field], `boundedWorkContract.scope.${field}`);
-  }
-
-  const limits = requireInputRecord(value.limits, "boundedWorkContract.limits");
-  assertExactKeys(
-    limits,
-    [
-      "maxExecutionAttempts",
-      "maxManagedInvocations",
-      "maxConcurrentManagedInvocations",
-      "maxChildDepth",
-      "maxReviewRounds",
-      "maxRemediationRounds",
-      "maxToolCalls",
-      "maxActiveDurationMs",
-    ],
-    "boundedWorkContract.limits",
-    [
-      "maxExecutionAttempts",
-      "maxManagedInvocations",
-      "maxConcurrentManagedInvocations",
-      "maxChildDepth",
-      "maxReviewRounds",
-      "maxRemediationRounds",
-    ],
-  );
-
-  const tripwires = requireInputRecord(value.tripwires, "boundedWorkContract.tripwires");
-  assertExactKeys(
-    tripwires,
-    ["changedFiles", "changedLines", "activeDurationMs", "toolCalls"],
-    "boundedWorkContract.tripwires",
-    [],
-  );
-
-  const policy = requireInputRecord(value.policy, "boundedWorkContract.policy");
-  assertExactKeys(
-    policy,
-    ["scopeExpansion", "budgetExhaustion", "minimumHarnessCapability"],
-    "boundedWorkContract.policy",
-  );
-}
-
-function hasOwn(value: object, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function assertExactKeys(
-  value: Record<string, unknown>,
-  allowedKeys: readonly string[],
-  field: string,
-  requiredKeys: readonly string[] = allowedKeys,
-): void {
-  const allowed = new Set(allowedKeys);
-  if (Object.keys(value).some((key) => !allowed.has(key))) {
-    throw new Error(`${field} has an invalid shape or extra field`);
-  }
-  if (requiredKeys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) {
-    throw new Error(`${field} has an invalid shape or missing field`);
-  }
-}
-
-function requireInputArray(value: unknown, field: string): readonly unknown[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`Invalid input: ${field} must be an array.`);
-  }
-  return value;
-}
-
-function assertBoundedWorkPolicyCeiling(
-  config: KilnWorkGovernanceConfig | undefined,
-  contract: BoundedWorkContract,
-): void {
-  const ceiling = config?.boundedWorkCeiling;
-  if (!ceiling) return;
-  if (ceiling.allowedEffects && contract.scope.permittedEffects.some((effect) => !ceiling.allowedEffects!.includes(effect))) {
-    throw new Error("bounded-work contract requests an effect outside the configured global ceiling");
-  }
-  if (ceiling.allowedRoots && contract.scope.allowedRoots.some((root) => !ceiling.allowedRoots!.some((ceilingRoot) => root === ceilingRoot || root.startsWith(`${ceilingRoot}/`)))) {
-    throw new Error("bounded-work contract requests a root outside the configured global ceiling");
-  }
-  if (ceiling.deniedRoots && ceiling.deniedRoots.some((root) => !contract.scope.deniedRoots.includes(root))) {
-    throw new Error("bounded-work contract must retain every globally denied root");
-  }
-  const limits = ceiling.maximumLimits;
-  if (limits) {
-    for (const key of Object.keys(limits) as (keyof typeof limits)[]) {
-      const maximum = limits[key];
-      const requested = contract.limits[key];
-      if (maximum !== undefined && (requested === undefined || requested > maximum)) {
-        throw new Error(`bounded-work contract ${key} exceeds or omits the configured global ceiling`);
-      }
-    }
-  }
-  const rank: Record<BoundedWorkHarnessCapability, number> = { advisory_only: 0, partially_enforced: 1, authoritative: 2 };
-  if (ceiling.minimumHarnessCapability && rank[contract.policy.minimumHarnessCapability] < rank[ceiling.minimumHarnessCapability]) {
-    throw new Error("bounded-work contract harness capability is below the configured global minimum");
-  }
-}
-
 function linkWorkItemToGoal(item: WorkItem, goal: GoalRun): WorkItemUpsertInput {
   const goalOwnedRouteId = goal.routePolicy.managedAgentProfile ? undefined : goal.routePolicy.preferredRouteId;
   const routeId = item.routeId ?? goalOwnedRouteId;
@@ -2554,404 +2053,6 @@ function readGoalEvidenceRequirements(value: unknown):
     requirements.push({ id, description, required: record.required });
   }
   return { ok: true, requirements };
-}
-
-function buildManagedInvocationRequest(
-  goal: GoalRun,
-  step: ReadyGoalExecutionStep,
-  input: Record<string, unknown>,
-): {
-  readonly routeId?: string;
-  readonly agentProfile?: string;
-  readonly missingFields: readonly string[];
-  readonly request: Record<string, unknown>;
-} {
-  const phase = resolveManagedInvocationPhase(step);
-  const phaseRequiresReadOnlyVisualResearch = phase.id === "visual-reference-research";
-  const agentProfile = phaseRequiresReadOnlyVisualResearch
-    ? undefined
-    : step.workItem.assignedAgentProfile
-    ?? step.workItem.routingRecommendation?.agentProfile
-    ?? goal.routePolicy.managedAgentProfile;
-  const goalOwnedRouteId = agentProfile ? undefined : goal.routePolicy.preferredRouteId;
-  const routeId = phaseRequiresReadOnlyVisualResearch
-    ? step.workItem.phaseRoutes?.[phase.id] ?? readText(input.managedResearchRouteId)
-    : step.workItem.routeId ?? step.workItem.routingRecommendation?.routeId ?? goalOwnedRouteId;
-  const providerId = readText(input.managedProviderId);
-  const model = phaseRequiresReadOnlyVisualResearch && routeId
-    ? undefined
-    : readText(input.managedModel);
-  const deliberationIntent = input.managedDeliberationIntent === undefined
-    ? step.workItem.routingRecommendation?.deliberationIntent
-    : readDeliberationIntent(input.managedDeliberationIntent);
-  const resourceUris = uniqueText([
-    ...readTextArray(input.managedResourceUris),
-    ...step.workItem.verificationGateResults
-      .flatMap((result) => result.evidence ?? [])
-      .filter(isCanonicalArtifactContentUri),
-  ]);
-  if (resourceUris.some((uri) => !isCanonicalArtifactContentUri(uri))) {
-    throw new Error("managedResourceUris must contain only canonical kiln://artifacts/<namespace>/<id>/content URIs.");
-  }
-  const expectedEvidence = phase.expectedEvidence;
-  const residualRiskRequired = expectedEvidence.includes("residual-risk");
-  const configuredProfile = phaseRequiresReadOnlyVisualResearch
-    ? "foundation-readonly-plan"
-    : readManagedInvocationProfile(step.workItem.authorityProfile)
-    ?? readManagedInvocationProfile(input.managedProfile)
-    ?? "foundation-readonly-plan";
-  const profile = goal.authorityEnvelope.maximumAuthority === "read_only"
-    ? "foundation-readonly-plan"
-    : configuredProfile;
-  const request: Record<string, unknown> = {
-    profile,
-    ...(routeId ? { routeId } : {}),
-    ...(phaseRequiresReadOnlyVisualResearch ? { forbiddenInputFields: ["agentProfile"] } : {}),
-    ...(providerId
-      ? {
-        providerRoute: {
-          providerId,
-          ...(model ? { model } : {}),
-          ...(deliberationIntent ? { deliberationIntent } : {}),
-        },
-      }
-      : {}),
-    requestedAuthority: resolveManagedInvocationAuthority(profile, input, goal),
-    task: formatManagedInvocationTask(goal, step, phase),
-    summary: step.workItem.summary,
-    contextMode: resourceUris.length > 0 ? "resources" : "isolated",
-    ...(resourceUris.length > 0 ? { resourceUris } : {}),
-    goalRunId: goal.id,
-    workItemId: step.workItemId,
-    boundedWorkEffects: goal.boundedWorkContractRevision.contract.scope.permittedEffects.filter((effect) =>
-      effect !== "invoke_managed_agent"),
-    ...(step.workItem.workClassification ? { workClassification: step.workItem.workClassification } : {}),
-    ...(agentProfile ? { agentProfile } : {}),
-    roleIntent: `Execute governed work item ${step.workItemId} for goal ${goal.id}.`,
-    executionPhase: {
-      id: phase.id,
-      expectedEvidence: phase.expectedEvidence,
-      verificationRequirementIds: phase.verificationRequirementIds,
-      requiredToolNames: phase.requiredToolNames,
-      taskAffinity: phase.taskAffinity,
-      remainingEvidenceAfterPhase: phase.remainingEvidenceAfterPhase,
-      finalPhase: phase.finalPhase,
-      completionTool: phase.completionTool,
-      autoStartAllowed: phase.completionTool === "work_item.execution.finish",
-      instruction: phase.instruction,
-    },
-    expectedEvidence,
-    ...(phase.requiredToolNames.length > 0 ? { requiredToolNames: phase.requiredToolNames } : {}),
-    ...(phaseRequiresReadOnlyVisualResearch && step.workItem.referenceRoots
-      ? { requiredReadPaths: step.workItem.referenceRoots }
-      : {}),
-    requiredResultFields: managedInvocationResultFields(expectedEvidence),
-    doneCriteria: managedInvocationDoneCriteria(phase),
-    residualRiskRequired,
-    outputVerbosity: "concise",
-  };
-
-  return {
-    routeId,
-    agentProfile,
-    missingFields: providerId || routeId
-      ? []
-      : phaseRequiresReadOnlyVisualResearch
-        ? ["providerRoute.providerId or managedResearchRouteId for read-only frontend-reference route"]
-        : ["providerRoute.providerId"],
-    request,
-  };
-}
-
-function resolveManagedInvocationAuthority(
-  profile: ManagedInvocationProfile,
-  input: Record<string, unknown>,
-  goal: GoalRun,
-): ManagedInvocationAuthority {
-  if (
-    goal.authorityEnvelope.maximumAuthority === "read_only"
-    || profile === "foundation-readonly-plan"
-  ) {
-    return "read_only";
-  }
-  const requestedAuthority = readManagedInvocationAuthority(input.requestedAuthority);
-  if (
-    requestedAuthority === "audited"
-    && goal.authorityEnvelope.maximumAuthority === "destructive"
-  ) {
-    return "audited";
-  }
-  return goal.authorityEnvelope.maximumAuthority;
-}
-
-function resolveManagedInvocationPhase(step: ReadyGoalExecutionStep): ManagedInvocationPhase {
-  const accountedEvidence = new Set(accountedWorkItemEvidence(step.workItem));
-  const missingEvidence = step.requiredEvidence
-    .filter((evidence): evidence is KilnWorkGovernanceEvidence => isKilnWorkGovernanceEvidence(evidence))
-    .filter((evidence) => !accountedEvidence.has(evidence));
-  const targetEvidence = firstMatchingPhaseEvidence(missingEvidence);
-  const phaseId = phaseIdForEvidence(targetEvidence);
-  const remainingEvidenceAfterPhase = missingEvidence.filter((evidence) => !targetEvidence.includes(evidence));
-  const finalPhase = remainingEvidenceAfterPhase.length === 0;
-  const accountedGates = new Set([
-    ...step.workItem.skippedVerificationGates,
-    ...step.workItem.verificationGateResults
-      .filter((result) => result.status === "passed" || result.status === "skipped")
-      .map((result) => result.gate),
-  ]);
-  const remainingVerificationGates = finalPhase
-    ? step.workItem.verificationGates.filter((gate) => !accountedGates.has(gate))
-    : [];
-  return {
-    id: phaseId,
-    expectedEvidence: targetEvidence,
-    verificationRequirementIds: uniqueText([...targetEvidence, ...remainingVerificationGates]),
-    requiredToolNames: requiredToolNamesForPhaseEvidence(targetEvidence),
-    taskAffinity: taskAffinityForPhase(phaseId),
-    remainingEvidenceAfterPhase,
-    finalPhase,
-    completionTool: finalPhase ? "work_item.execution.finish" : "work_item.update",
-    instruction: finalPhase
-      ? "This is the final evidence phase. Kiln will attach invocation provenance and close the execution attempt after validating the structured handoff."
-      : "This is an intermediate evidence phase. Kiln will record the validated phase result and advance the same work item automatically.",
-  };
-}
-
-function firstMatchingPhaseEvidence(
-  missingEvidence: readonly KilnWorkGovernanceEvidence[],
-): readonly KilnWorkGovernanceEvidence[] {
-  const uiReference = pickEvidence(missingEvidence, ["visual-reference-research"]);
-  if (uiReference.length > 0) return uiReference;
-
-  const diagnosis = pickEvidence(missingEvidence, ["surface-map", "risk-hypothesis"]);
-  if (diagnosis.length > 0) return diagnosis;
-
-  const planning = pickEvidence(missingEvidence, ["spec", "plan", "formal-proof"]);
-  if (planning.length > 0) return planning;
-
-  const verification = pickEvidence(missingEvidence, ["tests", "typecheck", "browser-qa"]);
-  if (verification.length > 0) return verification;
-
-  const closeout = pickEvidence(missingEvidence, ["managed-agent-review", "residual-risk"]);
-  if (closeout.length > 0) return closeout;
-
-  return missingEvidence;
-}
-
-function pickEvidence(
-  missingEvidence: readonly KilnWorkGovernanceEvidence[],
-  candidates: readonly KilnWorkGovernanceEvidence[],
-): readonly KilnWorkGovernanceEvidence[] {
-  return candidates.filter((evidence) => missingEvidence.includes(evidence));
-}
-
-function phaseIdForEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): ManagedInvocationPhaseId {
-  if (evidence.includes("visual-reference-research")) return "visual-reference-research";
-  if (evidence.some((candidate) => candidate === "surface-map" || candidate === "risk-hypothesis")) {
-    return "surface-diagnosis";
-  }
-  if (evidence.some((candidate) => candidate === "spec" || candidate === "plan" || candidate === "formal-proof")) {
-    return "planning";
-  }
-  if (evidence.some((candidate) => candidate === "tests" || candidate === "typecheck" || candidate === "browser-qa")) {
-    return "implementation-verification";
-  }
-  return "managed-review-closeout";
-}
-
-function requiredToolNamesForPhaseEvidence(evidence: readonly KilnWorkGovernanceEvidence[]): readonly string[] {
-  return uniqueText([
-    ...(evidence.some((candidate) =>
-      candidate === "surface-map"
-      || candidate === "risk-hypothesis"
-      || candidate === "spec"
-      || candidate === "plan"
-      || candidate === "formal-proof"
-    )
-      ? ["read", "tree", "grep", "glob"]
-      : []),
-    ...(evidence.some((candidate) => candidate === "tests" || candidate === "typecheck")
-      ? ["bash"]
-      : []),
-    ...(evidence.includes("visual-reference-research")
-      ? ["read", "glob", "grep"]
-      : []),
-    ...(evidence.includes("browser-qa")
-      ? ["browser_session_start", "browser_navigate", "browser_observe"]
-      : []),
-  ]);
-}
-
-function formatManagedInvocationTask(
-  goal: GoalRun,
-  step: ReadyGoalExecutionStep,
-  phase = resolveManagedInvocationPhase(step),
-): string {
-  const remainingVerificationGates = phase.verificationRequirementIds
-    .filter((requirementId) => !phase.expectedEvidence.some((evidence) => evidence === requirementId));
-  const lines = [
-    step.workItem.summary,
-    `Goal: ${goal.objective}`,
-    `Work item id: ${step.workItemId}`,
-    `Execution phase: ${phase.id}.`,
-  ];
-  if (phase.expectedEvidence.length > 0) {
-    lines.push(`Produce only this phase evidence: ${phase.expectedEvidence.join(", ")}.`);
-  }
-  if (phase.verificationRequirementIds.length > 0) {
-    lines.push(`verificationResults must contain exactly one result for every required evidence or closeout gate, using these exact requirementId values: ${phase.verificationRequirementIds.join(", ")}. Mark genuinely unexecuted checks skipped, never passed, and describe every skip in residualRisks.`);
-  }
-  if (phase.id === "visual-reference-research") {
-    lines.push("Use read-only frontend-reference research authority. Prefer running-product UI captures when available. If the reference repository has no public screenshots, inspect the frontend implementation itself and produce code-backed evidence: component structure, layout/navigation model, spacing/typography/density, panels, work surfaces, composer-like interactions, status areas, and relevant frontend file paths. Local reference repositories are valid only when evidence cites concrete source paths and extracted UI principles. Repository chrome, stars/forks/issues, and raw file listings alone do not count.");
-    if (step.workItem.referenceRoots && step.workItem.referenceRoots.length > 0) {
-      lines.push(`Required reference roots: ${step.workItem.referenceRoots.join("; ")}.`);
-      lines.push("Before recording visual-reference-research, inspect each required reference root enough to cite concrete frontend source paths or explicitly report why that root has no qualifying frontend implementation evidence. A raw file listing or analysis of only this Kiln repository does not satisfy this phase.");
-    }
-  }
-  if (phase.requiredToolNames.length > 0) {
-    lines.push(`This phase requires route tools: ${phase.requiredToolNames.join(", ")}.`);
-  }
-  if (phase.remainingEvidenceAfterPhase.length > 0) {
-    lines.push(`Do not expand into later phases. Remaining evidence after this phase: ${phase.remainingEvidenceAfterPhase.join(", ")}.`);
-  }
-  if (remainingVerificationGates.length > 0) {
-    lines.push(`Remaining work item verification gates for final closeout: ${remainingVerificationGates.join("; ")}.`);
-  }
-  lines.push(phase.instruction);
-  lines.push("Return exactly one structured-execution-result-v1 JSON object with status, summary, limitations, operatorDecisions, evidence, citations, warnings, failures, approvalRequirements, residualRisks, and verificationResults. Include uncertainty when requested. Do not infer verification success from prose or include scratch notes, private planning text, or tool-output housekeeping.");
-  return lines.join("\n");
-}
-
-function managedInvocationResultFields(expectedEvidence: readonly string[]): readonly ManagedAgentResultField[] {
-  return [
-    "summary",
-    "evidence",
-    "verificationResults",
-    ...(expectedEvidence.includes("residual-risk") ? ["residualRisks" as const] : []),
-  ];
-}
-
-function managedInvocationDoneCriteria(phase: ManagedInvocationPhase): readonly string[] {
-  const remainingVerificationGates = phase.verificationRequirementIds
-    .filter((requirementId) => !phase.expectedEvidence.some((evidence) => evidence === requirementId));
-  return uniqueText([
-    ...(phase.finalPhase ? remainingVerificationGates : []),
-    ...(phase.expectedEvidence.length > 0
-      ? [`Produce phase evidence: ${phase.expectedEvidence.join(", ")}.`]
-      : []),
-    ...(phase.remainingEvidenceAfterPhase.length > 0
-      ? [`Stop after phase ${phase.id}; Kiln owns the validated transition to the next phase.`]
-      : []),
-    ...(phase.expectedEvidence.includes("residual-risk")
-      ? ["Document residual risk before closeout."]
-      : []),
-  ]);
-}
-
-function validateVisualReferenceEvidence(input: {
-  readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
-  readonly verificationGateResults: readonly VerificationGateResult[];
-}): { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string } {
-  if (!input.providedEvidence.includes("visual-reference-research")) {
-    return { ok: true };
-  }
-  const passedVisualResults = input.verificationGateResults.filter((result) =>
-    result.status === "passed" && isVisualReferenceGate(result.gate));
-  if (passedVisualResults.length === 0) {
-    return {
-      ok: false,
-      code: "visual_reference_product_ui_required",
-      message: "visual-reference-research requires a passed frontend-reference verification gate with running-product UI capture evidence when available, or code-backed frontend implementation evidence when screenshots are unavailable.",
-    };
-  }
-  const evidenceText = passedVisualResults
-    .flatMap((result) => [
-      result.summary ?? "",
-      ...(result.evidence ?? []),
-    ])
-    .join("\n");
-  if (
-    containsPlaceholderVisualEvidence(evidenceText)
-    || isRepositoryChromeOnlyEvidence(evidenceText)
-    || !containsFrontendReferenceEvidence(evidenceText)
-  ) {
-    return {
-      ok: false,
-      code: "visual_reference_product_ui_required",
-      message: "repository chrome, stars, forks, issues, README text, or raw file listings alone do not satisfy visual-reference-research; provide product UI capture evidence or code-backed frontend implementation evidence with source URLs or local source paths and relevant frontend file paths.",
-    };
-  }
-  return { ok: true };
-}
-
-function containsPlaceholderVisualEvidence(value: string): boolean {
-  const normalized = value.toLowerCase();
-  return normalized.includes("<source url")
-    || normalized.includes("<kiln://")
-    || normalized.includes("<summarize")
-    || normalized.includes("<artifact uri")
-    || normalized.includes("placeholder");
-}
-
-function validatePhaseRouteContract(input: {
-  readonly expectedEvidence: readonly KilnWorkGovernanceEvidence[];
-  readonly providedEvidence: readonly KilnWorkGovernanceEvidence[];
-  readonly routeId?: string;
-  readonly authorityProfile?: string;
-  readonly phaseRoutes?: Readonly<Record<string, string>>;
-}): { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string } {
-  const requiresVisualReference = input.expectedEvidence.includes(VISUAL_REFERENCE_PHASE_ROUTE)
-    && !input.providedEvidence.includes(VISUAL_REFERENCE_PHASE_ROUTE);
-  if (!requiresVisualReference || !input.routeId || input.authorityProfile !== "foundation-apply-approved-writes") {
-    return { ok: true };
-  }
-  if (readText(input.phaseRoutes?.[VISUAL_REFERENCE_PHASE_ROUTE])) {
-    return { ok: true };
-  }
-  return {
-    ok: false,
-    code: "visual_reference_phase_route_required",
-    message: "UI work assigned to an approved-write route must declare phaseRoutes.visual-reference-research with a read-only web/frontend-reference capable route before visual-reference-research is accepted. Do not use the write route for frontend-reference research.",
-  };
-}
-
-function isVisualReferenceGate(gate: string): boolean {
-  const normalized = gate.toLowerCase();
-  return normalized.includes("visual-reference")
-    || normalized.includes("visual reference")
-    || normalized.includes("frontend-reference")
-    || normalized.includes("frontend reference")
-    || normalized.includes("frontend implementation")
-    || normalized.includes("real product screenshot")
-    || normalized.includes("browser visual reference")
-    || normalized.includes("source urls")
-    || normalized.includes("source URLs");
-}
-
-function isRepositoryChromeOnlyEvidence(value: string): boolean {
-  const normalized = value.toLowerCase();
-  const mentionsGithubRepo = normalized.includes("github.com/")
-    || normalized.includes("repository files navigation")
-    || normalized.includes("github repo")
-    || normalized.includes("repo page")
-    || normalized.includes("stars")
-    || normalized.includes("forks");
-  if (!mentionsGithubRepo) {
-    return false;
-  }
-  return !containsFrontendReferenceEvidence(value);
-}
-
-function readManagedInvocationProfile(value: unknown): ManagedInvocationProfile | undefined {
-  return MANAGED_INVOCATION_PROFILES.includes(value as ManagedInvocationProfile)
-    ? value as ManagedInvocationProfile
-    : undefined;
-}
-
-function readManagedInvocationAuthority(value: unknown): ManagedInvocationAuthority | undefined {
-  return MANAGED_INVOCATION_AUTHORITIES.includes(value as ManagedInvocationAuthority)
-    ? value as ManagedInvocationAuthority
-    : undefined;
 }
 
 function isRisk(value: unknown): value is KilnWorkGovernanceRisk {
@@ -3106,20 +2207,6 @@ function readVerificationGateResultStatus(value: unknown): VerificationGateResul
   return value === "passed" || value === "failed" || value === "skipped" ? value : undefined;
 }
 
-function taskAffinityForPhase(phase: ManagedInvocationPhaseId): readonly ModelTaskSuitabilityTask[] {
-  switch (phase) {
-    case "visual-reference-research":
-      return ["research", "frontend-design"];
-    case "surface-diagnosis":
-      return ["architecture-review", "research"];
-    case "planning":
-    case "managed-review-closeout":
-      return ["architecture-review"];
-    case "implementation-verification":
-      return ["test-writing"];
-  }
-}
-
 function mergeGateResults(
   existing: readonly VerificationGateResult[],
   incoming: readonly VerificationGateResult[],
@@ -3129,7 +2216,7 @@ function mergeGateResults(
   return [...byGate.values()];
 }
 
-export class GoalEvidenceRecordTool implements DevTool {
+class GoalEvidenceRecordTool implements DevTool {
   readonly name = "goal.evidence.record";
   readonly description = [
     "Record explicit structured evidence for one declared goal-level requirement.",
@@ -3186,7 +2273,7 @@ export class GoalEvidenceRecordTool implements DevTool {
   }
 }
 
-export class GoalCompleteTool implements DevTool {
+class GoalCompleteTool implements DevTool {
   readonly name = "goal.complete";
   readonly description = [
     "Complete an active goal after every linked work item and required goal-level evidence record are complete.",
@@ -3270,116 +2357,6 @@ export class GoalCompleteTool implements DevTool {
   }
 }
 
-function workItemToolOutputProjection(item: WorkItem): Record<string, unknown> {
-  const latestAttempt = item.executionAttempts.at(-1);
-  return {
-    id: item.id,
-    summary: boundedToolProjectionText(item.summary),
-    status: item.status,
-    workflowProfile: item.workflowProfile,
-    ...(item.risk ? { risk: item.risk } : {}),
-    triggers: item.triggers,
-    ...(item.surface ? { surface: item.surface } : {}),
-    ...(item.assignedAgentProfile ? { assignedAgentProfile: item.assignedAgentProfile } : {}),
-    ...(item.routeId ? { routeId: item.routeId } : {}),
-    ...(item.authorityProfile ? { authorityProfile: item.authorityProfile } : {}),
-    expectedEvidence: item.expectedEvidence,
-    providedEvidence: item.providedEvidence,
-    verificationGates: item.verificationGates,
-    skippedVerificationGates: item.skippedVerificationGates,
-    verificationGateResults: item.verificationGateResults.map(verificationGateResultToolOutputProjection),
-    dependencies: item.dependencies,
-    ...(item.residualRisk ? { residualRisk: boundedToolProjectionText(item.residualRisk) } : {}),
-    pauseRequirements: item.pauseRequirements,
-    ...(item.goalRunId ? { goalRunId: item.goalRunId } : {}),
-    ...(item.workClassification ? { workClassification: item.workClassification } : {}),
-    ...(item.workClassificationProvenance
-      ? { workClassificationProvenance: item.workClassificationProvenance }
-      : {}),
-    ...(latestAttempt ? { latestAttempt: executionAttemptToolOutputProjection(latestAttempt) } : {}),
-    managedOrchestrationResultHandoff: projectManagedOrchestrationResultHandoff(item),
-    managedOrchestrationAdoptionGate: projectManagedOrchestrationAdoptionGate(item),
-    resourceUri: `kiln://session/work-items/${encodeURIComponent(item.id)}`,
-    updatedAt: item.updatedAt,
-    sequence: item.sequence,
-  };
-}
-
-function executionAttemptToolOutputProjection(attempt: WorkItemExecutionAttempt): Record<string, unknown> {
-  return {
-    id: attempt.id,
-    workItemId: attempt.workItemId,
-    goalRunId: attempt.goalRunId,
-    status: attempt.status,
-    executionMode: attempt.executionMode,
-    ...(attempt.managedInvocationId ? { managedInvocationId: attempt.managedInvocationId } : {}),
-    hasManagedInvocationResultHandoff: attempt.managedInvocationResultHandoff !== undefined,
-    providedEvidence: attempt.providedEvidence,
-    missingEvidence: attempt.missingEvidence,
-    missingResidualRisk: attempt.missingResidualRisk,
-    skippedVerificationGates: attempt.skippedVerificationGates,
-    verificationGateResults: attempt.verificationGateResults.map(verificationGateResultToolOutputProjection),
-    ...(attempt.residualRisk ? { residualRisk: boundedToolProjectionText(attempt.residualRisk) } : {}),
-    startedAt: attempt.startedAt,
-    ...(attempt.completedAt ? { completedAt: attempt.completedAt } : {}),
-    ...(attempt.candidate
-      ? {
-          candidateDigest: attempt.candidate.candidateDigest,
-          candidateContentDigest: attempt.candidate.candidateContentDigest,
-          candidateEvidence: attempt.candidateEvidence ?? [],
-        }
-      : {}),
-  };
-}
-
-function goalToolOutputProjection(goal: GoalRun): Record<string, unknown> {
-  const recordedEvidence = new Set(goal.evidence.map((record) => record.requirementId));
-  return {
-    id: goal.id,
-    objective: boundedToolProjectionText(goal.objective),
-    status: goal.status,
-    workItemIds: goal.workItemIds,
-    ...(goal.currentPhase ? { currentPhase: goal.currentPhase } : {}),
-    ...(goal.closeoutSummary ? { closeoutSummary: boundedToolProjectionText(goal.closeoutSummary) } : {}),
-    ...(goal.boundedWorkCloseoutDecision
-      ? {
-          boundedWorkCloseout: {
-            kind: goal.boundedWorkCloseoutDecision.kind,
-            candidateDigest: goal.boundedWorkCloseoutDecision.candidateDigest,
-            contractRevisionDigest: goal.boundedWorkCloseoutDecision.contractRevisionDigest,
-            accountingRevision: goal.boundedWorkCloseoutDecision.accounting.revision,
-          },
-        }
-      : {}),
-    ...(goal.terminalReason ? { terminalReason: boundedToolProjectionText(goal.terminalReason) } : {}),
-    createdAt: goal.createdAt,
-    evidenceRequirements: goal.evidenceRequirements.map((requirement) => ({
-      id: requirement.id,
-      required: requirement.required,
-      recorded: recordedEvidence.has(requirement.id),
-    })),
-    resourceUri: `kiln://session/goals/${encodeURIComponent(goal.id)}`,
-    activeDurationMs: goal.activeDurationMs,
-    ...(goal.activeSince ? { activeSince: goal.activeSince } : {}),
-    updatedAt: goal.updatedAt,
-    sequence: goal.sequence,
-  };
-}
-
-function verificationGateResultToolOutputProjection(result: VerificationGateResult): Record<string, unknown> {
-  return {
-    gate: result.gate,
-    status: result.status,
-    ...(result.summary ? { summary: boundedToolProjectionText(result.summary, 240) } : {}),
-    evidenceCount: result.evidence?.length ?? 0,
-    ...(result.completedAt ? { completedAt: result.completedAt } : {}),
-  };
-}
-
-function boundedToolProjectionText(value: string, maxLength = 480): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
-}
-
 function readManagedOrchestrationAdoption(value: unknown): WorkItem["managedOrchestrationAdoption"] | undefined {
   if (value === undefined) {
     return undefined;
@@ -3437,12 +2414,6 @@ function readEvidence(value: unknown): readonly KilnWorkGovernanceEvidence[] {
   return Array.isArray(value) ? uniqueEvidence(value.filter(isKilnWorkGovernanceEvidence)) : [];
 }
 
-function readTextArray(value: unknown): readonly string[] {
-  return Array.isArray(value)
-    ? uniqueText(value.map(readText).filter((item): item is string => item !== undefined))
-    : [];
-}
-
 function readTextRecord(value: unknown): Readonly<Record<string, string>> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -3451,13 +2422,6 @@ function readTextRecord(value: unknown): Readonly<Record<string, string>> | unde
     .map(([key, recordValue]) => [key.trim(), readText(recordValue)] as const)
     .filter((entry): entry is readonly [string, string] => entry[0].length > 0 && typeof entry[1] === "string");
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-}
-
-function requireInputRecord(value: unknown, field: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Invalid input: ${field} must be an object.`);
-  }
-  return value as Record<string, unknown>;
 }
 
 function readWorkClassificationInput(value: unknown): WorkClassificationInput | undefined {
@@ -3511,68 +2475,6 @@ function readWorkClassificationProvenanceInput(
   return { sourceKind, sourceId };
 }
 
-function readText(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function readDeliberationIntent(value: unknown): DeliberationIntent {
-  const record = requireInputRecord(value, "managedDeliberationIntent");
-  const allowed = new Set(["mode", "preferredLevel", "target", "bounds", "onUnsupported"]);
-  const unknown = Object.keys(record).find((key) => !allowed.has(key));
-  if (unknown) throw new Error(`Invalid input: managedDeliberationIntent contains unsupported field ${unknown}.`);
-  const onUnsupported = readText(record.onUnsupported);
-  if (onUnsupported !== "deny" && onUnsupported !== "omit" && onUnsupported !== "allow-clamp") {
-    throw new Error("Invalid input: managedDeliberationIntent.onUnsupported is invalid.");
-  }
-  if (record.mode === "provider-default") {
-    if (record.preferredLevel !== undefined || record.target !== undefined || record.bounds !== undefined) {
-      throw new Error("Invalid input: provider-default deliberation cannot declare a level, target, or bounds.");
-    }
-    return { mode: "provider-default", onUnsupported };
-  }
-  const boundsRecord = record.bounds === undefined ? undefined : requireInputRecord(record.bounds, "managedDeliberationIntent.bounds");
-  if (boundsRecord) {
-    const unknownBound = Object.keys(boundsRecord).find((key) => key !== "min" && key !== "max");
-    if (unknownBound) throw new Error(`Invalid input: managedDeliberationIntent.bounds contains unsupported field ${unknownBound}.`);
-  }
-  const min = readText(boundsRecord?.min);
-  const max = readText(boundsRecord?.max);
-  const bounds = boundsRecord
-    ? {
-        ...(min ? { min: defineDeliberationLevelId(min) } : {}),
-        ...(max ? { max: defineDeliberationLevelId(max) } : {}),
-      }
-    : undefined;
-  if (record.mode === "fixed") {
-    const preferredLevel = readText(record.preferredLevel);
-    if (!preferredLevel || record.target !== undefined) {
-      throw new Error("Invalid input: fixed deliberation requires preferredLevel and cannot declare target.");
-    }
-    return {
-      mode: "fixed",
-      preferredLevel: defineDeliberationLevelId(preferredLevel),
-      ...(bounds ? { bounds } : {}),
-      onUnsupported,
-    };
-  }
-  if (record.mode === "adaptive") {
-    const target = readText(record.target);
-    if (record.preferredLevel !== undefined || (target !== "latency-first" && target !== "balanced" && target !== "quality-first")) {
-      throw new Error("Invalid input: adaptive deliberation requires a valid target and cannot declare preferredLevel.");
-    }
-    return { mode: "adaptive", target, ...(bounds ? { bounds } : {}), onUnsupported };
-  }
-  throw new Error("Invalid input: managedDeliberationIntent.mode is invalid.");
-}
-
 function uniqueEvidence(values: readonly KilnWorkGovernanceEvidence[]): readonly KilnWorkGovernanceEvidence[] {
-  return [...new Set(values)];
-}
-
-function uniqueText(values: readonly string[]): readonly string[] {
   return [...new Set(values)];
 }
