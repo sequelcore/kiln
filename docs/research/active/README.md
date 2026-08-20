@@ -16,6 +16,10 @@ Every note must name or link:
   supports [Roadmap 12](../../roadmap/12-configuration-experience.md) with the
   current reader, writer, field, evidence, projection, mutation, and
   verification map required before the schema and mutation ADR.
+- [Adaptive Work Governance](adaptive-work-governance.md) supports
+  [issue #94](https://github.com/sequelcore/kiln/issues/94) with the evidence,
+  hypotheses, and benchmark required before changing scouting, decomposition,
+  delegation, or coordination defaults.
 - [Prompt Component and Response Governance](prompt-component-governance.md)
   supports [Roadmap 06](../../roadmap/06-prompt-governance-plane.md).
 - [Provider-Neutral Communication Governance](provider-neutral-communication.md)

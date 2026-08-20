@@ -147,6 +147,10 @@ prompt-fallback profile is promoted without Slice 2 evaluation.
 
 Status: Research behind Slice 1.
 
+Execution owner: [issue #95](https://github.com/sequelcore/kiln/issues/95) for
+the cross-harness communication-default evaluation. The broader prompt-component
+inventory and progressive-disclosure prerequisites remain owned by this slice.
+
 Create a versioned prompt-component inventory with owner, activation rule,
 scope, applicability, expected token cost, and eval suite identity. Build
 representative task fixtures (repository discovery, tool use, malformed tool
@@ -162,6 +166,12 @@ replayable by manifest hash and config identity; model-family regressions
 remain visible so aggregate improvement cannot hide a material route-specific
 regression; the previously reverted executable-tool reduction is reconsidered
 only through this gate.
+
+For communication candidates, the evaluation must separate operator profile,
+native detail control, and each response skill; preserve requested long-form and
+exact-format behavior; score required-content recall and correctness before
+style or length; and retain a no-promotion result when no candidate clears the
+predeclared gate.
 
 ### Slice 3 - Progressive Disclosure
 

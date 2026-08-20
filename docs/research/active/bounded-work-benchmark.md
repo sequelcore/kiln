@@ -2,7 +2,7 @@
 
 Status: incomplete
 Owner: [issue #19](https://github.com/sequelcore/kiln/issues/19)
-Evidence cutoff: 2026-08-12
+Evidence cutoff: 2026-08-20
 Promotion target: [`benchmark-validation.md`](../../architecture/quality/benchmark-validation.md)
 Exit condition: the paired control-versus-bounded-authority experiment below is
 run to its reporting gate, or the experiment is abandoned and this note deleted.
@@ -34,6 +34,13 @@ That is implementation evidence. It is not a benchmark result.
 The benchmark must use the existing [benchmark validation
 contract](../../architecture/quality/benchmark-validation.md) and a paired
 design.
+
+This benchmark composes with the adaptive coordination investigation in
+[`adaptive-work-governance.md`](adaptive-work-governance.md) and
+[issue #94](https://github.com/sequelcore/kiln/issues/94). Issue #94 decides
+which execution topology is justified; issue #19 decides whether the admitted
+scope and resource envelope changes scope fidelity and semantic
+overengineering. Neither result may be inferred from the other.
 
 ### Paired design
 
@@ -70,6 +77,20 @@ observations or tripwires, not the outcome. Deterministic structural scorers
 are primary. Expert adjudication or a calibrated secondary LLM judge may score
 semantic overengineering only with disclosed rubric, agreement, and limits; a
 hidden judge cannot be the primary authority.
+
+The semantic rubric must distinguish at least:
+
+- behavior, surfaces, effects, dependencies, or abstractions without an
+  acceptance-traceable need;
+- unrelated refactoring and compatibility paths without a real consumer;
+- duplicate implementation paths or tests that merely mirror the candidate;
+- additional agents, reviews, retries, or remediation rounds that produce no
+  new required evidence;
+- continued mutation after all required acceptance evidence exists.
+
+Task size and overengineering remain separate. A large migration can be the
+smallest complete change, while a small speculative abstraction can be
+overengineered.
 
 ### Reporting and unsupported inference
 

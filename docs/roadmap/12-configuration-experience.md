@@ -155,6 +155,18 @@ It consumes but does not replace these owners:
 - Available Models owns secret-free discovery projection;
 - Model Gateway owns model ingress and native model projection;
 - operator surfaces own presentation and interaction, not policy;
+- Work Governance and Coordination own the decision algorithm for direct,
+  delegated, and orchestrated execution. [Issue
+  #94](https://github.com/sequelcore/kiln/issues/94) may replace current policy
+  defaults after benchmark promotion; this track owns only their schema,
+  descriptors, effective-state explanation, activation, and governed mutation;
+- Roadmap 06 owns communication-quality evaluation and default promotion through
+  [issue #95](https://github.com/sequelcore/kiln/issues/95). This track may
+  expose the admitted communication intent but cannot infer cross-harness
+  behavior from a shared label;
+- Bounded Work owns scope fidelity, resource ceilings, and semantic
+  overengineering measurement through [issue
+  #19](https://github.com/sequelcore/kiln/issues/19);
 - Roadmap 11 owns capability discovery and execution, not whether a capability
   is enabled by configuration. It also owns the portable operator-question
   lifecycle and GUI-first, TUI-next, native-harness promotion sequence. This
@@ -163,6 +175,13 @@ It consumes but does not replace these owners:
 
 No GUI component, wizard, preset, agent tool, or YAML serializer may become a
 second policy or default authority.
+
+Schema migration may represent the current `workGovernance` and `communication`
+contracts, but it must not fossilize their defaults, create compatibility aliases
+around a superseded policy, or treat configuration metadata as benchmark
+evidence. If #94 or #95 promotes a breaking replacement before the owning
+configuration family migrates, this track adopts the replacement directly and
+deletes the obsolete path in the same bounded slice.
 
 ## Scope
 

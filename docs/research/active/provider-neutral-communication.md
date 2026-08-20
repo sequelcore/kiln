@@ -1,7 +1,8 @@
 # Provider-Neutral Communication Governance (2026)
 
-Owner: Roadmap 06 / issue 77
-Evidence cutoff: 2026-08-13
+Owner: Roadmap 06 / [issue #95](https://github.com/sequelcore/kiln/issues/95)
+Historical delivery: [issue #77](https://github.com/sequelcore/kiln/issues/77)
+Evidence cutoff: 2026-08-20
 Promotion targets: ADR-013, communication-governance architecture, global
 configuration guide, and communication evaluations
 Exit condition: each admitted prompt fallback or promoted default has a
@@ -77,6 +78,36 @@ entry added is the existing GPT-5 verbosity mechanism; standalone personality
 translation reports semantic loss. Claude output-style mutation and OpenCode
 per-turn agent mutation remain unsupported.
 
+## Writing-Quality Evaluation Gap
+
+The v1 evaluation proves deterministic precedence, transport, attribution,
+unsupported behavior, and projection lifecycle. It used no authenticated live
+model run to establish writing quality, comprehension, latency, or cost and
+therefore promoted no default.
+
+An operator instruction profile can provide an immediate, removable preference
+across native harness shims. That is valid operator state, not evidence that
+Codex, Claude Code, and OpenCode interpret the same prose equivalently. Native
+verbosity controls can reduce detail where supported, but they do not by
+themselves remove repetitive conclusions, ceremonial framing, excessive
+headings, generic praise, routine process narration, or unnecessary next-action
+sections.
+
+Issue #95 evaluates these axes separately:
+
+- provider or harness default;
+- operator communication profile;
+- profile plus native detail control where supported;
+- incremental `action-first-communication` and `clear-writing` admission;
+- removal ablations for every candidate considered for promotion.
+
+Primary measures are required-content recall, correctness, unsupported claims,
+exact-format compliance, and human comprehension/actionability. Output tokens,
+time to first useful information, repetition, and formulaic-writing patterns are
+secondary. A shorter answer that loses evidence or changes tool behavior is a
+regression. The pattern rubric must be revisioned and calibrated; phrase counts
+alone cannot establish prose quality.
+
 ## Contradictions and Uncertainty
 
 - OpenAI documents API verbosity, while availability still depends on the
@@ -88,6 +119,9 @@ per-turn agent mutation remain unsupported.
   an upstream model implements the option with stable semantics.
 - The current implementation has no admitted prompt-fallback interaction
   profile. A future candidate must supply an evaluation id before execution.
+- The same instruction profile may produce materially different writing across
+  model and harness revisions. Aggregate improvement cannot hide a material
+  route-specific regression.
 
 ## Sources
 
@@ -96,3 +130,4 @@ per-turn agent mutation remain unsupported.
 - <https://code.claude.com/docs/en/sub-agents>
 - <https://opencode.ai/docs/agents/>
 - <https://opencode.ai/docs/models/>
+- [Issue #95 evaluation contract](https://github.com/sequelcore/kiln/issues/95)
