@@ -16,6 +16,17 @@ import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.j
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
+const ADMITTED_PARENT_TURN_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "destructive",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} as const;
+
 vi.setConfig({ testTimeout: 30_000 });
 
 const runWiringMocks = vi.hoisted(() => {
@@ -530,12 +541,6 @@ vi.mock("../../src/wrapper/cleanup-registry.js", () => ({
   },
 }));
 
-vi.mock("../../src/wrapper/index.js", () => ({
-  ApprovalMemoryStore: class {
-    constructor(_cwd: string) {}
-  },
-}));
-
 vi.mock("../../src/application/session-hooks.js", () => ({
   SessionHooks: class {
     sessionStart() {}
@@ -696,7 +701,12 @@ describe("run command builtin tool wiring", () => {
       {
         memoryAuthority: {
           modelFacingSession: true,
-          permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+          permissionPolicy: {
+            approval: "on-request",
+            sandbox: "read-only",
+            safeDefaults: true,
+            auditLog: true,
+          },
           permissionAgent: undefined,
           caller: { kind: "operator_surface", id: "run" },
         },
@@ -786,7 +796,7 @@ describe("run command builtin tool wiring", () => {
     await runCommand({
       ...APP_CONFIG,
       managedInvocation: parallelManagedInvocation() as never,
-    }, "parallel budget", { workers: 2 });
+    }, "parallel budget", { workers: 2 }, { effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY });
 
     const input = runWiringMocks.runManagedAgentOrchestrationLifecycle.mock.calls[0]?.[0] as
       | ManagedAgentOrchestrationLifecycleInput
@@ -800,6 +810,7 @@ describe("run command builtin tool wiring", () => {
       kind: "kiln-runtime",
       surface: "run",
       attachmentId: "kiln-runtime:run",
+      parentEffectiveRequestedAuthority: "destructive",
     });
     expect(input.orchestrationRequest.parentSessionId).not.toBe("cli-run");
     expect(input.orchestrationRequest.orchestrationId).toContain(input.orchestrationRequest.parentSessionId);
@@ -1781,7 +1792,10 @@ describe("run command builtin tool wiring", () => {
     const run = runCommand({
       ...APP_CONFIG,
       managedInvocation: parallelManagedInvocation() as never,
-    }, "parallel cleanup", { workers: 2 }, { exitOnFailure: false });
+    }, "parallel cleanup", { workers: 2 }, {
+      exitOnFailure: false,
+      effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY,
+    });
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     process.emit("SIGINT", "SIGINT");
@@ -1835,7 +1849,10 @@ describe("run command builtin tool wiring", () => {
     const run = runCommand({
       ...APP_CONFIG,
       managedInvocation: parallelManagedInvocation() as never,
-    }, "parallel cleanup", { workers: 2 }, { exitOnFailure: false });
+    }, "parallel cleanup", { workers: 2 }, {
+      exitOnFailure: false,
+      effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY,
+    });
 
     await waitForCondition(() => process.listenerCount("SIGINT") > beforeSigint);
     process.emit("SIGINT", "SIGINT");

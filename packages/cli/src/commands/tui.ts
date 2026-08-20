@@ -43,6 +43,10 @@ import {
 } from "../application/managed-invocation-attachment.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import {
+  MODEL_FACING_DEFAULT_PERMISSION_POLICY,
+  resolveModelFacingPermissionPolicy,
+} from "../config/model-facing-permission-policy.js";
 import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import {
   createOperatorExecutionRouteSelectionPort,
@@ -140,6 +144,7 @@ import type {
   RuntimeSessionHydrator,
   OperatorTurnDispatchPort,
 } from "@kilnai/runtime";
+import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { persistTuiThemePreference } from "../application/operator-theme-preferences.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import {
@@ -463,6 +468,7 @@ export async function makeMultiProviderSessionFactory(
   managedInvocation?: ManagedInvocationToolAttachment,
   sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority,
   configuredCommunicationIntent?: import("@kilnai/core").ResolvedCommunicationIntent,
+  permissionPolicy: KilnPermissionPolicy = MODEL_FACING_DEFAULT_PERMISSION_POLICY,
 ): Promise<MultiProviderSessionManager> {
   const providers = providerIds;
 
@@ -525,7 +531,7 @@ export async function makeMultiProviderSessionFactory(
           maxContextTokens: null,
           priority: 0,
           fallbackTo: null,
-          permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+          permissionPolicy,
         };
       },
       get sessionId() {
@@ -568,7 +574,7 @@ export async function makeMultiProviderSessionFactory(
           task: "interactive",
           systemPrompt,
           cwd: sessionCwd || cwd,
-          permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+          permissionPolicy,
           ...(stableRuntimeSessionId ? { runtimeSessionId: stableRuntimeSessionId } : {}),
           continuationSessionId: decision.shouldUseProviderNativeResume ? resumedFrom : undefined,
           sessionLedgerOwner: "host",
@@ -1445,6 +1451,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const permissionPolicy = resolveModelFacingPermissionPolicy(resolvedKilnConfig?.permissions);
   const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
   const admittedMcpServers = mcpResolution.diagnostics.length === 0
     ? Object.values(mcpResolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted")
@@ -1571,7 +1578,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   let systemPrompt = "You are a helpful assistant.";
   try {
     const { SessionManager } = await import("../wrapper/session-manager.js");
-    const wrapperConfig = { mode: "cli-wrapper" as const, permissionPolicy: { approval: "never" as const, sandbox: "workspace-write" as const } };
+    const wrapperConfig = { mode: "cli-wrapper" as const, permissionPolicy };
     const manager = new SessionManager(wrapperConfig, runtimeAppConfig, contextArtifactCache);
     const context = await manager.prepare("interactive", cwd, undefined, undefined, undefined);
     domain = context.domain.displayName;
@@ -1607,6 +1614,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       global: globalConfig.communication,
       project: projectConfig?.communication,
     }),
+    permissionPolicy,
   );
   startupProfiler.mark("session-manager-ready");
   if (startupModel) {

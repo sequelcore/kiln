@@ -61,6 +61,7 @@
     "yaml": "^2.8.2"
   },
   "devDependencies": {
+    "@sinclair/typebox": "0.34.52",
     "yaml": "^2.8.2"
   }
 }

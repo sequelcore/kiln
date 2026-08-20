@@ -143,6 +143,7 @@ const makeMockSession = (id: string): IKilnSession => ({
 });
 
 const BASE_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
+const CONSTRUCTION_ONLY_POLICY: KilnPermissionPolicy = { approval: "never" };
 
 const MOCK_CAPA: SessionCapabilities = {
   mcp: true,
@@ -385,7 +386,7 @@ describe("SessionRegistry", () => {
       const { registry } = createDefaultRegistry();
       const session = registry.createSession("claude", {
         task: "test",
-        permissionPolicy: BASE_POLICY,
+        permissionPolicy: CONSTRUCTION_ONLY_POLICY,
       });
 
       for await (const _event of session.run({ prompt: "test", cwd: process.cwd() })) {
@@ -667,7 +668,7 @@ describe("SessionRegistry", () => {
       const session = registry.createSession("openai", {
         model: DIRECT_PROVIDER_MODELS.openai,
         task: "test",
-        permissionPolicy: BASE_POLICY,
+        permissionPolicy: CONSTRUCTION_ONLY_POLICY,
       });
       expect(typeof session.run).toBe("function");
       expect(typeof session.dispose).toBe("function");
@@ -691,19 +692,16 @@ describe("SessionRegistry", () => {
       expect(create).not.toHaveBeenCalled();
     });
 
-    it("creates direct provider sessions with the requested granular policy", async () => {
+    it("rejects a direct provider session when granular policy is not preventively enforceable", async () => {
       const { createDefaultRegistry: createRegistryWithOpenAiAuth } = await importSessionRegistryWithDirectApiEnv({
         OPENAI_API_KEY: "test-openai-key",
       });
       const { registry } = createRegistryWithOpenAiAuth();
-      const session = registry.createSession("openai", {
+      expect(() => registry.createSession("openai", {
         model: DIRECT_PROVIDER_MODELS.openai,
         task: "test",
         permissionPolicy: GRANULAR_POLICY,
-      });
-
-      expect(session.constructor.name).toBe("ProviderSession");
-      expect(session.capabilities.permissionPolicy).toBe(GRANULAR_POLICY);
+      })).toThrow(/rejected before provider launch/);
     });
 
     it.each([
@@ -824,7 +822,7 @@ describe("SessionRegistry", () => {
           const session = registry.createSession(provider, {
             model: DIRECT_PROVIDER_MODELS[provider],
             task: "test",
-            permissionPolicy: BASE_POLICY,
+            permissionPolicy: CONSTRUCTION_ONLY_POLICY,
           });
           expect(session.constructor.name).toBe("ProviderSession");
         } finally {
@@ -851,6 +849,30 @@ describe("SessionRegistry", () => {
       expect(result.constraintInstructions[0]).toContain("Kiln policy constraints for openai");
       expect(result.warnings.length).toBeGreaterThan(0);
     });
+
+    it("rejects an unsupported restrictive route before constructing the provider session", () => {
+      let launches = 0;
+      const registry = new SessionRegistry([{
+        id: "codex",
+        deliberationTransport: "none",
+        costTier: "low",
+        capabilities: CAPABILITIES.codex!,
+        create: () => {
+          launches += 1;
+          return makeMockSession("should-not-launch");
+        },
+      }]);
+
+      expect(() => registry.createSession("codex", {
+        task: "blocked",
+        permissionPolicy: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "unknown_tool", action: "deny" }],
+        },
+      })).toThrow(/rejected before provider launch/);
+      expect(launches).toBe(0);
+    });
   });
 
   describe("direct-provider execution-mode routing", () => {
@@ -876,7 +898,7 @@ describe("SessionRegistry", () => {
         const session = registry.createSession(provider, {
           task: "test",
           ...(model ? { model } : {}),
-          permissionPolicy: BASE_POLICY,
+          permissionPolicy: CONSTRUCTION_ONLY_POLICY,
         });
 
         expect(session.constructor.name).toBe("ProviderSession");

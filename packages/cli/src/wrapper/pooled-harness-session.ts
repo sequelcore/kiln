@@ -9,6 +9,7 @@ import {
 } from "@kilnai/core";
 import type { HarnessHomeAuth, HarnessPoolProviderId } from "@kilnai/runtime";
 import type { IKilnSession, SessionCapabilities, SessionRunOptions } from "./session.js";
+import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../config/model-facing-permission-policy.js";
 
 export interface PooledHarnessSessionConfig {
   readonly runtimeSessionId?: string;
@@ -48,7 +49,7 @@ export class PooledHarnessSession implements IKilnSession {
       maxContextTokens: null,
       priority: this.provider === "claude-code" ? 1 : this.provider === "opencode" ? 2 : 3,
       fallbackTo: null,
-      permissionPolicy: { approval: "on-request", sandbox: "read-only" },
+      permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
     };
   }
 

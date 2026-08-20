@@ -11,6 +11,11 @@ import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 export function economicConfig(): KilnGlobalConfig {
   return {
     version: "3",
+    workGovernance: {
+      defaultPosture: "direct",
+      requireDelegationFor: ["managed-agents"],
+      requiredEvidence: [],
+    },
     managedAgents: {
       defaultAuthorityProfileId: "readonly-plan",
       economicPolicies: [{

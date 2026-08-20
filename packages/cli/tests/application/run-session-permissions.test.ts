@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DomainConfig } from "@kilnai/core/domain";
 import { runSession } from "../../src/application/run-session.js";
 import type { SessionContext } from "../../src/wrapper/index.js";
-import { ApprovalMemoryStore } from "../../src/wrapper/approval-memory-store.js";
 
 const DOMAIN: DomainConfig = {
   name: "generic",
@@ -395,19 +394,11 @@ describe("runSession tool permission gating", () => {
     expect(reportFailure).not.toHaveBeenCalled();
   });
 
-  it("once grant allows denied tool_use, preserves allowed flow, and is consumed", async () => {
+  it("denied tool_use remains a hard prohibition", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
     const postToolUse = vi.fn();
-    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
-
-    await approvalMemoryStore.grant({
-      scope: "once",
-      surface: "tool",
-      selector: "Bash",
-      action: "allow",
-    });
 
     const session = createSessionFromEvents([
       { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "ls" } },
@@ -441,7 +432,6 @@ describe("runSession tool permission gating", () => {
         sandbox: "read-only",
         tools: [{ tool: "Bash", action: "deny" }],
       },
-      approvalMemoryStore,
       env: {},
       sessionHooks: {
         userPromptSubmit: () => {},
@@ -450,37 +440,18 @@ describe("runSession tool permission gating", () => {
       } as any,
     });
 
-    expect(result.sessionSucceeded).toBe(true);
-    expect(preToolUse).toHaveBeenCalledWith("Bash");
-    expect(postToolUse).toHaveBeenCalledWith("Bash");
-    expect(reportSuccess).toHaveBeenCalledWith("claude");
-    expect(reportFailure).not.toHaveBeenCalled();
-    expect(result.transcript).toContainEqual(
-      expect.objectContaining({
-        event: expect.objectContaining({ ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash" }),
-      }),
-    );
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied tool "Bash"');
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(postToolUse).not.toHaveBeenCalled();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
 
-    const remaining = await approvalMemoryStore.findMatch({
-      surface: "tool",
-      selector: "Bash",
-      action: "allow",
-      sessionId: KILN_SESSION_ID,
-    });
-    expect(remaining).toBeNull();
   });
 
-  it("once grant is not consumed when later command gate denies tool execution", async () => {
+  it("a command denial remains a hard prohibition after tool admission", async () => {
     const reportFailure = vi.fn();
     const preToolUse = vi.fn();
-    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
-
-    await approvalMemoryStore.grant({
-      scope: "once",
-      surface: "tool",
-      selector: "Bash",
-      action: "allow",
-    });
 
     const session = createSessionFromEvents([
       { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "rm -rf /tmp/cache" } },
@@ -505,17 +476,16 @@ describe("runSession tool permission gating", () => {
         permissionPolicy: {
           approval: "on-request",
           sandbox: "read-only",
-          tools: [{ tool: "Bash", action: "deny" }],
+          tools: [{ tool: "Bash", action: "allow" }],
           commands: [{ pattern: "rm -rf /tmp/cache", action: "deny", shell: "bash" }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
-        tools: [{ tool: "Bash", action: "deny" }],
+        tools: [{ tool: "Bash", action: "allow" }],
         commands: [{ pattern: "rm -rf /tmp/cache", action: "deny", shell: "bash" }],
       },
-      approvalMemoryStore,
       env: {},
       sessionHooks: {
         userPromptSubmit: () => {},
@@ -528,30 +498,13 @@ describe("runSession tool permission gating", () => {
     expect(result.lastError).toContain('denied command "rm -rf /tmp/cache"');
     expect(preToolUse).not.toHaveBeenCalled();
 
-    const remaining = await approvalMemoryStore.findMatch({
-      surface: "tool",
-      selector: "Bash",
-      action: "allow",
-      sessionId: KILN_SESSION_ID,
-    });
-    expect(remaining).not.toBeNull();
-    expect(remaining?.scope).toBe("once");
   });
 
-  it("session grant allows denied tool_use and preserves allowed flow", async () => {
+  it("provider continuation identity does not override a denied tool_use", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
     const postToolUse = vi.fn();
-    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
-
-    await approvalMemoryStore.grant({
-      scope: "session",
-      sessionId: KILN_SESSION_ID,
-      surface: "tool",
-      selector: "Read",
-      action: "allow",
-    });
 
     const session = createSessionFromEvents([
       { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
@@ -585,7 +538,6 @@ describe("runSession tool permission gating", () => {
         sandbox: "read-only",
         tools: [{ tool: "Read", action: "deny" }],
       },
-      approvalMemoryStore,
       env: {},
       sessionHooks: {
         userPromptSubmit: () => {},
@@ -594,26 +546,19 @@ describe("runSession tool permission gating", () => {
       } as any,
     });
 
-    expect(result.sessionSucceeded).toBe(true);
-    expect(preToolUse).toHaveBeenCalledWith("Read");
-    expect(postToolUse).toHaveBeenCalledWith("Read");
-    expect(reportSuccess).toHaveBeenCalledWith("claude");
-    expect(reportFailure).not.toHaveBeenCalled();
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied tool "Read"');
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(postToolUse).not.toHaveBeenCalled();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
   });
 
-  it("project grant allows denied tool_use and preserves allowed flow", async () => {
+  it("a denied write remains a hard prohibition", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
     const postToolUse = vi.fn();
-    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
-
-    await approvalMemoryStore.grant({
-      scope: "project",
-      surface: "tool",
-      selector: "Write",
-      action: "allow",
-    });
 
     const session = createSessionFromEvents([
       { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Write", input: { filePath: "README.md", content: "ok" } },
@@ -647,7 +592,6 @@ describe("runSession tool permission gating", () => {
         sandbox: "read-only",
         tools: [{ tool: "Write", action: "deny" }],
       },
-      approvalMemoryStore,
       env: {},
       sessionHooks: {
         userPromptSubmit: () => {},
@@ -656,11 +600,12 @@ describe("runSession tool permission gating", () => {
       } as any,
     });
 
-    expect(result.sessionSucceeded).toBe(true);
-    expect(preToolUse).toHaveBeenCalledWith("Write");
-    expect(postToolUse).toHaveBeenCalledWith("Write");
-    expect(reportSuccess).toHaveBeenCalledWith("claude");
-    expect(reportFailure).not.toHaveBeenCalled();
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied tool "Write"');
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(postToolUse).not.toHaveBeenCalled();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
   });
 
   it("allowed tool_use keeps current behavior", async () => {
@@ -693,12 +638,14 @@ describe("runSession tool permission gating", () => {
           approval: "on-request",
           sandbox: "read-only",
           tools: [{ tool: "Bash", action: "allow" }],
+          commands: [{ pattern: "ls", action: "allow", shell: "bash" }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
         tools: [{ tool: "Bash", action: "allow" }],
+        commands: [{ pattern: "ls", action: "allow", shell: "bash" }],
       },
       env: {},
       sessionHooks: {
@@ -713,6 +660,48 @@ describe("runSession tool permission gating", () => {
     expect(postToolUse).toHaveBeenCalledWith("Bash");
     expect(reportSuccess).toHaveBeenCalledWith("claude");
     expect(reportFailure).not.toHaveBeenCalled();
+  });
+
+  it("blocks an unmatched on-request tool when no approval channel is available", async () => {
+    const reportFailure = vi.fn();
+    const reportSuccess = vi.fn();
+    const preToolUse = vi.fn();
+
+    const session = createSessionFromEvents([
+      { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Read", input: { filePath: "README.md" } },
+      { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false },
+    ]);
+
+    const result = await runSession({
+      governedGoalTools: "forbidden",
+      registry: {
+        selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
+        createSession: () => session as any,
+        reportFailure,
+        reportSuccess,
+      } as any,
+      cleanupRegistry: { register: () => {} } as any,
+      manager: { trackCostUpdate: () => {} } as any,
+      context: makeContext(),
+      requirements: {},
+      sessionConfig: {
+        task: "test",
+        permissionPolicy: { approval: "on-request", sandbox: "read-only" },
+      },
+      permissionPolicy: { approval: "on-request", sandbox: "read-only" },
+      env: {},
+      sessionHooks: {
+        userPromptSubmit: () => {},
+        preToolUse,
+        postToolUse: () => {},
+      } as any,
+    });
+
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied tool "Read"');
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
+    expect(reportSuccess).not.toHaveBeenCalled();
   });
 
   it("agent-scoped deny overrides root allow when agent is supplied", async () => {
@@ -831,19 +820,11 @@ describe("runSession tool permission gating", () => {
     );
   });
 
-  it("once command grant allows denied bash command and is consumed", async () => {
+  it("a denied bash command cannot execute", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
     const postToolUse = vi.fn();
-    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
-
-    await approvalMemoryStore.grant({
-      scope: "once",
-      surface: "command",
-      selector: "git push origin main",
-      action: "allow",
-    });
 
     const session = createSessionFromEvents([
       { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
@@ -879,7 +860,6 @@ describe("runSession tool permission gating", () => {
         tools: [{ tool: "Bash", action: "allow" }],
         commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
       },
-      approvalMemoryStore,
       env: {},
       sessionHooks: {
         userPromptSubmit: () => {},
@@ -888,35 +868,20 @@ describe("runSession tool permission gating", () => {
       } as any,
     });
 
-    expect(result.sessionSucceeded).toBe(true);
-    expect(preToolUse).toHaveBeenCalledWith("Bash");
-    expect(postToolUse).toHaveBeenCalledWith("Bash");
-    expect(reportSuccess).toHaveBeenCalledWith("claude");
-    expect(reportFailure).not.toHaveBeenCalled();
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied command "git push origin main"');
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(postToolUse).not.toHaveBeenCalled();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
 
-    const remaining = await approvalMemoryStore.findMatch({
-      surface: "command",
-      selector: "git push origin main",
-      action: "allow",
-      sessionId: KILN_SESSION_ID,
-    });
-    expect(remaining).toBeNull();
   });
 
-  it("session command grant uses stable Kiln session id instead of provider session id", async () => {
+  it("provider continuation identity does not override a denied bash command", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
     const postToolUse = vi.fn();
-    const approvalMemoryStore = new ApprovalMemoryStore(projectPath);
-
-    await approvalMemoryStore.grant({
-      scope: "session",
-      sessionId: KILN_SESSION_ID,
-      surface: "command",
-      selector: "git push origin main",
-      action: "allow",
-    });
 
     const session = createSessionFromEvents([
       { ...TOOL_CALL_IDENTITY, type: "tool_use", toolName: "Bash", input: { command: "git push origin main" } },
@@ -952,7 +917,6 @@ describe("runSession tool permission gating", () => {
         tools: [{ tool: "Bash", action: "allow" }],
         commands: [{ pattern: "git push origin main", action: "deny", shell: "bash" }],
       },
-      approvalMemoryStore,
       env: {},
       sessionHooks: {
         userPromptSubmit: () => {},
@@ -961,11 +925,12 @@ describe("runSession tool permission gating", () => {
       } as any,
     });
 
-    expect(result.sessionSucceeded).toBe(true);
-    expect(preToolUse).toHaveBeenCalledWith("Bash");
-    expect(postToolUse).toHaveBeenCalledWith("Bash");
-    expect(reportSuccess).toHaveBeenCalledWith("claude");
-    expect(reportFailure).not.toHaveBeenCalled();
+    expect(result.sessionSucceeded).toBe(false);
+    expect(result.lastError).toContain('denied command "git push origin main"');
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(postToolUse).not.toHaveBeenCalled();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
   });
 
   it("allowed bash command preserves current behavior", async () => {
@@ -1116,12 +1081,14 @@ describe("runSession tool permission gating", () => {
         permissionPolicy: {
           approval: "on-request",
           sandbox: "read-only",
+          tools: [{ tool: "memory_store", action: "allow" }],
           agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
+        tools: [{ tool: "memory_store", action: "allow" }],
         agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
       },
       permissionAgent: "agent-alpha",
@@ -1180,12 +1147,14 @@ describe("runSession tool permission gating", () => {
         permissionPolicy: {
           approval: "on-request",
           sandbox: "read-only",
+          tools: [{ tool: "memory_store", action: "allow" }],
           agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
+        tools: [{ tool: "memory_store", action: "allow" }],
         agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: ["  MEMORY_STORE  "] }],
       },
       permissionAgent: "agent-alpha",
@@ -1239,12 +1208,14 @@ describe("runSession tool permission gating", () => {
         permissionPolicy: {
           approval: "on-request",
           sandbox: "read-only",
+          tools: [{ tool: "Memory_Store", action: "allow" }],
           agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: [" memory_store "] }],
         },
       },
       permissionPolicy: {
         approval: "on-request",
         sandbox: "read-only",
+        tools: [{ tool: "Memory_Store", action: "allow" }],
         agentScopes: [{ agent: "agent-alpha", inherit: true, mcpTools: [" memory_store "] }],
       },
       permissionAgent: "agent-alpha",
@@ -1263,7 +1234,7 @@ describe("runSession tool permission gating", () => {
     expect(reportFailure).not.toHaveBeenCalled();
   });
 
-  it("MCP tool use preserves current behavior when no scoped mcpTools restriction exists", async () => {
+  it("agent-scoped allow cannot bypass the parent approval requirement", async () => {
     const reportFailure = vi.fn();
     const reportSuccess = vi.fn();
     const preToolUse = vi.fn();
@@ -1309,10 +1280,10 @@ describe("runSession tool permission gating", () => {
       } as any,
     });
 
-    expect(result.sessionSucceeded).toBe(true);
-    expect(preToolUse).toHaveBeenCalledWith("memory_store");
-    expect(postToolUse).toHaveBeenCalledWith("memory_store");
-    expect(reportSuccess).toHaveBeenCalledWith("claude");
-    expect(reportFailure).not.toHaveBeenCalled();
+    expect(result.sessionSucceeded).toBe(false);
+    expect(preToolUse).not.toHaveBeenCalled();
+    expect(postToolUse).not.toHaveBeenCalled();
+    expect(reportSuccess).not.toHaveBeenCalled();
+    expect(reportFailure).toHaveBeenCalledWith("claude", false);
   });
 });

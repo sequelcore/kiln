@@ -89,6 +89,23 @@ describe("readKilnYaml", () => {
     );
   });
 
+  it("rejects agent inherit:false at the project configuration boundary", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      [
+        "version: '1'",
+        "permissions:",
+        "  agentScopes:",
+        "    - agent: planner",
+        "      inherit: false",
+      ].join("\n"),
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      "permissions.agentScopes[0].inherit:false is unsupported",
+    );
+  });
+
   it("rejects unsupported per-gate fields", () => {
     writeFileSync(
       join(tempDir, ".kiln", "kiln.yaml"),
@@ -170,6 +187,31 @@ describe("writeKilnYaml", () => {
 });
 
 describe("mergeKilnYaml", () => {
+  it("preserves omitted global permission dimensions in a partial project overlay", () => {
+    const result = mergeKilnYaml(
+      {
+        version: "1",
+        permissions: {
+          approval: "on-request",
+          sandbox: "read-only",
+          tools: [{ tool: "bash", action: "deny" }],
+          commands: [{ pattern: "rm *", action: "deny" }],
+        },
+      },
+      {
+        version: "1",
+        permissions: { approval: "untrusted", sandbox: "read-only" },
+      },
+    );
+
+    expect(result.permissions).toEqual({
+      approval: "untrusted",
+      sandbox: "read-only",
+      tools: [{ tool: "bash", action: "deny" }],
+      commands: [{ pattern: "rm *", action: "deny" }],
+    });
+  });
+
   it("preserves global external catalog authority when project skills override other fields", () => {
     const externalCatalog = {
       version: 1 as const,

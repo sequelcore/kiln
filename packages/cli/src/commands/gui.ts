@@ -21,6 +21,7 @@ import {
 } from "../application/session-turn-budget.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
+import { resolveModelFacingPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
 import { createManagedDirectProviderAdapterFactory } from "../config/managed-agent-direct-adapters.js";
 import { createKilnConfigTools } from "../application/config-tools.js";
@@ -50,6 +51,7 @@ import {
   createManagedInvocationExecutionProofResolverRef,
 } from "../application/managed-invocation-attachment.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
+import type { KilnPermissionPolicy } from "../wrapper/session.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
 import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../application/operator-transcript-projection.js";
 import {
@@ -134,6 +136,7 @@ export async function guiCommand(
   const globalConfig = readGlobalConfig();
   const projectConfig = readKilnYaml(join(cwd, ".kiln"));
   const resolvedKilnConfig = await loadKilnConfig(cwd);
+  const permissionPolicy = resolveModelFacingPermissionPolicy(resolvedKilnConfig?.permissions);
   const mcpResolution = loadResolvedKilnMcpConfiguration(cwd);
   const admittedMcpServers = mcpResolution.diagnostics.length === 0
     ? Object.values(mcpResolution.servers).filter((server) => server.enabled && server.admission?.state === "admitted")
@@ -283,13 +286,19 @@ export async function guiCommand(
       global: globalConfig.communication,
       project: projectConfig?.communication,
     }),
+    permissionPolicy,
   );
   startupProfiler.mark("session-manager-ready");
   const managedInvocationForGateway = sessionManager.managedInvocation ?? managedInvocationAttachment;
   if (startupModel) {
     sessionManager.setModel(startupModel);
   }
-  const bootstrapContext = await resolveGuiBootstrapContext(runtimeAppConfig, cwd, contextArtifactCache);
+  const bootstrapContext = await resolveGuiBootstrapContext(
+    runtimeAppConfig,
+    cwd,
+    contextArtifactCache,
+    permissionPolicy,
+  );
   startupProfiler.mark("bootstrap-context-ready");
   const managedWindowShutdownMonitor = createManagedGuiWindowShutdownMonitor();
   const workspaceExplorer = createLocalWorkspaceExplorer(cwd);
@@ -516,12 +525,13 @@ async function resolveGuiBootstrapContext(
   appConfig: KilnAppConfig,
   cwd: string,
   contextArtifactCache: Awaited<ReturnType<typeof getProjectContextArtifactCache>>,
+  permissionPolicy: KilnPermissionPolicy,
 ): Promise<{ systemPrompt: string; domainLabel: string }> {
   try {
     const { SessionManager } = await import("../wrapper/session-manager.js");
     const wrapperConfig = {
       mode: "cli-wrapper" as const,
-      permissionPolicy: { approval: "never" as const, sandbox: "workspace-write" as const },
+      permissionPolicy,
     };
     const manager = new SessionManager(wrapperConfig, appConfig, contextArtifactCache);
     const context = await manager.prepare("interactive", cwd, undefined, undefined, undefined);

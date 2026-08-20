@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../src/config.js";
+import type { DefaultBuiltinToolRegistryOptions, ResolvedInvocationEffect } from "@kilnai/core";
 import type { ToolResourceReadResult } from "@kilnai/core/tools";
 
 const coreMocks = vi.hoisted(() => {
@@ -55,13 +56,17 @@ const coreMocks = vi.hoisted(() => {
     resources,
     resourceNotifications: { marker: "notifications" },
     tools: [{ name: "read" }],
-    createDefaultBuiltinToolSurface: vi.fn(() => ({
-      bridge,
-      toolNames,
-      tools: [{ name: "read" }],
-      resources,
-      resourceNotifications: { marker: "notifications" },
-    })),
+    surfaceOptions: undefined as DefaultBuiltinToolRegistryOptions | undefined,
+    createDefaultBuiltinToolSurface: vi.fn((options: DefaultBuiltinToolRegistryOptions) => {
+      coreMocks.surfaceOptions = options;
+      return {
+        bridge,
+        toolNames,
+        tools: [{ name: "read" }],
+        resources,
+        resourceNotifications: { marker: "notifications" },
+      };
+    }),
     projectToolResourceDescriptor: vi.fn((resource: { uri: string; title?: string; mimeType?: string }) => ({
       uri: resource.uri,
       title: resource.title,
@@ -72,6 +77,14 @@ const coreMocks = vi.hoisted(() => {
     createServer: vi.fn(() => ({ connect })),
   };
 });
+
+const configMocks = vi.hoisted(() => ({
+  loadKilnConfig: vi.fn(),
+}));
+
+vi.mock("../src/config/config-merger.js", () => ({
+  loadKilnConfig: configMocks.loadKilnConfig,
+}));
 
 vi.mock("@modelcontextprotocol/sdk/server/stdio.js", () => ({
   StdioServerTransport: class MockStdioServerTransport {},
@@ -117,6 +130,8 @@ describe("tools command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    coreMocks.surfaceOptions = undefined;
+    configMocks.loadKilnConfig.mockResolvedValue(null);
     process.argv = [...originalArgv];
   });
 
@@ -144,6 +159,38 @@ describe("tools command", () => {
     expect(stderrSpy).toHaveBeenCalledWith(
       "kiln dev tools MCP server running (stdio)",
     );
+  });
+
+  it("loads admitted project authority when the real CLI app config is empty", async () => {
+    configMocks.loadKilnConfig.mockResolvedValue({
+      version: "1",
+      permissions: {
+        approval: "never",
+        sandbox: "read-only",
+        safeDefaults: false,
+        tools: [{ tool: "read", action: "deny" }],
+      },
+    });
+    const cliConfig: KilnAppConfig = { createRegistry: APP_CONFIG.createRegistry };
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await toolsCommand(cliConfig, { mcp: true });
+
+    expect(configMocks.loadKilnConfig).toHaveBeenCalledWith(process.cwd());
+    const effect: ResolvedInvocationEffect = {
+      operation: "observe",
+      boundaries: ["workspace"],
+      reversibility: "reversible",
+      dataEgress: "none",
+      identityUse: "none",
+      consequences: ["local-state"],
+      idempotency: "idempotent",
+    };
+    expect(coreMocks.surfaceOptions?.invocationAdmission?.authorize({
+      toolName: "read",
+      toolInput: {},
+      resolvedEffect: effect,
+    })).toMatchObject({ allowed: false, requiresApproval: false });
   });
 
   it("lists resource descriptors for debugging and scripts", async () => {

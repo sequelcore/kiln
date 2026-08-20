@@ -1,8 +1,8 @@
 # 12 - Configuration Experience
 
-Status: Ready
+Status: In progress
 Priority: Urgent
-Execution: Ready - inventory the configuration surface and ratify the schema and mutation ADR before implementation.
+Execution: Slice 0 in progress - ADR-014 and ADR-015 are ratified; finish the property ledger and ADR-012 compatibility fixture before Slice 1.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -250,7 +250,9 @@ documented re-adoption path; it never preserves a live legacy execution path.
 
 ### Slice 0 - Configuration Inventory And ADR
 
-Status: Ready; next admissible work.
+Status: In progress. ADR-014 and ADR-015 are ratified and the project-schema
+mechanism spike passes. The property-level ownership ledger and ADR-012 build /
+diagnostic compatibility fixture remain before Slice 0 closes.
 
 Inventory every reader, writer, schema, type assertion, merge rule, default,
 scope, generated artifact, durable store, projection, docs owner, CLI command,

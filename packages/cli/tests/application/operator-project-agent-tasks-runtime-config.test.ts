@@ -275,6 +275,11 @@ const NATIVE_CODEX_DELIBERATION_AGENT = [
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
   return {
     version: "3",
+    workGovernance: {
+      defaultPosture: "direct",
+      requireDelegationFor: ["managed-agents"],
+      requiredEvidence: [],
+    },
     targetCatalog: {
       accounts: [],
       accountPolicies: [],

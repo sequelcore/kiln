@@ -10,7 +10,7 @@ import {
   defineMemoryScope,
   evaluateMemoryReadAuthority,
   isMemoryLayerKind,
-  type MemoryAuthorityPolicy,
+  type MemoryAuthorityBoundary,
   type MemoryAuthorityReadRequest,
   type MemoryLayerKind,
   type MemoryRecord,
@@ -32,7 +32,8 @@ const LIFECYCLE_TAG_PREFIX = "lifecycle:";
 export interface MemoryGraphResourceProviderOptions {
   readonly repository: MemoryRepository;
   readonly maxPayloadBytes?: number;
-  readonly authority?: MemoryAuthorityPolicy;
+  /** Explicitly governed or explicitly trusted-internal; omission is invalid. */
+  readonly authority: MemoryAuthorityBoundary;
 }
 
 interface ParsedMemoryUri {
@@ -55,7 +56,7 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
   private readonly repository: MemoryRepository;
   private readonly projector: MemoryGraphProjector;
   private readonly maxPayloadBytes: number;
-  private readonly authority: MemoryAuthorityPolicy | undefined;
+  private readonly authority: MemoryAuthorityBoundary;
 
   constructor(options: MemoryGraphResourceProviderOptions) {
     this.repository = options.repository;
@@ -322,7 +323,7 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
     if (recordId) {
       const record = this.requireRecord(recordId, undefined);
       this.assertReadRecordAuthorized(parsed.uri, record, undefined);
-    } else if (this.authority) {
+    } else {
       this.assertReadAuthority(parsed.uri, {
         operation: "read",
         requestedScope: scope,
@@ -334,7 +335,7 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
       ...(sessionId ? { sessionId } : {}),
       ...(recordId ? { recordId } : {}),
     };
-    const admissions = this.authority && !recordId
+    const admissions = !recordId
       ? this.listBoundedAuthorizedAdmissions(query, limit, scope, layer)
       : this.listBoundedAdmissions(query, limit);
     return this.json(parsed.uri, {
@@ -401,13 +402,13 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
     const rows = this.repository.listContextAdmissions(query);
     const authorized = rows.filter((admission) => {
       const record = this.repository.getRecord(admission.recordId);
-      return !!record && evaluateMemoryReadAuthority(this.authority!, {
+      return !!record && this.isReadRequestAuthorized({
         operation: "read",
         requestedScope,
         requestedLayer,
         actualScope: record.scope,
         actualLayer: record.layer,
-      }).allowed;
+      });
     });
     return {
       items: authorized.slice(0, limit),
@@ -479,12 +480,11 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
   }
 
   private assertReadAuthority(uri: string, request: MemoryAuthorityReadRequest): void {
-    if (!this.authority) {
-      return;
-    }
-    const decision = evaluateMemoryReadAuthority(this.authority, request);
+    if (this.isReadRequestAuthorized(request)) return;
+    if (this.authority.kind === "trusted-internal") return;
+    const decision = evaluateMemoryReadAuthority(this.authority.policy, request);
     if (!decision.allowed) {
-      throw memoryResourceError(decision.reason, { uri, caller: this.authority.caller });
+      throw memoryResourceError(decision.reason, { uri, caller: this.authority.policy.caller });
     }
   }
 
@@ -498,15 +498,17 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
   }
 
   private isRecordReadAuthorized(record: MemoryRecord, requestedScope: MemoryScope | undefined): boolean {
-    if (!this.authority) {
-      return true;
-    }
-    return evaluateMemoryReadAuthority(this.authority, {
+    return this.isReadRequestAuthorized({
       operation: "read",
       requestedScope,
       actualScope: record.scope,
       actualLayer: record.layer,
-    }).allowed;
+    });
+  }
+
+  private isReadRequestAuthorized(request: MemoryAuthorityReadRequest): boolean {
+    return this.authority.kind === "trusted-internal"
+      || evaluateMemoryReadAuthority(this.authority.policy, request).allowed;
   }
 
   private boundGraphSnapshotByAuthority(
@@ -514,10 +516,11 @@ export class MemoryGraphResourceProvider implements ToolResourceProvider {
     requestedScope: MemoryScope | undefined,
     requestedLayer: MemoryLayerKind | undefined,
   ): ReturnType<MemoryGraphProjector["project"]> {
-    if (!this.authority) {
+    if (this.authority.kind === "trusted-internal") {
       return snapshot;
     }
-    const nodes = snapshot.nodes.filter((node) => evaluateMemoryReadAuthority(this.authority!, {
+    const policy = this.authority.policy;
+    const nodes = snapshot.nodes.filter((node) => evaluateMemoryReadAuthority(policy, {
       operation: "read",
       requestedScope,
       requestedLayer,

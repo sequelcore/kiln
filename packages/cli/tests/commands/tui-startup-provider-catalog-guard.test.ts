@@ -673,7 +673,8 @@ describe("tuiCommand startup provider catalog guard", () => {
       },
       memoryResources: {
         authority: {
-          caller: { kind: "operator_surface", id: "tui" },
+          kind: "governed",
+          policy: { caller: { kind: "operator_surface", id: "tui" } },
         },
       },
       memoryMutations: {

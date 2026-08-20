@@ -13,7 +13,12 @@ import {
   projectDevToolSchemas,
   TaskStateStore,
 } from "../../src/tools/index.js";
-import { defineMemoryAuthorityPolicy, SqliteMemoryRepository } from "../../src/memory/index.js";
+import {
+  defineMemoryAuthorityPolicy,
+  governedMemoryAuthority,
+  SqliteMemoryRepository,
+  trustedInternalMemoryAuthority,
+} from "../../src/memory/index.js";
 import type { MemoryRepository } from "../../src/memory/repository.js";
 import type { MemoryMutationService } from "../../src/memory/service.js";
 import { makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
@@ -375,7 +380,9 @@ describe("default builtin tool surface", () => {
         },
         createdAt: "2026-04-30T12:00:00.000Z",
       });
-      const surface = createDefaultBuiltinToolSurface({ memoryResources: { repository } });
+      const surface = createDefaultBuiltinToolSurface({
+        memoryResources: { repository, authority: trustedInternalMemoryAuthority() },
+      });
 
       expect(surface.resources.list().map((resource) => resource.uri)).toContain("kiln://memory/graph");
       expect(surface.toolNames).toContain("memory_search");
@@ -448,6 +455,7 @@ describe("default builtin tool surface", () => {
       const surface = createDefaultBuiltinToolSurface({
         memoryResources: {
           repository: createAuthorityDeniedMemoryReadRepository(repository),
+          authority: trustedInternalMemoryAuthority(),
         },
       });
       const resourceReadResult = await surface.bridge.execute({
@@ -534,10 +542,10 @@ describe("default builtin tool surface", () => {
       const surface = createDefaultBuiltinToolSurface({
         memoryResources: {
           repository,
-          authority: defineMemoryAuthorityPolicy({
+          authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
             caller: { kind: "agent", id: "surface-zero-rule" },
             rules: [],
-          }),
+          })),
         },
       });
       const result = await surface.bridge.execute({

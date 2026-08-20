@@ -6,6 +6,7 @@ import {
   MemoryMutationService,
   scoreMemoryRecall,
   SqliteMemoryRepository,
+  trustedInternalMemoryAuthority,
   toMemoryContextCandidates,
   type ContextCandidate,
   type EventBus,
@@ -114,6 +115,7 @@ export class TenantConversationMemory {
       eventBus: this.eventBus,
       sessionId: `${input.appName}:${input.channel}`,
       tenantId: input.tenantId,
+      authority: trustedInternalMemoryAuthority(),
     });
     const record = mutationService.saveRecord({
       layer: "episodic",

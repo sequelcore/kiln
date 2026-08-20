@@ -16,6 +16,7 @@ import type {
 import type { PresentationIntent } from "@kilnai/gateway-contracts";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
 import { resolveManagedInvocationAgentProfile } from "../agent-profile-catalog.js";
+import { resolveManagedInvocationCallerIdentity } from "../caller-capability-policy.js";
 import { runManagedAgentOrchestrationLifecycle } from "../orchestration-lifecycle.js";
 import { MANAGED_AGENT_ORCHESTRATE_TOOL_NAME } from "../tool-names.js";
 import type {
@@ -55,6 +56,17 @@ export async function executeManagedAgentOrchestrationTool(
 ): Promise<ManagedInvocationToolResult> {
   const session = requireManagedInvocationSessionContext(context, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
   if (!session.ok) return session.result;
+  const callerResolution = resolveManagedInvocationCallerIdentity(
+    callerIdentity,
+    session.context.effectiveTurnAuthority,
+  );
+  if (!callerResolution.ok) {
+    return errorResult(callerResolution.reason, {
+      errorCode: "managed_parent_authority_unavailable",
+      status: "denied",
+    }, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
+  }
+  const effectiveCallerIdentity = callerResolution.callerIdentity;
   const profile = readText(rawInput.profile) as ManagedAgentAdmissionProfile | undefined;
   if (!profile || profile === "rejected" || !MANAGED_AGENT_ORCHESTRATION_PROFILES.includes(profile)) {
     return errorResult("managed_agent.orchestrate requires a supported profile.", {}, MANAGED_AGENT_ORCHESTRATE_TOOL_NAME);
@@ -168,7 +180,7 @@ export async function executeManagedAgentOrchestrationTool(
       managedInvocation: options,
       profile,
       requestedAuthority: managedOrchestrationRequestedAuthority(profile),
-      callerIdentity,
+      callerIdentity: effectiveCallerIdentity,
       economicAdoptedDecisionAt: session.context.session.createdAt.toISOString(),
       ...(session.context.abortSignal ? { abortSignal: session.context.abortSignal } : {}),
       lifecycleObserver: {

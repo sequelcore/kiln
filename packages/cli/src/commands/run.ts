@@ -10,7 +10,6 @@ import {
 } from "../wrapper/session-registry.js";
 import { cleanupRegistry } from "../wrapper/cleanup-registry.js";
 import type {
-  ApprovalMemoryStore,
   ProviderId,
   SessionRequirements,
   SessionMode,
@@ -19,6 +18,9 @@ import type {
 } from "../wrapper/index.js";
 import type { KilnAppConfig } from "../config.js";
 import { defaultBuildSystemPrompt } from "../config.js";
+import {
+  resolveModelFacingPermissionPolicy,
+} from "../config/model-facing-permission-policy.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import {
   findAgent,
@@ -64,7 +66,6 @@ import {
   type RunOutputMode,
 } from "../application/run-output.js";
 import { buildCliVerifiedEfficiencyEvidence } from "../application/verified-efficiency-evidence.js";
-import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
 import {
   TranscriptStore,
 } from "../wrapper/session-store.js";
@@ -122,6 +123,7 @@ import {
   probeCodexCliModelReadiness,
   resolveAdHocManagedInvocationRouteProfile,
   runManagedAgentOrchestrationLifecycle,
+  resolveManagedInvocationCallerIdentity,
   withManagedAgentInvocationResourceProvider,
   withManagedInvocationService,
   normalizeContextUsageProjection,
@@ -137,6 +139,7 @@ import { canonicalSessionEventsFromTranscript } from "../application/runtime-ses
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
   ManagedInvocationToolOptions,
+  EffectiveTurnAuthoritySnapshot,
   RuntimeSessionTokenUsageReader,
 } from "@kilnai/runtime";
 import type { GuiProviderModelCapabilities, OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
@@ -164,7 +167,6 @@ function resolveMode(): SessionMode {
   return "cli-wrapper";
 }
 
-const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
 const RUN_PLAN_ALWAYS_ON_TOOLS = [
   "managed_agent.invoke",
   "managed_agent.start",
@@ -390,8 +392,91 @@ export function resolveRunPermissionPolicy(
   flags: RunFlags,
   configuredPermissions?: KilnPermissionPolicy,
 ): KilnPermissionPolicy {
-  if (flags.plan) return PLAN_POLICY;
-  return configuredPermissions ?? DEFAULT_POLICY;
+  if (flags.plan) return composePlanPermissionCeiling(configuredPermissions);
+  return resolveModelFacingPermissionPolicy(configuredPermissions);
+}
+
+/**
+ * Plan mode is an attenuation layer. Its allowlist describes the maximum
+ * surface plan may use; it must never replace configured restrictions or add
+ * authority that the configured policy did not admit.
+ *
+ * This stays deliberately local to the run command because it is a mode
+ * projection, not a second general-purpose policy engine. The evaluator keeps
+ * its existing ordered last-match semantics within the resulting policy.
+ */
+function composePlanPermissionCeiling(
+  configuredPermissions: KilnPermissionPolicy | undefined,
+): KilnPermissionPolicy {
+  const configured = configuredPermissions ?? {};
+  // PLAN_POLICY is the only source of plan grants. Configured rules can only
+  // add prohibitions; conditional rules become prohibitions because this
+  // projection has no approval channel.
+  const denyTools = (configured.tools ?? [])
+    .filter((rule) => rule.action !== "allow")
+    .map((rule) => ({ ...rule, action: "deny" as const }));
+  const denyCommands = (configured.commands ?? [])
+    .filter((rule) => rule.action !== "allow")
+    .map((rule) => ({ ...rule, action: "deny" as const }));
+  const denyDataFirewall = (configured.dataFirewall ?? [])
+    .filter((rule) => rule.action !== "allow")
+    .map((rule) => ({ ...rule, action: "deny" as const }));
+  const configuredFileGovernance = configured.fileGovernance;
+
+  return {
+    // Unmatched operations must remain denied in plan mode. Do not inherit a
+    // configured `never` default, which historically treated unmatched tools
+    // as allowed.
+    approval: PLAN_POLICY.approval,
+    sandbox: "read-only",
+    safeDefaults: false,
+    auditLog: configured.auditLog ?? PLAN_POLICY.auditLog,
+    tools: [...(PLAN_POLICY.tools ?? []), ...denyTools],
+    commands: [...(PLAN_POLICY.commands ?? []), ...denyCommands],
+    fileGovernance: {
+      ...PLAN_POLICY.fileGovernance,
+      denyGlobs: [
+        ...(PLAN_POLICY.fileGovernance?.denyGlobs ?? []),
+        ...(configuredFileGovernance?.denyGlobs ?? []),
+        ...(configuredFileGovernance?.askGlobs ?? []),
+      ],
+      askGlobs: [
+        ...(PLAN_POLICY.fileGovernance?.askGlobs ?? []),
+      ],
+      allowGlobs: [...(PLAN_POLICY.fileGovernance?.allowGlobs ?? [])],
+    },
+    // Plan is read-only for memory. Existing configured read grants remain
+    // available; configured writes are attenuated away.
+    memory: configured.memory
+      ? { read: configured.memory.read, write: [] }
+      : undefined,
+    // No configured allow/redact rule may turn plan into an egress grant.
+    dataFirewall: denyDataFirewall,
+    // Agent scopes are retained only as additional restrictions. In
+    // particular, `inherit: false` cannot remove the plan ceiling.
+    agentScopes: configured.agentScopes?.map((scope) => ({
+      ...scope,
+      inherit: true,
+      tools: scope.tools
+        ?.filter((rule) => rule.action !== "allow")
+        .map((rule) => ({ ...rule, action: "deny" as const })),
+      commands: scope.commands
+        ?.filter((rule) => rule.action !== "allow")
+        .map((rule) => ({ ...rule, action: "deny" as const })),
+      fileGovernance: scope.fileGovernance
+        ? {
+            ...scope.fileGovernance,
+            denyGlobs: [
+              ...(scope.fileGovernance.denyGlobs ?? []),
+              ...(scope.fileGovernance.askGlobs ?? []),
+            ],
+            askGlobs: [],
+            allowGlobs: [],
+          }
+        : undefined,
+      memory: undefined,
+    })),
+  };
 }
 
 function buildConfig(
@@ -758,6 +843,8 @@ export interface RunCommandExecutionOptions {
   readonly globalConfig?: KilnGlobalConfig | null;
   readonly sessionTokenUsageReader?: RuntimeSessionTokenUsageReader;
   readonly parallelWorkerLineage?: RunCommandParallelWorkerLineage;
+  /** Admitted parent-turn authority for direct worker fan-out. */
+  readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
 }
 
 export interface RunCommandParallelWorkerLineage {
@@ -1127,7 +1214,7 @@ export async function runCommand(
     });
     exitRunCommand(1, executionOptions);
   }
-  const approvalMemorySessionId = continuationSessionId ?? sessionId;
+  const effectiveSessionId = continuationSessionId ?? sessionId;
   const previewContextGovernance = summarizeContextGovernance(context.projectedContext);
   let worktreeCleaned = false;
   const cleanupWorktreeOnce = async (): Promise<void> => {
@@ -1255,7 +1342,7 @@ export async function runCommand(
       ...createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
         workItemStore,
         goalRunStore,
-        ownerSessionId: approvalMemorySessionId,
+        ownerSessionId: effectiveSessionId,
         managedInvocationProofResolver: managedInvocationProofs.resolve,
         boundedWorkExecutionAttemptAdmission: boundedWork.admitExecutionAttempt,
         boundedWorkCandidateCloseout: boundedWork.closeoutCandidate,
@@ -1290,12 +1377,8 @@ export async function runCommand(
     ? withManagedInvocationService(managedInvocation)
     : undefined;
   managedInvocationProofs.bind(managedInvocationWithService);
-  // Resolve the effective parent authority the same way provider-session.ts:582 does:
-  // plan mode forces read_only admission, so the caller-capability policy must
-  // receive that resolved value — not the raw flag — to bound child authority.
-  const effectiveParentAuthority = flags.plan ? "read_only" : flags.requestedAuthority;
   const managedInvocationAttachment = managedInvocationWithService
-    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService, effectiveParentAuthority)
+    ? createKilnRuntimeManagedInvocationAttachment("run", managedInvocationWithService)
     : undefined;
   const managedInvocationWithTranscriptSink = attachManagedInvocationSessionEventSink(managedInvocationAttachment, {
     publish: async (events) => {
@@ -1523,7 +1606,6 @@ export async function runCommand(
     sessionId,
     workingDirectory: context.workingDirectory,
   });
-  const approvalMemoryStore: ApprovalMemoryStore = new ApprovalMemoryStoreImpl(cwd);
   const requestApproval = createCliRuntimeApprovalHandler({
     outputMode: runOutput.mode,
     inputInteractive: process.stdin.isTTY === true,
@@ -1580,8 +1662,7 @@ export async function runCommand(
       sessionConfig,
       permissionPolicy: config.permissionPolicy,
       permissionAgent: resolvedAgent?.name,
-      sessionId: approvalMemorySessionId,
-      approvalMemoryStore,
+      sessionId: effectiveSessionId,
       env,
       sessionHooks,
       abortSignal: runAbortController.signal,
@@ -2334,6 +2415,16 @@ export async function runParallelWorkers(
     console.error("Error: Managed lifecycle fan-out requires configured managed agent routes.");
     exitRunCommand(1, executionOptions);
   }
+  const parentAuthorityResolution = resolveManagedInvocationCallerIdentity(
+    createKilnRuntimeCallerIdentity("run"),
+    executionOptions.effectiveTurnAuthority,
+  );
+  if (!parentAuthorityResolution.ok || !parentAuthorityResolution.callerIdentity) {
+    console.error(`Error: ${parentAuthorityResolution.ok
+      ? "Parallel worker fan-out requires an admitted parent authority."
+      : parentAuthorityResolution.reason}.`);
+    exitRunCommand(1, executionOptions);
+  }
   const managedInvocationWithService = withManagedInvocationService(managedInvocation);
 
   const lineage = resolveParallelWorkerLineage(executionOptions.parallelWorkerLineage);
@@ -2370,7 +2461,7 @@ export async function runParallelWorkers(
       managedInvocation: managedInvocationWithService,
       profile: "foundation-apply-approved-writes",
       routeSelector: {},
-      callerIdentity: createKilnRuntimeCallerIdentity("run", flags.requestedAuthority),
+      callerIdentity: parentAuthorityResolution.callerIdentity,
       requestedAuthority: flags.requestedAuthority ?? "audited",
     });
   } catch (error) {

@@ -4,9 +4,11 @@ export {
   defineMemoryAuthorityPolicy,
   evaluateMemoryReadAuthority,
   evaluateMemoryWriteAuthority,
+  governedMemoryAuthority,
   isMemoryAuthorityOperation,
   MEMORY_AUTHORITY_ACCESS_LEVELS,
   MEMORY_AUTHORITY_OPERATIONS,
+  trustedInternalMemoryAuthority,
 } from "./authority.js";
 export type {
   MemoryAuthorityAccessLevel,
@@ -16,7 +18,9 @@ export type {
   MemoryAuthorityReadRequest,
   MemoryAuthorityRule,
   MemoryAuthorityWriteRequest,
+  MemoryAuthorityBoundary,
 } from "./authority.js";
+export { TrustedInternalMemoryAuthority } from "./authority.js";
 export {
   defineMemoryScope,
   isMemoryScopeKind,

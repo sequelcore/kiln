@@ -186,6 +186,32 @@ describe("config-status", () => {
     });
   });
 
+  it("reports the same rejection as runtime admission for a broadening project policy", async () => {
+    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    writeFileSync(join(tempDir, ".kiln", "kiln.yaml"), [
+      'version: "1"',
+      "permissions:",
+      "  approval: on-request",
+      "  sandbox: workspace-write",
+      "",
+    ].join("\n"), "utf-8");
+    mutateGlobalConfig(() => ({
+      ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    }));
+
+    const snapshot = await readConfigStatusSnapshot({
+      projectPath: tempDir,
+      userHome: join(tempDir, "home"),
+    });
+
+    expect(snapshot.effectiveConfigStatus).toBe("invalid");
+    expect(snapshot.effectiveConfig).toBeUndefined();
+    expect(snapshot.errors).toContain(
+      "effective config: Project permissions.sandbox cannot broaden global.permissions.",
+    );
+  });
+
   it("reports the retired global V1 boundary through config health", async () => {
     writeProjectConfig(tempDir);
     const globalDir = join(tempDir, "xdg", "kiln");
@@ -1191,10 +1217,13 @@ describe("config-status", () => {
 
   it("reports missing global Claude concise projection from canonical communication intent", async () => {
     writeProjectConfig(tempDir);
-    mutateGlobalConfig((current) => ({
-      ...current,
-      communication: { responseDetail: "concise", onUnsupported: "omit" },
-    }));
+    mutateGlobalConfig((current) => {
+      if (!current) throw new Error("expected the fixture global config to exist");
+      return {
+        ...current,
+        communication: { responseDetail: "concise", onUnsupported: "omit" },
+      };
+    });
 
     const snapshot = await readConfigStatusSnapshot({
       projectPath: tempDir,

@@ -6,6 +6,7 @@ import {
   listHarnessIntegrationCapabilities,
   encodeNativeAgentModel,
   supportsHarnessIntegration,
+  admitPreventiveRoute,
 } from "../../src/config/harness-integration-capabilities.js";
 
 describe("harness integration capabilities", () => {
@@ -59,5 +60,63 @@ describe("harness integration capabilities", () => {
   it("keeps model encoders transport-only", () => {
     expect(encodeNativeAgentModel("codex", "codex-oauth", "gpt-5.5")).toBe("gpt-5.5");
     expect(encodeNativeAgentModel("codex", "claude", "claude-sonnet")).toBeUndefined();
+  });
+
+  it("rejects unsupported restrictive rules instead of treating prompt constraints as enforcement", () => {
+    const result = admitPreventiveRoute({
+      route: "codex",
+      approval: "on-request",
+      sandbox: "read-only",
+      representableRules: [],
+      unsupportedRules: [
+        { category: "tool", selector: "bash", action: "deny" },
+        { category: "data-firewall", selector: "logs", action: "redact" },
+        { category: "tool", selector: "read", action: "allow" },
+      ],
+    });
+
+    expect(result.admitted).toBe(false);
+    expect(result.rejectedRules.map((rule) => rule.action)).toEqual(["deny", "redact"]);
+    expect(result.reason).toContain("post-hoc observation");
+  });
+
+  it("rejects an unsupported agent-scoped restriction", () => {
+    const result = admitPreventiveRoute({
+      route: "claude",
+      approval: "never",
+      sandbox: undefined,
+      representableRules: [],
+      unsupportedRules: [{ category: "agent-scope", selector: "planner:restrict", action: "restrict" }],
+    });
+
+    expect(result.admitted).toBe(false);
+    expect(result.rejectedRules).toHaveLength(1);
+  });
+
+  it("does not reject unsupported allow-only declarations", () => {
+    const result = admitPreventiveRoute({
+      route: "opencode",
+      approval: "never",
+      sandbox: undefined,
+      representableRules: [],
+      unsupportedRules: [{ category: "tool", selector: "read", action: "allow" }],
+    });
+
+    expect(result.admitted).toBe(true);
+    expect(result.rejectedRules).toHaveLength(0);
+    expect(result.rejectedCapabilities).toHaveLength(0);
+  });
+
+  it("rejects a direct-provider route when sandbox is not preventively available", () => {
+    const result = admitPreventiveRoute({
+      route: "direct-provider",
+      approval: "on-request",
+      sandbox: "read-only",
+      representableRules: [],
+      unsupportedRules: [],
+    });
+
+    expect(result.admitted).toBe(false);
+    expect(result.rejectedCapabilities).toEqual(["sandbox"]);
   });
 });

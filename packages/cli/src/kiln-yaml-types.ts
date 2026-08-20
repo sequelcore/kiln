@@ -546,6 +546,27 @@ export interface KilnYamlQualityGate {
   readonly required?: boolean;
 }
 
+/** Agent authority is always inherited; `inherit:false` would remove parent
+ * restrictions and is therefore rejected at the configuration boundary. */
+export function validateAgentScopeInheritance(value: unknown, path = "permissions"): void {
+  if (value === undefined) return;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
+  const permissions = value as Record<string, unknown>;
+  if (permissions.agentScopes === undefined) return;
+  if (!Array.isArray(permissions.agentScopes)) {
+    throw new KilnYamlError(`${path}.agentScopes must be an array`);
+  }
+  for (const [index, scope] of permissions.agentScopes.entries()) {
+    if (typeof scope !== "object" || scope === null || Array.isArray(scope)) continue;
+    const inherit = (scope as Record<string, unknown>).inherit;
+    if (inherit !== undefined && inherit !== true) {
+      throw new KilnYamlError(
+        `${path}.agentScopes[${index}].inherit:false is unsupported; agent scopes may only narrow their parent.`,
+      );
+    }
+  }
+}
+
 export type HookEvent =
   | "PreToolUse"
   | "PostToolUse"

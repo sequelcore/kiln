@@ -29,8 +29,7 @@ import type { KilnAppConfig } from "../config.js";
 import type { GuiModelDeliberationCapabilities } from "@kilnai/gateway-contracts";
 import { defaultBuildSystemPrompt } from "../config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
-import type { KilnPermissionPolicy, SessionMode } from "../wrapper/index.js";
-import { ApprovalMemoryStore as ApprovalMemoryStoreImpl } from "../wrapper/index.js";
+import type { SessionMode } from "../wrapper/index.js";
 import { SessionManager } from "../wrapper/session-manager.js";
 import { CleanupRegistry } from "../wrapper/cleanup-registry.js";
 import {
@@ -50,6 +49,7 @@ import {
   observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
+import { resolveBenchmarkPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import { createKilnConfigTools } from "./config-tools.js";
 import { createProjectBoundedWorkAuthority } from "./bounded-work-authority-composition.js";
 import {
@@ -89,8 +89,6 @@ import {
   type FrontendBenchmarkVerification,
 } from "./benchmark-frontend-verifier.js";
 
-export const BENCHMARK_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "read-only" };
-export const BENCHMARK_WRITE_POLICY: KilnPermissionPolicy = { approval: "never", sandbox: "workspace-write" };
 export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
 const WRITE_BENCHMARK_PROFILE_IDS = new Set([
   "kiln-model-roster-backend-write",
@@ -164,7 +162,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     }
     const preferredProvider = configuredRouteCandidates[0]?.provider;
     const effectiveModel = configuredRouteCandidates[0]?.model;
-    const permissionPolicy = writeMode ? BENCHMARK_WRITE_POLICY : BENCHMARK_POLICY;
+    const permissionPolicy = resolveBenchmarkPermissionPolicy(
+      resolvedKilnConfig?.permissions ?? options.appConfig.kilnYaml?.permissions,
+      writeMode ? "write" : "read-only",
+    );
     const wrapperConfig = {
       mode,
       provider: preferredProvider,
@@ -370,7 +371,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       sessionConfig,
       permissionPolicy,
       sessionId,
-      approvalMemoryStore: new ApprovalMemoryStoreImpl(authorityStateRoot),
       env,
       sessionHooks,
       ...(writeLease ? {

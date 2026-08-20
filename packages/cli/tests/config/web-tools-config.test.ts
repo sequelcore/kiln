@@ -133,12 +133,16 @@ describe("web tool config", () => {
 
   it("registers the project Memory Lattice resource with shared tool surfaces", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-web-tools-memory-"));
+    const scopeId = basename(projectPath);
     const surface = createDefaultBuiltinToolSurface(createWebToolSurfaceOptions({
       config: { version: "1" },
       projectPath,
+      memoryAuthority: { modelFacingSession: true },
     }));
 
-    const result = await surface.resources.read("kiln://memory/graph?depth=0&limit=25");
+    const result = await surface.resources.read(
+      `kiln://memory/graph?scope=project%3A${encodeURIComponent(scopeId)}&depth=0&limit=25`,
+    );
 
     expect(result?.contents[0]?.mimeType).toBe("application/json");
     const content = result?.contents[0];
@@ -149,7 +153,7 @@ describe("web tool config", () => {
         limits: { maxNodes: 25, maxEdges: 50 },
         truncated: false,
       },
-      filters: { depth: 0 },
+      filters: { scope: { kind: "project", id: scopeId }, depth: 0 },
     });
   });
 
@@ -208,7 +212,10 @@ describe("web tool config", () => {
       },
     });
 
-    expect(options.memoryResources?.authority?.caller).toEqual({ kind: "operator_surface", id: "tui" });
+    expect(options.memoryResources?.authority).toMatchObject({
+      kind: "governed",
+      policy: { caller: { kind: "operator_surface", id: "tui" } },
+    });
     expect(options.memoryMutations?.callerContext).toMatchObject({
       actorType: "operator_surface",
       actorId: "tui",
@@ -327,7 +334,10 @@ describe("web tool config", () => {
       },
     });
 
-    expect(options.memoryResources?.authority?.rules).toHaveLength(0);
+    expect(options.memoryResources?.authority).toMatchObject({
+      kind: "governed",
+      policy: { rules: [] },
+    });
     expect(readResult.result.isError).toBe(true);
     expect(readResult.result.output).toContain("Resource read denied by authority policy.");
     expect(searchResult.result.isError).toBe(true);

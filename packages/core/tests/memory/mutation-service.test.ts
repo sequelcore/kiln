@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defineMemoryAuthorityPolicy,
+  governedMemoryAuthority,
   EventBus,
   MemoryMutationService,
   SqliteMemoryRepository,
+  trustedInternalMemoryAuthority,
   type CreateMemoryRecordInput,
   type KilnEvent,
   type MemoryLayerKind,
@@ -30,6 +32,7 @@ describe("MemoryMutationService", () => {
       repository,
       eventBus,
       sessionId: "session-memory-test",
+      authority: trustedInternalMemoryAuthority(),
     });
   });
 
@@ -111,7 +114,7 @@ describe("MemoryMutationService", () => {
   it("allows save when write authority explicitly matches scope and layer", () => {
     const serviceWithAuthority = new MemoryMutationService({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-1a" },
         rules: [{
           access: "write",
@@ -120,7 +123,7 @@ describe("MemoryMutationService", () => {
           scopeIds: ["kiln"],
           layers: ["semantic"],
         }],
-      }),
+      })),
     });
 
     const record = serviceWithAuthority.saveRecord(recordInput({ content: "Authorized memory write." }));
@@ -161,7 +164,7 @@ describe("MemoryMutationService", () => {
   it("denies save when authority does not allow the scope", () => {
     const serviceWithAuthority = new MemoryMutationService({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-1a" },
         rules: [{
           access: "write",
@@ -170,7 +173,7 @@ describe("MemoryMutationService", () => {
           scopeIds: ["kiln"],
           layers: ["semantic"],
         }],
-      }),
+      })),
     });
 
     expect(() => serviceWithAuthority.saveRecord(recordInput({
@@ -182,7 +185,7 @@ describe("MemoryMutationService", () => {
   it("denies save when authority does not allow the layer", () => {
     const serviceWithAuthority = new MemoryMutationService({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-1a" },
         rules: [{
           access: "write",
@@ -191,7 +194,7 @@ describe("MemoryMutationService", () => {
           scopeIds: ["kiln"],
           layers: ["semantic"],
         }],
-      }),
+      })),
     });
 
     expect(() => serviceWithAuthority.saveRecord(recordInput({
@@ -203,7 +206,7 @@ describe("MemoryMutationService", () => {
   it("denies audit writes unless explicitly allowed by authority", () => {
     const deniedAuditService = new MemoryMutationService({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-1a" },
         rules: [{
           access: "write",
@@ -212,7 +215,7 @@ describe("MemoryMutationService", () => {
           scopeIds: ["kiln"],
           layers: ["audit"],
         }],
-      }),
+      })),
     });
 
     expect(() => deniedAuditService.saveRecord(recordInput({
@@ -222,7 +225,7 @@ describe("MemoryMutationService", () => {
 
     const allowedAuditService = new MemoryMutationService({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-1a" },
         rules: [{
           access: "write",
@@ -232,7 +235,7 @@ describe("MemoryMutationService", () => {
           layers: ["audit"],
           allowAuditWrite: true,
         }],
-      }),
+      })),
     });
 
     const saved = allowedAuditService.saveRecord(recordInput({
@@ -240,6 +243,50 @@ describe("MemoryMutationService", () => {
       layer: "audit",
     }));
     expect(saved.layer).toBe("audit");
+  });
+
+  it("checks authority for every mutation operation, not only record saves", () => {
+    const source = repository.saveRecord(recordInput({ id: "authority-source", content: "Source." }));
+    const denied = new MemoryMutationService({
+      repository,
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
+        caller: { kind: "agent", id: "worker-denied" },
+        rules: [],
+      })),
+    });
+
+    expect(() => denied.deleteRecord(source.id)).toThrow("operation is not authorized");
+    expect(() => denied.saveRelation({
+      id: "denied-relation",
+      sourceRecordId: source.id,
+      target: { kind: "resource", uri: "kiln://resource" },
+      type: "related_to",
+      createdAt: "2026-04-30T12:00:00.000Z",
+    })).toThrow("operation is not authorized");
+    expect(() => denied.saveRevision({
+      id: "denied-revision",
+      recordId: source.id,
+      sequence: 1,
+      kind: "created",
+      content: source.content,
+      provenance: source.provenance,
+      createdAt: "2026-04-30T12:00:00.000Z",
+    })).toThrow("operation is not authorized");
+    expect(() => denied.saveContextAdmission({
+      id: "denied-admission",
+      recordId: source.id,
+      decision: "admitted",
+      reason: "test",
+      estimatedTokens: 1,
+      baseScore: 1,
+      effectiveScore: 1,
+      createdAt: "2026-04-30T12:00:00.000Z",
+    })).toThrow("operation is not authorized");
+
+    expect(repository.getRecord(source.id)).toBeDefined();
+    expect(repository.getRelation("denied-relation")).toBeUndefined();
+    expect(repository.listRevisions(source.id)).toHaveLength(0);
+    expect(repository.listContextAdmissions({ recordId: source.id })).toHaveLength(0);
   });
 });
 

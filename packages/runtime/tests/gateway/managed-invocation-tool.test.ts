@@ -48,12 +48,40 @@ import type {
 } from "../../src/agents/managed-invocation/runtime-tool/types.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
+import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
 
 const TEST_HANDOFF_PROVENANCE = {
   delivery: "runtime-generated",
   configuredModelId: "test-model",
   observedModelIds: [],
 } as const;
+
+const TEST_DESTRUCTIVE_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "destructive",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "managed invocation test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
+
+const TEST_READ_ONLY_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "read_only",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "managed invocation test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
+
+const TEST_REQUESTED_DESTRUCTIVE_READ_ONLY_PARENT_AUTHORITY = {
+  ...TEST_READ_ONLY_PARENT_AUTHORITY,
+  requestedAuthority: "destructive",
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 function assertManagedToolResult(value: unknown): ManagedInvocationToolResult {
   if (
@@ -77,6 +105,7 @@ function createAttachedRuntimeBuiltinToolSurface(
     readonly managedInvocation?: ManagedInvocationToolOptions & {
       readonly callerIdentity?: ManagedAgentCallerAttachmentIdentity;
     };
+    readonly testEffectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot | null;
   } = {},
 ) {
   const callerIdentity = options.managedInvocation?.callerIdentity ?? {
@@ -87,7 +116,7 @@ function createAttachedRuntimeBuiltinToolSurface(
   const managedInvocation = options.managedInvocation
     ? (({ callerIdentity: _callerIdentity, ...managedInvocationOptions }) => managedInvocationOptions)(options.managedInvocation)
     : undefined;
-  return createRuntimeBuiltinToolSurface({
+  const surface = createRuntimeBuiltinToolSurface({
     ...options,
     ...(managedInvocation
       ? {
@@ -109,6 +138,27 @@ function createAttachedRuntimeBuiltinToolSurface(
         }
       : {}),
   });
+  const hasTestAuthority = Object.prototype.hasOwnProperty.call(options, "testEffectiveTurnAuthority");
+  const testEffectiveTurnAuthority = hasTestAuthority
+    ? options.testEffectiveTurnAuthority ?? undefined
+    : {
+        ...TEST_DESTRUCTIVE_PARENT_AUTHORITY,
+        requestedAuthority: "read_only",
+      } satisfies EffectiveTurnAuthoritySnapshot;
+  if (!managedInvocation || testEffectiveTurnAuthority === undefined) return surface;
+  const callBuiltinTools = new Map<string, typeof surface.callBuiltinTools extends ReadonlyMap<string, infer E> ? E : never>();
+  for (const [toolName, executor] of surface.callBuiltinTools) {
+    callBuiltinTools.set(toolName, async (input, context) => {
+      if (!context) return executor(input, context);
+      return executor(input, {
+        ...context,
+        ...(context.effectiveTurnAuthority
+          ? { effectiveTurnAuthority: context.effectiveTurnAuthority }
+          : { effectiveTurnAuthority: testEffectiveTurnAuthority }),
+      });
+    });
+  }
+  return { ...surface, callBuiltinTools };
 }
 
 function makeSession(sessionId = "session-parent"): RuntimeSession {
@@ -518,11 +568,17 @@ function makeSurface(
   adapter = makeAdapter(),
   sessionEventSink?: ManagedInvocationSessionEventSink,
   artifactStore?: MemoryArtifactResourceStore,
-  options: { readonly observeRuntimeAuthority?: boolean } = {},
+  options: {
+    readonly observeRuntimeAuthority?: boolean;
+    readonly testEffectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot | null;
+  } = {},
 ) {
   return createAttachedRuntimeBuiltinToolSurface({
     ...(artifactStore ? { builtinToolOptions: { artifactResources: { store: artifactStore } } } : {}),
     managedInvocation: makeSurfaceOptions(adapter, sessionEventSink, artifactStore, options),
+    ...(Object.prototype.hasOwnProperty.call(options, "testEffectiveTurnAuthority")
+      ? { testEffectiveTurnAuthority: options.testEffectiveTurnAuthority }
+      : {}),
   });
 }
 
@@ -993,7 +1049,7 @@ describe("managed invocation runtime tool", () => {
       "agent_invocation_started",
     ]);
     expect(started.metadata.sessionEventIds).toEqual(session.sessionEvents.map((event) => event.eventId));
-    expect(sessionEventSink.publish).toHaveBeenCalledWith(session.sessionEvents, context);
+    expect(sessionEventSink.publish).toHaveBeenCalledWith(session.sessionEvents, expect.objectContaining(context));
 
     const status = await surface.callBuiltinTools.get("managed_agent.status")?.({
       invocationId: started.metadata.invocationId,
@@ -2445,6 +2501,7 @@ describe("managed invocation runtime tool", () => {
           }],
         }],
       },
+      testEffectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
     });
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
@@ -2599,6 +2656,7 @@ describe("managed invocation runtime tool", () => {
           }],
         }],
       },
+      testEffectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
     });
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
@@ -2656,7 +2714,7 @@ describe("managed invocation runtime tool", () => {
         kind: "agent_invocation_failed",
         invocationId: result.metadata.invocationId,
       }),
-    ], context);
+    ], expect.objectContaining(context));
   });
 
   it("preserves dirty-worktree review evidence in managed-agent join metadata", async () => {
@@ -2754,6 +2812,7 @@ describe("managed invocation runtime tool", () => {
           }],
         }],
       },
+      testEffectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
     });
     const session = makeSession();
     const startInput = {
@@ -4214,8 +4273,8 @@ describe("managed invocation runtime tool", () => {
       requestedAuthority: "read_only",
     });
     expect(sessionEventSink.publish).toHaveBeenCalledTimes(2);
-    expect(sessionEventSink.publish).toHaveBeenNthCalledWith(1, session.sessionEvents.slice(0, 2), context);
-    expect(sessionEventSink.publish).toHaveBeenNthCalledWith(2, [session.sessionEvents[2]], context);
+    expect(sessionEventSink.publish).toHaveBeenNthCalledWith(1, session.sessionEvents.slice(0, 2), expect.objectContaining(context));
+    expect(sessionEventSink.publish).toHaveBeenNthCalledWith(2, [session.sessionEvents[2]], expect.objectContaining(context));
     expect(session.sessionEvents[2]).toMatchObject({
       requestedAuthority: "read_only",
       handoffContract: {
@@ -5170,7 +5229,9 @@ describe("managed invocation runtime tool", () => {
 
   it("fails closed before approval when destructive authority selects a read-only profile", async () => {
     const adapter = makeAdapter();
-    const surface = makeSurface(adapter);
+    const surface = makeSurface(adapter, undefined, undefined, {
+      testEffectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
+    });
     const session = makeSession();
     const requestApproval = vi.fn(async () => ({
       approved: true,
@@ -5566,6 +5627,7 @@ describe("managed invocation runtime tool", () => {
           }],
         }],
       },
+      testEffectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
     });
     const session = makeSession();
     const requestApproval = vi.fn(async () => ({
@@ -5678,7 +5740,9 @@ describe("managed invocation runtime tool", () => {
 
   it("fails closed when a managed child requests destructive authority without an approval flow", async () => {
     const adapter = makeAdapter();
-    const surface = makeSurface(adapter);
+    const surface = makeSurface(adapter, undefined, undefined, {
+      testEffectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
+    });
     const session = makeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
@@ -7944,10 +8008,10 @@ describe("managed invocation runtime tool", () => {
             kind: "kiln-runtime",
             surface: "run",
             attachmentId: "attachment:run:plan-mode",
-            parentEffectiveRequestedAuthority: "read_only",
           },
           routes: [makeManagedRoute("opencode-readonly", "opencode-default-model", async () => adapter)],
         },
+        testEffectiveTurnAuthority: TEST_REQUESTED_DESTRUCTIVE_READ_ONLY_PARENT_AUTHORITY,
       });
       const session = makeSession();
 

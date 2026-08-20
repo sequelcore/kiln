@@ -9,6 +9,7 @@ import {
 import type {
   AuthorizationLevel,
   AuthorityDescriptor,
+  InvocationAdmission,
   RetryConfig,
   ToolExecutionRequest,
   ToolAuthorizer,
@@ -34,6 +35,8 @@ export interface DevToolExecutionRequest extends ToolExecutionRequest {
 export interface DevToolExecutionBridgeOptions {
   readonly registry: DevToolRegistry;
   readonly authorizer?: ToolAuthorizer;
+  /** Optional outer policy; its decision is conjunctive with effect/caller authority. */
+  readonly invocationAdmission?: InvocationAdmission;
   readonly resourceLinker?: ToolResourceLinker;
   readonly invocationEffectResolvers?: InvocationEffectResolverRegistry;
 }
@@ -55,13 +58,17 @@ export interface DevToolAuthorizationDecision {
 
 export class DevToolExecutionBridge {
   private readonly registry: DevToolRegistry;
-  private readonly authorizer: ToolAuthorizer;
+  private readonly actionEffectAuthorizer: ActionEffectAuthorizer;
+  private readonly additionalAuthorizer?: ToolAuthorizer;
+  private readonly invocationAdmission?: InvocationAdmission;
   private readonly resourceLinker?: ToolResourceLinker;
   private readonly invocationEffectResolvers: InvocationEffectResolverRegistry;
 
   constructor(options: DevToolExecutionBridgeOptions) {
     this.registry = options.registry;
-    this.authorizer = options.authorizer ?? new ActionEffectAuthorizer();
+    this.actionEffectAuthorizer = new ActionEffectAuthorizer();
+    this.additionalAuthorizer = options.authorizer;
+    this.invocationAdmission = options.invocationAdmission;
     this.resourceLinker = options.resourceLinker;
     this.invocationEffectResolvers = options.invocationEffectResolvers ?? buildBuiltinInvocationEffectResolvers();
   }
@@ -242,37 +249,32 @@ export class DevToolExecutionBridge {
     readonly resolvedEffect: ResolvedInvocationEffect;
   } {
     const resolvedEffect = this.resolveInvocationEffect(tool, input);
-    if (authority !== undefined) {
-      if (!isAuthorityDescriptor(authority)) {
-        return {
-          toolName: tool.name,
-          resolvedEffect,
-          level: 4,
+    const effectDecision = this.actionEffectAuthorizer.authorize(tool.name, resolvedEffect);
+    const additionalDecision = this.additionalAuthorizer?.authorize(tool.name, resolvedEffect);
+    const callerDecision = authority === undefined
+      ? undefined
+      : isAuthorityDescriptor(authority)
+        ? authority
+        : {
+          level: 4 as const,
           allowed: false,
           requiresApproval: false,
           reason: "Invalid authority descriptor; execution denied",
         };
-      }
-      return {
-        toolName: tool.name,
-        resolvedEffect,
-        level: authority.level,
-        allowed: authority.allowed,
-        requiresApproval: authority.requiresApproval,
-        reason: authority.reason,
-      };
-    }
-
-    const decision = this.authorizer.authorize(tool.name, resolvedEffect);
-
-    return {
+    const configuredDecision = this.invocationAdmission?.authorize({
       toolName: tool.name,
+      toolInput: input,
       resolvedEffect,
-      level: decision.level,
-      allowed: decision.allowed,
-      requiresApproval: decision.requiresApproval,
-      reason: decision.reason,
-    };
+      ...(callerDecision ? { callerBound: callerDecision } : {}),
+    });
+    const decision = meetAuthorityDescriptors([
+      effectDecision,
+      ...(additionalDecision ? [additionalDecision] : []),
+      ...(configuredDecision ? [configuredDecision] : []),
+      ...(callerDecision ? [callerDecision] : []),
+    ]);
+
+    return { toolName: tool.name, resolvedEffect, ...decision };
   }
 
   private resolveInvocationEffect(
@@ -297,6 +299,32 @@ export class DevToolExecutionBridge {
       });
     }
   }
+}
+
+function meetAuthorityDescriptors(
+  descriptors: readonly AuthorityDescriptor[],
+): AuthorityDescriptor {
+  const [first] = descriptors;
+  if (!first) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: false,
+      reason: "No authority decision was available; execution denied",
+    };
+  }
+  const blocking = descriptors.filter((descriptor) => !descriptor.allowed);
+  const requiresApproval = descriptors.some((descriptor) => descriptor.requiresApproval);
+  const level = descriptors.reduce<AuthorizationLevel>(
+    (maximum, descriptor) => descriptor.level > maximum ? descriptor.level : maximum,
+    first.level,
+  );
+  return {
+    level,
+    allowed: blocking.length === 0,
+    requiresApproval,
+    reason: descriptors.map((descriptor) => descriptor.reason).join("; "),
+  };
 }
 
 function isToolResult(value: unknown): value is ToolResult {

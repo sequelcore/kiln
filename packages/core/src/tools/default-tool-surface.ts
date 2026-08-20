@@ -95,6 +95,7 @@ import { WebSearchTool, type WebSearchToolOptions } from "./infrastructure/web-s
 import { WorkspaceResourceProvider, type WorkspaceResourceProviderOptions } from "./infrastructure/workspace-resource-provider.js";
 import { WriteTool } from "./infrastructure/write-tool.js";
 import { DevToolExecutionBridge } from "./tool-executor.js";
+import type { InvocationAdmission } from "../engine/domain/tool-execution.js";
 
 export interface DevToolSchemaProjection {
   readonly name: string;
@@ -104,6 +105,8 @@ export interface DevToolSchemaProjection {
 }
 
 export interface DefaultBuiltinToolRegistryOptions {
+  /** Outer configured authority; Core meets it with effect and caller bounds. */
+  readonly invocationAdmission?: InvocationAdmission;
   readonly additionalTools?: readonly DevTool[];
   readonly bash?: BashToolOptions;
   readonly grep?: GrepToolOptions;
@@ -442,6 +445,7 @@ export function createDefaultBuiltinToolSurface(
     capabilities: projectDevToolCapabilities(tools),
     bridge: new DevToolExecutionBridge({
       registry,
+      ...(options.invocationAdmission ? { invocationAdmission: options.invocationAdmission } : {}),
       resourceLinker: new ArtifactToolResourceLinker({ store: artifactStore }),
     }),
     catalog,

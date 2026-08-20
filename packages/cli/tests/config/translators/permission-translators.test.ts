@@ -83,16 +83,17 @@ describe("permission projection translators", () => {
     const policy: KilnPermissionPolicy = {
       approval: "on-request",
       sandbox: "workspace-write",
-      // Claude's casing, not Kiln's vocabulary. Emitting it verbatim would
-      // produce a rule OpenCode never matches, so it must degrade to a stated
-      // constraint instead of a silently inert native rule.
-      tools: [{ tool: "Read", action: "allow" }],
+      // A selector outside Kiln's vocabulary cannot be lowered safely.
+      // Emitting it verbatim would produce a rule OpenCode never matches, so
+      // it must degrade to a stated constraint instead of a silently inert
+      // native rule. Known aliases such as Claude's "Read" are canonicalized.
+      tools: [{ tool: "ClaudeOnlyUnmapped", action: "allow" }],
     };
 
     const opencode = translateOpenCodePermissionProjection({ policy, existingDocument: {} });
 
-    expect(asRecord(opencode.document.permission).Read).toBeUndefined();
-    expect(opencode.integrity.semanticLoss.some((loss) => loss.includes("Read"))).toBe(true);
+    expect(asRecord(opencode.document.permission).ClaudeOnlyUnmapped).toBeUndefined();
+    expect(opencode.integrity.semanticLoss.some((loss) => loss.includes("ClaudeOnlyUnmapped"))).toBe(true);
   });
 
   it("writes the Claude permission mode the policy resolves to", () => {

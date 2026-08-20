@@ -78,7 +78,8 @@ describe("tools command web config", () => {
         webExtract: expect.any(Object),
         memoryResources: {
           authority: {
-            caller: { kind: "operator_surface", id: "tools-mcp" },
+            kind: "governed",
+            policy: { caller: { kind: "operator_surface", id: "tools-mcp" } },
           },
         },
         memoryMutations: {

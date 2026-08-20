@@ -6,6 +6,7 @@ import type {
   KilnDataFirewallRule,
   KilnMemoryAuthorityRule,
 } from "./session.js";
+import { canonicalToolName } from "./tool-vocabulary.js";
 
 export const SAFE_DEFAULTS_TOOL_RULES: readonly KilnToolPermissionRule[] = [
   { tool: "Read", action: "allow" },
@@ -77,7 +78,16 @@ export function normalizePermissionPolicy(policy: KilnPermissionPolicy): KilnPer
   const baseFileGovernance: KilnFileGovernancePolicy = safeDefaults ? { ...SAFE_DEFAULTS_FILE_GOVERNANCE } : {};
   const baseDataFirewall = safeDefaults ? [...SAFE_DEFAULTS_DATA_FIREWALL] : [];
 
-  const tools = deduplicateByKey([...baseTools, ...(policy.tools ?? [])], (r) => r.tool);
+  // Store selectors in Kiln's vocabulary before deduplication. This makes
+  // aliases such as WebFetch/web_fetch one logical rule for normalization,
+  // ordering, and any downstream policy fingerprint.
+  const tools = deduplicateByKey(
+    [...baseTools, ...(policy.tools ?? [])].map((rule) => ({
+      ...rule,
+      tool: canonicalToolName(rule.tool),
+    })),
+    (r) => r.tool,
+  );
   const commands = deduplicateByKey(
     [...baseCommands, ...(policy.commands ?? [])],
     (r) => `${r.pattern}::${r.shell ?? "any"}`,

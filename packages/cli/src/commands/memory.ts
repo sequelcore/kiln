@@ -20,7 +20,12 @@ export async function memoryCommand(
     return;
   }
 
-  const options = await loadConfiguredWebToolSurfaceOptions(appConfig, root);
+  const options = await loadConfiguredWebToolSurfaceOptions(appConfig, root, {
+    memoryAuthority: {
+      modelFacingSession: true,
+      caller: { kind: "operator_surface", id: "cli-memory" },
+    },
+  });
   const surface = createDefaultBuiltinToolSurface(options);
   try {
     switch (subcommand) {

@@ -4,6 +4,7 @@ import {
   type MemoryRecord,
   type MemoryRepository,
   type MemoryScope,
+  trustedInternalMemoryAuthority,
 } from "@kilnai/core";
 
 const SWARM_RECORD_LIMIT = 500;
@@ -45,6 +46,7 @@ export class SwarmStore {
       repository: options.repository,
       eventBus: options.eventBus,
       sessionId: "mcp:swarm",
+      authority: trustedInternalMemoryAuthority(),
     });
   }
 

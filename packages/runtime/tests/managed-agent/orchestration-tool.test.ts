@@ -12,7 +12,21 @@ import {
   type ManagedAgentRuntimeInvocationInput,
   type ManagedInvocationToolAttachment,
 } from "../../src/agents/managed-invocation/index.js";
-import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
+import type {
+  EffectiveTurnAuthoritySnapshot,
+  RuntimeBuiltinToolExecutionContext,
+} from "../../src/session/runtime-session-orchestrator.types.js";
+
+const TEST_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "managed orchestration test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 describe("managed_agent.orchestrate", () => {
   it("projects configured agent profiles and routes into each work-item schema", () => {
@@ -201,6 +215,7 @@ async function execute(input: Record<string, unknown>, optionOverrides: ManagedI
       appendSessionEvents: (events: readonly unknown[]) => { sessionEvents.push(...events); },
     } as RuntimeBuiltinToolExecutionContext["session"],
     turnId: "turn-test",
+    effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
     toolCall: {
       id: "tool-call-test",
       name: "managed_agent.orchestrate",

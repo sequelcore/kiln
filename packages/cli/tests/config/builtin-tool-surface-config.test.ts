@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createConfiguredInvocationAdmission,
   loadConfiguredBuiltinToolSurfaceOptions,
   observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
@@ -201,6 +202,39 @@ describe("builtin tool surface config", () => {
     expect(surface.toolNames).toContain("goal.complete");
     expect(surface.toolNames).not.toContain("browser_session_start");
     expect(surface.registry.has("browser_session_start")).toBe(true);
+  });
+
+  it("adapts canonical tool and concrete input permissions into Core admission", () => {
+    const admission = createConfiguredInvocationAdmission({
+      approval: "never",
+      tools: [{ tool: "WebFetch", action: "deny" }],
+      commands: [{ pattern: "rm *", action: "deny" }],
+      fileGovernance: { denyGlobs: ["**/.env"] },
+      dataFirewall: [{ destination: "external-mcp", action: "deny" }],
+    });
+    const effect = {
+      operation: "observe" as const,
+      boundaries: ["process"] as const,
+      reversibility: "reversible" as const,
+      dataEgress: "none" as const,
+      identityUse: "none" as const,
+      consequences: [] as const,
+      idempotency: "idempotent" as const,
+    };
+
+    expect(admission.authorize({ toolName: "web_fetch", toolInput: {}, resolvedEffect: effect }).allowed).toBe(false);
+    expect(admission.authorize({ toolName: "bash", toolInput: { command: "rm file" }, resolvedEffect: effect }).allowed).toBe(false);
+    expect(admission.authorize({ toolName: "read", toolInput: { path: "secrets/.env" }, resolvedEffect: effect }).allowed).toBe(false);
+    expect(admission.authorize({
+      toolName: "mcp",
+      toolInput: { destination: "external-mcp" },
+      resolvedEffect: { ...effect, dataEgress: "project-data" },
+    }).allowed).toBe(false);
+    expect(admission.authorize({
+      toolName: "custom_fetch",
+      toolInput: { url: "https://unknown.example" },
+      resolvedEffect: { ...effect, dataEgress: "project-data" },
+    }).allowed).toBe(false);
   });
 });
 

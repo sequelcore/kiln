@@ -21,7 +21,18 @@ describe("normalizePermissionPolicy", () => {
 
   it("user tool rule overrides safe-default (last-match-wins)", () => {
     const r = normalizePermissionPolicy({ safeDefaults: true, tools: [{ tool: "WebFetch", action: "allow" }] });
-    expect(r.tools.find((t) => t.tool === "WebFetch")?.action).toBe("allow");
+    expect(r.tools.find((t) => t.tool === "web_fetch")?.action).toBe("allow");
+  });
+
+  it("canonicalizes aliases before deduplication while preserving the last authored outcome", () => {
+    const r = normalizePermissionPolicy({
+      tools: [
+        { tool: "WebFetch", action: "deny" },
+        { tool: "web_fetch", action: "allow" },
+      ],
+    });
+
+    expect(r.tools).toEqual([{ tool: "web_fetch", action: "allow" }]);
   });
 
   it("merges fileGovernance without duplicates", () => {

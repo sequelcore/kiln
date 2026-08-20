@@ -17,10 +17,10 @@ import type {
   KilnRepoShimProjectionSnapshot,
 } from "@kilnai/gateway-contracts";
 import { KILN_CONFIG_READ_VIEWS } from "@kilnai/gateway-contracts";
-import { mergeKilnYaml, readKilnYaml } from "../kiln-yaml.js";
-import type { ResolvedKilnConfig } from "../kiln-yaml-types.js";
+import { readKilnYaml } from "../kiln-yaml.js";
+import type { KilnProjectConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import {
-  globalToKilnYaml,
+  deriveEffectiveKilnYaml,
   resolveKilnMcpConfiguration,
 } from "../config/config-merger.js";
 import {
@@ -363,16 +363,10 @@ function buildEffectiveConfig(
   }
 
   const globalConfig = globalState.config as KilnGlobalConfig | null;
-  const projectConfig = projectState.config as ResolvedKilnConfig | null;
+  const projectConfig = projectState.config as KilnProjectConfig | null;
 
   try {
-    if (globalConfig && projectConfig) {
-      return mergeKilnYaml(globalToKilnYaml(globalConfig), projectConfig);
-    }
-    if (globalConfig) {
-      return globalToKilnYaml(globalConfig);
-    }
-    return projectConfig;
+    return deriveEffectiveKilnYaml(globalConfig, projectConfig);
   } catch (error) {
     errors.push(`effective config: ${errorMessage(error)}`);
     return null;

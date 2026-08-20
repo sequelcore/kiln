@@ -169,7 +169,7 @@ describe("DevToolExecutionBridge", () => {
     } satisfies Partial<KilnError>);
   });
 
-  it("uses request-level authority descriptor before authorizer fallback", async () => {
+  it("meets request-level authority descriptor with effect authority", async () => {
     const registry = new DevToolRegistry();
     registry.register(
       makeTool(
@@ -187,7 +187,7 @@ describe("DevToolExecutionBridge", () => {
       authorizer: new ActionEffectAuthorizer(),
     });
 
-    const result = await bridge.execute({
+    await expect(bridge.execute({
       name: "write",
       input: { filePath: "x.txt", content: "x" },
       authority: {
@@ -196,10 +196,67 @@ describe("DevToolExecutionBridge", () => {
         requiresApproval: false,
         reason: "Tenant policy pre-authorized this invocation",
       },
+    })).rejects.toMatchObject({ code: "TOOL_AUTHORIZATION_DENIED" });
+  });
+
+  it("blocks when configured admission denies despite an allowing caller bound", async () => {
+    const execute = vi.fn(async () => ({ output: "must not execute", isError: false }));
+    const registry = new DevToolRegistry();
+    registry.register(makeTool("write", execute, READ_ONLY_EFFECT));
+    const bridge = new DevToolExecutionBridge({
+      registry,
+      invocationAdmission: {
+        authorize: () => ({
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "configured policy forbids write",
+        }),
+      },
     });
 
-    expect(result.result.output).toBe("ok");
-    expect(result.result.isError).toBe(false);
+    await expect(bridge.execute({
+      name: "write",
+      input: {},
+      authority: { level: 1, allowed: true, requiresApproval: false, reason: "caller allows" },
+    })).rejects.toMatchObject({ code: "TOOL_AUTHORIZATION_DENIED" });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("blocks when the caller bound forbids despite configured and effect allow", async () => {
+    const execute = vi.fn(async () => ({ output: "must not execute", isError: false }));
+    const registry = new DevToolRegistry();
+    registry.register(makeTool("echo", execute));
+    const bridge = new DevToolExecutionBridge({
+      registry,
+      invocationAdmission: {
+        authorize: () => ({ level: 1, allowed: true, requiresApproval: false, reason: "configured allows" }),
+      },
+    });
+
+    await expect(bridge.execute({
+      name: "echo",
+      input: {},
+      authority: { level: 4, allowed: false, requiresApproval: false, reason: "caller forbids" },
+    })).rejects.toMatchObject({ code: "TOOL_AUTHORIZATION_DENIED" });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("blocks effect approval even when configured admission allows", async () => {
+    const execute = vi.fn(async () => ({ output: "must not execute", isError: false }));
+    const registry = new DevToolRegistry();
+    registry.register(makeTool("write", execute, WORKSPACE_MUTATION_EFFECT));
+    const bridge = new DevToolExecutionBridge({
+      registry,
+      invocationAdmission: {
+        authorize: () => ({ level: 1, allowed: true, requiresApproval: false, reason: "configured allows" }),
+      },
+    });
+
+    await expect(bridge.execute({ name: "write", input: {} })).rejects.toMatchObject({
+      code: "TOOL_AUTHORIZATION_DENIED",
+    });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("fails closed when request-level authority descriptor is malformed", async () => {

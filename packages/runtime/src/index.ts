@@ -426,6 +426,7 @@ export {
   resolveConfiguredManagedInvocationRouteProfile,
   resolveManagedInvocationRouteProfile,
   RuntimeManagedAgentInvocationService,
+  resolveManagedInvocationCallerIdentity,
   runManagedAgentOrchestrationLifecycle,
 } from "./agents/managed-invocation/index.js";
 export type {

@@ -2,6 +2,7 @@ import {
   MemoryArtifactResourceStore,
   type DefaultBuiltinToolRegistryOptions,
 } from "@kilnai/core";
+import type { AuthorityDescriptor, InvocationAdmission } from "@kilnai/core";
 import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 import type { KilnAppConfig } from "../config.js";
 import {
@@ -12,6 +13,9 @@ import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-us
 import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
 import { readGlobalConfig, type KilnGlobalConfig } from "./global-config.js";
 import { resolveFormalVerificationConfiguration } from "./formal-verification-config.js";
+import { createPermissionEvaluator } from "../wrapper/permission-evaluator.js";
+import type { KilnPermissionPolicy } from "../wrapper/session.js";
+import { resolveModelFacingPermissionPolicy } from "./model-facing-permission-policy.js";
 
 export const PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS = [
   "read",
@@ -68,6 +72,78 @@ export interface LoadConfiguredBuiltinToolSurfaceOptionsInput extends LoadConfig
   readonly discoveredPaths?: readonly string[];
 }
 
+/**
+ * Adapts the CLI-owned permission evaluator to Core's narrow invocation port.
+ * The adapter has no approval channel: conditional decisions therefore block
+ * at the Core bridge until a future caller supplies an explicit grant.
+ */
+export function createConfiguredInvocationAdmission(
+  policy: KilnPermissionPolicy,
+): InvocationAdmission {
+  const evaluator = createPermissionEvaluator(policy);
+  return {
+    authorize({ toolName, toolInput, resolvedEffect }) {
+      const decisions = [evaluator.evaluateTool(toolName)];
+      const command = firstString(toolInput, ["command", "cmd"]);
+      if (command !== undefined) {
+        decisions.push(evaluator.evaluateCommand(command));
+      }
+      const filePath = firstString(toolInput, ["filePath", "path", "file"]);
+      if (filePath !== undefined) {
+        decisions.push(evaluator.evaluateFile(filePath));
+      }
+      const destination = resolvedEffect.dataEgress === "none"
+        ? undefined
+        : firstString(toolInput, ["destination", "dataDestination", "url", "endpoint", "uri"]);
+      if (destination !== undefined) {
+        decisions.push(evaluator.evaluateDestination(destination));
+      }
+      return combinePermissionDecisions(decisions);
+    },
+  };
+}
+
+function firstString(input: Readonly<Record<string, unknown>>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
+function combinePermissionDecisions(
+  decisions: readonly { action: string; source: string; match?: { reason?: string } }[],
+): AuthorityDescriptor {
+  const forbidden = decisions.filter((decision) => decision.action === "deny" || decision.action === "forbid");
+  const approval = decisions.filter((decision) => decision.action === "ask" || decision.action === "require-approval");
+  if (forbidden.length > 0) {
+    return {
+      level: 4,
+      allowed: false,
+      requiresApproval: false,
+      reason: forbidden.map(formatPermissionDecision).join("; "),
+    };
+  }
+  if (approval.length > 0) {
+    return {
+      level: 3,
+      allowed: false,
+      requiresApproval: true,
+      reason: approval.map(formatPermissionDecision).join("; "),
+    };
+  }
+  return {
+    level: 1,
+    allowed: true,
+    requiresApproval: false,
+    reason: decisions.map(formatPermissionDecision).join("; ") || "Configured policy allows invocation",
+  };
+}
+
+function formatPermissionDecision(decision: { action: string; source: string; match?: { reason?: string } }): string {
+  return decision.match?.reason ?? `permission ${decision.action} (${decision.source})`;
+}
+
 export async function loadConfiguredBuiltinToolSurfaceOptions(
   appConfig: KilnAppConfig,
   projectPath: string,
@@ -88,12 +164,18 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
     loadConfiguredInteractiveUseToolSurfaceOptions(appConfig, projectPath, { artifactStore }),
   ]);
   const merged = mergeBuiltinToolSurfaceOptions(webOptions, interactiveOptions);
+  const invocationPolicy = options.memoryAuthority?.modelFacingSession === true
+    ? resolveModelFacingPermissionPolicy(options.memoryAuthority.permissionPolicy)
+    : options.memoryAuthority?.permissionPolicy;
   const resourceProviders = [
     ...(merged.resourceProviders ?? []),
     new ExternalEngagementResourceProvider(projectPath),
   ];
   return {
     ...merged,
+    ...(invocationPolicy
+      ? { invocationAdmission: createConfiguredInvocationAdmission(invocationPolicy) }
+      : {}),
     ...(formalVerification.options === undefined ? {} : { formalVerify: formalVerification.options }),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,

@@ -131,24 +131,48 @@ function assertProjectDoesNotBroadenGlobal(
   globalConfig: KilnGlobalConfig,
   projectConfig: KilnProjectConfig,
 ): void {
-  const globalPermissions = globalConfig.permissionCeiling ?? globalConfig.permissions;
+  const globalPermissions = globalConfig.permissions;
+  const permissionCeiling = globalConfig.permissionCeiling;
   const projectPermissions = projectConfig.permissions;
-  if (globalPermissions && projectPermissions) {
+  if (projectPermissions) {
     const sandboxRank = { "read-only": 0, "workspace-write": 1, "danger-full-access": 2 } as const;
     const approvalRank = { never: 0, "on-failure": 1, "on-request": 2, untrusted: 3 } as const;
-    if (
-      projectPermissions.sandbox !== undefined
-      && globalPermissions.sandbox !== undefined
-      && sandboxRank[projectPermissions.sandbox] > sandboxRank[globalPermissions.sandbox]
-    ) {
-      throw new Error("Project permissions cannot broaden global authority.");
+    const scalarBounds = [
+      { source: "global.permissions", permissions: globalPermissions },
+      { source: "global.permissionCeiling", permissions: permissionCeiling },
+    ] as const;
+    for (const bound of scalarBounds) {
+      if (
+        projectPermissions.sandbox !== undefined
+        && bound.permissions?.sandbox !== undefined
+        && sandboxRank[projectPermissions.sandbox] > sandboxRank[bound.permissions.sandbox]
+      ) {
+        throw new Error(`Project permissions.sandbox cannot broaden ${bound.source}.`);
+      }
+      if (
+        projectPermissions.approval !== undefined
+        && bound.permissions?.approval !== undefined
+        && approvalRank[projectPermissions.approval] < approvalRank[bound.permissions.approval]
+      ) {
+        throw new Error(`Project permissions.approval cannot broaden ${bound.source}.`);
+      }
     }
-    if (
-      projectPermissions.approval !== undefined
-      && globalPermissions.approval !== undefined
-      && approvalRank[projectPermissions.approval] < approvalRank[globalPermissions.approval]
-    ) {
-      throw new Error("Project permissions cannot broaden global authority.");
+
+    if (globalPermissions) {
+      for (const field of [
+        "tools",
+        "commands",
+        "fileGovernance",
+        "memory",
+        "dataFirewall",
+        "agentScopes",
+        "safeDefaults",
+        "auditLog",
+      ] as const) {
+        if (Object.prototype.hasOwnProperty.call(projectPermissions, field)) {
+          throw new Error(`Project permissions.${field} cannot be proven to narrow global.permissions.${field}.`);
+        }
+      }
     }
   }
 

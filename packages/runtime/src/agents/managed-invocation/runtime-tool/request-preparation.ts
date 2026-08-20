@@ -28,7 +28,10 @@ import type {
 } from "@kilnai/core";
 import type { RuntimeBuiltinToolExecutionContext } from "../../../session/runtime-session-orchestrator.types.js";
 import { resolveManagedInvocationAgentProfile } from "../agent-profile-catalog.js";
-import { deriveManagedInvocationCallerAuthority } from "../caller-capability-policy.js";
+import {
+  deriveManagedInvocationCallerAuthority,
+  resolveManagedInvocationCallerIdentity,
+} from "../caller-capability-policy.js";
 import { appendManagedEconomicLifecycleSessionEvent } from "../session-events.js";
 import { MANAGED_AGENT_START_TOOL_NAME } from "../tool-names.js";
 import type { ManagedAgentRuntimeInvocationLifecycleOptions } from "../index.js";
@@ -1273,10 +1276,27 @@ export async function prepareManagedInvocationRequest(
   scopeAdmission: "required" | "already-admitted" = "required",
   admittedDeliberationResolution?: DeliberationResolution,
 ): Promise<PrepareOutcome> {
-  const { options, callerIdentity } = attachment;
+  const { options } = attachment;
   if (!context) {
     return { ok: false, result: errorResult(`${toolName} requires runtime session context.`, {}, toolName) };
   }
+  const callerResolution = resolveManagedInvocationCallerIdentity(
+    attachment.callerIdentity,
+    context.effectiveTurnAuthority,
+  );
+  if (!callerResolution.ok) {
+    return {
+      ok: false,
+      result: errorResult(callerResolution.reason, {
+        errorCode: "managed_parent_authority_unavailable",
+        status: "denied",
+      }, toolName),
+    };
+  }
+  const effectiveAttachment: ManagedInvocationToolAttachment = callerResolution.callerIdentity
+    ? { ...attachment, callerIdentity: callerResolution.callerIdentity }
+    : attachment;
+  const { callerIdentity } = effectiveAttachment;
 
   // Computed once, from `context` alone, so it is identical whether read here (for the economic
   // commitment path) or in phase 5 below (the fixed-route path and the "already-admitted"
@@ -1300,7 +1320,7 @@ export async function prepareManagedInvocationRequest(
     return resolveManagedInvocationEconomicCommitment({
       rawInput,
       context,
-      attachment,
+      attachment: effectiveAttachment,
       toolName,
       parsed,
       requestedAuthority,
@@ -1312,7 +1332,7 @@ export async function prepareManagedInvocationRequest(
     });
   }
 
-  const routeOutcome = await resolveManagedInvocationRouteAndCapability(parsed, requestedAuthority, attachment, context, toolName);
+  const routeOutcome = await resolveManagedInvocationRouteAndCapability(parsed, requestedAuthority, effectiveAttachment, context, toolName);
   if (!routeOutcome.ok) return routeOutcome;
   const { route, profileDefaults } = routeOutcome;
 
@@ -1321,7 +1341,7 @@ export async function prepareManagedInvocationRequest(
   const { prompt, resolution, contextMetadata } = contextOutcome;
 
   return buildManagedInvocationRequestRecord({
-    attachment,
+    attachment: effectiveAttachment,
     context,
     options,
     callerIdentity,

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse, stringify } from "yaml";
-import { KilnYamlError } from "./kiln-yaml-types.js";
+import { KilnYamlError, validateAgentScopeInheritance } from "./kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./config/mcp-config.js";
 import { resolveCommunicationIntent } from "@kilnai/core";
 import type {
@@ -104,6 +104,7 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
       throw new KilnYamlError(`${unknownField} is global-only or is not a supported project configuration field`);
     }
     validateQualityGates(record.qualityGates);
+    validateAgentScopeInheritance(record.permissions);
     const workGovernance = record.workGovernance;
     if (
       typeof workGovernance === "object"
@@ -203,7 +204,7 @@ export function mergeKilnYaml(base: ResolvedKilnConfig, override: KilnProjectCon
     parallelWorkers: override.parallelWorkers ?? base.parallelWorkers,
     mcp: mergeMcp(base.mcp, override.mcp),
     model: base.model,
-    permissions: override.permissions ?? base.permissions,
+    permissions: mergePermissions(base.permissions, override.permissions),
     qualityGates: override.qualityGates ?? base.qualityGates,
     providers: base.providers,
     managedAgents: base.managedAgents,
@@ -234,6 +235,40 @@ function mergeWorkGovernance(
       | readonly KilnWorkGovernanceEvidence[]
       | undefined,
     boundedWorkCeiling: base?.boundedWorkCeiling,
+  };
+}
+
+/**
+ * Preserve the global permission dimensions when a project only supplies a
+ * partial permissions object.  Admission of authority-bearing project
+ * dimensions is handled by config-merger; this function is deliberately a
+ * presence-preserving structural merge and never treats omission as removal.
+ */
+function mergePermissions(
+  base: ResolvedKilnConfig["permissions"],
+  override: KilnProjectConfig["permissions"],
+): ResolvedKilnConfig["permissions"] {
+  if (!base && !override) return undefined;
+  if (!base) return override;
+  if (!override) return base;
+
+  return {
+    ...base,
+    ...override,
+    ...(override.fileGovernance || base.fileGovernance ? {
+      fileGovernance: {
+        ...base.fileGovernance,
+        ...override.fileGovernance,
+      },
+    } : {}),
+    ...(override.memory || base.memory ? {
+      memory: {
+        ...base.memory,
+        ...override.memory,
+        ...(override.memory?.read || base.memory?.read ? { read: override.memory?.read ?? base.memory?.read } : {}),
+        ...(override.memory?.write || base.memory?.write ? { write: override.memory?.write ?? base.memory?.write } : {}),
+      },
+    } : {}),
   };
 }
 

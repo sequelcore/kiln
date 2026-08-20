@@ -127,7 +127,7 @@ describe("config-merger", () => {
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });
 
-  it("accepts a project request above the global default but within the explicit global ceiling", () => {
+  it("rejects a project request above global permissions even when the ceiling is wider", () => {
     const globalConfig = {
       version: "3",
       permissions: { approval: "on-request", sandbox: "read-only" },
@@ -147,10 +147,60 @@ describe("config-merger", () => {
         requiredEvidence: ["surface-map", "tests"],
       },
     } as unknown as ResolvedKilnConfig;
-    const narrowed = { ...projectConfig, version: "1" } as ResolvedKilnConfig;
-    mergeKilnYamlMock.mockReturnValue(narrowed);
+    expect(() => deriveEffectiveKilnYaml(globalConfig, projectConfig)).toThrow(
+      "Project permissions.sandbox cannot broaden global.permissions.",
+    );
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
 
-    expect(deriveEffectiveKilnYaml(globalConfig, projectConfig)).toBe(narrowed);
+  it("checks global permissions and permissionCeiling as independent scalar bounds", () => {
+    const globalConfig = {
+      version: "3",
+      permissions: { approval: "on-request", sandbox: "read-only" },
+      permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
+    } as KilnGlobalConfig;
+
+    expect(() => deriveEffectiveKilnYaml(globalConfig, {
+      version: "1",
+      permissions: { sandbox: "workspace-write" },
+    })).toThrow("Project permissions.sandbox cannot broaden global.permissions.");
+
+    expect(() => deriveEffectiveKilnYaml({
+      version: "3",
+      permissionCeiling: { sandbox: "read-only" },
+    } as KilnGlobalConfig, {
+      version: "1",
+      permissions: { sandbox: "workspace-write" },
+    })).toThrow("Project permissions.sandbox cannot broaden global.permissionCeiling.");
+  });
+
+  it("rejects project authority-bearing dimensions with a stable path diagnostic", () => {
+    const globalConfig = {
+      version: "3",
+      permissions: {
+        approval: "on-request",
+        sandbox: "read-only",
+        tools: [{ tool: "bash", action: "deny" }],
+      },
+    } as KilnGlobalConfig;
+
+    expect(() => deriveEffectiveKilnYaml(globalConfig, {
+      version: "1",
+      permissions: { tools: [{ tool: "git", action: "deny" }] },
+    })).toThrow("Project permissions.tools cannot be proven to narrow global.permissions.tools.");
+  });
+
+  it("allows a project policy as the root when no global permissions exist", () => {
+    const projectConfig = {
+      version: "1",
+      permissions: {
+        tools: [{ tool: "bash", action: "deny" }],
+      },
+    } as unknown as ResolvedKilnConfig;
+    const merged = { ...projectConfig, version: "1" } as ResolvedKilnConfig;
+    mergeKilnYamlMock.mockReturnValue(merged);
+
+    expect(deriveEffectiveKilnYaml({ version: "3" } as KilnGlobalConfig, projectConfig)).toBe(merged);
     expect(mergeKilnYamlMock).toHaveBeenCalledTimes(1);
   });
 

@@ -33,6 +33,21 @@ const LIVE_PROVEN_WRITE_AUTHORITY = {
   scopeReduction: true,
 } as const;
 
+const ADMITTED_PARENT_TURN_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "destructive",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} as const;
+
+function admittedExecutionOptions(): { readonly effectiveTurnAuthority: typeof ADMITTED_PARENT_TURN_AUTHORITY } {
+  return { effectiveTurnAuthority: ADMITTED_PARENT_TURN_AUTHORITY };
+}
+
 describe("runParallelWorkers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -45,7 +60,7 @@ describe("runParallelWorkers", () => {
       throw new Error("process.exit called");
     });
 
-    await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation);
+    await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation, admittedExecutionOptions());
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Orchestration:");
@@ -85,7 +100,7 @@ describe("runParallelWorkers", () => {
       {},
       2,
       rawManagedInvocation,
-      { exitOnFailure: false },
+      { ...admittedExecutionOptions(), exitOnFailure: false },
     )).rejects.toMatchObject({
       code: 1,
     });
@@ -93,6 +108,27 @@ describe("runParallelWorkers", () => {
     const errorOutput = errorSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(errorOutput).not.toContain("requires an invocation service");
     expect(errorOutput).toContain("authorityEvidence.effective-policy-unproven");
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects fan-out before lifecycle when no admitted parent authority is supplied", async () => {
+    const managedInvocation = createManagedInvocation();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+
+    await expect(runParallelWorkers(
+      MOCK_APP_CONFIG,
+      "test task",
+      {},
+      2,
+      managedInvocation,
+      { exitOnFailure: false },
+    )).rejects.toMatchObject({ code: 1 });
+
+    expect(managedInvocation.invocationService?.list()).toEqual([]);
+    expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain("admitted effective turn authority");
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -107,7 +143,7 @@ describe("runParallelWorkers", () => {
       {},
       2,
       firstManagedInvocation,
-      { exitOnFailure: false },
+      { ...admittedExecutionOptions(), exitOnFailure: false },
     );
     await runParallelWorkers(
       MOCK_APP_CONFIG,
@@ -115,7 +151,7 @@ describe("runParallelWorkers", () => {
       {},
       2,
       secondManagedInvocation,
-      { exitOnFailure: false },
+      { ...admittedExecutionOptions(), exitOnFailure: false },
     );
 
     const firstParentSessionId = firstManagedInvocation.invocationService?.list()[0]?.parentSessionId;
@@ -157,7 +193,7 @@ describe("runParallelWorkers", () => {
         version: "1",
         parallelWorkers: 1,
       },
-    }, "test task", {}, 2, managedInvocation)).rejects.toThrow("process.exit called");
+    }, "test task", {}, 2, managedInvocation, admittedExecutionOptions())).rejects.toThrow("process.exit called");
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
     expect(errorSpy.mock.calls.map((c) => c[0]).join("\n")).toContain("orchestration.maxChildren");
@@ -180,6 +216,7 @@ describe("runParallelWorkers", () => {
       2,
       managedInvocation,
       {
+        ...admittedExecutionOptions(),
         globalConfig: sessionTurnBudgetGlobalConfig(),
         exitOnFailure: false,
         sessionTokenUsageReader,
@@ -215,6 +252,7 @@ describe("runParallelWorkers", () => {
       {},
       2,
       ambiguousManagedInvocation,
+      admittedExecutionOptions(),
     )).rejects.toThrow("process.exit called");
 
     expect(managedInvocation.invocationService?.list()).toEqual([]);
@@ -236,7 +274,7 @@ describe("runParallelWorkers", () => {
         version: "1",
         parallelWorkers: 1,
       },
-    }, "test task", {}, 2, managedInvocation, { exitOnFailure: false })).rejects.toMatchObject({
+    }, "test task", {}, 2, managedInvocation, { ...admittedExecutionOptions(), exitOnFailure: false })).rejects.toMatchObject({
       code: 1,
     });
 
@@ -251,7 +289,7 @@ describe("runParallelWorkers", () => {
       throw new Error("process.exit called");
     });
 
-    await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation);
+    await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation, admittedExecutionOptions());
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Status: partial");
@@ -266,7 +304,7 @@ describe("runParallelWorkers", () => {
       throw new Error("process.exit called");
     });
 
-    await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation);
+    await runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation, admittedExecutionOptions());
 
     const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(output).toContain("Status: completed");
@@ -280,7 +318,7 @@ describe("runParallelWorkers", () => {
 
     await runParallelWorkers(MOCK_APP_CONFIG, "test task", {
       requestedAuthority: "auto",
-    }, 2, managedInvocation);
+    }, 2, managedInvocation, admittedExecutionOptions());
 
     expect(managedInvocation.invocationService?.list().map((snapshot) => snapshot.request.requestedAuthority)).toEqual([
       "auto",
@@ -296,7 +334,7 @@ describe("runParallelWorkers", () => {
       throw new Error("process.exit called");
     });
 
-    await expect(runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation)).rejects.toThrow(
+    await expect(runParallelWorkers(MOCK_APP_CONFIG, "test task", {}, 2, managedInvocation, admittedExecutionOptions())).rejects.toThrow(
       "process.exit called",
     );
 
@@ -320,7 +358,7 @@ describe("runParallelWorkers", () => {
       {},
       2,
       managedInvocation,
-      { exitOnFailure: false },
+      { ...admittedExecutionOptions(), exitOnFailure: false },
     )).rejects.toMatchObject({
       code: 1,
     });

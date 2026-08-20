@@ -218,10 +218,6 @@ vi.mock("../../src/wrapper/session-registry.js", () => ({
   isDirectApiProvider: benchmarkExecutorMocks.isDirectApiProvider,
 }));
 
-vi.mock("../../src/wrapper/index.js", () => ({
-  ApprovalMemoryStore: class ApprovalMemoryStore {},
-}));
-
 vi.mock("../../src/application/run-session.js", () => ({
   runSession: benchmarkExecutorMocks.runSession,
 }));
@@ -340,7 +336,19 @@ describe("createBenchmarkSessionExecutor", () => {
         repository: { close: benchmarkExecutorMocks.closeMemoryRepository },
       },
     });
-    benchmarkExecutorMocks.loadKilnConfig.mockResolvedValue({});
+    benchmarkExecutorMocks.loadKilnConfig.mockResolvedValue({
+      version: "1",
+      permissions: {
+        approval: "never",
+        sandbox: "workspace-write",
+        safeDefaults: false,
+        tools: [
+          { tool: "write", action: "allow" },
+          { tool: "edit", action: "allow" },
+          { tool: "patch", action: "allow" },
+        ],
+      },
+    });
     benchmarkExecutorMocks.prepare.mockResolvedValue({
       systemPrompt: "system",
       projectedContext: { blocks: [], estimatedTokens: 0 },
@@ -571,6 +579,19 @@ describe("createBenchmarkSessionExecutor", () => {
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
       makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
     );
+    benchmarkExecutorMocks.loadKilnConfig.mockResolvedValue({
+      version: "1",
+      permissions: {
+        approval: "never",
+        sandbox: "workspace-write",
+        safeDefaults: false,
+        tools: [
+          { tool: "write", action: "allow" },
+          { tool: "edit", action: "allow" },
+          { tool: "patch", action: "allow" },
+        ],
+      },
+    });
     benchmarkExecutorMocks.prepare.mockImplementationOnce(async (_task, cwd) => ({
       systemPrompt: "system",
       projectedContext: { blocks: [], estimatedTokens: 0 },
@@ -615,7 +636,15 @@ describe("createBenchmarkSessionExecutor", () => {
       },
     }));
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
-      permissionPolicy: { approval: "never", sandbox: "workspace-write" },
+      permissionPolicy: expect.objectContaining({
+        approval: "never",
+        sandbox: "workspace-write",
+        tools: [
+          { tool: "write", action: "allow" },
+          { tool: "edit", action: "allow" },
+          { tool: "patch", action: "allow" },
+        ],
+      }),
       sessionConfig: expect.objectContaining({
         cwd: leaseRoot,
         requestedAuthority: "destructive",
@@ -627,6 +656,26 @@ describe("createBenchmarkSessionExecutor", () => {
       added: [],
       deleted: [],
     });
+  });
+
+  it("rejects a write profile before provider execution when configured write authority is absent", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("opencode-go", "glm-5.2", "benchmark-write"),
+    );
+    benchmarkExecutorMocks.loadKilnConfig.mockResolvedValue({ version: "1" });
+    const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
+    const executor = createBenchmarkSessionExecutor({ appConfig: MOCK_APP_CONFIG });
+
+    await expect(executor("Fix the fixture.", makeBenchmarkContext({
+      id: "backend-write-without-authority",
+      input: "Fix the fixture.",
+      metadata: { workspaceFixture: "packages/core/evals/fixtures/model-roster-v1" },
+    }, {
+      id: "kiln-model-roster-backend-write",
+      authorityProfile: "foundation-apply-approved-writes",
+    }))).rejects.toThrow("requires admitted workspace-write");
+    expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledTimes(priorRunCount);
   });
 
   it("isolates formal_verify to the treatment arm of the paired pilot", async () => {

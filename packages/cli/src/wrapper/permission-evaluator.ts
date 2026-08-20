@@ -81,7 +81,18 @@ export interface PermissionEvaluator {
 export interface EffectivePermissionPolicyResult {
   readonly policy: NormalizedPermissionPolicy;
   readonly scope: PermissionScopeInfo;
+  /**
+   * Agent scopes are a child authority. Keep the layers available to the
+   * evaluator so root last-match semantics do not turn a child rule into a
+   * re-grant. The composed policy remains available to callers that project
+   * memory authority.
+   */
+  readonly parentPolicy?: NormalizedPermissionPolicy;
+  readonly scopedPolicy?: NormalizedPermissionPolicy;
 }
+
+export const AGENT_SCOPE_INHERIT_FALSE_ERROR =
+  "Permission agent scope inherit:false is unsupported; agent scopes may only narrow their parent.";
 
 export function resolveEffectivePermissionPolicy(
   policy: KilnPermissionPolicy,
@@ -104,22 +115,26 @@ export function resolveEffectivePermissionPolicy(
   }
 
   const inherit = matchedScope.inherit ?? true;
-  const basePolicy: KilnPermissionPolicy = inherit
-    ? normalizedRoot
-    : {
-        approval: normalizedRoot.approval,
-        sandbox: normalizedRoot.sandbox,
-        safeDefaults: false,
-        auditLog: normalizedRoot.auditLog,
-      };
+  if (!inherit) {
+    throw new TypeError(AGENT_SCOPE_INHERIT_FALSE_ERROR);
+  }
+
+  const basePolicy: KilnPermissionPolicy = normalizedRoot;
+  const scopedLayerPolicy = normalizePermissionPolicy({
+    approval: normalizedRoot.approval,
+    sandbox: normalizedRoot.sandbox,
+    tools: matchedScope.tools,
+    commands: matchedScope.commands,
+    fileGovernance: matchedScope.fileGovernance,
+  });
 
   const scopedPolicy: KilnPermissionPolicy = {
     ...basePolicy,
-    tools: mergeToolRules(basePolicy.tools, matchedScope.tools, inherit),
-    commands: mergeCommandRules(basePolicy.commands, matchedScope.commands, inherit),
-    fileGovernance: mergeFileGovernance(basePolicy.fileGovernance, matchedScope.fileGovernance, inherit),
-    memory: mergeMemoryPolicy(basePolicy.memory, matchedScope.memory, inherit),
-    dataFirewall: inherit ? basePolicy.dataFirewall : [],
+    tools: mergeToolRules(basePolicy.tools, matchedScope.tools),
+    commands: mergeCommandRules(basePolicy.commands, matchedScope.commands),
+    fileGovernance: mergeFileGovernance(basePolicy.fileGovernance, matchedScope.fileGovernance),
+    memory: intersectMemoryPolicy(basePolicy.memory, matchedScope.memory),
+    dataFirewall: basePolicy.dataFirewall,
     agentScopes: [],
   };
 
@@ -131,6 +146,8 @@ export function resolveEffectivePermissionPolicy(
       inherit,
       mcpTools: matchedScope.mcpTools,
     },
+    parentPolicy: normalizedRoot,
+    scopedPolicy: scopedLayerPolicy,
   };
 }
 
@@ -161,16 +178,17 @@ export function createPermissionEvaluator(
     evaluate(request: PermissionEvaluationRequest): PermissionDecision {
       switch (request.kind) {
         case "tool":
-          return evaluateToolRule(effective.policy, effective.scope, request.tool);
+          return evaluateToolRule(effective.policy, effective.scope, request.tool, effective);
         case "command":
           return evaluateCommandRule(
             effective.policy,
             effective.scope,
             request.command,
             request.shell ?? "any",
+            effective,
           );
         case "file":
-          return evaluateFileGovernanceRule(effective.policy, effective.scope, request.filePath);
+          return evaluateFileGovernanceRule(effective.policy, effective.scope, request.filePath, effective);
         case "destination":
           return evaluateDataFirewallRule(
             effective.policy,
@@ -181,13 +199,13 @@ export function createPermissionEvaluator(
       }
     },
     evaluateTool(tool: string): PermissionDecision {
-      return evaluateToolRule(effective.policy, effective.scope, tool);
+      return evaluateToolRule(effective.policy, effective.scope, tool, effective);
     },
     evaluateCommand(command: string, shell: "bash" | "sh" | "zsh" | "any" = "any"): PermissionDecision {
-      return evaluateCommandRule(effective.policy, effective.scope, command, shell);
+      return evaluateCommandRule(effective.policy, effective.scope, command, shell, effective);
     },
     evaluateFile(filePath: string): PermissionDecision {
-      return evaluateFileGovernanceRule(effective.policy, effective.scope, filePath);
+      return evaluateFileGovernanceRule(effective.policy, effective.scope, filePath, effective);
     },
     evaluateDestination(destination: string, classifications: readonly string[] = []): PermissionDecision {
       return evaluateDataFirewallRule(effective.policy, effective.scope, destination, classifications);
@@ -199,12 +217,29 @@ function evaluateToolRule(
   policy: NormalizedPermissionPolicy,
   scope: PermissionScopeInfo,
   tool: string,
+  layers?: EffectivePermissionPolicyResult,
 ): PermissionDecision {
+  if (layers?.parentPolicy && layers.scopedPolicy) {
+    return meetPermissionDecisions(
+      evaluateToolRuleForLayer(layers.parentPolicy, scope, tool, true),
+      evaluateToolRuleForLayer(layers.scopedPolicy, scope, tool, false),
+    );
+  }
+  return evaluateToolRuleForLayer(policy, scope, tool, true)!;
+}
+
+function evaluateToolRuleForLayer(
+  policy: NormalizedPermissionPolicy,
+  scope: PermissionScopeInfo,
+  tool: string,
+  defaultWhenUnmatched: boolean,
+): PermissionDecision | undefined {
   const canonicalTool = canonicalToolName(tool);
   const matched = findLastMatch(policy.tools, (rule) =>
     matchesPattern(canonicalTool, canonicalToolName(rule.tool)),
   );
   if (!matched) {
+    if (!defaultWhenUnmatched) return undefined;
     return {
       action: defaultAction(policy.approval),
       source: "default",
@@ -230,7 +265,24 @@ function evaluateCommandRule(
   scope: PermissionScopeInfo,
   command: string,
   shell: "bash" | "sh" | "zsh" | "any",
+  layers?: EffectivePermissionPolicyResult,
 ): PermissionDecision {
+  if (layers?.parentPolicy && layers.scopedPolicy) {
+    return meetPermissionDecisions(
+      evaluateCommandRuleForLayer(layers.parentPolicy, scope, command, shell, true),
+      evaluateCommandRuleForLayer(layers.scopedPolicy, scope, command, shell, false),
+    );
+  }
+  return evaluateCommandRuleForLayer(policy, scope, command, shell, true)!;
+}
+
+function evaluateCommandRuleForLayer(
+  policy: NormalizedPermissionPolicy,
+  scope: PermissionScopeInfo,
+  command: string,
+  shell: "bash" | "sh" | "zsh" | "any",
+  defaultWhenUnmatched: boolean,
+): PermissionDecision | undefined {
   const matched = findLastMatch(policy.commands, (rule) => {
     if (rule.shell && rule.shell !== "any" && rule.shell !== shell) {
       return false;
@@ -238,6 +290,7 @@ function evaluateCommandRule(
     return matchesPattern(command, rule.pattern);
   });
   if (!matched) {
+    if (!defaultWhenUnmatched) return undefined;
     return {
       action: defaultAction(policy.approval),
       source: "default",
@@ -262,7 +315,23 @@ function evaluateFileGovernanceRule(
   policy: NormalizedPermissionPolicy,
   scope: PermissionScopeInfo,
   filePath: string,
+  layers?: EffectivePermissionPolicyResult,
 ): PermissionDecision {
+  if (layers?.parentPolicy && layers.scopedPolicy) {
+    return meetPermissionDecisions(
+      evaluateFileGovernanceRuleForLayer(layers.parentPolicy, scope, filePath, true),
+      evaluateFileGovernanceRuleForLayer(layers.scopedPolicy, scope, filePath, false),
+    );
+  }
+  return evaluateFileGovernanceRuleForLayer(policy, scope, filePath, true)!;
+}
+
+function evaluateFileGovernanceRuleForLayer(
+  policy: NormalizedPermissionPolicy,
+  scope: PermissionScopeInfo,
+  filePath: string,
+  defaultWhenUnmatched: boolean,
+): PermissionDecision | undefined {
   const normalizedPath = normalizePath(filePath);
 
   const denyMatch = findLastGlobMatch(policy.fileGovernance.denyGlobs ?? [], normalizedPath);
@@ -307,6 +376,7 @@ function evaluateFileGovernanceRule(
     };
   }
 
+  if (!defaultWhenUnmatched) return undefined;
   return {
     action: defaultAction(policy.approval),
     source: "default",
@@ -335,10 +405,10 @@ function evaluateDataFirewallRule(
 
   if (!matched) {
     return {
-      action: "allow",
+      action: "deny",
       source: "default",
       scope,
-      dataFirewallAction: "allow",
+      dataFirewallAction: "deny",
     };
   }
 
@@ -356,77 +426,97 @@ function evaluateDataFirewallRule(
   };
 }
 
+function meetPermissionDecisions(
+  parent: PermissionDecision | undefined,
+  scoped: PermissionDecision | undefined,
+): PermissionDecision {
+  if (!parent && !scoped) {
+    throw new Error("Permission evaluator layers must provide a parent decision.");
+  }
+  if (!parent) return scoped!;
+  if (!scoped) return parent;
+
+  const rank: Record<KilnPermissionAction, number> = {
+    allow: 0,
+    ask: 1,
+    deny: 2,
+  };
+  return rank[parent.action] >= rank[scoped.action] ? parent : scoped;
+}
+
 function mergeToolRules(
   base: readonly KilnToolPermissionRule[] | undefined,
   scoped: readonly KilnToolPermissionRule[] | undefined,
-  inherit: boolean,
 ): readonly KilnToolPermissionRule[] {
   if (!scoped || scoped.length === 0) {
-    return inherit ? (base ?? []) : [];
+    return base ?? [];
   }
-  if (!inherit) {
-    return [...scoped];
-  }
-  return [...(base ?? []), ...scoped];
+  // The flattened policy is also consumed by projections. Never expose a
+  // child allow as though it were a root grant. A child ask is represented as
+  // deny here because the flat form has no parent-layer meet semantics.
+  return [
+    ...(base ?? []),
+    ...scoped
+      .filter((rule) => rule.action !== "allow")
+      .map((rule) => rule.action === "ask" ? { ...rule, action: "deny" as const } : rule),
+  ];
 }
 
 function mergeCommandRules(
   base: readonly KilnCommandPermissionRule[] | undefined,
   scoped: readonly KilnCommandPermissionRule[] | undefined,
-  inherit: boolean,
 ): readonly KilnCommandPermissionRule[] {
   if (!scoped || scoped.length === 0) {
-    return inherit ? (base ?? []) : [];
+    return base ?? [];
   }
-  if (!inherit) {
-    return [...scoped];
-  }
-  return [...(base ?? []), ...scoped];
+  return [
+    ...(base ?? []),
+    ...scoped
+      .filter((rule) => rule.action !== "allow")
+      .map((rule) => rule.action === "ask" ? { ...rule, action: "deny" as const } : rule),
+  ];
 }
 
 function mergeFileGovernance(
   base: KilnFileGovernancePolicy | undefined,
   scoped: KilnFileGovernancePolicy | undefined,
-  inherit: boolean,
 ): KilnFileGovernancePolicy {
   if (!scoped) {
-    return inherit ? (base ?? {}) : {};
-  }
-  if (!inherit) {
-    return {
-      excludeFromContext: scoped.excludeFromContext,
-      denyGlobs: deduplicateStrings(scoped.denyGlobs ?? []),
-      askGlobs: deduplicateStrings(scoped.askGlobs ?? []),
-      allowGlobs: deduplicateStrings(scoped.allowGlobs ?? []),
-    };
+    return base ?? {};
   }
 
   return {
-    excludeFromContext: scoped.excludeFromContext ?? base?.excludeFromContext,
+    excludeFromContext: (base?.excludeFromContext === true || scoped.excludeFromContext === true)
+      ? true
+      : scoped.excludeFromContext ?? base?.excludeFromContext,
     denyGlobs: deduplicateStrings([...(base?.denyGlobs ?? []), ...(scoped.denyGlobs ?? [])]),
     askGlobs: deduplicateStrings([...(base?.askGlobs ?? []), ...(scoped.askGlobs ?? [])]),
-    allowGlobs: deduplicateStrings([...(base?.allowGlobs ?? []), ...(scoped.allowGlobs ?? [])]),
+    // A child allow is omitted from the flattened projection. The evaluator
+    // still meets the independent child layer with its parent at call time.
+    allowGlobs: deduplicateStrings([...(base?.allowGlobs ?? [])]),
   };
 }
 
-function mergeMemoryPolicy(
+function intersectMemoryPolicy(
   base: KilnMemoryPermissionPolicy | undefined,
   scoped: KilnMemoryPermissionPolicy | undefined,
-  inherit: boolean,
 ): KilnMemoryPermissionPolicy {
   if (!scoped) {
-    return inherit ? (base ?? {}) : {};
-  }
-  if (!inherit) {
-    return {
-      read: deduplicateMemoryRules(scoped.read ?? []),
-      write: deduplicateMemoryRules(scoped.write ?? []),
-    };
+    return base ?? {};
   }
   return {
-    read: deduplicateMemoryRules([...(base?.read ?? []), ...(scoped.read ?? [])]),
-    write: deduplicateMemoryRules([...(base?.write ?? []), ...(scoped.write ?? [])]),
+    read: intersectMemoryRules(base?.read ?? [], scoped.read ?? []),
+    write: intersectMemoryRules(base?.write ?? [], scoped.write ?? []),
   };
+}
+
+/** Memory rules are grants; an agent retains only an exact parent grant. */
+function intersectMemoryRules(
+  parent: readonly KilnMemoryAuthorityRule[],
+  scoped: readonly KilnMemoryAuthorityRule[],
+): KilnMemoryAuthorityRule[] {
+  const parentKeys = new Set(parent.map(memoryRuleKey));
+  return deduplicateMemoryRules(scoped.filter((rule) => parentKeys.has(memoryRuleKey(rule))));
 }
 
 function deduplicateStrings(values: readonly string[]): string[] {

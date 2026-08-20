@@ -24,6 +24,18 @@ import { createInternalConsumedWriteApproval } from "../../src/agents/managed-in
 import { createAttachedRuntimeBuiltinToolSurface } from "../../src/gateway/attached-runtime-tool-surface.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutor } from "../../src/session/runtime-session-orchestrator.types.js";
+import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+
+const TEST_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "direct-provider test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 const READ_TOOL: ToolDefinition = {
   name: "read",
@@ -1784,6 +1796,7 @@ describe("ManagedDirectProviderRuntimeAdapter", () => {
         task: "Read the admitted fixture and report bounded managed-agent risks.",
       }, {
         session: parentSession,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: "managed-direct-tool-call-1",
           name: "managed_agent.invoke",

@@ -1,6 +1,5 @@
 import type {
   ManagedAgentCallerAttachmentIdentity,
-  ManagedAgentRequestedAuthority,
   ManagedInvocationExecutionProof,
 } from "@kilnai/core";
 import type {
@@ -51,24 +50,20 @@ export function createManagedInvocationExecutionProofResolverRef(): ManagedInvoc
 export function createKilnRuntimeManagedInvocationAttachment(
   surface: KilnRuntimeManagedInvocationSurface,
   options: ManagedInvocationToolOptions,
-  parentEffectiveRequestedAuthority?: ManagedAgentRequestedAuthority,
 ): ManagedInvocationToolAttachment {
   return {
     options,
-    callerIdentity: createKilnRuntimeCallerIdentity(surface, parentEffectiveRequestedAuthority),
+    callerIdentity: createKilnRuntimeCallerIdentity(surface),
   };
 }
 
 export function createKilnRuntimeCallerIdentity(
   surface: KilnRuntimeManagedInvocationSurface,
-  parentEffectiveRequestedAuthority?: ManagedAgentRequestedAuthority,
 ): ManagedAgentCallerAttachmentIdentity {
   const base = {
     kind: "kiln-runtime" as const,
     surface,
     attachmentId: `kiln-runtime:${surface}`,
   };
-  return parentEffectiveRequestedAuthority !== undefined
-    ? { ...base, parentEffectiveRequestedAuthority }
-    : base;
+  return base;
 }

@@ -14,6 +14,18 @@ import type {
 import type { ManagedAgentRuntimeAdapter } from "../../src/agents/managed-invocation/index.js";
 import type { TuiGatewayOptions } from "../../src/gateway/tui-gateway.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+
+const TEST_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "TUI test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 const tuiProcessAdmittedTurn = vi.hoisted(() => vi.fn());
 
@@ -869,6 +881,7 @@ describe("TUI gateway message fail-closed behavior", () => {
         task: "Inspect the managed invocation docs and report risks.",
       }, {
         session,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-1",
           name: "managed_agent.invoke",
@@ -1033,6 +1046,7 @@ describe("TUI gateway message fail-closed behavior", () => {
             task: "Inspect the managed invocation docs and report risks.",
           }, {
             session,
+            effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
             toolCall: {
               id: "tool-call-managed-start",
               name: "managed_agent.start",

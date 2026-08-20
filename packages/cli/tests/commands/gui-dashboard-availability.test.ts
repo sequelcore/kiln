@@ -493,7 +493,8 @@ describe("GUI dashboard provider availability", () => {
       webExtract: expect.any(Object),
       memoryResources: {
         authority: {
-          caller: { kind: "operator_surface", id: "gui" },
+          kind: "governed",
+          policy: { caller: { kind: "operator_surface", id: "gui" } },
         },
       },
       memoryMutations: {

@@ -1,5 +1,6 @@
 import {
   DOCUMENTATION_DOMAINS,
+  governedMemoryAuthority,
   MEMORY_LAYER_KINDS,
   PACKAGE_MANAGER_DOMAINS,
   SandboxPolicy,
@@ -307,11 +308,18 @@ function createProjectMemoryResources(
     return undefined;
   }
 
+  // A repository without an explicit Core authority boundary is not a
+  // usable model-facing memory surface.  Omit it rather than reintroducing
+  // omission-as-unrestricted behavior.
+  if (!authority) {
+    return undefined;
+  }
+
   const memoryStorage = resolveCliMemoryStorage(projectPath);
   mkdirSync(memoryStorage.stateDir, { recursive: true });
   return {
     repository: new SqliteMemoryRepository({ dbPath: memoryStorage.memoryDbPath }),
-    ...(authority ? { authority } : {}),
+    authority: governedMemoryAuthority(authority),
   };
 }
 
@@ -336,7 +344,7 @@ function createMemoryMutationOptions(
         eventBus,
         sessionId: callerContext.sessionId,
         tenantId: callerContext.tenantId,
-        authority,
+        authority: governedMemoryAuthority(authority),
       });
     },
   };

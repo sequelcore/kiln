@@ -42,6 +42,8 @@ import { createCanonicalMcpClient } from "../config/mcp-credentials.js";
 import { assertNativeMcpProjectionCurrent } from "../config/native-mcp-projection-sync.js";
 import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
 import { createRuntimePermissionObservationStore } from "./runtime-permission-observation.js";
+import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../config/model-facing-permission-policy.js";
+import { admitPreventiveRoute } from "../config/harness-integration-capabilities.js";
 
 export type CliHarnessProviderId = "claude" | "codex" | "opencode";
 export type DirectApiProviderId =
@@ -628,7 +630,16 @@ function collectTranslationRules(
   }
 
   for (const agentScope of policy.agentScopes) {
-    const mode = agentScope.inherit === false ? "replace" : "inherit";
+    const hasScopedRestriction = agentScope.tools !== undefined
+      || agentScope.commands !== undefined
+      || agentScope.fileGovernance !== undefined
+      || agentScope.memory !== undefined
+      || agentScope.mcpTools !== undefined;
+    const mode = agentScope.inherit === false
+      ? "replace"
+      : hasScopedRestriction
+        ? "restrict"
+        : "inherit";
     rules.push({
       category: "agent-scope",
       selector: `${agentScope.agent}:${mode}`,
@@ -835,6 +846,7 @@ export class SessionRegistry {
     if (!this._isAvailable(id)) {
       throw new Error(`Provider unavailable: ${id}`);
     }
+    assertPreventiveSessionRoute(id, config);
     return descriptor.create(config);
   }
 
@@ -985,7 +997,31 @@ export class SessionRegistry {
   }
 }
 
-const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
+function assertPreventiveSessionRoute(id: ProviderId, config: ProviderCreateConfig): void {
+  const direct = isDirectApiProvider(id);
+  const directProfile = direct
+    ? resolveDirectProviderExecutionProfile({ provider: id, model: config.model })
+    : undefined;
+  const directExecutesTools = directProfile?.executionMode === "kiln-executable";
+  const translated = direct
+    ? translatePermissionForProvider(config.permissionPolicy, id)
+    : translatePermission(config.permissionPolicy, id);
+  const admission = admitPreventiveRoute({
+    route: direct ? "direct-provider" : id,
+    // Text-only direct routes cannot perform tool effects, so no tool-route
+    // prohibition or sandbox claim is required. Kiln-executable direct
+    // routes are gated by the actual Runtime authorizer below.
+    approval: directExecutesTools ? config.permissionPolicy.approval : undefined,
+    sandbox: directExecutesTools ? config.permissionPolicy.sandbox : undefined,
+    representableRules: !direct && "representableRules" in translated ? translated.representableRules : [],
+    unsupportedRules: direct && !directExecutesTools ? [] : translated.unsupportedRules,
+  });
+  if (!admission.admitted) {
+    throw new Error(
+      `Session route '${id}' rejected before provider launch: ${admission.reason}`,
+    );
+  }
+}
 
 const HARNESS_PROVIDER_HOME_ENV: Record<HarnessPoolProviderId, string> = {
   "claude-code": "CLAUDE_CONFIG_DIR",
@@ -1060,7 +1096,7 @@ function buildDirectProviderCapabilities(provider: DirectApiProviderId): Session
     maxContextTokens: null,
     priority: DIRECT_PROVIDER_PRIORITIES[provider],
     fallbackTo: null,
-    permissionPolicy: DEFAULT_POLICY,
+    permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
   };
 }
 
@@ -1172,7 +1208,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
         maxContextTokens: null,
         priority: 1,
         fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
+        permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
       },
       create: (config) => {
         const translated = translatePermission(config.permissionPolicy, "claude") as ClaudeTranslationEnvelope;
@@ -1227,7 +1263,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
         maxContextTokens: null,
         priority: 3,
         fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
+        permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
       },
       create: (config) => {
         const canonicalMcpServers = config.canonicalMcpServers ?? options.canonicalMcpServers ?? [];
@@ -1289,7 +1325,7 @@ export function createDefaultRegistry(options: CreateDefaultRegistryOptions = {}
         maxContextTokens: null,
         priority: 2,
         fallbackTo: null,
-        permissionPolicy: DEFAULT_POLICY,
+        permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY,
       },
       create: (config) => {
         const translated = translatePermission(config.permissionPolicy, "opencode") as OpenCodeTranslationEnvelope;

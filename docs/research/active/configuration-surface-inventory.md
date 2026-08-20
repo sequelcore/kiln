@@ -71,10 +71,14 @@ corrections below, but this document remains an interim surface map until:
 - ADR-012 compatibility is revalidated; and
 - the reduced pre-ADR mechanism spike passes.
 
-The current corrective slice closes H1 and H3 and adopts resolved YAML
-permissions for normal `kiln run` sessions. H2 remains open for permission
-composition, plan-mode interaction, GUI, TUI, Tools MCP, and the explicit
-boundary between parent permissions and managed-child authority profiles.
+The current corrective work closes H1 and H3. The authority decision for H2 is
+ratified in [ADR-015](../../adr/ADR-015-model-facing-execution-authority.md),
+and its immediate fail-closed containment now covers the shared model-facing
+default, partial project composition, plan and agent attenuation, GUI, TUI,
+Tools MCP, explicit memory callers, managed-parent authority, egress default,
+and preventive route admission. The replacement permission vocabulary,
+typed authority bounds, complete provenance projection, and full configured /
+execution snapshot contracts remain transferred to Slices 1 and 2.
 
 ### H1 — Global bounded-work authority is lost during composition
 
@@ -116,11 +120,15 @@ requires one canonical authority source across status, run, tools MCP, GUI,
 TUI, and managed invocation, with cross-surface negative fixtures. Unsupported
 permission surfaces are removed rather than retained as inert configuration.
 
-**Current correction:** normal `kiln run` sessions now consume permissions from
-the resolved canonical YAML configuration, with no programmatic permission
-override in `RunFlags`. The fixed plan policy remains a separate explicit mode.
-This does not close the unresolved global/project lattice or the other surface
-adapters.
+**Current correction:** every model-facing surface derives the central
+`on-request/read-only` posture and consumes admitted configuration. Project
+omission cannot erase global dimensions; unprovable complex widening rejects;
+status uses the runtime admission path; plan and agent layers only attenuate;
+managed children require admitted parent authority; Tools MCP meets configured,
+effect, and caller decisions; memory authority is explicit; unmatched egress
+denies; and unenforceable routes reject before provider launch. Slices 1 and 2
+still own the replacement schema vocabulary, typed global bounds, fingerprints,
+and provenance-bearing read model.
 
 ### H3 — Required project quality gates can disappear
 
@@ -302,7 +310,7 @@ than surface-local inference.
 | Blocker | Blocking slice | Owner | Closure evidence | Transfer condition |
 | --- | --- | --- | --- | --- |
 | H1 | Slice 1 project pilot and Slice 2 parity | CLI project composition | failing then passing ceiling preservation/rejection tests across status and runtime composition | closed only when project cannot omit or widen the global ceiling |
-| H2 | Slice 0 authority decision, Slice 1 admission, and Slice 2 parity | permission authority plus each execution-surface adapter | cross-surface negative fixture for the same denied effect | implementation transfers only after one canonical permission source and lattice are named |
+| H2 | Authority decision and immediate containment closed; replacement schema in Slice 1 and provenance parity in Slice 2 | CLI permission composition, Runtime caller attenuation, Core invocation/effect admission | cross-surface denial, parent, egress, memory, Tools MCP, and route-startup negative fixtures | ADR-015 is authoritative; transfer only the named schema/read-model artifacts, not another authority source |
 | H3 | Slice 1 project pilot | project configuration and run verification owners | global-plus-project required failing gate changes terminal result; `coverageThreshold` implemented or deleted | no transfer while admitted project gates can disappear |
 | B1 | Slice 9 app/gateway migration; also blocks onboarding that emits gateway config | CLI init writer and Core gateway reader | generated output passes the production gateway reader | may remain outside the project-schema pilot after the writer/reader contradiction is named |
 | B2 | Slices 1 and 2 | CLI effective composition and shared status projection | one admitted composition path produces identical runtime/status outcomes | expand closure to include H1–H3 rather than status merge alone |
@@ -531,6 +539,15 @@ It must prove:
 - stable path-addressed diagnostics; and
 - the explicitly selected byte/comment/formatting policy.
 
+**Result:** passed in
+`packages/cli/tests/config/project-schema-fidelity-spike.test.ts`. The fixture
+selects a TypeBox-owned strict runtime/JSON schema with inferred TypeScript
+type, deterministic canonical JSON, schema-derived descriptors, separate
+semantic admission, and YAML `Document` AST mutation. Comments, ordering,
+quoting, anchors, and aliases outside the edited scalar remain intact. The
+durable decision and its invalidation conditions are recorded in
+[ADR-014](../../adr/ADR-014-configuration-schema-and-mutation-ownership.md).
+
 ### ADR-012 diagnostic compatibility fixture
 
 Use one small global document at the same canonical version to prove:
@@ -585,7 +602,9 @@ The inventory supports an ADR only after these decisions are explicit:
 - Complete dynamic consumers outside repository imports were not proven absent.
 - Per-field activation behavior is almost entirely unknown and must be observed
   or assigned by its runtime owner.
-- The app graph admission gap and status/runtime merge divergence are strongly
-  evidenced statically but still need dedicated failing behavior tests.
-- No schema library has been evaluated yet. Existing Zod use in shared gateway
-  contracts is repository evidence, not a decision for configuration schemas.
+- Project-permission status/runtime rejection parity is now covered by one
+  focused negative fixture. The separate app graph admission gap still needs
+  its owning behavior test.
+- TypeBox is selected only for the project-schema pilot by the bounded spike.
+  Other configuration families still require an owner-local proof before
+  adopting it.

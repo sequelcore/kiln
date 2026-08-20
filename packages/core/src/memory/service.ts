@@ -9,7 +9,7 @@ import type {
   MemoryRevisionCreatedEvent,
 } from "../events/index.js";
 import type {
-  MemoryAuthorityPolicy,
+  MemoryAuthorityBoundary,
   MemoryContextAdmission,
   MemoryRecord,
   MemoryRelation,
@@ -32,7 +32,8 @@ export interface MemoryMutationServiceOptions {
   readonly eventBus?: EventBus;
   readonly sessionId?: string;
   readonly tenantId?: string;
-  readonly authority?: MemoryAuthorityPolicy;
+  /** Explicitly governed or explicitly trusted-internal; omission is invalid. */
+  readonly authority: MemoryAuthorityBoundary;
 }
 
 const DEFAULT_MEMORY_SESSION_ID = "memory";
@@ -42,7 +43,7 @@ export class MemoryMutationService {
   private readonly eventBus: EventBus | undefined;
   private readonly sessionId: string;
   private readonly tenantId: string | undefined;
-  private readonly authority: MemoryAuthorityPolicy | undefined;
+  private readonly authority: MemoryAuthorityBoundary;
 
   constructor(options: MemoryMutationServiceOptions) {
     this.repository = options.repository;
@@ -75,6 +76,9 @@ export class MemoryMutationService {
 
   deleteRecord(id: string): boolean {
     const existing = this.repository.getRecord(id);
+    if (existing) {
+      this.assertMutationAuthority({ operation: "delete", scope: existing.scope, layer: existing.layer });
+    }
     const deleted = this.repository.deleteRecord(id);
     if (deleted && existing) {
       this.emit({
@@ -91,8 +95,12 @@ export class MemoryMutationService {
   }
 
   saveRelation(input: MemoryRelationDraft): MemoryRelation {
+    const sourceRecord = this.repository.getRecord(input.sourceRecordId);
+    if (sourceRecord) {
+      this.assertMutationAuthority({ operation: "relate", scope: sourceRecord.scope, layer: sourceRecord.layer });
+    }
     const relation = this.repository.saveRelation(input);
-    const sourceRecord = this.repository.getRecord(relation.sourceRecordId);
+    const savedSourceRecord = this.repository.getRecord(relation.sourceRecordId);
     this.emit({
       type: "memory_relation_created",
       relationId: relation.id,
@@ -100,7 +108,7 @@ export class MemoryMutationService {
       ...(relation.target.kind === "memory_record" ? { targetRecordId: relation.target.id } : {}),
       ...(relation.target.kind === "resource" ? { targetUri: relation.target.uri } : {}),
       relationType: relation.type,
-      ...(sourceRecord ? { scope: sourceRecord.scope } : {}),
+      ...(savedSourceRecord ? { scope: savedSourceRecord.scope } : {}),
       timestamp: new Date(),
       sessionId: this.sessionId,
       ...(this.tenantId ? { tenantId: this.tenantId } : {}),
@@ -109,13 +117,17 @@ export class MemoryMutationService {
   }
 
   saveRevision(revision: MemoryRevision): MemoryRevision {
+    const record = this.repository.getRecord(revision.recordId);
+    if (record) {
+      this.assertMutationAuthority({ operation: "revise", scope: record.scope, layer: record.layer });
+    }
     const saved = this.repository.saveRevision(revision);
-    const record = this.repository.getRecord(saved.recordId);
+    const savedRecord = this.repository.getRecord(saved.recordId);
     this.emit({
       type: "memory_revision_created",
       revisionId: saved.id,
       recordId: saved.recordId,
-      ...(record ? { scope: record.scope } : {}),
+      ...(savedRecord ? { scope: savedRecord.scope } : {}),
       timestamp: new Date(),
       sessionId: this.sessionId,
       ...(this.tenantId ? { tenantId: this.tenantId } : {}),
@@ -124,13 +136,17 @@ export class MemoryMutationService {
   }
 
   saveContextAdmission(admission: MemoryContextAdmission): MemoryContextAdmission {
+    const record = this.repository.getRecord(admission.recordId);
+    if (record) {
+      this.assertMutationAuthority({ operation: "promote", scope: record.scope, layer: record.layer });
+    }
     const saved = this.repository.saveContextAdmission(admission);
-    const record = this.repository.getRecord(saved.recordId);
+    const savedRecord = this.repository.getRecord(saved.recordId);
     this.emit({
       type: saved.decision === "admitted" ? "memory_context_admitted" : "memory_context_deferred",
       admissionId: saved.id,
       recordId: saved.recordId,
-      ...(record ? { scope: record.scope } : {}),
+      ...(savedRecord ? { scope: savedRecord.scope } : {}),
       timestamp: new Date(),
       sessionId: this.sessionId,
       ...(this.tenantId ? { tenantId: this.tenantId } : {}),
@@ -159,14 +175,22 @@ export class MemoryMutationService {
   }
 
   private assertWriteAuthority(input: CreateMemoryRecordInput): void {
-    if (!this.authority) {
-      return;
-    }
-    assertMemoryWriteAuthorized(this.authority, {
+    this.assertMutationAuthority({
       operation: "save",
       scope: input.scope,
       layer: input.layer,
     });
+  }
+
+  private assertMutationAuthority(request: {
+    readonly operation: Parameters<typeof assertMemoryWriteAuthorized>[1]["operation"];
+    readonly scope: CreateMemoryRecordInput["scope"];
+    readonly layer: CreateMemoryRecordInput["layer"];
+  }): void {
+    if (this.authority.kind === "trusted-internal") {
+      return;
+    }
+    assertMemoryWriteAuthorized(this.authority.policy, request);
   }
 }
 

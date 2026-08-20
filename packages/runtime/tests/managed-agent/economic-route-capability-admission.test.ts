@@ -8,6 +8,23 @@ import {
   type ManagedInvocationToolRoute,
 } from "../../src/agents/managed-invocation/index.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.types.js";
+import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+
+const TEST_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "managed economic test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
+
+const TEST_DESTRUCTIVE_PARENT_AUTHORITY = {
+  ...TEST_PARENT_AUTHORITY,
+  requestedAuthority: "destructive",
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 const readonlyProfile = {
   authorityProfileId: "readonly",
@@ -297,6 +314,7 @@ describe("managed economic candidate admission", () => {
     }, {
       session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
       turnId: "turn-test",
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
     }) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
 
@@ -355,6 +373,7 @@ describe("managed economic candidate admission", () => {
     }, {
       session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
       turnId: "turn-test",
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: {
         id: "tool-call-test",
         name: "managed_agent.invoke",
@@ -464,6 +483,7 @@ describe("managed economic candidate admission", () => {
         appendSessionEvents: (events: readonly unknown[]) => { sessionEvents.push(...events); },
       } as RuntimeBuiltinToolExecutionContext["session"],
       turnId: "turn-test",
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
     }) as { readonly isError: boolean; readonly output: string };
 
@@ -526,6 +546,7 @@ describe("managed economic candidate admission", () => {
     }, {
       session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
       turnId: "turn-test",
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
     }) as { readonly output: string; readonly metadata: Record<string, unknown> };
 
@@ -571,6 +592,7 @@ describe("managed economic candidate admission", () => {
     }, {
       session: { id: "session-test" } as RuntimeBuiltinToolExecutionContext["session"],
       turnId: "turn-test",
+      effectiveTurnAuthority: TEST_DESTRUCTIVE_PARENT_AUTHORITY,
       toolCall: { id: "tool-call-test", name: "managed_agent.invoke", input: {} },
       requestApproval,
     }) as { readonly output: string; readonly metadata: Record<string, unknown> };

@@ -62,6 +62,23 @@ import {
 import { CodexOAuthCredentialPoolService } from "../../src/agents/credential-pool/codex-oauth-credential-pool.js";
 import { OpenCodeCredentialPoolService } from "../../src/agents/credential-pool/opencode-credential-pool.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
+import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
+
+const TEST_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "GUI test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
+
+const TEST_WRITE_PARENT_AUTHORITY = {
+  ...TEST_PARENT_AUTHORITY,
+  requestedAuthority: "destructive",
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 const guiSocketHarness = vi.hoisted(() => {
   type HandlerFactory = (context: Context) => WSEvents<unknown>;
@@ -514,6 +531,23 @@ function makeManagedInvocationAttachment(
       attachmentId: "attachment:gui-test",
     },
   };
+}
+
+function createTestManagedInvocationExecutors(attachment: ManagedInvocationToolAttachment) {
+  const executors = createManagedInvocationLifecycleToolExecutors(attachment);
+  const wrapped = new Map<string, typeof executors extends ReadonlyMap<string, infer E> ? E : never>();
+  for (const [toolName, executor] of executors) {
+    wrapped.set(toolName, async (input, context) => {
+      if (!context) return executor(input, context);
+      return executor(input, {
+        ...context,
+        ...(context.effectiveTurnAuthority
+          ? { effectiveTurnAuthority: context.effectiveTurnAuthority }
+          : { effectiveTurnAuthority: TEST_PARENT_AUTHORITY }),
+      });
+    });
+  }
+  return wrapped;
 }
 
 function makeManagedWriteConflictFixture(): {
@@ -2042,6 +2076,7 @@ describe("startGuiGateway static mount", () => {
         task: "Inspect the managed invocation docs and report risks.",
       }, {
         session,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-1",
           name: "managed_agent.invoke",
@@ -2179,7 +2214,7 @@ describe("startGuiGateway static mount", () => {
         reason: unavailableReason,
       }],
     } satisfies ManagedInvocationToolOptions;
-    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
+    const startManagedAgent = createTestManagedInvocationExecutors(
       makeManagedInvocationAttachment(managedInvocation),
     ).get("managed_agent.start");
     if (!startManagedAgent) {
@@ -2193,6 +2228,7 @@ describe("startGuiGateway static mount", () => {
         userId: "operator-1",
         systemPrompt: "You are a helpful assistant.",
       }),
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: {
         id: toolCallId,
         name: "managed_agent.start",
@@ -2480,7 +2516,7 @@ describe("startGuiGateway static mount", () => {
     );
     const managedInvocation = createManagedInvocation();
     const toolCallId = `tool-call-managed-start-${expectedMetadata.routeId}`;
-    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
+    const startManagedAgent = createTestManagedInvocationExecutors(
       makeManagedInvocationAttachment(managedInvocation),
     ).get("managed_agent.start");
     if (!startManagedAgent) {
@@ -2494,6 +2530,7 @@ describe("startGuiGateway static mount", () => {
         userId: "operator-1",
         systemPrompt: "You are a helpful assistant.",
       }),
+      effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
       toolCall: {
         id: toolCallId,
         name: "managed_agent.start",
@@ -2704,6 +2741,7 @@ describe("startGuiGateway static mount", () => {
       }));
       const active = await startManagedAgent(startInput, {
         session,
+        effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-active-write",
           name: "managed_agent.start",
@@ -2718,6 +2756,7 @@ describe("startGuiGateway static mount", () => {
       activeInvocationId = (active.metadata as { invocationId: string }).invocationId;
       const denied = await startManagedAgent(startInput, {
         session,
+        effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-conflicting-write",
           name: "managed_agent.start",
@@ -2915,7 +2954,7 @@ describe("startGuiGateway static mount", () => {
       "../../src/gateway/message-pipeline/index.js",
     );
     const { invocationService, managedInvocation, releaseActive, startInput } = makeManagedWriteConflictFixture();
-    const startManagedAgent = createManagedInvocationLifecycleToolExecutors(
+    const startManagedAgent = createTestManagedInvocationExecutors(
       makeManagedInvocationAttachment(managedInvocation),
     ).get("managed_agent.start");
     if (!startManagedAgent) {
@@ -2934,6 +2973,7 @@ describe("startGuiGateway static mount", () => {
     });
     const active = await startManagedAgent(startInput, {
       session: parentSession,
+      effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
       toolCall: {
         id: "tool-call-managed-active-write",
         name: "managed_agent.start",
@@ -2949,6 +2989,7 @@ describe("startGuiGateway static mount", () => {
     const toolCallId = "tool-call-managed-conflicting-write";
     const denied = await startManagedAgent(startInput, {
       session: parentSession,
+      effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
       toolCall: {
         id: toolCallId,
         name: "managed_agent.start",
@@ -3647,6 +3688,7 @@ describe("startGuiGateway static mount", () => {
         task: "Inspect a long-running GUI child.",
       }, {
         session,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-start",
           name: "managed_agent.start",
@@ -3884,6 +3926,7 @@ describe("startGuiGateway static mount", () => {
         task: "Inspect a promptable GUI child.",
       }, {
         session,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-prompt-start",
           name: "managed_agent.start",
@@ -4110,6 +4153,7 @@ describe("startGuiGateway static mount", () => {
         task: "Inspect a long-running GUI child.",
       }, {
         session,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-start",
           name: "managed_agent.start",
@@ -4296,6 +4340,7 @@ describe("startGuiGateway static mount", () => {
       }
       const toolResult = await startManagedAgent(startInput, {
         session,
+        effectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
         toolCall: {
           id: "tool-call-managed-dirty-worktree-start",
           name: "managed_agent.start",
@@ -4631,6 +4676,7 @@ describe("startGuiGateway static mount", () => {
         task: `Inspect a ${terminalCase.lifecycleState} GUI child.`,
       }, {
         session,
+        effectiveTurnAuthority: TEST_PARENT_AUTHORITY,
         toolCall: {
           id: `tool-call-managed-start-${terminalCase.lifecycleState}`,
           name: "managed_agent.start",

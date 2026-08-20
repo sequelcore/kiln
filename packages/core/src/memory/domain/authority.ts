@@ -40,6 +40,45 @@ export interface MemoryAuthorityPolicy {
   readonly rules: readonly MemoryAuthorityRule[];
 }
 
+/**
+ * An explicit boundary for memory access.
+ *
+ * A missing policy is not a permission.  Model-facing callers use the
+ * governed branch; trusted infrastructure must opt in through the factory
+ * below so unrestricted access cannot be introduced by omission.
+ */
+export type MemoryAuthorityBoundary =
+  | {
+    readonly kind: "governed";
+    readonly policy: MemoryAuthorityPolicy;
+  }
+  | {
+    readonly kind: "trusted-internal";
+    readonly token: TrustedInternalMemoryAuthority;
+  };
+
+/** Nominal capability created only for explicitly trusted infrastructure. */
+export class TrustedInternalMemoryAuthority {
+  private constructor() {}
+
+  private declare readonly brand: undefined;
+
+  static create(): TrustedInternalMemoryAuthority {
+    return new TrustedInternalMemoryAuthority();
+  }
+}
+
+export function governedMemoryAuthority(policy: MemoryAuthorityPolicy): MemoryAuthorityBoundary {
+  return { kind: "governed", policy: defineMemoryAuthorityPolicy(policy) };
+}
+
+export function trustedInternalMemoryAuthority(): MemoryAuthorityBoundary {
+  return {
+    kind: "trusted-internal",
+    token: TrustedInternalMemoryAuthority.create(),
+  };
+}
+
 export interface MemoryAuthorityWriteRequest {
   readonly operation: MemoryAuthorityOperation;
   readonly scope: MemoryScope;

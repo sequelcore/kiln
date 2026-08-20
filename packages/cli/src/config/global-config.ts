@@ -37,7 +37,7 @@ import {
 } from "@kilnai/core";
 import { describeRunningCliBuild } from "../build-identity.js";
 import { KilnYamlError } from "../kiln-yaml.js";
-import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
+import { DEFAULT_WORK_GOVERNANCE_CONFIG, validateAgentScopeInheritance } from "../kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./mcp-config.js";
 import { validateSkillVisibilityConfig } from "./skill-visibility.js";
 import type {
@@ -554,6 +554,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "targetCatalog");
   validateRecordField(config, "targetRouting");
   validateRecordField(config, "permissions");
+  validateAgentScopeInheritance(config.permissions, "permissions");
   validateRecordField(config, "permissionCeiling");
   validateRecordField(config, "mcp");
   validateRecordField(config, "hooks");

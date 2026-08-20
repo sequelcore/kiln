@@ -25,11 +25,10 @@ import {
 import type { KilnAppConfig } from "../config.js";
 import {
   BENCHMARK_EXECUTION_ENVELOPE,
-  BENCHMARK_POLICY,
-  BENCHMARK_WRITE_POLICY,
   createBenchmarkSessionExecutor,
   type BenchmarkSessionExecutorFlags,
 } from "../application/benchmark-session-executor.js";
+import { resolveBenchmarkPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import {
   BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
   BACKEND_VERIFIER_ID,
@@ -344,6 +343,10 @@ async function runInternalBenchmark(
       ? item.metadata.pairId.trim()
       : item.id
   )))];
+  const benchmarkPermissionPolicy = resolveBenchmarkPermissionPolicy(
+    config.kilnYaml?.permissions,
+    writeProfile ? "write" : "read-only",
+  );
   const runs = [];
   for (const deliberationLevel of deliberationMembers) {
     const executorFlags = readExecutorFlags(args, deliberationLevel, accountOverrideIds, benchmarkPairIds);
@@ -369,9 +372,7 @@ async function runInternalBenchmark(
         } : { mode: "repository-worktree-v1" },
         k,
         authorityProfile: profile.authorityProfile,
-        permissionPolicy: writeProfile
-          ? BENCHMARK_WRITE_POLICY
-          : BENCHMARK_POLICY,
+        permissionPolicy: benchmarkPermissionPolicy,
         executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
         ...(profile.id === "kiln-model-roster-backend-write" ? {
           strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],

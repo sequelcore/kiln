@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "bun:sqlite";
 import {
   defineMemoryAuthorityPolicy,
+  governedMemoryAuthority,
   MemoryGraphResourceProvider,
   SqliteMemoryRepository,
   ToolCatalogIndex,
@@ -14,6 +15,7 @@ import {
   ResourceListTool,
   ResourceReadTool,
   ResourceTemplateListTool,
+  trustedInternalMemoryAuthority,
   type CreateMemoryRecordInput,
   type MemoryLayerKind,
   type MemoryProvenance,
@@ -32,7 +34,7 @@ describe("MemoryGraphResourceProvider", () => {
       catalog: new ToolCatalogIndex([]),
       monitorRegistry: new MonitorRegistry(),
       taskStateStore: new TaskStateStore(),
-      providers: [new MemoryGraphResourceProvider({ repository })],
+      providers: [new MemoryGraphResourceProvider({ repository, authority: trustedInternalMemoryAuthority() })],
     });
   });
 
@@ -376,7 +378,7 @@ describe("MemoryGraphResourceProvider", () => {
       catalog: new ToolCatalogIndex([]),
       monitorRegistry: new MonitorRegistry(),
       taskStateStore: new TaskStateStore(),
-      providers: [new MemoryGraphResourceProvider({ repository, maxPayloadBytes: 120 })],
+      providers: [new MemoryGraphResourceProvider({ repository, maxPayloadBytes: 120, authority: trustedInternalMemoryAuthority() })],
     });
 
     await expect(registry.read("kiln://memory/nodes/root?scope=project%3Aother")).rejects.toThrow("Memory resource not found");
@@ -735,7 +737,7 @@ function createRegistryWithAuthority(repository: MemoryRepository): ToolResource
     taskStateStore: new TaskStateStore(),
     providers: [new MemoryGraphResourceProvider({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-2a" },
         rules: [{
           access: "read",
@@ -744,7 +746,7 @@ function createRegistryWithAuthority(repository: MemoryRepository): ToolResource
           scopeIds: ["kiln"],
           layers: ["semantic"],
         }],
-      }),
+      })),
     })],
   });
 }
@@ -756,10 +758,10 @@ function createRegistryWithZeroRuleAuthority(repository: MemoryRepository): Tool
     taskStateStore: new TaskStateStore(),
     providers: [new MemoryGraphResourceProvider({
       repository,
-      authority: defineMemoryAuthorityPolicy({
+      authority: governedMemoryAuthority(defineMemoryAuthorityPolicy({
         caller: { kind: "agent", id: "worker-0z" },
         rules: [],
-      }),
+      })),
     })],
   });
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { memoryCommand } from "../../src/commands/memory.js";
 import type { KilnAppConfig } from "../../src/config.js";
@@ -37,7 +37,8 @@ describe("memoryCommand", () => {
   });
 
   it("reads the Memory Lattice graph through the shared resource plane", async () => {
-    await memoryCommand(MOCK_APP_CONFIG, "graph", ["--scope", "project:kiln", "--query", "lattice", "--limit", "25"], tempDir);
+    const projectScope = `project:${basename(tempDir)}`;
+    await memoryCommand(MOCK_APP_CONFIG, "graph", ["--scope", projectScope, "--query", "lattice", "--limit", "25"], tempDir);
 
     const output = consoleSpy.mock.calls.map((c: unknown[]) => c[0]).join("\n");
     const payload = JSON.parse(output);
@@ -48,7 +49,7 @@ describe("memoryCommand", () => {
       truncated: false,
     });
     expect(payload.filters).toMatchObject({
-      scope: { kind: "project", id: "kiln" },
+      scope: { kind: "project", id: basename(tempDir) },
       query: "lattice",
     });
   });

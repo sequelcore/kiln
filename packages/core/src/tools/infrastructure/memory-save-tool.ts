@@ -39,9 +39,9 @@ export class MemorySaveTool implements DevTool {
 
   async execute(input: ToolInput): Promise<ToolResult> {
     const callerContext = this.options.callerContext ?? {};
-    const service = this.options.service?.(callerContext) ?? (
-      this.options.repository ? new MemoryMutationService({ repository: this.options.repository }) : undefined
-    );
+    // A repository alone is not an authority boundary.  The owning surface
+    // must provide a governed or explicitly trusted-internal service.
+    const service = this.options.service?.(callerContext);
     if (!service) {
       return toErrorResult("No MemoryMutationService is configured for this tool surface.", memoryToolMetadata("memory_save", {
         operation: "save",

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -42,6 +42,7 @@ import type { RuntimeFormalVerificationObservation } from "../../src/work-govern
 import { buildManagedInvocationPhaseCompletion } from "../../src/agents/managed-invocation/phase-recovery.js";
 import { RuntimeSession } from "../../src/session/runtime-session.js";
 import type { RuntimeBuiltinToolExecutionContext } from "../../src/session/runtime-session-orchestrator.js";
+import type { EffectiveTurnAuthoritySnapshot } from "../../src/session/runtime-session-orchestrator.types.js";
 
 const TEST_HANDOFF_PROVENANCE = {
   delivery: "runtime-generated",
@@ -60,6 +61,22 @@ const RUNTIME_LOCAL_MUTATION_EFFECT: ActionEffectEnvelope = {
   consequences: ["local-state"],
   idempotency: "non-idempotent",
 };
+
+const TEST_PARENT_AUTHORITY = {
+  executionMode: "execute",
+  requestedAuthority: "read_only",
+  admittedAuthority: "destructive",
+  sourcePolicy: "runtime_surface_projection",
+  reason: "attached runtime test parent turn authority is explicitly admitted",
+  completeness: "authoritative",
+  toolCount: 1,
+  deniedToolCount: 0,
+} satisfies EffectiveTurnAuthoritySnapshot;
+
+const TEST_WRITE_PARENT_AUTHORITY = {
+  ...TEST_PARENT_AUTHORITY,
+  requestedAuthority: "destructive",
+} satisfies EffectiveTurnAuthoritySnapshot;
 
 function testBoundedWorkRevision(goalRunId: string, objective: string, workItemIds: readonly string[]) {
   return adoptBoundedWorkContractRevision({
@@ -109,10 +126,13 @@ function testBoundedWorkRevision(goalRunId: string, objective: string, workItemI
 }
 
 function createAttachedRuntimeBuiltinToolSurface(
-  options: NonNullable<Parameters<typeof createRuntimeBuiltinToolSurface>[0]> = {},
+  options: NonNullable<Parameters<typeof createRuntimeBuiltinToolSurface>[0]> & {
+    readonly testEffectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot | null;
+  } = {},
 ) {
-  const managed = options.managedInvocation;
-  if (!managed) return createRuntimeBuiltinToolSurface(options);
+  const { testEffectiveTurnAuthority, ...surfaceOptions } = options;
+  const managed = surfaceOptions.managedInvocation;
+  if (!managed) return createRuntimeBuiltinToolSurface(surfaceOptions);
   const attachment = "options" in managed && "callerIdentity" in managed
     ? managed
     : {
@@ -123,8 +143,8 @@ function createAttachedRuntimeBuiltinToolSurface(
           attachmentId: "attachment:runtime-test",
         },
       };
-  return createRuntimeBuiltinToolSurface({
-    ...options,
+  const surface = createRuntimeBuiltinToolSurface({
+    ...surfaceOptions,
     managedInvocation: {
       ...attachment,
       boundedWorkAdmission: attachment.boundedWorkAdmission ?? (options.boundedWork ? undefined : () => ({
@@ -139,6 +159,23 @@ function createAttachedRuntimeBuiltinToolSurface(
       })),
     },
   });
+  const authority = testEffectiveTurnAuthority === null
+    ? undefined
+    : testEffectiveTurnAuthority ?? TEST_PARENT_AUTHORITY;
+  if (!authority) return surface;
+  const callBuiltinTools = new Map<string, typeof surface.callBuiltinTools extends ReadonlyMap<string, infer E> ? E : never>();
+  for (const [toolName, executor] of surface.callBuiltinTools) {
+    callBuiltinTools.set(toolName, async (input, context) => {
+      if (!context) return executor(input, context);
+      return executor(input, {
+        ...context,
+        ...(context.effectiveTurnAuthority
+          ? { effectiveTurnAuthority: context.effectiveTurnAuthority }
+          : { effectiveTurnAuthority: authority }),
+      });
+    });
+  }
+  return { ...surface, callBuiltinTools };
 }
 
 function projectToolDefinitions(
@@ -483,6 +520,25 @@ function makeManagedExecutionStartTool(
 }
 
 describe("attached runtime builtin tool surface", () => {
+  it("rejects a managed call when the per-call parent authority snapshot is absent", async () => {
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      managedInvocation: { routes: [] },
+      testEffectiveTurnAuthority: null,
+    });
+    const result = await runtimeSurface.callBuiltinTools.get("managed_agent.invoke")?.({
+      profile: "foundation-readonly-plan",
+      task: "Inspect without an admitted parent authority.",
+    }, {
+      session: makeRuntimeSession(),
+      toolCall: { id: "tool-call-missing-parent-authority", name: "managed_agent.invoke", input: {} },
+    }) as { readonly isError: boolean; readonly metadata: Record<string, unknown> };
+
+    expect(result).toMatchObject({
+      isError: true,
+      metadata: { errorCode: "managed_parent_authority_unavailable" },
+    });
+  });
+
   it("carries an opaque frozen formal-verification envelope to the registered finish tool", async () => {
     let finishInput: ToolInput | undefined;
     let finishContext: unknown;
@@ -949,6 +1005,7 @@ describe("attached runtime builtin tool surface", () => {
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
       builtinToolOptions: { workItemStore, goalRunStore },
       boundedWork: { projectRuntimeId: "project:effects", authority },
+      testEffectiveTurnAuthority: TEST_WRITE_PARENT_AUTHORITY,
       managedInvocation: {
         routes: [{
           routeId: "write-route",
@@ -4384,7 +4441,7 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
       builtinToolOptions: {
         toolProjection: {
           mode: "strict",
-          alwaysOnTools: ["read", "write", "edit", "patch"],
+          alwaysOnTools: ["read", "edit", "patch"],
         },
       },
     });
@@ -4409,16 +4466,18 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     };
 
     try {
-      await expect(runtimeSurface.callBuiltinTools.get("write")?.({
+      await expect(runtimeSurface.callBuiltinTools.get("edit")?.({
         filePath: "inside.txt",
-        content: "after",
+        oldString: "before",
+        newString: "after",
       }, { sandbox, authority } as RuntimeBuiltinToolExecutionContext)).resolves.toMatchObject({ isError: false });
-      await expect(runtimeSurface.callBuiltinTools.get("write")?.({
+      await expect(runtimeSurface.callBuiltinTools.get("edit")?.({
         filePath: siblingRoot,
-        content: "escaped",
+        oldString: "outside",
+        newString: "escaped",
       }, { sandbox, authority } as RuntimeBuiltinToolExecutionContext)).resolves.toMatchObject({
         isError: true,
-        output: expect.stringContaining("Write access denied"),
+        output: expect.stringContaining("access denied"),
       });
     } finally {
       await rm(leaseRoot, { recursive: true, force: true });
@@ -4791,23 +4850,45 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
   });
 
   it("hands admitted invocation authority to the core tool bridge", async () => {
-    const commandRunner = vi.fn(async () => ({ stdout: "ok\n", stderr: "" }));
+    const leaseRoot = await mkdtemp(join(tmpdir(), "kiln-authority-bridge-"));
+    await writeFile(join(leaseRoot, "inside.txt"), "before", "utf8");
     const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
-      builtinToolOptions: { bash: { commandRunner } },
+      builtinToolOptions: {
+        toolProjection: { mode: "strict", alwaysOnTools: ["edit"] },
+      },
     });
 
-    const result = await runtimeSurface.callBuiltinTools.get("bash")?.({
-      command: "bunx vitest run",
-    }, {
-      authority: {
-        level: 4,
-        allowed: true,
-        requiresApproval: false,
-        reason: "Destructive authority admitted by the runtime turn",
-      },
-    }) as { isError: boolean; output: string };
+    try {
+      await expect(runtimeSurface.callBuiltinTools.get("edit")?.({
+        filePath: join(leaseRoot, "inside.txt"),
+        oldString: "before",
+        newString: "blocked",
+      }, {
+        authority: {
+          level: 4,
+          allowed: false,
+          requiresApproval: false,
+          reason: "Parent runtime denied this invocation",
+        },
+      })).rejects.toThrow("Parent runtime denied");
 
-    expect(result).toMatchObject({ isError: false, output: "ok" });
-    expect(commandRunner).toHaveBeenCalledTimes(1);
+      const result = await runtimeSurface.callBuiltinTools.get("edit")?.({
+        filePath: join(leaseRoot, "inside.txt"),
+        oldString: "before",
+        newString: "after",
+      }, {
+        authority: {
+          level: 4,
+          allowed: true,
+          requiresApproval: false,
+          reason: "Destructive authority admitted by the runtime turn",
+        },
+      }) as { isError: boolean; output: string };
+
+      expect(result).toMatchObject({ isError: false });
+      expect(await readFile(join(leaseRoot, "inside.txt"), "utf8")).toBe("after");
+    } finally {
+      await rm(leaseRoot, { recursive: true, force: true });
+    }
   });
 });

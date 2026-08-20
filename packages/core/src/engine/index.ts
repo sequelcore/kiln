@@ -123,6 +123,7 @@ export type {
   RetryConfig,
   AuthorizationLevel,
   AuthorityDescriptor,
+  InvocationAdmission,
   ToolErrorType,
   ToolAuthorizer,
   ToolExecutionRequest,

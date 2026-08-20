@@ -8,6 +8,7 @@ import { createSessionEvent } from "@kilnai/core/events";
 import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
+import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../../src/config/model-facing-permission-policy.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
 
@@ -415,6 +416,64 @@ describe("makeMultiProviderSessionFactory", () => {
       },
       shutdown: vi.fn(),
     });
+  });
+
+  it.each(["tui", "gui"] as const)(
+    "passes the resolved model-facing policy into %s session construction",
+    async (surface) => {
+      const { store } = makeStore(null);
+      const { registry } = makeRegistry();
+      const transcriptStore = makeTranscriptStore();
+      const configuredPolicy = {
+        approval: "untrusted" as const,
+        sandbox: "read-only" as const,
+        safeDefaults: false,
+        auditLog: false,
+      };
+
+      const { factory } = await makeMultiProviderSessionFactory(
+        "claude",
+        PROVIDER_IDS,
+        PROJECT_ROOT,
+        registry,
+        store as any,
+        transcriptStore,
+        makeContextArtifactCache(),
+        undefined,
+        surface,
+        undefined,
+        undefined,
+        undefined,
+        configuredPolicy,
+      );
+      for await (const _ of factory("sys", PROJECT_ROOT).run({ prompt: "test" } as any)) {}
+
+      expect(registry.createSession).toHaveBeenCalledWith(
+        "claude",
+        expect.objectContaining({ permissionPolicy: configuredPolicy }),
+      );
+    },
+  );
+
+  it("uses the central fallback when no resolved policy is available", async () => {
+    const { store } = makeStore(null);
+    const { registry } = makeRegistry();
+    const transcriptStore = makeTranscriptStore();
+    const { factory } = await makeMultiProviderSessionFactory(
+      "claude",
+      PROVIDER_IDS,
+      PROJECT_ROOT,
+      registry,
+      store as any,
+      transcriptStore,
+      makeContextArtifactCache(),
+    );
+    for await (const _ of factory("sys", PROJECT_ROOT).run({ prompt: "test" } as any)) {}
+
+    expect(registry.createSession).toHaveBeenCalledWith(
+      "claude",
+      expect.objectContaining({ permissionPolicy: MODEL_FACING_DEFAULT_PERMISSION_POLICY }),
+    );
   });
 
   it("starts without an implicit continuationSessionId even when a continuation cursor exists", async () => {

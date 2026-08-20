@@ -37,6 +37,21 @@ export interface ToolAuthorizer {
   authorize(toolName: string, resolvedEffect: ResolvedInvocationEffect): AuthorityDescriptor;
 }
 
+/**
+ * Admission supplied by an outer bounded context (for example CLI policy).
+ * Core owns only the invocation envelope; the adapter may inspect concrete
+ * input and the caller bound, but its result is always met with effect and
+ * caller authority before execution.
+ */
+export interface InvocationAdmission {
+  authorize(input: {
+    readonly toolName: string;
+    readonly toolInput: Readonly<Record<string, unknown>>;
+    readonly resolvedEffect: ResolvedInvocationEffect;
+    readonly callerBound?: AuthorityDescriptor;
+  }): AuthorityDescriptor;
+}
+
 /** Canonical request envelope for tool execution. */
 export interface ToolExecutionRequest {
   readonly name: string;

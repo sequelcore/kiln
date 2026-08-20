@@ -33,8 +33,8 @@ import { translateCodexPermissionProjection } from "./translators/codex-translat
 import { translateOpenCodePermissionProjection } from "./translators/opencode-translator.js";
 import { PERMISSION_PROJECTION_TARGET_IDS } from "./translators/permission-projection.js";
 import { discoverOpenCodeDeniedSkillNames } from "./native-skill-projection.js";
+import { resolveModelFacingPermissionPolicy } from "./model-facing-permission-policy.js";
 
-const DEFAULT_POLICY: KilnPermissionPolicy = { approval: "on-request", sandbox: "read-only" };
 export const OPENCODE_SKILL_VISIBILITY_TARGET_ID = "opencode-skill-visibility";
 
 export interface NativePermissionProjectionResult {
@@ -206,7 +206,7 @@ export async function syncNativePermissionProjections(
 ): Promise<NativePermissionProjectionResult> {
   const errors: string[] = [];
   const outcomes: ProjectionOutcome[] = [];
-  const policy = kilnYaml.permissions ?? DEFAULT_POLICY;
+  const policy = resolveModelFacingPermissionPolicy(kilnYaml.permissions);
   const kilnDir = join(projectPath, ".kiln");
   const modelGateway = options.modelGateway;
   let installState = readNativeProjectionInstallState(kilnDir);

@@ -294,10 +294,10 @@ describe("syncNativePermissionProjections", () => {
     const settings = readJson(claudeSettingsPath);
     expect(settings.mcpServers).toEqual({ kiln: { command: "node", args: ["entry.js"] } });
     expect(settings.uiTheme).toBe("dark");
-    expect(settings.permissions).toEqual({
-      allow: ["Read", "WebFetch", "Bash(git status*)"],
-      deny: [],
-      ask: [],
+    expect(settings.permissions).toMatchObject({
+      allow: expect.arrayContaining(["Read", "Glob", "Grep", "Bash(git status*)"]),
+      deny: expect.arrayContaining(["WebFetch", "WebSearch", "Bash(curl *)"]),
+      ask: expect.arrayContaining(["Edit", "Bash"]),
       defaultMode: "default",
     });
 
@@ -399,11 +399,14 @@ describe("syncNativePermissionProjections", () => {
     expect(result.opencode).toBe(true);
     const config = readJson(opencodeConfigPath);
     expect(config.theme).toBe("ocean");
-    expect(config.permission).toEqual({
+    expect(config.permission).toMatchObject({
       "*": "ask",
-      bash: { "git status*": "allow" },
-      read: { "*": "allow", "**/.env": "deny" },
-      edit: { "**/.env": "deny" },
+      glob: "allow",
+      grep: "allow",
+      webfetch: "deny",
+      bash: expect.objectContaining({ "*": "ask", "git status*": "allow", "curl *": "deny" }),
+      read: expect.objectContaining({ "*": "allow", "**/.env": "deny" }),
+      edit: expect.objectContaining({ "*": "ask", "**/.env": "deny" }),
     });
     expect(config.kiln).toBeUndefined();
   });
@@ -430,11 +433,14 @@ describe("syncNativePermissionProjections", () => {
     const opencodeConfig = readJson(opencodeConfigPath);
     // Unlike codex, OpenCode can carry Kiln's granular rules natively, so they
     // reach the config instead of degrading to prompt-only constraints.
-    expect(opencodeConfig.permission).toEqual({
+    expect(opencodeConfig.permission).toMatchObject({
       "*": "ask",
-      bash: { "git status*": "allow" },
-      read: { "*": "allow", "**/.env": "deny" },
-      edit: { "**/.env": "deny" },
+      glob: "allow",
+      grep: "allow",
+      webfetch: "deny",
+      bash: expect.objectContaining({ "*": "ask", "git status*": "allow", "curl *": "deny" }),
+      read: expect.objectContaining({ "*": "allow", "**/.env": "deny" }),
+      edit: expect.objectContaining({ "*": "ask", "**/.env": "deny" }),
     });
     expect(opencodeConfig.kiln).toBeUndefined();
   });

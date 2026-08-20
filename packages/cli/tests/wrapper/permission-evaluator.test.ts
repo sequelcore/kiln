@@ -13,7 +13,7 @@ describe("permission-evaluator", () => {
     const toolDecision = evaluator.evaluateTool("WebFetch");
     expect(toolDecision.action).toBe("deny");
     expect(toolDecision.source).toBe("tool-rule");
-    expect(toolDecision.match?.key).toBe("WebFetch");
+    expect(toolDecision.match?.key).toBe("web_fetch");
 
     const commandDecision = evaluator.evaluateCommand("git status --short", "bash");
     expect(commandDecision.action).toBe("allow");
@@ -110,6 +110,37 @@ describe("permission-evaluator", () => {
     expect(denyDecision.dataFirewallAction).toBe("deny");
   });
 
+  it("denies destinations with no matching firewall rule", () => {
+    const evaluator = createPermissionEvaluator({
+      dataFirewall: [{ destination: "ci", action: "allow", classifications: ["public"] }],
+    });
+
+    const decision = evaluator.evaluateDestination("unknown-destination", ["public"]);
+
+    expect(decision).toMatchObject({
+      action: "deny",
+      source: "default",
+      dataFirewallAction: "deny",
+    });
+  });
+
+  it("denies unknown and absent classifications when no rule matches", () => {
+    const evaluator = createPermissionEvaluator({
+      dataFirewall: [{ destination: "ci", action: "allow", classifications: ["public"] }],
+    });
+
+    expect(evaluator.evaluateDestination("ci", ["unknown"])).toMatchObject({
+      action: "deny",
+      source: "default",
+      dataFirewallAction: "deny",
+    });
+    expect(evaluator.evaluateDestination("ci")).toMatchObject({
+      action: "deny",
+      source: "default",
+      dataFirewallAction: "deny",
+    });
+  });
+
   it("resolves effective policy for agent scopes with inherit=true overrides", () => {
     const policy: KilnPermissionPolicy = {
       tools: [{ tool: "Edit", action: "ask" }],
@@ -148,7 +179,21 @@ describe("permission-evaluator", () => {
     expect(evaluator.evaluateTool("WebFetch")).toMatchObject({ action: "deny", source: "tool-rule" });
   });
 
-  it("resolves effective policy for agent scopes with inherit=false", () => {
+  it("does not let an agent allow re-grant a root deny", () => {
+    const policy: KilnPermissionPolicy = {
+      tools: [{ tool: "Bash", action: "deny" }],
+      agentScopes: [{ agent: "worker", inherit: true, tools: [{ tool: "bash", action: "allow" }] }],
+    };
+    const resolved = resolveEffectivePermissionPolicy(policy, "worker");
+    expect(resolved.policy.tools.filter((rule) => rule.tool === "bash")).toMatchObject([
+      { action: "deny" },
+    ]);
+
+    const evaluator = createPermissionEvaluator(policy, { agent: "worker" });
+    expect(evaluator.evaluateTool("bash")).toMatchObject({ action: "deny" });
+  });
+
+  it("rejects agent scopes with inherit=false instead of removing parent restrictions", () => {
     const policy: KilnPermissionPolicy = {
       safeDefaults: true,
       agentScopes: [
@@ -160,17 +205,12 @@ describe("permission-evaluator", () => {
       ],
     };
 
-    const evaluator = createPermissionEvaluator(policy, { agent: "planner" });
-    const allowedRead = evaluator.evaluateTool("Read");
-    expect(allowedRead.action).toBe("allow");
-    expect(allowedRead.scope.inherit).toBe(false);
-
-    const defaultDecision = evaluator.evaluateTool("WebFetch");
-    expect(defaultDecision.source).toBe("default");
-    expect(defaultDecision.action).toBe("ask");
+    expect(() => resolveEffectivePermissionPolicy(policy, "planner")).toThrow(
+      /inherit:false is unsupported/,
+    );
   });
 
-  it("merges root and agent memory policy when inherit=true", () => {
+  it("intersects root and agent memory grants when inherit=true", () => {
     const policy: KilnPermissionPolicy = {
       memory: {
         read: [
@@ -209,12 +249,11 @@ describe("permission-evaluator", () => {
     };
 
     const resolved = resolveEffectivePermissionPolicy(policy, "worker");
-    expect(resolved.policy.memory.read).toHaveLength(1);
-    expect(resolved.policy.memory.write).toHaveLength(2);
-    expect(resolved.policy.memory.write.map((rule) => rule.operations[0])).toEqual(["save", "revise"]);
+    expect(resolved.policy.memory.read).toHaveLength(0);
+    expect(resolved.policy.memory.write).toHaveLength(0);
   });
 
-  it("replaces root memory policy when agent scope uses inherit=false", () => {
+  it("rejects inherit=false rather than replacing the root memory policy", () => {
     const policy: KilnPermissionPolicy = {
       memory: {
         read: [
@@ -252,10 +291,9 @@ describe("permission-evaluator", () => {
       ],
     };
 
-    const resolved = resolveEffectivePermissionPolicy(policy, "planner");
-    expect(resolved.policy.memory.read).toHaveLength(0);
-    expect(resolved.policy.memory.write).toHaveLength(1);
-    expect(resolved.policy.memory.write[0]?.operations).toEqual(["compact"]);
+    expect(() => resolveEffectivePermissionPolicy(policy, "planner")).toThrow(
+      /inherit:false is unsupported/,
+    );
   });
 
   it("converts effective memory permissions into core MemoryAuthorityPolicy", () => {
@@ -269,12 +307,29 @@ describe("permission-evaluator", () => {
             layers: ["working"],
           },
         ],
+        write: [
+          {
+            operations: ["save", "revise"],
+            scopeKinds: ["project"],
+            scopeIds: ["kiln"],
+            layers: ["working", "audit"],
+            allowAuditWrite: true,
+          },
+        ],
       },
       agentScopes: [
         {
           agent: "writer",
           inherit: true,
           memory: {
+            read: [
+              {
+                operations: ["read"],
+                scopeKinds: ["project"],
+                scopeIds: ["kiln"],
+                layers: ["working"],
+              },
+            ],
             write: [
               {
                 operations: ["save", "revise"],

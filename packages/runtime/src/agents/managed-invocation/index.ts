@@ -171,7 +171,10 @@ export type {
   ManagedInvocationToolOptionsWithService,
   ManagedInvocationToolRoute,
 } from "./runtime-tool/index.js";
-export { deriveManagedInvocationCallerAuthority } from "./caller-capability-policy.js";
+export {
+  deriveManagedInvocationCallerAuthority,
+  resolveManagedInvocationCallerIdentity,
+} from "./caller-capability-policy.js";
 export { ManagedEconomicDispatchCoordinator } from "./economic-dispatch-coordinator.js";
 export type {
   ManagedEconomicDispatchAdoption,

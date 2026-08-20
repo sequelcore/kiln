@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   EventBus,
+  trustedInternalMemoryAuthority,
   MemoryLifecycleApplicationService,
   MemoryMutationService,
   SqliteMemoryRepository,
@@ -30,6 +31,7 @@ describe("MemoryLifecycleApplicationService", () => {
       repository,
       eventBus,
       sessionId: "lifecycle-test",
+      authority: trustedInternalMemoryAuthority(),
     });
     service = new MemoryLifecycleApplicationService({
       repository,

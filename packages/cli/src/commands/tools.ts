@@ -12,6 +12,8 @@ import {
 } from "@kilnai/gateway-contracts";
 import type { KilnAppConfig } from "../config.js";
 import { loadConfiguredBuiltinToolSurfaceOptions } from "../config/builtin-tool-surface-config.js";
+import { loadKilnConfig } from "../config/config-merger.js";
+import { resolveModelFacingPermissionPolicy } from "../config/model-facing-permission-policy.js";
 
 export interface ToolsCommandFlags {
   readonly mcp?: boolean;
@@ -31,16 +33,21 @@ export async function toolsCommand(
   _appConfig: KilnAppConfig,
   flags: ToolsCommandFlags,
 ): Promise<void> {
+  const projectPath = process.cwd();
+  const kilnYaml = _appConfig.kilnYaml ?? await loadKilnConfig(projectPath) ?? undefined;
+  const appConfig = kilnYaml === _appConfig.kilnYaml
+    ? _appConfig
+    : { ..._appConfig, kilnYaml };
   const memoryAuthority = flags.mcp
     ? {
       modelFacingSession: true,
-      permissionPolicy: _appConfig.kilnYaml?.permissions,
+      permissionPolicy: resolveModelFacingPermissionPolicy(kilnYaml?.permissions),
       caller: { kind: "operator_surface" as const, id: "tools-mcp" },
     }
     : undefined;
   const surfaceOptions = memoryAuthority
-    ? await loadConfiguredBuiltinToolSurfaceOptions(_appConfig, process.cwd(), { memoryAuthority })
-    : await loadConfiguredBuiltinToolSurfaceOptions(_appConfig, process.cwd());
+    ? await loadConfiguredBuiltinToolSurfaceOptions(appConfig, projectPath, { memoryAuthority })
+    : await loadConfiguredBuiltinToolSurfaceOptions(appConfig, projectPath);
   const surface = createDefaultBuiltinToolSurface(surfaceOptions);
 
   if (flags.resources) {

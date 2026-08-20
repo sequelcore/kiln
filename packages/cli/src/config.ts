@@ -3,6 +3,7 @@ import type { ContextCandidate } from "@kilnai/core";
 import type { ManagedInvocationToolOptions } from "@kilnai/runtime";
 import type { ResolvedKilnConfig, KilnHooksConfig } from "./kiln-yaml.js";
 import type { ProjectedContext } from "./application/context-types.js";
+import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "./config/model-facing-permission-policy.js";
 
 /** Options passed to the system prompt builder */
 export interface SystemPromptOptions {
@@ -11,8 +12,6 @@ export interface SystemPromptOptions {
   readonly projectedContext: ProjectedContext;
   readonly projectPath: string;
 }
-
-const DEFAULT_POLICY = { approval: "on-request" as const, sandbox: "read-only" as const };
 
 function defaultBuildSystemPrompt(opts: SystemPromptOptions): string {
   const { buildPreamble } = require("./wrapper/preamble-builder.js");
@@ -26,7 +25,7 @@ function defaultBuildSystemPrompt(opts: SystemPromptOptions): string {
       workingDirectory: opts.projectPath,
       task: opts.task,
     },
-    DEFAULT_POLICY,
+    MODEL_FACING_DEFAULT_PERMISSION_POLICY,
     undefined,
   );
 }
