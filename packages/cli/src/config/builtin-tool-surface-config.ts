@@ -1,4 +1,8 @@
-import { MemoryArtifactResourceStore, type DefaultBuiltinToolRegistryOptions } from "@kilnai/core";
+import {
+  MemoryArtifactResourceStore,
+  type DefaultBuiltinToolRegistryOptions,
+} from "@kilnai/core";
+import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 import type { KilnAppConfig } from "../config.js";
 import {
   loadConfiguredWebToolSurfaceOptions,
@@ -6,6 +10,8 @@ import {
 } from "./web-tools-config.js";
 import { loadConfiguredInteractiveUseToolSurfaceOptions } from "./interactive-use-config.js";
 import { ExternalEngagementResourceProvider } from "./external-engagement-resource-provider.js";
+import { readGlobalConfig, type KilnGlobalConfig } from "./global-config.js";
+import { resolveFormalVerificationConfiguration } from "./formal-verification-config.js";
 
 export const PROGRESSIVE_RUNTIME_READ_ONLY_TOOLS = [
   "read",
@@ -46,14 +52,39 @@ export const PROGRESSIVE_RUNTIME_EXECUTION_TOOLS = [
 
 export type ProgressiveRuntimeToolProfile = "read-only" | "execute";
 
+export function observeFormalVerificationCapability(
+  options: Pick<DefaultBuiltinToolRegistryOptions, "formalVerify">,
+): BoundedWorkCapabilityObservation {
+  return {
+    metric: "formal_verification",
+    status: options.formalVerify === undefined ? "unavailable" : "available",
+  };
+}
+
+export interface LoadConfiguredBuiltinToolSurfaceOptionsInput extends LoadConfiguredWebToolSurfaceOptionsInput {
+  readonly globalConfig?: KilnGlobalConfig | null;
+  readonly runDafnyVersion?: (executable: string) => string;
+  readonly platform?: NodeJS.Platform;
+  readonly discoveredPaths?: readonly string[];
+}
+
 export async function loadConfiguredBuiltinToolSurfaceOptions(
   appConfig: KilnAppConfig,
   projectPath: string,
-  options: LoadConfiguredWebToolSurfaceOptionsInput = {},
+  options: LoadConfiguredBuiltinToolSurfaceOptionsInput = {},
 ): Promise<DefaultBuiltinToolRegistryOptions> {
   const artifactStore = new MemoryArtifactResourceStore();
+  const globalConfig = options.globalConfig === undefined ? readGlobalConfig() : options.globalConfig;
+  const formalVerification = resolveFormalVerificationConfiguration({
+    globalConfig,
+    ...(options.runDafnyVersion === undefined ? {} : { runVersion: options.runDafnyVersion }),
+    ...(options.platform === undefined ? {} : { platform: options.platform }),
+    ...(options.discoveredPaths === undefined ? {} : { discoveredPaths: options.discoveredPaths }),
+  });
   const [webOptions, interactiveOptions] = await Promise.all([
-    loadConfiguredWebToolSurfaceOptions(appConfig, projectPath, options),
+    loadConfiguredWebToolSurfaceOptions(appConfig, projectPath, {
+      ...(options.memoryAuthority === undefined ? {} : { memoryAuthority: options.memoryAuthority }),
+    }),
     loadConfiguredInteractiveUseToolSurfaceOptions(appConfig, projectPath, { artifactStore }),
   ]);
   const merged = mergeBuiltinToolSurfaceOptions(webOptions, interactiveOptions);
@@ -63,6 +94,7 @@ export async function loadConfiguredBuiltinToolSurfaceOptions(
   ];
   return {
     ...merged,
+    ...(formalVerification.options === undefined ? {} : { formalVerify: formalVerification.options }),
     artifactResources: merged.artifactResources ?? { store: artifactStore },
     resourceProviders,
   };

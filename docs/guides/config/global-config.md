@@ -46,6 +46,7 @@ The main V3 fields are:
 | `modelGateway` | Authenticated virtual-model ingress over catalog targets. |
 | `engines` | Native harness availability and billing metadata. |
 | `mcp`, `hooks`, `skills` | Global tool and procedural configuration. |
+| `verification` | Operator-owned machine tools used for deterministic verification. |
 | `identity`, `communication`, `operatorVoice`, `ui` | Operator-facing defaults. |
 | `workGovernance` | Default work posture, delegation triggers, and completion evidence. |
 
@@ -75,6 +76,34 @@ projects the concise preference to `outputStyle: "Concise"` in user-scoped
 settings while preserving unrelated fields. A project-level communication
 override is justified only when that repository genuinely requires a different
 response contract; it should not duplicate the operator's normal workflow.
+
+## Formal verification
+
+Dafny is a global machine capability, not project configuration. Configure the
+operator-selected executable and the exact expected version once in
+`~/.kiln/config.yaml`:
+
+```yaml
+verification:
+  formal:
+    dafny:
+      executable: dafny
+      expectedVersion: 4.11.0
+```
+
+`executable` may be an explicit path or a bare command written by the operator.
+Kiln never discovers Dafny when this field is absent and never installs it. At
+startup Kiln executes the configured binary with `--version`, reduces accepted
+build metadata to the canonical three-part version, and registers
+`formal_verify` only when the observed version exactly matches
+`expectedVersion`. On Windows, only a native `.exe` or `.com` target is
+accepted; `.cmd` and `.bat` shims are rejected.
+
+A repository does not repeat the executable, version, or a `required` flag.
+Whether a particular bounded task needs formal proof is already owned by its
+adopted Assurance obligations. If those obligations exist but the validated
+global capability is unavailable, admission pauses before any work budget is
+reserved.
 
 ## Targets
 

@@ -785,7 +785,10 @@ describe("attached runtime builtin tool surface", () => {
 
   it("rejects managed invocation scopes that do not exist in the session governance stores", async () => {
     const authorityDirectory = await mkdtemp(join(tmpdir(), "kiln-bounded-work-attached-"));
-    const boundedWorkAuthority = new SqliteBoundedWorkAuthority({ path: join(authorityDirectory, "authority.sqlite") });
+    const boundedWorkAuthority = new SqliteBoundedWorkAuthority({
+      path: join(authorityDirectory, "authority.sqlite"),
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     workItemStore.upsert({
@@ -902,7 +905,10 @@ describe("attached runtime builtin tool surface", () => {
 
   it("denies governed child writes unless their declared effects are inside the bounded contract", async () => {
     const authorityDirectory = await mkdtemp(join(tmpdir(), "kiln-bounded-effects-"));
-    const authority = new SqliteBoundedWorkAuthority({ path: join(authorityDirectory, "authority.sqlite") });
+    const authority = new SqliteBoundedWorkAuthority({
+      path: join(authorityDirectory, "authority.sqlite"),
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     workItemStore.upsert({

@@ -103,6 +103,10 @@ vi.mock("../../src/config/config-merger.js", () => ({
 
 vi.mock("../../src/config/builtin-tool-surface-config.js", () => ({
   loadConfiguredBuiltinToolSurfaceOptions: benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability: vi.fn((options) => ({
+    metric: "formal_verification",
+    status: options.formalVerify === undefined ? "unavailable" : "available",
+  })),
   withProgressiveRuntimeToolProjection: vi.fn((options, profile) => ({
     ...options,
     toolProjection: {
@@ -541,6 +545,10 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(benchmarkExecutorMocks.createProjectBoundedWorkAuthority).toHaveBeenCalledWith(expectedWorkspace, {
       authorityStateRoot: "C:/temp/benchmark-authority",
       projectIdentityRoot: expectedWorkspace,
+      formalVerificationCapability: {
+        metric: "formal_verification",
+        status: "unavailable",
+      },
     });
     expect(benchmarkExecutorMocks.createManagedAccountRuntimeComposition).toHaveBeenCalledWith(
       expect.anything(),

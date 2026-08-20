@@ -5,9 +5,11 @@ import { createDefaultBuiltinToolSurface } from "@kilnai/core/tools";
 import { describe, expect, it, vi } from "vitest";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../../src/config/builtin-tool-surface-config.js";
 import type { KilnAppConfig } from "../../src/config.js";
+import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 vi.mock("@kilnai/runtime", () => ({
   PlaywrightBrowserCaptureRecorder: class MockPlaywrightBrowserCaptureRecorder {
@@ -22,6 +24,54 @@ vi.mock("@kilnai/runtime", () => ({
 }));
 
 describe("builtin tool surface config", () => {
+  it("derives bounded-work capability from the validated tool registration", () => {
+    expect(observeFormalVerificationCapability({})).toEqual({
+      metric: "formal_verification",
+      status: "unavailable",
+    });
+    expect(observeFormalVerificationCapability({
+      formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+    })).toEqual({
+      metric: "formal_verification",
+      status: "available",
+    });
+  });
+
+  it("registers configured formal verification while keeping it deferred", async () => {
+    const projectPath = mkdtempSync(join(tmpdir(), "kiln-formal-surface-"));
+    try {
+      const globalConfig: KilnGlobalConfig = {
+        version: "3",
+        verification: {
+          formal: {
+            dafny: {
+              executable: "C:/tools/dafny.exe",
+              expectedVersion: "4.11.0",
+            },
+          },
+        },
+      };
+      const options = await loadConfiguredBuiltinToolSurfaceOptions(appConfig(), projectPath, {
+        globalConfig,
+        runDafnyVersion: () => "Dafny 4.11.0+build.123",
+        platform: "win32",
+        discoveredPaths: [],
+      });
+      const projected = withProgressiveRuntimeToolProjection(options, "execute");
+      const surface = createDefaultBuiltinToolSurface(projected);
+
+      expect(options.formalVerify).toEqual({
+        executable: "C:/tools/dafny.exe",
+        verifierVersion: "4.11.0",
+      });
+      expect(projected.toolProjection?.alwaysOnTools).not.toContain("formal_verify");
+      expect(surface.registry.has("formal_verify")).toBe(true);
+      expect(surface.toolNames).not.toContain("formal_verify");
+    } finally {
+      rmSync(projectPath, { recursive: true, force: true });
+    }
+  });
+
   it("shares the same artifact store between browser tools and the Playwright recorder", async () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-builtin-recorder-"));
     try {

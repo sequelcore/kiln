@@ -11,6 +11,7 @@ import {
   type BoundedWorkHarnessCapability,
   type BoundedWorkReservation,
 } from "@kilnai/core";
+import type { BoundedWorkCapabilityObservation } from "@kilnai/core/work-governance";
 
 export const SQLITE_BOUNDED_WORK_AUTHORITY_SCHEMA_VERSION = 1 as const;
 
@@ -79,6 +80,7 @@ export interface SqliteBoundedWorkAuthorityOptions {
   readonly path: string;
   readonly now?: () => number;
   readonly idGenerator?: () => string;
+  readonly formalVerificationCapability?: BoundedWorkCapabilityObservation;
 }
 
 type AccountRow = {
@@ -102,12 +104,14 @@ export class SqliteBoundedWorkAuthority {
   readonly #db: Database;
   readonly #now: () => number;
   readonly #idGenerator: () => string;
+  readonly #formalVerificationCapability: BoundedWorkCapabilityObservation;
   #closed = false;
 
   constructor(options: SqliteBoundedWorkAuthorityOptions) {
     if (!options.path.trim()) throw new TypeError("Bounded-work authority database path is required.");
     this.#now = options.now ?? Date.now;
     this.#idGenerator = options.idGenerator ?? randomUUID;
+    this.#formalVerificationCapability = normalizeFormalVerificationCapability(options.formalVerificationCapability);
     this.#db = new Database(options.path, { create: true, strict: true });
     try {
       this.#db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
@@ -193,6 +197,7 @@ export class SqliteBoundedWorkAuthority {
       idempotencyKey,
       route,
       harnessCapability: input.harnessCapability,
+      formalVerificationCapability: this.#formalVerificationCapability,
       scope: input.scope,
       reservation: input.reservation,
     };
@@ -265,6 +270,7 @@ export class SqliteBoundedWorkAuthority {
         revision,
         snapshot,
         harnessCapability: input.harnessCapability,
+        formalVerificationCapability: this.#formalVerificationCapability,
         scope: input.scope,
         reservation: input.reservation,
       });
@@ -589,6 +595,22 @@ function checkedSubtract(value: number, amount: number): number {
 
 function parseSnapshot(value: string): BoundedWorkAccountingSnapshot {
   return normalizeBoundedWorkAccountingSnapshot(JSON.parse(value) as BoundedWorkAccountingSnapshot);
+}
+
+function normalizeFormalVerificationCapability(
+  value: BoundedWorkCapabilityObservation | undefined,
+): BoundedWorkCapabilityObservation {
+  const capability = value ?? ({
+    metric: "formal_verification",
+    status: "unavailable",
+  } satisfies BoundedWorkCapabilityObservation);
+  if (
+    capability.metric !== "formal_verification"
+    || (capability.status !== "available" && capability.status !== "unavailable")
+  ) {
+    throw new TypeError("formal verification capability observation is invalid");
+  }
+  return Object.freeze({ metric: capability.metric, status: capability.status });
 }
 
 function normalizeRoute(route: BoundedWorkRouteIdentity): BoundedWorkRouteIdentity {

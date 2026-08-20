@@ -26,6 +26,11 @@ export type BoundedWorkMeasuredValue =
   | { readonly kind: "unknown" }
   | { readonly kind: "unavailable" };
 
+export interface BoundedWorkCapabilityObservation {
+  readonly metric: "formal_verification";
+  readonly status: "available" | "unavailable";
+}
+
 export interface BoundedWorkAccountingSnapshot {
   readonly schema: "kiln.bounded-work-accounting/v1";
   readonly accountingLineageId: string;
@@ -102,6 +107,7 @@ export type BoundedWorkAdmissionDecision =
       readonly unavailableMetrics: readonly (
         | Extract<BoundedWorkLimitName, "tool_calls" | "active_duration_ms">
         | "harness_authority"
+        | "formal_verification"
       )[];
       readonly snapshot: BoundedWorkAccountingSnapshot;
       readonly continuation: BoundedWorkContinuation;
@@ -157,6 +163,7 @@ export function decideBoundedWorkAdmission(input: {
   readonly revision: BoundedWorkContractRevision;
   readonly snapshot: BoundedWorkAccountingSnapshot;
   readonly harnessCapability: BoundedWorkHarnessCapability;
+  readonly formalVerificationCapability: BoundedWorkCapabilityObservation;
   /** Present only when the reservation itself performs a governed effect. */
   readonly scope?: Omit<AssessBoundedWorkScopeInput, "revision">;
   readonly reservation: BoundedWorkReservation;
@@ -178,6 +185,17 @@ export function decideBoundedWorkAdmission(input: {
     return {
       kind: "pause_capability_unavailable",
       unavailableMetrics: ["harness_authority"],
+      snapshot: input.snapshot,
+      continuation: continuation("select_capable_harness", input.snapshot),
+    };
+  }
+  if (
+    input.revision.contract.assurance.formalVerification.obligations.length > 0
+    && input.formalVerificationCapability.status === "unavailable"
+  ) {
+    return {
+      kind: "pause_capability_unavailable",
+      unavailableMetrics: ["formal_verification"],
       snapshot: input.snapshot,
       continuation: continuation("select_capable_harness", input.snapshot),
     };

@@ -261,6 +261,38 @@ describe("global-config", () => {
     });
   });
 
+  it("readGlobalConfig() accepts the operator-owned Dafny verifier declaration", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue([
+      'version: "3"',
+      "verification:",
+      "  formal:",
+      "    dafny:",
+      "      executable: dafny",
+      "      expectedVersion: 4.11.0",
+    ].join("\n"));
+
+    expect(readGlobalConfig()?.verification).toEqual({
+      formal: {
+        dafny: {
+          executable: "dafny",
+          expectedVersion: "4.11.0",
+        },
+      },
+    });
+  });
+
+  it.each([
+    ["unknown nested field", ["verification:", "  formal:", "    dafny:", "      path: dafny"], "Unknown verification.formal.dafny field: path"],
+    ["empty executable", ["verification:", "  formal:", "    dafny:", "      executable: \"\"", "      expectedVersion: 4.11.0"], "verification.formal.dafny.executable must be a non-empty string"],
+    ["non-canonical version", ["verification:", "  formal:", "    dafny:", "      executable: dafny", "      expectedVersion: 4.11"], "verification.formal.dafny.expectedVersion must be a canonical version"],
+  ])("readGlobalConfig() rejects Dafny %s", (_case, lines, message) => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue(['version: "3"', ...lines].join("\n"));
+
+    expect(() => readGlobalConfig()).toThrow(message);
+  });
+
   it("readGlobalConfig() accepts the V3 target catalog and reusable authority profiles", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(canonicalV3GlobalYaml());

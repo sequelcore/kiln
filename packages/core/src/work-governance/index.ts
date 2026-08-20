@@ -108,6 +108,7 @@ export type {
   BoundedWorkAcceptanceDecisionRecord,
   BoundedWorkAccountingSnapshot,
   BoundedWorkAdmissionDecision,
+  BoundedWorkCapabilityObservation,
   BoundedWorkCloseoutDecision,
   BoundedWorkContinuation,
   BoundedWorkLimitName,

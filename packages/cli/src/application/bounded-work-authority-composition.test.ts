@@ -60,6 +60,38 @@ describe("bounded-work authority composition", () => {
     resolveSubjects.mockReset();
   });
 
+  it("defaults formal verification capability to unavailable without consuming accounting, and accepts an explicit available observation", () => {
+    const unavailableRoot = mkdtempSync(join(tmpdir(), "kiln-bounded-work-capability-unavailable-"));
+    const availableRoot = mkdtempSync(join(tmpdir(), "kiln-bounded-work-capability-available-"));
+    roots.push(unavailableRoot, availableRoot);
+    const revision = boundedWorkRevision("goal-capability", ["work-capability"]);
+    const request = {
+      projectRuntimeId: "project:capability",
+      goalRunId: "goal-capability",
+      workItemId: "work-capability",
+      contractRevision: revision,
+      idempotencyKey: "attempt-capability",
+      route: { routeId: "kiln-test", harnessId: "kiln-runtime" },
+      harnessCapability: "authoritative" as const,
+      reservation: { kind: "execution_attempt" as const, amount: 1 },
+    };
+
+    const unavailable = createProjectBoundedWorkAuthority(unavailableRoot);
+    const blocked = unavailable.surface.authority.reserve(request);
+    expect(blocked.decision).toMatchObject({
+      kind: "pause_capability_unavailable",
+      unavailableMetrics: ["formal_verification"],
+    });
+    expect(blocked.accounting).toMatchObject({ revision: 0, executionAttempts: 0 });
+    unavailable.close();
+
+    const available = createProjectBoundedWorkAuthority(availableRoot, {
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
+    expect(available.surface.authority.reserve(request).decision.kind).toBe("admitted");
+    available.close();
+  });
+
   it("rejects a caller-fabricated transport before candidate capture", async () => {
     const root = mkdtempSync(join(tmpdir(), "kiln-bounded-work-composition-"));
     roots.push(root);
@@ -118,7 +150,9 @@ describe("bounded-work authority composition", () => {
         changedLines: { kind: "observed", value: 2 },
       },
     });
-    const authority = createProjectBoundedWorkAuthority(root);
+    const authority = createProjectBoundedWorkAuthority(root, {
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     try {
       const transport = formalFinishTransport(goal.id, item.id, started.attempt.id);
       const captured = await authority.closeoutCandidate({
@@ -251,7 +285,9 @@ describe("bounded-work authority composition", () => {
       },
     });
 
-    const authority = createProjectBoundedWorkAuthority(root);
+    const authority = createProjectBoundedWorkAuthority(root, {
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     const publicCompositionValues = Object.values({ ...authority });
     const publicSurfaceValues = Object.values({ ...authority.surface });
     expect(publicCompositionValues).toHaveLength(5);
@@ -351,7 +387,9 @@ describe("bounded-work authority composition", () => {
         changedLines: { kind: "observed", value: 2 },
       },
     });
-    const authority = createProjectBoundedWorkAuthority(root);
+    const authority = createProjectBoundedWorkAuthority(root, {
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     try {
       const textOnly = await authority.closeoutCandidate({
         goal,
@@ -434,7 +472,9 @@ describe("bounded-work authority composition", () => {
       },
     });
 
-    const authority = createProjectBoundedWorkAuthority(root);
+    const authority = createProjectBoundedWorkAuthority(root, {
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     const formalVerify: DevTool = {
       name: "formal_verify",
       description: "Return a deterministic formal-verification fact.",
@@ -608,7 +648,9 @@ describe("bounded-work authority composition", () => {
       },
     });
 
-    const authority = createProjectBoundedWorkAuthority(root);
+    const authority = createProjectBoundedWorkAuthority(root, {
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
     const admission = authority.admitExecutionAttempt({ goal, workItem: item, attemptId: started.attempt.id });
     if (!admission.admitted) throw new Error("expected positive closeout execution admission");
     admission.commit();

@@ -63,6 +63,7 @@ import {
 } from "../config/provider-discovery-cache.js";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
@@ -1473,7 +1474,6 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const startupModel = startupRoute.providerModelId;
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  const boundedWork = createProjectBoundedWorkAuthority(cwd);
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const sessionStore = new SessionStore(cwd);
   const transcriptStore = new TranscriptStore(cwd);
@@ -1490,13 +1490,17 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
-      memoryAuthority: {
-        modelFacingSession: true,
-        permissionAgent: "tui",
-        caller: { kind: "operator_surface", id: "tui" },
-      },
-    });
+    globalConfig,
+    memoryAuthority: {
+      modelFacingSession: true,
+      permissionAgent: "tui",
+      caller: { kind: "operator_surface", id: "tui" },
+    },
+  });
   startupProfiler.mark("builtin-tool-options-loaded");
+  const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+    formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
+  });
   let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,

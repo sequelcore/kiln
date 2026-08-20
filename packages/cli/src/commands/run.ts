@@ -86,6 +86,7 @@ import {
 import { createOperatorSurfaceEconomicAuthority } from "../application/operator-surface-economic-authority.js";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
@@ -1228,16 +1229,19 @@ export async function runCommand(
   const requirements = buildRunSessionRequirements(preferredProvider);
 
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
-      memoryAuthority: {
-        modelFacingSession: true,
-        permissionPolicy: config.permissionPolicy,
-        permissionAgent: resolvedAgent?.name,
-        caller: { kind: "operator_surface", id: "run" },
-      },
-    });
+    globalConfig,
+    memoryAuthority: {
+      modelFacingSession: true,
+      permissionPolicy: config.permissionPolicy,
+      permissionAgent: resolvedAgent?.name,
+      caller: { kind: "operator_surface", id: "run" },
+    },
+  });
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  const boundedWork = createProjectBoundedWorkAuthority(cwd);
+  const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+    formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
+  });
   cleanupRegistry.register(async () => boundedWork.close());
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const runToolProjection = resolveRunBuiltinToolProjection(flags.plan === true);

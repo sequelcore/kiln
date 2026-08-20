@@ -46,7 +46,10 @@ const revision = adoptBoundedWorkContractRevision({
   adoptedAt: "2026-08-12T18:00:00.000Z",
   adoptedBy: { kind: "operator", actorId: "operator-1", decisionId: "process-test" },
 });
-const authority = new SqliteBoundedWorkAuthority({ path });
+const authority = new SqliteBoundedWorkAuthority({
+  path,
+  formalVerificationCapability: { metric: "formal_verification", status: "available" },
+});
 try {
   writeFileSync(ready, "ready");
   while (!existsSync(start)) await new Promise((resolve) => setTimeout(resolve, 10));

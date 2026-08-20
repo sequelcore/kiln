@@ -45,6 +45,7 @@ import { resolveInstructionProfileContextCandidates } from "./instruction-profil
 import { withWorkGovernanceContext } from "./work-governance-context.js";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
@@ -190,11 +191,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       runtimePermissionObservationProjectPath: cwd,
     });
     const benchmarkCleanupRegistry = new CleanupRegistry();
-    const boundedWork = createProjectBoundedWorkAuthority(cwd, {
-      authorityStateRoot,
-      projectIdentityRoot: cwd,
-    });
-    benchmarkCleanupRegistry.register(async () => boundedWork?.close());
     const operatorEconomicAuthority = benchmarkWorkspace.kind === "repository" && !options.appConfig.managedInvocation
       ? createOperatorSurfaceEconomicAuthority("benchmark", cwd)
       : undefined;
@@ -233,12 +229,19 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         }))
       : configuredRouteCandidates;
     const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
+      globalConfig,
       memoryAuthority: {
         modelFacingSession: true,
         permissionPolicy,
         caller: { kind: "operator_surface", id: "benchmark" },
       },
     });
+    const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+      authorityStateRoot,
+      projectIdentityRoot: cwd,
+      formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
+    });
+    benchmarkCleanupRegistry.register(async () => boundedWork.close());
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     const baseBuiltinToolOptions = {

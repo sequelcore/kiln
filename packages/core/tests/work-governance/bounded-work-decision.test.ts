@@ -95,6 +95,10 @@ const snapshot = (overrides: Partial<BoundedWorkAccountingSnapshot> = {}): Bound
 
 const request = {
   harnessCapability: "authoritative" as const,
+  formalVerificationCapability: {
+    metric: "formal_verification" as const,
+    status: "available" as const,
+  },
   scope: {
     workItemId: "work-1",
     effect: "modify_source" as const,
@@ -159,6 +163,20 @@ const assuranceFor = (
 });
 
 describe("bounded work decision", () => {
+  it("pauses for unavailable formal verification before evaluating or reserving budget", () => {
+    expect(decideBoundedWorkAdmission({
+      revision,
+      snapshot: snapshot({ executionAttempts: 2 }),
+      ...request,
+      formalVerificationCapability: { metric: "formal_verification", status: "unavailable" },
+      reservation: { kind: "execution_attempt", amount: 1 },
+    })).toMatchObject({
+      kind: "pause_capability_unavailable",
+      unavailableMetrics: ["formal_verification"],
+      continuation: { action: "select_capable_harness" },
+    });
+  });
+
   it("admits only while the cumulative accounting snapshot remains below every ceiling", () => {
     expect(decideBoundedWorkAdmission({
       revision,

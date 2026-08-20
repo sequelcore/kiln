@@ -103,6 +103,20 @@ const governedRequest = {
   },
 };
 
+const unavailableFormalVerificationCapability = {
+  metric: "formal_verification" as const,
+  status: "unavailable" as const,
+};
+
+const availableFormalVerificationCapability = {
+  metric: "formal_verification" as const,
+  status: "available" as const,
+};
+
+function authorityOptions(path: string) {
+  return { path, formalVerificationCapability: availableFormalVerificationCapability };
+}
+
 const reserve = (
   authority: SqliteBoundedWorkAuthority,
   revision = firstRevision(),
@@ -120,6 +134,33 @@ const reserve = (
 });
 
 describe("SqliteBoundedWorkAuthority", () => {
+  it("pauses formal-obligation admission before consuming accounting and binds capability to idempotency", async () => {
+    const path = await databasePath();
+    const unavailable = new SqliteBoundedWorkAuthority({
+      path,
+      formalVerificationCapability: unavailableFormalVerificationCapability,
+    });
+    const blocked = reserve(unavailable);
+    expect(blocked.decision).toMatchObject({
+      kind: "pause_capability_unavailable",
+      unavailableMetrics: ["formal_verification"],
+    });
+    expect(blocked.accounting).toMatchObject({
+      revision: 0,
+      executionAttempts: 0,
+    });
+    expect(unavailable.inspect({ projectRuntimeId: "project-1", accountingLineageId: "goal-1" }))
+      .toMatchObject({ revision: 0, executionAttempts: 0 });
+    unavailable.close();
+
+    const available = new SqliteBoundedWorkAuthority({
+      path,
+      formalVerificationCapability: { metric: "formal_verification", status: "available" },
+    });
+    expect(() => reserve(available)).toThrowError(BoundedWorkAuthorityError);
+    available.close();
+  });
+
   it("admits exactly one final-slot winner across real Bun processes", async () => {
     const root = await mkdtemp(join(tmpdir(), "kiln-bounded-work-process-"));
     roots.push(root);
@@ -149,12 +190,12 @@ describe("SqliteBoundedWorkAuthority", () => {
   it("keeps cumulative limits across routes and restarts", async () => {
     const path = await databasePath();
     const revision = firstRevision();
-    const first = new SqliteBoundedWorkAuthority({ path, now: () => Date.parse("2026-08-12T18:10:00.000Z") });
+    const first = new SqliteBoundedWorkAuthority({ ...authorityOptions(path), now: () => Date.parse("2026-08-12T18:10:00.000Z") });
     expect(reserve(first, revision, "attempt-1", "codex-oauth").decision.kind).toBe("admitted");
     expect(reserve(first, revision, "attempt-2", "opencode-go").decision.kind).toBe("admitted");
     first.close();
 
-    const restarted = new SqliteBoundedWorkAuthority({ path, now: () => Date.parse("2026-08-12T18:11:00.000Z") });
+    const restarted = new SqliteBoundedWorkAuthority({ ...authorityOptions(path), now: () => Date.parse("2026-08-12T18:11:00.000Z") });
     expect(reserve(restarted, revision, "attempt-3", "native-codex").decision).toMatchObject({
       kind: "pause_budget_exhausted",
       exhaustedLimits: ["execution_attempts"],
@@ -165,7 +206,7 @@ describe("SqliteBoundedWorkAuthority", () => {
   });
 
   it("isolates identical goal lineages in different project runtimes", async () => {
-    const authority = new SqliteBoundedWorkAuthority({ path: await databasePath() });
+    const authority = new SqliteBoundedWorkAuthority(authorityOptions(await databasePath()));
     expect(reserve(authority).decision.kind).toBe("admitted");
     expect(authority.reserve({
       ...governedRequest,
@@ -185,7 +226,7 @@ describe("SqliteBoundedWorkAuthority", () => {
   });
 
   it("replays an exact idempotency request and rejects a changed request", async () => {
-    const authority = new SqliteBoundedWorkAuthority({ path: await databasePath() });
+    const authority = new SqliteBoundedWorkAuthority(authorityOptions(await databasePath()));
     const first = reserve(authority);
     expect(reserve(authority)).toEqual(first);
     expect(() => authority.reserve({
@@ -204,7 +245,7 @@ describe("SqliteBoundedWorkAuthority", () => {
   });
 
   it("persists typed scope and capability denials without consuming counters", async () => {
-    const authority = new SqliteBoundedWorkAuthority({ path: await databasePath() });
+    const authority = new SqliteBoundedWorkAuthority(authorityOptions(await databasePath()));
     const outOfScope = authority.reserve({
       ...governedRequest,
       scope: { ...governedRequest.scope, paths: ["packages/runtime/src/index.ts"] },
@@ -234,7 +275,7 @@ describe("SqliteBoundedWorkAuthority", () => {
   });
 
   it("releases a pre-dispatch reservation exactly once", async () => {
-    const authority = new SqliteBoundedWorkAuthority({ path: await databasePath() });
+    const authority = new SqliteBoundedWorkAuthority(authorityOptions(await databasePath()));
     const admitted = reserve(authority);
     if (!admitted.reservation) throw new Error("expected reservation");
     const released = authority.releaseBeforeDispatch({
@@ -252,7 +293,7 @@ describe("SqliteBoundedWorkAuthority", () => {
   });
 
   it("holds post-dispatch unknown work until authoritative reconciliation", async () => {
-    const authority = new SqliteBoundedWorkAuthority({ path: await databasePath() });
+    const authority = new SqliteBoundedWorkAuthority(authorityOptions(await databasePath()));
     const revision = firstRevision(2, 3);
     const admitted = authority.reserve({
       ...governedRequest,
@@ -328,7 +369,7 @@ describe("SqliteBoundedWorkAuthority", () => {
   });
 
   it("adopts a successor revision without resetting accounting and rejects stale revisions", async () => {
-    const authority = new SqliteBoundedWorkAuthority({ path: await databasePath() });
+    const authority = new SqliteBoundedWorkAuthority(authorityOptions(await databasePath()));
     const first = firstRevision(1);
     expect(reserve(authority, first).decision.kind).toBe("admitted");
     const successor = supersedeBoundedWorkContractRevision({

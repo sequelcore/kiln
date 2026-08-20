@@ -8,7 +8,10 @@ import {
   evaluateBoundedWorkAssurance,
   type BoundedWorkEffect,
 } from "@kilnai/core";
-import type { BoundedWorkAssuranceEvaluation } from "@kilnai/core/work-governance";
+import type {
+  BoundedWorkAssuranceEvaluation,
+  BoundedWorkCapabilityObservation,
+} from "@kilnai/core/work-governance";
 import { MANAGED_ORCHESTRATION_REVIEW_GATE } from "@kilnai/core/work-governance";
 import { FORMAL_VERIFICATION_FINISH_TRANSPORT } from "@kilnai/core/tools";
 import {
@@ -36,7 +39,11 @@ export interface ProjectBoundedWorkAuthorityComposition {
 
 export function createProjectBoundedWorkAuthority(
   cwd: string,
-  options: { readonly authorityStateRoot?: string; readonly projectIdentityRoot?: string } = {},
+  options: {
+    readonly authorityStateRoot?: string;
+    readonly projectIdentityRoot?: string;
+    readonly formalVerificationCapability?: BoundedWorkCapabilityObservation;
+  } = {},
 ): ProjectBoundedWorkAuthorityComposition {
   const projectRoot = resolve(cwd);
   const authorityStateRoot = resolve(options.authorityStateRoot ?? projectRoot);
@@ -45,6 +52,10 @@ export function createProjectBoundedWorkAuthority(
   mkdirSync(runtimeDirectory, { recursive: true });
   const authority = new SqliteBoundedWorkAuthority({
     path: join(runtimeDirectory, "bounded-work-authority.sqlite"),
+    formalVerificationCapability: options.formalVerificationCapability ?? {
+      metric: "formal_verification",
+      status: "unavailable",
+    },
   });
   const projectRuntimeId = `project:${createHash("sha256").update(projectIdentityRoot).digest("hex").slice(0, 32)}`;
   const composition: ProjectBoundedWorkAuthorityComposition = {

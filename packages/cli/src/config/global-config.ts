@@ -110,6 +110,20 @@ export interface KilnGlobalWebConfig {
   readonly extractProvider?: KilnYamlWebExtractProvider;
 }
 
+/** Operator-owned machine capability used by the deterministic formal verifier. */
+export interface KilnGlobalDafnyConfig {
+  readonly executable: string;
+  readonly expectedVersion: string;
+}
+
+export interface KilnGlobalFormalVerificationConfig {
+  readonly dafny: KilnGlobalDafnyConfig;
+}
+
+export interface KilnGlobalVerificationConfig {
+  readonly formal: KilnGlobalFormalVerificationConfig;
+}
+
 export const CANONICAL_GLOBAL_CONFIG_VERSION = "3" as const;
 
 export interface KilnGlobalConfig {
@@ -131,6 +145,7 @@ export interface KilnGlobalConfig {
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
   readonly communication?: CommunicationIntent;
   readonly web?: KilnGlobalWebConfig;
+  readonly verification?: KilnGlobalVerificationConfig;
   readonly ui?: KilnGlobalUiConfig;
   readonly skills?: KilnYamlSkillsConfig;
   readonly components?: KilnGlobalComponentsConfig;
@@ -166,6 +181,7 @@ const ROOT_FIELDS = fieldNamesOf<KilnGlobalConfig>({
   deliberationPolicy: true,
   communication: true,
   web: true,
+  verification: true,
   ui: true,
   skills: true,
   components: true,
@@ -545,6 +561,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateRecordField(config, "deliberationPolicy");
   validateRecordField(config, "communication");
   validateRecordField(config, "web");
+  validateRecordField(config, "verification");
   validateRecordField(config, "ui");
   validateRecordField(config, "skills");
   validateRecordField(config, "components");
@@ -567,6 +584,7 @@ export function validateGlobalConfig(config: unknown): void {
   validateCommunication(config.communication, "communication", "global");
   validateSkills(config.skills);
   validateGlobalWeb(config.web);
+  validateGlobalVerification(config.verification);
   validateGlobalUi(config.ui, config.targetCatalog);
   validateGlobalModelGateway(config.modelGateway);
   validateManagedTargetReferences(config.managedAgents, config.targetCatalog, config.authorityProfiles);
@@ -657,6 +675,25 @@ function validateGlobalWeb(value: unknown): void {
     });
   }
   validateOptionalRecord(value, "extractProvider", "web.extractProvider");
+}
+
+function validateGlobalVerification(value: unknown): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) throw new KilnYamlError("verification must be an object");
+  rejectUnknownFields(value, ["formal"], "verification");
+  if (!isRecord(value.formal)) throw new KilnYamlError("verification.formal must be an object");
+  rejectUnknownFields(value.formal, ["dafny"], "verification.formal");
+  if (!isRecord(value.formal.dafny)) {
+    throw new KilnYamlError("verification.formal.dafny must be an object");
+  }
+  rejectUnknownFields(value.formal.dafny, ["executable", "expectedVersion"], "verification.formal.dafny");
+  if (typeof value.formal.dafny.executable !== "string" || value.formal.dafny.executable.trim().length === 0) {
+    throw new KilnYamlError("verification.formal.dafny.executable must be a non-empty string");
+  }
+  if (typeof value.formal.dafny.expectedVersion !== "string"
+    || !isCanonicalDafnyVersion(value.formal.dafny.expectedVersion)) {
+    throw new KilnYamlError("verification.formal.dafny.expectedVersion must be a canonical version");
+  }
 }
 
 function validateOperatorVoice(value: unknown): void {
@@ -2088,4 +2125,8 @@ function economicSchemesEqual(left: unknown, right: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCanonicalDafnyVersion(value: string): boolean {
+  return /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u.test(value);
 }

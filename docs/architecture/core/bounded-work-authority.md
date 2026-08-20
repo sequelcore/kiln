@@ -125,6 +125,13 @@ observation time, and route identity; see
 [`harness-integration-capabilities.md`](../surfaces/harness-integration-capabilities.md).
 Missing evidence is never upgraded into an assumption of compliance.
 
+Formal-verification capability follows the same rule. CLI composition derives
+one availability observation from the validated global Dafny registration and
+fixes it on the Runtime authority instance. When an adopted revision contains
+formal obligations and that observation is unavailable, admission pauses before
+the reservation changes accounting. Model input, project configuration, and a
+worker cannot assert this capability.
+
 ## Reservation and settlement
 
 Runtime's authority is `SqliteBoundedWorkAuthority`, one store per project

@@ -33,6 +33,7 @@ import {
 } from "../config/provider-discovery-cache.js";
 import {
   loadConfiguredBuiltinToolSurfaceOptions,
+  observeFormalVerificationCapability,
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { resolveProjectMemoryScope } from "../config/web-tools-config.js";
@@ -181,7 +182,6 @@ export async function guiCommand(
   );
   const workItemStore = new WorkItemStore();
   const goalRunStore = new GoalRunStore();
-  const boundedWork = createProjectBoundedWorkAuthority(cwd);
   const goalControlService = new GoalControlService(goalRunStore, transcriptStore);
   const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
   const resumeSessionHydrator = createTranscriptRuntimeSessionHydrator({
@@ -192,13 +192,17 @@ export async function guiCommand(
   const contextArtifactCache = await getProjectContextArtifactCache(cwd);
   startupProfiler.mark("context-cache-ready");
   const configuredBuiltinToolOptions = await loadConfiguredBuiltinToolSurfaceOptions(runtimeAppConfig, cwd, {
-      memoryAuthority: {
-        modelFacingSession: true,
-        permissionAgent: "gui",
-        caller: { kind: "operator_surface", id: "gui" },
-      },
-    });
+    globalConfig,
+    memoryAuthority: {
+      modelFacingSession: true,
+      permissionAgent: "gui",
+      caller: { kind: "operator_surface", id: "gui" },
+    },
+  });
   startupProfiler.mark("builtin-tool-options-loaded");
+  const boundedWork = createProjectBoundedWorkAuthority(cwd, {
+    formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
+  });
   let builtinToolOptions = createSessionBuiltinToolOptions(withProgressiveRuntimeToolProjection({
     ...configuredBuiltinToolOptions,
     workItemStore,
