@@ -29,14 +29,14 @@ roadmap reorganization.
 
 | Order | Track | State | Priority | Next bounded work |
 | --- | --- | --- | --- | --- |
-| 1 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
-| 2 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
-| 3 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
-| 4 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
-| 5 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 6 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Normal | Define workload fixture governance after release and control-plane work. |
-| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
-| 8 | [12 - Configuration Experience](12-configuration-experience.md) | Research | Normal | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
+| 1 | [12 - Configuration Experience](12-configuration-experience.md) | Ready | Urgent | Inventory every field owner, scope, authority impact, activation behavior, and intent/evidence/state classification; record the schema and mutation ADR. |
+| 2 | [08 - Kiln Connect Pairing And Sessions](08-remote-operator-pairing.md) | Ready | Urgent | Define the threat model, scope matrix, pairing state machine, and portable negative contract fixtures. |
+| 3 | [08.5 - Kiln Connect Remote Connectivity](08.5-remote-operator-connectivity.md) | Ready | Urgent | Independently bind the GUI gateway to loopback, replace wildcard CORS, and inventory HTTP/WebSocket route scopes. |
+| 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
+| 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
+| 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
+| 7 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Normal | Define workload fixture governance after release and control-plane work. |
+| 8 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
 | 9 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
 
 ## Dependency Rules
@@ -47,10 +47,17 @@ roadmap reorganization.
   sessions, scopes, expiry, and revocation.
 - `08.5` owns loopback exposure, operator-owned transport adapters, endpoint
   evidence, connector lifecycle, and reconnection. Its Slice 0 is independently
-  admissible safety work; later slices consume `08` session identity.
-- The 2026-08-14 urgent operator priority decision supersedes the 2026-07-24
-  sequencing of `08` behind `07`. Neither Connect track admits a Kiln-hosted
-  cloud; a managed relay requires a separate future decision.
+  admissible safety work; later slices consume `08` session identity, and
+  configuration-bearing slices consume `12` effective-state and governed-
+  mutation contracts.
+- The 2026-08-14 operator decision removed `07` as a prerequisite for `08`. The
+  2026-08-20 operator priority decision supersedes its queue priority: execute
+  `12` through the first safe-turn-without-YAML vertical proof, then reassess
+  Connect sequencing. This is product sequencing, not a transfer of bounded-
+  context ownership. Roadmap `08.5` Slice 0 remains independently admissible
+  safety hardening, but is not the default product task. Neither Connect track
+  admits a Kiln-hosted cloud; a managed relay requires a separate future
+  decision.
 - `08.75` owns inbound agents Kiln did not launch: their identity, bounded
   verification surface, lease-scoped sandboxes, and settlement. It consumes `08`
   identity and `08.5` transport and widens neither. An agent identity never

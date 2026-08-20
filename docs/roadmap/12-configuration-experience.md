@@ -1,8 +1,10 @@
 # 12 - Configuration Experience
 
-Status: Research configuration-experience track
-Execution: Research - classify the configuration surface and admit the first schema owner before implementation.
+Status: Ready
+Priority: Urgent
+Execution: Ready - inventory the configuration surface and ratify the schema and mutation ADR before implementation.
 Created: 2026-08-14
+Reprioritized: 2026-08-20
 
 ## Objective
 
@@ -22,6 +24,13 @@ This track is the roadmap owner for GitHub issue
 [#72](https://github.com/sequelcore/kiln/issues/72). The issue records the
 problem and architecture direction; this file owns implementation order,
 dependencies, promotion gates, and residuals.
+
+The 2026-08-20 operator priority decision makes Configuration Experience the
+current product track. Execute bounded slices through Slice 5's first safe turn
+without opening YAML, updating the queue after each slice, then reassess Kiln
+Connect sequencing. This is a product sequence, not a claim that every slice in
+this track is a technical dependency of Connect. Roadmap 08.5 Slice 0 remains
+independently admissible safety hardening.
 
 ## Current Position
 
@@ -222,7 +231,7 @@ documented re-adoption path; it never preserves a live legacy execution path.
 
 ### Slice 0 - Configuration Inventory And ADR
 
-Status: Research; next admissible work.
+Status: Ready; next admissible work.
 
 Inventory every reader, writer, schema, type assertion, merge rule, default,
 scope, generated artifact, durable store, projection, docs owner, CLI command,
