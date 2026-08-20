@@ -718,9 +718,6 @@ describe("global-config", () => {
         'version: "3"',
         "workGovernance:",
         "  defaultPosture: orchestrate",
-        "  directExecution:",
-        "    maxFiles: 1",
-        "    maxRisk: low",
         "  requireDelegationFor:",
         "    - architecture",
         "    - managed-agents",
@@ -732,10 +729,6 @@ describe("global-config", () => {
 
     expect(readGlobalConfig()?.workGovernance).toEqual({
       defaultPosture: "orchestrate",
-      directExecution: {
-        maxFiles: 1,
-        maxRisk: "low",
-      },
       requireDelegationFor: ["architecture", "managed-agents"],
       requiredEvidence: ["surface-map", "residual-risk"],
     });
@@ -757,11 +750,11 @@ describe("global-config", () => {
         'version: "3"',
         "workGovernance:",
         "  directExecution:",
-        "    maxFiles: 0",
+        "    maxFiles: 1",
       ].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
-      "workGovernance.directExecution.maxFiles must be a positive integer",
+      "Unknown workGovernance field: directExecution",
     );
   });
 
@@ -1784,33 +1777,9 @@ describe("global-config", () => {
         },
       },
       workGovernance: {
-        defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
-        requireDelegationFor: [
-          "architecture",
-          "security",
-          "ui",
-          "runtime",
-          "provider-routing",
-          "managed-agents",
-          "config",
-          "multi-file",
-          "cross-surface",
-          "long-running",
-          "verification-heavy",
-          "formal-proof-candidate",
-        ],
-        requiredEvidence: [
-          "surface-map",
-          "risk-hypothesis",
-          "plan",
-          "tests",
-          "typecheck",
-          "residual-risk",
-        ],
+        defaultPosture: "direct",
+        requireDelegationFor: [],
+        requiredEvidence: [],
       },
       components: {
         include: ["baseline:core"],

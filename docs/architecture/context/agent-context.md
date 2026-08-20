@@ -61,7 +61,7 @@ not apply to directives or guidance.
 | --- | --- | --- |
 | `OperatorIdentity` | Operator metadata for prompt context and UI personalization. | Native schema, personal content. |
 | `InstructionProfile` | Durable doctrine: standards, preferences, policies, principles. | Native precedence/admission, personal/team content. |
-| `WorkGovernancePolicy` | Default posture, direct-execution envelope, delegation triggers, and evidence expectations. | Native schema, global/project values. |
+| `WorkGovernancePolicy` | Default posture, explicit delegation triggers, and evidence expectations. | Native schema, global/project values. |
 | `AgentProfile` | Executable role configuration for parent agents, subagents, and managed children. | Native schema/admission, personal/team definitions. |
 | `SkillPackage` | Reusable procedural context, references, scripts, and resources. | Native registry/admission, personal/team/community packages. |
 | `WorkClassification` | Cross-domain work intent, artifact, domain, effect, and mode facets used for diagnostics and governed skill recommendation. | Native schema, per-invocation/session values. |

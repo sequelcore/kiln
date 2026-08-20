@@ -227,12 +227,6 @@ function mergeWorkGovernance(
   if (!base && !override) return undefined;
   return {
     defaultPosture: override?.defaultPosture ?? base?.defaultPosture,
-    directExecution: base?.directExecution || override?.directExecution
-      ? {
-        ...base?.directExecution,
-        ...override?.directExecution,
-      }
-      : undefined,
     requireDelegationFor: mergeStringList(base?.requireDelegationFor, override?.requireDelegationFor) as
       | readonly KilnWorkGovernanceTrigger[]
       | undefined,

@@ -683,7 +683,6 @@ function validateWorkGovernance(value: unknown): void {
   for (const key of Object.keys(value)) {
     if (
       key !== "defaultPosture"
-      && key !== "directExecution"
       && key !== "requireDelegationFor"
       && key !== "requiredEvidence"
       && key !== "boundedWorkCeiling"
@@ -693,9 +692,6 @@ function validateWorkGovernance(value: unknown): void {
   }
   if (value.defaultPosture !== undefined && value.defaultPosture !== "orchestrate" && value.defaultPosture !== "direct") {
     throw new KilnYamlError('workGovernance.defaultPosture must be "orchestrate" or "direct"');
-  }
-  if (value.directExecution !== undefined) {
-    validateWorkGovernanceDirectExecution(value.directExecution);
   }
   const requireDelegationFor = value.requireDelegationFor as readonly unknown[] | undefined;
   validateOptionalStringArray(requireDelegationFor, "workGovernance.requireDelegationFor");
@@ -746,24 +742,6 @@ function isBoundedWorkEffect(value: unknown): boolean {
   return value === "inspect" || value === "modify_source" || value === "modify_tests"
     || value === "modify_documentation" || value === "modify_configuration"
     || value === "run_verification" || value === "invoke_managed_agent" || value === "external_write";
-}
-
-function validateWorkGovernanceDirectExecution(value: unknown): void {
-  if (!isRecord(value)) {
-    throw new KilnYamlError("workGovernance.directExecution must be an object");
-  }
-  for (const key of Object.keys(value)) {
-    if (key !== "maxFiles" && key !== "maxRisk") {
-      throw new KilnYamlError(`Unknown workGovernance.directExecution field: ${key}`);
-    }
-  }
-  const maxFiles = value.maxFiles;
-  if (maxFiles !== undefined && (typeof maxFiles !== "number" || !Number.isInteger(maxFiles) || maxFiles < 1)) {
-    throw new KilnYamlError("workGovernance.directExecution.maxFiles must be a positive integer");
-  }
-  if (value.maxRisk !== undefined && !isWorkGovernanceRisk(value.maxRisk)) {
-    throw new KilnYamlError('workGovernance.directExecution.maxRisk must be "low", "medium", or "high"');
-  }
 }
 
 function validateOptionalRecord(record: Record<string, unknown>, key: string, path: string): void {
@@ -2041,10 +2019,6 @@ function isModelTaskSuitabilityLevel(value: unknown): boolean {
   return value === "preferred" || value === "capable" || value === "limited";
 }
 
-function isWorkGovernanceRisk(value: unknown): boolean {
-  return value === "low" || value === "medium" || value === "high";
-}
-
 function isWorkGovernanceTrigger(value: unknown): boolean {
   return value === "architecture"
     || value === "security"
@@ -2053,7 +2027,6 @@ function isWorkGovernanceTrigger(value: unknown): boolean {
     || value === "provider-routing"
     || value === "managed-agents"
     || value === "config"
-    || value === "multi-file"
     || value === "cross-surface"
     || value === "long-running"
     || value === "verification-heavy"

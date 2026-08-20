@@ -68,7 +68,6 @@ describe("SessionManager governance context preservation under budget pressure",
     });
     const workGovernanceCandidate = buildWorkGovernanceContextCandidate({
       defaultPosture: "orchestrate",
-      directExecution: { maxFiles: 1, maxRisk: "low" },
     });
     const instructionProfileCandidates = resolveInstructionProfileContextCandidates({
       projectPath,

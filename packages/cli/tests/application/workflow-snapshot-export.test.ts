@@ -39,7 +39,6 @@ describe("workflow-snapshot-export", () => {
         activeInstructionProfiles: ["sequel-engineering"],
         workGovernance: {
           defaultPosture: "orchestrate",
-          directExecution: { maxFiles: 1, maxRisk: "low" },
           requireDelegationFor: ["architecture", "ui"],
           requiredEvidence: ["surface-map", "tests", "typecheck", "residual-risk"],
         },
@@ -75,7 +74,6 @@ describe("workflow-snapshot-export", () => {
         activeInstructionProfiles: ["sequel-engineering"],
         workGovernance: {
           defaultPosture: "orchestrate",
-          directExecution: { maxFiles: 1, maxRisk: "low" },
           requireDelegationFor: ["architecture", "ui"],
           requiredEvidence: ["surface-map", "tests", "typecheck", "residual-risk"],
         },
@@ -109,7 +107,6 @@ describe("workflow-snapshot-export", () => {
     });
     expect(first.authorityPosture).toMatchObject({
       defaultPosture: "orchestrate",
-      directExecution: { maxFiles: 1, maxRisk: "low" },
     });
     expect(first.modelPolicyGuidance).toMatchObject({
       defaultProvider: "codex-oauth",

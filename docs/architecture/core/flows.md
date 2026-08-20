@@ -192,7 +192,7 @@ retrieval.
 - per-turn budget
 - phase gates
 - tool safety gates
-- direct-execution envelope when the parent proposes doing work itself
+- explicit coordination triggers when the parent proposes doing work itself
 - required evidence gates before completion claims
 
 **Invariants:**

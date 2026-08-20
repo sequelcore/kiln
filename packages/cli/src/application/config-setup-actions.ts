@@ -18,6 +18,8 @@ import { readConfigStatusSnapshot } from "./config-status.js";
 import { syncGlobalControlPlaneMcpProjections } from "../config/global-control-plane-mcp-projection.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { configuredCommunicationCandidates } from "../config/communication-policy.js";
+import { resolveConfiguredCommunication } from "../config/communication-policy.js";
+import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
 
 export interface ExecuteConfigSetupActionInput {
   readonly projectPath: string;
@@ -142,6 +144,10 @@ async function syncNativeProjections(
       project: readKilnYaml(join(projectPath, ".kiln"))?.communication,
     }),
   });
+  const communicationResult = syncGlobalCommunicationProjection({
+    intent: resolveConfiguredCommunication({ global: globalConfig?.communication }),
+    userHome,
+  });
   const skillResult = await syncNativeSkillProjections(projectPath, {
     disabledHarnesses,
     skillConfig: kilnYaml.skills,
@@ -164,6 +170,7 @@ async function syncNativeProjections(
     ...permissionResult.errors,
     ...hookResult.errors,
     ...agentResult.errors,
+    ...communicationResult.errors,
     ...skillResult.errors,
     ...mcpErrors,
     ...globalMcpResult.targets.flatMap((target) => target.status === "current"

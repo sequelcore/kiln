@@ -475,30 +475,9 @@ permissions:
   sandbox: read-only
 
 workGovernance:
-  defaultPosture: orchestrate
-  directExecution:
-    maxFiles: 1
-    maxRisk: low
-  requireDelegationFor:
-    - architecture
-    - security
-    - ui
-    - runtime
-    - provider-routing
-    - managed-agents
-    - config
-    - multi-file
-    - cross-surface
-    - long-running
-    - verification-heavy
-    - formal-proof-candidate
-  requiredEvidence:
-    - surface-map
-    - risk-hypothesis
-    - plan
-    - tests
-    - typecheck
-    - residual-risk
+  defaultPosture: direct
+  requireDelegationFor: []
+  requiredEvidence: []
 
 activeInstructionProfiles:
   - sequel-engineering

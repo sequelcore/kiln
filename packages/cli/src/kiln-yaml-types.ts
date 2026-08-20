@@ -156,16 +156,10 @@ export type KilnWorkGovernanceTrigger =
   | "provider-routing"
   | "managed-agents"
   | "config"
-  | "multi-file"
   | "cross-surface"
   | "long-running"
   | "verification-heavy"
   | "formal-proof-candidate";
-
-export interface KilnWorkGovernanceDirectExecutionConfig {
-  readonly maxFiles?: number;
-  readonly maxRisk?: KilnWorkGovernanceRisk;
-}
 
 /** Global ceilings only. A goal contract remains explicit and may be narrower. */
 export interface KilnBoundedWorkPolicyCeiling {
@@ -190,40 +184,15 @@ export interface KilnBoundedWorkPolicyCeiling {
 
 export interface KilnWorkGovernanceConfig {
   readonly defaultPosture?: KilnWorkGovernancePosture;
-  readonly directExecution?: KilnWorkGovernanceDirectExecutionConfig;
   readonly requireDelegationFor?: readonly KilnWorkGovernanceTrigger[];
   readonly requiredEvidence?: readonly KilnWorkGovernanceEvidence[];
   readonly boundedWorkCeiling?: KilnBoundedWorkPolicyCeiling;
 }
 
 export const DEFAULT_WORK_GOVERNANCE_CONFIG: KilnWorkGovernanceConfig = {
-  defaultPosture: "orchestrate",
-  directExecution: {
-    maxFiles: 1,
-    maxRisk: "low",
-  },
-  requireDelegationFor: [
-    "architecture",
-    "security",
-    "ui",
-    "runtime",
-    "provider-routing",
-    "managed-agents",
-    "config",
-    "multi-file",
-    "cross-surface",
-    "long-running",
-    "verification-heavy",
-    "formal-proof-candidate",
-  ],
-  requiredEvidence: [
-    "surface-map",
-    "risk-hypothesis",
-    "plan",
-    "tests",
-    "typecheck",
-    "residual-risk",
-  ],
+  defaultPosture: "direct",
+  requireDelegationFor: [],
+  requiredEvidence: [],
 };
 
 export type KilnModelTaskSuitabilityTask =

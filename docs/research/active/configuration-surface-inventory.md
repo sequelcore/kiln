@@ -347,7 +347,7 @@ source/consumer/disposition or deletion
 | Field group | Current owner | Plane | Sensitivity / authority | Scope and activation |
 | --- | --- | --- | --- | --- |
 | `version`, `identity.*`, `activeInstructionProfiles[]` | CLI global config | intent | identity and profile selection; no raw secret | global; next-session or reconcile unknown |
-| `workGovernance.*`, including direct-execution limits, delegation triggers, evidence, allowed/denied roots, and maximum limits | CLI config; work-governance application owns decisions | intent | high authority over work effects | global default, project may narrow; next invocation/session unknown |
+| `workGovernance.*`, including posture, delegation triggers, evidence, allowed/denied roots, and maximum limits | CLI config; work-governance application owns decisions | intent | high authority over work effects | global default, project may narrow; next invocation/session unknown |
 | `engines.<id>.{enabled,billing}` | CLI config | intent plus billing classification | execution availability and economics | global; next-session/reconcile unknown |
 | `targetCatalog.accounts[]`, `.accountPolicies[]`, `.targets[]` | CLI structural config; Core execution routing and data/economic admission | mixed intent and managed evidence | credential references, provider/model identity, classification, data-policy and price evidence; high | global only; next-turn/session/reconcile unknown |
 | `targetRouting.defaultTargetId` | CLI config; Runtime target admission | intent | changes execution selection; high | global default; next session/turn unknown |

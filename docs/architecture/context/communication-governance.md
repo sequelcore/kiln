@@ -65,17 +65,24 @@ hash and component attribution for the exact final prompt sent to the harness.
   `personality` with explicit semantic-loss evidence. An ID match with a
   different revision or behavior set is unsupported; `none` is not treated as
   an interaction profile.
-- Claude Code: Kiln does not overwrite operator `outputStyle`. Non-default
-  invocation intent is unsupported until an owned, fresh-session projection
-  can preserve coding instructions and subagent boundaries.
+- Claude Code: global `responseDetail: concise` projects to the built-in
+  `outputStyle: "Concise"` in user settings. Kiln-launched SDK sessions pass
+  the same value through inline settings. Both paths preserve Claude Code's
+  coding instructions. The setting applies after `/clear` or a new session and
+  affects the main conversation only; Claude subagents continue to use their
+  own prompt. Other response-detail values remain unsupported until Claude
+  exposes an equivalent native contract.
 - OpenCode: owned agent files may project `textVerbosity` only for an admitted
   OpenAI GPT-5 route. Kiln does not treat the option as harness-neutral or
   mutate a persistent agent during a turn.
 
 Owned native files retain install-state hashes, drift detection, backup, and
-rollback behavior. The install state also retains the content-free global â†’
-project â†’ agent communication resolution used to write each owned file, and
-status reads that evidence. Unmanaged operator settings are not overwritten.
+rollback behavior. Claude's global output-style projection owns only the
+`outputStyle` field in `~/.claude/settings.json`; unrelated user settings remain
+operator-owned. The install state also retains the content-free global to
+project to agent communication resolution used to write each owned field or
+file, and status reads that evidence. Conflicting unmanaged operator settings
+are not overwritten without explicit force review.
 
 ## Artifact Contracts
 

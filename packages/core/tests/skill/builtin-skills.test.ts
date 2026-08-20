@@ -58,6 +58,8 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("distinct behavioral signal");
     expect(skill?.instructions).toContain("Do not report speculative findings");
     expect(skill?.instructions).toMatch(/State the reviewed surface and any material surface not reviewed/);
+    expect(skill?.instructions).toMatch(/explanation debt/i);
+    expect(skill?.instructions).toMatch(/canonical artifact/i);
   });
 
   it("requires bounded evidence-driven codebase scouting", () => {
@@ -74,6 +76,7 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("Do not turn the map into an implementation plan");
     expect(skill?.instructions).toMatch(/repository evidence, not external source research/);
     expect(skill?.instructions).toMatch(/Route current external claims.*research workflow/s);
+    expect(skill?.instructions).toMatch(/durable rationale/i);
   });
 
   it("requires evidence-bound adaptive implementation planning", () => {
@@ -90,6 +93,8 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/Do not parallelize slices that share a\s+prerequisite or write surface/);
     expect(skill?.instructions).toContain("Re-scout and revise the plan");
     expect(skill?.instructions).toMatch(/A prose plan does not\s+grant write authority, approval, or completion evidence/);
+    expect(skill?.instructions).toMatch(/simplest materially different design/i);
+    expect(skill?.instructions).toMatch(/durable rationale/i);
   });
 
   it("requires explicit equivalence evidence for behavior-preserving refactors", () => {
@@ -102,6 +107,7 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("Compare before-and-after behavior");
     expect(skill?.instructions).toContain("Delete the obsolete path in the same change");
     expect(skill?.instructions).toContain("reclassify the work as a behavior change or migration");
+    expect(skill?.instructions).toMatch(/ownership.*verification.*discoverable/i);
   });
 
   it("requires enforcement-backed security scope review", () => {
@@ -130,6 +136,10 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/dependency path, affected surface, triggering condition,\s+impact, evidence, correction direction/);
     expect(skill?.instructions).toMatch(/findings first, ordered by severity/);
     expect(skill?.instructions).toMatch(/reviewed and materially unreviewed surface, verification\s+performed, and residual risk/);
+    expect(skill?.instructions).toMatch(/minimum sufficient complexity/i);
+    expect(skill?.instructions).toMatch(/owner.*deliberately does not own/i);
+    expect(skill?.instructions).toMatch(/canonical, derived, or projected/i);
+    expect(skill?.instructions).toMatch(/fresh-context maintainer/i);
   });
 
   it("requires domain-evidenced DDD boundary review", () => {
@@ -247,6 +257,8 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toContain("Preserve reviewed durable human notes");
     expect(skill?.instructions).toMatch(/blocked only when critical evidence cannot\s+be resolved/);
     expect(skill?.instructions).toMatch(/Do not repair\s+projection drift/);
+    expect(skill?.instructions).toMatch(/derived repository facts/i);
+    expect(skill?.instructions).toMatch(/frontmatter.*body/i);
   });
 
   it("defines clear-writing as neutral reusable writing procedure", () => {

@@ -3,9 +3,9 @@ kiln:repo-shim:v1
 target: claude
 projectName: kiln
 projectRootId: sha256:cdfe9ad58b46226d
-sourceProfiles: sequel-engineering
+sourceProfiles: sequel-engineering,operator-communication
 generator: repo-shims-v1
-contentHash: sha256:031e2fcec72680f4a2ccf6caab5b772e5950f271e7b2b8972374a13e577dbedd
+contentHash: sha256:87db664181ccc940a96d5180c98139829625fba9196e05e5398deb27b3d8ba6c
 -->
 # Claude Project Guidance
 
@@ -20,31 +20,36 @@ contentHash: sha256:031e2fcec72680f4a2ccf6caab5b772e5950f271e7b2b8972374a13e577d
 - Max depth: 3
 - Parallel workers: 3
 
-## Adopted Project Context
+## Repository Evidence
 
-Canonical source: `.kiln/project-context.md`.
-
-# Project Context
-
-This file is canonical Kiln project context. Edit this file or regenerate it
-through `kiln project adopt`; do not put durable repo guidance directly in
-`AGENTS.md` or `CLAUDE.md`.
-
-## Project
-
-- Name: kiln
 - Package manager: bun
+- Script `build`: `bun run scripts/release/cli.ts build`
+- Script `compile`: `tsc -b packages/gateway-contracts packages/tools packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native`
+- Script `docs:check`: `bun run scripts/validate-docs.ts`
+- Script `profile:startup`: `bun run scripts/profile-startup.ts`
+- Script `release:pack`: `bun run scripts/release/cli.ts pack`
+- Script `release:preflight`: `bun run scripts/release/cli.ts preflight`
+- Script `release:publish`: `bun run scripts/release/cli.ts publish`
+- Script `release:smoke`: `bun run scripts/release/cli.ts smoke`
+- Script `release:validate`: `bun run scripts/release/cli.ts validate`
+- Script `test`: `bun run test:scripts && bun run test:foundation && bun run test:runtime && bun run test:cli && bun run test:surfaces`
+- Script `test:benchmark-verifiers:live`: `bun run --cwd packages/cli test:live`
+- Script `test:cli`: `bun run --filter @kilnai/cli test`
+- Script `test:e2e`: `bun run --cwd packages/gui test:e2e`
+- Script `test:foundation`: `bun run --parallel --filter @kilnai/gateway-contracts --filter @kilnai/tools --filter @kilnai/core test`
+- Script `test:harness`: `bun run scripts/run-managed-agent-harness-tests.ts`
+- Script `test:managed-agents:live`: `bun run scripts/run-managed-agent-live-tests.ts`
+- Script `test:model-gateway-harnesses:live`: `bun run scripts/run-model-gateway-harness-live-probe.ts`
+- Script `test:runtime`: `bun run --filter @kilnai/runtime test`
+- Script `test:scripts`: `vitest run --config scripts/vitest.config.ts --exclude scripts/profile-startup.test.ts`
+- Script `test:startup-profile`: `vitest run --config scripts/vitest.config.ts scripts/profile-startup.test.ts`
+- Script `test:surfaces`: `bun run --parallel --filter @kilnai/react --filter @kilnai/widget --filter @kilnai/tui --filter @kilnai/native --filter @kilnai/gui test`
+- Script `typecheck`: `bun run compile && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit && bun run typecheck:tests`
+- Script `typecheck:tests`: `tsc -p packages/tools/tsconfig.test.json && tsc -p packages/gateway-contracts/tsconfig.test.json && tsc -p packages/sdk/tsconfig.test.json && tsc -p packages/tui/tsconfig.test.json && tsc -p packages/native/tsconfig.test.json && tsc -p packages/core/tsconfig.test.json && tsc -p packages/cli/tsconfig.test.json`
+- Script `vendor:tools`: `bun run scripts/vendor-tools.ts`
 - Workspace package: `packages/*`
 
-## Commands
-
-- `build`: `bun run --filter '*' build`
-- `test`: `bun run --filter @kilnai/gateway-contracts test && bun run --filter @kilnai/core test && bun run --filter @kilnai/runtime test && bun run --filter @kilnai/cli test && bun run --filter @kilnai/react test && bun run --filter @kilnai/widget test && bun run --filter @kilnai/tui test && bun run --filter @kilnai/native test && bun run --filter @kilnai/gui test`
-- `test:e2e`: `bun run --cwd packages/gui test:e2e`
-- `test:managed-agents:live`: `vitest run packages/runtime/tests/managed-agent/*.live.test.ts --maxWorkers=1`
-- `typecheck`: `tsc -b packages/gateway-contracts packages/core packages/runtime packages/sdk packages/cli packages/tui packages/native && tsc -p packages/widget/tsconfig.json --noEmit && tsc -p packages/gui/tsconfig.json --noEmit`
-
-## Canonical References
+## Canonical Project References
 
 - README.md
 - docs/architecture/README.md
@@ -52,10 +57,9 @@ through `kiln project adopt`; do not put durable repo guidance directly in
 - docs/research/README.md
 - docs/roadmap/README.md
 
-## Agent Review Notes
+## Adopted Project Context
 
-Add governed repo-specific notes here after review. Keep them factual,
-durable, and backed by repository evidence.
+Canonical source: `.kiln/project-context.md`.
 
 ### No External Consumers
 
@@ -77,14 +81,12 @@ section "Consumer Surface".
 Read these canonical Kiln instruction profiles before work. They are the source of durable operator/team doctrine; this file is only a projection.
 
 - sequel-engineering (global): ~/.kiln/instructions/sequel-engineering.md - doctrine: principles, workflow, quality gates, review posture, delegation, execution discipline
+- operator-communication (global): ~/.kiln/instructions/operator-communication.md - doctrine: principles, review posture, execution discipline
 
 ## Work Governance
 
-Follow the resolved Kiln work-governance policy before choosing direct execution.
-- Default posture: orchestrate
-- Direct execution: maxFiles=1, maxRisk=low
-- Orchestrate/delegate for: architecture, security, ui, runtime, provider-routing, managed-agents, config, multi-file, cross-surface, long-running, verification-heavy, formal-proof-candidate
-- Evidence before done: surface-map, risk-hypothesis, plan, tests, typecheck, residual-risk
+Direct execution is the baseline. Follow resolved Kiln work-governance evidence when a configured trigger requires coordination.
+- Default posture: direct
 - Projection is not authority: if required delegation, review, approval, or tool capability is unavailable in this harness, do not simulate it or create project memory workarounds.
 - Record missing harness/tool/route capability as a `capability` pause requirement, continue locally only when the required evidence gates can still be satisfied, or ask the operator for explicit authorization.
 

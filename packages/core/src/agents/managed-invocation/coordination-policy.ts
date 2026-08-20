@@ -50,7 +50,7 @@ export function decideManagedAgentCoordination(
     && signals.workItemCount === 1
     && !signals.requiresIndependentReview
   ) {
-    return selected("direct", 0, ["work is inside the direct-execution envelope"]);
+    return selected("direct", 0, ["no coordination trigger applies"]);
   }
 
   const missingCapabilities = missingOrchestrationCapabilities(signals);

@@ -25,7 +25,7 @@ Identity, control model, and the invariants everything else is built on.
   Canonical end-to-end flows and their gates, state transitions, and
   fail-closed or recovery behavior.
 - [`core/work-governance.md`](core/work-governance.md)
-  Canonical work lifecycle, orchestration preference, direct-execution
+  Canonical work lifecycle, topology selection, direct-execution
   envelope, evidence expectations, verifier-backed work, and cross-surface
   work-policy projection.
 - [`core/governed-work-execution.md`](core/governed-work-execution.md)

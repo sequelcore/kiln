@@ -84,7 +84,7 @@ authority owner.
   effective for an admitted runtime action. It is never inferred from a model,
   prompt, plugin, or harness setting.
 - **Work-governance policy**: the resolved Kiln configuration that defines
-  orchestration posture, direct-execution limits, delegation triggers, and
+  orchestration posture, delegation triggers, and
   required evidence.
 - **Capability availability**: an observed, source-attributed statement that a
   mechanism is usable for an operation; absence, staleness, or incomplete
@@ -231,7 +231,7 @@ Current status:
 
 | Harness | Status | Mechanism |
 |---------|--------|-----------|
-| Claude Code | Runtime injection not proven | Kiln-launched managed sessions isolate native config with `CLAUDE_CONFIG_DIR`; standalone Model Gateway routing uses governed native settings projection instead of a generic runtime-config backend |
+| Claude Code | Generic runtime injection not proven | Kiln-launched managed sessions isolate native config with `CLAUDE_CONFIG_DIR`; the documented Agent SDK inline `settings.outputStyle` contract admits the narrower concise-response projection only |
 | Codex | Supported | `CODEX_HOME` plus CLI config overrides for Kiln-launched processes |
 | OpenCode | Supported | `OPENCODE_CONFIG_CONTENT` for Kiln-launched processes |
 
@@ -246,6 +246,12 @@ passes process-scoped startup overrides for model, approval, sandbox, and
 related execution flags. This is not a claim that standalone Codex reads Kiln
 global config directly. The SDK-backed session executes the CLI bundled by the
 exact pinned SDK and does not replace it with an operator-local executable.
+
+Claude's native `outputStyle: "Concise"` is a field-specific capability, not
+evidence for generic runtime config injection. Standalone Claude reads the
+Kiln-managed field from user settings; Kiln-launched SDK sessions receive the
+same value through inline settings. Other settings remain governed by their
+own capability evidence.
 
 Claude's admitted read-only plan route has one narrower version-bound
 capability, `claude-code-private-plan-artifacts-v1`, proven for the exact

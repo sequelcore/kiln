@@ -32,6 +32,9 @@ The config projection boundary is owned by the CLI config layer.
 - `packages/cli/src/config/config-merger.ts` merges global and project config.
 - `packages/cli/src/config/native-*-projection.ts` owns native file IO for
   permissions, hooks, agents, and skills.
+- `packages/cli/src/config/global-communication-projection.ts` owns the narrow
+  user-scoped Claude `outputStyle` projection from canonical global
+  communication intent. It owns one field, not the whole settings file.
 - `packages/cli/src/application/global-instruction-shim-projection.ts` owns
   generated global instruction entrypoints for native harness startup:
   `~/.codex/AGENTS.md`, `~/.claude/CLAUDE.md`, and
@@ -650,6 +653,10 @@ On sync, Kiln compares current native content against install-state before
 writing. Drift on managed fields or managed files aborts that target unless the
 operator confirms `--force`. Unmanaged native keys remain outside the drift
 contract and are preserved by document-field projection.
+
+Global communication projection uses the global native-projection state under
+`~/.kiln/runtime/native-projections`, so different repositories do not compete
+for ownership of the same user-scoped Claude setting.
 
 `kiln import-native <target>` is the explicit path to absorb selected native
 settings into Kiln config. It is not reverse sync. It supports Codex and

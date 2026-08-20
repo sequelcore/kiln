@@ -71,7 +71,6 @@ function snapshot(overrides: Partial<KilnConfigStatusSnapshot> = {}): KilnConfig
     effectiveConfig: {
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: { maxFiles: 1, maxRisk: "low" },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map", "tests"],
       },
@@ -673,7 +672,7 @@ describe("NativeHarnessMcpTools", () => {
 
     expect(result.structuredContent).toMatchObject({
       operation: "work-governance",
-      policy: { defaultPosture: "orchestrate", directExecution: { maxFiles: 1, maxRisk: "low" } },
+      policy: { defaultPosture: "orchestrate" },
     });
   });
 
@@ -775,7 +774,6 @@ describe("NativeHarnessMcpTools", () => {
       effectiveConfig: {
         workGovernance: {
           defaultPosture: "direct",
-          directExecution: { maxFiles: 0, maxRisk: "low" },
           requireDelegationFor: ["not-a-trigger"],
           requiredEvidence: ["surface-map"],
         },
@@ -796,10 +794,9 @@ describe("NativeHarnessMcpTools", () => {
 
   it.each([
     ["missing required discriminants", { defaultPosture: "direct" }],
-    ["fractional direct file limit", { defaultPosture: "direct", directExecution: { maxFiles: 1.5, maxRisk: "low" }, requireDelegationFor: [], requiredEvidence: [] }],
-    ["unsupported risk", { defaultPosture: "direct", directExecution: { maxFiles: 1, maxRisk: "critical" }, requireDelegationFor: [], requiredEvidence: [] }],
-    ["duplicated authority trigger", { defaultPosture: "direct", directExecution: { maxFiles: 1, maxRisk: "low" }, requireDelegationFor: ["security", "security"], requiredEvidence: [] }],
-    ["unsupported evidence", { defaultPosture: "direct", directExecution: { maxFiles: 1, maxRisk: "low" }, requireDelegationFor: [], requiredEvidence: ["operator-says-so"] }],
+    ["unknown authority field", { defaultPosture: "direct", directExecution: { maxFiles: 1 }, requireDelegationFor: [], requiredEvidence: [] }],
+    ["duplicated authority trigger", { defaultPosture: "direct", requireDelegationFor: ["security", "security"], requiredEvidence: [] }],
+    ["unsupported evidence", { defaultPosture: "direct", requireDelegationFor: [], requiredEvidence: ["operator-says-so"] }],
   ])("rejects %s governance evidence", async (_, workGovernance) => {
     const result = await createServer(snapshot({ effectiveConfig: { workGovernance } })).callTool("kiln_work_governance_inspect", {});
 

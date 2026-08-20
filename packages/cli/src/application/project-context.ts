@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
 
 export interface ProjectContextEvidence {
   readonly projectName: string;
@@ -22,13 +22,12 @@ export interface ProjectContextAdoptionOptions {
 }
 
 interface ProjectContextFrontmatter {
-  readonly version: "1";
-  readonly source: "deterministic-repo-scout";
-  readonly projectName: string;
-  readonly packageManager?: string;
-  readonly scripts?: Record<string, string>;
-  readonly workspacePackages?: readonly string[];
-  readonly canonicalDocs?: readonly string[];
+  readonly version: "2";
+  readonly source: "reviewed-project-context";
+}
+
+export interface ProjectContextAdoption {
+  readonly reviewNotes: string;
 }
 
 const PROJECT_CONTEXT_PATH = ".kiln/project-context.md";
@@ -54,15 +53,31 @@ export function collectProjectContextEvidence(projectPath: string): ProjectConte
   };
 }
 
-export function renderProjectContextMarkdown(evidence: ProjectContextEvidence): string {
+export function renderProjectContextEvidenceMarkdown(evidence: ProjectContextEvidence): string {
+  return [
+    "# Repository Evidence",
+    "",
+    `- Project: ${evidence.projectName}`,
+    `- Package manager: ${evidence.packageManager ?? "not detected"}`,
+    ...evidence.workspacePackages.map((workspace) => `- Workspace: ${workspace}`),
+    "",
+    "## Commands",
+    "",
+    ...(evidence.scripts.length > 0
+      ? evidence.scripts.map(([name, command]) => `- \`${name}\`: \`${command}\``)
+      : ["- none detected"]),
+    "",
+    "## Canonical References",
+    "",
+    ...(evidence.docs.length > 0 ? evidence.docs.map((path) => `- ${path}`) : ["- none detected"]),
+    "",
+  ].join("\n");
+}
+
+export function renderProjectContextMarkdown(adoption: ProjectContextAdoption = { reviewNotes: "" }): string {
   const frontmatter: ProjectContextFrontmatter = {
-    version: "1",
-    source: "deterministic-repo-scout",
-    projectName: evidence.projectName,
-    ...(evidence.packageManager ? { packageManager: evidence.packageManager } : {}),
-    ...(evidence.scripts.length > 0 ? { scripts: Object.fromEntries(evidence.scripts) } : {}),
-    ...(evidence.workspacePackages.length > 0 ? { workspacePackages: evidence.workspacePackages } : {}),
-    ...(evidence.docs.length > 0 ? { canonicalDocs: evidence.docs } : {}),
+    version: "2",
+    source: "reviewed-project-context",
   };
 
   const lines: string[] = [
@@ -72,53 +87,61 @@ export function renderProjectContextMarkdown(evidence: ProjectContextEvidence): 
     "",
     "# Project Context",
     "",
-    "This file is canonical Kiln project context. Edit this file or regenerate it",
-    "through `kiln project adopt`; do not put durable repo guidance directly in",
-    "`AGENTS.md` or `CLAUDE.md`.",
-    "",
-    "## Project",
-    "",
-    `- Name: ${evidence.projectName}`,
+    "This file owns reviewed repository-wide notes that cannot be derived from",
+    "executable repository evidence. Package facts, commands, workspaces, and",
+    "standard references are derived when Kiln generates repository shims.",
+    "Do not put durable repo guidance directly in `AGENTS.md` or `CLAUDE.md`.",
+    "Regenerate this descriptor through `kiln project adopt` when replacement is",
+    "intended.",
   ];
-
-  if (evidence.packageManager) {
-    lines.push(`- Package manager: ${evidence.packageManager}`);
-  }
-
-  if (evidence.workspacePackages.length > 0) {
-    lines.push(...evidence.workspacePackages.map((workspacePackage) => `- Workspace package: \`${workspacePackage}\``));
-  }
-
-  if (evidence.scripts.length > 0) {
-    lines.push("", "## Commands", "");
-    for (const [name, command] of evidence.scripts) {
-      lines.push(`- \`${name}\`: \`${command}\``);
-    }
-  }
-
-  if (evidence.docs.length > 0) {
-    lines.push("", "## Canonical References", "");
-    lines.push(...evidence.docs.map((doc) => `- ${doc}`));
-  }
 
   lines.push(
     "",
     "## Agent Review Notes",
     "",
-    "Add governed repo-specific notes here after review. Keep them factual,",
-    "durable, and backed by repository evidence.",
-    "",
+    ...(adoption.reviewNotes ? [adoption.reviewNotes, ""] : [""]),
   );
 
   return lines.join("\n");
 }
 
-export function readProjectContextMarkdown(projectPath: string): string | null {
+export function parseProjectContextMarkdown(content: string): ProjectContextAdoption {
+  const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$/u.exec(content.replace(/^\uFEFF/u, ""));
+  if (!match) {
+    throw new Error("Project context must use version 2 reviewed-project-context frontmatter.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = parse(match[1] ?? "");
+  } catch {
+    throw new Error("Project context must use valid version 2 reviewed-project-context frontmatter.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Project context must use version 2 reviewed-project-context frontmatter.");
+  }
+  const record = parsed as Record<string, unknown>;
+  const unknown = Object.keys(record).filter((key) => key !== "version" && key !== "source");
+  if (record.version !== "2" || record.source !== "reviewed-project-context" || unknown.length > 0) {
+    throw new Error("Project context must use version 2 reviewed-project-context frontmatter without derived repository facts.");
+  }
+
+  const body = match[2] ?? "";
+  const notesHeading = /^## Agent Review Notes[ \t]*\r?\n/mu.exec(body);
+  if (!notesHeading) {
+    throw new Error("Project context must contain an Agent Review Notes section.");
+  }
+  const remainder = body.slice((notesHeading.index ?? 0) + notesHeading[0].length);
+  const nextSection = /^##\s/mu.exec(remainder);
+  return { reviewNotes: remainder.slice(0, nextSection?.index ?? remainder.length).trim() };
+}
+
+export function readProjectContextAdoption(projectPath: string): ProjectContextAdoption | null {
   const path = projectContextPath(projectPath);
   if (!existsSync(path)) {
     return null;
   }
-  return readFileSync(path, "utf-8");
+  return parseProjectContextMarkdown(readFileSync(path, "utf-8"));
 }
 
 export function writeProjectContextAdoption(
@@ -126,9 +149,16 @@ export function writeProjectContextAdoption(
   options: ProjectContextAdoptionOptions = {},
 ): ProjectContextAdoptionResult {
   const path = projectContextPath(projectPath);
-  const evidence = collectProjectContextEvidence(projectPath);
-  const content = renderProjectContextMarkdown(evidence);
   const existing = existsSync(path) ? readFileSync(path, "utf-8") : null;
+  let adoption: ProjectContextAdoption = { reviewNotes: "" };
+  if (existing) {
+    try {
+      adoption = parseProjectContextMarkdown(existing);
+    } catch {
+      // Explicit force may replace invalid or legacy context after backing it up.
+    }
+  }
+  const content = renderProjectContextMarkdown(adoption);
 
   if (existing === content) {
     return { written: false, path, status: "unchanged", errors: [] };

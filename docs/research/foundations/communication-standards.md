@@ -1,6 +1,6 @@
 # Communication Standards
 
-Evidence cutoff: 2026-08-12.
+Evidence cutoff: 2026-08-20.
 
 This foundation preserves the evidence behind Kiln's writing and
 response-shaping procedures — the `clear-writing` built-in and the action-first
@@ -63,6 +63,27 @@ call to action.
 - **Global config holds preferences, not procedures.** Config may enable or
   narrow built-ins and hold stable operator preferences; it does not carry the
   full writing procedure.
+- **Communication and engineering doctrine have independent owners.** Response
+  detail and presentation can change without altering correctness, authority,
+  or architecture rules. The global communication profile therefore remains
+  separate and concise; resolved `communication.responseDetail` carries the
+  operator's actual verbosity choice.
+
+## Native response-detail controls
+
+Claude Code exposes a built-in `Concise` output style through `outputStyle` in
+settings. User settings at `~/.claude/settings.json` apply across projects,
+output style changes take effect after `/clear` or a new session, and the
+TypeScript Agent SDK accepts the same setting through its inline `settings`
+object. Kiln therefore projects canonical global
+`communication.responseDetail: concise` intent to that native field instead of
+copying more prompt doctrine into every repository. The native style applies
+only to the main conversation, so it is not evidence that Claude subagents
+inherit concise behavior.
+
+- [Claude Code output styles](https://code.claude.com/docs/en/output-styles)
+- [Claude Code settings scopes](https://code.claude.com/docs/en/settings)
+- [Claude Agent SDK system-prompt configuration](https://code.claude.com/docs/en/agent-sdk/modifying-system-prompts)
 
 ## Non-claims
 

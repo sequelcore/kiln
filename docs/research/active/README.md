@@ -20,6 +20,9 @@ Every note must name or link:
   [issue #94](https://github.com/sequelcore/kiln/issues/94) with the evidence,
   hypotheses, and benchmark required before changing scouting, decomposition,
   delegation, or coordination defaults.
+- [CI Test Suite Performance](ci-test-suite-performance.md) tracks the
+  owner-backed investigation into deterministic suite throughput and resource
+  isolation.
 - [Prompt Component and Response Governance](prompt-component-governance.md)
   supports [Roadmap 06](../../roadmap/06-prompt-governance-plane.md).
 - [Provider-Neutral Communication Governance](provider-neutral-communication.md)

@@ -57,6 +57,9 @@ Durable research lives under [`foundations/`](foundations/README.md):
 
 Open, owner-backed research lives under [`active/`](active/README.md):
 
+- CI test suite performance — active owner-backed investigation
+- provider-neutral communication governance — Roadmap 06 / issue 77
+
 - configuration surface inventory — Roadmap 12 Slice 0
 - adaptive work governance — issue #94
 - remote operator connection — Roadmaps 08 and 08.5

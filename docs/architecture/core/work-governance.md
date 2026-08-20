@@ -4,7 +4,8 @@ Work governance is Kiln's canonical contract for turning operator intent into
 bounded, delegated, verified work. It is not prompt engineering. Prompt text is
 only one input to the control plane.
 
-Kiln treats non-trivial work as a governed lifecycle:
+When the operator requests tracked execution or policy requires it, Kiln uses a
+governed lifecycle:
 
 1. intent intake
 2. surface map
@@ -17,8 +18,8 @@ Kiln treats non-trivial work as a governed lifecycle:
 9. adversarial or specialist review
 10. evidence summary and residual-risk closeout
 
-Direct execution is an actuator inside that lifecycle, not the default identity
-of the system.
+Direct execution is the baseline. The lifecycle adds coordination only when a
+configured trigger or concrete expected-value source requires it.
 
 ## Execution Identity And Surface Projection
 
@@ -74,9 +75,11 @@ layout, but the semantics are invariant:
 
 ## Doctrine
 
-Kiln's default posture is orchestration. Parent agents are conductors,
-integrators, and accountable closers. They may execute directly only when the
-task is local, low-risk, and inside the configured direct-execution envelope.
+Kiln's default posture is direct execution. An agent should coordinate only
+when a configured trigger applies or the topology has a concrete source of
+expected value: independent parallel work, specialization, bounded context
+isolation, independent evidence, or an authority or security boundary. Task
+size, file count, and the availability of orchestration are not sufficient.
 
 The operator should not need magic prompts such as asking whether the model is
 "100% confident." Kiln should turn that intent into explicit work evidence:
@@ -88,14 +91,14 @@ Model self-review is useful but weak evidence. Stronger evidence comes from:
 - executable tests
 - typecheck and build results
 - browser QA for user-interface changes
-- managed-agent specialist review
+- managed-agent specialist review as a source of findings, not proof
 - security, DDD, and architecture boundary review
 - deterministic verifier feedback when a formal-methods workflow applies
 - replayable session and artifact evidence
 
-## Orchestration Preference
+## Topology Selection
 
-Kiln should prefer orchestration when work has any of these triggers:
+Operators may require orchestration for selected triggers such as:
 
 - architecture or bounded-context impact
 - security, credentials, permissions, sandboxing, or data-flow impact
@@ -103,19 +106,19 @@ Kiln should prefer orchestration when work has any of these triggers:
 - runtime, session, memory, tool, or provider-routing changes
 - managed-agent, route, model, or evidence-plane changes
 - global or project configuration changes
-- multi-file or cross-package edits
 - cross-surface behavior
 - long-running work
 - verification-heavy work
 - formal-proof candidates
 
-Direct execution is allowed when all of these are true:
+Absent an explicit trigger, direct execution remains the baseline. The agent
+still decomposes concerns when they vary independently, scopes work, and runs
+verification proportionate to the affected surface. Coordination should state
+its expected value before it is introduced.
 
-- the scope is clear
-- the likely file count is inside `workGovernance.directExecution.maxFiles`
-- the risk is no higher than `workGovernance.directExecution.maxRisk`
-- the required verification is simple and local
-- no configured delegation trigger applies
+An independent LLM review produces hypotheses and objections. Completion must
+use deterministic or externally grounded verification whenever an oracle
+exists.
 
 ## Configuration Contract
 
@@ -123,34 +126,16 @@ Global and project config may declare:
 
 ```yaml
 workGovernance:
-  defaultPosture: orchestrate
-  directExecution:
-    maxFiles: 1
-    maxRisk: low
-  requireDelegationFor:
-    - architecture
-    - security
-    - ui
-    - runtime
-    - provider-routing
-    - managed-agents
-    - config
-    - multi-file
-    - cross-surface
-    - long-running
-    - verification-heavy
-    - formal-proof-candidate
-  requiredEvidence:
-    - surface-map
-    - risk-hypothesis
-    - plan
-    - tests
-    - typecheck
-    - residual-risk
+  defaultPosture: direct
+  requireDelegationFor: []
+  requiredEvidence: []
 ```
 
 Global config establishes operator/team defaults. Project `.kiln/kiln.yaml`
-may narrow or extend triggers and evidence expectations for the repository.
+may narrow posture or extend triggers and evidence expectations for the
+repository. File-count and coarse risk thresholds are deliberately not policy:
+they do not identify entanglement, authority, parallelism, or verification
+needs.
 
 The resolved policy is projected as required instruction context in CLI, GUI,
 TUI, and benchmark sessions. Repo shims also include the resolved policy so
@@ -521,7 +506,7 @@ Kiln ships canonical workflow profiles for common work shapes:
 
 | Profile | Use |
 | --- | --- |
-| `small-fix` | Local, low-risk work inside the direct-execution envelope. |
+| `small-fix` | A bounded correction with local verification. |
 | `bug-diagnosis` | Surface map, hypothesis, failing proof, minimal fix, verification loop. |
 | `architecture-review` | Read-only boundary, dependency, or architecture inspection without implementation work. |
 | `architecture-change` | Bounded-context, contract, or long-term design impact. |

@@ -24,6 +24,7 @@ import {
   WorkItemStore,
 } from "@kilnai/core/work-governance";
 import { assessWorkGovernance } from "./work-governance-policy.js";
+import { DEFAULT_WORK_GOVERNANCE_CONFIG } from "../kiln-yaml-types.js";
 import { createWorkGovernanceTools as createWorkGovernanceToolsProduction, WorkGovernanceAssessTool } from "./work-governance-tool.js";
 
 function createWorkGovernanceTools(
@@ -167,10 +168,6 @@ const operatorAdoptionContext = {
 describe("work-governance-tool", () => {
   const policy = {
     defaultPosture: "orchestrate" as const,
-    directExecution: {
-      maxFiles: 1,
-      maxRisk: "low" as const,
-    },
     requireDelegationFor: ["architecture", "ui"] as const,
     requiredEvidence: ["surface-map", "residual-risk"] as const,
   };
@@ -178,8 +175,6 @@ describe("work-governance-tool", () => {
   it("recommends orchestration when a configured trigger matches", () => {
     const assessment = assessWorkGovernance(policy, {
       summary: "Update GUI layout",
-      estimatedFiles: 1,
-      risk: "low",
       triggers: ["ui"],
     });
 
@@ -189,23 +184,17 @@ describe("work-governance-tool", () => {
     expect(assessment.requiredEvidence).toContain("browser-qa");
   });
 
-  it("recommends direct execution inside a direct policy envelope", () => {
+  it("recommends direct execution when no configured trigger requires coordination", () => {
     const assessment = assessWorkGovernance({
       defaultPosture: "direct",
-      directExecution: {
-        maxFiles: 1,
-        maxRisk: "low",
-      },
     }, {
       summary: "Fix typo",
-      estimatedFiles: 1,
-      risk: "low",
       triggers: [],
     });
 
     expect(assessment).toMatchObject({
       recommendation: "direct",
-      reasons: ["inside direct-execution envelope"],
+      reasons: ["no configured coordination trigger matched"],
     });
   });
 
@@ -216,16 +205,14 @@ describe("work-governance-tool", () => {
       name: "work_governance.assess",
       input: {
         summary: "Refactor managed agent route selection",
-        estimatedFiles: 4,
-        risk: "medium",
         triggers: ["managed-agents", "cross-surface"],
       },
     });
 
     expect(result.isError).toBe(false);
     expect(result.output).toContain("recommendation: orchestrate");
-    expect(result.output).toContain("estimated file count 4 exceeds direct max 1");
-    expect(result.output).toContain("managed-agent-review");
+    expect(result.output).toContain("default posture is orchestrate");
+    expect(result.output).not.toContain("managed-agent-review");
   });
 
   it("lists workflow profiles with UI evidence gates", async () => {
@@ -530,7 +517,7 @@ describe("work-governance-tool", () => {
         summary: "Inspect package boundaries and report architecture risks.",
         workflowProfile: "architecture-change",
         risk: "medium",
-        triggers: ["architecture", "multi-file"],
+        triggers: ["architecture", "cross-surface"],
         authorityProfile: "foundation-readonly-plan",
         workClassification: {
           intents: ["analyze", "review"],
@@ -557,7 +544,8 @@ describe("work-governance-tool", () => {
     expect(output.item?.workflowProfile).toBe("architecture-review");
     expect(output.item?.expectedEvidence).not.toContain("tests");
     expect(output.item?.expectedEvidence).not.toContain("typecheck");
-    expect(output.item?.verificationGates).toContain("architecture/DDD review");
+    expect(output.item?.expectedEvidence).not.toContain("managed-agent-review");
+    expect(output.item?.verificationGates).toContain("evidence-grounded architecture/DDD review");
   });
 
   it("materializes visual reference research before browser QA for UI work", async () => {
@@ -4268,6 +4256,22 @@ function testCandidateSubjects(candidate: BoundedWorkCandidateIdentity) {
     candidateContentDigest: candidate.candidateContentDigest,
     digests: new Map([["packages/cli", testSubjectDigest]]),
   };
+
+  it("uses direct execution as the smallest safe product default", () => {
+    expect(DEFAULT_WORK_GOVERNANCE_CONFIG).toEqual({
+      defaultPosture: "direct",
+      requireDelegationFor: [],
+      requiredEvidence: [],
+    });
+
+    expect(assessWorkGovernance(DEFAULT_WORK_GOVERNANCE_CONFIG, {
+      summary: "Change several tightly coupled files",
+      triggers: ["architecture"],
+    })).toMatchObject({
+      recommendation: "direct",
+      reasons: ["no configured coordination trigger matched"],
+    });
+  });
 }
 
 function testCandidateEvidence(input: {

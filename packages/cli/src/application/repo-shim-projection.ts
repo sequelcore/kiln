@@ -11,7 +11,8 @@ import { loadKilnConfig } from "../config/config-merger.js";
 import type { ResolvedKilnConfig } from "../kiln-yaml.js";
 import {
   collectProjectContextEvidence,
-  readProjectContextMarkdown,
+  readProjectContextAdoption,
+  type ProjectContextAdoption,
   type ProjectContextEvidence,
 } from "./project-context.js";
 import {
@@ -93,7 +94,7 @@ interface RepoShimProjectionContext {
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
-  readonly adoptedProjectContext: string | null;
+  readonly adoptedProjectContext: ProjectContextAdoption | null;
   readonly sourceProfiles: readonly string[];
   readonly projectRootId: string;
 }
@@ -280,7 +281,7 @@ async function loadRepoShimProjectionContext(projectPath: string): Promise<RepoS
     instructionProfiles,
     kilnYaml,
     repoContext,
-    adoptedProjectContext: readProjectContextMarkdown(projectPath),
+    adoptedProjectContext: readProjectContextAdoption(projectPath),
     sourceProfiles: kilnYaml?.activeInstructionProfiles ?? [],
     projectRootId: repoRootIdentity(repoContext),
   };
@@ -296,7 +297,7 @@ function writeRepoShimTarget(input: {
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
-  readonly adoptedProjectContext: string | null;
+  readonly adoptedProjectContext: ProjectContextAdoption | null;
   readonly sourceProfiles: readonly string[];
   readonly projectRootId: string;
   readonly force: boolean;
@@ -367,12 +368,12 @@ function renderRepoShimBody(input: {
   readonly instructionProfiles: readonly KilnInstructionProfileDefinition[];
   readonly kilnYaml: ResolvedKilnConfig | null;
   readonly repoContext: ProjectContextEvidence;
-  readonly adoptedProjectContext: string | null;
+  readonly adoptedProjectContext: ProjectContextAdoption | null;
 }): string {
   return [
     ...renderRepoShimHeader(input.target),
     ...renderProjectSection(input.repoContext, input.kilnYaml),
-    ...renderRepositoryEvidenceSections(input.repoContext, input.adoptedProjectContext),
+    ...renderRepositoryEvidenceSections(input.repoContext),
     ...renderAdoptedProjectContextSection(input.adoptedProjectContext),
     ...renderActiveInstructionProfilesSection(input),
     ...renderWorkGovernanceSection(input.kilnYaml),
@@ -405,11 +406,7 @@ function renderProjectSection(repoContext: ProjectContextEvidence, kilnYaml: Res
 
 function renderRepositoryEvidenceSections(
   repoContext: ProjectContextEvidence,
-  adoptedProjectContext: string | null,
 ): readonly string[] {
-  if (adoptedProjectContext) {
-    return [];
-  }
   return [
     ...renderRepositoryEvidenceSection(repoContext),
     ...renderCanonicalProjectReferencesSection(repoContext),
@@ -442,8 +439,8 @@ function renderCanonicalProjectReferencesSection(repoContext: ProjectContextEvid
   ];
 }
 
-function renderAdoptedProjectContextSection(adoptedProjectContext: string | null): readonly string[] {
-  if (!adoptedProjectContext) {
+function renderAdoptedProjectContextSection(adoptedProjectContext: ProjectContextAdoption | null): readonly string[] {
+  if (!adoptedProjectContext?.reviewNotes) {
     return [];
   }
   return [
@@ -451,7 +448,7 @@ function renderAdoptedProjectContextSection(adoptedProjectContext: string | null
     "",
     "Canonical source: `.kiln/project-context.md`.",
     "",
-    stripFrontmatter(adoptedProjectContext).trim(),
+    adoptedProjectContext.reviewNotes,
     "",
   ];
 }
@@ -498,12 +495,9 @@ function renderWorkGovernanceSection(kilnYaml: ResolvedKilnConfig | null): reado
   return [
     "## Work Governance",
     "",
-    "Follow the resolved Kiln work-governance policy before choosing direct execution.",
+    "Direct execution is the baseline. Follow resolved Kiln work-governance evidence when a configured trigger requires coordination.",
     ...[
       workGovernance.defaultPosture ? `- Default posture: ${workGovernance.defaultPosture}` : undefined,
-      workGovernance.directExecution
-        ? `- Direct execution: ${formatDirectExecution(workGovernance.directExecution)}`
-        : undefined,
       workGovernance.requireDelegationFor && workGovernance.requireDelegationFor.length > 0
         ? `- Orchestrate/delegate for: ${workGovernance.requireDelegationFor.join(", ")}`
         : undefined,
@@ -526,12 +520,6 @@ function renderUsageSection(): readonly string[] {
     "Update Kiln config and rerun `kiln sync --repo-shims` instead.",
     "",
   ];
-}
-
-function formatDirectExecution(
-  config: NonNullable<ResolvedKilnConfig["workGovernance"]>["directExecution"],
-): string {
-  return formatDirectExecutionFields(config, "configured");
 }
 
 function formatProfilePath(profile: KilnInstructionProfileDefinition, projectPath: string): string {
@@ -570,12 +558,6 @@ function renderSignedProjection(input: {
     "-->",
     input.body,
   ].join("\n");
-}
-
-function stripFrontmatter(content: string): string {
-  const normalized = content.replace(/^\uFEFF/, "");
-  const match = /^---\s*\r?\n[\s\S]*?\r?\n---\s*([\s\S]*)$/u.exec(normalized);
-  return match?.[1] ?? normalized;
 }
 
 function classifyExistingProjection(content: string, expectedTarget: RepoShimKind): "managed" | "drifted" | "unmanaged" {
@@ -816,7 +798,6 @@ function renderWorkflowSnapshotAuthoritySection(workflowSnapshot: WorkflowSnapsh
     "## Authority",
     "",
     `- Default posture: ${workflowSnapshot.authorityPosture.defaultPosture ?? "unspecified"}`,
-    `- Direct execution: ${formatDirectExecutionSnapshot(workflowSnapshot.authorityPosture.directExecution)}`,
     "",
   ];
 }
@@ -861,26 +842,6 @@ function renderWorkflowSnapshotInstructionProfilesSection(workflowSnapshot: Work
 
 function formatSnapshotList(values: readonly string[]): string {
   return values.length > 0 ? values.join(", ") : "none";
-}
-
-function formatDirectExecutionSnapshot(
-  directExecution: WorkflowSnapshotExport["authorityPosture"]["directExecution"],
-): string {
-  return formatDirectExecutionFields(directExecution, "unspecified");
-}
-
-function formatDirectExecutionFields(
-  directExecution: { readonly maxFiles?: number; readonly maxRisk?: string } | null | undefined,
-  emptyLabel: string,
-): string {
-  if (!directExecution) {
-    return emptyLabel;
-  }
-  const parts = [
-    directExecution.maxFiles !== undefined ? `maxFiles=${directExecution.maxFiles}` : undefined,
-    directExecution.maxRisk ? `maxRisk=${directExecution.maxRisk}` : undefined,
-  ].filter((part): part is string => part !== undefined);
-  return parts.length > 0 ? parts.join(", ") : "configured";
 }
 
 function hashText(value: string): string {

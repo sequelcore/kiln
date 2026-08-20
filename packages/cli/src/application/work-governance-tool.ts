@@ -92,7 +92,6 @@ const TRIGGERS: readonly KilnWorkGovernanceTrigger[] = [
   "provider-routing",
   "managed-agents",
   "config",
-  "multi-file",
   "cross-surface",
   "long-running",
   "verification-heavy",
@@ -242,7 +241,7 @@ export class WorkGovernanceAssessTool implements DevTool {
 
   readonly description = [
     "Assess whether a task should be handled directly or orchestrated through managed agents.",
-    "Use before broad, risky, cross-surface, provider, runtime, UI, config, or verification-heavy work.",
+    "Use when a configured delegation trigger may apply or the operator requests an explicit topology decision.",
   ].join(" ");
 
   readonly effectEnvelope = WORK_GOVERNANCE_READ_EFFECT;
@@ -254,16 +253,6 @@ export class WorkGovernanceAssessTool implements DevTool {
         type: "string",
         minLength: 1,
         description: "Short description of the intended work.",
-      },
-      estimatedFiles: {
-        type: "number",
-        minimum: 0,
-        description: "Optional estimated number of files the work may touch.",
-      },
-      risk: {
-        type: "string",
-        enum: RISKS,
-        description: "Optional preliminary risk estimate.",
       },
       triggers: {
         type: "array",
@@ -295,18 +284,12 @@ export class WorkGovernanceAssessTool implements DevTool {
       return { output: 'Invalid input: "summary" must be a non-empty string', isError: true };
     }
 
-    const estimatedFiles = typeof input.input.estimatedFiles === "number" && Number.isFinite(input.input.estimatedFiles)
-      ? input.input.estimatedFiles
-      : undefined;
-    const risk = isRisk(input.input.risk) ? input.input.risk : undefined;
     const triggers = Array.isArray(input.input.triggers)
       ? input.input.triggers.filter(isTrigger)
       : [];
 
     const assessment = assessWorkGovernance(this.config, {
       summary,
-      estimatedFiles,
-      risk,
       triggers,
     });
 
@@ -362,7 +345,7 @@ export class WorkProfileListTool implements DevTool {
           recommendedTaskAffinities: profile.recommendedTaskAffinities,
           defaultAdmissionProfile: profile.defaultAdmissionProfile,
           requiredEvidence: profile.requiredEvidence,
-          verificationGates: profile.verificationGates,
+          verificationGates: verificationGatesForWorkflowProfile(profile),
           evidenceMatrix: evidenceMatrixForWorkflowProfile(profile),
         })),
       }, null, 2),
@@ -596,7 +579,6 @@ export class WorkItemUpdateTool implements DevTool {
 
     const assessment = assessWorkGovernance(this.config, {
       summary,
-      risk,
       triggers,
     });
     const expectedEvidence = uniqueEvidence([

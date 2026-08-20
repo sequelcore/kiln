@@ -11,6 +11,7 @@ const syncMocks = vi.hoisted(() => ({
   resolveProjectRoot: vi.fn(),
   writeRepoShimProjections: vi.fn(),
   syncGlobalInstructionShimProjections: vi.fn(),
+  syncGlobalCommunicationProjection: vi.fn(),
   syncNativeSkillProjections: vi.fn(),
   syncCodexExternalSkillExposure: vi.fn(),
   uninstallNativeTargets: vi.fn(),
@@ -48,6 +49,10 @@ vi.mock("../../src/application/repo-shim-projection.js", () => ({
 
 vi.mock("../../src/application/global-instruction-shim-projection.js", () => ({
   syncGlobalInstructionShimProjections: syncMocks.syncGlobalInstructionShimProjections,
+}));
+
+vi.mock("../../src/config/global-communication-projection.js", () => ({
+  syncGlobalCommunicationProjection: syncMocks.syncGlobalCommunicationProjection,
 }));
 
 vi.mock("../../src/config/native-skill-projection.js", () => ({
@@ -142,6 +147,14 @@ describe("syncCommand", () => {
         path: "C:/Users/test/.codex/AGENTS.md",
         status: "written",
       }],
+      errors: [],
+    });
+    syncMocks.syncGlobalCommunicationProjection.mockReturnValue({
+      outcome: {
+        targetId: "claude-global-output-style",
+        path: "C:/Users/test/.claude/settings.json",
+        status: "written",
+      },
       errors: [],
     });
     syncMocks.syncNativeSkillProjections.mockResolvedValue({ claude: true, codex: true, opencode: true, synced: 0, outcomes: [], errors: [] });
@@ -460,8 +473,14 @@ describe("syncCommand", () => {
       dryRun: false,
       disabledHarnesses: [],
     });
+    expect(syncMocks.syncGlobalCommunicationProjection).toHaveBeenCalledWith(expect.objectContaining({
+      force: false,
+      dryRun: false,
+      intent: expect.objectContaining({ intent: expect.objectContaining({ responseDetail: "provider-default" }) }),
+    }));
     expect(syncMocks.writeRepoShimProjections).not.toHaveBeenCalled();
     expect(output).toContain("C:/Users/test/.codex/AGENTS.md: WRITTEN");
+    expect(output).toContain("C:/Users/test/.claude/settings.json: WRITTEN");
   });
 
   it("fails repo-shim sync when no project root can be resolved", async () => {

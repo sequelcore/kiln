@@ -133,7 +133,6 @@ vi.mock("../../src/application/config-status.js", () => ({
       version: "1",
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: { maxFiles: 1, maxRisk: "low" },
         requireDelegationFor: ["managed-agents"],
         requiredEvidence: ["surface-map", "tests"],
       },

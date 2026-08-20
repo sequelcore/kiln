@@ -12,7 +12,8 @@ import { syncCodexExternalSkillExposure } from "../config/codex-external-skill-e
 import type { ProjectionOutcome } from "../config/native-projection-policy.js";
 import type { KilnAppConfig } from "../config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import { configuredCommunicationCandidates } from "../config/communication-policy.js";
+import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
+import { syncGlobalCommunicationProjection } from "../config/global-communication-projection.js";
 
 export const SYNC_TARGETS = ["permissions", "hooks", "agents", "repo-shims", "global-instructions", "skills"] as const;
 export type SyncTargetId = typeof SYNC_TARGETS[number];
@@ -221,6 +222,7 @@ export async function syncCommand(
   let agentResult: Awaited<ReturnType<typeof syncNativeAgentProjections>> | null = null;
   let repoShimResult: Awaited<ReturnType<typeof writeRepoShimProjections>> | null = null;
   let globalInstructionResult: Awaited<ReturnType<typeof syncGlobalInstructionShimProjections>> | null = null;
+  let globalCommunicationResult: ReturnType<typeof syncGlobalCommunicationProjection> | null = null;
   let skillsResult: Awaited<ReturnType<typeof syncNativeSkillProjections>> | null = null;
   let exposureResult: Awaited<ReturnType<typeof syncCodexExternalSkillExposure>> | null = null;
   let openCodeSkillVisibilityResult: Awaited<ReturnType<typeof syncOpenCodeSkillVisibilityProjection>> | null = null;
@@ -284,6 +286,16 @@ export async function syncCommand(
         dryRun: flags.dryRun,
         disabledHarnesses,
       }));
+    globalCommunicationResult = await captureProjectionFailure(
+      unexpectedOutcomes,
+      "global-instructions",
+      root,
+      async () => syncGlobalCommunicationProjection({
+        intent: resolveConfiguredCommunication({ global: globalConfig?.communication }),
+        force: forceGlobalInstructionSync,
+        dryRun: flags.dryRun,
+      }),
+    );
   }
 
   if (isSyncTargetSelected(flags, "skills")) {
@@ -308,6 +320,7 @@ export async function syncCommand(
     ...unexpectedOutcomes,
     ...[permResult, hookResult, agentResult, repoShimResult, globalInstructionResult, exposureResult, openCodeSkillVisibilityResult, skillsResult]
       .flatMap((result) => result?.outcomes ?? []),
+    ...(globalCommunicationResult ? [globalCommunicationResult.outcome] : []),
   ];
   console.log(flags.dryRun ? "\nSync Preview:" : "\nSync Results:");
   console.log("─".repeat(40));

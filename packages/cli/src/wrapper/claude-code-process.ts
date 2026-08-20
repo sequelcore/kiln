@@ -347,6 +347,10 @@ export class ClaudeSession implements IKilnSession {
         permissionMode: this.config.permissionMode ?? "default",
         allowDangerouslySkipPermissions: this.config.allowDangerouslySkipPermissions ?? false,
         settingSources: ["project"],
+        ...(this._communicationResolution?.responseDetail.mechanism === "native"
+          && this._communicationResolution.responseDetail.nativeValue
+          ? { settings: { outputStyle: this._communicationResolution.responseDetail.nativeValue } }
+          : {}),
         model: this.config.model,
         ...(sdkEffort ? { effort: sdkEffort } : {}),
         ...(this.config.sessionLedgerOwner === "host" ? { persistSession: false } : {}),

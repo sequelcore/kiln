@@ -1188,4 +1188,46 @@ describe("config-status", () => {
     ]));
     expect(readFileSync(join(tempDir, ".kiln", "project-context.md"), "utf-8")).toBe("# invalid");
   });
+
+  it("reports missing global Claude concise projection from canonical communication intent", async () => {
+    writeProjectConfig(tempDir);
+    mutateGlobalConfig((current) => ({
+      ...current,
+      communication: { responseDetail: "concise", onUnsupported: "omit" },
+    }));
+
+    const snapshot = await readConfigStatusSnapshot({
+      projectPath: tempDir,
+      userHome: join(tempDir, "home"),
+    });
+
+    expect(snapshot.projections).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetId: "claude-global-output-style",
+        kind: "native",
+        status: "missing",
+      }),
+    ]));
+    expect(snapshot.setup.recommendedActions).toContain("sync-native-projections");
+  });
+
+  it("reports legacy duplicated project context as invalid", async () => {
+    writeProjectConfig(tempDir);
+    writeFileSync(join(tempDir, ".kiln", "project-context.md"), [
+      "---",
+      'version: "1"',
+      "source: deterministic-repo-scout",
+      "scripts:",
+      "  test: bun run stale-test",
+      "---",
+      "",
+      "# Project Context",
+      "",
+    ].join("\n"), "utf-8");
+
+    const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir });
+
+    expect(snapshot.project.projectContext.status).toBe("invalid");
+    expect(snapshot.project.projectContext.error).toMatch(/version 2 reviewed-project-context/u);
+  });
 });

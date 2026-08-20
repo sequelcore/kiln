@@ -77,7 +77,6 @@ describe("KilnResolvedWorkGovernancePolicySchema", () => {
   it("accepts the preserved global bounded work ceiling", () => {
     const parsed = KilnResolvedWorkGovernancePolicySchema.parse({
       defaultPosture: "orchestrate",
-      directExecution: { maxFiles: 1, maxRisk: "low" },
       requireDelegationFor: ["managed-agents"],
       requiredEvidence: ["surface-map"],
       boundedWorkCeiling: {

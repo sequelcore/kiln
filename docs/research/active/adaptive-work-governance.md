@@ -1,6 +1,6 @@
 # Adaptive Work Governance: Scouting, Decomposition, and Delegation
 
-Status: incomplete
+Status: baseline promoted; comparative benchmark remains incomplete
 Owner: [issue #94](https://github.com/sequelcore/kiln/issues/94)
 Evidence cutoff: 2026-08-20
 Research mode: decision-oriented
@@ -20,13 +20,14 @@ primary agent, delegate a bounded investigation, or select a coordinated
 multi-agent topology. The decision must also establish a useful decomposition
 unit and distinguish independent review from objective verification.
 
-The current production contract supports direct, sequential, centralized, and
-independent-review topologies. The unresolved question is not whether Kiln can
-execute them; it is whether its policy selects them well enough to justify a
-global default.
+The production contract supports direct, sequential, centralized, and
+independent-review topologies. Direct execution is now the smallest safe global
+default; the unresolved question is which measured task structures justify
+explicit delegation triggers and whether those policies improve results enough
+to earn their coordination cost.
 
-This investigation does not change the current canonical policy. It defines the
-evidence required before a replacement is promoted.
+This investigation defines the evidence required before any broader
+orchestration trigger or adaptive topology policy is promoted.
 
 ## Scope and Definitions
 

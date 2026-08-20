@@ -142,6 +142,30 @@ describe("ClaudeSession implements IKilnSession", () => {
       .toHaveLength(queryCallCount);
   });
 
+  it("passes concise response detail through Claude Code's native output style", async () => {
+    (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
+      yield { type: "result", subtype: "success", total_cost_usd: 0, is_error: false };
+    })());
+    const session = new ClaudeSession(baseConfig({
+      model: "claude-opus-4-1",
+      communicationIntent: resolveCommunicationIntent([{
+        source: "global",
+        intent: { responseDetail: "concise", onUnsupported: "omit" },
+      }]),
+    }));
+
+    await collectEvents(session.run({ prompt: "test" }));
+
+    const calls = (mockedQuery as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const call = calls.at(-1)?.[0] as { options?: { settings?: Record<string, unknown> } } | undefined;
+    expect(call?.options?.settings).toEqual({ outputStyle: "Concise" });
+    expect(session.communicationResolution?.responseDetail).toMatchObject({
+      status: "exact",
+      mechanism: "native",
+      nativeValue: "Concise",
+    });
+  });
+
   it("materializes locale and required content in the standalone Claude system prompt", async () => {
     (mockedQuery as unknown as { mockReturnValueOnce: (value: unknown) => void }).mockReturnValueOnce((async function* () {
       yield { type: "result", total_cost_usd: 0, is_error: false };

@@ -89,9 +89,10 @@ Four elements are named as required in a subagent contract: objective, output
 format, tool and source guidance, and task boundaries.
 
 Kiln's governed-evidence handoff already resembles the trace-sharing
-prescription more than naive fan-out. The `delegation` section gained a
-context-continuity requirement; the `orchestrate` default posture was not
-changed, because posture belongs to work-governance config rather than
+prescription more than naive fan-out. The `delegation` section retains a
+context-continuity requirement. Subsequent task-structure evidence changed the
+work-governance default to `direct`; explicit operator triggers remain in
+configuration because posture is operator-controlled policy rather than
 doctrine.
 
 ### Convergent structure
@@ -144,9 +145,8 @@ pulls.
 
 ## Open Questions
 
-1. Whether the `orchestrate` default posture should be narrowed for tightly
-   coupled coding work, or whether the delegation context-continuity
-   requirement is sufficient mitigation.
+1. Which measured task structures justify explicit delegation triggers beyond
+   the direct baseline without increasing cost or reducing correctness.
 2. Whether instruction-profile doctrine sections should eventually carry
    per-rule metadata (evidence reference, enforcement surface). The current
    schema stores flat strings only, which keeps projection simple but leaves

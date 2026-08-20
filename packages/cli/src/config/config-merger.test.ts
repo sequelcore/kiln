@@ -83,32 +83,6 @@ describe("config-merger", () => {
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });
 
-  it("rejects project direct-execution limits that exceed the global ceiling", () => {
-    const globalConfig = {
-      version: "3",
-      workGovernance: {
-        defaultPosture: "orchestrate",
-        directExecution: { maxFiles: 1, maxRisk: "low" },
-        requireDelegationFor: ["architecture", "security"],
-        requiredEvidence: ["surface-map", "tests"],
-      },
-    } as KilnGlobalConfig;
-    const projectConfig = {
-      version: "1",
-      workGovernance: {
-        defaultPosture: "direct",
-        directExecution: { maxFiles: 2, maxRisk: "medium" },
-        requireDelegationFor: ["architecture"],
-        requiredEvidence: ["surface-map"],
-      },
-    } as unknown as ResolvedKilnConfig;
-
-    expect(() => deriveEffectiveKilnYaml(globalConfig, projectConfig)).toThrow(
-      /project.*work governance.*(?:broaden|exceed).*global/i,
-    );
-    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
-  });
-
   it("rejects a project bounded work ceiling because the ceiling is global-only", () => {
     const globalConfig = {
       version: "3",
@@ -160,7 +134,6 @@ describe("config-merger", () => {
       permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
       workGovernance: {
         defaultPosture: "direct",
-        directExecution: { maxFiles: 3, maxRisk: "medium" },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map"],
       },
@@ -170,7 +143,6 @@ describe("config-merger", () => {
       permissions: { approval: "on-request", sandbox: "workspace-write" },
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: { maxFiles: 1, maxRisk: "low" },
         requireDelegationFor: ["architecture", "security"],
         requiredEvidence: ["surface-map", "tests"],
       },
@@ -207,10 +179,6 @@ describe("config-merger", () => {
       },
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map"],
       },
@@ -265,10 +233,6 @@ describe("config-merger", () => {
       },
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map"],
       },
@@ -353,33 +317,9 @@ describe("config-merger", () => {
         model: { default: "gpt-5.4" },
         targetCatalog: globalConfig.targetCatalog,
         workGovernance: {
-          defaultPosture: "orchestrate",
-          directExecution: {
-            maxFiles: 1,
-            maxRisk: "low",
-          },
-          requireDelegationFor: [
-            "architecture",
-            "security",
-            "ui",
-            "runtime",
-            "provider-routing",
-            "managed-agents",
-            "config",
-            "multi-file",
-            "cross-surface",
-            "long-running",
-            "verification-heavy",
-            "formal-proof-candidate",
-          ],
-          requiredEvidence: [
-            "surface-map",
-            "risk-hypothesis",
-            "plan",
-            "tests",
-            "typecheck",
-            "residual-risk",
-          ],
+          defaultPosture: "direct",
+          requireDelegationFor: [],
+          requiredEvidence: [],
         },
       }),
       projectConfig,
@@ -441,10 +381,6 @@ describe("config-merger", () => {
       },
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map"],
       },
@@ -477,10 +413,6 @@ describe("config-merger", () => {
       },
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map"],
       },
@@ -546,35 +478,10 @@ describe("config-merger", () => {
       model: undefined,
       targetCatalog: globalConfig.targetCatalog,
       workGovernance: {
-        defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
-        requireDelegationFor: [
-          "architecture",
-          "security",
-          "ui",
-          "runtime",
-          "provider-routing",
-          "managed-agents",
-          "config",
-          "multi-file",
-          "cross-surface",
-          "long-running",
-          "verification-heavy",
-          "formal-proof-candidate",
-        ],
-        requiredEvidence: [
-          "surface-map",
-          "risk-hypothesis",
-          "plan",
-          "tests",
-          "typecheck",
-          "residual-risk",
-        ],
+        defaultPosture: "direct",
+        requireDelegationFor: [],
+        requiredEvidence: [],
       },
-      modelTaskSuitability: undefined,
     });
   });
 });

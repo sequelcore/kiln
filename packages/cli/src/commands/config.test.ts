@@ -47,8 +47,6 @@ describe("config command", () => {
 
     await configCommand({} as never, "set", ["activeInstructionProfiles", "sequel-engineering,project-standards"], root);
     await configCommand({} as never, "set", ["workGovernance.defaultPosture", "orchestrate"], root);
-    await configCommand({} as never, "set", ["workGovernance.directExecution.maxFiles", "1"], root);
-    await configCommand({} as never, "set", ["workGovernance.directExecution.maxRisk", "low"], root);
     await configCommand({} as never, "set", ["workGovernance.requireDelegationFor", "architecture,config"], root);
     await configCommand({} as never, "set", ["workGovernance.requiredEvidence", "surface-map,plan,tests"], root);
     await configCommand({} as never, "set", ["skills.selection.mode", "auto"], root);
@@ -57,10 +55,6 @@ describe("config command", () => {
       activeInstructionProfiles: ["sequel-engineering", "project-standards"],
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture", "config"],
         requiredEvidence: ["surface-map", "plan", "tests"],
       },

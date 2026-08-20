@@ -133,6 +133,52 @@ conformance, and quality-attribute tradeoffs as architecture evidence.
   [DDD Aggregate](https://martinfowler.com/bliki/DDD_Aggregate.html),
   [Microsoft domain model guidance](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/microservice-domain-model)
 
+## Minimum sufficient complexity
+
+Architecture simplicity is lack of entanglement, not minimum file, class,
+module, service, or line count. Parnas supports decomposition when a module
+hides a design decision likely to change; Ousterhout's useful review dimensions
+are cognitive load, change amplification, and unknown unknowns; *Out of the Tar
+Pit* identifies mutable state and control as major accidental-complexity
+sources. Google SRE adds the end-to-end test: a simplification is not successful
+when its complexity is merely transferred to callers or operators.
+
+The resulting gate asks which invariant earns a permanent concept, which
+materially simpler design failed to preserve it, whether an existing owner can
+absorb the responsibility, whether state can remain derived, where complexity
+moved, what was deleted, and which observable evidence justifies the trade.
+This gate belongs in material architecture, planning, and refactoring work; it
+is not required ceremony for trivial changes.
+
+- [Parnas, criteria for decomposing systems into modules](https://www.cs.umd.edu/class/spring2003/cmsc838p/Design/criteria.pdf)
+- [Google SRE, simplicity](https://sre.google/sre-book/simplicity/)
+- [Out of the Tar Pit](https://curtclifton.net/papers/MoseleyMarks06a.pdf)
+- [A Philosophy of Software Design](https://web.stanford.edu/~ouster/cgi-bin/book.php)
+
+## Transferable ownership and legibility
+
+Explicit ownership is healthy; exclusive knowledge ownership is not. DORA's
+loosely coupled architecture work supports independently understandable and
+verifiable change. Google review guidance treats durable comprehensibility as
+code health, while Team Topologies bounds a subsystem by the cognitive load its
+responsible team can carry. Lightweight decision records preserve non-obvious
+rationale when it has architectural persistence, but oversized documents and
+duplicated ownership metadata create their own explanation debt.
+
+A fresh-context maintainer probe is therefore a selective evaluation for
+material uncertainty: can a qualified maintainer locate the owner and
+non-owner, authority, canonical and derived state, invariants, failure behavior,
+verification, bounded change point, and durable rationale using repository
+artifacts alone? Failure should improve the narrow canonical artifact—often
+code, names, boundaries, or tests—rather than automatically add documentation.
+The probe evaluates legibility and does not replace correctness verification.
+
+- [Google Engineering Practices, code review standard](https://google.github.io/eng-practices/review/reviewer/standard.html)
+- [DORA, loosely coupled teams](https://dora.dev/capabilities/loosely-coupled-teams/)
+- [DORA, documentation quality](https://dora.dev/research/2021/dora-report/2021-dora-accelerate-state-of-devops-report.pdf)
+- [Team Topologies, cognitive load](https://teamtopologies.com/key-concepts-content/cognitive-load)
+- [Thoughtworks Technology Radar, lightweight ADRs](https://www.thoughtworks.com/radar/techniques/lightweight-architecture-decision-records)
+
 ## Non-claims
 
 - Static reachability is not behavioral impact, and an affected-test set is not

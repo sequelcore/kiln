@@ -85,6 +85,7 @@ Names to remove from active doctrine:
 
 ## Doctrine Placement
 
-- This directory is the canonical architecture structure.
-- New doctrine belongs here first, then guides can reference it for usage.
+- The global `sequel-engineering` profile owns universal Sequel doctrine.
+- This directory owns Kiln-specific architecture and invariants.
+- Guides reference these owners for usage and generated shims project them.
 - Roadmaps sequence active work; they do not define stable architecture.

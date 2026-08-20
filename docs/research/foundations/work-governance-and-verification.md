@@ -78,10 +78,14 @@ evidence.
 
 ## Product Implications
 
-Kiln should make orchestration the default posture for non-trivial work while
-retaining a direct-execution envelope for small, low-risk tasks.
+Later task-structure evidence supersedes the original orchestration-first
+recommendation. Kiln should use direct execution as the baseline and introduce
+coordination only for independent parallel work, specialization, context
+isolation, independent evidence, or an authority boundary. File count and a
+coarse risk label do not establish those conditions.
 
-The parent agent should act as conductor and accountable closer:
+When coordination is justified, the parent agent should act as conductor and
+accountable closer:
 
 - classify the work
 - map the affected surface

@@ -4,6 +4,12 @@ Architecture decision records capture accepted structural decisions. They are
 not implementation plans, roadmap tracks, status reports, or migration
 checklists.
 
+Use one narrow record for an architecturally persistent decision whose rationale
+and invalidation conditions will matter after the change. Link it to the owning
+implementation and evidence. Supersede an accepted record explicitly when the
+decision changes; delete a proposed or obsolete record when it no longer has
+durable value. Routine implementation choices do not need ADRs.
+
 Execution sequencing belongs in `docs/roadmap/`. Stable doctrine belongs in
 `docs/architecture/`. Historical implementation detail belongs in
 `docs/changelog.md`.

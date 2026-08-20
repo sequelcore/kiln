@@ -32,7 +32,7 @@ and platform-specific tool packages:
 | `packages/cli` | `@kilnai/cli` | CLI commands, local operator flows, config projection, managed-agent harness integration, and MCP support. Depends on `@kilnai/core`, `@kilnai/runtime`, and shared contracts. |
 | `packages/sdk` | `@kilnai/react` | React hooks and clients for frontend integration. Depends on React and consumes shared Kiln types. |
 | `packages/widget` | `@kilnai/widget` | Embeddable chat widget (Shadow DOM, auto-reconnect WebSocket, zero deps, IIFE bundle). No dependency on other packages. |
-| `packages/tui` | `@kilnai/tui` | Terminal operator surface. Experimental and maintenance-only per ADR-005. |
+| `packages/tui` | `@kilnai/tui` | Terminal operator surface. |
 | `packages/gui` | `@kilnai/gui` | Primary web operator surface served by the runtime gateway. |
 | `packages/native` | `@kilnai/native` (private) | Electron-backed native operator surface. It consumes gateway contracts and must not import runtime or core implementations directly. |
 | `packages/tools` | `@kilnai/tools` | Vendored developer-tool resolver for platform packages. |

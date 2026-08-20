@@ -32,8 +32,6 @@ type KilnYamlKey =
   | "identity.timezone"
   | "activeInstructionProfiles"
   | "workGovernance.defaultPosture"
-  | "workGovernance.directExecution.maxFiles"
-  | "workGovernance.directExecution.maxRisk"
   | "workGovernance.requireDelegationFor"
   | "workGovernance.requiredEvidence"
   | "domain"
@@ -72,8 +70,6 @@ const VALID_KEYS: ReadonlySet<KilnYamlKey> = new Set([
   "identity.timezone",
   "activeInstructionProfiles",
   "workGovernance.defaultPosture",
-  "workGovernance.directExecution.maxFiles",
-  "workGovernance.directExecution.maxRisk",
   "workGovernance.requireDelegationFor",
   "workGovernance.requiredEvidence",
   "domain",
@@ -358,34 +354,6 @@ function setGovernanceOrSkillKey<T extends {
       },
     };
   }
-  if (key === "workGovernance.directExecution.maxFiles") {
-    return {
-      ...config,
-      workGovernance: {
-        ...(config.workGovernance ?? {}),
-        directExecution: {
-          ...(config.workGovernance?.directExecution ?? {}),
-          maxFiles: parsePositiveInteger(rawValue, key),
-        },
-      },
-    };
-  }
-  if (key === "workGovernance.directExecution.maxRisk") {
-    if (rawValue !== "low" && rawValue !== "medium" && rawValue !== "high") {
-      console.error(`Invalid direct execution risk: ${rawValue}. Must be low, medium, or high.`);
-      process.exit(1);
-    }
-    return {
-      ...config,
-      workGovernance: {
-        ...(config.workGovernance ?? {}),
-        directExecution: {
-          ...(config.workGovernance?.directExecution ?? {}),
-          maxRisk: rawValue,
-        },
-      },
-    };
-  }
   if (key === "workGovernance.requireDelegationFor") {
     return {
       ...config,
@@ -443,8 +411,6 @@ function getNestedKey(config: KilnProjectConfig | KilnGlobalConfig, key: KilnYam
   if (key === "identity.timezone") return (config as KilnGlobalConfig).identity?.timezone;
   if (key === "activeInstructionProfiles") return config.activeInstructionProfiles;
   if (key === "workGovernance.defaultPosture") return config.workGovernance?.defaultPosture;
-  if (key === "workGovernance.directExecution.maxFiles") return config.workGovernance?.directExecution?.maxFiles;
-  if (key === "workGovernance.directExecution.maxRisk") return config.workGovernance?.directExecution?.maxRisk;
   if (key === "workGovernance.requireDelegationFor") return config.workGovernance?.requireDelegationFor;
   if (key === "workGovernance.requiredEvidence") return config.workGovernance?.requiredEvidence;
   if (key === "skills.selection.mode") return config.skills?.selection?.mode;
@@ -580,15 +546,6 @@ function parseBoolean(value: string, key: string): boolean {
   if (value === "false") return false;
   console.error(`Invalid boolean value for ${key}: ${value}. Must be true or false.`);
   process.exit(1);
-}
-
-function parsePositiveInteger(value: string, key: string): number {
-  const number = Number(value);
-  if (!Number.isInteger(number) || number < 1) {
-    console.error(`Invalid integer value for ${key}: ${value}. Must be a positive integer.`);
-    process.exit(1);
-  }
-  return number;
 }
 
 function parseJson(value: string, key: string): unknown {

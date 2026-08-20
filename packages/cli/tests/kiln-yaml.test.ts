@@ -342,10 +342,6 @@ describe("mergeKilnYaml", () => {
       version: "1",
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture"],
         requiredEvidence: ["surface-map"],
       },
@@ -353,9 +349,6 @@ describe("mergeKilnYaml", () => {
     const override: KilnProjectConfig = {
       version: "1",
       workGovernance: {
-        directExecution: {
-          maxFiles: 2,
-        },
         requireDelegationFor: ["ui"],
         requiredEvidence: ["browser-qa"],
       },
@@ -365,10 +358,6 @@ describe("mergeKilnYaml", () => {
 
     expect(result.workGovernance).toEqual({
       defaultPosture: "orchestrate",
-      directExecution: {
-        maxFiles: 2,
-        maxRisk: "low",
-      },
       requireDelegationFor: ["architecture", "ui"],
       requiredEvidence: ["surface-map", "browser-qa"],
     });

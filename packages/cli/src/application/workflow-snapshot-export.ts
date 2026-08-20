@@ -5,6 +5,7 @@ import type { KilnInstructionProfileDefinition } from "./instruction-profile-loa
 import type { ProjectContextEvidence } from "./project-context.js";
 import {
   evidenceMatrixForWorkflowProfile,
+  verificationGatesForWorkflowProfile,
   WORK_GOVERNANCE_WORKFLOW_PROFILES,
 } from "./work-governance-workflows.js";
 
@@ -82,10 +83,6 @@ export interface WorkflowSnapshotInstructionProfile {
 
 export interface WorkflowSnapshotAuthorityPosture {
   readonly defaultPosture: string | null;
-  readonly directExecution: {
-    readonly maxFiles?: number;
-    readonly maxRisk?: string;
-  } | null;
   readonly requireDelegationFor: readonly string[];
   readonly requiredEvidence: readonly string[];
 }
@@ -155,7 +152,7 @@ function buildWorkItemProfiles(): readonly WorkflowSnapshotWorkItemProfile[] {
     recommendedTaskAffinities: [...profile.recommendedTaskAffinities],
     defaultAdmissionProfile: profile.defaultAdmissionProfile,
     requiredEvidence: [...profile.requiredEvidence],
-    verificationGates: [...profile.verificationGates],
+    verificationGates: [...verificationGatesForWorkflowProfile(profile)],
     evidenceMatrix: evidenceMatrixForWorkflowProfile(profile).map((entry) => ({
       evidence: entry.evidence,
       verificationGates: [...entry.verificationGates],
@@ -180,12 +177,6 @@ function buildAuthorityPosture(kilnConfig: ResolvedKilnConfig | null): WorkflowS
   const workGovernance = kilnConfig?.workGovernance;
   return {
     defaultPosture: workGovernance?.defaultPosture ?? null,
-    directExecution: workGovernance?.directExecution
-      ? {
-        ...(workGovernance.directExecution.maxFiles !== undefined ? { maxFiles: workGovernance.directExecution.maxFiles } : {}),
-        ...(workGovernance.directExecution.maxRisk ? { maxRisk: workGovernance.directExecution.maxRisk } : {}),
-      }
-      : null,
     requireDelegationFor: sortText(workGovernance?.requireDelegationFor ?? []),
     requiredEvidence: [...(workGovernance?.requiredEvidence ?? [])],
   };

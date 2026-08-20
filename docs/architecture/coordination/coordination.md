@@ -36,7 +36,7 @@ decision inputs.
 
 ## Topologies
 
-- `direct`: one bounded work item inside the direct-execution envelope.
+- `direct`: one bounded work item retained by the primary agent.
 - `sequential`: dependency-bearing, capacity-constrained, or high-risk work;
   one child is active at a time.
 - `centralized`: independent work items execute concurrently under one parent

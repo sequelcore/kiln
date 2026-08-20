@@ -62,7 +62,7 @@ describe("buildRunJsonOutputEnvelope", () => {
     const gap = {
       kind: "capability_pause" as const,
       reason: "delegation-surface-unavailable" as const,
-      matchedTriggers: ["architecture", "multi-file"],
+      matchedTriggers: ["architecture", "cross-surface"],
       posture: "orchestrate" as const,
       message: "Work governance requires delegation.",
     };
@@ -122,11 +122,11 @@ describe("computeDelegationCapabilityGap", () => {
   it("returns a gap record with all configured triggers when multiple are present (absent surface)", () => {
     const gap = computeDelegationCapabilityGap({
       defaultPosture: "orchestrate",
-      requireDelegationFor: ["architecture", "multi-file", "cross-surface"],
+      requireDelegationFor: ["architecture", "cross-surface"],
       managedInvocationAvailable: false,
     });
     expect(gap).toBeDefined();
-    expect(gap!.matchedTriggers).toEqual(["architecture", "multi-file", "cross-surface"]);
+    expect(gap!.matchedTriggers).toEqual(["architecture", "cross-surface"]);
   });
 
   it("returns undefined when posture is direct regardless of triggers or surface", () => {
@@ -285,11 +285,11 @@ describe("extractModelClassifiedTriggers", () => {
       toolUseEvent("bash", { command: "ls" }),
       toolUseEvent("work_governance.assess", {
         summary: "architecture review",
-        triggers: ["architecture", "multi-file"],
+        triggers: ["architecture", "cross-surface"],
       }),
       toolUseEvent("read", { filePath: "foo.ts" }),
     ];
-    expect(extractModelClassifiedTriggers(events)).toEqual(["architecture", "multi-file"]);
+    expect(extractModelClassifiedTriggers(events)).toEqual(["architecture", "cross-surface"]);
   });
 
   it("returns an empty array when no work_governance.assess call exists in the transcript", () => {

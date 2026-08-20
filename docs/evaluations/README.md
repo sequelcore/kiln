@@ -24,3 +24,8 @@ Public claims require the evidence gates defined there.
 
 - [Context Semantics Cross-Surface Smoke](smoke/33-context-semantics-cross-surface-smoke-2026.md)
 - [Skill Capability Plane Acceptance](smoke/41-skill-capability-plane-2026.md)
+
+## Doctrine Evaluations
+
+- [Architectural Legibility Baseline 2026](architectural-legibility-baseline-2026.md)
+- [Concise Communication Default 2026](communication-concise-default-2026.md)

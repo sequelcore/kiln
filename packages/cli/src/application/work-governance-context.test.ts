@@ -10,10 +10,6 @@ describe("work-governance-context", () => {
   it("projects orchestration policy as required instruction context", () => {
     const candidate = buildWorkGovernanceContextCandidate({
       defaultPosture: "orchestrate",
-      directExecution: {
-        maxFiles: 1,
-        maxRisk: "low",
-      },
       requireDelegationFor: ["architecture", "managed-agents"],
       requiredEvidence: ["surface-map", "residual-risk"],
     });
@@ -42,7 +38,7 @@ describe("work-governance-context", () => {
     expect(candidate?.content).toContain("phaseRoutes.visual-reference-research");
     expect(candidate?.content).toContain("visual_reference_phase_route_required");
     expect(candidate?.content).toContain("do not paste JSON into assistant text");
-    expect(candidate?.content).toContain("Model self-confidence is not evidence");
+    expect(candidate?.content).toContain("Model self-confidence and independent LLM review are not verification");
     expect(candidate?.content).toContain("omit scratch notes");
   });
 

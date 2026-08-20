@@ -53,12 +53,13 @@ import {
 import { loadAgentDefinitions, type KilnAgentDefinition } from "./agent-loader.js";
 import { decideNativeAgentProjection } from "../config/native-agent-projection-decision.js";
 import { resolveNativeAgentCommunication } from "../config/native-agent-projection.js";
-import { configuredCommunicationCandidates } from "../config/communication-policy.js";
+import { configuredCommunicationCandidates, resolveConfiguredCommunication } from "../config/communication-policy.js";
+import { readGlobalCommunicationProjectionSnapshot } from "../config/global-communication-projection.js";
 import {
   createManagedAgentRouteAdmissionResolver,
   type ManagedAgentRouteAdmissionResolver,
 } from "../config/managed-agent-route-admission.js";
-import { projectContextPath } from "./project-context.js";
+import { projectContextPath, readProjectContextAdoption } from "./project-context.js";
 import { resolveProjectRoot } from "./project-root-resolver.js";
 import {
   readRepoShimProjectionStatuses,
@@ -383,13 +384,16 @@ function readProjectContextState(projectPath: string): KilnConfigSourceSnapshot 
   if (!existsSync(path)) {
     return { path, status: "missing" };
   }
-
-  const content = readFileSync(path, "utf-8");
-  const valid = /^---\s*\r?\n[\s\S]*?version:\s*["']?1["']?[\s\S]*?source:\s*deterministic-repo-scout[\s\S]*?\r?\n---/u
-    .test(content);
-  return valid
-    ? { path, status: "valid" }
-    : { path, status: "invalid", error: "Project context must contain version 1 deterministic-repo-scout frontmatter." };
+  try {
+    readProjectContextAdoption(projectPath);
+    return { path, status: "valid" };
+  } catch (error) {
+    return {
+      path,
+      status: "invalid",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function readProjectionSnapshots(
@@ -465,6 +469,25 @@ async function readProjectionSnapshots(
     }
   } catch (error) {
     errors.push(`global-instruction-shims: ${errorMessage(error)}`);
+  }
+
+  try {
+    const globalCommunication = readGlobalCommunicationProjectionSnapshot({
+      intent: resolveConfiguredCommunication({ global: readGlobalConfig()?.communication }),
+      userHome,
+    });
+    if (globalCommunication) {
+      projections.push({
+        targetId: globalCommunication.targetId,
+        path: globalCommunication.path,
+        kind: "native",
+        status: globalCommunication.status,
+        ...(globalCommunication.details ? { details: globalCommunication.details } : {}),
+        managedFieldCount: 1,
+      });
+    }
+  } catch (error) {
+    errors.push(`global communication projection: ${errorMessage(error)}`);
   }
 
   try {
@@ -848,7 +871,7 @@ function nativeProjectionRecommendation(projection: KilnProjectionTargetSnapshot
   if (projection.status === "missing" || projection.status === "stale") {
     return "sync-native-projections";
   }
-  if (projection.status === "drifted") {
+  if (projection.status === "drifted" || projection.status === "unmanaged") {
     return "review-native-projection-drift";
   }
   return "none";

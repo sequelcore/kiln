@@ -2,7 +2,7 @@ import type { KilnAppConfig } from "../config.js";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
 import {
   collectProjectContextEvidence,
-  renderProjectContextMarkdown,
+  renderProjectContextEvidenceMarkdown,
   writeProjectContextAdoption,
 } from "../application/project-context.js";
 
@@ -30,7 +30,7 @@ export async function projectCommand(
       if (args.includes("--json")) {
         console.log(JSON.stringify(evidence, null, 2));
       } else {
-        console.log(renderProjectContextMarkdown(evidence));
+        console.log(renderProjectContextEvidenceMarkdown(evidence));
       }
       break;
     }

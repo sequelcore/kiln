@@ -11,7 +11,6 @@ export const KILN_WORK_GOVERNANCE_TRIGGERS = [
   "provider-routing",
   "managed-agents",
   "config",
-  "multi-file",
   "cross-surface",
   "long-running",
   "verification-heavy",
@@ -80,10 +79,6 @@ const KilnResolvedBoundedWorkCeilingSchema = z.object({
  */
 export const KilnResolvedWorkGovernancePolicySchema = z.object({
   defaultPosture: z.enum(["direct", "orchestrate"]),
-  directExecution: z.object({
-    maxFiles: z.number().int().positive(),
-    maxRisk: z.enum(["low", "medium", "high"]),
-  }).strict(),
   requireDelegationFor: z.array(z.enum(KILN_WORK_GOVERNANCE_TRIGGERS)),
   requiredEvidence: z.array(z.enum(KILN_WORK_GOVERNANCE_EVIDENCE)),
   boundedWorkCeiling: KilnResolvedBoundedWorkCeilingSchema.optional(),

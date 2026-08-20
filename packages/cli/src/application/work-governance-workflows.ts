@@ -26,7 +26,6 @@ export interface WorkGovernanceWorkflowProfile {
   readonly recommendedTaskAffinities: readonly ModelTaskSuitabilityTask[];
   readonly defaultAdmissionProfile: string;
   readonly requiredEvidence: readonly KilnWorkGovernanceEvidence[];
-  readonly verificationGates: readonly string[];
 }
 
 export interface WorkGovernanceEvidenceMatrixEntry {
@@ -49,11 +48,11 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
   },
   "architecture-review": {
-    "managed-agent-review": ["architecture/DDD review"],
+    "risk-hypothesis": ["evidence-grounded architecture/DDD review"],
     "residual-risk": ["residual-risk closeout when uncertainty or risk remains"],
   },
   "architecture-change": {
-    "managed-agent-review": ["architecture/DDD review"],
+    plan: ["complexity disposition and architecture/DDD review"],
     tests: ["contract tests where behavior changes"],
     typecheck: ["typecheck/build"],
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
@@ -83,7 +82,6 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
   },
   "verification-heavy": {
     tests: ["failing proof or test first", "verification loop until no known blocker"],
-    "managed-agent-review": ["review closeout"],
     "residual-risk": ["residual-risk closeout when a gate is skipped or risk remains"],
   },
   "formal-proof-candidate": {
@@ -97,13 +95,12 @@ const PROFILE_EVIDENCE_GATE_MATRIX: Record<
 export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowProfile[] = [
   {
     id: "small-fix",
-    description: "Local, low-risk correction inside the direct-execution envelope.",
+    description: "Bounded correction with local verification.",
     triggers: [],
     minimumRisk: "low",
     recommendedTaskAffinities: ["mechanical-edit"],
     defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["tests", "typecheck", "residual-risk"],
-    verificationGates: ["focused test or explicit no-test rationale", "typecheck when TypeScript is affected"],
   },
   {
     id: "bug-diagnosis",
@@ -113,7 +110,6 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     recommendedTaskAffinities: ["research", "test-writing", "backend-coding"],
     defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
-    verificationGates: ["failing test or reproduction before fix", "focused regression test", "typecheck/build"],
   },
   {
     id: "architecture-review",
@@ -122,8 +118,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     minimumRisk: "medium",
     recommendedTaskAffinities: ["architecture-review", "research"],
     defaultAdmissionProfile: "foundation-readonly-plan",
-    requiredEvidence: ["surface-map", "risk-hypothesis", "managed-agent-review", "residual-risk"],
-    verificationGates: ["architecture/DDD review", "residual-risk closeout when uncertainty or risk remains"],
+    requiredEvidence: ["surface-map", "risk-hypothesis", "residual-risk"],
   },
   {
     id: "architecture-change",
@@ -132,8 +127,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     minimumRisk: "high",
     recommendedTaskAffinities: ["architecture-review", "research", "test-writing"],
     defaultAdmissionProfile: "foundation-readonly-plan",
-    requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
-    verificationGates: ["architecture/DDD review", "contract tests where behavior changes", "typecheck/build"],
+    requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "tests", "typecheck", "residual-risk"],
   },
   {
     id: "ui-change",
@@ -151,13 +145,6 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
       "typecheck",
       "residual-risk",
     ],
-    verificationGates: [
-      "frontend-reference evidence before planning: running-product UI captures when available, or code-backed frontend implementation evidence when the reference has no public screenshots",
-      "source URLs, relevant frontend file paths, and extracted reusable design principles; repository chrome, stars/forks/issues, and raw file listings alone do not count",
-      "browser QA screenshot or interaction proof",
-      "accessibility/overflow check",
-      "typecheck",
-    ],
   },
   {
     id: "managed-agent-change",
@@ -167,12 +154,6 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     recommendedTaskAffinities: ["architecture-review", "backend-coding", "test-writing"],
     defaultAdmissionProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "plan", "managed-agent-review", "tests", "typecheck", "residual-risk"],
-    verificationGates: [
-      "managed child live or simulated evidence",
-      "route/provider identity check",
-      "adversarial managed-agent review",
-      "typecheck/build",
-    ],
   },
   {
     id: "config-change",
@@ -182,7 +163,6 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     recommendedTaskAffinities: ["architecture-review", "mechanical-edit", "test-writing"],
     defaultAdmissionProfile: "foundation-propose-writes",
     requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
-    verificationGates: ["config parse/merge tests", "projection or sync diagnostic test", "typecheck"],
   },
   {
     id: "verification-heavy",
@@ -191,8 +171,7 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     minimumRisk: "medium",
     recommendedTaskAffinities: ["research", "test-writing", "architecture-review"],
     defaultAdmissionProfile: "foundation-propose-writes",
-    requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "managed-agent-review", "residual-risk"],
-    verificationGates: ["failing proof or test first", "verification loop until no known blocker", "review closeout"],
+    requiredEvidence: ["surface-map", "risk-hypothesis", "tests", "typecheck", "residual-risk"],
   },
   {
     id: "formal-proof-candidate",
@@ -202,7 +181,6 @@ export const WORK_GOVERNANCE_WORKFLOW_PROFILES: readonly WorkGovernanceWorkflowP
     recommendedTaskAffinities: ["architecture-review", "test-writing"],
     defaultAdmissionProfile: "foundation-readonly-plan",
     requiredEvidence: ["surface-map", "risk-hypothesis", "spec", "formal-proof", "tests", "residual-risk"],
-    verificationGates: ["explicit invariant/spec review", "deterministic proof/property-test result", "residual-risk closeout"],
   },
 ];
 

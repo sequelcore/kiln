@@ -63,11 +63,9 @@ and aligned with repository architecture.
 Set the global work posture:
 
 ```bash
-kiln config set --global workGovernance.defaultPosture orchestrate
-kiln config set --global workGovernance.directExecution.maxFiles 1
-kiln config set --global workGovernance.directExecution.maxRisk low
-kiln config set --global workGovernance.requireDelegationFor architecture,security,ui,runtime,provider-routing,managed-agents,config,multi-file,cross-surface,long-running,verification-heavy,formal-proof-candidate
-kiln config set --global workGovernance.requiredEvidence surface-map,risk-hypothesis,plan,tests,typecheck,residual-risk
+kiln config set --global workGovernance.defaultPosture direct
+kiln config set --global workGovernance.requireDelegationFor ""
+kiln config set --global workGovernance.requiredEvidence ""
 ```
 
 Enable task-aware skill admission when you want selected model/task
@@ -84,9 +82,7 @@ values override global values for that repo:
 
 ```bash
 kiln config set activeInstructionProfiles sequel-engineering,kiln-project
-kiln config set workGovernance.defaultPosture orchestrate
-kiln config set workGovernance.directExecution.maxFiles 1
-kiln config set workGovernance.directExecution.maxRisk low
+kiln config set workGovernance.defaultPosture direct
 kiln config set skills.selection.mode advisory
 ```
 

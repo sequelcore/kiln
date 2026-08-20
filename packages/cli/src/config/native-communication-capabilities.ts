@@ -12,7 +12,13 @@ export function nativeCommunicationCapabilities(
   harness: NativeCommunicationHarness,
   model: string,
 ): ModelCommunicationCapabilities | undefined {
-  const responseDetail = harness === "codex" && /^gpt-5(?:\.|-|$)/u.test(model)
+  const responseDetail = harness === "claude"
+    ? {
+        mechanism: "native" as const,
+        supported: ["concise"] as const,
+        nativeValues: { concise: "Concise" },
+      }
+    : harness === "codex" && /^gpt-5(?:\.|-|$)/u.test(model)
     ? {
         mechanism: "native" as const,
         supported: ["concise", "standard", "detailed"] as const,
@@ -43,11 +49,15 @@ export function nativeCommunicationCapabilities(
     ...(responseDetail ? { responseDetail } : {}),
     ...(interactionProfiles ? { interactionProfiles } : {}),
     evidence: {
-      sourceIdentity: harness === "codex" ? "codex-agent-config" : "opencode-agent-provider-options",
-      sourceRevision: harness === "codex"
-        ? "32329b289d05eb6a3f8e35c267ceb25ba46716a2"
-        : "3016830e253492ef41b6cc00dbed623e5989279b",
-      observedAt: "2026-08-13T00:00:00.000Z",
+      sourceIdentity: harness === "claude"
+        ? "claude-code-output-style"
+        : harness === "codex" ? "codex-agent-config" : "opencode-agent-provider-options",
+      sourceRevision: harness === "claude"
+        ? "claude-code-2.1.237"
+        : harness === "codex"
+          ? "32329b289d05eb6a3f8e35c267ceb25ba46716a2"
+          : "3016830e253492ef41b6cc00dbed623e5989279b",
+      observedAt: harness === "claude" ? "2026-08-20T00:00:00.000Z" : "2026-08-13T00:00:00.000Z",
     },
   };
 }
@@ -57,9 +67,11 @@ export function resolveNativeCommunication(input: {
   readonly harness: NativeCommunicationHarness;
   readonly model: string;
   readonly surface?: CommunicationSurface;
-  readonly projection?: "agent-file" | "invocation";
+  readonly projection?: "agent-file" | "global-settings" | "invocation";
 }): CommunicationResolution {
-  const capabilities = input.projection === "invocation" && input.harness !== "codex"
+  const capabilities = input.projection === "agent-file" && input.harness === "claude"
+    ? undefined
+    : input.projection === "invocation" && input.harness === "opencode"
     ? undefined
     : nativeCommunicationCapabilities(input.harness, input.model);
   const resolution = resolveCommunicationProfile({

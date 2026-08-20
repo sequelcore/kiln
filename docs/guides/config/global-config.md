@@ -58,6 +58,24 @@ catalog:
 The examples contain synthetic identities and evidence. Replace them with
 current provider, account, pricing, and data-policy facts before use.
 
+## Communication defaults
+
+Use global communication config for stable personal or organization-wide
+preferences that should follow the operator across repositories:
+
+```yaml
+communication:
+  responseDetail: concise
+  onUnsupported: omit
+```
+
+Kiln keeps this intent canonical in `~/.kiln/config.yaml`. Native harness
+settings are projections. For Claude Code, `kiln sync --global-instructions`
+projects the concise preference to `outputStyle: "Concise"` in user-scoped
+settings while preserving unrelated fields. A project-level communication
+override is justified only when that repository genuinely requires a different
+response contract; it should not duplicate the operator's normal workflow.
+
 ## Targets
 
 A target is the one operator-facing execution choice. It has a stable ID and
@@ -273,8 +291,8 @@ activeInstructionProfiles:
   - sequel-engineering
 
 workGovernance:
-  defaultPosture: orchestrate
-  requireDelegationFor: [architecture, ui, runtime, config, multi-file]
+  defaultPosture: direct
+  requireDelegationFor: [security]
   requiredEvidence: [surface-map, plan, tests, typecheck, residual-risk]
 
 permissions:

@@ -51,9 +51,12 @@ Workflow:
    explain any remaining ambiguity. A document being named canonical does not
    make every claim inside it true.
 3. Compare those facts with .kiln/project-context.md. Verify that named commands
-   exist and are portable, but do not execute destructive or externally
-   mutating commands merely to review them.
-4. Keep only durable repository-wide facts and links to owning doctrine.
+   exist and are portable, but reject frontmatter/body disagreement and do not
+   execute destructive or externally mutating commands merely to review them.
+4. Keep derived repository facts in their executable owners and projections;
+   do not persist copied commands, workspace metadata, or package facts as
+   canonical project context. Keep only durable repository-wide notes and links
+   to owning doctrine.
    Preserve reviewed durable human notes when evidence still supports them. Do
    not encode personal preferences, transient incidents, branch state,
    provider/model policy, or duplicated architecture doctrine as project facts.
@@ -99,7 +102,9 @@ Workflow:
    the whole repository. When scouting a diff, record the exact comparison base
    and include uncommitted changes.
 2. Identify the owning bounded context, package, and surface. Separate stable
-   contracts from implementation details and note dirty-worktree overlap.
+   contracts from implementation details and note dirty-worktree overlap. Locate
+   durable rationale only when a non-obvious persistent decision cannot be
+   understood safely from code, tests, contracts, and current architecture.
 3. Trace evidence in both directions:
    - inward to dependencies, schemas, configuration, and authorities the behavior
      relies on;
@@ -161,6 +166,9 @@ Workflow:
    product, architecture, authority, security, or data-safety decisions inside an
    implementation step. Stop for operator or specialist direction when a choice
    materially changes behavior, risk, or scope.
+   For material architecture, name the simplest materially different design and
+   the required invariant it cannot preserve. Future flexibility alone is not a
+   sufficient reason to add permanent concepts.
 3. Ground the affected surface in the scout map and current repository state.
    Treat files and symbols as exact only when confirmed by repository evidence;
    label other surfaces as candidates to verify during execution.
@@ -179,6 +187,9 @@ Workflow:
    and surface-parity work only when evidenced consumers require it. Schedule
    failing behavior proof before production edits when TDD is practical, without
    designing or writing the test in the plan.
+   Preserve durable rationale in its natural owner only when future maintainers
+   need it to challenge or replace a persistent decision; do not preserve the
+   design conversation.
 7. End with proportionate completion gates and residual risk. Name focused,
    downstream, integration, or broader gates justified by the dependency surface;
    do not use a ritual full-suite step as generic boilerplate.
@@ -265,7 +276,9 @@ Workflow:
    line in scope or state the exceptions.
 3. Check correctness, regressions, security and authority, boundary direction,
    failure handling, concurrency and data integrity, maintainability, and
-   verification gaps. Name specialist review that remains necessary.
+   verification gaps. Treat explanation debt as a maintainability or architecture
+   risk when safe change depends on creator or session context. Name specialist
+   review that remains necessary.
 4. Review tests as production code: confirm that they are correct, reliable,
    behavior-focused, and contribute a distinct behavioral signal. A missing test
    is a finding only when a material behavior is unprotected and a specific test
@@ -273,6 +286,10 @@ Workflow:
 5. Validate each candidate finding against repository evidence. Treat plausible
    explanations as hypotheses, not evidence; use a focused test, trace, or
    executable counterexample when practical.
+6. When confusion reveals durable missing knowledge, repair the narrow canonical artifact:
+   clearer code or names first, then tests, the owning architecture or
+   operations document, or a decision record when persistent rationale matters.
+   A review-thread explanation alone does not resolve the finding.
 
 Finding admission:
 - Report only an issue introduced or exposed by the change with a concrete
@@ -325,10 +342,21 @@ Workflow:
 4. Identify cycles, duplicated policy or projection ownership, and unjustified
    fan-out. Require executable architecture checks when a durable dependency
    rule can be mechanized.
-5. Evaluate tradeoffs. Do not require speculative ports, DTOs, adapters, or
+5. Apply a minimum sufficient complexity gate to material architecture. Name the
+   invariant or demonstrated outcome, the simplest viable mechanism, one simpler
+   rejected design and the guarantee it loses, concepts added and removed, new
+   durable state or lifecycle, exported complexity, and deterministic evidence.
+   Prefer the lower total end-to-end complexity when guarantees are equal.
+6. Test transferable ownership: identify the owner and what it deliberately does not own,
+   entry points, inputs and outputs, authority, whether state is
+   canonical, derived, or projected, important failure behavior, verification,
+   durable rationale, and the bounded change location. Use a fresh-context maintainer
+   probe only for material uncertainty; it tests legibility, not
+   correctness.
+7. Evaluate tradeoffs. Do not require speculative ports, DTOs, adapters, or
    events that add behavior-free layers without demonstrated volatility,
    coupling reduction, or another real consumer.
-6. Route business-language and invariant questions to DDD review and authority
+8. Route business-language and invariant questions to DDD review and authority
    or disclosure questions to security review; dependency shape alone proves
    neither domain correctness nor safety.
 
@@ -409,6 +437,7 @@ Workflow:
 7. Review the diff for accidental changes to defaults, constants, errors, ordering, transactions, async behavior, authorization, data shape, and resource use. Tests should assert observable behavior rather than the prior implementation shape.
 8. Delete the obsolete path in the same change. Do not retain wrappers, aliases, flags, or compatibility branches without an identified active consumer or explicit data-migration requirement; confirm no residual references remain.
 9. Record the verified surface, checks run, and residual uncertainty. If behavior changes or equivalence cannot be established, reclassify the work as a behavior change or migration and use its testing and rollout discipline.
+10. Confirm that ownership, entry points, durable rationale, and verification remain discoverable after the move. Delete obsolete or contradictory explanations instead of retaining historical copies beside the new owner.
 `,
   }),
   defineBuiltinSkill({
@@ -609,8 +638,8 @@ of execution authority.
 Workflow:
 1. Consume the resolved work-governance decision when available. Decide whether
    delegation adds value from independence, specialization, uncertainty,
-   latency, cost, coordination risk, and write-surface conflict. Keep one
-   obvious low-risk item direct when policy permits it.
+   latency, cost, coordination risk, and write-surface conflict. Direct execution
+   is the baseline; coordination must name its expected source of value.
 2. Define each child contract with objective, non-goals, confirmed context,
    expected output and evidence, admitted capabilities and authority,
    dependencies, verification, stop conditions, and residual-risk handoff.

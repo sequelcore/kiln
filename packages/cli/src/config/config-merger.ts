@@ -155,19 +155,8 @@ function assertProjectDoesNotBroadenGlobal(
   const globalGovernance = globalConfig.workGovernance;
   const projectGovernance = projectConfig.workGovernance;
   if (!globalGovernance || !projectGovernance) return;
-  const riskRank = { low: 0, medium: 1, high: 2 } as const;
-  const globalDirect = globalGovernance.directExecution;
-  const projectDirect = projectGovernance.directExecution;
   const broadens = (
     globalGovernance.defaultPosture === "orchestrate" && projectGovernance.defaultPosture === "direct"
-  ) || (
-    globalDirect?.maxFiles !== undefined
-    && projectDirect?.maxFiles !== undefined
-    && projectDirect.maxFiles > globalDirect.maxFiles
-  ) || (
-    globalDirect?.maxRisk !== undefined
-    && projectDirect?.maxRisk !== undefined
-    && riskRank[projectDirect.maxRisk] > riskRank[globalDirect.maxRisk]
   ) || !containsAll(projectGovernance.requireDelegationFor, globalGovernance.requireDelegationFor)
     || !containsAll(projectGovernance.requiredEvidence, globalGovernance.requiredEvidence);
   if (broadens) {

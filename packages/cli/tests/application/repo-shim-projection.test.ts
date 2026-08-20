@@ -80,10 +80,6 @@ describe("repo-shim-projection", () => {
       activeInstructionProfiles: ["sequel-engineering"],
       workGovernance: {
         defaultPosture: "orchestrate",
-        directExecution: {
-          maxFiles: 1,
-          maxRisk: "low",
-        },
         requireDelegationFor: ["architecture", "ui"],
         requiredEvidence: ["surface-map", "residual-risk"],
       },
@@ -306,10 +302,15 @@ describe("repo-shim-projection", () => {
     mkdirSync(join(PROJECT_PATH, ".kiln"), { recursive: true });
     writeFileSync(join(PROJECT_PATH, ".kiln", "project-context.md"), [
       "---",
-      "version: \"1\"",
+      "version: \"2\"",
+      "source: reviewed-project-context",
       "---",
       "",
       "# Project Context",
+      "",
+      "Repository facts are derived from executable repository evidence.",
+      "",
+      "## Agent Review Notes",
       "",
       "Use the modular architecture docs as the active source of truth.",
       "",
@@ -322,5 +323,7 @@ describe("repo-shim-projection", () => {
     expect(agents).toContain("## Adopted Project Context");
     expect(agents).toContain("Canonical source: `.kiln/project-context.md`.");
     expect(agents).toContain("Use the modular architecture docs as the active source of truth.");
+    expect(agents).toContain("- Script `test`: `bun run test`");
+    expect(agents).not.toContain("Repository facts are derived from executable repository evidence.");
   });
 });

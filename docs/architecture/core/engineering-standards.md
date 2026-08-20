@@ -1,17 +1,19 @@
 # Engineering Standards
 
-This document is the canonical engineering standard for Kiln implementation
-work. Agent instructions such as `CLAUDE.md` or local `AGENTS.md` may summarize
-or point here, but architectural and coding doctrine belongs in
-`docs/architecture/`.
+The global `sequel-engineering` instruction profile is the canonical owner of
+Sequel-wide engineering doctrine. This document owns Kiln-specific application
+of that doctrine and the repository facts and contracts that other Sequel
+projects must not inherit. Generated `CLAUDE.md` and `AGENTS.md` files only
+project the applicable owners.
 
 ## Source Of Truth
 
-- Architecture doctrine lives in `docs/architecture/`.
+- Universal Sequel doctrine lives in `~/.kiln/instructions/sequel-engineering.md`.
+- Kiln architecture and repository-specific standards live in `docs/architecture/`.
 - Guides explain usage; they do not create doctrine.
 - Research explains rationale; it does not override contracts.
-- Agent instruction files are operational entrypoints; they should not become
-  the only place where durable engineering rules exist.
+- Generated agent instruction files are operational projections, never durable
+  owners.
 
 ## Consumer Surface
 
@@ -38,21 +40,6 @@ retain an API compatibility layer.
 
 Reset is an admitted outcome. When local state has no future-useful evidence,
 discarding it is preferred over carrying readers that exist only to parse it.
-
-## Code Quality
-
-- No dead code. Delete unused branches, types, helpers, and compatibility
-  remnants once the active contract replaces them.
-- No redundant implementations. Shared behavior must have one owner and one
-  projection path.
-- No legacy hacks. Compatibility exists only when an active documented contract
-  requires it.
-- Prefer clear local code over clever abstractions. Add an abstraction only when
-  it removes real duplication or expresses a stable boundary.
-- Use explicit imports and explicit contracts. Avoid wildcard imports and
-  untyped boundary data.
-- Fail fast at boundaries. Validate input before it reaches domain or runtime
-  services.
 
 ## Architecture
 
