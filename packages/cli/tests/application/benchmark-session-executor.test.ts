@@ -48,6 +48,7 @@ const benchmarkExecutorMocks = vi.hoisted(() => ({
   resolveInstructionProfileContextCandidates: vi.fn(),
   runCleanup: vi.fn(),
   runSession: vi.fn(),
+  createCanonicalRunSessionDispatcher: vi.fn(),
   withGlobalIdentityContext: vi.fn(),
   withWorkGovernanceContext: vi.fn(),
 }));
@@ -172,7 +173,7 @@ vi.mock("../../src/application/bounded-work-authority-composition.js", () => ({
 }));
 
 vi.mock("../../src/application/canonical-run-session-dispatcher.js", () => ({
-  createCanonicalRunSessionDispatcher: vi.fn((input: {
+  createCanonicalRunSessionDispatcher: benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mockImplementation((input: {
     readonly catalog: { readonly routes: readonly { readonly id: string; readonly providerId: string; readonly providerModelId: string }[] };
     readonly routeId: string;
     readonly routeEvidence?: object;
@@ -386,6 +387,7 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "Only one sentence.",
         attempts: [],
         exactArtifacts: [],
+        executionBindings: [],
         finalCostEvidence: {
           kind: "subscription",
           currency: "USD",
@@ -627,6 +629,50 @@ describe("createBenchmarkSessionExecutor", () => {
     });
   });
 
+  it("isolates formal_verify to the treatment arm of the paired pilot", async () => {
+    const fixturePath = "packages/core/evals/fixtures/formal-verification-pilot-v1/idempotent-reservation";
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    benchmarkExecutorMocks.loadBuiltinToolSurfaceOptions.mockResolvedValue({
+      formalVerify: { executable: "dafny", verifierVersion: "4.11.0" },
+      memoryResources: {
+        repository: { close: benchmarkExecutorMocks.closeMemoryRepository },
+      },
+    });
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: { targetId: "benchmark-codex" },
+    });
+    const executeArm = (arm: "control" | "treatment") => executor(
+      "Fix both admitted files.",
+      makeBenchmarkContext({
+        id: `formal-${arm}`,
+        input: "Fix both admitted files.",
+        metadata: {
+          formalVerificationArm: arm,
+          workspaceFixture: fixturePath,
+          benchmarkCaseId: "idempotent-reservation",
+        },
+      }, {
+        id: "kiln-formal-verification-pilot",
+        authorityProfile: "foundation-apply-approved-writes",
+      }),
+    );
+
+    const control = await executeArm("control");
+    const treatment = await executeArm("treatment");
+
+    const projections = benchmarkExecutorMocks.createSessionBuiltinToolOptions.mock.calls
+      .slice(-2)
+      .map(([input]) => input.toolProjection.alwaysOnTools);
+    expect(projections[0]).not.toContain("formal_verify");
+    expect(projections[1]).toContain("formal_verify");
+    expect(control.metadata?.formalVerificationExpectedVersion).toBe("4.11.0");
+    expect(treatment.metadata?.formalVerificationExpectedVersion).toBe("4.11.0");
+  });
+
   it("rejects write profiles without a configured direct execution target before execution", async () => {
     const priorRunCount = benchmarkExecutorMocks.runSession.mock.calls.length;
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue({});
@@ -676,6 +722,8 @@ describe("createBenchmarkSessionExecutor", () => {
       appConfig: MOCK_APP_CONFIG,
       flags: {
         targetId: "benchmark-codex",
+        accountOverrideIds: ["subscription-a"],
+        benchmarkPairIds: ["deliberation-level"],
         deliberationLevel: "high",
       },
     });
@@ -697,6 +745,10 @@ describe("createBenchmarkSessionExecutor", () => {
       },
     };
     expect(result.metadata?.deliberationResolution).toEqual(expectedResolution);
+    expect(benchmarkExecutorMocks.createCanonicalRunSessionDispatcher).toHaveBeenCalledWith(expect.objectContaining({
+      routeId: "benchmark-codex",
+      accountOverrideId: "subscription-a",
+    }));
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       routeCandidates: [{
         routeId: "benchmark-codex",
@@ -706,6 +758,87 @@ describe("createBenchmarkSessionExecutor", () => {
       }],
       sessionConfig: expect.objectContaining({ deliberationResolution: expectedResolution }),
     }));
+  });
+
+  it("assigns paired items to the same account and rotates later repetitions", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        targetId: "benchmark-codex",
+        accountOverrideIds: ["subscription-a", "subscription-b", "subscription-c"],
+        benchmarkPairIds: ["pair-a", "pair-b"],
+      },
+    });
+    const executePair = (itemId: string, pairId: string, runIndex: number) => executor(
+      "Return exactly one sentence.",
+      {
+        ...makeBenchmarkContext({
+          id: itemId,
+          input: "Return exactly one sentence.",
+          metadata: { pairId },
+        }),
+        runIndex,
+      },
+    );
+
+    await executePair("pair-a-control", "pair-a", 0);
+    await executePair("pair-a-treatment", "pair-a", 0);
+    await executePair("pair-b-control", "pair-b", 0);
+    await executePair("pair-a-control", "pair-a", 1);
+
+    const assignedAccounts = benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mock.calls
+      .slice(-4)
+      .map(([input]) => input.accountOverrideId);
+    expect(assignedAccounts).toEqual([
+      "subscription-a",
+      "subscription-a",
+      "subscription-b",
+      "subscription-c",
+    ]);
+  });
+
+  it("fails over within the admitted account pool and records the effective binding", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const unavailable = new Error("first account unavailable");
+    unavailable.name = "OperatorSessionExecutionRoutingError";
+    benchmarkExecutorMocks.createCanonicalRunSessionDispatcher
+      .mockImplementationOnce(() => ({ dispatch: vi.fn().mockRejectedValue(unavailable), close: vi.fn() }))
+      .mockImplementationOnce(() => ({
+        dispatch: (payload: object) => benchmarkExecutorMocks.runSession(payload),
+        close: vi.fn(),
+      }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        targetId: "benchmark-codex",
+        accountOverrideIds: ["subscription-a", "subscription-b"],
+        benchmarkPairIds: ["pair-a"],
+      },
+    });
+
+    const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "pair-a-control",
+      input: "Return exactly one sentence.",
+      metadata: { pairId: "pair-a" },
+    }));
+
+    const attemptedAccounts = benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mock.calls
+      .slice(-2)
+      .map(([input]) => input.accountOverrideId);
+    expect(attemptedAccounts).toEqual(["subscription-a", "subscription-b"]);
+    expect(result.trial).toEqual({ status: "valid" });
+    expect(result.metadata).toMatchObject({
+      scheduledAccountId: "subscription-a",
+      expectedAccountId: "subscription-b",
+      accountFallbackCount: 1,
+    });
   });
 
   it("resolves Claude deliberation from the executable-bound catalog", async () => {
@@ -805,6 +938,7 @@ describe("createBenchmarkSessionExecutor", () => {
           { providerId: "opencode", succeeded: true, error: null },
         ],
         exactArtifacts: [],
+        executionBindings: [],
         finalCostEvidence: {
           kind: "subscription",
           currency: "USD",
@@ -848,6 +982,7 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "failed partial",
         attempts: [{ providerId: "codex", succeeded: false, error: "Provider failed" }],
         exactArtifacts: ["Provider error: Provider failed"],
+        executionBindings: [],
         finalCostEvidence: {
           kind: "unknown",
           currency: "unknown",
@@ -922,6 +1057,7 @@ describe("createBenchmarkSessionExecutor", () => {
         accumulatedText: "timeout partial",
         attempts: [{ providerId: "codex", succeeded: false, error: "Timed out after 1000ms" }],
         exactArtifacts: ["Provider error: Timed out after 1000ms"],
+        executionBindings: [],
         finalCostEvidence: {
           kind: "unknown",
           currency: "unknown",

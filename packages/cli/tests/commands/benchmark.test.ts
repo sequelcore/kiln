@@ -717,6 +717,7 @@ describe("benchmarkCommand", () => {
     }) + "\n", "utf-8");
     const observedLevels: Array<string | undefined> = [];
     const observedRoutes: Array<string | undefined> = [];
+    const observedAccounts: Array<string | undefined> = [];
 
     await benchmarkCommand(
       MOCK_APP_CONFIG,
@@ -727,12 +728,14 @@ describe("benchmarkCommand", () => {
         "--k", "1",
         "--output", outputPath,
         "--target", "benchmark-codex",
+        "--accounts", "subscription-a,subscription-b",
         "--deliberation-level-sweep", "low,luna-max",
       ],
       {
         createExecuteItem: (flags) => {
           observedLevels.push(flags.deliberationLevel);
           observedRoutes.push(flags.targetId);
+          observedAccounts.push(flags.accountOverrideIds?.join(","));
           return async () => ({
             output: "status",
             durationMs: 10,
@@ -766,6 +769,10 @@ describe("benchmarkCommand", () => {
     };
     expect(observedLevels).toEqual(["low", "luna-max"]);
     expect(observedRoutes).toEqual(["benchmark-codex", "benchmark-codex"]);
+    expect(observedAccounts).toEqual([
+      "subscription-a,subscription-b",
+      "subscription-a,subscription-b",
+    ]);
     expect(written.baseline).toBeUndefined();
     expect(written.runs.map((run) => run.deliberationLevel)).toEqual(["low", "luna-max"]);
     expect(written.baselines).toHaveLength(2);

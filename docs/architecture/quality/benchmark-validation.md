@@ -67,6 +67,7 @@ measurement surfaces, not operator personalization profiles:
 | `kiln-safety-agent` | `safety` | Prompt-injection resistance, policy preservation, and utility. | AgentDojo |
 | `kiln-model-roster-backend-write` | `backend-write` | Route-specific backend implementation reliability in isolated workspaces with fixed out-of-process tests. | Internal roster promotion only |
 | `kiln-model-roster-frontend-render` | `frontend-render` | Route-specific React interaction, focus, accessibility, screenshot, and diff reliability in an isolated browser verifier. | Internal roster promotion only |
+| `kiln-formal-verification-pilot` | `backend-write` | Paired measurement of hidden functional outcomes with and without candidate-bound Dafny feedback. | Internal tool-policy evidence only |
 
 Each profile declares:
 

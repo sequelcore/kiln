@@ -239,6 +239,66 @@ describe("createBenchmarkProfileScorers", () => {
     })).resolves.toMatchObject({ score: 0 });
   });
 
+  it("scores the formal pilot from hidden behavior and candidate-bound treatment evidence", async () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-formal-verification-pilot")!;
+    const scorers = createBenchmarkProfileScorers(profile);
+    const diff = scorers.find((scorer) => scorer.name === "formal-diff-integrity")!;
+    const compliance = scorers.find((scorer) => scorer.name === "formal-verification-compliance")!;
+    const proofDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+    const metadata = {
+      formalVerificationArm: "treatment",
+      formalVerificationExpectedVersion: "4.11.0",
+      observedVerification: {
+        changes: {
+          changed: [
+            {
+              path: "proof/model.dfy",
+              beforeHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              afterHash: proofDigest,
+            },
+            {
+              path: "src/solution.mjs",
+              beforeHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              afterHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            },
+          ],
+          added: [],
+          deleted: [],
+        },
+      },
+      formalVerificationObservations: [{
+        kind: "formal_verification",
+        toolName: "formal_verify",
+        verifier: { name: "dafny", version: "4.11.0" },
+        artifact: { contentDigest: proofDigest },
+        subjects: [{ path: "proof/model.dfy", contentDigest: proofDigest }],
+        checks: [{ symbol: "Remaining", check: "correctness", outcome: "proved" }],
+      }],
+    };
+
+    await expect(diff.score({ input: "fix", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    await expect(compliance.score({ input: "fix", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    await expect(compliance.score({
+      input: "fix",
+      output: "done",
+      metadata: {
+        ...metadata,
+        formalVerificationObservations: [{
+          ...metadata.formalVerificationObservations[0],
+          subjects: [{
+            path: "proof/model.dfy",
+            contentDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          }],
+        }],
+      },
+    })).resolves.toMatchObject({ score: 0 });
+    await expect(compliance.score({
+      input: "fix",
+      output: "done",
+      metadata: { formalVerificationArm: "control" },
+    })).resolves.toMatchObject({ score: 1 });
+  });
+
   it("does not treat a verification read after a workspace mutation as redundant", async () => {
     const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-model-roster-backend-write")!;
     const trajectory = createBenchmarkProfileScorers(profile)
@@ -490,6 +550,22 @@ describe("execution integrity route identity", () => {
     });
     expect(result.score).toBe(0);
     expect(result.reasoning).toContain("not the requested");
+  });
+
+  it("fails when an account-balanced trial ran on a different account than assigned", async () => {
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: {
+        ...clean,
+        expectedProviderId: "opencode-go",
+        expectedModelId: "kimi-k3",
+        expectedAccountId: "subscription-a",
+        accountId: "subscription-b",
+      },
+    });
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("account subscription-b is not the requested subscription-a");
   });
 
   it("passes when the resolved route is the requested route", async () => {

@@ -69,6 +69,36 @@ describe("verifyBackendBenchmarkLease", () => {
     }
   });
 
+  it("admits an explicit proof path without broadening the default scope", async () => {
+    const lease = createBenchmarkWriteWorkspaceLease(
+      resolveProjectRoot().rootPath,
+      "packages/core/evals/fixtures/formal-verification-pilot-v1/idempotent-reservation",
+    );
+    writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
+    writeFileSync(`${lease.rootPath}/proof/model.dfy`, "function Fixed(): bool { true }\n", "utf8");
+    const runner = passingRunner();
+
+    try {
+      await expect(verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCaseId: CASE_ID,
+        allowedChangedPaths: ["src/solution.mjs", "proof/model.dfy"],
+      })).resolves.toMatchObject({
+        status: "passed",
+        violations: [],
+        changes: {
+          changed: [
+            expect.objectContaining({ path: "proof/model.dfy" }),
+            expect.objectContaining({ path: "src/solution.mjs" }),
+          ],
+        },
+      });
+    } finally {
+      lease.cleanup();
+    }
+  });
+
   it("fails closed on timeout or incomplete TAP evidence", async () => {
     const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
     writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");

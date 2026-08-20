@@ -66,10 +66,10 @@ export class BenchmarkBaselineRunner {
     });
     const consistency = await new ConsistencyRunner({
       runner: {
-        run: async () => {
+        run: async (itemIds) => {
           activeRunIndex = nextRunIndex;
           nextRunIndex += 1;
-          return runner.run();
+          return runner.run(itemIds);
         },
       },
       k: this.options.k,
@@ -188,6 +188,10 @@ export class BenchmarkBaselineRunner {
         value: collectResultEvidence(consistency, (result) => ({
           providerId: readMetadata(result, "providerId"),
           modelId: readMetadata(result, "modelId"),
+          accountId: readMetadata(result, "accountId"),
+          expectedAccountId: readMetadata(result, "expectedAccountId"),
+          scheduledAccountId: readMetadata(result, "scheduledAccountId"),
+          accountFallbackCount: readMetadata(result, "accountFallbackCount"),
           provider: readMetadata(result, "provider"),
           model: readMetadata(result, "model"),
           canonicalModel: readMetadata(result, "canonicalModel"),
@@ -225,6 +229,7 @@ export class BenchmarkBaselineRunner {
         title: "out-of-process verification evidence",
         value: collectResultEvidence(consistency, (result) => ({
           observedVerification: readMetadata(result, "observedVerification"),
+          formalVerificationObservations: readArrayMetadata(result, "formalVerificationObservations"),
         })),
       },
     ];

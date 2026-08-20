@@ -225,6 +225,9 @@ describe("runSession", () => {
         toolCallScopeId: "turn-1:response:1",
         toolName: "managed_agent.invoke",
         output: "ok",
+        metadata: { kind: "test-evidence", digest: "sha256:evidence" },
+        resourceLinks: [{ uri: "kiln://artifacts/evidence" }],
+        toolUsage: { scope: "turn", toolName: "managed_agent.invoke", calls: 1 },
       };
       yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
     });
@@ -294,6 +297,9 @@ describe("runSession", () => {
           type: "tool_result",
           toolName: "managed_agent.invoke",
           output: "ok",
+          metadata: { kind: "test-evidence", digest: "sha256:evidence" },
+          resourceLinks: [{ uri: "kiln://artifacts/evidence" }],
+          toolUsage: { scope: "turn", toolName: "managed_agent.invoke", calls: 1 },
         }),
       }));
     } finally {

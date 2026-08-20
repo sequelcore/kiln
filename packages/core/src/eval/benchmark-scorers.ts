@@ -36,6 +36,10 @@ function createBenchmarkScorer(name: string): Scorer {
       return new BackendTestVerificationScorer();
     case "diff-integrity":
       return new BackendDiffIntegrityScorer();
+    case "formal-diff-integrity":
+      return new FormalPilotDiffIntegrityScorer();
+    case "formal-verification-compliance":
+      return new FormalVerificationComplianceScorer();
     case "render-verification":
       return new FrontendRenderVerificationScorer();
     case "frontend-diff-integrity":
@@ -104,6 +108,72 @@ class BackendDiffIntegrityScorer implements Scorer {
     return valid
       ? { name: this.name, score: 1, reasoning: "candidate changed only the admitted backend source file" }
       : { name: this.name, score: 0, reasoning: "candidate diff is missing or exceeds the admitted backend source scope" };
+  }
+}
+
+class FormalPilotDiffIntegrityScorer implements Scorer {
+  readonly name = "formal-diff-integrity";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const verification = readRecord(input.metadata?.observedVerification);
+    const changes = readRecord(verification?.changes);
+    const changed = readRecordArray(changes?.changed);
+    const added = readRecordArray(changes?.added);
+    const deleted = readRecordArray(changes?.deleted);
+    const expectedPaths = ["proof/model.dfy", "src/solution.mjs"];
+    const valid = changed.length === expectedPaths.length
+      && expectedPaths.every((path) => changed.some((entry) =>
+        entry.path === path
+        && isSha256(entry.beforeHash)
+        && isSha256(entry.afterHash)
+        && entry.beforeHash !== entry.afterHash
+      ))
+      && added.length === 0
+      && deleted.length === 0;
+    return valid
+      ? { name: this.name, score: 1, reasoning: "candidate changed exactly the implementation and formal model" }
+      : { name: this.name, score: 0, reasoning: "candidate diff is missing a required file or exceeds the paired pilot scope" };
+  }
+}
+
+class FormalVerificationComplianceScorer implements Scorer {
+  readonly name = "formal-verification-compliance";
+
+  async score(input: EvalInput): Promise<EvalScore> {
+    const arm = input.metadata?.formalVerificationArm;
+    const observations = readRecordArray(input.metadata?.formalVerificationObservations);
+    if (arm === "control") {
+      return observations.length === 0
+        ? { name: this.name, score: 1, reasoning: "control arm emitted no formal-verification observation" }
+        : { name: this.name, score: 0, reasoning: "control arm received treatment-only formal-verification evidence" };
+    }
+    if (arm !== "treatment") {
+      return { name: this.name, score: 0, reasoning: "formal-verification arm identity is missing" };
+    }
+    const verification = readRecord(input.metadata?.observedVerification);
+    const changes = readRecord(verification?.changes);
+    const proofChange = readRecordArray(changes?.changed).find((entry) => entry.path === "proof/model.dfy");
+    const finalDigest = proofChange?.afterHash;
+    const expectedVersion = input.metadata?.formalVerificationExpectedVersion;
+    const matching = observations.some((observation) => {
+      const verifier = readRecord(observation.verifier);
+      const artifact = readRecord(observation.artifact);
+      const subjects = readRecordArray(observation.subjects);
+      const checks = readRecordArray(observation.checks);
+      return observation.kind === "formal_verification"
+        && observation.toolName === "formal_verify"
+        && verifier?.name === "dafny"
+        && typeof expectedVersion === "string"
+        && verifier.version === expectedVersion
+        && isSha256(finalDigest)
+        && artifact?.contentDigest === finalDigest
+        && subjects.some((subject) => subject.path === "proof/model.dfy" && subject.contentDigest === finalDigest)
+        && checks.length > 0
+        && checks.every((check) => check.outcome === "proved");
+    });
+    return matching
+      ? { name: this.name, score: 1, reasoning: "treatment carries proved Dafny evidence for the final model bytes" }
+      : { name: this.name, score: 0, reasoning: "treatment lacks current, proved, version-matched Dafny evidence" };
   }
 }
 
@@ -264,6 +334,8 @@ class ExecutionIntegrityScorer implements Scorer {
     // intended one did, so a silent fallback would otherwise score as clean.
     const expectedProviderId = input.metadata.expectedProviderId;
     const expectedModelId = input.metadata.expectedModelId;
+    const expectedAccountId = input.metadata.expectedAccountId;
+    const accountId = input.metadata.accountId;
     const mismatches: string[] = [];
     if (typeof expectedProviderId === "string" && expectedProviderId !== providerId) {
       mismatches.push(`provider ${providerId} is not the requested ${expectedProviderId}`);
@@ -271,19 +343,22 @@ class ExecutionIntegrityScorer implements Scorer {
     if (typeof expectedModelId === "string" && expectedModelId !== modelId) {
       mismatches.push(`model ${modelId} is not the requested ${expectedModelId}`);
     }
+    if (typeof expectedAccountId === "string" && expectedAccountId !== accountId) {
+      mismatches.push(`account ${String(accountId ?? "missing")} is not the requested ${expectedAccountId}`);
+    }
     if (mismatches.length > 0) {
       return {
         name: this.name,
         score: 0,
-        reasoning: `route identity differs from the requested route: ${mismatches.join("; ")}`,
+        reasoning: `execution identity differs from the requested route/account: ${mismatches.join("; ")}`,
       };
     }
     return {
       name: this.name,
       score: 1,
-      reasoning: expectedProviderId === undefined && expectedModelId === undefined
+      reasoning: expectedProviderId === undefined && expectedModelId === undefined && expectedAccountId === undefined
         ? "successful terminal state and resolved route identity observed; no route was requested to compare against"
-        : "successful terminal state and route identity matching the requested route",
+        : "successful terminal state and execution identity matching the requested route/account",
     };
   }
 }

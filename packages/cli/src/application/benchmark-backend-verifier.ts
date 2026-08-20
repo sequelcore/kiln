@@ -58,11 +58,15 @@ export interface BackendBenchmarkVerification {
 export async function verifyBackendBenchmarkLease(input: {
   readonly lease: BenchmarkWriteWorkspaceLease;
   readonly benchmarkCaseId: unknown;
+  readonly allowedChangedPaths?: readonly string[];
   readonly runner?: BackendVerifierRunner;
 }): Promise<BackendBenchmarkVerification> {
   const benchmarkCase = requireBackendBenchmarkCase(input.benchmarkCaseId);
   const changes = input.lease.collectChanges();
-  const violations = validateAllowedChanges(changes, benchmarkCase.allowedChangedPath);
+  const violations = validateAllowedChanges(
+    changes,
+    input.allowedChangedPaths ?? [benchmarkCase.allowedChangedPath],
+  );
   if (violations.length > 0) {
     return failedScopeVerification(changes, violations, benchmarkCase);
   }
@@ -105,8 +109,11 @@ export async function verifyBackendBenchmarkLease(input: {
   }
 }
 
-function validateAllowedChanges(changes: BenchmarkWriteWorkspaceChanges, allowedChangedPath: string): readonly string[] {
-  const allowed = new Set<string>([allowedChangedPath]);
+function validateAllowedChanges(
+  changes: BenchmarkWriteWorkspaceChanges,
+  allowedChangedPaths: readonly string[],
+): readonly string[] {
+  const allowed = new Set<string>(allowedChangedPaths);
   const paths = [
     ...changes.changed.map((entry) => entry.path),
     ...changes.added.map((entry) => entry.path),

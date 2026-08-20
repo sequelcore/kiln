@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,6 +35,12 @@ describe("benchmark write workspace lease", () => {
     expect(readFileSync(join(lease.rootPath, "README.md"), "utf-8")).toBe("canonical fixture\n");
     expect(lease.canonicalHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(lease.initialSnapshot.files.map((file) => file.path)).toEqual(["README.md", "src/task.ts"]);
+    expect(execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+      cwd: lease.rootPath,
+      encoding: "utf-8",
+      windowsHide: true,
+    }).trim()).toMatch(/^[a-f0-9]{40,64}$/u);
+    expect(lease.collectChanges()).toEqual({ changed: [], added: [], deleted: [] });
 
     writeFileSync(join(lease.rootPath, "README.md"), "attempt-only change\n", "utf-8");
     expect(readFileSync(join(repositoryRoot, "fixtures", "write", "README.md"), "utf-8"))

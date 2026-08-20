@@ -25,6 +25,57 @@ class PassingScorer implements Scorer {
 }
 
 describe("BenchmarkBaselineRunner", () => {
+  it("retries only items that still lack valid coverage", async () => {
+    const baseProfile = KILN_BENCHMARK_PROFILES[0]!;
+    const profile = {
+      ...baseProfile,
+      minimumK: 1,
+      maxInvalidAttempts: 1,
+    };
+    const dataset: Dataset = {
+      name: "retry-subset",
+      items: [
+        { id: "flaky-route", input: "first" },
+        { id: "already-valid", input: "second" },
+      ],
+    };
+    const calls = new Map<string, number>();
+    const runner = new BenchmarkBaselineRunner({
+      profile,
+      dataset,
+      datasetVersion: "v1",
+      k: 1,
+      configHash: "sha256:retry-subset",
+      artifactStore: new MemoryArtifactResourceStore(),
+      scorers: profile.requiredScorers.map((name) => new PassingScorer(name)),
+      executeItem: async (_input, context) => {
+        const count = (calls.get(context.item.id) ?? 0) + 1;
+        calls.set(context.item.id, count);
+        return {
+          output: context.item.id,
+          durationMs: 1,
+          costUsd: 0,
+          inputTokens: 1,
+          outputTokens: 1,
+          trial: context.item.id === "flaky-route" && count === 1
+            ? { status: "invalid", reason: "route-unavailable" }
+            : { status: "valid" },
+        };
+      },
+    });
+
+    const result = await runner.run();
+
+    expect(calls).toEqual(new Map([
+      ["flaky-route", 2],
+      ["already-valid", 1],
+    ]));
+    expect(result.consistency.runs.map((run) => run.results.map((entry) => entry.itemId))).toEqual([
+      ["flaky-route", "already-valid"],
+      ["flaky-route"],
+    ]);
+  });
+
   it("runs pass^k through the provided executor and stores a baseline artifact", async () => {
     const profile = KILN_BENCHMARK_PROFILES[0]!;
     const dataset: Dataset = {

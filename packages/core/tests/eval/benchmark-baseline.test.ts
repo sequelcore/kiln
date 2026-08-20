@@ -63,6 +63,7 @@ describe("benchmark baseline readiness", () => {
       "kiln-model-roster",
       "kiln-model-roster-backend-write",
       "kiln-model-roster-frontend-render",
+      "kiln-formal-verification-pilot",
     ]);
     expect(KILN_BENCHMARK_PROFILES[0]).toMatchObject({
       version: "3",
@@ -92,6 +93,18 @@ describe("benchmark baseline readiness", () => {
       minimumDatasetItems: 8,
       admissionScorers: ["render-verification", "frontend-diff-integrity", "execution-integrity"],
       requiredScorers: expect.arrayContaining(["render-verification", "frontend-diff-integrity"]),
+    });
+    expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-formal-verification-pilot")).toMatchObject({
+      version: "1",
+      authorityProfile: "foundation-apply-approved-writes",
+      minimumDatasetItems: 8,
+      minimumK: 2,
+      admissionScorers: [
+        "test-verification",
+        "formal-diff-integrity",
+        "formal-verification-compliance",
+        "execution-integrity",
+      ],
     });
   });
 

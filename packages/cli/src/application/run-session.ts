@@ -483,6 +483,9 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
                 output: event.output,
                 ...(event.outputSummary !== undefined ? { outputSummary: event.outputSummary } : {}),
                 ...(event.isError !== undefined ? { isError: event.isError } : {}),
+                ...(event.metadata !== undefined ? { metadata: event.metadata } : {}),
+                ...(event.resourceLinks !== undefined ? { resourceLinks: event.resourceLinks } : {}),
+                ...(event.toolUsage !== undefined ? { toolUsage: event.toolUsage } : {}),
               },
             });
             isFirstDeltaOfTurn = true;

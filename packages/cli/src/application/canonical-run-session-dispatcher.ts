@@ -26,6 +26,7 @@ export function createCanonicalRunSessionDispatcher(input: {
   readonly authorityStateRoot?: string;
   readonly executionId: string;
   readonly routeId: string;
+  readonly accountOverrideId?: string;
   readonly routeEvidence?: Pick<RunSessionRouteCandidate, "deliberationResolution">;
 }): CanonicalRunSessionDispatcher {
   const composition = createOperatorTurnDispatchComposition<CanonicalRunSessionPayload, RunSessionResult>({
@@ -56,7 +57,10 @@ export function createCanonicalRunSessionDispatcher(input: {
 
   return {
     dispatch: (payload) => {
-      const intent = { routeId: input.routeId };
+      const intent = {
+        routeId: input.routeId,
+        ...(input.accountOverrideId ? { accountOverrideId: input.accountOverrideId } : {}),
+      };
       return composition.dispatcher.dispatchTurn({
         executionId: input.executionId,
         intentFingerprint: fingerprintOperatorTurnIntent({ executionId: input.executionId, intent }),

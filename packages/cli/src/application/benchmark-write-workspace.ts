@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -66,6 +67,7 @@ export function createBenchmarkWriteWorkspaceLease(
     copyPortableFixture(workspace.rootPath, leaseRoot, workspace.rootPath);
     verifyBenchmarkWorkspaceUnchanged(repositoryRoot, workspace, canonicalHash);
     const before = snapshotPortableFiles(leaseRoot);
+    initializeCandidateRepository(leaseRoot);
     let cleaned = false;
 
     return {
@@ -121,6 +123,7 @@ function snapshotPortableFiles(rootPath: string): WorkspaceSnapshot {
 
 function collectPortableFiles(rootPath: string, currentPath: string, files: Map<string, string>): void {
   for (const entry of sortedEntries(currentPath)) {
+    if (currentPath === rootPath && entry.name === ".git") continue;
     const path = join(currentPath, entry.name);
     const portable = portablePath(rootPath, path);
     if (entry.isSymbolicLink()) {
@@ -135,6 +138,24 @@ function collectPortableFiles(rootPath: string, currentPath: string, files: Map<
     }
     files.set(portable, hashFile(path));
   }
+}
+
+function initializeCandidateRepository(rootPath: string): void {
+  runGit(rootPath, ["init", "--quiet"]);
+  runGit(rootPath, ["add", "--all", "--", "."]);
+  runGit(rootPath, [
+    "-c", "user.name=Kiln Benchmark",
+    "-c", "user.email=benchmark@kiln.invalid",
+    "commit", "--quiet", "--message", "materialize canonical benchmark fixture",
+  ]);
+}
+
+function runGit(cwd: string, args: readonly string[]): void {
+  execFileSync("git", [...args], {
+    cwd,
+    stdio: "pipe",
+    windowsHide: true,
+  });
 }
 
 function diffSnapshots(before: WorkspaceSnapshot, after: WorkspaceSnapshot): BenchmarkWriteWorkspaceChanges {

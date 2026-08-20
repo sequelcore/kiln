@@ -31,4 +31,29 @@ describe("benchmark baseline datasets", () => {
       }
     }
   });
+
+  it("ships four matched control-treatment pairs for the formal-verification pilot", () => {
+    const file = "kiln-formal-verification-pilot-v1.jsonl";
+    const dataset = parseDatasetJsonl(file.replace(/\.jsonl$/u, ""), readFileSync(join(DATASET_DIR, file), "utf-8"));
+    const pairs = new Map<unknown, typeof dataset.items[number][]>();
+    for (const item of dataset.items) {
+      const pairId = item.metadata?.pairId;
+      pairs.set(pairId, [...(pairs.get(pairId) ?? []), item]);
+    }
+
+    expect(dataset.items).toHaveLength(8);
+    expect(pairs.size).toBe(4);
+    for (const [pairId, items] of pairs) {
+      expect(pairId).toBeTypeOf("string");
+      expect(items).toHaveLength(2);
+      expect(new Set(items.map((item) => item.input)).size).toBe(1);
+      expect(items.map((item) => item.metadata?.workspaceFixture)).toEqual([
+        items[0]?.metadata?.workspaceFixture,
+        items[0]?.metadata?.workspaceFixture,
+      ]);
+      expect(new Set(items.map((item) => item.metadata?.formalVerificationArm))).toEqual(
+        new Set(["control", "treatment"]),
+      );
+    }
+  });
 });

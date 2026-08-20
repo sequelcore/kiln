@@ -5,12 +5,14 @@ import type {
   DeliberationResolution,
   ModelDeliberationCapabilities,
 } from "@kilnai/core";
+import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import {
   GoalRunStore,
   SandboxPolicy,
   WorkItemStore,
   createSessionBuiltinToolOptions,
   defineDeliberationLevelId,
+  isFormalVerificationToolResultMetadata,
   mapProviderModelRouteErrorToOutcome,
 } from "@kilnai/core";
 import {
@@ -93,11 +95,15 @@ export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
 const WRITE_BENCHMARK_PROFILE_IDS = new Set([
   "kiln-model-roster-backend-write",
   "kiln-model-roster-frontend-render",
+  "kiln-formal-verification-pilot",
 ]);
 const WRITE_BENCHMARK_TOOLS = ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"] as const;
 
 export interface BenchmarkSessionExecutorFlags {
   readonly targetId?: string;
+  readonly accountOverrideIds?: readonly string[];
+  /** Stable pair order supplied by the dataset owner for balanced account assignment. */
+  readonly benchmarkPairIds?: readonly string[];
   readonly skipGitRepoCheck?: boolean;
   readonly deliberationLevel?: string;
 }
@@ -111,6 +117,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
   let deliberationResolutionPromise: Promise<DeliberationResolution> | undefined;
   return async (input, context) => {
     const startedAt = Date.now();
+    const accountOverrideCandidates = resolveBenchmarkAccountOverrideCandidates(options.flags, context);
+    const scheduledAccountOverrideId = accountOverrideCandidates[0];
+    const formalVerificationArm = resolveFormalVerificationPilotArm(context);
     const repositoryRoot = resolveProjectRoot().rootPath;
     const benchmarkWorkspace = resolveBenchmarkWorkspace(
       repositoryRoot,
@@ -236,6 +245,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         caller: { kind: "operator_surface", id: "benchmark" },
       },
     });
+    if (context.profile.id === "kiln-formal-verification-pilot" && !configuredBuiltinToolOptions.formalVerify) {
+      throw new Error("Formal-verification pilot requires the globally configured formal_verify capability.");
+    }
     const boundedWork = createProjectBoundedWorkAuthority(cwd, {
       authorityStateRoot,
       projectIdentityRoot: cwd,
@@ -258,7 +270,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           ...baseBuiltinToolOptions,
           toolProjection: {
             mode: "strict" as const,
-            alwaysOnTools: WRITE_BENCHMARK_TOOLS,
+            alwaysOnTools: formalVerificationArm === "treatment"
+              ? [...WRITE_BENCHMARK_TOOLS, "formal_verify"]
+              : WRITE_BENCHMARK_TOOLS,
           },
         }
       : withProgressiveRuntimeToolProjection(baseBuiltinToolOptions, "read-only"));
@@ -309,19 +323,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       : undefined;
     const sessionId = randomUUID();
     const directExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
-    const canonicalDispatcher = configuredRouteCandidates.length > 0 && directExecutionCatalog
-      ? createCanonicalRunSessionDispatcher({
-          catalog: directExecutionCatalog,
-          cwd,
-          authorityStateRoot,
-          executionId: sessionId,
-          routeId: configuredRouteCandidates[0]!.routeId,
-          ...(executionDeliberation
-            ? { routeEvidence: { deliberationResolution: executionDeliberation } }
-            : {}),
-        })
-      : undefined;
-    benchmarkCleanupRegistry.register(async () => canonicalDispatcher?.close());
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
       managedInvocationWithService ? {
@@ -388,8 +389,41 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       } : {}),
       output: runOutput,
     };
-    const result = await (canonicalDispatcher
-      ? canonicalDispatcher.dispatch(runInput)
+    let selectedAccountOverrideId: string | undefined;
+    let accountFallbackCount = 0;
+    const result = await (configuredRouteCandidates.length > 0 && directExecutionCatalog
+      ? (async () => {
+          const candidates = accountOverrideCandidates.length > 0
+            ? accountOverrideCandidates
+            : [undefined];
+          let lastRoutingError: unknown;
+          for (let index = 0; index < candidates.length; index += 1) {
+            const accountOverrideId = candidates[index];
+            const dispatcher = createCanonicalRunSessionDispatcher({
+              catalog: directExecutionCatalog,
+              cwd,
+              authorityStateRoot,
+              executionId: `${sessionId}:account:${index}`,
+              routeId: configuredRouteCandidates[0]!.routeId,
+              ...(accountOverrideId ? { accountOverrideId } : {}),
+              ...(executionDeliberation
+                ? { routeEvidence: { deliberationResolution: executionDeliberation } }
+                : {}),
+            });
+            try {
+              const dispatched = await dispatcher.dispatch(runInput);
+              selectedAccountOverrideId = accountOverrideId;
+              accountFallbackCount = index;
+              return dispatched;
+            } catch (error) {
+              if (!(error instanceof Error) || error.name !== "OperatorSessionExecutionRoutingError") throw error;
+              lastRoutingError = error;
+            } finally {
+              dispatcher.close();
+            }
+          }
+          throw lastRoutingError;
+        })()
       : runSession({
           ...runInput,
           routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
@@ -402,10 +436,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       verifyBenchmarkWorkspaceUnchanged(repositoryRoot, benchmarkWorkspace, workspaceFixtureHash);
     }
     workspaceChanges = writeLease?.collectChanges();
-    if (context.profile.id === "kiln-model-roster-backend-write" && writeLease) {
+    if (
+      (context.profile.id === "kiln-model-roster-backend-write"
+        || context.profile.id === "kiln-formal-verification-pilot")
+      && writeLease
+    ) {
       observedVerification = await verifyBackendBenchmarkLease({
         lease: writeLease,
         benchmarkCaseId: context.item.metadata?.benchmarkCaseId,
+        ...(context.profile.id === "kiln-formal-verification-pilot"
+          ? { allowedChangedPaths: ["src/solution.mjs", "proof/model.dfy"] }
+          : {}),
       });
       workspaceChanges = observedVerification.changes;
     }
@@ -423,6 +464,15 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ? `${attempt.providerId}/${attempt.model}`
         : attempt.providerId;
       return [`${routeIdentity}: ${attempt.error}`];
+    });
+    const boundExecution = result.executionBindings.find((binding) => binding.status === "bound");
+    const formalVerificationObservations = result.transcript.flatMap((entry) => {
+      if (
+        entry.event.type !== "tool_result"
+        || entry.event.toolName !== "formal_verify"
+        || !isFormalVerificationToolResultMetadata(entry.event.metadata)
+      ) return [];
+      return [entry.event.metadata];
     });
 
     return {
@@ -443,10 +493,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         // a silent fallback would otherwise be indistinguishable from a clean run.
         ...(preferredProvider ? { expectedProviderId: preferredProvider } : {}),
         ...(effectiveModel ? { expectedModelId: effectiveModel } : {}),
+        ...(boundExecution ? { accountId: boundExecution.accountId } : {}),
+        ...(selectedAccountOverrideId ? { expectedAccountId: selectedAccountOverrideId } : {}),
+        ...(scheduledAccountOverrideId ? { scheduledAccountId: scheduledAccountOverrideId } : {}),
+        ...(accountFallbackCount > 0 ? { accountFallbackCount } : {}),
         costEvidence: result.finalCostEvidence,
         sessionSucceeded: result.sessionSucceeded,
         providerRequests: result.providerRequests,
         deliberationResolution,
+        ...(formalVerificationArm ? {
+          formalVerificationExpectedVersion: configuredBuiltinToolOptions.formalVerify!.verifierVersion,
+        } : {}),
         toolCalls: result.transcript.flatMap((entry) => {
           if (entry.event.type !== "tool_use") return [];
           return [{
@@ -465,6 +522,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ...(workspaceFixtureHash ? { workspaceFixtureHash } : {}),
         ...(workspaceChanges ? { workspaceChanges } : {}),
         ...(observedVerification ? { observedVerification } : {}),
+        ...(formalVerificationObservations.length > 0 ? { formalVerificationObservations } : {}),
       },
     };
     } catch (error) {
@@ -480,6 +538,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           activeAgentId: context.profile.id,
           sessionSucceeded: false,
           diagnostics: ["Canonical execution account route was unavailable before provider dispatch."],
+          ...(scheduledAccountOverrideId ? { scheduledAccountId: scheduledAccountOverrideId } : {}),
           benchmarkWorkspaceKind: benchmarkWorkspace.kind,
           benchmarkContextKind: benchmarkWorkspace.kind === "synthetic-fixture" ? "sanitized" : "repository",
           ...(benchmarkWorkspace.fixturePath ? { workspaceFixture: benchmarkWorkspace.fixturePath } : {}),
@@ -498,6 +557,33 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       }
     }
   };
+}
+
+function resolveFormalVerificationPilotArm(
+  context: BenchmarkItemExecutionContext,
+): "control" | "treatment" | undefined {
+  if (context.profile.id !== "kiln-formal-verification-pilot") return undefined;
+  const arm = context.item.metadata?.formalVerificationArm;
+  if (arm !== "control" && arm !== "treatment") {
+    throw new Error("Formal-verification pilot items require a control or treatment arm.");
+  }
+  return arm;
+}
+
+function resolveBenchmarkAccountOverrideCandidates(
+  flags: BenchmarkSessionExecutorFlags | undefined,
+  context: BenchmarkItemExecutionContext,
+): readonly string[] {
+  const accounts = flags?.accountOverrideIds;
+  if (!accounts || accounts.length === 0) return [];
+  const pairId = typeof context.item.metadata?.pairId === "string"
+    && context.item.metadata.pairId.trim().length > 0
+    ? context.item.metadata.pairId.trim()
+    : context.item.id;
+  const pairIds = flags?.benchmarkPairIds ?? [pairId];
+  const pairIndex = Math.max(0, pairIds.indexOf(pairId));
+  const preferredIndex = (pairIndex + context.runIndex * pairIds.length) % accounts.length;
+  return accounts.map((_, offset) => accounts[(preferredIndex + offset) % accounts.length]!);
 }
 
 async function resolveBenchmarkDeliberation(input: {

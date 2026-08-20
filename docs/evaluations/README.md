@@ -29,3 +29,7 @@ Public claims require the evidence gates defined there.
 
 - [Architectural Legibility Baseline 2026](architectural-legibility-baseline-2026.md)
 - [Concise Communication Default 2026](communication-concise-default-2026.md)
+
+## Tool Evaluations
+
+- [Formal Verification Pilot 2026](formal-verification-pilot-2026.md)

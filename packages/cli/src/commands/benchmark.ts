@@ -109,7 +109,7 @@ function printHelp(): void {
     "  kiln benchmark tracks",
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
-    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--target <execution-target-id>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
+    "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
@@ -322,7 +322,8 @@ async function runInternalBenchmark(
     throw new Error(`Unknown benchmark profile '${profileId}'.`);
   }
   const writeProfile = profile.id === "kiln-model-roster-backend-write"
-    || profile.id === "kiln-model-roster-frontend-render";
+    || profile.id === "kiln-model-roster-frontend-render"
+    || profile.id === "kiln-formal-verification-pilot";
   const datasetPath = readFlag(args, "--dataset") ?? defaultDatasetPath(profile.id);
   const datasetContent = readFileSync(datasetPath, "utf-8");
   const dataset = parseDatasetJsonl(datasetNameFromPath(datasetPath), datasetContent);
@@ -337,9 +338,15 @@ async function runInternalBenchmark(
   const artifactRoot = resolve(`${outputPath}.artifacts`);
   const deliberationMembers = readDeliberationLevelMembers(args);
   const artifactStore = new FileArtifactResourceStore({ rootDir: artifactRoot });
+  const accountOverrideIds = readAccountPool(args);
+  const benchmarkPairIds = [...new Set(dataset.items.map((item) => (
+    typeof item.metadata?.pairId === "string" && item.metadata.pairId.trim().length > 0
+      ? item.metadata.pairId.trim()
+      : item.id
+  )))];
   const runs = [];
   for (const deliberationLevel of deliberationMembers) {
-    const executorFlags = readExecutorFlags(args, deliberationLevel);
+    const executorFlags = readExecutorFlags(args, deliberationLevel, accountOverrideIds, benchmarkPairIds);
     const executor = dependencies.createExecuteItem?.(executorFlags)
       ?? dependencies.executeItem
       ?? createBenchmarkSessionExecutor({ appConfig: config, flags: executorFlags });
@@ -380,6 +387,33 @@ async function runInternalBenchmark(
             allowedChangedPaths: BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
           },
         } : {}),
+        ...(profile.id === "kiln-formal-verification-pilot" ? {
+          pairedDesign: {
+            arms: ["control", "treatment"],
+            assignment: "same-preferred-account-with-explicit-failover",
+            treatmentDifference: "formal_verify strict projection",
+            primaryOutcome: "out-of-process hidden functional tests",
+          },
+          strictToolProjection: {
+            control: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
+            treatment: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch", "formal_verify"],
+          },
+          verifier: {
+            id: BACKEND_VERIFIER_ID,
+            version: BACKEND_VERIFIER_VERSION,
+            image: BACKEND_VERIFIER_IMAGE,
+            cases: [
+              "idempotent-reservation",
+              "atomic-transfer",
+              "default-deny-access",
+              "bounded-retry",
+            ].map((id) => {
+              const entry = BACKEND_BENCHMARK_CASES[id as keyof typeof BACKEND_BENCHMARK_CASES];
+              return { id: entry.id, hiddenTestDigest: entry.testDigest, testCount: entry.testCount };
+            }),
+            allowedChangedPaths: ["src/solution.mjs", "proof/model.dfy"],
+          },
+        } : {}),
         ...(profile.id === "kiln-model-roster-frontend-render" ? {
           strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
           verifier: {
@@ -396,6 +430,8 @@ async function runInternalBenchmark(
           },
         } : {}),
         targetId: executorFlags.targetId ?? "configured-default",
+        accountOverrideIds: executorFlags.accountOverrideIds ?? [],
+        accountAssignment: "paired-preferred-with-explicit-failover-v1",
         deliberationLevel: deliberationLevel ?? "provider-default",
         deliberationMode: deliberationMembers.length > 1
           ? "sweep"
@@ -498,6 +534,12 @@ function collectWorkspaceFixtureEvidence(
 
 const EXECUTOR_OWNED_BENCHMARK_METADATA = new Set([
   "observedVerification",
+  "formalVerificationObservations",
+  "formalVerificationExpectedVersion",
+  "accountId",
+  "expectedAccountId",
+  "scheduledAccountId",
+  "accountFallbackCount",
   "workspaceChanges",
   "workspaceFixtureHash",
   "benchmarkWorkspaceKind",
@@ -662,12 +704,32 @@ function readFlag(args: readonly string[], flag: string): string | undefined {
 function readExecutorFlags(
   args: readonly string[],
   deliberationLevel?: string,
+  accountOverrideIds?: readonly string[],
+  benchmarkPairIds?: readonly string[],
 ): BenchmarkSessionExecutorFlags {
   return {
     targetId: readFlag(args, "--target"),
+    ...(accountOverrideIds && accountOverrideIds.length > 0 ? { accountOverrideIds } : {}),
+    ...(benchmarkPairIds && benchmarkPairIds.length > 0 ? { benchmarkPairIds } : {}),
     skipGitRepoCheck: args.includes("--skip-git-repo-check"),
     deliberationLevel,
   };
+}
+
+function readAccountPool(args: readonly string[]): readonly string[] {
+  const raw = readFlag(args, "--accounts");
+  if (!raw) return [];
+  if (!readFlag(args, "--target")) {
+    throw new Error("account-balanced benchmarks require explicit --target identity.");
+  }
+  const accounts = raw.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (accounts.length === 0) {
+    throw new Error("--accounts requires at least one account id.");
+  }
+  if (new Set(accounts).size !== accounts.length) {
+    throw new Error("--accounts must not contain duplicate account ids.");
+  }
+  return accounts;
 }
 
 function requireProportionInterval(
