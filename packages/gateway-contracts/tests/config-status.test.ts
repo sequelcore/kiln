@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   KILN_STATUS_EVIDENCE_VERSION,
+  KilnResolvedWorkGovernancePolicySchema,
   TRUSTED_EXECUTION_CLASSIFICATIONS,
   TRUSTED_EXECUTION_EVIDENCE_FRESHNESS,
   TRUSTED_EXECUTION_PROOF_STATUSES,
@@ -68,6 +69,38 @@ describe("KilnSkillCatalogSnapshotSchema", () => {
     expect(parsed.entries[0]).toMatchObject({
       desiredVisibility: "explicit-only",
       projections: [{ effectiveVisibility: "disabled", visibilityCapability: "unsupported" }],
+    });
+  });
+});
+
+describe("KilnResolvedWorkGovernancePolicySchema", () => {
+  it("accepts the preserved global bounded work ceiling", () => {
+    const parsed = KilnResolvedWorkGovernancePolicySchema.parse({
+      defaultPosture: "orchestrate",
+      directExecution: { maxFiles: 1, maxRisk: "low" },
+      requireDelegationFor: ["managed-agents"],
+      requiredEvidence: ["surface-map"],
+      boundedWorkCeiling: {
+        allowedEffects: ["inspect", "modify_source", "modify_tests", "modify_documentation", "modify_configuration", "run_verification", "invoke_managed_agent", "external_write"],
+        allowedRoots: ["packages/cli"],
+        deniedRoots: ["packages/cli/private"],
+        maximumLimits: {
+          maxExecutionAttempts: 2,
+          maxManagedInvocations: 4,
+          maxConcurrentManagedInvocations: 2,
+          maxChildDepth: 1,
+          maxReviewRounds: 3,
+          maxRemediationRounds: 2,
+          maxToolCalls: 20,
+          maxActiveDurationMs: 60_000,
+        },
+        minimumHarnessCapability: "authoritative",
+      },
+    });
+
+    expect(parsed.boundedWorkCeiling).toMatchObject({
+      allowedRoots: ["packages/cli"],
+      minimumHarnessCapability: "authoritative",
     });
   });
 });

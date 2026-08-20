@@ -101,6 +101,8 @@ export function deriveEffectiveKilnYaml(
   globalConfig: KilnGlobalConfig | null,
   projectConfig: KilnProjectConfig | null,
 ): ResolvedKilnConfig | null {
+  assertProjectDoesNotDeclareGlobalBoundedWorkCeiling(projectConfig);
+
   if (!globalConfig) {
     return projectConfig;
   }
@@ -112,6 +114,17 @@ export function deriveEffectiveKilnYaml(
   assertProjectDoesNotBroadenGlobal(globalConfig, projectConfig);
 
   return mergeKilnYaml(globalToKilnYaml(globalConfig), projectConfig);
+}
+
+function assertProjectDoesNotDeclareGlobalBoundedWorkCeiling(
+  projectConfig: KilnProjectConfig | null,
+): void {
+  if (
+    projectConfig?.workGovernance
+    && Object.prototype.hasOwnProperty.call(projectConfig.workGovernance, "boundedWorkCeiling")
+  ) {
+    throw new Error("Project workGovernance.boundedWorkCeiling is global-only.");
+  }
 }
 
 function assertProjectDoesNotBroadenGlobal(

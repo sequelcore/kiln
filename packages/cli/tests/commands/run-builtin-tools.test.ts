@@ -11,6 +11,7 @@ import {
   runCommand,
 } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
+import { loadKilnConfig } from "../../src/config/config-merger.js";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -557,6 +558,7 @@ const APP_CONFIG: KilnAppConfig = {
 };
 
 const readGlobalConfigMock = readGlobalConfig as unknown as ReturnType<typeof vi.fn>;
+const loadKilnConfigMock = loadKilnConfig as unknown as ReturnType<typeof vi.fn>;
 
 function configureExecutionRoute(
   providerId = "codex-oauth",
@@ -599,6 +601,7 @@ describe("run command builtin tool wiring", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    loadKilnConfigMock.mockResolvedValue(APP_KILN_YAML);
     runWiringMocks.capturedSessionConfigs.length = 0;
     runWiringMocks.capturedRunSessionInputs.length = 0;
     runWiringMocks.evaluateRouteHealth.mockResolvedValue({ healthy: true });
@@ -721,6 +724,25 @@ describe("run command builtin tool wiring", () => {
     expect(runWiringMocks.capturedSessionConfigs).toHaveLength(1);
     expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
       builtinToolOptions: { id: "session-builtin-tool-options" },
+    });
+  });
+
+  it("passes resolved YAML permissions into a normal run session", async () => {
+    const permissions = {
+      approval: "on-request" as const,
+      sandbox: "read-only" as const,
+      safeDefaults: true,
+      tools: [{ tool: "read", action: "allow" as const, reason: "Configured for this project." }],
+    };
+    loadKilnConfigMock.mockResolvedValueOnce({
+      ...APP_KILN_YAML,
+      permissions,
+    });
+
+    await runCommand(APP_CONFIG, "use configured permissions", {});
+
+    expect(runWiringMocks.capturedSessionConfigs[0]).toMatchObject({
+      permissionPolicy: permissions,
     });
   });
 
@@ -1249,6 +1271,10 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
+    loadKilnConfigMock.mockResolvedValueOnce({
+      ...APP_KILN_YAML,
+      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+    });
     await expect(runCommand({
       ...APP_CONFIG,
       kilnYaml: {
@@ -1299,6 +1325,10 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
+    loadKilnConfigMock.mockResolvedValueOnce({
+      ...APP_KILN_YAML,
+      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+    });
     await expect(runCommand({
       ...APP_CONFIG,
       kilnYaml: {
@@ -1404,6 +1434,10 @@ describe("run command builtin tool wiring", () => {
       submittedPlan: undefined,
     });
 
+    loadKilnConfigMock.mockResolvedValueOnce({
+      ...APP_KILN_YAML,
+      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+    });
     await expect(runCommand({
       ...APP_CONFIG,
       kilnYaml: {
@@ -1820,14 +1854,12 @@ describe("run command builtin tool wiring", () => {
 
   it("runs verification gates inside the prepared working directory", async () => {
     runWiringMocks.preparedWorkingDirectory = "C:/repo/.kiln-worktrees/session-verify";
+    loadKilnConfigMock.mockResolvedValueOnce({
+      ...APP_KILN_YAML,
+      qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
+    });
 
-    await runCommand({
-      ...APP_CONFIG,
-      kilnYaml: {
-        ...APP_KILN_YAML,
-        qualityGates: [{ name: "typecheck", command: "bun run typecheck", required: true }],
-      },
-    }, "verify isolated cwd", { isolate: true });
+    await runCommand(APP_CONFIG, "verify isolated cwd", { isolate: true });
 
     expect(runWiringMocks.runVerification).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ name: "typecheck" })]),

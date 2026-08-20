@@ -143,7 +143,6 @@ export interface RunFlags {
   readonly deliberationLevel?: string;
   readonly requestedAuthority?: OperatorTurnRequestedAuthority;
   readonly agent?: string;
-  readonly permissionPolicy?: KilnPermissionPolicy;
   readonly isolate?: boolean;
   readonly continuation?: boolean;
   readonly continuationSessionId?: string;
@@ -384,11 +383,24 @@ function requiresCliWrapperModelDiscovery(candidate: RunSessionRouteCandidate): 
   );
 }
 
-function buildConfig(flags: RunFlags, mode: SessionMode, provider?: string): WrapperConfig {
+export function resolveRunPermissionPolicy(
+  flags: RunFlags,
+  configuredPermissions?: KilnPermissionPolicy,
+): KilnPermissionPolicy {
+  if (flags.plan) return PLAN_POLICY;
+  return configuredPermissions ?? DEFAULT_POLICY;
+}
+
+function buildConfig(
+  flags: RunFlags,
+  mode: SessionMode,
+  provider?: string,
+  configuredPermissions?: KilnPermissionPolicy,
+): WrapperConfig {
   return {
     mode,
     provider,
-    permissionPolicy: flags.plan ? PLAN_POLICY : (flags.permissionPolicy ?? DEFAULT_POLICY),
+    permissionPolicy: resolveRunPermissionPolicy(flags, configuredPermissions),
   };
 }
 
@@ -1004,7 +1016,7 @@ export async function runCommand(
     exitRunCommand(1, executionOptions);
   }
   const effectiveModel = selectedExecutionRoute.model;
-  const config = buildConfig(flags, mode, preferredProvider);
+  const config = buildConfig(flags, mode, preferredProvider, resolvedKilnConfig?.permissions);
   let identityAppConfig = withWorkGovernanceContext(
     withGlobalIdentityContext(resolvedAppConfig, globalConfig),
     resolvedKilnConfig?.workGovernance,
@@ -1884,7 +1896,7 @@ export async function runCommand(
   }
 
   let verificationResult: VerificationResult | undefined;
-  const gates = appConfig.kilnYaml?.qualityGates;
+  const gates = resolvedKilnConfig?.qualityGates;
   if (gates?.length) {
     const mappedGates = gates.map((g) => ({
       name: g.name,

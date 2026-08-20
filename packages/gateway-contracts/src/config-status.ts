@@ -45,6 +45,34 @@ export const KILN_WORK_GOVERNANCE_EVIDENCE = [
   "residual-risk",
 ] as const;
 
+const KILN_BOUNDED_WORK_EFFECTS = [
+  "inspect",
+  "modify_source",
+  "modify_tests",
+  "modify_documentation",
+  "modify_configuration",
+  "run_verification",
+  "invoke_managed_agent",
+  "external_write",
+] as const;
+
+const KilnResolvedBoundedWorkCeilingSchema = z.object({
+  allowedEffects: z.array(z.enum(KILN_BOUNDED_WORK_EFFECTS)).optional(),
+  allowedRoots: z.array(z.string().min(1)).optional(),
+  deniedRoots: z.array(z.string().min(1)).optional(),
+  maximumLimits: z.object({
+    maxExecutionAttempts: z.number().int().positive().optional(),
+    maxManagedInvocations: z.number().int().nonnegative().optional(),
+    maxConcurrentManagedInvocations: z.number().int().nonnegative().optional(),
+    maxChildDepth: z.number().int().nonnegative().optional(),
+    maxReviewRounds: z.number().int().nonnegative().optional(),
+    maxRemediationRounds: z.number().int().nonnegative().optional(),
+    maxToolCalls: z.number().int().nonnegative().optional(),
+    maxActiveDurationMs: z.number().int().nonnegative().optional(),
+  }).strict().optional(),
+  minimumHarnessCapability: z.enum(["authoritative", "partially_enforced", "advisory_only"]).optional(),
+}).strict();
+
 /**
  * The fully resolved policy shape consumed by a native-harness inspection.
  * Configuration parsing may accept partial operator input; an inspection never
@@ -58,6 +86,7 @@ export const KilnResolvedWorkGovernancePolicySchema = z.object({
   }).strict(),
   requireDelegationFor: z.array(z.enum(KILN_WORK_GOVERNANCE_TRIGGERS)),
   requiredEvidence: z.array(z.enum(KILN_WORK_GOVERNANCE_EVIDENCE)),
+  boundedWorkCeiling: KilnResolvedBoundedWorkCeilingSchema.optional(),
 }).strict().superRefine((value, context) => {
   if (new Set(value.requireDelegationFor).size !== value.requireDelegationFor.length) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["requireDelegationFor"], message: "Delegation triggers must not be duplicated" });

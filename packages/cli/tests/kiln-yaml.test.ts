@@ -68,6 +68,44 @@ describe("readKilnYaml", () => {
     );
   });
 
+  it("rejects the global-only bounded work ceiling from project config", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      [
+        "version: '1'",
+        "workGovernance:",
+        "  boundedWorkCeiling:",
+        "    allowedEffects: [inspect, modify_source]",
+        "    allowedRoots: [packages/cli]",
+        "    deniedRoots: [packages/cli/private]",
+        "    maximumLimits:",
+        "      maxExecutionAttempts: 2",
+        "    minimumHarnessCapability: authoritative",
+      ].join("\n"),
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      "workGovernance.boundedWorkCeiling is global-only",
+    );
+  });
+
+  it("rejects unsupported per-gate fields", () => {
+    writeFileSync(
+      join(tempDir, ".kiln", "kiln.yaml"),
+      [
+        "version: '1'",
+        "qualityGates:",
+        "  - name: test",
+        "    command: bun test",
+        "    coverageThreshold: 80",
+      ].join("\n"),
+    );
+
+    expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(
+      /qualityGates\[0\].*coverageThreshold.*unknown|unsupported.*coverageThreshold/i,
+    );
+  });
+
   it.each([
     ["provider", "provider: codex-oauth"],
     ["model", "model:\n  default: gpt-5.6-sol"],
@@ -334,6 +372,74 @@ describe("mergeKilnYaml", () => {
       requireDelegationFor: ["architecture", "ui"],
       requiredEvidence: ["surface-map", "browser-qa"],
     });
+  });
+
+  it("preserves project quality gates during global/project composition", () => {
+    const gates = [{ name: "test", command: "bun test", required: true }] as const;
+    const result = mergeKilnYaml(
+      { version: "1", permissions: { approval: "on-request", sandbox: "read-only" } },
+      { version: "1", qualityGates: gates },
+    );
+
+    expect(result.qualityGates).toEqual(gates);
+  });
+
+  it("preserves the complete global bounded work ceiling during project composition", () => {
+    const boundedWorkCeiling = {
+      allowedEffects: ["inspect", "modify_source"] as const,
+      allowedRoots: ["packages/cli"] as const,
+      deniedRoots: ["packages/cli/private"] as const,
+      maximumLimits: {
+        maxExecutionAttempts: 2,
+        maxManagedInvocations: 4,
+        maxConcurrentManagedInvocations: 2,
+        maxChildDepth: 1,
+        maxReviewRounds: 3,
+        maxRemediationRounds: 2,
+        maxToolCalls: 20,
+        maxActiveDurationMs: 60_000,
+      },
+      minimumHarnessCapability: "authoritative" as const,
+    };
+    const result = mergeKilnYaml(
+      {
+        version: "1",
+        workGovernance: { boundedWorkCeiling },
+      },
+      {
+        version: "1",
+        workGovernance: {
+          defaultPosture: "orchestrate",
+        },
+      },
+    );
+
+    expect(result.workGovernance?.boundedWorkCeiling).toEqual(boundedWorkCeiling);
+  });
+
+  it("rejects a project bounded work ceiling instead of widening the global policy", () => {
+    expect(() => mergeKilnYaml(
+      {
+        version: "1",
+        workGovernance: {
+          boundedWorkCeiling: {
+            allowedRoots: ["packages/cli"],
+            maximumLimits: { maxExecutionAttempts: 2 },
+            minimumHarnessCapability: "authoritative",
+          },
+        },
+      },
+      {
+        version: "1",
+        workGovernance: {
+          boundedWorkCeiling: {
+            allowedRoots: ["/"],
+            maximumLimits: { maxExecutionAttempts: 99 },
+            minimumHarnessCapability: "advisory_only",
+          },
+        },
+      },
+    )).toThrow("Project workGovernance.boundedWorkCeiling is global-only.");
   });
 
   it("inherits global web providers while project web policy grants authority", () => {

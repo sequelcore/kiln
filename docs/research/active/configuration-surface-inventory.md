@@ -1,6 +1,7 @@
 # Configuration Surface Inventory
 
-Status: active repository inventory for Roadmap 12 Slice 0.
+Status: active repository surface map for Roadmap 12 Slice 0; not yet fit as
+the pre-ADR evidence base.
 
 Owner: [Roadmap 12 — Configuration Experience](../../roadmap/12-configuration-experience.md)
 
@@ -44,14 +45,112 @@ installed package copies, generated `dist`, `node_modules`, external npm
 consumers, or live native harness behavior. Field classifications marked
 **inference** are proposed inputs to the ADR, not current executable metadata.
 
+## Operator Replacement Decision
+
+Kiln has no external consumers, and the operator accepts breaking, discarding,
+or re-authoring local configuration during Roadmap 12. Contract replacements
+therefore retain no legacy reader, alias, fallback, deprecation window, dual
+schema, or migration boilerplate. Each bounded replacement leaves one reader,
+one writer, and one admitted contract.
+
+This decision permits re-adoption; it does not authorize an unspecified
+destructive action. Before deleting durable local state, the owning slice must
+identify the exact target and distinguish useful irreplaceable evidence from
+reconstructible or obsolete state.
+
+## Review Disposition
+
+The GPT-5.6 Pro review of `dev@6367d67b` found three High and five Medium
+findings. B1–B9 remain legitimate roadmap blockers after the routing
+corrections below, but this document remains an interim surface map until:
+
+- H1–H3 have focused failing behavioral fixtures and bounded corrections;
+- every property has a ledger entry rather than a grouped `mixed` disposition;
+- every blocker names its slice, owner, closure evidence, and transfer
+  condition;
+- ADR-012 compatibility is revalidated; and
+- the reduced pre-ADR mechanism spike passes.
+
+The current corrective slice closes H1 and H3 and adopts resolved YAML
+permissions for normal `kiln run` sessions. H2 remains open for permission
+composition, plan-mode interaction, GUI, TUI, Tools MCP, and the explicit
+boundary between parent permissions and managed-child authority profiles.
+
+### H1 — Global bounded-work authority is lost during composition
+
+`boundedWorkCeiling` is declared as a global ceiling
+([`kiln-yaml-types.ts`](../../../packages/cli/src/kiln-yaml-types.ts#L165)), but
+the project reader admits `workGovernance` wholesale, `mergeWorkGovernance()`
+omits the ceiling, and the widening guard does not compare it
+([`kiln-yaml.ts`](../../../packages/cli/src/kiln-yaml.ts#L151),
+[`config-merger.ts`](../../../packages/cli/src/config/config-merger.ts#L100)).
+Live governed-work admission later reads the missing value
+([`work-governance-tool.ts`](../../../packages/cli/src/application/work-governance-tool.ts#L2160)).
+
+This is a project-composition authority blocker. Closure requires preserving
+the global ceiling unchanged, rejecting the project field as global-only, and
+proving effects, roots, limits, minimum harness capability, and status/runtime
+parity with behavioral tests.
+
+**Current correction:** project admission and direct composition reject
+`boundedWorkCeiling`, while composition preserves the complete global value.
+Focused behavioral tests cover the admitted field groups. Cross-surface status
+parity remains part of Slice 2 rather than a compatibility path.
+
+### H2 — Permission projection and execution authority diverge
+
+Project permissions contain tools, commands, file governance, memory, firewall,
+and agent scopes, while the global ceiling and widening check cover only
+approval and sandbox
+([`kiln-yaml-types.ts`](../../../packages/cli/src/kiln-yaml-types.ts#L33),
+[`config-merger.ts`](../../../packages/cli/src/config/config-merger.ts#L115)).
+Public `run` separately loads resolved YAML but constructs model-facing policy
+from run/plan constants
+([`run.ts`](../../../packages/cli/src/commands/run.ts#L389),
+[`run.ts`](../../../packages/cli/src/commands/run.ts#L915)). The tools MCP path
+instead requests permissions from bootstrap configuration
+([`tools.ts`](../../../packages/cli/src/commands/tools.ts#L28)).
+
+The permission owner and complete monotonic relation are unresolved. Closure
+requires one canonical authority source across status, run, tools MCP, GUI,
+TUI, and managed invocation, with cross-surface negative fixtures. Unsupported
+permission surfaces are removed rather than retained as inert configuration.
+
+**Current correction:** normal `kiln run` sessions now consume permissions from
+the resolved canonical YAML configuration, with no programmatic permission
+override in `RunFlags`. The fixed plan policy remains a separate explicit mode.
+This does not close the unresolved global/project lattice or the other surface
+adapters.
+
+### H3 — Required project quality gates can disappear
+
+The project type and reader admit `qualityGates[]`, including `required` and
+`coverageThreshold`
+([`kiln-yaml-types.ts`](../../../packages/cli/src/kiln-yaml-types.ts#L573)), but
+`mergeKilnYaml()` omits the field
+([`kiln-yaml.ts`](../../../packages/cli/src/kiln-yaml.ts#L151)). The run
+verification path later reads bootstrap rather than resolved project config and
+drops `coverageThreshold`
+([`run.ts`](../../../packages/cli/src/commands/run.ts#L1887)).
+
+Closure requires preserving gates through composition, executing required gates
+from the admitted resolved config, and either implementing
+`coverageThreshold` or deleting it as unsupported residue. A global-plus-project
+fixture must prove that a required failing gate changes the terminal result.
+
+**Current correction:** gate records are structurally admitted, preserved
+through composition, and executed from resolved configuration.
+`coverageThreshold` was deleted from the YAML contract and is rejected as an
+unknown field; no legacy alias or inert compatibility field remains.
+
 ## Findings That Block Schema Implementation
 
 ### B1 — `kiln init` generates a gateway document its loader rejects
 
-The init template emits `apps[*].path` and `modeB`
+The init template emits `apps[*].path` and `modeB` but omits
+`apps[*].config`
 ([`init-templates.ts`](../../../packages/cli/src/commands/init-templates.ts#L118)),
-while the gateway loader consumes `apps[*].config` and rejects unknown root
-fields
+while the gateway loader requires `apps[*].config`
 ([`gateway-loader.ts`](../../../packages/core/src/engine/gateway/gateway-loader.ts#L194)).
 
 A bounded Bun probe passed the generated document directly to
@@ -62,7 +161,9 @@ Invalid gateway YAML:
   apps[0].config: must be a non-empty string
 ```
 
-This is a proven generated-artifact/reader contradiction. Existing template
+The missing `config` field causes the rejection. `path` and `modeB` are silently
+ignored inside the app binding; they are not rejected by the gateway root
+unknown-field check. This is a proven generated-artifact/reader contradiction. Existing template
 tests validate YAML syntax and selected keys but do not admit the generated
 document through the production loader
 ([`init-templates.test.ts`](../../../packages/cli/tests/commands/init-templates.test.ts#L89)).
@@ -196,6 +297,23 @@ Observed behavior provides leads only:
 These observations must become explicit descriptors and lifecycle tests rather
 than surface-local inference.
 
+## Blocker Routing
+
+| Blocker | Blocking slice | Owner | Closure evidence | Transfer condition |
+| --- | --- | --- | --- | --- |
+| H1 | Slice 1 project pilot and Slice 2 parity | CLI project composition | failing then passing ceiling preservation/rejection tests across status and runtime composition | closed only when project cannot omit or widen the global ceiling |
+| H2 | Slice 0 authority decision, Slice 1 admission, and Slice 2 parity | permission authority plus each execution-surface adapter | cross-surface negative fixture for the same denied effect | implementation transfers only after one canonical permission source and lattice are named |
+| H3 | Slice 1 project pilot | project configuration and run verification owners | global-plus-project required failing gate changes terminal result; `coverageThreshold` implemented or deleted | no transfer while admitted project gates can disappear |
+| B1 | Slice 9 app/gateway migration; also blocks onboarding that emits gateway config | CLI init writer and Core gateway reader | generated output passes the production gateway reader | may remain outside the project-schema pilot after the writer/reader contradiction is named |
+| B2 | Slices 1 and 2 | CLI effective composition and shared status projection | one admitted composition path produces identical runtime/status outcomes | expand closure to include H1–H3 rather than status merge alone |
+| B3 | Slice 1 | project structural schema owner | every project property parses from `unknown` with stable path diagnostics; asserted path deleted | none; direct pilot blocker |
+| B4 | Slice 9 | Core app structural and graph-admission owners | one structural reader plus named graph admission and explicit optional-degradation behavior | may remain outside Slice 1 after exact ownership is recorded |
+| B5 | Slice 9 | Core app domain owners | property ledger marks each residue supported, missing-reader, or obsolete; obsolete fields deleted | transfer only with a property-level disposition |
+| B6 | Slice 0 mutation decision and Slice 4 implementation | configuration application-port owner | writer matrix assigns one typed lifecycle to every canonical operation | does not block the project schema mechanism by itself |
+| B7 | Slice 4 | governed mutation owner | schema-validated records and honest rejected/committed/reconciliation-failed/rollback outcomes | current single-write behavior must be distinguished from future multi-write atomicity |
+| B8 | Slice 2 | effective-state projection owner | descriptor-backed field query has source, scope, override, health, revision, authority, and activation evidence | direct read-model blocker |
+| B9 | Slice 0/2 for activation vocabulary; Slice 4 and later family migrations for rollback/restart | runtime activation and mutation owners | field activation tests and durable application/reconciliation/rollback evidence | watcher messages remain leads, never the semantic contract |
+
 ## Configuration Families And Owners
 
 | Family | Canonical structural owner | Semantic/composition owner | Current mutation posture | Effective-state coverage |
@@ -210,9 +328,19 @@ merge policy.
 
 ## Field Group Inventory
 
-The paths below group repeated records only when the current source defines one
-shared structural shape. `Intent`, `evidence`, and activation classifications
-are ADR inputs where the code does not encode them.
+The paths below are an interim surface map, not the property-level ledger
+required by Slice 0 acceptance. They group repeated records only when the
+current source defines one shared structural shape. `Intent`, `evidence`, and
+activation classifications are ADR inputs where the code does not encode them.
+
+The completion ledger must contain one row per property with canonical
+identity, structural owner, semantic owner, reader, writer, merge/default rule,
+consumer, plane, sensitivity, authority impact, activation, durable store, and
+one disposition: `supported`, `managed evidence`, `projection`, `obsolete`, or
+`unreachable`. Every current `mixed` row must be split by member. Declared
+residue such as `ResolvedKilnConfig.providers` and `skillGeneration` requires a
+source/consumer/disposition or deletion
+([`kiln-yaml-types.ts`](../../../packages/cli/src/kiln-yaml-types.ts#L687)).
 
 ### Global configuration
 
@@ -333,11 +461,14 @@ The ADR must classify each store before replacing its contract:
 
 | Store/material | Preliminary classification | Required decision |
 | --- | --- | --- |
-| Global and project YAML | useful desired intent | atomic migration or explicit re-adoption; never a dual reader |
-| App and gateway YAML | useful desired intent | admission and writer replacement per family |
+| Global and project YAML | useful desired intent | explicit re-adoption into the replacement contract; no migration or dual reader |
+| App and gateway YAML | useful desired intent | direct admission and writer replacement per family; re-author if retained |
 | Target data-policy, price, discovery and economic material embedded in global YAML | mixed managed evidence | move to named owners or justify remaining operator intent |
 | Context-governance policy/evaluation hashes | managed evidence mixed with project intent | identify authoritative store and exact revision references |
-| Config proposals and approvals | durable authority evidence | runtime schema, retention, replay/idempotency, and migration rules |
+| Config proposals | pending mutation intent plus validation and CAS snapshot | runtime schema, retention, expiry, and replacement rules; grants no authority |
+| Config approvals | authority evidence bound to one exact proposal hash | runtime schema, approver authority, expiry, and revocation |
+| Consumed approvals | replay-prevention evidence | retention and duplicate/retry semantics |
+| Apply/read-back/reconciliation receipt | missing execution evidence owner | define one durable committed/rejected/reconciliation/rollback receipt or prove no durable consumer |
 | Native install state and managed hashes | reconstructible projection evidence with drift value | preserve only evidence needed for safe reconciliation; regenerate projection bytes |
 | Provider discovery cache | reconstructible managed state | regenerate; never migrate as current authority |
 | Runtime gateway SQLite/memory/tenant stores | runtime state, not configuration | exclude from config migration while preserving their binding invariants |
@@ -377,47 +508,46 @@ Shared gateway-contract changes require at least Gateway Contracts, CLI,
 Runtime, GUI, TUI, and SDK typechecks. Family migrations additionally require
 their owning package tests and public example validation.
 
-## Bounded Fidelity Spike
+## Bounded Pre-ADR Fidelity Spike
 
-The first spike should test mechanisms, not migrate production readers. Use
-synthetic portable fixtures and do not touch canonical operator configuration.
+The pre-ADR spike tests only the mechanism needed to select the project schema
+and preserve ADR-012 diagnostics. It does not migrate production readers or
+prove later read-model, mutation, rollback, app, gateway, or global-family
+behavior. Use synthetic portable fixtures and never touch canonical operator
+configuration.
 
-### Required fixture set
+### Project mechanism fixture
 
-1. **Global V3 fixture** — one direct target, one harness target, accounts and
-   policy, authority profile, permission ceiling, MCP environment/credential
-   references, operator voice, model gateway, and managed economic/data-policy
-   evidence.
-2. **Project fixture** — every accepted project family plus forbidden
-   global-only fields and one attempted authority widening.
-3. **App fixture** — minimum app plus runtime/provider/billing, events, trigger,
-   knowledge, voice, MCP, one unknown field, and one broken graph reference.
-4. **Gateway fixture** — one app binding, API/web channels, auth, MCP, model
-   gateway, one unknown root, one unknown nested field, and a duplicate route.
-5. **Mutation fixture** — global CAS/atomic replacement and project
-   proposal/approval/apply with stale revision, corrupt store record, partial
-   write, projection failure, rollback, and retry.
-6. **Effective projection fixture** — canonical identity, value/redacted
-   presence, source, scope, default, override chain, health, schema revision,
-   authority impact, and activation for representative fields from all four
-   families.
+Use one project YAML document containing a scalar, nested object, list, map,
+discriminated union, unknown root field, unknown nested field, forbidden
+global-only field, and attempted authority widening. The same fixture must also
+exercise comments, ordering, quoting, anchor, and alias behavior.
 
-### Questions the spike must answer
+It must prove:
 
-- Can the selected runtime-schema mechanism infer the admitted TypeScript type
-  without a parallel handwritten interface?
-- Does deterministic editor-schema generation preserve supported unions,
-  descriptions, defaults, examples, sensitivity metadata, and stable output?
-- Which semantic rules remain named composition/admission functions rather than
-  structural refinements?
-- Can the YAML mutation approach preserve or deliberately replace comments,
-  ordering, quoting, anchors, aliases, unknown fields, and exact bytes according
-  to a stated policy?
-- Can path-addressed diagnostics identify family, source, field, rejected value
-  category, allowed alternatives, schema revision, and running build?
-- Can one typed operation represent rejected, committed,
-  committed-but-reconciliation-failed, rollback, and restart-required outcomes
-  without turning descriptors into a policy engine?
+- runtime type inference without a parallel handwritten interface;
+- deterministic editor schema and descriptor generation;
+- separation between structural parsing and named semantic admission;
+- stable path-addressed diagnostics; and
+- the explicitly selected byte/comment/formatting policy.
+
+### ADR-012 diagnostic compatibility fixture
+
+Use one small global document at the same canonical version to prove:
+
+- additive optional fields do not bump the breaking-schema version;
+- matching document version is never a freshness or feature signal;
+- unknown fields have one diagnostic emission owner; and
+- the diagnostic reports both running version and resolved module path.
+
+The fixture must cover linked checkout, stale and rebuilt `dist`, and the
+`doctor` linkage verdict, or the ADR must amend its outdated build premise.
+
+### Later vertical conformance suite
+
+The earlier global, app, gateway, mutation, effective-state, activation,
+rollback, and cross-surface fixtures remain useful, but they belong to their
+owning Slices 2, 4, and 9. They are not a pre-ADR gate.
 
 ## ADR Decision Backlog
 
@@ -436,10 +566,13 @@ The inventory supports an ADR only after these decisions are explicit:
 8. desired-intent versus managed-evidence storage, exact revision references,
    and durable-state retirement;
 9. relationship to accepted
-   [ADR-012](../../adr/ADR-012-global-config-schema-evolution.md): preserve its
-   breaking-version and build-identified-diagnostic decisions while explicitly
-   replacing or narrowing interface-derived allowlists where schema ownership
-   moves;
+   [ADR-012](../../adr/ADR-012-global-config-schema-evolution.md): preserve
+   breaking-version-only semantics, no version-as-freshness inference, additive
+   optional fields without version bumps, one unknown-field diagnostic owner,
+   and diagnostics containing running version plus resolved module path;
+   explicitly replace or narrow interface-derived allowlists where schema
+   ownership moves, and revalidate the ADR's obsolete no-build/stale-link
+   premise against the current `dist` package build;
 10. the Roadmap 11 operator-question dependency required by onboarding;
 11. exact vertical proofs required before cross-surface promotion.
 
@@ -456,4 +589,3 @@ The inventory supports an ADR only after these decisions are explicit:
   evidenced statically but still need dedicated failing behavior tests.
 - No schema library has been evaluated yet. Existing Zod use in shared gateway
   contracts is repository evidence, not a decision for configuration schemas.
-

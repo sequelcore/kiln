@@ -18,6 +18,7 @@ import type {
   KilnWorkGovernanceConfig,
   KilnWorkGovernanceTrigger,
   KilnWorkGovernanceEvidence,
+  KilnYamlQualityGate,
 } from "./kiln-yaml-types.js";
 export { KilnYamlError } from "./kiln-yaml-types.js";
 export { validateKilnHooks } from "./kiln-yaml-types.js";
@@ -102,6 +103,16 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
     if (unknownField) {
       throw new KilnYamlError(`${unknownField} is global-only or is not a supported project configuration field`);
     }
+    validateQualityGates(record.qualityGates);
+    const workGovernance = record.workGovernance;
+    if (
+      typeof workGovernance === "object"
+      && workGovernance !== null
+      && !Array.isArray(workGovernance)
+      && Object.prototype.hasOwnProperty.call(workGovernance, "boundedWorkCeiling")
+    ) {
+      throw new KilnYamlError("workGovernance.boundedWorkCeiling is global-only");
+    }
     readMcpConfigurationSource({
       value: record.mcp,
       scope: "project",
@@ -140,6 +151,33 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
   }
 }
 
+function validateQualityGates(value: unknown): asserts value is readonly KilnYamlQualityGate[] | undefined {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) {
+    throw new KilnYamlError("qualityGates must be an array");
+  }
+  const allowedFields = new Set(["name", "command", "required"]);
+  for (const [index, gate] of value.entries()) {
+    if (typeof gate !== "object" || gate === null || Array.isArray(gate)) {
+      throw new KilnYamlError(`qualityGates[${index}] must be an object`);
+    }
+    const record = gate as Record<string, unknown>;
+    const unknownField = Object.keys(record).find((field) => !allowedFields.has(field));
+    if (unknownField) {
+      throw new KilnYamlError(`qualityGates[${index}].${unknownField} is an unknown field`);
+    }
+    if (typeof record.name !== "string" || record.name.trim() === "") {
+      throw new KilnYamlError(`qualityGates[${index}].name must be a non-empty string`);
+    }
+    if (typeof record.command !== "string" || record.command.trim() === "") {
+      throw new KilnYamlError(`qualityGates[${index}].command must be a non-empty string`);
+    }
+    if (record.required !== undefined && typeof record.required !== "boolean") {
+      throw new KilnYamlError(`qualityGates[${index}].required must be a boolean`);
+    }
+  }
+}
+
 export function writeKilnYaml(kilnDir: string, config: KilnProjectConfig): void {
   if (!existsSync(kilnDir)) {
     mkdirSync(kilnDir, { recursive: true });
@@ -149,6 +187,9 @@ export function writeKilnYaml(kilnDir: string, config: KilnProjectConfig): void 
 }
 
 export function mergeKilnYaml(base: ResolvedKilnConfig, override: KilnProjectConfig): ResolvedKilnConfig {
+  if (override.workGovernance && Object.prototype.hasOwnProperty.call(override.workGovernance, "boundedWorkCeiling")) {
+    throw new Error("Project workGovernance.boundedWorkCeiling is global-only.");
+  }
   return {
     version: override.version ?? base.version ?? "1",
     activeInstructionProfiles: mergeStringList(base.activeInstructionProfiles, override.activeInstructionProfiles),
@@ -163,6 +204,7 @@ export function mergeKilnYaml(base: ResolvedKilnConfig, override: KilnProjectCon
     mcp: mergeMcp(base.mcp, override.mcp),
     model: base.model,
     permissions: override.permissions ?? base.permissions,
+    qualityGates: override.qualityGates ?? base.qualityGates,
     providers: base.providers,
     managedAgents: base.managedAgents,
     modelTaskSuitability: base.modelTaskSuitability,
@@ -197,6 +239,7 @@ function mergeWorkGovernance(
     requiredEvidence: mergeStringList(base?.requiredEvidence, override?.requiredEvidence) as
       | readonly KilnWorkGovernanceEvidence[]
       | undefined,
+    boundedWorkCeiling: base?.boundedWorkCeiling,
   };
 }
 

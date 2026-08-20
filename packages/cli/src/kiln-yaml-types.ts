@@ -575,7 +575,6 @@ export interface KilnYamlQualityGate {
   readonly name: string;
   readonly command: string;
   readonly required?: boolean;
-  readonly coverageThreshold?: number;
 }
 
 export type HookEvent =

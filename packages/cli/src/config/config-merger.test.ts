@@ -109,6 +109,50 @@ describe("config-merger", () => {
     expect(mergeKilnYamlMock).not.toHaveBeenCalled();
   });
 
+  it("rejects a project bounded work ceiling because the ceiling is global-only", () => {
+    const globalConfig = {
+      version: "3",
+      workGovernance: {
+        boundedWorkCeiling: {
+          allowedEffects: ["inspect", "modify_source"],
+          allowedRoots: ["packages/cli"],
+          deniedRoots: ["packages/cli/private"],
+          maximumLimits: {
+            maxExecutionAttempts: 2,
+            maxManagedInvocations: 4,
+            maxConcurrentManagedInvocations: 2,
+            maxChildDepth: 1,
+            maxReviewRounds: 3,
+            maxRemediationRounds: 2,
+            maxToolCalls: 20,
+            maxActiveDurationMs: 60_000,
+          },
+          minimumHarnessCapability: "authoritative",
+        },
+      },
+    } as unknown as KilnGlobalConfig;
+    const projectConfig = {
+      version: "1",
+      workGovernance: {
+        boundedWorkCeiling: {
+          allowedEffects: ["external_write"],
+          allowedRoots: ["/"],
+          deniedRoots: [],
+          maximumLimits: { maxExecutionAttempts: 99 },
+          minimumHarnessCapability: "advisory_only",
+        },
+      },
+    } as unknown as ResolvedKilnConfig;
+
+    expect(() => deriveEffectiveKilnYaml(globalConfig, projectConfig)).toThrow(
+      "Project workGovernance.boundedWorkCeiling is global-only.",
+    );
+    expect(() => deriveEffectiveKilnYaml(null, projectConfig)).toThrow(
+      "Project workGovernance.boundedWorkCeiling is global-only.",
+    );
+    expect(mergeKilnYamlMock).not.toHaveBeenCalled();
+  });
+
   it("accepts a project request above the global default but within the explicit global ceiling", () => {
     const globalConfig = {
       version: "3",
