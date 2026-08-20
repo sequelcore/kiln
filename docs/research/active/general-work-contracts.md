@@ -102,7 +102,7 @@ This is a direct separation of *evidence provenance* from *process*.
 Source: Contract theory, Wikipedia; Grossman & Hart (1983), "An analysis of
 the principal-agent problem", Econometrica, 51(1):7–46.
 
-**Review/Acceptance (independent sign-off):** Incomplete contract theory
+**Review/Acceptance (sign-off, when required by policy):** Incomplete contract theory
 (Hart & Moore, 1988) recognizes that parties cannot write complete contingent
 contracts. The law provides *default rules* that fill gaps. This is
 functionally equivalent to a review/acceptance mechanism: when the contract is
@@ -271,14 +271,17 @@ complexity. A residential renovation may have fewer mandatory inspection
 points than a commercial high-rise. FIDIC offers different contract books
 for different project types. This supports the operator's hypothesis that
 the dimensions are *conditional* — they exist in all cases but their
-specificity varies by work type.
+specificity varies by work type; not every work item instantiates every axis
+or requires independent review.
 
 Source: Building code, Wikipedia; FIDIC Rainbow Suite.
 
 ### 2.4 Are These Separations Conditional or Universal?
 
-**Citation:** The dimensions appear universal across regulated professions,
-but their *instantiation* is conditional:
+**Citation:** The dimensions recur as useful axes across the surveyed domains,
+but their *instantiation* is conditional. Review independence is not a
+universal property of every work contract; it applies when the applicable
+Assurance policy requires it:
 
 | Domain | Intent | Capability | Process | Evidence | Review |
 |---|---|---|---|---|---|
@@ -287,12 +290,17 @@ but their *instantiation* is conditional:
 | Construction | Plans/specs | Trade license, PE stamp | Permit→build→inspect | Inspection reports, certs | Independent inspector, snagging |
 | Audit | Engagement letter | CPA/license, independence | Plan→test→report | Working papers, confirmations | Partner review, peer review |
 
-**Inference:** The five-axis separation recurs across all surveyed domains.
+**Inference:** The five-axis separation is a recurring analytical pattern,
+not a universal obligation. In Kiln, an Assurance policy must determine
+whether independent review is required; Runtime resolves the reviewer and
+executor identities, roles, and conflict rules. Two children, models, or
+routes alone do not establish independence.
 What varies is:
 - The *granularity* of phase gates (construction has more mandatory
   inspections than a hobby project)
-- The *independence requirement* for review (building inspectors must not
-  be the builder; auditors must be independent of the client)
+- Whether an *independence requirement* applies to review, and what conflict
+  rules govern it (building inspectors must not be the builder; auditors must
+  be independent of the client)
 - The *formality* of evidence (medical charts are legal documents; open-source
   commit messages are not)
 
@@ -558,7 +566,9 @@ domain-neutral.
 
 Every domain surveyed — contract theory, construction, medicine, law, audit,
 open-source, ISO 9001, CMMI — separates work governance into at least five
-dimensions:
+dimensions. The review/acceptance axis is conditional: its independence,
+identities, roles, and conflict rules come from Assurance policy and Runtime,
+not from the mere existence of multiple children, models, or routes:
 
 1. **Intent/Scope** — what must be delivered or achieved
 2. **Capability/Identity** — who is qualified to do it
@@ -595,9 +605,11 @@ The *specificity* and *formality* of each dimension varies by work type:
 Citations: FIDIC Rainbow Suite; Kinsman et al. (2010); ISO 9001:2015;
 Contributor License Agreement, Wikipedia.
 
-### Pattern 4: Review Independence Is a Universal Requirement
+### Pattern 4: Review Independence Is Conditional on Assurance Policy
 
-Across all domains, the reviewer must be independent of the executor:
+In domains or work items whose Assurance policy requires independence, the
+reviewer must be independent of the executor. The policy and Runtime-resolved
+identities, roles, and conflict rules determine whether that condition holds:
 
 - Building inspectors cannot be the builder.
 - Auditors must be independent of the client (ISA ethics requirements).
@@ -877,11 +889,11 @@ separate these same dimensions.
    assessment; FIDIC uses project-type selection; clinical pathways use
    diagnosis. What is the Kiln equivalent?
 
-6. **Review independence enforcement:** How does the system enforce that the
-   reviewer is independent of the executor? In construction, this is a
-   legal requirement. In programming, code review by a different person is
-   a best practice but not legally mandated. What level of independence
-   should Kiln require?
+6. **Review independence enforcement:** When an Assurance policy requires
+   independence, how does Runtime resolve and enforce the reviewer/executor
+   identity, role, and conflict rules? Construction may require this by law;
+   programming review may not. Two children, models, or routes are not proof
+   of independence. What policy levels should Kiln support?
 
 7. **Incomplete contract handling:** When a work contract does not specify
    every dimension, what are the defaults? Hart & Moore (1988) established

@@ -8,6 +8,7 @@ import {
 } from "./bounded-work-contract.js";
 import {
   normalizeBoundedWorkAccountingSnapshot,
+  parseBoundedWorkAcceptanceDecisionRecord,
   type BoundedWorkCloseoutDecision,
 } from "./bounded-work-decision.js";
 import { freezeBoundedWorkValue, requireBoundedWorkDigest } from "./bounded-work-content.js";
@@ -635,10 +636,16 @@ function normalizeGoalCloseoutDecision(
     "boundedWorkCloseoutDecision.contractRevisionDigest",
   );
   const accounting = normalizeBoundedWorkAccountingSnapshot(decision.accounting);
+  const acceptanceDecision = parseBoundedWorkAcceptanceDecisionRecord(decision.acceptanceDecision);
   if (
     contractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest
     || accounting.contractRevisionDigest !== contractRevisionDigest
     || accounting.accountingLineageId !== goal.id
+    || acceptanceDecision.outcome !== "accepted"
+    || acceptanceDecision.candidateDigest !== candidateDigest
+    || acceptanceDecision.contractRevisionDigest !== contractRevisionDigest
+    || acceptanceDecision.issuer.policyRevisionDigest !== contractRevisionDigest
+    || JSON.stringify(acceptanceDecision.authority) !== JSON.stringify(goal.boundedWorkContractRevision.adoptedBy)
   ) {
     throw new Error(`Goal ${goal.id} bounded-work acceptance evidence is stale or misattributed.`);
   }
@@ -647,6 +654,7 @@ function normalizeGoalCloseoutDecision(
     candidateDigest,
     contractRevisionDigest,
     accounting,
+    acceptanceDecision,
   });
 }
 

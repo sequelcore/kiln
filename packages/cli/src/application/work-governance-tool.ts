@@ -23,9 +23,11 @@ import type {
   BoundedWorkCandidateEvidence,
   BoundedWorkCandidateIdentity,
   BoundedWorkCloseoutDecision,
+  BoundedWorkAssuranceEvaluation,
 } from "@kilnai/core";
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  OPERATOR_ADOPTION_DECISION_TRANSPORT,
   parseFormalVerificationToolResultMetadata,
   type DevToolExecutionContext,
   type FormalVerificationFinishExecutionScope,
@@ -163,6 +165,7 @@ export type BoundedWorkCandidateCloseout = (input: {
       readonly captured: true;
       readonly candidate: BoundedWorkCandidateIdentity;
       readonly evidence: readonly BoundedWorkCandidateEvidence[];
+      readonly assuranceEvaluation: BoundedWorkAssuranceEvaluation;
     }
   | { readonly captured: false; readonly code: string; readonly message: string }
 >;
@@ -171,6 +174,7 @@ export type BoundedWorkGoalCloseout = (input: {
   readonly candidate: BoundedWorkCandidateIdentity;
   readonly candidateCaptureRoot?: string;
   readonly candidateEvidence: readonly BoundedWorkCandidateEvidence[];
+  readonly assuranceEvaluation: BoundedWorkAssuranceEvaluation;
 }) => BoundedWorkCloseoutDecision | Promise<BoundedWorkCloseoutDecision>;
 type ReadyGoalExecutionStep = Extract<GoalExecutionStep, { readonly status: "ready" }>;
 type ManagedInvocationPhaseId =
@@ -1009,11 +1013,6 @@ export class GoalCreateTool implements DevTool {
         type: "string",
         description: "Owning session id. Omit only when the runtime supplied the current session id.",
       },
-      operatorTurnId: {
-        type: "string",
-        minLength: 1,
-        description: "Operator turn that directly requested this goal. The runtime supplies it from canonical turn context.",
-      },
       workItemIds: {
         type: "array",
         minItems: 1,
@@ -1054,7 +1053,6 @@ export class GoalCreateTool implements DevTool {
       },
       currentPhase: { type: "string", description: "Optional current execution phase." },
       boundedWorkContract: boundedWorkContractSchema(),
-      contractAuthority: boundedWorkContractAuthoritySchema(),
     },
     required: [
       "id",
@@ -1065,7 +1063,6 @@ export class GoalCreateTool implements DevTool {
       "authorityReason",
       "workflowProfile",
       "boundedWorkContract",
-      "contractAuthority",
     ],
     additionalProperties: false,
   };
@@ -1074,21 +1071,35 @@ export class GoalCreateTool implements DevTool {
     private readonly config: KilnWorkGovernanceConfig | undefined,
     private readonly goalRunStore: GoalRunStore,
     private readonly workItemStore: WorkItemStore,
-    private readonly ownerSessionId?: string,
+    _ownerSessionId?: string,
   ) {}
 
-  async execute(input: ToolInput): Promise<ToolResult> {
-    const id = readText(input.input.id);
-    const objective = readText(input.input.objective);
-    const operatorTurnId = readText(input.input.operatorTurnId);
-    const workItemIds = readTextArray(input.input.workItemIds);
-    const maximumAuthority = readGoalAuthorityLevel(input.input.maximumAuthority);
-    const escalationPolicy = readGoalEscalationPolicy(input.input.escalationPolicy);
-    const authorityReason = readText(input.input.authorityReason);
-    const workflowProfile = readText(input.input.workflowProfile);
-    const ownerSessionId = readText(input.input.ownerSessionId) ?? this.ownerSessionId;
-    const boundedWorkContract = readBoundedWorkContract(input.input.boundedWorkContract);
-    const contractAuthority = readBoundedWorkContractAuthority(input.input.contractAuthority);
+  async execute(input: ToolInput, _sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
+    const adoptionDecision = context?.[OPERATOR_ADOPTION_DECISION_TRANSPORT];
+    if (!adoptionDecision) {
+      return goalCreateContractError({
+        code: "invalid_input",
+        message: "goal.create requires a canonical runtime operator adoption decision.",
+        missingFields: [],
+      });
+    }
+    const authoritativeInput: Record<string, unknown> = {
+      ...input.input,
+      ownerSessionId: adoptionDecision.ownerSessionId,
+      operatorTurnId: adoptionDecision.operatorTurnId,
+      contractAuthority: adoptionDecision.contractAuthority,
+    };
+    const id = readText(authoritativeInput.id);
+    const objective = readText(authoritativeInput.objective);
+    const operatorTurnId = readText(authoritativeInput.operatorTurnId);
+    const workItemIds = readTextArray(authoritativeInput.workItemIds);
+    const maximumAuthority = readGoalAuthorityLevel(authoritativeInput.maximumAuthority);
+    const escalationPolicy = readGoalEscalationPolicy(authoritativeInput.escalationPolicy);
+    const authorityReason = readText(authoritativeInput.authorityReason);
+    const workflowProfile = readText(authoritativeInput.workflowProfile);
+    const ownerSessionId = readText(authoritativeInput.ownerSessionId);
+    const boundedWorkContract = readBoundedWorkContract(authoritativeInput.boundedWorkContract);
+    const contractAuthority = readBoundedWorkContractAuthority(authoritativeInput.contractAuthority);
 
     const missingFields = [
       ...(!id ? ["id"] : []),
@@ -1127,7 +1138,7 @@ export class GoalCreateTool implements DevTool {
       });
     }
 
-    const evidenceRequirements = readGoalEvidenceRequirements(input.input.evidenceRequirements);
+    const evidenceRequirements = readGoalEvidenceRequirements(authoritativeInput.evidenceRequirements);
     if (!evidenceRequirements.ok) {
       return goalCreateContractError({
         code: "invalid_input",
@@ -1179,8 +1190,8 @@ export class GoalCreateTool implements DevTool {
 
     try {
       assertBoundedWorkPolicyCeiling(this.config, goalBoundedWorkContract);
-      const preferredRouteId = readText(input.input.preferredRouteId);
-      const managedAgentProfile = readText(input.input.managedAgentProfile);
+      const preferredRouteId = readText(authoritativeInput.preferredRouteId);
+      const managedAgentProfile = readText(authoritativeInput.managedAgentProfile);
       const routePolicy = normalizeGoalRoutePolicy({
         workItems: workItemIds.map((id) => this.workItemStore.get(id)).filter((item): item is WorkItem => !!item),
         preferredRouteId,
@@ -1193,7 +1204,7 @@ export class GoalCreateTool implements DevTool {
           missingFields: ["preferredRouteId", "managedAgentProfile"],
         });
       }
-      const currentPhase = readText(input.input.currentPhase);
+      const currentPhase = readText(authoritativeInput.currentPhase);
       const goal = this.goalRunStore.create({
         id: id!,
         objective: goalObjective,
@@ -1260,19 +1271,25 @@ export class GoalBoundedWorkContractSupersedeTool implements DevTool {
       goalRunId: { type: "string", minLength: 1 },
       expectedRevisionDigest: { type: "string", minLength: 1 },
       boundedWorkContract: boundedWorkContractSchema(),
-      contractAuthority: boundedWorkContractAuthoritySchema(),
     },
-    required: ["goalRunId", "expectedRevisionDigest", "boundedWorkContract", "contractAuthority"],
+    required: ["goalRunId", "expectedRevisionDigest", "boundedWorkContract"],
     additionalProperties: false,
   };
 
   constructor(private readonly config: KilnWorkGovernanceConfig | undefined, private readonly goals: GoalRunStore) {}
 
-  async execute(input: ToolInput): Promise<ToolResult> {
+  async execute(input: ToolInput, _sandbox?: unknown, context?: DevToolExecutionContext): Promise<ToolResult> {
+    const adoptionDecision = context?.[OPERATOR_ADOPTION_DECISION_TRANSPORT];
+    if (!adoptionDecision) {
+      return {
+        output: "Bounded-work contract supersession requires a canonical runtime operator adoption decision.",
+        isError: true,
+      };
+    }
     const goalRunId = readText(input.input.goalRunId);
     const expectedRevisionDigest = readText(input.input.expectedRevisionDigest);
     const contract = readBoundedWorkContract(input.input.boundedWorkContract);
-    const adoptedBy = readBoundedWorkContractAuthority(input.input.contractAuthority);
+    const adoptedBy = readBoundedWorkContractAuthority(adoptionDecision.contractAuthority);
     if (!goalRunId || !expectedRevisionDigest || !contract || !adoptedBy) {
       return { output: "Invalid bounded-work contract supersession input.", isError: true };
     }
@@ -1449,7 +1466,6 @@ export class WorkItemExecutionStartTool implements DevTool {
             requiredInputShape: {
               objective: "string",
               ownerSessionId: "current runtime session id",
-              operatorTurnId: "current operator turn id",
               workItemIds: ["existing work item id"],
               maximumAuthority: GOAL_AUTHORITY_LEVELS,
               escalationPolicy: GOAL_ESCALATION_POLICIES,
@@ -1794,6 +1810,7 @@ export class WorkItemExecutionFinishTool implements DevTool {
         closeoutSummary: readText(input.input.closeoutSummary),
         candidate: candidateCloseout.candidate,
         candidateEvidence: candidateCloseout.evidence,
+        assuranceEvaluation: candidateCloseout.assuranceEvaluation,
       });
       this.workItemStore.releaseExecutionAttemptFinish({ id: workItem.id, attemptId: attempt.id });
       finishClaimed = false;
@@ -1983,14 +2000,12 @@ function goalCreateContractError(input: {
           id: "stable goal id",
           objective: "string",
           ownerSessionId: "current runtime session id",
-          operatorTurnId: "current operator turn id",
           workItemIds: ["existing work item id"],
           maximumAuthority: GOAL_AUTHORITY_LEVELS,
           escalationPolicy: GOAL_ESCALATION_POLICIES,
           authorityReason: "string",
           workflowProfile: "canonical workflow profile id",
-          boundedWorkContract: "explicit kiln.bounded-work-contract/v1 contract",
-          contractAuthority: "operator decision or approved plan authority",
+          boundedWorkContract: "explicit kiln.bounded-work-contract/v2 contract",
           routePolicy: "choose preferredRouteId OR managedAgentProfile; if every linked work item already owns the same exact route and agent profile, omit both at goal level",
         },
         missingFields: input.missingFields,
@@ -2005,44 +2020,173 @@ function goalCreateContractError(input: {
 }
 
 function boundedWorkContractSchema(): Record<string, unknown> {
+  const boundedWorkEffects = [
+    "inspect",
+    "modify_source",
+    "modify_tests",
+    "modify_documentation",
+    "modify_configuration",
+    "run_verification",
+    "invoke_managed_agent",
+    "external_write",
+  ] as const;
+  const changeAuthorities = ["none", "scoped", "unrestricted"] as const;
   return {
     type: "object",
     properties: {
-      schema: { type: "string", const: "kiln.bounded-work-contract/v1" },
-      intent: { type: "object" },
-      scope: { type: "object" },
-      limits: { type: "object" },
-      tripwires: { type: "object" },
-      policy: { type: "object" },
-    },
-    required: ["schema", "intent", "scope", "limits", "tripwires", "policy"],
-    additionalProperties: false,
-  };
-}
-
-function boundedWorkContractAuthoritySchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    properties: {
-      kind: {
-        type: "string",
-        enum: ["operator", "approved_plan"],
-        description: "Authority source. Runtime validates the exact fields required by the selected kind.",
+      schema: { type: "string", const: "kiln.bounded-work-contract/v2" },
+      intent: {
+        type: "object",
+        properties: {
+          objective: { type: "string", minLength: 1 },
+          acceptanceCriteria: {
+            type: "array",
+            minItems: 1,
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", minLength: 1 },
+                statement: { type: "string", minLength: 1 },
+              },
+              required: ["id", "statement"],
+              additionalProperties: false,
+            },
+          },
+          nonGoals: { type: "array", items: { type: "string", minLength: 1 } },
+        },
+        required: ["objective", "acceptanceCriteria", "nonGoals"],
+        additionalProperties: false,
       },
-      actorId: { type: "string", minLength: 1, description: "Required only when kind is operator." },
-      decisionId: { type: "string", minLength: 1, description: "Required only when kind is operator." },
-      planId: { type: "string", minLength: 1, description: "Required only when kind is approved_plan." },
-      planDigest: { type: "string", minLength: 1, description: "Required only when kind is approved_plan." },
+      assurance: {
+        type: "object",
+        properties: {
+          formalVerification: {
+            type: "object",
+            properties: {
+              semantics: { type: "string", const: "allOf" },
+              obligations: {
+                type: "array",
+                minItems: 1,
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", minLength: 1 },
+                    symbol: { type: "string", minLength: 1 },
+                    subjectPaths: {
+                      type: "array",
+                      minItems: 1,
+                      items: { type: "string", minLength: 1 },
+                    },
+                  },
+                  required: ["id", "symbol", "subjectPaths"],
+                  additionalProperties: false,
+                },
+              },
+              mappings: {
+                type: "array",
+                minItems: 1,
+                items: {
+                  type: "object",
+                  properties: {
+                    criterionId: { type: "string", minLength: 1 },
+                    obligationIds: {
+                      type: "array",
+                      minItems: 1,
+                      items: { type: "string", minLength: 1 },
+                    },
+                  },
+                  required: ["criterionId", "obligationIds"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["semantics", "obligations", "mappings"],
+            additionalProperties: false,
+          },
+        },
+        required: ["formalVerification"],
+        additionalProperties: false,
+      },
+      scope: {
+        type: "object",
+        properties: {
+          allowedWorkItemIds: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+          permittedEffects: { type: "array", minItems: 1, items: { type: "string", enum: boundedWorkEffects } },
+          permittedSurfaces: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+          allowedRoots: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+          deniedRoots: { type: "array", items: { type: "string", minLength: 1 } },
+          refactorAuthority: { type: "string", enum: changeAuthorities },
+          migrationAuthority: { type: "string", enum: changeAuthorities },
+          dependencyAuthority: { type: "string", enum: changeAuthorities },
+        },
+        required: [
+          "allowedWorkItemIds",
+          "permittedEffects",
+          "permittedSurfaces",
+          "allowedRoots",
+          "deniedRoots",
+          "refactorAuthority",
+          "migrationAuthority",
+          "dependencyAuthority",
+        ],
+        additionalProperties: false,
+      },
+      limits: {
+        type: "object",
+        properties: {
+          maxExecutionAttempts: { type: "integer", minimum: 1 },
+          maxManagedInvocations: { type: "integer", minimum: 0 },
+          maxConcurrentManagedInvocations: { type: "integer", minimum: 0 },
+          maxChildDepth: { type: "integer", minimum: 0 },
+          maxReviewRounds: { type: "integer", minimum: 0 },
+          maxRemediationRounds: { type: "integer", minimum: 0 },
+          maxToolCalls: { type: "integer", minimum: 1 },
+          maxActiveDurationMs: { type: "integer", minimum: 1 },
+        },
+        required: [
+          "maxExecutionAttempts",
+          "maxManagedInvocations",
+          "maxConcurrentManagedInvocations",
+          "maxChildDepth",
+          "maxReviewRounds",
+          "maxRemediationRounds",
+        ],
+        additionalProperties: false,
+      },
+      tripwires: {
+        type: "object",
+        properties: {
+          changedFiles: { type: "integer", minimum: 1 },
+          changedLines: { type: "integer", minimum: 1 },
+          activeDurationMs: { type: "integer", minimum: 1 },
+          toolCalls: { type: "integer", minimum: 1 },
+        },
+        additionalProperties: false,
+      },
+      policy: {
+        type: "object",
+        properties: {
+          scopeExpansion: { type: "string", enum: ["deny", "approval_required"] },
+          budgetExhaustion: { type: "string", enum: ["pause", "stop"] },
+          minimumHarnessCapability: {
+            type: "string",
+            enum: ["authoritative", "partially_enforced", "advisory_only"],
+          },
+        },
+        required: ["scopeExpansion", "budgetExhaustion", "minimumHarnessCapability"],
+        additionalProperties: false,
+      },
     },
-    required: ["kind"],
+    required: ["schema", "intent", "assurance", "scope", "limits", "tripwires", "policy"],
     additionalProperties: false,
   };
 }
 
 function readBoundedWorkContract(value: unknown): BoundedWorkContract | undefined {
   if (!isRecord(value)) return undefined;
-  const contract = value as unknown as BoundedWorkContract;
   try {
+    assertBoundedWorkContractShape(value);
+    const contract = value as unknown as BoundedWorkContract;
     // Core normalizes and rejects every malformed or incomplete field before it can become authority.
     const revision = adoptBoundedWorkContractRevision({
       contract,
@@ -2172,12 +2316,159 @@ function assertExactFormalVerificationFinishScope(
   }
 }
 
+function assertBoundedWorkContractShape(value: Record<string, unknown>): void {
+  assertExactKeys(value, ["schema", "intent", "assurance", "scope", "limits", "tripwires", "policy"], "boundedWorkContract");
+
+  const intent = requireInputRecord(value.intent, "boundedWorkContract.intent");
+  assertExactKeys(intent, ["objective", "acceptanceCriteria", "nonGoals"], "boundedWorkContract.intent");
+  for (const [index, criterion] of requireInputArray(
+    intent.acceptanceCriteria,
+    "boundedWorkContract.intent.acceptanceCriteria",
+  ).entries()) {
+    const record = requireInputRecord(criterion, `boundedWorkContract.intent.acceptanceCriteria[${index}]`);
+    assertExactKeys(
+      record,
+      ["id", "statement"],
+      `boundedWorkContract.intent.acceptanceCriteria[${index}]`,
+    );
+  }
+  requireInputArray(intent.nonGoals, "boundedWorkContract.intent.nonGoals");
+
+  const assurance = requireInputRecord(value.assurance, "boundedWorkContract.assurance");
+  assertExactKeys(assurance, ["formalVerification"], "boundedWorkContract.assurance");
+  const formalVerification = requireInputRecord(
+    assurance.formalVerification,
+    "boundedWorkContract.assurance.formalVerification",
+  );
+  assertExactKeys(
+    formalVerification,
+    ["semantics", "obligations", "mappings"],
+    "boundedWorkContract.assurance.formalVerification",
+  );
+  for (const [index, obligation] of requireInputArray(
+    formalVerification.obligations,
+    "boundedWorkContract.assurance.formalVerification.obligations",
+  ).entries()) {
+    const record = requireInputRecord(
+      obligation,
+      `boundedWorkContract.assurance.formalVerification.obligations[${index}]`,
+    );
+    assertExactKeys(
+      record,
+      ["id", "symbol", "subjectPaths"],
+      `boundedWorkContract.assurance.formalVerification.obligations[${index}]`,
+    );
+    requireInputArray(
+      record.subjectPaths,
+      `boundedWorkContract.assurance.formalVerification.obligations[${index}].subjectPaths`,
+    );
+  }
+  for (const [index, mapping] of requireInputArray(
+    formalVerification.mappings,
+    "boundedWorkContract.assurance.formalVerification.mappings",
+  ).entries()) {
+    const record = requireInputRecord(
+      mapping,
+      `boundedWorkContract.assurance.formalVerification.mappings[${index}]`,
+    );
+    assertExactKeys(
+      record,
+      ["criterionId", "obligationIds"],
+      `boundedWorkContract.assurance.formalVerification.mappings[${index}]`,
+    );
+    requireInputArray(
+      record.obligationIds,
+      `boundedWorkContract.assurance.formalVerification.mappings[${index}].obligationIds`,
+    );
+  }
+
+  const scope = requireInputRecord(value.scope, "boundedWorkContract.scope");
+  assertExactKeys(
+    scope,
+    [
+      "allowedWorkItemIds",
+      "permittedEffects",
+      "permittedSurfaces",
+      "allowedRoots",
+      "deniedRoots",
+      "refactorAuthority",
+      "migrationAuthority",
+      "dependencyAuthority",
+    ],
+    "boundedWorkContract.scope",
+  );
+  for (const field of ["allowedWorkItemIds", "permittedEffects", "permittedSurfaces", "allowedRoots", "deniedRoots"] as const) {
+    requireInputArray(scope[field], `boundedWorkContract.scope.${field}`);
+  }
+
+  const limits = requireInputRecord(value.limits, "boundedWorkContract.limits");
+  assertExactKeys(
+    limits,
+    [
+      "maxExecutionAttempts",
+      "maxManagedInvocations",
+      "maxConcurrentManagedInvocations",
+      "maxChildDepth",
+      "maxReviewRounds",
+      "maxRemediationRounds",
+      "maxToolCalls",
+      "maxActiveDurationMs",
+    ],
+    "boundedWorkContract.limits",
+    [
+      "maxExecutionAttempts",
+      "maxManagedInvocations",
+      "maxConcurrentManagedInvocations",
+      "maxChildDepth",
+      "maxReviewRounds",
+      "maxRemediationRounds",
+    ],
+  );
+
+  const tripwires = requireInputRecord(value.tripwires, "boundedWorkContract.tripwires");
+  assertExactKeys(
+    tripwires,
+    ["changedFiles", "changedLines", "activeDurationMs", "toolCalls"],
+    "boundedWorkContract.tripwires",
+    [],
+  );
+
+  const policy = requireInputRecord(value.policy, "boundedWorkContract.policy");
+  assertExactKeys(
+    policy,
+    ["scopeExpansion", "budgetExhaustion", "minimumHarnessCapability"],
+    "boundedWorkContract.policy",
+  );
+}
+
 function hasOwn(value: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertExactKeys(
+  value: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  field: string,
+  requiredKeys: readonly string[] = allowedKeys,
+): void {
+  const allowed = new Set(allowedKeys);
+  if (Object.keys(value).some((key) => !allowed.has(key))) {
+    throw new Error(`${field} has an invalid shape or extra field`);
+  }
+  if (requiredKeys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) {
+    throw new Error(`${field} has an invalid shape or missing field`);
+  }
+}
+
+function requireInputArray(value: unknown, field: string): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid input: ${field} must be an array.`);
+  }
+  return value;
 }
 
 function assertBoundedWorkPolicyCeiling(
@@ -2953,6 +3244,10 @@ export class GoalCompleteTool implements DevTool {
         .at(-1);
       const candidate = latestCandidateAttempt?.candidate;
       if (!candidate) return { output: "Goal closeout requires an exact captured candidate.", isError: true };
+      const assuranceEvaluation = latestCandidateAttempt?.assuranceEvaluation;
+      if (!assuranceEvaluation) {
+        return { output: "Goal closeout requires the candidate's stored Assurance evaluation.", isError: true };
+      }
       const closeout = await this.boundedWorkGoalCloseout({
         goal: currentGoal,
         candidate,
@@ -2960,6 +3255,7 @@ export class GoalCompleteTool implements DevTool {
           ? { candidateCaptureRoot: latestCandidateAttempt.candidateCaptureRoot }
           : {}),
         candidateEvidence: latestCandidateAttempt.candidateEvidence ?? [],
+        assuranceEvaluation,
       });
       if (closeout.kind !== "stop_acceptance_complete") {
         return { output: JSON.stringify({ status: "paused", decision: closeout }, null, 2), isError: true };

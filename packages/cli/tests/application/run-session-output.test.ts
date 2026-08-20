@@ -101,6 +101,7 @@ describe("runSession output routing", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as never,
@@ -152,6 +153,7 @@ describe("runSession output routing", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "opencode", orderedFallbacks: [], scores: [] }),
         createSession: () => session as never,
@@ -197,6 +199,7 @@ describe("runSession output routing", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "codex-oauth", orderedFallbacks: [], scores: [] }),
         createSession: () => session as never,
@@ -244,6 +247,7 @@ describe("runSession output routing", () => {
     ]);
 
     await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: ["opencode"], scores: [] }),
         createSession: (providerId: string) => providerId === "claude" ? primarySession as never : fallbackSession as never,
@@ -286,6 +290,7 @@ describe("runSession output routing", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: ["opencode"], scores: [] }),
         createSession: (providerId: string) => providerId === "claude" ? primarySession as never : fallbackSession as never,
@@ -334,6 +339,7 @@ describe("runSession output routing", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: ["opencode"], scores: [] }),
         createSession: (providerId: string) => providerId === "claude" ? primarySession as never : fallbackSession as never,
@@ -371,6 +377,7 @@ describe("runSession output routing", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "codex", orderedFallbacks: [], scores: [] }),
         createSession: () => session as never,

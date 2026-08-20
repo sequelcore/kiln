@@ -106,6 +106,13 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
 
   it("rehydrates canonical session events so governed work items remain resumable", async () => {
     const sessionId = "kiln-gui:_gui:user-1:1778246833142";
+    const operatorTurnId = `${sessionId}:turn:1`;
+    const adoptionDecisionId = `${sessionId}:operator-adoption:${operatorTurnId}`;
+    const adoptionAuthority = {
+      kind: "operator" as const,
+      actorId: "test-operator",
+      decisionId: adoptionDecisionId,
+    };
     const workItem = {
       id: "work-1",
       summary: "Continue governed GUI workflow",
@@ -126,11 +133,17 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       updatedAt: "2026-05-08T00:00:02.000Z",
       sequence: 1,
     };
-    const boundedWorkContractRevision = boundedWorkRevision("goal-1", ["work-1"], "Continue governed GUI workflow");
+    const boundedWorkContractRevision = boundedWorkRevision(
+      "goal-1",
+      ["work-1"],
+      "Continue governed GUI workflow",
+      adoptionAuthority,
+    );
     const goal = {
       id: "goal-1",
       objective: "Continue governed GUI workflow",
       ownerSessionId: sessionId,
+      source: { kind: "operator_direct", turnId: operatorTurnId },
       planId: "plan-1",
       boundedWorkContractRevision,
       boundedWorkContractRevisionHistory: [boundedWorkContractRevision],
@@ -176,10 +189,15 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       kilnSessionId: sessionId,
       sequence: 2,
       timestamp: "2026-05-08T00:00:02.000Z",
-      kind: "goal.created",
-      source: { actor: "tool", surface: "gui" },
+      kind: "operator_adoption_decision",
+      turnId: operatorTurnId,
+      source: { actor: "runtime", surface: "gui" },
       payload: {
-        goal,
+        ownerSessionId: sessionId,
+        operatorTurnId,
+        contractAuthority: adoptionAuthority,
+        decisionId: adoptionDecisionId,
+        turnOrdinal: 1,
       },
     });
     await transcriptStore.append(sessionId, {
@@ -187,6 +205,18 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       kilnSessionId: sessionId,
       sequence: 3,
       timestamp: "2026-05-08T00:00:03.000Z",
+      kind: "goal.created",
+      turnId: operatorTurnId,
+      source: { actor: "tool", surface: "gui" },
+      payload: {
+        goal,
+      },
+    });
+    await transcriptStore.append(sessionId, {
+      eventId: "evt-4",
+      kilnSessionId: sessionId,
+      sequence: 4,
+      timestamp: "2026-05-08T00:00:04.000Z",
       kind: "work_item_updated",
       source: { actor: "tool", surface: "gui" },
       payload: {
@@ -196,10 +226,10 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       },
     });
     await transcriptStore.append(sessionId, {
-      eventId: "evt-4",
+      eventId: "evt-5",
       kilnSessionId: sessionId,
-      sequence: 4,
-      timestamp: "2026-05-08T00:00:04.000Z",
+      sequence: 5,
+      timestamp: "2026-05-08T00:00:05.000Z",
       kind: "turn_completed",
       source: { actor: "runtime", surface: "gui" },
       payload: {
@@ -227,10 +257,11 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
     expect(result).toMatchObject({
       rehydrated: true,
       messageCount: 1,
-      sourceSequence: 4,
+      sourceSequence: 5,
     });
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "user_message",
+      "operator_adoption_decision",
       "goal.created",
       "work_item_updated",
       "turn_completed",
@@ -240,8 +271,8 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
       sequence: 1,
       kind: "user_message",
     }));
-    expect(session.nextSessionEventSequence()).toBe(5);
-    expect(session.sessionEvents[2]?.timestamp).toBeInstanceOf(Date);
+    expect(session.nextSessionEventSequence()).toBe(6);
+    expect(session.sessionEvents[3]?.timestamp).toBeInstanceOf(Date);
     const expectedWorkItem = expect.objectContaining({
       id: "work-1",
       status: "pending",
@@ -352,14 +383,34 @@ describe("createTranscriptRuntimeSessionHydrator", () => {
   });
 });
 
-function boundedWorkRevision(goalId: string, workItemIds: readonly string[], objective: string) {
+function boundedWorkRevision(
+  goalId: string,
+  workItemIds: readonly string[],
+  objective: string,
+  adoptedBy: { readonly kind: "operator"; readonly actorId: string; readonly decisionId: string },
+) {
   return adoptBoundedWorkContractRevision({
     accountingLineageId: goalId,
     adoptedAt: "2026-05-08T00:00:02.000Z",
-    adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalId}` },
+    adoptedBy,
     contract: {
-      schema: "kiln.bounded-work-contract/v1",
-      intent: { objective, acceptanceCriteria: ["focused tests pass"], nonGoals: [] },
+      schema: "kiln.bounded-work-contract/v2",
+      intent: {
+        objective,
+        acceptanceCriteria: [{ id: "focused-tests", statement: "Focused tests pass." }],
+        nonGoals: [],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{
+            id: "focused-tests-proof",
+            symbol: "Gui.FocusedTests",
+            subjectPaths: ["packages/gui/src/index.ts"],
+          }],
+          mappings: [{ criterionId: "focused-tests", obligationIds: ["focused-tests-proof"] }],
+        },
+      },
       scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect", "modify_source", "run_verification"], permittedSurfaces: ["gui"], allowedRoots: ["packages/gui"], deniedRoots: [], refactorAuthority: "scoped", migrationAuthority: "none", dependencyAuthority: "none" },
       limits: { maxExecutionAttempts: 10, maxManagedInvocations: 10, maxConcurrentManagedInvocations: 3, maxChildDepth: 2, maxReviewRounds: 3, maxRemediationRounds: 3 },
       tripwires: {},

@@ -511,6 +511,7 @@ export type OperatorSessionEventKind =
   | "plan_submitted"
   | "plan_analysis_reported"
   | "plan_approved"
+  | "operator_adoption_decision"
   | "goal.created"
   | "goal.updated"
   | "goal.completed"

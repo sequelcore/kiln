@@ -1,7 +1,15 @@
 import {
   adoptBoundedWorkContractRevision,
+  createBoundedWorkCandidate,
+  createBoundedWorkCandidateEvidence,
+  decideBoundedWorkCloseout,
+  evaluateBoundedWorkAssurance,
+  type BoundedWorkCloseoutDecision,
   type BoundedWorkContractRevision,
 } from "../../src/work-governance/index.js";
+import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
+
+const digest = (value: string): string => `sha256:${value.repeat(64).slice(0, 64)}`;
 
 export function testBoundedWorkRevision(
   goalRunId: string,
@@ -13,11 +21,18 @@ export function testBoundedWorkRevision(
     adoptedAt: "2026-08-12T18:00:00.000Z",
     adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalRunId}` },
     contract: {
-      schema: "kiln.bounded-work-contract/v1",
+      schema: "kiln.bounded-work-contract/v2",
       intent: {
         objective,
-        acceptanceCriteria: ["test evidence"],
+        acceptanceCriteria: [{ id: "test-evidence", statement: "test evidence" }],
         nonGoals: [],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{ id: "test-obligation", symbol: "Test.Main", subjectPaths: ["src/Test.dfy"] }],
+          mappings: [{ criterionId: "test-evidence", obligationIds: ["test-obligation"] }],
+        },
       },
       scope: {
         allowedWorkItemIds: workItemIds.length > 0 ? workItemIds : ["test-work-item"],
@@ -52,14 +67,52 @@ export function testBoundedWorkRevision(
 export function testBoundedWorkCloseoutDecision(
   goalRunId: string,
   revision: BoundedWorkContractRevision,
-  candidateDigest = `sha256:${"d".repeat(64)}`,
-) {
-  return {
-    kind: "stop_acceptance_complete" as const,
-    candidateDigest,
+  candidateContentDigest = digest("d"),
+): Extract<BoundedWorkCloseoutDecision, { readonly kind: "stop_acceptance_complete" }> {
+  const workItemId = revision.contract.scope.allowedWorkItemIds[0] ?? "test-work-item";
+  const candidate = createBoundedWorkCandidate({
+    goalRunId,
+    workItemId,
     contractRevisionDigest: revision.revisionDigest,
-    accounting: {
-      schema: "kiln.bounded-work-accounting/v1" as const,
+    accountingLineageId: revision.accountingLineageId,
+    kind: "git_worktree",
+    baseline: { kind: "git_tree", digest: digest("b") },
+    candidateContentDigest,
+    createdAt: "2026-08-12T18:01:00.000Z",
+  });
+  const subjects = [{ path: "src/Test.dfy", contentDigest: digest("e") }];
+  const candidateEvidence = [createBoundedWorkCandidateEvidence({
+    candidate,
+    executionAttempt: { goalRunId, workItemId, attemptId: "attempt-1" },
+    invocation: { toolCallScopeId: "scope-1", toolCallId: "call-1" },
+    attestation: {
+      producer: { kind: "registered_tool", toolName: "formal_verify" },
+      payload: formalVerificationToolMetadata({
+        verifier: { name: "dafny", version: "4.11.0" },
+        artifact: { contentDigest: digest("a") },
+        subjects,
+        checks: [{ symbol: "Test.Main", check: "correctness", outcome: "proved" }],
+      }),
+    },
+    recordedAt: "2026-08-12T18:02:00.000Z",
+  })];
+  const assuranceEvaluation = evaluateBoundedWorkAssurance({
+    revision,
+    candidate,
+    candidateSubjects: {
+      candidateContentDigest: candidate.candidateContentDigest,
+      digests: new Map(subjects.map((subject) => [subject.path, subject.contentDigest])),
+    },
+    candidateEvidence,
+    evaluatedAt: "2026-08-12T18:03:00.000Z",
+  });
+  const decision = decideBoundedWorkCloseout({
+    revision,
+    candidateDigest: candidate.candidateDigest,
+    candidateEvidence,
+    assuranceEvaluation,
+    snapshot: {
+      schema: "kiln.bounded-work-accounting/v1",
       accountingLineageId: goalRunId,
       contractRevisionDigest: revision.revisionDigest,
       revision: 1,
@@ -68,8 +121,13 @@ export function testBoundedWorkCloseoutDecision(
       activeManagedInvocations: 0,
       reviewRounds: 0,
       remediationRounds: 0,
-      toolCalls: { kind: "unavailable" as const },
-      activeDurationMs: { kind: "unavailable" as const },
+      toolCalls: { kind: "unavailable" },
+      activeDurationMs: { kind: "unavailable" },
     },
-  };
+    decidedAt: "2026-08-12T18:04:00.000Z",
+  });
+  if (decision.kind !== "stop_acceptance_complete") {
+    throw new Error(`test closeout did not establish all acceptance criteria: ${decision.missingCriteria.join(", ")}`);
+  }
+  return decision;
 }

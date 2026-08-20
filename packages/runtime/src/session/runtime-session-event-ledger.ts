@@ -4,6 +4,8 @@ import type {
   CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanWorkItemDraft,
   CanonicalSessionEvent,
+  CanonicalOperatorAdoptionDecisionEvent,
+  BoundedWorkAdoptionAuthority,
   CostUpdateEvent,
   ErrorEvent,
   ModelRoutedEvent,
@@ -23,9 +25,13 @@ import type {
   ContextUsageProjection,
   VerifiedEfficiencyPolicyIdentity,
   ProviderRequestEvidence,
+  CanonicalTurnId,
 } from "@kilnai/core";
 import {
+  canonicalTurnId,
+  createOperatorAdoptionDecisionAuthority,
   createSessionEvent,
+  parseCanonicalTurnId as parseCoreCanonicalTurnId,
   hashPolicyAdaptationConfiguration,
   projectCostUpdatedEventToLifecycleLedger,
   projectVerifiedEfficiencyEvidence,
@@ -141,9 +147,81 @@ export interface AppendCanonicalTurnEventsInput {
   readonly providerRequests?: readonly ProviderRequestEvidence[];
 }
 
+export function resolveCanonicalTurnIdentity(
+  session: RuntimeSession,
+  correlationId: string | undefined,
+): { readonly turnId: CanonicalTurnId; readonly turnOrdinal: number; readonly correlationId?: string } {
+  const turnOrdinal = nextCanonicalTurnOrdinal(session);
+  const normalizedCorrelationId = correlationId?.trim();
+  const priorDecision = normalizedCorrelationId
+    ? session.sessionEvents.find(
+      (event): event is Extract<CanonicalSessionEvent, { readonly kind: "operator_adoption_decision" }> =>
+        event.kind === "operator_adoption_decision" && event.correlationId === normalizedCorrelationId,
+    )
+    : undefined;
+  const priorOrdinal = priorDecision ? parseCanonicalTurnOrdinal(session.id, priorDecision.operatorTurnId) : undefined;
+  if (priorDecision && priorOrdinal !== undefined) {
+    return {
+      turnId: canonicalTurnId(session.id, priorOrdinal),
+      turnOrdinal: priorOrdinal,
+      correlationId: normalizedCorrelationId,
+    };
+  }
+  return {
+    turnId: canonicalTurnId(session.id, turnOrdinal),
+    turnOrdinal,
+    ...(normalizedCorrelationId ? { correlationId: normalizedCorrelationId } : {}),
+  };
+}
+
+export function appendCanonicalOperatorAdoptionDecision(input: {
+  readonly session: RuntimeSession;
+  readonly turnId: CanonicalTurnId;
+  readonly actorId: string;
+  readonly correlationId?: string;
+  readonly timestamp?: Date;
+}): CanonicalOperatorAdoptionDecisionEvent {
+  const timestamp = input.timestamp ?? new Date();
+  const correlationId = input.correlationId?.trim() || undefined;
+  const authority = createOperatorAdoptionDecisionAuthority({
+    ownerSessionId: input.session.id,
+    operatorTurnId: input.turnId,
+    actorId: input.actorId,
+  });
+  const existing = input.session.sessionEvents.find(
+    (event): event is Extract<CanonicalSessionEvent, { readonly kind: "operator_adoption_decision" }> =>
+      event.kind === "operator_adoption_decision" && event.decisionId === authority.decisionId,
+  );
+  if (existing) {
+    if (
+      existing.kilnSessionId !== input.session.id
+      || existing.turnId !== input.turnId
+      || existing.operatorTurnId !== authority.operatorTurnId
+      || existing.correlationId !== correlationId
+      || !sameAdoptionAuthority(existing.contractAuthority, authority.contractAuthority)
+    ) {
+      throw new Error(`Operator adoption decision ${authority.decisionId} does not match the canonical turn authority.`);
+    }
+    return existing;
+  }
+  const event = createSessionEvent<"operator_adoption_decision">({
+    kilnSessionId: input.session.id,
+    sequence: input.session.nextSessionEventSequence(),
+    kind: "operator_adoption_decision",
+    turnId: input.turnId,
+    ...authority,
+    turnOrdinal: requireCanonicalTurnIdentity(input.session, input.turnId).turnOrdinal,
+    ...(correlationId ? { correlationId } : {}),
+    source: makeSource("runtime", "runtime", "operator-adoption"),
+    timestamp,
+  });
+  input.session.appendSessionEvents([event]);
+  return event;
+}
+
 export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput): readonly CanonicalSessionEvent[] {
   const { session } = input;
-  const turnIdentity = resolveCanonicalTurnIdentity(session, input.turnId);
+  const turnIdentity = requireCanonicalTurnIdentity(session, input.turnId);
   const turnOrdinal = turnIdentity.turnOrdinal;
   const turnId = turnIdentity.turnId;
   const userMessageContent = input.userMessageContent.trim();
@@ -624,26 +702,39 @@ export function appendCanonicalTurnEvents(input: AppendCanonicalTurnEventsInput)
   return events;
 }
 
-function resolveCanonicalTurnIdentity(
+function sameAdoptionAuthority(
+  left: BoundedWorkAdoptionAuthority,
+  right: BoundedWorkAdoptionAuthority,
+): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === "operator" && right.kind === "operator") {
+    return left.actorId === right.actorId && left.decisionId === right.decisionId;
+  }
+  return left.kind === "approved_plan"
+    && right.kind === "approved_plan"
+    && left.planId === right.planId
+    && left.planDigest === right.planDigest;
+}
+
+function parseCanonicalTurnOrdinal(sessionId: string, turnId: string): number | undefined {
+  return parseCoreCanonicalTurnId(turnId, sessionId);
+}
+
+export function requireCanonicalTurnIdentity(
   session: RuntimeSession,
   turnId: string | undefined,
-): { readonly turnId: string; readonly turnOrdinal: number } {
-  if (turnId === undefined) {
+): { readonly turnId: CanonicalTurnId; readonly turnOrdinal: number } {
+  if (!turnId) {
     const turnOrdinal = nextCanonicalTurnOrdinal(session);
-    return {
-      turnId: `${session.id}:turn:${turnOrdinal}`,
-      turnOrdinal,
-    };
+    return { turnId: canonicalTurnId(session.id, turnOrdinal), turnOrdinal };
   }
-  const prefix = `${session.id}:turn:`;
-  if (!turnId.startsWith(prefix)) {
-    throw new Error("Canonical turn id must belong to the runtime session.");
+  const turnOrdinal = parseCanonicalTurnOrdinal(session.id, turnId);
+  if (turnOrdinal === undefined) {
+    throw new Error("Canonical turn id must belong to the runtime session and end with a positive ordinal.");
   }
-  const turnOrdinal = Number.parseInt(turnId.slice(prefix.length), 10);
-  if (!Number.isSafeInteger(turnOrdinal) || turnOrdinal < 1) {
-    throw new Error("Canonical turn id must end with a positive turn ordinal.");
-  }
-  return { turnId, turnOrdinal };
+  return { turnId: canonicalTurnId(session.id, turnOrdinal), turnOrdinal };
 }
 
 function nextCanonicalTurnOrdinal(session: RuntimeSession): number {

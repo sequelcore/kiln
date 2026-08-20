@@ -187,10 +187,14 @@ not a second workflow or task database:
   idempotent; settlement is consumed, released, or explicitly unknown/pending.
   This work authority is separate from managed economic commitments (#34) and
   normal session-turn provider budgeting (#35).
-- Acceptance evidence binds the target/baseline, exact candidate bytes or diff
-  digest, bounded-work revision, requirement trace, verification/review and
-  correction lineage, and final receipt. An invocation result or model claim
-  is not candidate proof; changed candidate bytes invalidate earlier evidence.
+- Producer evidence binds the target/baseline, exact candidate bytes or diff
+  digest, bounded-work revision, verification observations, and correction
+  lineage. It reports facts only. Core's separate Assurance evaluation applies
+  the mapping already fixed in the adopted contract revision to exact
+  Runtime-resolved Git-blob subject digests. The terminal acceptance decision
+  then binds that evaluation and its evidence basis to the adopting authority.
+  An invocation result or model claim is not candidate proof; changed candidate
+  bytes invalidate earlier evidence.
 - Continuation and stop decisions map to the existing goal/work/attempt
   lifecycle and `SessionTurnOutcome` values. Scope revision, exhausted ceiling,
   missing capability, unresolved review, verification failure, and timeout
@@ -206,8 +210,10 @@ An isolated managed worktree is persisted as the attempt's candidate-capture
 root, so closeout cannot silently inspect the parent checkout instead. Nested
 managed delegation from a bounded child is denied until descendant accounting
 authority and depth can be propagated non-forgeably. Finishing the last work
-item enters `paused:bounded-work-acceptance`; only a current acceptance decision
-whose candidate is persisted on a completed attempt can complete the goal.
+item enters `paused:bounded-work-acceptance`. The completed attempt persists its
+candidate evidence and Assurance evaluation; only a current accepted decision
+whose candidate and evaluation are both that completed attempt's records can
+complete the goal.
 
 Capability evidence is tiered as authoritative, partial, advisory, or
 unsupported. The tiers describe enforceability and evidence for one operation;
@@ -470,8 +476,9 @@ Execution attempts are part of the same evidence plane:
 - Managed-delegation child failures before attempt linkage keep the work item
   paused and mark the canonical parent turn failed; surfaces must not project
   that state as completed local work.
-- `work_item.execution.finish` records evidence, verification gate results,
-  skipped checks, and residual risk.
+- `work_item.execution.finish` records facts-only producer evidence, the
+  candidate-bound Assurance evaluation, verification gate results, skipped
+  checks, and residual risk.
 - A verified single-child `managed_delegation` attempt owns its direct result
   handoff on the attempt. It does not synthesize or require a
   `managedOrchestration` merge policy; that policy belongs only to explicit

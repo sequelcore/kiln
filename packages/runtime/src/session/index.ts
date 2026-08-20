@@ -1,6 +1,17 @@
 export { RuntimeSession } from "./runtime-session.js";
 export type { RuntimeSessionConfig, SerializedSessionData, AgentTurnEntry } from "./runtime-session.js";
 export { RuntimeSessionOrchestrator } from "./runtime-session-orchestrator.js";
+export {
+  prepareOperatorAdoptionTurn,
+  requireOperatorAdoptionDecisionPersistence,
+  isGovernedGoalToolName,
+  hasGovernedGoalTools,
+} from "./operator-adoption-authority.js";
+export type {
+  OperatorAdoptionDecisionPersistence,
+  OperatorAdoptionRuntimeBinding,
+  PreparedOperatorAdoptionTurn,
+} from "./operator-adoption-authority.js";
 export { RuntimeSessionTurnBudgetService } from "./session-turn-budget-authority.js";
 export type {
   RuntimeSessionTokenUsageReader,

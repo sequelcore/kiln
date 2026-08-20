@@ -48,6 +48,9 @@ import {
   type PerCallToolConfig,
   type RuntimeSessionTurnBudgetAuthority,
   type RuntimeExecutionEnvelope,
+  prepareOperatorAdoptionTurn,
+  hasGovernedGoalTools,
+  type OperatorAdoptionRuntimeBinding,
 } from "@kilnai/runtime";
 import type { OperatorTurnRequestedAuthority } from "@kilnai/gateway-contracts";
 import type {
@@ -95,6 +98,8 @@ export interface ProviderSessionConfig {
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
   readonly mcpClients?: readonly KilnMcpClient[];
   readonly mcpToolAllowlist?: ReadonlySet<string>;
+  /** Durable transcript sink and canonical replay binding for this surface. */
+  readonly operatorAdoption?: OperatorAdoptionRuntimeBinding;
 }
 
 const PROVIDER_PRIORITY: Record<ProviderSessionConfig["provider"], number> = {
@@ -768,7 +773,7 @@ export class ProviderSession implements IKilnSession {
     }));
     const externalCapabilityMap = new Map(mcpCapabilities.map((capability) => [capability.name, capability]));
     const requestedAuthority = options.requestedAuthority ?? this.config.requestedAuthority;
-    const perCallConfig = this.buildPerCallConfig(
+    let perCallConfig = this.buildPerCallConfig(
       options.deliberationResolution ?? this.config.deliberationResolution,
       options.communicationIntent ?? this.config.communicationIntent,
       requestedAuthority,
@@ -803,14 +808,50 @@ export class ProviderSession implements IKilnSession {
     }
     const authorizer = new PermissionPolicyAuthorizer(this.config.permissionPolicy);
 
+    const runtimeSessionId = options.kilnSessionId ?? this.config.runtimeSessionId ?? this.sessionId;
     const cliSession = new RuntimeSession({
       appName: "kiln-cli",
       tenantId: "cli-session",
       userId: this.sessionId,
-      sessionId: this.sessionId,
+      sessionId: runtimeSessionId,
       systemPrompt,
       idleTimeoutMs: 30 * 60 * 1000,
     });
+
+    const replayEvents = this.config.operatorAdoption?.replayCanonicalSessionEvents
+      ? await this.config.operatorAdoption.replayCanonicalSessionEvents(runtimeSessionId)
+      : [];
+    const canonicalReplayEvents = replayEvents
+      .filter((event) => event.kilnSessionId === runtimeSessionId)
+      .sort((left, right) => left.sequence - right.sequence);
+    if (canonicalReplayEvents.length > 0) {
+      cliSession.appendSessionEvents(canonicalReplayEvents);
+    }
+
+    const governedGoalTools = hasGovernedGoalTools({
+      toolAllowlist: perCallConfig.toolAllowlist,
+      additionalTools: perCallConfig.additionalTools,
+      builtinToolNames: this.builtinTools.keys(),
+    });
+    if (governedGoalTools || this.config.operatorAdoption) {
+      if (!this.config.operatorAdoption) {
+        throw new Error(
+          "Governed operator turns require a durable transcript-backed adoption decision sink.",
+        );
+      }
+      const prepared = await prepareOperatorAdoptionTurn({
+        session: cliSession,
+        actorId: this.config.operatorAdoption.actorId ?? runtimeSessionId,
+        correlationId: options.operatorTurnCorrelationId,
+        persist: this.config.operatorAdoption.persist,
+      });
+      perCallConfig = {
+        ...perCallConfig,
+        turnId: prepared.turnId,
+        ...(prepared.correlationId ? { turnCorrelationId: prepared.correlationId } : {}),
+        operatorAdoptionDecision: prepared.operatorAdoptionDecision,
+      };
+    }
 
     const orchestrator = new RuntimeSessionOrchestrator({
       provider: adapter,

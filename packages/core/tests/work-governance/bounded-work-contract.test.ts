@@ -3,16 +3,28 @@ import {
   adoptBoundedWorkContractRevision,
   assessBoundedWorkScope,
   normalizeBoundedWorkContractRevision,
+  normalizeBoundedWorkContract,
   supersedeBoundedWorkContractRevision,
   type BoundedWorkContract,
 } from "../../src/work-governance/index.js";
 
 const contract = (): BoundedWorkContract => ({
-  schema: "kiln.bounded-work-contract/v1",
+  schema: "kiln.bounded-work-contract/v2",
   intent: {
     objective: "Add bounded work authority.",
-    acceptanceCriteria: ["Attempts beyond the ceiling are denied."],
+    acceptanceCriteria: [{ id: "attempt-ceiling", statement: "Attempts beyond the ceiling are denied." }],
     nonGoals: ["Redesign provider economics."],
+  },
+  assurance: {
+    formalVerification: {
+      semantics: "allOf",
+      obligations: [{
+        id: "attempt-ceiling-proof",
+        symbol: "BoundedWorkScopePolicy.MaxAttempts",
+        subjectPaths: ["packages/core/src/work-governance/bounded-work-decision.ts"],
+      }],
+      mappings: [{ criterionId: "attempt-ceiling", obligationIds: ["attempt-ceiling-proof"] }],
+    },
   },
   scope: {
     allowedWorkItemIds: ["work-core"],
@@ -55,7 +67,7 @@ describe("bounded work contract", () => {
       ...contract(),
       intent: {
         nonGoals: ["Redesign provider economics."],
-        acceptanceCriteria: ["Attempts beyond the ceiling are denied."],
+        acceptanceCriteria: [{ id: "attempt-ceiling", statement: "Attempts beyond the ceiling are denied." }],
         objective: "Add bounded work authority.",
       },
       scope: {
@@ -192,6 +204,175 @@ describe("bounded work contract", () => {
       adoptedAt: "2026-08-12T18:00:00.000Z",
       adoptedBy: { kind: "operator", actorId: "operator-1", decisionId: "approval-1" },
     })).toThrow("accountingLineageId is required");
+  });
+
+  it("normalizes and binds revision-local assurance to acceptance criteria", () => {
+    const normalized = normalizeBoundedWorkContract({
+      ...contract(),
+      intent: {
+        ...contract().intent,
+        acceptanceCriteria: [
+          { id: "z-last", statement: "The last criterion." },
+          { id: "a-first", statement: "The first criterion." },
+        ],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [
+            { id: "z-proof", symbol: "alpha", subjectPaths: ["src/z.ts", "src/a.ts"] },
+            { id: "a-proof", symbol: "alpha", subjectPaths: ["src/a.ts"] },
+          ],
+          mappings: [
+            { criterionId: "a-first", obligationIds: ["a-proof"] },
+            { criterionId: "z-last", obligationIds: ["z-proof", "a-proof"] },
+          ],
+        },
+      },
+    });
+
+    expect(normalized.intent.acceptanceCriteria).toEqual([
+      { id: "a-first", statement: "The first criterion." },
+      { id: "z-last", statement: "The last criterion." },
+    ]);
+    expect(normalized.assurance.formalVerification.obligations).toEqual([
+      { id: "a-proof", symbol: "alpha", subjectPaths: ["src/a.ts"] },
+      { id: "z-proof", symbol: "alpha", subjectPaths: ["src/a.ts", "src/z.ts"] },
+    ]);
+    expect(normalized.assurance.formalVerification.mappings).toEqual([
+      { criterionId: "a-first", obligationIds: ["a-proof"] },
+      { criterionId: "z-last", obligationIds: ["a-proof", "z-proof"] },
+    ]);
+  });
+
+  const invalidContractCases: readonly (readonly [
+    string,
+    (value: BoundedWorkContract) => BoundedWorkContract,
+    string,
+  ])[] = [
+    [
+      "duplicate criterion IDs",
+      (value: BoundedWorkContract) => ({
+        ...value,
+        intent: {
+          ...value.intent,
+          acceptanceCriteria: [
+            { id: "same", statement: "One." },
+            { id: "same", statement: "Two." },
+          ],
+        },
+      }),
+      "intent.acceptanceCriteria ids must not contain duplicates",
+    ],
+    [
+      "unknown mapping criterion",
+      (value: BoundedWorkContract) => ({
+        ...value,
+        assurance: {
+          formalVerification: {
+            ...value.assurance.formalVerification,
+            mappings: [{ criterionId: "unknown", obligationIds: ["attempt-ceiling-proof"] }],
+          },
+        },
+      }),
+      "assurance.formalVerification.mappings contains unknown criterionId unknown",
+    ],
+    [
+      "unknown mapping obligation",
+      (value: BoundedWorkContract) => ({
+        ...value,
+        assurance: {
+          formalVerification: {
+            ...value.assurance.formalVerification,
+            mappings: [{ criterionId: "attempt-ceiling", obligationIds: ["unknown"] }],
+          },
+        },
+      }),
+      "assurance.formalVerification.mappings contains unknown obligationId unknown",
+    ],
+    [
+      "duplicate mapping obligations",
+      (value: BoundedWorkContract) => ({
+        ...value,
+        assurance: {
+          formalVerification: {
+            ...value.assurance.formalVerification,
+            mappings: [{ criterionId: "attempt-ceiling", obligationIds: ["attempt-ceiling-proof", "attempt-ceiling-proof"] }],
+          },
+        },
+      }),
+      "assurance.formalVerification.mappings[attempt-ceiling].obligationIds must not contain duplicates",
+    ],
+    [
+      "unmapped criterion",
+      (value: BoundedWorkContract) => ({
+        ...value,
+        intent: {
+          ...value.intent,
+          acceptanceCriteria: [
+            ...value.intent.acceptanceCriteria,
+            { id: "unmapped", statement: "This is not mapped." },
+          ],
+        },
+      }),
+      "assurance.formalVerification.mappings must contain exactly one mapping for criterion unmapped",
+    ],
+    [
+      "non-canonical subject path",
+      (value: BoundedWorkContract) => {
+        const obligation = value.assurance.formalVerification.obligations[0];
+        if (!obligation) throw new Error("test contract must contain an obligation");
+        return {
+          ...value,
+          assurance: {
+            formalVerification: {
+              ...value.assurance.formalVerification,
+              obligations: [{ ...obligation, subjectPaths: ["./src/a.ts"] }],
+            },
+          },
+        };
+      },
+      "assurance.formalVerification.obligations[attempt-ceiling-proof].subjectPaths must use normalized candidate-relative POSIX paths",
+    ],
+    [
+      "subject path with surrounding whitespace",
+      (value: BoundedWorkContract) => {
+        const obligation = value.assurance.formalVerification.obligations[0];
+        if (!obligation) throw new Error("test contract must contain an obligation");
+        return {
+          ...value,
+          assurance: {
+            formalVerification: {
+              ...value.assurance.formalVerification,
+              obligations: [{
+                ...obligation,
+                subjectPaths: [" packages/core/src/work-governance/bounded-work-decision.ts"],
+              }],
+            },
+          },
+        };
+      },
+      "assurance.formalVerification.obligations[attempt-ceiling-proof].subjectPaths must use normalized candidate-relative POSIX paths",
+    ],
+  ];
+
+  it.each(invalidContractCases)("rejects %s", (_name, mutate, message) => {
+    expect(() => normalizeBoundedWorkContract(mutate(contract()))).toThrow(message);
+  });
+
+  it("rejects verification policy fields on Intent criteria", () => {
+    const value = contract();
+    expect(() => normalizeBoundedWorkContract({
+      ...value,
+      intent: {
+        ...value.intent,
+        acceptanceCriteria: [{
+          id: "attempt-ceiling",
+          statement: "The attempt ceiling is enforced.",
+          verificationMethod: "analysis",
+        } as never],
+      },
+    })).toThrow("intent.acceptanceCriteria[0] has an invalid shape or extra field");
   });
 
   it("rejects a forged durable revision digest", () => {

@@ -28,7 +28,10 @@ import { withGlobalIdentityContext } from "../config/operator-identity-context.j
 import { withContextCandidates } from "../application/agent-skill-context.js";
 import { resolveInstructionProfileContextCandidates } from "../application/instruction-profile-context.js";
 import { withWorkGovernanceContext } from "../application/work-governance-context.js";
-import { createTranscriptRuntimeSessionHydrator } from "../application/runtime-session-rehydration.js";
+import {
+  canonicalSessionEventsFromTranscript,
+  createTranscriptRuntimeSessionHydrator,
+} from "../application/runtime-session-rehydration.js";
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import {
   createCliTranscriptSessionTokenUsageReader,
@@ -113,6 +116,7 @@ import {
   withManagedInvocationService,
   type OperatorExecutionRouteSelectionPort,
   type ConfiguredExecutionCredential,
+  type OperatorAdoptionDecisionPersistence,
 } from "@kilnai/runtime";
 import {
   createProviderCatalogService,
@@ -126,6 +130,7 @@ import {
   operatorTranscriptKindForType,
   operatorTranscriptSourceForType,
   projectGovernanceTranscriptEventDrafts,
+  toCanonicalSessionEventPersistedTranscriptEventDraft,
 } from "../application/operator-transcript-projection.js";
 import type {
   CliSessionFactoryContext,
@@ -167,6 +172,8 @@ interface TuiBootstrapOptions {
   readonly managedInvocation?: ManagedInvocationToolAttachment;
   readonly boundedWork?: import("@kilnai/runtime").AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
+  /** Durable transcript sink for pre-round governed adoption decisions. */
+  readonly persistCanonicalSessionEvent?: OperatorAdoptionDecisionPersistence;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
   readonly operatorVoice?: OperatorVoiceRuntime;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -583,6 +590,18 @@ export async function makeMultiProviderSessionFactory(
           builtinToolOptions: sessionBuiltinToolOptions,
           ...(managedInvocationWithTranscriptSink ? { managedInvocation: managedInvocationWithTranscriptSink } : {}),
           ...(sessionTurnBudget ? { sessionTurnBudget } : {}),
+          operatorAdoption: {
+            persist: async (event) => {
+              await transcriptStore.appendManyNext(
+                event.kilnSessionId,
+                [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
+              );
+            },
+            replayCanonicalSessionEvents: async (canonicalSessionId: string) => canonicalSessionEventsFromTranscript(
+              await transcriptStore.readTranscript(canonicalSessionId),
+              canonicalSessionId,
+            ),
+          },
         });
         activeSession = resumedSession;
         const capturedId = stableRuntimeSessionId ?? resumedSession.sessionId;
@@ -687,7 +706,13 @@ export async function makeMultiProviderSessionFactory(
           );
         }
         try {
-          for await (const event of resumedSession.run({ ...options, turnId })) {
+          for await (const event of resumedSession.run({
+            ...options,
+            turnId,
+            // One fresh correlation per direct TUI run; it is not the
+            // canonical turn id and is never reused by a later turn.
+            operatorTurnCorrelationId: randomUUID(),
+          })) {
             if (!event || typeof event !== "object" || !("type" in event)) {
               yield event;
               continue;
@@ -1073,6 +1098,7 @@ async function bootstrapGatewaySession(
     managedInvocation: options.managedInvocation,
     boundedWork: options.boundedWork,
     sessionTurnBudget: options.sessionTurnBudget,
+    persistCanonicalSessionEvent: options.persistCanonicalSessionEvent,
     resumeSessionHydrator: options.resumeSessionHydrator,
     initialProviderDiscovery: options.initialProviderDiscovery,
     onProviderDiscoveryResolved: options.onProviderDiscoveryResolved,
@@ -1609,6 +1635,12 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     managedInvocation: managedInvocationForGateway,
     boundedWork: boundedWork.surface,
     sessionTurnBudget,
+    persistCanonicalSessionEvent: async (event) => {
+      await transcriptStore.appendManyNext(
+        event.kilnSessionId,
+        [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
+      );
+    },
     resumeSessionHydrator,
     operatorVoice,
     initialProviderDiscovery,

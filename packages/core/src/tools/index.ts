@@ -11,12 +11,14 @@ export { TOOL_SCHEMAS } from "./domain/tool.js";
 export {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
 } from "./domain/formal-verification-finish-transport.js";
+export { OPERATOR_ADOPTION_DECISION_TRANSPORT } from "./domain/operator-adoption-decision-transport.js";
 export type {
   FormalVerificationFinishExecutionScope,
   FormalVerificationFinishTransportEnvelope,
   FormalVerificationFinishTransportObservation,
   FormalVerificationFinishTransportProducer,
 } from "./domain/formal-verification-finish-transport.js";
+export type { OperatorAdoptionDecisionTransport } from "./domain/operator-adoption-decision-transport.js";
 export type {
   TemporalEvidenceDecision,
   TemporalEvidenceObservation,
@@ -87,6 +89,7 @@ export type {
   FormalVerificationArtifact,
   FormalVerificationCheck,
   FormalVerificationOutcome,
+  FormalVerificationSubject,
   FormalVerificationToolResultMetadata,
   FormalVerifyToolName,
   FileToolChangeMetadata,

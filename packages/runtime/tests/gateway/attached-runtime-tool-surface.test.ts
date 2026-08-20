@@ -14,10 +14,12 @@ import {
 } from "@kilnai/core/agents";
 import { type ActionEffectEnvelope, textParts } from "@kilnai/core/engine";
 import { SandboxPolicy } from "@kilnai/core/sandbox";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   createDefaultBuiltinToolSurface,
   createSessionBuiltinToolOptions,
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  OPERATOR_ADOPTION_DECISION_TRANSPORT,
   formalVerificationToolMetadata,
   type DevTool,
   type ToolInput,
@@ -65,8 +67,19 @@ function testBoundedWorkRevision(goalRunId: string, objective: string, workItemI
     adoptedAt: "2026-08-12T00:00:00.000Z",
     adoptedBy: { kind: "operator", actorId: "operator:test", decisionId: `decision:${goalRunId}` },
     contract: {
-      schema: "kiln.bounded-work-contract/v1",
-      intent: { objective, acceptanceCriteria: ["Return governed evidence."], nonGoals: ["Do unrelated work."] },
+      schema: "kiln.bounded-work-contract/v2",
+      intent: {
+        objective,
+        acceptanceCriteria: [{ id: "governed-evidence", statement: "Return governed evidence." }],
+        nonGoals: ["Do unrelated work."],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{ id: "governed-evidence-obligation", symbol: "Runtime.Main", subjectPaths: ["src/Runtime.dfy"] }],
+          mappings: [{ criterionId: "governed-evidence", obligationIds: ["governed-evidence-obligation"] }],
+        },
+      },
       scope: {
         allowedWorkItemIds: workItemIds,
         permittedEffects: ["inspect", "invoke_managed_agent", "run_verification"],
@@ -517,6 +530,7 @@ describe("attached runtime builtin tool surface", () => {
     const observationMetadata = formalVerificationToolMetadata({
       verifier: { name: "dafny", version: "4.11.0" },
       artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
+      subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
       checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
     });
     const observation = makeBrandedFormalVerificationObservation(
@@ -606,6 +620,7 @@ describe("attached runtime builtin tool surface", () => {
       formalVerificationToolMetadata({
         verifier: { name: "dafny", version: "4.11.0" },
         artifact: { contentDigest: `sha256:${"b".repeat(64)}` },
+        subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
         checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
       }),
     );
@@ -671,6 +686,7 @@ describe("attached runtime builtin tool surface", () => {
       metadata: formalVerificationToolMetadata({
         verifier: { name: "dafny", version: "4.12.0" },
         artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+        subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
         checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
       }),
     });
@@ -4195,7 +4211,12 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
     const session = makeRuntimeSession();
     const context: RuntimeBuiltinToolExecutionContext = {
       session,
-      turnId: "turn-goal",
+      turnId: canonicalTurnId(session.id, 1),
+      operatorAdoptionDecision: createOperatorAdoptionDecisionAuthority({
+        ownerSessionId: session.id,
+        operatorTurnId: canonicalTurnId(session.id, 1),
+        actorId: session.userId,
+      }),
       toolCall: {
         id: "tool-call-goal",
         name: "goal.create",
@@ -4205,14 +4226,81 @@ expect(config.effectiveTurnAuthority?.toolCount).toBe(config.toolAllowlist?.size
 
     const result = await runtimeSurface.callBuiltinTools.get("goal.create")?.({
       objective: "Governed UI refactor.",
-      ownerSessionId: null,
+      ownerSessionId: "forged-session",
+      operatorTurnId: "forged-turn",
+      contractAuthority: { kind: "operator", actorId: "forged", decisionId: "forged" },
     }, context) as ToolResult | undefined;
 
     expect(result?.isError).toBe(false);
     expect(goalInputs[0]?.input).toMatchObject({
       ownerSessionId: session.id,
-      operatorTurnId: "turn-goal",
+      operatorTurnId: canonicalTurnId(session.id, 1),
+      contractAuthority: context.operatorAdoptionDecision?.contractAuthority,
     });
+  });
+
+  it("does not lend root adoption transport to a managed child goal.create", async () => {
+    const goalTool: DevTool = {
+      name: "goal.create",
+      description: "Create a goal.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: true,
+      },
+      effectEnvelope: RUNTIME_LOCAL_MUTATION_EFFECT,
+      async execute(_input, _sandbox, executionContext) {
+        const adoptionDecision = executionContext?.[OPERATOR_ADOPTION_DECISION_TRANSPORT];
+        return adoptionDecision
+          ? { output: JSON.stringify({ created: true }), isError: false }
+          : {
+            output: JSON.stringify({
+              error: {
+                code: "operator_adoption_decision_missing",
+                message: "goal.create requires a canonical runtime operator adoption decision.",
+              },
+            }),
+            isError: true,
+          };
+      },
+    };
+    const runtimeSurface = createAttachedRuntimeBuiltinToolSurface({
+      builtinToolOptions: createSessionBuiltinToolOptions({
+        additionalTools: [goalTool],
+      }),
+    });
+    const session = makeRuntimeSession();
+    const context: RuntimeBuiltinToolExecutionContext = {
+      session,
+      turnId: canonicalTurnId(session.id, 1),
+      executionScope: {
+        kind: "work_item",
+        goalRunId: "goal-managed",
+        workItemId: "work-item-managed",
+        attemptId: "attempt-managed",
+        managedInvocationId: "managed-child-1",
+      },
+      operatorAdoptionDecision: createOperatorAdoptionDecisionAuthority({
+        ownerSessionId: session.id,
+        operatorTurnId: canonicalTurnId(session.id, 1),
+        actorId: session.userId,
+      }),
+      toolCall: {
+        id: "tool-call-managed-goal",
+        name: "goal.create",
+        input: {},
+      },
+    };
+
+    const result = await runtimeSurface.callBuiltinTools.get("goal.create")?.({
+      objective: "Managed child must not adopt a root goal.",
+      ownerSessionId: "forged-session",
+      operatorTurnId: "forged-turn",
+      contractAuthority: { kind: "operator", actorId: "forged", decisionId: "forged" },
+    }, context) as ToolResult | undefined;
+
+    expect(result?.isError).toBe(true);
+    expect(result?.output).toContain("operator_adoption_decision_missing");
   });
 
   it("propagates deferred core tool projection to runtime consumers", () => {

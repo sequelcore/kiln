@@ -24,8 +24,9 @@ turns a limit into a suggestion:
 
 | Boundary | Owns |
 | --- | --- |
-| Core (`@kilnai/core`) | The immutable, content-digested contract revision; scope, limits, tripwire, and policy value types; candidate and evidence identity; the admission and closeout decision functions. Core decides; it never records. |
-| Runtime (`@kilnai/runtime`) | Project-scoped reservation, accounting, state transitions, and terminal truth in a SQLite authority. Runtime records and enforces; it never redefines the contract. |
+| Core (`@kilnai/core`) | The immutable, content-digested contract revision; Intent criteria and Assurance policy; scope, limits, tripwire, and policy value types; candidate, evidence, Assurance-evaluation, and acceptance-decision identity; the admission and closeout decision functions. Core decides; it never records. |
+| Runtime (`@kilnai/runtime`) | Canonical adoption-authority resolution, exact candidate-subject resolution, project-scoped reservation, accounting, state transitions, and terminal truth. Runtime records and enforces; it never redefines the contract. |
+| Managed Coordination | Selects and validates execution/review topology and merge/evidence contracts. It does not decide which evidence is required or accept a candidate. |
 | Surfaces | Projection and capability reporting only. A surface reports bounded-work state; it never establishes it. |
 
 Core's decision functions are pure: `decideBoundedWorkAdmission` and
@@ -35,12 +36,24 @@ and durably applies the outcome. Neither can be bypassed by the other.
 
 ## The contract
 
-A bounded-work contract carries schema `kiln.bounded-work-contract/v1` and four
-parts.
+A bounded-work contract carries schema `kiln.bounded-work-contract/v2` and six
+parts. This schema replaces shipped v1 together with candidate-evidence v3
+replacing v2; Kiln has no external consumers, so the change has no legacy API
+reader or dual-write path.
 
-**Intent** states the objective, the acceptance criteria, and the non-goals.
+**Intent** states the objective, revision-local acceptance criteria as stable
+`{ id, statement }` values, and the non-goals. It does not choose verification
+methods or declare its own satisfaction.
 Non-goals are part of the contract because scope is defined as much by what is
 excluded as by what is permitted.
+
+**Assurance** fixes the many-to-many mapping from criterion identifiers to
+formal-verification obligation identifiers before execution. Each obligation
+names its exact symbol and candidate-relative subject paths. The first slice is
+strict `allOf`: every mapped obligation must be proved against the exact
+candidate subjects or the criterion remains unresolved. The mapping is adopted
+by the same canonical authority as the whole immutable revision; a worker,
+tool, surface, or caller cannot create or widen it during execution.
 
 **Scope** is the effect envelope: the permitted effects and surfaces, the
 allowed and denied roots, the admitted work-item identifiers, and three separate
@@ -64,7 +77,7 @@ harness capability the work requires.
 
 ### Revisions are immutable
 
-A contract revision is content-digested and frozen. Changing scope produces a
+A contract revision, including its Assurance policy, is content-digested and frozen. Changing scope produces a
 new revision that names its predecessor through `parentRevisionDigest`; it never
 mutates the one in force, so the lineage of an envelope stays reconstructable
 from any point in it. A revision also carries the `accountingLineageId` that
@@ -74,6 +87,14 @@ reservation, accounting snapshot, candidate, and decision carries the
 `contractRevisionDigest` it was made under, so a decision can always be
 attributed to the exact scope that authorized it. Runtime rejects work presented
 against a superseded revision with `stale_contract_revision`.
+
+For operator adoption, Runtime persists a turn-scoped
+`operator_adoption_decision` in the canonical transcript before the governed
+tool round and passes the resolved authority through the internal tool context.
+Model-facing `operatorTurnId` and `contractAuthority` fields are not authority;
+caller values are ignored or rejected. Productive run, GUI, and TUI paths use
+the same persistence-before-round barrier, while benchmark sessions do not
+expose bounded-work goal tools.
 
 ## Admission
 
@@ -138,10 +159,19 @@ digest into a single `candidateDigest`, and links the previous candidate when it
 supersedes one.
 
 Evidence binds to a candidate digest, never to a work item in the abstract.
-Verification, review, and acceptance evidence each name the exact candidate
-content they observed. This is what makes acceptance checkable: closeout
-requires that every acceptance criterion be satisfied by evidence bound to the
-candidate being closed.
+Verification producers publish facts only: verifier identity, artifact,
+candidate-relative subjects with exact content digests, and check outcomes.
+They never publish criterion satisfaction. Runtime resolves the candidate's
+subject digests from canonical Git blobs and Core creates a separate,
+hash-bound Assurance evaluation under the adopted policy. A missing, stale,
+partial, refuted, or unresolved obligation establishes no criterion.
+
+Closeout creates a distinct, hash-bound acceptance-decision record. It binds
+the candidate, contract/policy revision, Assurance evaluation, considered
+evidence, outcome, issuer, and the revision's adoption authority. The automatic
+issuer derives its authority from that adopted revision; it is not represented
+as a fictitious human actor. Human acceptance identity is required only when a
+future adopted policy explicitly requires it.
 
 `decideBoundedWorkCloseout` therefore returns either
 `stop_acceptance_complete`, or `pause_acceptance_incomplete` naming the missing
@@ -160,6 +190,11 @@ exhaustion is not a satisfied criterion.
 - Terminal state is settled explicitly or marked for reconciliation; it is never
   inferred.
 - Evidence binds to a candidate digest, not to a work item.
+- Producer observations are facts, not criterion coverage or acceptance.
+- Assurance coverage is evaluated from the immutable adopted mapping and exact
+  Git-blob subject digests.
+- A completed execution attempt is only a completion claim; only an accepted,
+  current acceptance decision may complete the goal.
 
 ## Benchmark
 

@@ -68,8 +68,19 @@ describe("GoalControlService", () => {
 
 function boundedWorkContract(objective: string, workItemIds: readonly string[]) {
   return {
-    schema: "kiln.bounded-work-contract/v1" as const,
-    intent: { objective, acceptanceCriteria: ["Complete the bounded work."], nonGoals: [] },
+    schema: "kiln.bounded-work-contract/v2" as const,
+    intent: {
+      objective,
+      acceptanceCriteria: [{ id: "completion", statement: "Complete the bounded work." }],
+      nonGoals: [],
+    },
+    assurance: {
+      formalVerification: {
+        semantics: "allOf" as const,
+        obligations: [{ id: "completion-proof", symbol: "completion", subjectPaths: ["packages/cli"] }],
+        mappings: [{ criterionId: "completion", obligationIds: ["completion-proof"] }],
+      },
+    },
     scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect"] as const, permittedSurfaces: ["cli"], allowedRoots: ["packages/cli"], deniedRoots: [], refactorAuthority: "none" as const, migrationAuthority: "none" as const, dependencyAuthority: "none" as const },
     limits: { maxExecutionAttempts: 1, maxManagedInvocations: 0, maxConcurrentManagedInvocations: 0, maxChildDepth: 0, maxReviewRounds: 0, maxRemediationRounds: 0 },
     tripwires: {},

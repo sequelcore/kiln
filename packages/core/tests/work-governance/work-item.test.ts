@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
   accountedWorkItemEvidence,
+  createBoundedWorkCandidate,
+  createBoundedWorkCandidateEvidence,
   GoalRunStore,
   selectNextGoalExecutionStep,
   WorkItemStore,
+  type BoundedWorkAssuranceEvaluation,
+  type BoundedWorkCandidateIdentity,
+  type WorkItem,
   type WorkItemPauseRequirement,
   type WorkItemUpsertInput,
 } from "../../src/work-governance/index.js";
 import { testBoundedWorkRevision } from "./bounded-work-fixtures.js";
+import { boundedWorkDigest } from "../../src/work-governance/bounded-work-content.js";
+import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
 
 describe("WorkItemStore work classification", () => {
   it("normalizes and preserves paired classification with plan work-item provenance", () => {
@@ -615,6 +622,94 @@ describe("WorkItemStore pause requirement supersession", () => {
   });
 });
 
+describe("WorkItemStore Assurance evaluation binding", () => {
+  it("round-trips a parsed and frozen evaluation with its candidate evidence", () => {
+    const fixture = assuranceFixture();
+    const finished = fixture.store.finishExecutionAttempt({
+      id: fixture.item.id,
+      attemptId: fixture.attempt.id,
+      candidate: fixture.candidate,
+      candidateEvidence: [fixture.evidence],
+      assuranceEvaluation: fixture.evaluation,
+    });
+    if (!finished) throw new Error("expected finished attempt");
+
+    expect(finished.attempt.assuranceEvaluation).toEqual(fixture.evaluation);
+    expect(Object.isFrozen(finished.attempt.assuranceEvaluation)).toBe(true);
+
+    const restored = new WorkItemStore({ now: () => "2026-07-01T00:01:00.000Z" }).restore(finished.item);
+    expect(restored).toEqual(finished.item);
+    expect(Object.isFrozen(restored.executionAttempts[0]?.assuranceEvaluation)).toBe(true);
+  });
+
+  it.each([
+    ["candidate digest", { candidate: { candidateDigest: digest("f") } }],
+    ["candidate content digest", { candidate: { candidateContentDigest: digest("f") } }],
+    [
+      "contract revision",
+      { candidate: { contractRevisionDigest: digest("f") }, contractRevisionDigest: digest("f") },
+    ],
+    ["accounting lineage", { candidate: { accountingLineageId: "foreign-lineage" } }],
+  ])("rejects an evaluation with a mismatched %s", (_label, overrides) => {
+    const fixture = assuranceFixture(overrides);
+
+    expect(() => fixture.store.finishExecutionAttempt({
+      id: fixture.item.id,
+      attemptId: fixture.attempt.id,
+      candidate: fixture.candidate,
+      candidateEvidence: [fixture.evidence],
+      assuranceEvaluation: fixture.evaluation,
+    })).toThrow(/exact candidate and attempt/u);
+  });
+
+  it("rejects an evaluation that references dangling candidate evidence", () => {
+    const fixture = assuranceFixture({ consideredEvidenceRecordDigests: [digest("f")] });
+
+    expect(() => fixture.store.finishExecutionAttempt({
+      id: fixture.item.id,
+      attemptId: fixture.attempt.id,
+      candidate: fixture.candidate,
+      candidateEvidence: [fixture.evidence],
+      assuranceEvaluation: fixture.evaluation,
+    })).toThrow(/unknown candidate evidence/u);
+  });
+
+  it("rejects an evaluation without candidate evidence", () => {
+    const fixture = assuranceFixture();
+
+    expect(() => fixture.store.finishExecutionAttempt({
+      id: fixture.item.id,
+      attemptId: fixture.attempt.id,
+      candidate: fixture.candidate,
+      assuranceEvaluation: fixture.evaluation,
+    })).toThrow(/candidate evidence/u);
+  });
+
+  it("rejects a tampered evaluation during restore", () => {
+    const fixture = assuranceFixture();
+    const finished = fixture.store.finishExecutionAttempt({
+      id: fixture.item.id,
+      attemptId: fixture.attempt.id,
+      candidate: fixture.candidate,
+      candidateEvidence: [fixture.evidence],
+      assuranceEvaluation: fixture.evaluation,
+    });
+    if (!finished) throw new Error("expected finished attempt");
+    const tampered: WorkItem = {
+      ...finished.item,
+      executionAttempts: finished.item.executionAttempts.map((attempt) => ({
+        ...attempt,
+        assuranceEvaluation: {
+          ...fixture.evaluation,
+          evaluationDigest: digest("f"),
+        },
+      })),
+    };
+
+    expect(() => new WorkItemStore().restore(tampered)).toThrow(/evaluationDigest/u);
+  });
+});
+
 function workItemInput(overrides: Partial<WorkItemUpsertInput> = {}): WorkItemUpsertInput {
   return {
     id: "work-item",
@@ -626,4 +721,100 @@ function workItemInput(overrides: Partial<WorkItemUpsertInput> = {}): WorkItemUp
     verificationGates: ["bun test"],
     ...overrides,
   };
+}
+
+interface AssuranceEvaluationOverrides {
+  readonly candidate?: Partial<BoundedWorkAssuranceEvaluation["candidate"]>;
+  readonly contractRevisionDigest?: string;
+  readonly consideredEvidenceRecordDigests?: readonly string[];
+}
+
+function assuranceFixture(overrides: AssuranceEvaluationOverrides = {}) {
+  const store = new WorkItemStore({ now: () => "2026-07-01T00:00:00.000Z" });
+  const item = store.upsert(workItemInput({
+    id: "assurance-work",
+    expectedEvidence: [],
+    verificationGates: [],
+  }));
+  const revision = testBoundedWorkRevision("assurance-goal", [item.id], "Evaluate candidate Assurance.");
+  const started = store.startExecutionAttempt({
+    id: item.id,
+    goalRunId: revision.accountingLineageId,
+    boundedWorkContractRevisionDigest: revision.revisionDigest,
+    executionMode: "direct",
+  });
+  if (!started) throw new Error("expected execution attempt");
+  const candidate = createBoundedWorkCandidate({
+    goalRunId: started.attempt.goalRunId,
+    workItemId: started.attempt.workItemId,
+    contractRevisionDigest: started.attempt.boundedWorkContractRevisionDigest,
+    accountingLineageId: started.attempt.goalRunId,
+    kind: "git_worktree",
+    baseline: { kind: "git_tree", digest: digest("b") },
+    candidateContentDigest: digest("c"),
+    createdAt: started.attempt.startedAt,
+  });
+  const evidence = createBoundedWorkCandidateEvidence({
+    candidate,
+    executionAttempt: {
+      goalRunId: started.attempt.goalRunId,
+      workItemId: started.attempt.workItemId,
+      attemptId: started.attempt.id,
+    },
+    invocation: { toolCallScopeId: "scope-1", toolCallId: "call-1" },
+    attestation: {
+      producer: { kind: "registered_tool", toolName: "formal_verify" },
+      payload: formalVerificationToolMetadata({
+        verifier: { name: "dafny", version: "4.11.0" },
+        artifact: { contentDigest: digest("a") },
+        subjects: [{ path: "src/Main.dfy", contentDigest: boundedWorkDigest("subject") }],
+        checks: [{ symbol: "Check.Main", check: "correctness", outcome: "proved" }],
+      }),
+    },
+    recordedAt: "2026-07-01T00:00:30.000Z",
+  });
+  const evaluation = assuranceEvaluationFor(candidate, evidence, overrides);
+  return { store, item, attempt: started.attempt, candidate, evidence, evaluation };
+}
+
+function assuranceEvaluationFor(
+  candidate: BoundedWorkCandidateIdentity,
+  evidence: { readonly recordDigest: string },
+  overrides: AssuranceEvaluationOverrides,
+): BoundedWorkAssuranceEvaluation {
+  const candidateProjection = {
+    candidateDigest: candidate.candidateDigest,
+    candidateContentDigest: candidate.candidateContentDigest,
+    contractRevisionDigest: candidate.contractRevisionDigest,
+    accountingLineageId: candidate.accountingLineageId,
+    ...overrides.candidate,
+  };
+  const contractRevisionDigest = overrides.contractRevisionDigest ?? candidateProjection.contractRevisionDigest;
+  const consideredEvidenceRecordDigests = overrides.consideredEvidenceRecordDigests ?? [evidence.recordDigest];
+  const body = {
+    schema: "kiln.bounded-work-assurance-evaluation/v1" as const,
+    candidate: candidateProjection,
+    contractRevisionDigest,
+    candidateSubjectsDigest: digest("e"),
+    consideredEvidenceRecordDigests,
+    obligationEvaluations: [{
+      obligationId: "obligation-1",
+      outcome: "established" as const,
+      evidenceRecordDigests: consideredEvidenceRecordDigests,
+    }],
+    criterionEvaluations: [{
+      criterionId: "criterion-1",
+      outcome: "established" as const,
+      obligationIds: ["obligation-1"],
+    }],
+    evaluatedAt: "2026-07-01T00:00:45.000Z",
+  };
+  return {
+    ...body,
+    evaluationDigest: boundedWorkDigest(body),
+  };
+}
+
+function digest(character: string): string {
+  return `sha256:${character.repeat(64).slice(0, 64)}`;
 }

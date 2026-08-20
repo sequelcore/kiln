@@ -6,8 +6,19 @@ const [path, id, ready, start, result] = process.argv.slice(-5);
 if (!path || !id || !ready || !start || !result) throw new Error("Missing bounded-work worker arguments.");
 
 const contract: BoundedWorkContract = {
-  schema: "kiln.bounded-work-contract/v1",
-  intent: { objective: "Compete for one attempt.", acceptanceCriteria: ["tests"], nonGoals: [] },
+  schema: "kiln.bounded-work-contract/v2",
+  intent: {
+    objective: "Compete for one attempt.",
+    acceptanceCriteria: [{ id: "tests", statement: "tests" }],
+    nonGoals: [],
+  },
+  assurance: {
+    formalVerification: {
+      semantics: "allOf",
+      obligations: [{ id: "tests-obligation", symbol: "Tests.Main", subjectPaths: ["src/Test.dfy"] }],
+      mappings: [{ criterionId: "tests", obligationIds: ["tests-obligation"] }],
+    },
+  },
   scope: {
     allowedWorkItemIds: ["work-1"],
     permittedEffects: ["modify_source"],

@@ -1,12 +1,51 @@
 import { describe, expect, it } from "vitest";
 import { buildOperatorToolResultPayload } from "@kilnai/gateway-contracts";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   operatorTranscriptSourceForEntry,
   projectGovernanceTranscriptEventDrafts,
   projectOperatorTranscriptEntryToDraft,
+  toCanonicalSessionEventPersistedTranscriptEventDraft,
 } from "./operator-transcript-projection.js";
+import { canonicalSessionEventsFromTranscript } from "./runtime-session-rehydration.js";
 
 describe("operator transcript projection", () => {
+  it("round-trips an operator adoption decision without changing its payload", () => {
+    const turnId = canonicalTurnId("session-1", 2);
+    const authority = createOperatorAdoptionDecisionAuthority({
+      ownerSessionId: "session-1",
+      operatorTurnId: turnId,
+      actorId: "operator-session-1",
+    });
+    const event = {
+      eventId: "decision-1",
+      kilnSessionId: "session-1",
+      sequence: 7,
+      timestamp: new Date("2026-07-15T20:00:00.000Z"),
+      kind: "operator_adoption_decision" as const,
+      turnId,
+      turnOrdinal: 2,
+      correlationId: "request-2",
+      ...authority,
+      source: { actor: "runtime" as const, surface: "runtime" as const, component: "operator-adoption" },
+    };
+
+    const draft = toCanonicalSessionEventPersistedTranscriptEventDraft(event);
+    expect(draft.payload).toEqual({
+      turnOrdinal: 2,
+      correlationId: "request-2",
+      ownerSessionId: "session-1",
+      operatorTurnId: turnId,
+      contractAuthority: authority.contractAuthority,
+      decisionId: authority.decisionId,
+    });
+
+    const [rehydrated] = canonicalSessionEventsFromTranscript([
+      { ...draft, sequence: 7 },
+    ], "session-1");
+    expect(rehydrated).toEqual(event);
+  });
+
   it("projects tool result envelopes into operator transcript payloads", () => {
     const payload = buildOperatorToolResultPayload({
       toolCallId: "call-1",

@@ -5,6 +5,10 @@ import type {
   WorkItemExecutionFailureReason,
   WorkItemStatus,
 } from "../../work-governance/index.js";
+import {
+  normalizeFormalProofSubjects,
+  type FormalProofSubject,
+} from "../../work-governance/formal-proof-subjects.js";
 import type { SessionExecutionScope } from "../../events/session-execution-scope.js";
 import type { ManagedAgentExternalRuntimeAttachmentIdentity } from "../../agents/managed-invocation/index.js";
 import type { TemporalEventEvidenceRequirement, TemporalEvidenceDecision } from "./temporal-evidence.js";
@@ -618,7 +622,7 @@ export interface MemoryToolResultMetadata<TToolName extends MemoryToolName = Mem
 
 /** Versioned, facts-only observation emitted by the formal verifier tool. */
 export const FORMAL_VERIFICATION_OBSERVATION_SCHEMA =
-  "kiln.formal-verification-observation/v1" as const;
+  "kiln.formal-verification-observation/v2" as const;
 
 export type FormalVerificationOutcome = "proved" | "refuted" | "unresolved";
 
@@ -626,6 +630,9 @@ export interface FormalVerificationArtifact {
   /** Digest of the verifier input bytes; this is not a candidate subject. */
   readonly contentDigest: string;
 }
+
+/** Exact candidate-relative bytes covered by this verifier observation. */
+export type FormalVerificationSubject = FormalProofSubject;
 
 export interface FormalVerificationCheck {
   readonly symbol: string;
@@ -649,6 +656,7 @@ export interface FormalVerificationToolResultMetadata extends ToolResultResource
   readonly kind: "formal_verification";
   readonly verifier: { readonly name: "dafny"; readonly version: string };
   readonly artifact: FormalVerificationArtifact;
+  readonly subjects: readonly FormalVerificationSubject[];
   readonly checks: readonly FormalVerificationCheck[];
   readonly establishes: readonly [];
 }
@@ -922,6 +930,7 @@ export function parseFormalVerificationToolResultMetadata(
     "kind",
     "verifier",
     "artifact",
+    "subjects",
     "checks",
     "establishes",
   ], ["resourceLinks"])) {
@@ -935,6 +944,7 @@ export function parseFormalVerificationToolResultMetadata(
   }
   const verifier = parseFormalVerificationVerifier(value.verifier);
   const artifact = parseFormalVerificationArtifact(value.artifact);
+  const subjects = parseFormalVerificationSubjects(value.subjects);
   const checks = parseFormalVerificationChecks(value.checks);
   const resourceLinks = parseFormalVerificationResourceLinks(value.resourceLinks);
   if (!Array.isArray(value.establishes) || value.establishes.length !== 0) {
@@ -946,6 +956,7 @@ export function parseFormalVerificationToolResultMetadata(
     kind: "formal_verification",
     verifier,
     artifact,
+    subjects,
     checks,
     establishes: [],
     ...(resourceLinks === undefined ? {} : { resourceLinks }),
@@ -985,6 +996,31 @@ function parseFormalVerificationArtifact(value: unknown): FormalVerificationArti
     throw new Error("formal verification artifact contentDigest must be canonical sha256 evidence");
   }
   return { contentDigest: value.contentDigest };
+}
+
+function parseFormalVerificationSubjects(value: unknown): readonly FormalVerificationSubject[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error("formal verification metadata subjects must be non-empty");
+  }
+  const subjects = Array.from(value, (entry) => {
+    if (!isRecord(entry) || !hasOnlyKeys(entry, ["path", "contentDigest"])) {
+      throw new Error("formal verification subject has an invalid shape or extra field");
+    }
+    if (typeof entry.path !== "string" || typeof entry.contentDigest !== "string") {
+      throw new Error("formal verification subject path and contentDigest are required");
+    }
+    return { path: entry.path, contentDigest: entry.contentDigest };
+  });
+  const normalized = normalizeFormalProofSubjects(subjects);
+  if (normalized.length !== subjects.length || normalized.some((subject, index) => {
+    const original = subjects[index];
+    return original === undefined
+      || original.path !== subject.path
+      || original.contentDigest !== subject.contentDigest;
+  })) {
+    throw new Error("formal verification subjects must be in canonical sorted order");
+  }
+  return normalized;
 }
 
 function parseFormalVerificationChecks(value: unknown): readonly FormalVerificationCheck[] {
@@ -1082,6 +1118,7 @@ function freezeFormalVerificationMetadata(
     ...value,
     verifier: Object.freeze({ ...value.verifier }),
     artifact: Object.freeze({ ...value.artifact }),
+    subjects: Object.freeze(value.subjects.map((subject) => Object.freeze({ ...subject }))),
     checks: Object.freeze(value.checks.map((check) => Object.freeze({ ...check }))),
     establishes: Object.freeze([]) as readonly [],
     ...(value.resourceLinks === undefined

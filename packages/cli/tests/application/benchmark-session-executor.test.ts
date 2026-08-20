@@ -455,6 +455,7 @@ describe("createBenchmarkSessionExecutor", () => {
     });
     expect(benchmarkExecutorMocks.runSession).toHaveBeenCalledWith(expect.objectContaining({
       output: expect.objectContaining({ mode: "answer" }),
+      governedGoalTools: "forbidden",
       sessionConfig: expect.objectContaining({
         executionEnvelope: { toolRounds: { max: 8 } },
         requestedAuthority: "read_only",
@@ -481,6 +482,8 @@ describe("createBenchmarkSessionExecutor", () => {
     expect(projectedTools).not.toContain("kiln_config.propose_change");
     expect(projectedTools).not.toContain("kiln_config.apply_change");
     expect(projectedTools).not.toContain("work_item.update");
+    expect(projectedTools).not.toContain("goal.create");
+    expect(projectedTools).not.toContain("goal.bounded_work_contract.supersede");
     expect(stdoutWrite).not.toHaveBeenCalled();
     expect(consoleLog).not.toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(expect.stringContaining("[tool] status"));

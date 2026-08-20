@@ -1609,6 +1609,9 @@ export class RuntimeSessionToolExecutor {
           ...(perCallConfig?.effectiveTurnAuthority
             ? { effectiveTurnAuthority: perCallConfig.effectiveTurnAuthority }
             : {}),
+          ...(perCallConfig?.operatorAdoptionDecision
+            ? { operatorAdoptionDecision: perCallConfig.operatorAdoptionDecision }
+            : {}),
         }
       : undefined;
     const callBuiltin = this.callBuiltinTools?.get(toolCall.name);

@@ -3,6 +3,8 @@ import {
   completeGoalExecution,
   createBoundedWorkCandidate,
   createBoundedWorkCandidateEvidence,
+  decideBoundedWorkCloseout,
+  evaluateBoundedWorkAssurance,
   failGoalExecutionAttempt,
   finishGoalExecutionAttempt,
   GoalRunStore,
@@ -11,11 +13,13 @@ import {
   selectNextGoalExecutionStep,
   startGoalExecutionAttempt,
   WorkItemStore,
+  type BoundedWorkCloseoutDecision,
   type GoalRun,
   type WorkItemExecutionAttempt,
 } from "../../src/work-governance/index.js";
 import { createSessionEvent } from "../../src/events/index.js";
 import { formalVerificationToolMetadata } from "../../src/tools/domain/tool-result-metadata.js";
+import { boundedWorkDigest } from "../../src/work-governance/bounded-work-content.js";
 import { testBoundedWorkRevision } from "./bounded-work-fixtures.js";
 
 describe("goal execution loop", () => {
@@ -262,6 +266,73 @@ describe("goal execution loop", () => {
       status: "completed",
       closeoutSummary: "Release contract and work-item evidence verified.",
     });
+  });
+
+  it("rejects an acceptance decision that is not bound to the persisted attempt evaluation", () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const item = workItemStore.upsert({
+      id: "work-assurance-binding",
+      summary: "Verify persisted assurance binding.",
+      workflowProfile: "verification-heavy",
+      triggers: ["verification-heavy"],
+      expectedEvidence: [],
+      verificationGates: [],
+    });
+    const goal = goalRunStore.create({
+      id: "goal-assurance-binding",
+      objective: "Reject stale assurance decisions.",
+      ownerSessionId: "session-1",
+      source: { kind: "operator_direct", turnId: "turn-assurance-binding" },
+      boundedWorkContractRevision: testBoundedWorkRevision(
+        "goal-assurance-binding",
+        [item.id],
+        "Reject stale assurance decisions.",
+      ),
+      workItemIds: [item.id],
+      authorityEnvelope: {
+        maximumAuthority: "audited",
+        escalationPolicy: "approval_required",
+        reason: "The acceptance record must bind to the persisted evaluation.",
+      },
+      routePolicy: { workflowProfile: "verification-heavy" },
+      evidenceRequirements: [],
+    });
+    const started = startGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      executionMode: "direct",
+    });
+    finishGoalExecutionAttempt({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      workItemId: item.id,
+      attemptId: started.attempt.id,
+      ...candidateBinding(goal, item.id, started.attempt),
+    });
+
+    const valid = acceptanceDecision(goalRunStore.get(goal.id)!, workItemStore, item.id);
+    const forgedRecordBody = {
+      ...valid.acceptanceDecision,
+      assuranceEvaluationDigest: `sha256:${"f".repeat(64)}`,
+    };
+    const forged = {
+      ...valid,
+      acceptanceDecision: {
+        ...forgedRecordBody,
+        decisionDigest: boundedWorkDigest({ ...forgedRecordBody, decisionDigest: undefined }),
+      },
+    };
+
+    expect(() => completeGoalExecution({
+      goalRunStore,
+      workItemStore,
+      goalRunId: goal.id,
+      boundedWorkCloseoutDecision: forged,
+    })).toThrow("does not reference a completed execution candidate");
   });
 
   it("selects the first ready pending work item and derives managed delegation from governance assessment", () => {
@@ -2262,9 +2333,8 @@ function candidateBinding(goal: GoalRun, workItemId: string, attempt: WorkItemEx
     candidateContentDigest: `sha256:${"b".repeat(64)}`,
     createdAt: attempt.startedAt,
   });
-  return {
-    candidate,
-    candidateEvidence: [createBoundedWorkCandidateEvidence({
+  const subjects = [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }];
+  const candidateEvidence = [createBoundedWorkCandidateEvidence({
       candidate,
       executionAttempt: {
         goalRunId: attempt.goalRunId,
@@ -2280,22 +2350,46 @@ function candidateBinding(goal: GoalRun, workItemId: string, attempt: WorkItemEx
         payload: formalVerificationToolMetadata({
           verifier: { name: "dafny", version: "4.11.0" },
           artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
-          checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
+          subjects,
+          checks: [{ symbol: "Test.Main", check: "correctness", outcome: "proved" }],
         }),
       },
       recordedAt: attempt.startedAt,
-    })],
+    })];
+  const assuranceEvaluation = evaluateBoundedWorkAssurance({
+    revision: goal.boundedWorkContractRevision,
+    candidate,
+    candidateSubjects: {
+      candidateContentDigest: candidate.candidateContentDigest,
+      digests: new Map(subjects.map((subject) => [subject.path, subject.contentDigest])),
+    },
+    candidateEvidence,
+    evaluatedAt: attempt.startedAt,
+  });
+  return {
+    candidate,
+    candidateEvidence,
+    assuranceEvaluation,
   };
 }
 
-function acceptanceDecision(goal: GoalRun, workItemStore: WorkItemStore, workItemId: string) {
-  const candidate = workItemStore.get(workItemId)?.executionAttempts.at(-1)?.candidate;
-  if (!candidate) throw new Error("test candidate is required");
-  return {
-    kind: "stop_acceptance_complete" as const,
+function acceptanceDecision(
+  goal: GoalRun,
+  workItemStore: WorkItemStore,
+  workItemId: string,
+): Extract<BoundedWorkCloseoutDecision, { readonly kind: "stop_acceptance_complete" }> {
+  const attempt = workItemStore.get(workItemId)?.executionAttempts.at(-1);
+  const candidate = attempt?.candidate;
+  if (!candidate || !attempt?.candidateEvidence || !attempt.assuranceEvaluation) {
+    throw new Error("test candidate assurance is required");
+  }
+  const decision = decideBoundedWorkCloseout({
+    revision: goal.boundedWorkContractRevision,
     candidateDigest: candidate.candidateDigest,
-    contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
-    accounting: {
+    candidateEvidence: attempt.candidateEvidence,
+    assuranceEvaluation: attempt.assuranceEvaluation,
+    decidedAt: fixedNow(),
+    snapshot: {
       schema: "kiln.bounded-work-accounting/v1" as const,
       accountingLineageId: goal.id,
       contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
@@ -2308,7 +2402,11 @@ function acceptanceDecision(goal: GoalRun, workItemStore: WorkItemStore, workIte
       toolCalls: { kind: "unavailable" as const },
       activeDurationMs: { kind: "unavailable" as const },
     },
-  };
+  });
+  if (decision.kind !== "stop_acceptance_complete") {
+    throw new Error(`test closeout did not establish all acceptance criteria: ${decision.missingCriteria.join(", ")}`);
+  }
+  return decision;
 }
 
 function managedResultHandoff() {

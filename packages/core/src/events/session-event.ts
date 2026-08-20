@@ -37,6 +37,7 @@ import type {
 import type { ExecutionCostEvidence } from "../cost/index.js";
 import type { GoalRun, WorkItem, WorkItemExecutionAttempt, WorkItemMaterialization } from "../work-governance/index.js";
 import type { SessionExecutionScope } from "./session-execution-scope.js";
+import type { OperatorAdoptionDecisionAuthority } from "./operator-adoption-decision.js";
 
 export type CanonicalSessionEventKind =
   | "turn_started"
@@ -48,6 +49,7 @@ export type CanonicalSessionEventKind =
   | "plan_submitted"
   | "plan_analysis_reported"
   | "plan_approved"
+  | "operator_adoption_decision"
   | "goal.created"
   | "goal.updated"
   | "goal.completed"
@@ -254,6 +256,13 @@ export interface CanonicalPlanApprovedEvent extends SessionEventEnvelope<"plan_a
   readonly residualRiskAcknowledgement?: string;
   readonly fromMode: "plan";
   readonly toMode: "execute";
+}
+
+export interface CanonicalOperatorAdoptionDecisionEvent
+  extends SessionEventEnvelope<"operator_adoption_decision">,
+    OperatorAdoptionDecisionAuthority {
+  readonly turnOrdinal: number;
+  readonly correlationId?: string;
 }
 
 export interface CanonicalGoalCreatedEvent extends SessionEventEnvelope<"goal.created"> {
@@ -702,6 +711,7 @@ export interface CanonicalSessionEventMap {
   plan_submitted: CanonicalPlanSubmittedEvent;
   plan_analysis_reported: CanonicalPlanAnalysisReportedEvent;
   plan_approved: CanonicalPlanApprovedEvent;
+  operator_adoption_decision: CanonicalOperatorAdoptionDecisionEvent;
   "goal.created": CanonicalGoalCreatedEvent;
   "goal.updated": CanonicalGoalUpdatedEvent;
   "goal.completed": CanonicalGoalCompletedEvent;

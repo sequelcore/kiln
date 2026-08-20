@@ -819,6 +819,10 @@ export type {
 export {
   RuntimeSession,
   RuntimeSessionOrchestrator,
+  prepareOperatorAdoptionTurn,
+  requireOperatorAdoptionDecisionPersistence,
+  isGovernedGoalToolName,
+  hasGovernedGoalTools,
   RuntimeSessionTurnBudgetService,
   collectRuntimeFeedbackEvidence,
   deriveGovernedTurnOutcome,
@@ -844,6 +848,9 @@ export {
 } from "./session/index.js";
 export type {
   RuntimeSessionConfig,
+  OperatorAdoptionDecisionPersistence,
+  OperatorAdoptionRuntimeBinding,
+  PreparedOperatorAdoptionTurn,
   RuntimeSessionTokenUsageReader,
   RuntimeSessionTurnBudgetAuthority,
   GovernedTurnOutcomeToolRecord,
@@ -1012,6 +1019,7 @@ export {
   captureArtifactCandidate,
   captureExternalStateCandidate,
   captureGitWorktreeCandidate,
+  resolveCandidateSubjectDigests,
 } from "./work-governance/index.js";
 export type {
   BoundedWorkAuthorityErrorCode,

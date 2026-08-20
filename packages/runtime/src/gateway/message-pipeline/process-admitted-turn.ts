@@ -92,8 +92,15 @@ import {
   type RuntimeTurnToolCompletion
 } from "../../session/runtime-turn-record.js";
 import {
-  appendCanonicalTurnEvents
+  appendCanonicalTurnEvents,
+  resolveCanonicalTurnIdentity,
 } from "../../session/runtime-session-event-ledger.js";
+import {
+  hasGovernedGoalTools,
+  prepareOperatorAdoptionTurn,
+  requireOperatorAdoptionDecisionPersistence,
+  type OperatorAdoptionDecisionPersistence,
+} from "../../session/operator-adoption-authority.js";
 import {
   type ContextUsageWindowEvidence
 } from "../../session/context-usage-projection.js";
@@ -268,6 +275,8 @@ export interface AdmittedTurnContext {
   };
   /** Publishes persisted canonical turn evidence to the active operator surface. */
   readonly publishCanonicalSessionEvents?: (events: readonly CanonicalSessionEvent[]) => void;
+  /** Durable transcript sink for governed operator adoption decisions. */
+  readonly persistCanonicalSessionEvent?: OperatorAdoptionDecisionPersistence;
 }
 
 export interface RuntimeSessionHydrationResult {
@@ -759,9 +768,28 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
     ctx.requestedAuthority,
     "gateway admitted turn requested authority",
   );
-  const perCallConfig = ctx.contextPolicy
+  const projectedPerCallConfig = ctx.contextPolicy
     ? { ...authorityPerCallConfig, contextPolicy: ctx.contextPolicy }
     : authorityPerCallConfig;
+  const canonicalTurn = resolveCanonicalTurnIdentity(
+    session,
+    projectedPerCallConfig?.turnCorrelationId,
+  );
+  const perCallConfig: PerCallToolConfig = {
+    ...projectedPerCallConfig,
+    turnId: canonicalTurn.turnId,
+  };
+  // These values are runtime authority transport, not model-facing request
+  // configuration. Keep them directly readable by the orchestrator while
+  // preventing accidental projection into provider/tool request snapshots.
+  if (canonicalTurn.correlationId) {
+    Object.defineProperty(perCallConfig, "turnCorrelationId", {
+      configurable: false,
+      enumerable: false,
+      value: canonicalTurn.correlationId,
+      writable: false,
+    });
+  }
   const proceduralContextCandidates: ContextCandidate[] = [];
   if (executionMode === "plan") {
     proceduralContextCandidates.push({
@@ -829,6 +857,7 @@ async function assembleTurnContext(ctx: AdmittedTurnContext, state: SessionAdmis
   return {
     runtimeSupport,
     runtimeContinuityPresentation,
+    canonicalTurnIdentity: canonicalTurn,
     perCallConfig,
     projectedTurnContext,
     projectedContextAudit,
@@ -849,8 +878,33 @@ async function invokeOrchestratorWithLedgerCapture(
   assembled: AssembledTurnContext,
 ) {
   const { session, userParts } = state;
-  const { perCallConfig, projectedTurnContext, runtimeContinuityPresentation } = assembled;
+  const { projectedTurnContext, runtimeContinuityPresentation, canonicalTurnIdentity } = assembled;
+  let perCallConfig = assembled.perCallConfig;
 
+  const governedGoalTools = hasGovernedGoalTools({
+    toolAllowlist: perCallConfig?.toolAllowlist,
+    additionalTools: perCallConfig?.additionalTools,
+    builtinToolNames: state.effectiveCallBuiltinTools?.keys(),
+  });
+  // A1 authority is durable before the first model/tool round. Ingress turn
+  // ids (request/live/attempt) remain correlation-only and are never authority.
+  // A sink is mandatory whenever governed goal tools are available; callers
+  // that provide one also get the canonical decision for non-governed turns.
+  if (governedGoalTools || ctx.persistCanonicalSessionEvent) {
+    const persist = requireOperatorAdoptionDecisionPersistence(ctx.persistCanonicalSessionEvent);
+    const prepared = await prepareOperatorAdoptionTurn({
+      session,
+      actorId: ctx.userId,
+      identity: canonicalTurnIdentity,
+      persist,
+    });
+    perCallConfig = {
+      ...perCallConfig,
+      turnId: prepared.turnId,
+      ...(prepared.correlationId ? { turnCorrelationId: prepared.correlationId } : {}),
+      operatorAdoptionDecision: prepared.operatorAdoptionDecision,
+    };
+  }
   // Capture real approval state transitions for this turn from runtime events.
   const approvalTransitions: RuntimeTurnApprovalTransition[] = [];
   const authorityDecisions: RuntimeTurnAuthorityDecision[] = [];

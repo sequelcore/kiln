@@ -5,6 +5,10 @@ import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
   type FormalVerificationFinishTransportEnvelope,
 } from "./formal-verification-finish-transport.js";
+import {
+  OPERATOR_ADOPTION_DECISION_TRANSPORT,
+  type OperatorAdoptionDecisionTransport,
+} from "./operator-adoption-decision-transport.js";
 
 const OUTPUT_VERBOSITY_PROPERTY = {
   type: "string",
@@ -86,6 +90,7 @@ export interface DevToolExecutionContext {
   readonly onOutput?: (delta: ToolExecutionOutputDelta) => void;
   /** Internal Runtime authority transport; never model input or serialized context. */
   readonly [FORMAL_VERIFICATION_FINISH_TRANSPORT]?: FormalVerificationFinishTransportEnvelope;
+  readonly [OPERATOR_ADOPTION_DECISION_TRANSPORT]?: OperatorAdoptionDecisionTransport;
 }
 
 export type ToolResultResourcePayload = {

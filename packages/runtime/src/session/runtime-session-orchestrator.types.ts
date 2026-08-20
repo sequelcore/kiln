@@ -25,6 +25,7 @@ import type {
   SessionExecutionScope,
   SessionTurnOutcome,
   ConversationToolResultProjectionPolicy,
+  OperatorAdoptionDecisionAuthority,
   TurnTemporalContext,
   ProviderTransportObserver,
   ProviderTransportWatchdog,
@@ -94,6 +95,8 @@ export interface RuntimeBuiltinToolExecutionContext {
   readonly allowedToolNames?: readonly string[];
   readonly authority?: AuthorityDescriptor;
   readonly effectiveTurnAuthority?: EffectiveTurnAuthoritySnapshot;
+  /** Runtime-owned A1 adoption authority; never derived from tool input. */
+  readonly operatorAdoptionDecision?: OperatorAdoptionDecisionAuthority;
   readonly requestApproval?: (
     description: string,
   ) => Promise<{ approved: boolean; reason?: string }>;
@@ -336,6 +339,10 @@ export interface ModelRoutingPolicyConfig {
 
 export interface PerCallToolConfig {
   readonly turnId?: string;
+  /** Correlation-only ingress identity; never used for authority or replay. */
+  readonly turnCorrelationId?: string;
+  /** Runtime-owned A1 adoption authority for this operator turn. */
+  readonly operatorAdoptionDecision?: OperatorAdoptionDecisionAuthority;
   /** Per-turn temporal reference, derived at the operator surface rather than persisted in the session prompt. */
   readonly temporalContext?: TurnTemporalContext;
   readonly executionScope?: SessionExecutionScope;

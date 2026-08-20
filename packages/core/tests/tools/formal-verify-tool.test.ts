@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createFormalVerifyTool,
@@ -22,7 +24,7 @@ import type {
   CommandProcessRunner,
   CommandProcessSink,
 } from "../../src/tools/infrastructure/command-process.js";
-import { makeSandbox, makeTempDir, removeTempDir } from "./infrastructure/test-utils.js";
+import { makeSandbox, makeTempDir as makePlainTempDir, removeTempDir } from "./infrastructure/test-utils.js";
 
 class ScriptedRunner implements CommandProcessRunner {
   request?: CommandProcessRequest;
@@ -56,6 +58,24 @@ const tool = (runner: CommandProcessRunner = new ScriptedRunner()) =>
   createFormalVerifyTool({ executable: "dafny", verifierVersion: "4.11.0", runner });
 
 const call = (file: unknown) => ({ input: { file } }) as never;
+const execFileAsync = promisify(execFile);
+
+async function git(cwd: string, ...args: readonly string[]): Promise<string> {
+  const result = await execFileAsync("git", [...args], { cwd, encoding: "utf8" });
+  return result.stdout;
+}
+
+async function makeTempDir(prefix = "kiln-tools-"): Promise<string> {
+  const root = await makePlainTempDir(prefix);
+  await git(root, "init", "--quiet");
+  await git(root, "config", "user.email", "test@example.invalid");
+  await git(root, "config", "user.name", "Kiln test");
+  await git(root, "config", "core.autocrlf", "true");
+  await git(root, "commit", "--quiet", "--allow-empty", "-m", "baseline");
+  return root;
+}
+
+const makeGitRepo = (): Promise<string> => makeTempDir("kiln-formal-git-");
 
 describe("formal_verify registration", () => {
   it("declares a schema that does not accept an acceptance-criterion mapping", () => {
@@ -107,7 +127,7 @@ describe("formal_verify execution", () => {
 
   it("reports a run that did not complete as an error, not as a clean verification", async () => {
     const filePath = await executionFile();
-    const result = await tool(new ScriptedRunner({ timedOut: true })).execute(call(filePath));
+    const result = await tool(new ScriptedRunner({ timedOut: true })).execute(call(filePath), makeSandbox(executionDir!));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("did not complete");
     expect(result.output).toContain("timed_out");
@@ -117,7 +137,7 @@ describe("formal_verify execution", () => {
     const filePath = await executionFile();
     const result = await tool(
       new ScriptedRunner({ error: new Error("spawn dafny ENOENT") }),
-    ).execute(call(filePath));
+    ).execute(call(filePath), makeSandbox(executionDir!));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("ENOENT");
   });
@@ -175,7 +195,7 @@ describe("formal_verify observation metadata", () => {
         return originalStart(request, sink);
       };
     }
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     return { result, fileBytes, filePath };
   }
 
@@ -193,11 +213,11 @@ describe("formal_verify observation metadata", () => {
       kind: "formal_verification",
       verifier: { name: "dafny", version: "4.11.0" },
       artifact: { contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` },
+      subjects: [{ path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update(fileBytes).digest("hex")}` }],
       checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
       establishes: [],
     });
     expect(metadata).not.toHaveProperty("completedAt");
-    expect(metadata).not.toHaveProperty("subjects");
     expect(metadata).not.toHaveProperty("criterionId");
     expect(isFormalVerificationToolResultMetadata(metadata)).toBe(true);
     expect(parseFormalVerificationToolResultMetadata(metadata)).toEqual(metadata);
@@ -227,7 +247,7 @@ describe("formal_verify observation metadata", () => {
       [CSV_HEADER, "admitPath (correctness),Failed,00:00:00.0230392,26991,0"].join("\n"),
     );
 
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(false);
     expect((result.metadata as FormalVerificationToolResultMetadata).checks[0]?.outcome).toBe("refuted");
   });
@@ -278,7 +298,7 @@ describe("formal_verify observation metadata", () => {
     ].join("\n"));
     const runner = new ScriptedRunner({ exitCode: 0 });
 
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("did not complete");
     expect(result.metadata).toBeUndefined();
@@ -293,8 +313,8 @@ describe("formal_verify observation metadata", () => {
     const second = new ScriptedRunner({ exitCode: 0 }, undefined, csv, 10);
 
     const [firstResult, secondResult] = await Promise.all([
-      tool(first).execute(call(filePath)),
-      tool(second).execute(call(filePath)),
+      tool(first).execute(call(filePath), makeSandbox(dir)),
+      tool(second).execute(call(filePath), makeSandbox(dir)),
     ]);
     expect(firstResult.isError).toBe(false);
     expect(secondResult.isError).toBe(false);
@@ -321,7 +341,7 @@ describe("formal_verify observation metadata", () => {
       writeFileSync(filePath, original);
     }, csv);
 
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(false);
     expect(observedRequestPath).not.toBe(filePath);
     expect(observedSnapshot).toEqual(original);
@@ -341,9 +361,104 @@ describe("formal_verify observation metadata", () => {
       snapshotHasHelper = existsSync(join(dirname(snapshotInputPath), "helper.dfy"));
     }, csv);
 
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(false);
     expect(snapshotHasHelper).toBe(true);
+    expect((result.metadata as FormalVerificationToolResultMetadata).subjects).toEqual([
+      { path: "helper.dfy", contentDigest: `sha256:${createHash("sha256").update("lemma Helper() ensures true {}\n").digest("hex")}` },
+      { path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update('include "helper.dfy"\nmethod Foo() ensures true {}\n').digest("hex")}` },
+    ]);
+  });
+
+  it("fails closed when sandbox.cwd is absent", async () => {
+    dir = await makeTempDir();
+    const filePath = join(dir, "policy.dfy");
+    await writeFile(filePath, "method Foo() ensures true {}\n");
+    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
+      CSV_HEADER,
+      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
+    ].join("\n"));
+
+    const result = await tool(runner).execute(call(filePath), { cwd: join(dir, "missing") });
+    expect(result.isError).toBe(true);
+    expect(result.output).toMatch(/sandbox\.cwd|does not exist/u);
+    expect(result.metadata).toBeUndefined();
+    expect(runner.request).toBeUndefined();
+  });
+
+  it("fails closed when sandbox.cwd is not a Git worktree", async () => {
+    dir = await makePlainTempDir("kiln-formal-non-git-");
+    const filePath = join(dir, "policy.dfy");
+    await writeFile(filePath, "method Foo() ensures true {}\n");
+    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
+      CSV_HEADER,
+      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
+    ].join("\n"));
+
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
+    expect(result.isError).toBe(true);
+    expect(result.output).toMatch(/Git boundary|not a git repository/u);
+    expect(result.metadata).toBeUndefined();
+    expect(runner.request).toBeUndefined();
+  });
+
+  it("fails closed when a verified subject is outside sandbox.cwd", async () => {
+    dir = await makeTempDir();
+    const candidateRoot = join(dir, "candidate");
+    const outsideRoot = join(dir, "outside");
+    const filePath = join(outsideRoot, "policy.dfy");
+    await mkdir(candidateRoot, { recursive: true });
+    await mkdir(outsideRoot, { recursive: true });
+    await writeFile(filePath, "method Foo() ensures true {}\n");
+    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
+      CSV_HEADER,
+      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
+    ].join("\n"));
+
+    const result = await tool(runner).execute(
+      call(filePath),
+      makeSandbox(candidateRoot, { allowedPaths: [dir] }),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toMatch(/candidate-relative|outside|subject/u);
+    expect(result.metadata).toBeUndefined();
+    expect(runner.request).toBeUndefined();
+  });
+
+  it("runs on Git-clean bytes for tracked input and an untracked dependency", async () => {
+    dir = await makeGitRepo();
+    const filePath = join(dir, "policy.dfy");
+    const helperPath = join(dir, "helper.dfy");
+    const fileBytes = Buffer.from('include "helper.dfy"\r\nmethod Foo() ensures true {}\r\n', "utf8");
+    const helperBytes = Buffer.from("lemma Helper() ensures true {}\r\n", "utf8");
+    await writeFile(filePath, fileBytes);
+    await git(dir, "add", "policy.dfy");
+    await git(dir, "commit", "--quiet", "-m", "baseline");
+    await writeFile(helperPath, helperBytes);
+    const cleanFileBytes = Buffer.from('include "helper.dfy"\nmethod Foo() ensures true {}\n', "utf8");
+    const cleanHelperBytes = Buffer.from("lemma Helper() ensures true {}\n", "utf8");
+    let observedFileBytes: Buffer | undefined;
+    let observedHelperBytes: Buffer | undefined;
+    const runner = new ScriptedRunner({ exitCode: 0 }, undefined, [
+      CSV_HEADER,
+      "admitPath (correctness),Passed,00:00:00.0230392,26991,0",
+    ].join("\n"));
+    const originalStart = runner.start.bind(runner);
+    runner.start = (request, sink) => {
+      const snapshotInputPath = resolve(request.cwd, request.args.at(-1)!);
+      observedFileBytes = readFileSync(snapshotInputPath);
+      observedHelperBytes = readFileSync(join(dirname(snapshotInputPath), "helper.dfy"));
+      return originalStart(request, sink);
+    };
+
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
+    expect(result.isError).toBe(false);
+    expect(observedFileBytes).toEqual(cleanFileBytes);
+    expect(observedHelperBytes).toEqual(cleanHelperBytes);
+    expect((result.metadata as FormalVerificationToolResultMetadata).subjects).toEqual([
+      { path: "helper.dfy", contentDigest: `sha256:${createHash("sha256").update(cleanHelperBytes).digest("hex")}` },
+      { path: "policy.dfy", contentDigest: `sha256:${createHash("sha256").update(cleanFileBytes).digest("hex")}` },
+    ]);
   });
 
   it("fails closed when a local include escapes the admitted read boundary", async () => {
@@ -413,7 +528,7 @@ describe("formal_verify observation metadata", () => {
       writeFileSync(snapshotPath, "method Foo() ensures false {}\n");
     }, csv);
 
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("changed during verification");
     expect(result.metadata).toBeUndefined();
@@ -428,7 +543,7 @@ describe("formal_verify observation metadata", () => {
       unlinkSync(resolve(request.cwd, request.args.at(-1)!));
     }, csv);
 
-    const result = await tool(runner).execute(call(filePath));
+    const result = await tool(runner).execute(call(filePath), makeSandbox(dir));
     expect(result.isError).toBe(true);
     expect(result.output).toContain("snapshot");
     expect(result.metadata).toBeUndefined();
@@ -442,6 +557,7 @@ describe("formal_verify observation parser", () => {
     kind: "formal_verification",
     verifier: { name: "dafny", version: "4.11.0" },
     artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
+    subjects: [{ path: "policy.dfy", contentDigest: `sha256:${"b".repeat(64)}` }],
     checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
     establishes: [],
   });
@@ -451,6 +567,46 @@ describe("formal_verify observation parser", () => {
     const malformed = { ...value, artifact: { contentDigest: "a".repeat(64) } };
     expect(isFormalVerificationToolResultMetadata(malformed)).toBe(false);
     expect(() => parseFormalVerificationToolResultMetadata(malformed)).toThrow(/canonical sha256/u);
+  });
+
+  it("rejects subject paths that are not canonical candidate-relative POSIX paths", () => {
+    for (const path of ["../outside.dfy", "/absolute.dfy", "C:/absolute.dfy", "dir\\file.dfy", "dir//file.dfy", "dir/./file.dfy", "dir/../file.dfy", " file.dfy", "file.dfy "]) {
+      const malformed = { ...valid(), subjects: [{ path, contentDigest: `sha256:${"b".repeat(64)}` }] };
+      expect(isFormalVerificationToolResultMetadata(malformed)).toBe(false);
+      expect(() => parseFormalVerificationToolResultMetadata(malformed)).toThrow(/subject/u);
+    }
+    const internalSpace = { ...valid(), subjects: [{ path: "formal proofs/policy.dfy", contentDigest: `sha256:${"b".repeat(64)}` }] };
+    expect(parseFormalVerificationToolResultMetadata(internalSpace).subjects[0]?.path)
+      .toBe("formal proofs/policy.dfy");
+  });
+
+  it("rejects duplicate or non-canonical subject ordering", () => {
+    const duplicate = {
+      ...valid(),
+      subjects: [
+        { path: "policy.dfy", contentDigest: `sha256:${"a".repeat(64)}` },
+        { path: "policy.dfy", contentDigest: `sha256:${"b".repeat(64)}` },
+      ],
+    };
+    expect(() => parseFormalVerificationToolResultMetadata(duplicate)).toThrow(/duplicate subject path/u);
+
+    const unsorted = {
+      ...valid(),
+      subjects: [
+        { path: "z.dfy", contentDigest: `sha256:${"b".repeat(64)}` },
+        { path: "a.dfy", contentDigest: `sha256:${"c".repeat(64)}` },
+      ],
+    };
+    expect(() => parseFormalVerificationToolResultMetadata(unsorted)).toThrow(/sorted|order/u);
+  });
+
+  it("rejects extra fields in subjects", () => {
+    const malformed = {
+      ...valid(),
+      subjects: [{ path: "policy.dfy", contentDigest: `sha256:${"b".repeat(64)}`, size: 1 }],
+    };
+    expect(isFormalVerificationToolResultMetadata(malformed)).toBe(false);
+    expect(() => parseFormalVerificationToolResultMetadata(malformed)).toThrow(/extra|shape|field/u);
   });
 
   it("rejects digests with surrounding whitespace", () => {

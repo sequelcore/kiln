@@ -180,6 +180,7 @@ export interface ProviderCreateConfig {
   readonly operatorSurface?: OperatorSurfaceController;
   readonly builtinToolOptions?: DefaultBuiltinToolRegistryOptions;
   readonly managedInvocation?: ManagedInvocationToolAttachment;
+  readonly operatorAdoption?: import("@kilnai/runtime").OperatorAdoptionRuntimeBinding;
   readonly runtimeExecutionMode?: "execute" | "plan";
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly executionEnvelope?: RuntimeExecutionEnvelope;
@@ -1097,6 +1098,7 @@ function createDirectProviderSession(
     ...(config.operatorSurface ? { operatorSurface: config.operatorSurface } : {}),
     ...(config.builtinToolOptions ? { builtinToolOptions: config.builtinToolOptions } : {}),
     ...(config.managedInvocation ? { managedInvocation: config.managedInvocation } : {}),
+    ...(config.operatorAdoption ? { operatorAdoption: config.operatorAdoption } : {}),
     ...(config.runtimeExecutionMode ? { runtimeExecutionMode: config.runtimeExecutionMode } : {}),
     ...(config.sessionTurnBudget ? { sessionTurnBudget: config.sessionTurnBudget } : {}),
     ...(config.executionEnvelope ? { executionEnvelope: config.executionEnvelope } : {}),

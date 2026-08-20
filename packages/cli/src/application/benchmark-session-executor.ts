@@ -48,11 +48,9 @@ import {
   withProgressiveRuntimeToolProjection,
 } from "../config/builtin-tool-surface-config.js";
 import { createKilnConfigTools } from "./config-tools.js";
-import { createWorkGovernanceTools } from "./work-governance-tool.js";
 import { createProjectBoundedWorkAuthority } from "./bounded-work-authority-composition.js";
 import {
   createKilnRuntimeManagedInvocationAttachment,
-  createManagedInvocationExecutionProofResolverRef,
 } from "./managed-invocation-attachment.js";
 import { resolveEngineAvailabilityMap } from "../engines/engine-registry.js";
 import { discoverManagedAgentProviderModels } from "../config/managed-agent-provider-models.js";
@@ -243,7 +241,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     });
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
-    const managedInvocationProofs = createManagedInvocationExecutionProofResolverRef();
     const baseBuiltinToolOptions = {
       ...configuredBuiltinToolOptions,
       workItemStore,
@@ -251,16 +248,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       additionalTools: [
         ...(configuredBuiltinToolOptions.additionalTools ?? []),
         ...(benchmarkWorkspace.kind === "repository" ? createKilnConfigTools(repositoryRoot) : []),
-        ...(benchmarkWorkspace.kind === "repository"
-          ? createWorkGovernanceTools(resolvedKilnConfig?.workGovernance, {
-              workItemStore,
-              goalRunStore,
-              managedInvocationProofResolver: managedInvocationProofs.resolve,
-              boundedWorkExecutionAttemptAdmission: boundedWork?.admitExecutionAttempt,
-              boundedWorkCandidateCloseout: boundedWork?.closeoutCandidate,
-              boundedWorkGoalCloseout: boundedWork?.closeoutGoal,
-            })
-          : []),
       ],
     };
     let builtinToolOptions = createSessionBuiltinToolOptions(writeMode
@@ -314,7 +301,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const managedInvocationWithService = managedInvocation
       ? withManagedInvocationService(managedInvocation)
       : undefined;
-    managedInvocationProofs.bind(managedInvocationWithService);
     const managedInvocationAttachment = managedInvocationWithService
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
@@ -368,6 +354,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     );
     const runOutput = createNonHumanRunOutputSink();
     const runInput = {
+      governedGoalTools: "forbidden" as const,
       registry,
       cleanupRegistry: benchmarkCleanupRegistry,
       manager,

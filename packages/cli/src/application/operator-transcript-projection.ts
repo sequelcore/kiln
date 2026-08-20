@@ -35,6 +35,27 @@ export function managedInvocationPersistedTranscriptEventDrafts(
   });
 }
 
+/**
+ * Projects one canonical Runtime event into the CLI TranscriptStore envelope.
+ * The envelope fields are kept outside `payload`; every non-envelope event
+ * field remains byte-for-byte equivalent as a JSON value for replay.
+ */
+export function toCanonicalSessionEventPersistedTranscriptEventDraft(
+  event: CanonicalSessionEvent,
+): PersistedTranscriptEventDraft {
+  return {
+    eventId: event.eventId,
+    kilnSessionId: event.kilnSessionId,
+    timestamp: event.timestamp.toISOString(),
+    kind: event.kind,
+    ...(event.turnId ? { turnId: event.turnId } : {}),
+    ...(event.parentEventId ? { parentEventId: event.parentEventId } : {}),
+    ...(event.executionScope ? { executionScope: event.executionScope } : {}),
+    ...(event.source ? { source: event.source } : {}),
+    payload: canonicalSessionEventPayloadExact(event),
+  };
+}
+
 export function toManagedInvocationPersistedTranscriptEventDraft(
   event: CanonicalSessionEvent,
 ): PersistedTranscriptEventDraft | undefined {
@@ -266,6 +287,27 @@ function canonicalSessionEventPayload(event: CanonicalSessionEvent): Record<stri
   }
   if (typeof payload.managedInvocationId !== "string" && typeof payload.invocationId === "string") {
     payload.managedInvocationId = payload.invocationId;
+  }
+  return payload;
+}
+
+function canonicalSessionEventPayloadExact(event: CanonicalSessionEvent): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  const envelopeKeys = new Set([
+    "eventId",
+    "kilnSessionId",
+    "sequence",
+    "timestamp",
+    "kind",
+    "turnId",
+    "parentEventId",
+    "executionScope",
+    "source",
+  ]);
+  for (const [key, value] of Object.entries(event)) {
+    if (!envelopeKeys.has(key)) {
+      payload[key] = value;
+    }
   }
   return payload;
 }

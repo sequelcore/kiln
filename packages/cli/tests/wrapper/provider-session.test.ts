@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { AllCredentialsExhaustedError, resolveCommunicationIntent } from "@kilnai/core/agents";
 import { KilnError } from "@kilnai/core/engine";
+import { canonicalTurnId } from "@kilnai/core/events";
 import type { ExecutionSessionEvent } from "@kilnai/core/events";
 import type { KilnMcpClient } from "@kilnai/core/mcp";
+import { prepareOperatorAdoptionTurn } from "@kilnai/runtime";
 import type { IKilnSession } from "../../src/wrapper/session.js";
 import { ProviderSession } from "../../src/wrapper/provider-session.js";
 import type { ProviderSessionConfig } from "../../src/wrapper/provider-session.js";
@@ -174,6 +176,8 @@ vi.mock("@kilnai/runtime", () => {
   }
 
   return {
+    hasGovernedGoalTools: vi.fn(() => false),
+    prepareOperatorAdoptionTurn: vi.fn(),
     buildEffectiveTurnAuthorityPolicyInputs: (input: {
       executionMode: "execute" | "plan";
       tenantId?: string;
@@ -590,6 +594,7 @@ describe("ProviderSession.run()", () => {
       mock.stream.mockReset();
     }
     runtimeMocks.processMessage.mockReset();
+    vi.mocked(prepareOperatorAdoptionTurn).mockReset();
     runtimeMocks.orchestratorConstructor.mockReset();
     runtimeMocks.emitApprovalReceived.mockReset();
     runtimeMocks.addUserMessage.mockReset();
@@ -1462,6 +1467,101 @@ describe("ProviderSession.run()", () => {
 
     expect(runtimeMocks.runtimeSessionConstructor).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "kiln-gui:session-1",
+    }));
+  });
+
+  it("awaits durable adoption persistence before entering the runtime round", async () => {
+    const order: string[] = [];
+    const persist = vi.fn(async () => {
+      order.push("persist:start");
+      await Promise.resolve();
+      order.push("persist:complete");
+    });
+    const prepared = {
+      turnId: canonicalTurnId("cli-test-session", 1),
+      turnOrdinal: 1,
+      correlationId: "operator-correlation",
+      operatorAdoptionDecision: {} as never,
+      event: {} as never,
+    };
+    vi.mocked(prepareOperatorAdoptionTurn).mockImplementation(async (input) => {
+      order.push("prepare:start");
+      await input.persist({} as never);
+      order.push("prepare:complete");
+      return prepared;
+    });
+    runtimeMocks.processMessage.mockImplementationOnce(async () => {
+      order.push("processMessage");
+      return {
+        parts: [],
+        toolExecutions: [],
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        queued: false,
+        outcome: "completed",
+      };
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      runtimeSessionId: "cli-test-session",
+      operatorAdoption: { persist },
+    }));
+
+    await collectEvents(session.run({
+      prompt: "execute after durable adoption",
+      operatorTurnCorrelationId: "operator-correlation",
+    }));
+
+    expect(order).toEqual([
+      "prepare:start",
+      "persist:start",
+      "persist:complete",
+      "prepare:complete",
+      "processMessage",
+    ]);
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when adoption persistence fails before the runtime round", async () => {
+    const persist = vi.fn(async () => {
+      throw new Error("transcript unavailable");
+    });
+    vi.mocked(prepareOperatorAdoptionTurn).mockImplementation(async (input) => {
+      await input.persist({} as never);
+      throw new Error("unreachable");
+    });
+
+    const session = new ProviderSession(baseConfig({
+      provider: "openai",
+      model: "gpt-5.4",
+      env: { OPENAI_API_KEY: "cfg-key" },
+      executionMode: "kiln-executable",
+      runtimeSessionId: "cli-test-session",
+      operatorAdoption: { persist },
+    }));
+
+    const events = await collectEvents(session.run({
+      prompt: "must not execute without durable adoption",
+      operatorTurnCorrelationId: "operator-correlation",
+    }));
+
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.orchestratorConstructor).not.toHaveBeenCalled();
+    expect(runtimeMocks.processMessage).not.toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "error",
+      code: "EXECUTABLE_SESSION_ERROR",
+      message: expect.stringContaining("transcript unavailable"),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "completed",
+      outcome: "failed",
     }));
   });
 

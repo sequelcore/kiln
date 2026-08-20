@@ -134,7 +134,7 @@ function hydrateRuntimeSession(session: RuntimeSession, entries: readonly Conver
   return messageCount;
 }
 
-function canonicalSessionEventsFromTranscript(
+export function canonicalSessionEventsFromTranscript(
   events: readonly PersistedTranscriptEvent[],
   sessionId: string,
 ): CanonicalSessionEvent[] {

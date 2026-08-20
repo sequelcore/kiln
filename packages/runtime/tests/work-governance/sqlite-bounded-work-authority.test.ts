@@ -47,8 +47,19 @@ function runProcess(command: string, args: readonly string[]): Promise<{ code: n
 }
 
 const baseContract = (maxExecutionAttempts = 2, maxManagedInvocations = 2): BoundedWorkContract => ({
-  schema: "kiln.bounded-work-contract/v1",
-  intent: { objective: "Bound work.", acceptanceCriteria: ["tests"], nonGoals: [] },
+  schema: "kiln.bounded-work-contract/v2",
+  intent: {
+    objective: "Bound work.",
+    acceptanceCriteria: [{ id: "tests", statement: "tests" }],
+    nonGoals: [],
+  },
+  assurance: {
+    formalVerification: {
+      semantics: "allOf",
+      obligations: [{ id: "tests-obligation", symbol: "Tests.Main", subjectPaths: ["src/Test.dfy"] }],
+      mappings: [{ criterionId: "tests", obligationIds: ["tests-obligation"] }],
+    },
+  },
   scope: {
     allowedWorkItemIds: ["work-1"],
     permittedEffects: ["modify_source", "invoke_managed_agent"],

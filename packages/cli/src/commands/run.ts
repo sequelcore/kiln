@@ -130,7 +130,9 @@ import {
   operatorTranscriptSourceForEntry,
   projectGovernanceTranscriptEventDrafts,
   projectOperatorTranscriptEntryToDraft,
+  toCanonicalSessionEventPersistedTranscriptEventDraft,
 } from "../application/operator-transcript-projection.js";
+import { canonicalSessionEventsFromTranscript } from "../application/runtime-session-rehydration.js";
 import type { ContextArtifactCache } from "@kilnai/core";
 import type {
   ManagedInvocationToolOptions,
@@ -1580,6 +1582,18 @@ export async function runCommand(
       sessionHooks,
       abortSignal: runAbortController.signal,
       output: runOutput,
+      operatorAdoption: {
+        persist: async (event) => {
+          await transcriptStore.appendManyNext(
+            event.kilnSessionId,
+            [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
+          );
+        },
+        replayCanonicalSessionEvents: async (canonicalSessionId) => canonicalSessionEventsFromTranscript(
+          await transcriptStore.readTranscript(canonicalSessionId),
+          canonicalSessionId,
+        ),
+      },
       ...(requestApproval ? { requestApproval } : {}),
     });
   } catch (error) {

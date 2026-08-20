@@ -5,9 +5,9 @@
  * proof effort, and failure detail through `--json-output`, one JSON object per
  * line. Both are machine-readable; neither is scraped from human-facing text.
  *
- * This module is pure. Running the verifier is an infrastructure concern, and
- * mapping a symbol to the acceptance criterion it discharges is the caller's,
- * because only the caller knows what the proof was requested for.
+ * This module is pure. Running the verifier is an infrastructure concern. The
+ * parser reports per-symbol facts only; Work Governance Assurance owns the
+ * pre-adopted mapping from those facts to acceptance criteria.
  */
 
 /** Dafny's own outcome vocabulary, preserved rather than reinterpreted here. */

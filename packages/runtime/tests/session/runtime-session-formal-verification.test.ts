@@ -18,6 +18,7 @@ function formalMetadata(version = "4.11.0") {
   return formalVerificationToolMetadata({
     verifier: { name: "dafny", version },
     artifact: { contentDigest: `sha256:${"a".repeat(64)}` },
+    subjects: [{ path: "src/Test.dfy", contentDigest: `sha256:${"e".repeat(64)}` }],
     checks: [{ symbol: "Invariant", check: "correctness", outcome: "proved" }],
   });
 }

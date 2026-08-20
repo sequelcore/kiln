@@ -15,6 +15,10 @@ import {
   parseBoundedWorkCandidateEvidence,
   type BoundedWorkCandidateEvidence,
 } from "./bounded-work-evidence.js";
+import {
+  parseBoundedWorkAssuranceEvaluation,
+  type BoundedWorkAssuranceEvaluation,
+} from "./bounded-work-assurance.js";
 import type { BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
 
 export type WorkItemStatus = "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
@@ -270,6 +274,7 @@ export interface WorkItemExecutionAttempt {
   readonly verificationUsage?: VerificationUsageReport;
   readonly candidate?: BoundedWorkCandidateIdentity;
   readonly candidateEvidence?: readonly BoundedWorkCandidateEvidence[];
+  readonly assuranceEvaluation?: BoundedWorkAssuranceEvaluation;
 }
 
 export interface WorkItemUpsertInput {
@@ -368,6 +373,7 @@ export interface WorkItemFinishExecutionAttemptInput {
   readonly managedOrchestrationAdoption?: WorkItemManagedOrchestrationAdoptionResolution;
   readonly candidate?: BoundedWorkCandidateIdentity;
   readonly candidateEvidence?: readonly BoundedWorkCandidateEvidence[];
+  readonly assuranceEvaluation?: BoundedWorkAssuranceEvaluation;
 }
 
 export interface WorkItemFinishExecutionAttemptResult extends WorkItemCompletionResult {
@@ -498,7 +504,10 @@ export class WorkItemStore {
         id,
       ),
       managedOrchestrationAdoption: normalizeManagedOrchestrationAdoption(input.managedOrchestrationAdoption ?? existing?.managedOrchestrationAdoption),
-      executionAttempts: input.executionAttempts ?? existing?.executionAttempts ?? [],
+      executionAttempts: normalizeExecutionAttempts(
+        input.executionAttempts ?? existing?.executionAttempts ?? [],
+        id,
+      ),
       ...classification,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -544,10 +553,17 @@ export class WorkItemStore {
   }
 
   restore(item: WorkItem): WorkItem {
-    this.items.set(item.id, item);
-    this.sequence = Math.max(this.sequence, item.sequence);
-    this.notifyChanged(item.id);
-    return item;
+    const restored: WorkItem = {
+      ...item,
+      executionAttempts: normalizeExecutionAttempts(item.executionAttempts, item.id),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      sequence: item.sequence,
+    };
+    this.items.set(restored.id, restored);
+    this.sequence = Math.max(this.sequence, restored.sequence);
+    this.notifyChanged(restored.id);
+    return restored;
   }
 
   snapshot(status?: WorkItemStatus): WorkItemSnapshot {
@@ -674,9 +690,19 @@ export class WorkItemStore {
         `Execution attempt '${attempt.id}' is already terminal (${attempt.status}) and cannot be finished again.`,
       );
     }
-    const normalizedCandidateEvidence = input.candidateEvidence === undefined
+    const candidate = input.candidate ?? attempt.candidate;
+    const candidateEvidenceInput = input.candidateEvidence ?? attempt.candidateEvidence;
+    const normalizedCandidateEvidence = candidateEvidenceInput === undefined
       ? undefined
-      : assertAttemptCandidateBinding(attempt, input.candidate, input.candidateEvidence);
+      : assertAttemptCandidateBinding(attempt, candidate, candidateEvidenceInput);
+    const assuranceEvaluation = input.assuranceEvaluation === undefined
+      ? attempt.assuranceEvaluation
+      : assertAttemptAssuranceBinding(
+        attempt,
+        candidate,
+        normalizedCandidateEvidence,
+        input.assuranceEvaluation,
+      );
     const providedEvidence = unique([
       ...existing.providedEvidence,
       ...attempt.providedEvidence,
@@ -749,8 +775,9 @@ export class WorkItemStore {
         : attempt.verificationUsage
           ? { verificationUsage: attempt.verificationUsage }
           : {}),
-      ...(input.candidate ? { candidate: input.candidate } : {}),
+      ...(candidate ? { candidate } : {}),
       ...(normalizedCandidateEvidence ? { candidateEvidence: normalizedCandidateEvidence } : {}),
+      ...(assuranceEvaluation ? { assuranceEvaluation } : {}),
     };
     const item = this.upsert({
       ...existing,
@@ -1733,6 +1760,28 @@ function normalizeManagedOrchestrationAdoption(
   };
 }
 
+function normalizeExecutionAttempts(
+  attempts: readonly WorkItemExecutionAttempt[],
+  workItemId: string,
+): readonly WorkItemExecutionAttempt[] {
+  return attempts.map((attempt) => {
+    if (attempt.workItemId !== workItemId) {
+      throw new Error("Execution attempt workItemId must match its work item.");
+    }
+    const candidateEvidence = attempt.candidateEvidence === undefined
+      ? undefined
+      : assertAttemptCandidateBinding(attempt, attempt.candidate, attempt.candidateEvidence);
+    const assuranceEvaluation = attempt.assuranceEvaluation === undefined
+      ? undefined
+      : assertAttemptAssuranceBinding(attempt, attempt.candidate, candidateEvidence, attempt.assuranceEvaluation);
+    return {
+      ...attempt,
+      ...(candidateEvidence === undefined ? {} : { candidateEvidence }),
+      ...(assuranceEvaluation === undefined ? {} : { assuranceEvaluation }),
+    };
+  });
+}
+
 function assertAttemptCandidateBinding(
   attempt: WorkItemExecutionAttempt,
   candidate: BoundedWorkCandidateIdentity | undefined,
@@ -1770,6 +1819,37 @@ function assertAttemptCandidateBinding(
     }
   }
   return normalizedEvidence;
+}
+
+function assertAttemptAssuranceBinding(
+  attempt: WorkItemExecutionAttempt,
+  candidate: BoundedWorkCandidateIdentity | undefined,
+  candidateEvidence: readonly BoundedWorkCandidateEvidence[] | undefined,
+  value: unknown,
+): BoundedWorkAssuranceEvaluation {
+  if (!candidate) {
+    throw new Error("Assurance evaluation requires an exact candidate identity.");
+  }
+  if (!candidateEvidence || candidateEvidence.length === 0) {
+    throw new Error("Assurance evaluation requires candidate evidence.");
+  }
+  const evaluation = parseBoundedWorkAssuranceEvaluation(value);
+  if (
+    evaluation.candidate.candidateDigest !== candidate.candidateDigest
+    || evaluation.candidate.candidateContentDigest !== candidate.candidateContentDigest
+    || evaluation.candidate.contractRevisionDigest !== candidate.contractRevisionDigest
+    || evaluation.candidate.accountingLineageId !== candidate.accountingLineageId
+    || evaluation.contractRevisionDigest !== attempt.boundedWorkContractRevisionDigest
+  ) {
+    throw new Error("Assurance evaluation is not bound to the exact candidate and attempt.");
+  }
+  const evidenceByDigest = new Map(candidateEvidence.map((record) => [record.recordDigest, record]));
+  for (const digest of evaluation.consideredEvidenceRecordDigests) {
+    if (!evidenceByDigest.has(digest)) {
+      throw new Error("Assurance evaluation references unknown candidate evidence.");
+    }
+  }
+  return evaluation;
 }
 
 function hasOptionalManagedInvocationId(value: object): boolean {

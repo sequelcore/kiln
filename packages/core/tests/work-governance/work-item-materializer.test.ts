@@ -684,6 +684,7 @@ describe("materializeApprovedPlanWorkItems", () => {
       ...adoptedWithReadiness!.item,
       id: "orch-decompose:child:contradictory:work-item",
       status: "completed",
+      executionAttempts: [],
       managedOrchestrationResultHandoff: undefined,
       verificationGateResults: [{
         gate: "managed orchestration adoption gate",

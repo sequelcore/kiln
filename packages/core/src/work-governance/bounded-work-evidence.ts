@@ -10,9 +10,9 @@ import {
 } from "./bounded-work-content.js";
 
 export const BOUNDED_WORK_FORMAL_VERIFICATION_ATTESTATION_SCHEMA =
-  "kiln.bounded-work-formal-verification-attestation/v1" as const;
+  "kiln.bounded-work-formal-verification-attestation/v2" as const;
 export const BOUNDED_WORK_CANDIDATE_EVIDENCE_SCHEMA =
-  "kiln.bounded-work-candidate-evidence/v2" as const;
+  "kiln.bounded-work-candidate-evidence/v3" as const;
 
 export type BoundedWorkEvidenceKind = "verification";
 

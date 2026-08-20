@@ -5,11 +5,15 @@ import {
   assessBoundedWorkScope,
   createBoundedWorkCandidateEvidence,
   decideBoundedWorkCloseout,
+  evaluateBoundedWorkAssurance,
   type BoundedWorkEffect,
 } from "@kilnai/core";
+import type { BoundedWorkAssuranceEvaluation } from "@kilnai/core/work-governance";
+import { MANAGED_ORCHESTRATION_REVIEW_GATE } from "@kilnai/core/work-governance";
 import { FORMAL_VERIFICATION_FINISH_TRANSPORT } from "@kilnai/core/tools";
 import {
   captureGitWorktreeCandidate,
+  resolveCandidateSubjectDigests,
   readRuntimeFormalVerificationFinishTransport,
   SqliteBoundedWorkAuthority,
   type AttachedRuntimeBuiltinToolSurfaceOptions,
@@ -121,13 +125,17 @@ export function createProjectBoundedWorkAuthority(
         goal,
         workItem,
         attempt,
-        providedEvidence,
+        verificationGateResults,
       } = input;
+      const hasStructuredReview = verificationGateResults.some((result) =>
+        result.gate === MANAGED_ORCHESTRATION_REVIEW_GATE && result.status === "passed"
+      );
       const previousCandidate = [...workItem.executionAttempts]
         .reverse()
         .find((entry) => entry.id !== attempt.id && entry.candidate)?.candidate;
+      const candidateCaptureRoot = attempt.candidateCaptureRoot ?? projectRoot;
       const captured = await captureGitWorktreeCandidate({
-        worktreePath: attempt.candidateCaptureRoot ?? projectRoot,
+        worktreePath: candidateCaptureRoot,
         goalRunId: goal.id,
         workItemId: workItem.id,
         contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
@@ -177,8 +185,7 @@ export function createProjectBoundedWorkAuthority(
         };
       }
       const tripwireTriggered = assessments.some((entry) => entry.diagnostics.length > 0);
-      const hasReviewEvidence = providedEvidence.some((entry) => entry.includes("review"));
-      if (tripwireTriggered && !hasReviewEvidence) {
+      if (tripwireTriggered && !hasStructuredReview) {
         return {
           captured: false,
           code: "candidate_tripwire_review_required",
@@ -205,7 +212,28 @@ export function createProjectBoundedWorkAuthority(
         },
         recordedAt: formalVerificationFinishTransport.recordedAt,
       })) ?? [];
-      if (providedEvidence.some((entry) => entry.includes("review"))) {
+      let assuranceEvaluation: BoundedWorkAssuranceEvaluation;
+      try {
+        const candidateSubjects = await resolveCandidateSubjectDigests({
+          worktreePath: candidateCaptureRoot,
+          candidate: captured.candidate,
+          candidateTreeObjectId: captured.snapshot.candidateTreeObjectId,
+        });
+        assuranceEvaluation = evaluateBoundedWorkAssurance({
+          revision: goal.boundedWorkContractRevision,
+          candidate: captured.candidate,
+          candidateSubjects,
+          candidateEvidence: evidence,
+          evaluatedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        return {
+          captured: false,
+          code: "candidate_assurance_evaluation_failed",
+          message: `Candidate Assurance evaluation requires reconciliation: ${error instanceof Error ? error.message : String(error)}.`,
+        };
+      }
+      if (hasStructuredReview) {
         const review = authority.reserve({
           projectRuntimeId,
           goalRunId: goal.id,
@@ -240,9 +268,9 @@ export function createProjectBoundedWorkAuthority(
           return { captured: false, code: remediation.decision.kind, message: boundedWorkAttemptDecisionMessage(remediation.decision) };
         }
       }
-      return { captured: true, candidate: captured.candidate, evidence };
+      return { captured: true, candidate: captured.candidate, evidence, assuranceEvaluation };
     },
-    async closeoutGoal({ goal, candidate, candidateCaptureRoot, candidateEvidence }) {
+    async closeoutGoal({ goal, candidate, candidateCaptureRoot, candidateEvidence, assuranceEvaluation }) {
       const current = await captureGitWorktreeCandidate({
         worktreePath: candidateCaptureRoot ?? projectRoot,
         goalRunId: goal.id,
@@ -264,6 +292,8 @@ export function createProjectBoundedWorkAuthority(
         snapshot,
         candidateDigest: candidate.candidateDigest,
         candidateEvidence,
+        assuranceEvaluation,
+        decidedAt: new Date().toISOString(),
       });
     },
     close: () => authority.close(),

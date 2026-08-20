@@ -16,16 +16,42 @@ import type {
   BoundedWorkTripwires,
 } from "./bounded-work-scope-policy.js";
 
-export const BOUNDED_WORK_CONTRACT_SCHEMA = "kiln.bounded-work-contract/v1" as const;
+export const BOUNDED_WORK_CONTRACT_SCHEMA = "kiln.bounded-work-contract/v2" as const;
 
 export type BoundedWorkHarnessCapability =
   | "authoritative"
   | "partially_enforced"
   | "advisory_only";
 
+export interface BoundedWorkAcceptanceCriterion {
+  readonly id: string;
+  readonly statement: string;
+}
+
+export interface BoundedWorkFormalVerificationObligation {
+  readonly id: string;
+  readonly symbol: string;
+  readonly subjectPaths: readonly string[];
+}
+
+export interface BoundedWorkFormalVerificationMapping {
+  readonly criterionId: string;
+  readonly obligationIds: readonly string[];
+}
+
+export interface BoundedWorkFormalVerificationAssurance {
+  readonly semantics: "allOf";
+  readonly obligations: readonly BoundedWorkFormalVerificationObligation[];
+  readonly mappings: readonly BoundedWorkFormalVerificationMapping[];
+}
+
+export interface BoundedWorkAssurance {
+  readonly formalVerification: BoundedWorkFormalVerificationAssurance;
+}
+
 export interface BoundedWorkIntent {
   readonly objective: string;
-  readonly acceptanceCriteria: readonly string[];
+  readonly acceptanceCriteria: readonly BoundedWorkAcceptanceCriterion[];
   readonly nonGoals: readonly string[];
 }
 
@@ -49,6 +75,7 @@ export interface BoundedWorkPolicy {
 export interface BoundedWorkContract {
   readonly schema: typeof BOUNDED_WORK_CONTRACT_SCHEMA;
   readonly intent: BoundedWorkIntent;
+  readonly assurance: BoundedWorkAssurance;
   readonly scope: BoundedWorkScope;
   readonly limits: BoundedWorkLimits;
   readonly tripwires: BoundedWorkTripwires;
@@ -255,13 +282,15 @@ export function normalizeBoundedWorkContract(input: BoundedWorkContract): Bounde
     throw new Error("maxConcurrentManagedInvocations cannot exceed maxManagedInvocations");
   }
   const policy = normalizePolicy(input.policy);
+  const acceptanceCriteria = normalizeAcceptanceCriteria(input.intent.acceptanceCriteria);
   return deepFreeze({
     schema: BOUNDED_WORK_CONTRACT_SCHEMA,
     intent: {
       objective: requireText(input.intent.objective, "intent.objective"),
-      acceptanceCriteria: uniqueRequired(input.intent.acceptanceCriteria, "intent.acceptanceCriteria"),
+      acceptanceCriteria,
       nonGoals: [...uniqueOptional(input.intent.nonGoals, "intent.nonGoals")].sort(),
     },
+    assurance: normalizeAssurance(input.assurance, acceptanceCriteria),
     scope: {
       allowedWorkItemIds: [...uniqueRequired(input.scope.allowedWorkItemIds, "scope.allowedWorkItemIds")].sort(),
       permittedEffects: uniqueEffects(input.scope.permittedEffects),
@@ -295,6 +324,159 @@ function normalizeAdoptionAuthority(input: BoundedWorkAdoptionAuthority): Bounde
     };
   }
   throw new Error("adoptedBy.kind must be operator or approved_plan");
+}
+
+function normalizeAcceptanceCriteria(
+  values: readonly BoundedWorkAcceptanceCriterion[],
+): readonly BoundedWorkAcceptanceCriterion[] {
+  const field = "intent.acceptanceCriteria";
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error(`${field} must contain at least one value`);
+  }
+  const normalized = values.map((criterion, index) => {
+    if (!isRecord(criterion)) {
+      throw new Error(`${field}[${index}] must be an object`);
+    }
+    assertExactKeys(criterion, ["id", "statement"], `${field}[${index}]`);
+    return {
+      id: requireText(criterion.id, `${field}[${index}].id`),
+      statement: requireText(criterion.statement, `${field}[${index}].statement`),
+    };
+  });
+  unique(normalized.map(({ id }) => id), `${field} ids`);
+  return normalized.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function normalizeAssurance(
+  input: BoundedWorkAssurance,
+  criteria: readonly BoundedWorkAcceptanceCriterion[],
+): BoundedWorkAssurance {
+  if (!isRecord(input) || !isRecord(input.formalVerification)) {
+    throw new Error("assurance.formalVerification is required");
+  }
+  assertExactKeys(input, ["formalVerification"], "assurance");
+  const formalVerification = input.formalVerification;
+  assertExactKeys(
+    formalVerification,
+    ["semantics", "obligations", "mappings"],
+    "assurance.formalVerification",
+  );
+  if (formalVerification.semantics !== "allOf") {
+    throw new Error("assurance.formalVerification.semantics must be allOf");
+  }
+
+  const obligations = normalizeFormalVerificationObligations(formalVerification.obligations);
+  const obligationIds = new Set(obligations.map(({ id }) => id));
+  const mappings = normalizeFormalVerificationMappings(formalVerification.mappings);
+  const criterionIds = new Set(criteria.map(({ id }) => id));
+  const mappedCriterionIds = new Set<string>();
+  const referencedObligationIds = new Set<string>();
+
+  for (const mapping of mappings) {
+    if (!criterionIds.has(mapping.criterionId)) {
+      throw new Error(
+        `assurance.formalVerification.mappings contains unknown criterionId ${mapping.criterionId}`,
+      );
+    }
+    if (mappedCriterionIds.has(mapping.criterionId)) {
+      throw new Error(
+        `assurance.formalVerification.mappings must contain exactly one mapping for criterion ${mapping.criterionId}`,
+      );
+    }
+    mappedCriterionIds.add(mapping.criterionId);
+    for (const obligationId of mapping.obligationIds) {
+      if (!obligationIds.has(obligationId)) {
+        throw new Error(
+          `assurance.formalVerification.mappings contains unknown obligationId ${obligationId}`,
+        );
+      }
+      referencedObligationIds.add(obligationId);
+    }
+  }
+
+  for (const criterion of criteria) {
+    if (!mappedCriterionIds.has(criterion.id)) {
+      throw new Error(
+        `assurance.formalVerification.mappings must contain exactly one mapping for criterion ${criterion.id}`,
+      );
+    }
+  }
+  for (const obligation of obligations) {
+    if (!referencedObligationIds.has(obligation.id)) {
+      throw new Error(
+        `assurance.formalVerification.obligations contains unmapped obligation ${obligation.id}`,
+      );
+    }
+  }
+
+  return {
+    formalVerification: {
+      semantics: "allOf",
+      obligations,
+      mappings,
+    },
+  };
+}
+
+function normalizeFormalVerificationObligations(
+  values: readonly BoundedWorkFormalVerificationObligation[],
+): readonly BoundedWorkFormalVerificationObligation[] {
+  const field = "assurance.formalVerification.obligations";
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error(`${field} must contain at least one value`);
+  }
+  const normalized = values.map((obligation, index) => {
+    if (!isRecord(obligation)) {
+      throw new Error(`${field}[${index}] must be an object`);
+    }
+    assertExactKeys(obligation, ["id", "symbol", "subjectPaths"], `${field}[${index}]`);
+    const id = requireText(obligation.id, `${field}[${index}].id`);
+    const symbol = requireText(obligation.symbol, `${field}[${index}].symbol`);
+    const subjectPathField = `${field}[${id}].subjectPaths`;
+    if (!Array.isArray(obligation.subjectPaths) || obligation.subjectPaths.length === 0) {
+      throw new Error(`${subjectPathField} must contain at least one path`);
+    }
+    const subjectPaths = obligation.subjectPaths.map((path) =>
+      normalizeCandidateSubjectPath(path, subjectPathField),
+    );
+    unique(subjectPaths, subjectPathField);
+    return {
+      id,
+      symbol,
+      subjectPaths: [...subjectPaths].sort(),
+    };
+  });
+  unique(normalized.map(({ id }) => id), `${field} ids`);
+  return normalized.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function normalizeFormalVerificationMappings(
+  values: readonly BoundedWorkFormalVerificationMapping[],
+): readonly BoundedWorkFormalVerificationMapping[] {
+  const field = "assurance.formalVerification.mappings";
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error(`${field} must contain at least one value`);
+  }
+  const normalized = values.map((mapping, index) => {
+    if (!isRecord(mapping)) {
+      throw new Error(`${field}[${index}] must be an object`);
+    }
+    assertExactKeys(mapping, ["criterionId", "obligationIds"], `${field}[${index}]`);
+    const criterionId = requireText(mapping.criterionId, `${field}[${index}].criterionId`);
+    if (!Array.isArray(mapping.obligationIds) || mapping.obligationIds.length === 0) {
+      throw new Error(`${field}[${criterionId}].obligationIds must contain at least one value`);
+    }
+    const obligationIds = mapping.obligationIds.map((obligationId, obligationIndex) =>
+      requireText(obligationId, `${field}[${criterionId}].obligationIds[${obligationIndex}]`),
+    );
+    unique(obligationIds, `${field}[${criterionId}].obligationIds`);
+    return {
+      criterionId,
+      obligationIds: [...obligationIds].sort(),
+    };
+  });
+  unique(normalized.map(({ criterionId }) => criterionId), `${field} criterionIds`);
+  return normalized.sort((left, right) => left.criterionId.localeCompare(right.criterionId));
 }
 
 function normalizePolicy(input: BoundedWorkPolicy): BoundedWorkPolicy {
@@ -363,6 +545,22 @@ function normalizeRelativePath(value: string, field: string): string {
   return normalized;
 }
 
+function normalizeCandidateSubjectPath(value: unknown, field: string): string {
+  const path = requireText(value, field);
+  if (typeof value !== "string" || value !== path) {
+    throw new Error(`${field} must use normalized candidate-relative POSIX paths`);
+  }
+  if (
+    path.includes("\\")
+    || path.startsWith("/")
+    || /^[A-Za-z]:/u.test(path)
+    || path.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
+    throw new Error(`${field} must use normalized candidate-relative POSIX paths`);
+  }
+  return path;
+}
+
 function uniqueRequired(values: readonly string[], field: string): readonly string[] {
   if (values.length === 0) throw new Error(`${field} must contain at least one value`);
   return unique(values.map((value) => requireText(value, field)), field);
@@ -403,14 +601,28 @@ function requireCanonicalTimestamp(value: string, field: string): string {
   return value;
 }
 
-function requireText(value: string, field: string): string {
+function requireText(value: unknown, field: string): string {
   const normalized = normalizeText(value);
   if (!normalized) throw new Error(`${field} is required`);
   return normalized;
 }
 
-function normalizeText(value: string | undefined): string | undefined {
+function normalizeText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function assertExactKeys(value: Record<string, unknown>, keys: readonly string[], field: string): void {
+  const expected = new Set(keys);
+  if (
+    Object.keys(value).some((key) => !expected.has(key))
+    || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))
+  ) {
+    throw new Error(`${field} has an invalid shape or extra field`);
+  }
 }
 
 function deepFreeze<T>(value: T): T {

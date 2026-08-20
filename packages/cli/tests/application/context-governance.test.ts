@@ -83,6 +83,7 @@ function makeRunSessionHarness(context: SessionContext) {
 
   const runWithPolicy = (permissionPolicy: { approval: "on-request"; sandbox: "read-only"; fileGovernance?: { excludeFromContext: boolean } }) =>
     runSession({
+      governedGoalTools: "forbidden",
       registry: registry as any,
       cleanupRegistry: cleanupRegistry as any,
       manager: manager as any,

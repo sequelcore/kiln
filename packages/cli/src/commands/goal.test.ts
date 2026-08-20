@@ -348,8 +348,19 @@ function boundedWorkRevision(goalId: string, workItemIds: readonly string[], obj
     adoptedAt: "2026-05-12T21:00:00.000Z",
     adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalId}` },
     contract: {
-      schema: "kiln.bounded-work-contract/v1",
-      intent: { objective, acceptanceCriteria: ["focused tests pass"], nonGoals: [] },
+      schema: "kiln.bounded-work-contract/v2",
+      intent: {
+        objective,
+        acceptanceCriteria: [{ id: "tests", statement: "focused tests pass" }],
+        nonGoals: [],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{ id: "tests-proof", symbol: "tests", subjectPaths: ["packages/cli"] }],
+          mappings: [{ criterionId: "tests", obligationIds: ["tests-proof"] }],
+        },
+      },
       scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect", "modify_source", "run_verification"], permittedSurfaces: ["cli"], allowedRoots: ["packages/cli"], deniedRoots: [], refactorAuthority: "scoped", migrationAuthority: "none", dependencyAuthority: "none" },
       limits: { maxExecutionAttempts: 10, maxManagedInvocations: 10, maxConcurrentManagedInvocations: 3, maxChildDepth: 2, maxReviewRounds: 3, maxRemediationRounds: 3 },
       tripwires: {},

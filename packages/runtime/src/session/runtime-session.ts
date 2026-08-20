@@ -1,5 +1,6 @@
 import type {
   AgentMessage,
+  BoundedWorkAdoptionAuthority,
   CanonicalSessionEvent,
   ContentPart,
 } from "@kilnai/core";
@@ -334,10 +335,46 @@ export class RuntimeSession {
       if (event.sequence !== expectedSequence) {
         throw new Error(`Session event sequence mismatch: expected ${expectedSequence}, received ${event.sequence}`);
       }
+      this.assertAdoptionDecisionReplay(event, [...this._sessionEvents, ...events.slice(0, index)]);
     }
     this._sessionEvents = [...this._sessionEvents, ...events];
     this._version++;
   }
+
+  private assertAdoptionDecisionReplay(
+    event: CanonicalSessionEvent,
+    priorEvents: readonly CanonicalSessionEvent[],
+  ): void {
+    let sourceTurnId: string | undefined;
+    if (event.kind === "goal.created" && event.goal.source.kind === "operator_direct") {
+      sourceTurnId = event.goal.source.turnId;
+    } else if (event.kind === "goal.updated" && event.changedFields.includes("boundedWorkContractRevision")) {
+      sourceTurnId = event.turnId;
+    } else {
+      return;
+    }
+    if (!sourceTurnId) {
+      throw new Error(`Goal ${event.goal.id} bounded-work adoption is missing its canonical turn identity.`);
+    }
+    if (event.kind === "goal.created" && event.turnId !== sourceTurnId) {
+      throw new Error(`Goal ${event.goal.id} adoption event turn does not match its canonical source turn.`);
+    }
+    const decision = priorEvents
+      .filter((candidate): candidate is Extract<CanonicalSessionEvent, { readonly kind: "operator_adoption_decision" }> =>
+        candidate.kind === "operator_adoption_decision")
+      .find((candidate) => candidate.turnId === sourceTurnId);
+    if (!decision || decision.sequence >= event.sequence) {
+      throw new Error(`Goal ${event.goal.id} has no preceding canonical operator adoption decision for ${sourceTurnId}.`);
+    }
+    if (
+      decision.ownerSessionId !== event.goal.ownerSessionId
+      || decision.operatorTurnId !== sourceTurnId
+      || !sameAdoptionAuthority(decision.contractAuthority, event.goal.boundedWorkContractRevision.adoptedBy)
+    ) {
+      throw new Error(`Goal ${event.goal.id} adoption authority does not match the canonical operator decision.`);
+    }
+  }
+
 
   /** Merges keys from ctx into the stored user context. Empty object is a no-op. */
   updateUserContext(ctx: Record<string, string>): void {
@@ -376,4 +413,20 @@ export class RuntimeSession {
     }
     this._version++;
   }
+}
+
+function sameAdoptionAuthority(
+  left: BoundedWorkAdoptionAuthority,
+  right: BoundedWorkAdoptionAuthority,
+): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === "operator" && right.kind === "operator") {
+    return left.actorId === right.actorId && left.decisionId === right.decisionId;
+  }
+  return left.kind === "approved_plan"
+    && right.kind === "approved_plan"
+    && left.planId === right.planId
+    && left.planDigest === right.planDigest;
 }

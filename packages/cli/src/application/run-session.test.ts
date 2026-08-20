@@ -394,4 +394,72 @@ describe("runSession", () => {
     });
     expect(result.managedChildDispatched).toBe(false);
   });
+
+  it("reuses one operator correlation across provider fallback attempts", async () => {
+    const firstRun = vi.fn(async function* () {
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "failed", isPreflightCrash: false };
+    });
+    const secondRun = vi.fn(async function* () {
+      yield { type: "completed", totalUsd: 0, durationMs: 1, outcome: "completed", isPreflightCrash: false };
+    });
+    const sessions = [
+      { run: firstRun, dispose: vi.fn(async () => undefined), sessionId: "provider-session-1" },
+      { run: secondRun, dispose: vi.fn(async () => undefined), sessionId: "provider-session-2" },
+    ];
+    let sessionIndex = 0;
+    const createSession = vi.fn(() => sessions[sessionIndex++]!);
+    const operatorAdoption = { persist: vi.fn(async () => undefined) };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const result = await runSession({
+        registry: {
+          createSession,
+          selectBest: vi.fn(),
+          reportSuccess: vi.fn(),
+          reportFailure: vi.fn(),
+        } as unknown as SessionRegistry,
+        cleanupRegistry: { register: vi.fn() } as never,
+        manager: {} as never,
+        context: {
+          mode: "cli-wrapper",
+          domain: { name: "test", displayName: "Test", toolTags: new Set(), qualityGates: [], detectPatterns: [], multishotExamples: "", phaseExamples: "" },
+          systemPrompt: "system",
+          projectedContext: { blocks: [], totalTokens: 0, omitted: [] },
+          mcpServerEntryPath: "",
+          workingDirectory: "/repo",
+          task: "Use one operator turn across fallback providers",
+          resumeStrategy: "none",
+        } as unknown as SessionContext,
+        requirements: {},
+        routeCandidates: [
+          { provider: "codex-oauth", model: "first-model" },
+          { provider: "openai", model: "second-model" },
+        ],
+        sessionConfig: {
+          task: "Use one operator turn across fallback providers",
+          permissionPolicy: { approval: "never", sandbox: "read-only" },
+        },
+        permissionPolicy: { approval: "never", sandbox: "read-only" },
+        env: {},
+        sessionHooks: { userPromptSubmit: vi.fn() } as unknown as SessionHooks,
+        operatorAdoption,
+      });
+
+      expect(result.sessionSucceeded).toBe(true);
+      expect(result.attempts).toHaveLength(2);
+      const firstRunOptions = firstRun.mock.calls[0]?.[0] as { turnId?: string; operatorTurnCorrelationId?: string };
+      const secondRunOptions = secondRun.mock.calls[0]?.[0] as { turnId?: string; operatorTurnCorrelationId?: string };
+      expect(firstRunOptions.turnId).toBe("attempt:1");
+      expect(secondRunOptions.turnId).toBe("attempt:2");
+      expect(firstRunOptions.operatorTurnCorrelationId).toBeDefined();
+      expect(firstRunOptions.operatorTurnCorrelationId).toBe(secondRunOptions.operatorTurnCorrelationId);
+      expect(firstRunOptions.operatorTurnCorrelationId).not.toBe(firstRunOptions.turnId);
+      expect(secondRunOptions.operatorTurnCorrelationId).not.toBe(secondRunOptions.turnId);
+      expect(createSession.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ operatorAdoption }));
+      expect(createSession.mock.calls[1]?.[1]).toEqual(expect.objectContaining({ operatorAdoption }));
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });

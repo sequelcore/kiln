@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { CommunicationResolution, DeliberationResolution, EffectivePromptObservation } from "@kilnai/core";
 import { buildPreamble } from "../wrapper/preamble-builder.js";
 import type {
@@ -32,6 +33,7 @@ import { SessionHooks } from "./session-hooks.js";
 import { governSessionContext } from "./context-governance.js";
 import type { RunOutputSink } from "./run-output.js";
 import type { OperatorTranscriptEntryEvent } from "./operator-transcript-projection.js";
+import type { OperatorAdoptionRuntimeBinding } from "@kilnai/runtime";
 
 export interface RunSessionTranscriptEvent {
   readonly seq: number;
@@ -39,7 +41,7 @@ export interface RunSessionTranscriptEvent {
   readonly event: OperatorTranscriptEntryEvent;
 }
 
-export interface RunSessionOptions {
+interface RunSessionOptionsBase {
   readonly registry: SessionRegistry;
   readonly cleanupRegistry: CleanupRegistry;
   readonly manager: SessionManager;
@@ -57,7 +59,22 @@ export interface RunSessionOptions {
   readonly toolSandbox?: SessionRunOptions["toolSandbox"];
   readonly output?: RunOutputSink;
   readonly requestApproval?: SessionRunOptions["requestApproval"];
+  /** Stable correlation for one operator turn across provider fallback attempts. */
+  readonly operatorTurnCorrelationId?: string;
 }
+
+export type RunSessionOptions = RunSessionOptionsBase & (
+  | {
+      /** The benchmark projection is intentionally forbidden from admitting governed goal tools. */
+      readonly governedGoalTools: "forbidden";
+      readonly operatorAdoption?: never;
+    }
+  | {
+      /** Productive surfaces must carry one complete durable adoption/replay binding. */
+      readonly operatorAdoption: OperatorAdoptionRuntimeBinding;
+      readonly governedGoalTools?: never;
+    }
+);
 
 export interface RunSessionRouteCandidate {
   readonly provider: ProviderId;
@@ -108,6 +125,11 @@ export interface RunSessionResult {
 }
 
 export async function runSession(options: RunSessionOptions): Promise<RunSessionResult> {
+  // A missing caller correlation identifies this invocation only.  The same
+  // value is intentionally reused by every fallback candidate, while a new
+  // runSession invocation receives a fresh correlation and therefore cannot
+  // accidentally replay a prior turn from the same canonical session.
+  const operatorTurnCorrelationId = options.operatorTurnCorrelationId ?? randomUUID();
   const governedContext = governSessionContext(options.context, options.permissionPolicy);
   const permissionEvaluator: PermissionEvaluator = createPermissionEvaluator(
     options.permissionPolicy,
@@ -170,6 +192,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       ...(candidate.executionCredential ? { executionCredential: candidate.executionCredential } : {}),
       ...(candidateDeliberation ? { deliberationResolution: candidateDeliberation } : {}),
       ...(scopedMcpToolAllowlist ? { mcpToolAllowlist: scopedMcpToolAllowlist } : {}),
+      ...(options.operatorAdoption ? { operatorAdoption: options.operatorAdoption } : {}),
     };
     let isPreflightCrash = false;
     let providerDeniedByPolicy = false;
@@ -189,6 +212,7 @@ export async function runSession(options: RunSessionOptions): Promise<RunSession
       for await (const event of session.run({
         kilnSessionId: options.sessionId ?? session.sessionId,
         turnId: `attempt:${candidateIndex + 1}`,
+        operatorTurnCorrelationId,
         prompt: buildPreamble(governedContext, options.permissionPolicy, undefined),
         promptKind: "kiln-preamble",
         cwd: options.context.workingDirectory,

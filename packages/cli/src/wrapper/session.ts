@@ -168,6 +168,8 @@ export type SessionPromptKind = "user" | "kiln-preamble";
 export interface SessionRunOptions {
   readonly kilnSessionId?: string;
   readonly turnId?: string;
+  /** Correlation-only identity for Runtime adoption; never a canonical turn id. */
+  readonly operatorTurnCorrelationId?: string;
   readonly prompt: string;
   /**
    * Provenance of `prompt`. Absent or `"user"` means ordinary/untrusted

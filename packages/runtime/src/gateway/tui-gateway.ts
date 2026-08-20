@@ -91,6 +91,7 @@ import {
   type OperatorTurnTuiDispatchPayload,
 } from "../execution-routing/operator-turn-dispatcher.js";
 import type { OperatorSessionCommittedExecution } from "../execution-routing/operator-session-execution-routing-service.js";
+import type { OperatorAdoptionDecisionPersistence } from "../session/operator-adoption-authority.js";
 
 type BunHonoAdapters = typeof import("hono/bun");
 const TUI_OPERATOR_COCKPIT_INSTANCE_ID = "local-tui";
@@ -146,6 +147,8 @@ export interface TuiGatewayOptions {
   readonly boundedWork?: AttachedRuntimeBuiltinToolSurfaceOptions["boundedWork"];
   readonly sessionTurnBudget?: RuntimeSessionTurnBudgetAuthority;
   readonly resumeSessionHydrator?: RuntimeSessionHydrator;
+  /** Durable transcript sink required before governed goal tools can run. */
+  readonly persistCanonicalSessionEvent?: OperatorAdoptionDecisionPersistence;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly initialProviderDiscovery?: readonly GuiProviderDiscoveryResult[];
   readonly onProviderDiscoveryResolved?: (discovery: readonly GuiProviderDiscoveryResult[]) => void;
@@ -528,6 +531,7 @@ export async function startTuiGateway(options: TuiGatewayOptions): Promise<TuiGa
       userParts: payload.userParts,
       channel: "tui",
       resumeSessionHydrator: options.resumeSessionHydrator,
+      persistCanonicalSessionEvent: options.persistCanonicalSessionEvent,
       providerValidation: payload.providerDiscovery,
       contextUsageWindow: buildTuiContextUsageWindowEvidence(
         committed.admission.providerId,

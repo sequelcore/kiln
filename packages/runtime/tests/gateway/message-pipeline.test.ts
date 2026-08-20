@@ -243,7 +243,7 @@ describe("processAdmittedTurn", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("uses per-call persisted turn id for canonical runtime session events", async () => {
+  it("ignores caller turn ids and allocates the next canonical runtime ordinal", async () => {
     const session = new RuntimeSession({
       sessionId: "session-parent",
       appName: "test-app",
@@ -287,17 +287,17 @@ describe("processAdmittedTurn", () => {
     expect(session.sessionEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "turn_started",
-        turnId: `${session.id}:turn:3`,
-        turnOrdinal: 3,
+        turnId: `${session.id}:turn:4`,
+        turnOrdinal: 4,
       }),
       expect.objectContaining({
         kind: "user_message",
-        turnId: `${session.id}:turn:3`,
-        messageId: `${session.id}:turn:3:user`,
+        turnId: `${session.id}:turn:4`,
+        messageId: `${session.id}:turn:4:user`,
       }),
       expect.objectContaining({
         kind: "turn_completed",
-        turnId: `${session.id}:turn:3`,
+        turnId: `${session.id}:turn:4`,
       }),
     ]));
   });
@@ -593,7 +593,7 @@ describe("processAdmittedTurn", () => {
         evidence: expect.arrayContaining([expect.objectContaining({ content: "Relevant durable memory." })]),
       }),
       undefined,
-      undefined,
+      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
     ]);
     expect(session.sessionEvents.map((event) => event.kind)).toEqual([
       "turn_started",
@@ -959,7 +959,7 @@ describe("processAdmittedTurn", () => {
       ],
       expect.anything(),
       undefined,
-      undefined,
+      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
     );
     expect(artifactStore.get("inbound-multimodal", "artifact_1")).toMatchObject({
       mimeType: "image/png",
@@ -1020,7 +1020,7 @@ describe("processAdmittedTurn", () => {
       [{ type: "text", text: "[Voice note transcription]: hello from microphone" }],
       expect.anything(),
       undefined,
-      undefined,
+      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
     );
     expect(session.sessionEvents).toContainEqual(expect.objectContaining({
       kind: "multimodal_routed",
@@ -1595,7 +1595,7 @@ describe("processAdmittedTurn", () => {
       textParts("hello"),
       expect.anything(),
       undefined,
-      undefined,
+      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
     );
   });
 
@@ -1658,7 +1658,7 @@ describe("processAdmittedTurn", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       undefined,
-      undefined,
+      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
     );
   });
 
@@ -1684,7 +1684,7 @@ describe("processAdmittedTurn", () => {
         audit: expect.objectContaining({ governor: "DefaultContextGovernor" }),
       }),
       builtinTools,
-      undefined,
+      expect.objectContaining({ turnId: expect.stringContaining(":turn:") }),
     );
   });
 

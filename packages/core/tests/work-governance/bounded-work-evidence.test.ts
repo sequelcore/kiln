@@ -25,6 +25,7 @@ const registeredProducer = () => ({
 const payload = (): FormalVerificationToolResultMetadata => formalVerificationToolMetadata({
   verifier: { name: "dafny", version: "4.11.0" },
   artifact: { contentDigest: digest("a") },
+  subjects: [{ path: "policy.dfy", contentDigest: digest("a") }],
   checks: [{ symbol: "admitPath", check: "correctness", outcome: "proved" }],
 });
 
@@ -69,7 +70,7 @@ describe("bounded work formal verification attestation", () => {
       establishes: [],
       payload: payload(),
     });
-    expect(value.schema).toMatch(/^kiln\.bounded-work-formal-verification-attestation\/v\d+$/u);
+    expect(value.schema).toBe("kiln.bounded-work-formal-verification-attestation/v2");
     expect(value.payloadDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(value.attestationDigest).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(value.payloadDigest).toBe(boundedWorkDigest(value.payload));
@@ -120,14 +121,14 @@ describe("bounded work formal verification attestation", () => {
   });
 });
 
-describe("bounded work candidate evidence v2", () => {
+describe("bounded work candidate evidence v3", () => {
   it("creates a digest-stable verification record with exact candidate and attempt projections", () => {
     const value = createBoundedWorkCandidateEvidence(evidenceInput({
       executionAttempt: executionAttempt({ managedInvocationId: "managed-1" }),
     }));
 
     expect(value).toMatchObject({
-      schema: "kiln.bounded-work-candidate-evidence/v2",
+      schema: "kiln.bounded-work-candidate-evidence/v3",
       kind: "verification",
       candidate: {
         goalRunId: "goal-1",

@@ -46,6 +46,7 @@ import {
 } from "@kilnai/gateway-contracts";
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  OPERATOR_ADOPTION_DECISION_TRANSPORT,
   parseFormalVerificationToolResultMetadata,
   type DevToolExecutionContext,
   type FormalVerificationFinishExecutionScope,
@@ -461,6 +462,7 @@ const RECORD_CLARIFICATION_CAPABILITY: Capability = {
 };
 
 const GOAL_CREATE_TOOL_NAME = "goal.create";
+const GOAL_CONTRACT_SUPERSEDE_TOOL_NAME = "goal.bounded_work_contract.supersede";
 
 export function createAttachedRuntimeBuiltinToolSurface(
   options: AttachedRuntimeBuiltinToolSurfaceOptions = {},
@@ -515,6 +517,13 @@ export function createAttachedRuntimeBuiltinToolSurface(
   const goalCreateExecutor = callBuiltinTools.get(GOAL_CREATE_TOOL_NAME);
   if (goalCreateExecutor) {
     callBuiltinTools.set(GOAL_CREATE_TOOL_NAME, createSessionAwareGoalCreateExecutor(goalCreateExecutor));
+  }
+  const goalContractSupersedeExecutor = callBuiltinTools.get(GOAL_CONTRACT_SUPERSEDE_TOOL_NAME);
+  if (goalContractSupersedeExecutor) {
+    callBuiltinTools.set(
+      GOAL_CONTRACT_SUPERSEDE_TOOL_NAME,
+      createSessionAwareGoalContractSupersedeExecutor(goalContractSupersedeExecutor),
+    );
   }
   const registerRuntimeTool = (tool: ToolDefinition, capability: Capability): void => {
     toolDefinitions.push(tool);
@@ -1057,17 +1066,23 @@ function normalizeManagedInvocationAttachment(
 
 function createSessionAwareGoalCreateExecutor(goalCreateExecutor: RuntimeBuiltinToolExecutor): RuntimeBuiltinToolExecutor {
   return async (input, context) => {
-    const ownerSessionId = readTextFromUnknown(input.ownerSessionId);
-    const operatorTurnId = readTextFromUnknown(input.operatorTurnId);
-    const needsOwnerSessionId = !ownerSessionId && Boolean(context?.session.id);
-    const needsOperatorTurnId = !operatorTurnId && Boolean(context?.turnId);
-    if (!needsOwnerSessionId && !needsOperatorTurnId) {
-      return goalCreateExecutor(input, context);
+    if (!context?.operatorAdoptionDecision) {
+      return {
+        output: JSON.stringify({
+          error: {
+            code: "operator_adoption_decision_missing",
+            message: "goal.create requires a canonical runtime operator adoption decision.",
+            recoverable: false,
+          },
+        }, null, 2),
+        isError: true,
+      };
     }
     return goalCreateExecutor({
       ...input,
-      ...(needsOwnerSessionId ? { ownerSessionId: context!.session.id } : {}),
-      ...(needsOperatorTurnId ? { operatorTurnId: context!.turnId } : {}),
+      ownerSessionId: context.operatorAdoptionDecision.ownerSessionId,
+      operatorTurnId: context.operatorAdoptionDecision.operatorTurnId,
+      contractAuthority: context.operatorAdoptionDecision.contractAuthority,
     }, context);
   };
 }
@@ -1994,6 +2009,29 @@ function buildBuiltinToolExecutors(
   return executors;
 }
 
+function createSessionAwareGoalContractSupersedeExecutor(
+  goalContractSupersedeExecutor: RuntimeBuiltinToolExecutor,
+): RuntimeBuiltinToolExecutor {
+  return async (input, context) => {
+    if (!context?.operatorAdoptionDecision) {
+      return {
+        output: JSON.stringify({
+          error: {
+            code: "operator_adoption_decision_missing",
+            message: "goal.bounded_work_contract.supersede requires a canonical runtime operator adoption decision.",
+            recoverable: false,
+          },
+        }, null, 2),
+        isError: true,
+      };
+    }
+    return goalContractSupersedeExecutor({
+      ...input,
+      contractAuthority: context.operatorAdoptionDecision.contractAuthority,
+    }, context);
+  };
+}
+
 function createCoreToolExecutionContext(
   toolName: string,
   surface: DefaultBuiltinToolSurface,
@@ -2003,7 +2041,8 @@ function createCoreToolExecutionContext(
   const transport = toolName === "work_item.execution.finish"
     ? createFormalVerificationFinishTransport(surface, context, registeredTool)
     : undefined;
-  if (!context?.abortSignal && !context?.emitOutput && !transport) return undefined;
+  const isManagedChild = context?.executionScope?.managedInvocationId !== undefined;
+  if (!context?.abortSignal && !context?.emitOutput && !transport && (!context?.operatorAdoptionDecision || isManagedChild)) return undefined;
 
   const executionContext: DevToolExecutionContext = {
     ...(context?.abortSignal ? { abortSignal: context.abortSignal } : {}),
@@ -2014,6 +2053,14 @@ function createCoreToolExecutionContext(
       configurable: false,
       enumerable: false,
       value: transport,
+      writable: false,
+    });
+  }
+  if (context?.operatorAdoptionDecision && !isManagedChild) {
+    Object.defineProperty(executionContext, OPERATOR_ADOPTION_DECISION_TRANSPORT, {
+      configurable: false,
+      enumerable: false,
+      value: context.operatorAdoptionDecision,
       writable: false,
     });
   }

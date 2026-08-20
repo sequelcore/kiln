@@ -20,23 +20,33 @@
  * that identity, not a second selection authority.
  */
 
+import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { correctnessEfforts } from "../../verification/dafny-proof-log.js";
 import type { DafnyProofEffort, DafnyProofLog } from "../../verification/dafny-proof-log.js";
+import { normalizeFormalProofSubjects } from "../../work-governance/formal-proof-subjects.js";
 import { TOOL_SCHEMAS, type DevTool, type ToolInput, type ToolResult } from "../domain/tool.js";
 import { getBuiltinEffectEnvelope } from "../domain/tool-effect-envelopes.js";
 import {
   formalVerificationToolMetadata,
   type FormalVerificationCheck,
   type FormalVerificationOutcome,
+  type FormalVerificationSubject,
 } from "../domain/tool-result-metadata.js";
 import { DafnyVerifier } from "./dafny-verifier.js";
 import { SpawnCommandProcessRunner } from "./command-process.js";
 import type { CommandProcessRunner } from "./command-process.js";
-import { requireString, resolvePath, toErrorResult, toSuccessResult, validateReadPath } from "./tool-helpers.js";
+import {
+  getSandboxContext,
+  requireString,
+  resolvePath,
+  toErrorResult,
+  toSuccessResult,
+  validateReadPath,
+} from "./tool-helpers.js";
 
 /** Capability identity this tool implements. Owned by the Capability Fabric catalog. */
 export const FORMAL_VERIFY_CAPABILITY = "verify.formal" as const;
@@ -69,6 +79,26 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
     async execute(input: ToolInput, sandbox?: unknown): Promise<ToolResult> {
       const file = requireString(input, "file");
       if (!file.ok) return file.result;
+      const sandboxContext = getSandboxContext(sandbox);
+      if (sandboxContext?.cwd === undefined) {
+        return toErrorResult("formal verification requires sandbox.cwd to bind subject coverage");
+      }
+      let sandboxRoot: string;
+      let repositoryRoot: string;
+      try {
+        const cwdPath = await realpath(sandboxContext.cwd);
+        const cwdStat = await lstat(cwdPath);
+        if (!cwdStat.isDirectory()) {
+          return toErrorResult("formal verification sandbox.cwd must be a directory");
+        }
+        sandboxRoot = cwdPath;
+        repositoryRoot = await resolveGitRepositoryRoot(sandboxRoot);
+        if (!isWithin(repositoryRoot, sandboxRoot)) {
+          return toErrorResult("formal verification sandbox.cwd must be inside its Git repository");
+        }
+      } catch (error) {
+        return toErrorResult(`formal verification sandbox.cwd Git boundary unavailable: ${errorMessage(error)}`);
+      }
       const absolute = resolvePath(file.value, sandbox);
       const denied = validateReadPath(absolute, sandbox);
       if (denied) return toErrorResult(denied);
@@ -82,7 +112,13 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
       let result: ToolResult = toErrorResult("formal verification did not produce a result");
       try {
         snapshotRoot = await mkdtemp(join(tmpdir(), "kiln-formal-verify-"));
-        const snapshot = await createVerificationSnapshot(absolute, snapshotRoot, sandbox);
+        const snapshot = await createVerificationSnapshot(
+          absolute,
+          snapshotRoot,
+          sandbox,
+          repositoryRoot,
+          sandboxRoot,
+        );
         snapshotFiles = snapshot.files;
 
         const verifier = new DafnyVerifier(options.runner ?? new SpawnCommandProcessRunner(), {
@@ -122,6 +158,7 @@ export function createFormalVerifyTool(options: FormalVerifyToolOptions): DevToo
               const metadata = formalVerificationToolMetadata({
                 verifier: { name: "dafny", version: options.verifierVersion },
                 artifact: { contentDigest: snapshot.inputDigest },
+                subjects: snapshot.subjects,
                 checks: checks.map((effort) => toCheck(effort, run.log)),
               });
               result = toSuccessResult(renderRun(run.log), metadata);
@@ -228,6 +265,128 @@ function digestBytes(content: Uint8Array): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
 
+interface GitTreeEntry {
+  readonly mode: string;
+  readonly type: string;
+  readonly objectId: string;
+}
+
+interface GitCandidateSnapshot {
+  readonly repositoryRoot: string;
+  readonly entries: ReadonlyMap<string, GitTreeEntry>;
+}
+
+async function resolveGitRepositoryRoot(cwd: string): Promise<string> {
+  const output = await runGitCommand(cwd, ["rev-parse", "--show-toplevel"]);
+  const rootValue = output.toString("utf8").trim();
+  if (rootValue.length === 0) throw new Error("git rev-parse returned an empty repository root");
+  const root = await realpath(rootValue);
+  if (!isWithin(root, cwd)) throw new Error("sandbox.cwd is outside the Git repository");
+  await runGitCommand(root, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  return root;
+}
+
+async function createGitCandidateSnapshot(repositoryRoot: string): Promise<GitCandidateSnapshot> {
+  const indexDirectory = await mkdtemp(join(tmpdir(), "kiln-formal-git-index-"));
+  const indexPath = join(indexDirectory, "index");
+  try {
+    const firstTreeObjectId = await materializeGitTree(repositoryRoot, indexPath);
+    const secondTreeObjectId = await materializeGitTree(repositoryRoot, indexPath);
+    if (firstTreeObjectId !== secondTreeObjectId) {
+      throw new Error("Git candidate materialization was unstable");
+    }
+    const listing = await runGitCommand(repositoryRoot, [
+      "ls-tree",
+      "-r",
+      "-z",
+      "--full-tree",
+      secondTreeObjectId,
+    ]);
+    const entries = parseGitTreeEntries(listing);
+    if ([...entries.values()].some((entry) => entry.type === "commit" || entry.mode === "160000")) {
+      throw new Error("Git candidate contains a submodule gitlink; explicit capture is required");
+    }
+    return {
+      repositoryRoot,
+      entries,
+    };
+  } finally {
+    await rm(indexDirectory, { recursive: true, force: true });
+  }
+}
+
+async function materializeGitTree(repositoryRoot: string, indexPath: string): Promise<string> {
+  await runGitCommand(repositoryRoot, ["read-tree", "HEAD"], indexPath);
+  await runGitCommand(repositoryRoot, ["add", "--all", "--", "."], indexPath);
+  const output = await runGitCommand(repositoryRoot, ["write-tree"], indexPath);
+  const treeObjectId = output.toString("utf8").trim();
+  if (!/^[0-9a-f]{40,64}$/u.test(treeObjectId)) {
+    throw new Error("git write-tree returned an invalid tree object id");
+  }
+  return treeObjectId;
+}
+
+function parseGitTreeEntries(output: Buffer): ReadonlyMap<string, GitTreeEntry> {
+  const entries = new Map<string, GitTreeEntry>();
+  for (const rawEntry of output.toString("utf8").split("\0")) {
+    if (rawEntry.length === 0) continue;
+    const separator = rawEntry.indexOf("\t");
+    if (separator < 0) throw new Error("git ls-tree returned a malformed entry");
+    const [mode, type, objectId] = rawEntry.slice(0, separator).split(" ");
+    const path = rawEntry.slice(separator + 1);
+    if (mode === undefined || type === undefined || objectId === undefined || path.length === 0) {
+      throw new Error("git ls-tree returned a malformed entry");
+    }
+    if (entries.has(path)) throw new Error(`git candidate contains duplicate path ${path}`);
+    entries.set(path, { mode, type, objectId });
+  }
+  return entries;
+}
+
+async function readGitCandidateContent(
+  candidate: GitCandidateSnapshot,
+  path: string,
+): Promise<Buffer> {
+  const candidatePath = candidateRelativePath(candidate.repositoryRoot, path);
+  const entry = candidate.entries.get(candidatePath);
+  if (entry === undefined) {
+    throw new Error(`formal verification candidate does not contain ${candidatePath}`);
+  }
+  if (entry.type !== "blob" || (entry.mode !== "100644" && entry.mode !== "100755")) {
+    throw new Error(`formal verification candidate path ${candidatePath} is not a regular blob`);
+  }
+  return runGitCommand(candidate.repositoryRoot, ["cat-file", "blob", entry.objectId]);
+}
+
+function candidateRelativePath(repositoryRoot: string, path: string): string {
+  const candidatePath = relative(repositoryRoot, resolve(path));
+  if (candidatePath.length === 0 || candidatePath.startsWith("..") || isAbsolute(candidatePath)) {
+    throw new Error(`formal verification path is outside the Git repository: ${path}`);
+  }
+  return toPosixPath(candidatePath);
+}
+
+function runGitCommand(cwd: string, args: readonly string[], indexPath?: string): Promise<Buffer> {
+  return new Promise((resolveCommand, rejectCommand) => {
+    const environment = indexPath === undefined
+      ? process.env
+      : { ...process.env, GIT_INDEX_FILE: indexPath };
+    execFile("git", [...args], {
+      cwd,
+      encoding: "buffer",
+      maxBuffer: 64 * 1024 * 1024,
+      env: environment,
+      windowsHide: true,
+    }, (error, stdout) => {
+      if (error) {
+        rejectCommand(new Error(`git ${args.join(" ")} failed: ${errorMessage(error)}`));
+        return;
+      }
+      resolveCommand(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
+    });
+  });
+}
+
 interface VerificationSnapshot {
   readonly inputPath: string;
   readonly inputRelativePath: string;
@@ -235,15 +394,25 @@ interface VerificationSnapshot {
   readonly logFileName: string;
   readonly files: readonly string[];
   readonly fileDigests: ReadonlyMap<string, string>;
+  readonly subjects: readonly FormalVerificationSubject[];
 }
 
 async function createVerificationSnapshot(
   inputPath: string,
   snapshotRoot: string,
   sandbox: unknown,
+  repositoryRoot: string,
+  sandboxRoot: string,
 ): Promise<VerificationSnapshot> {
-  const files = await collectSnapshotFiles(inputPath, sandbox);
+  const candidate = await createGitCandidateSnapshot(repositoryRoot);
+  const files = await collectSnapshotFiles(inputPath, sandbox, repositoryRoot, sandboxRoot, candidate);
   const originalRoot = commonPathRoot([...files.keys()]);
+  const subjects = normalizeFormalProofSubjects(
+    [...files.entries()].map(([originalPath, content]) => ({
+      path: candidateRelativePath(repositoryRoot, originalPath),
+      contentDigest: digestBytes(content),
+    })),
+  );
   const snapshotPaths: string[] = [];
   const snapshotDigests = new Map<string, string>();
   let snapshotInputPath = "";
@@ -279,7 +448,12 @@ async function createVerificationSnapshot(
     logFileName: `verification-${randomUUID()}.csv`,
     files: snapshotPaths,
     fileDigests: snapshotDigests,
+    subjects,
   };
+}
+
+function toPosixPath(path: string): string {
+  return sep === "\\" ? path.replaceAll("\\", "/") : path;
 }
 
 async function assertSnapshotUnchanged(snapshot: VerificationSnapshot): Promise<void> {
@@ -296,16 +470,20 @@ async function assertSnapshotUnchanged(snapshot: VerificationSnapshot): Promise<
   }
 }
 
-async function collectSnapshotFiles(inputPath: string, sandbox: unknown): Promise<ReadonlyMap<string, Buffer>> {
+async function collectSnapshotFiles(
+  inputPath: string,
+  sandbox: unknown,
+  repositoryRoot: string,
+  sandboxRoot: string,
+  candidate: GitCandidateSnapshot,
+): Promise<ReadonlyMap<string, Buffer>> {
   const pending = [resolve(inputPath)];
   const files = new Map<string, Buffer>();
   while (pending.length > 0) {
     const currentPath = pending.pop()!;
     if (files.has(currentPath)) continue;
-    const readPath = await validateSnapshotReadPath(currentPath, sandbox);
-    const content = await readFile(readPath).catch((error: unknown) => {
-      throw new Error(`formal verification input/dependency unreadable (${currentPath}): ${errorMessage(error)}`);
-    });
+    await validateSnapshotReadPath(currentPath, sandbox, repositoryRoot, sandboxRoot);
+    const content = await readGitCandidateContent(candidate, currentPath);
     files.set(currentPath, content);
     for (const dependency of localDependencies(currentPath, content)) pending.push(dependency);
   }
@@ -317,8 +495,19 @@ async function collectSnapshotFiles(inputPath: string, sandbox: unknown): Promis
  * dependency. The sandbox validator is lexical by design; realpath closes the
  * symlink/junction gap without changing the dependency closure semantics.
  */
-async function validateSnapshotReadPath(path: string, sandbox: unknown): Promise<string> {
+async function validateSnapshotReadPath(
+  path: string,
+  sandbox: unknown,
+  repositoryRoot: string,
+  sandboxRoot: string,
+): Promise<void> {
   const lexicalPath = resolve(path);
+  if (!isWithin(sandboxRoot, lexicalPath)) {
+    throw new Error(`formal verification dependency read denied (${lexicalPath}): outside sandbox.cwd`);
+  }
+  if (!isWithin(repositoryRoot, lexicalPath)) {
+    throw new Error(`formal verification dependency read denied (${lexicalPath}): outside Git repository`);
+  }
   const denied = validateReadPath(lexicalPath, sandbox);
   if (denied) {
     throw new Error(`formal verification dependency read denied (${lexicalPath}): ${denied}`);
@@ -326,19 +515,31 @@ async function validateSnapshotReadPath(path: string, sandbox: unknown): Promise
 
   let physicalPath: string;
   try {
-    await lstat(lexicalPath);
+    const lexicalStat = await lstat(lexicalPath);
+    if (lexicalStat.isSymbolicLink()) {
+      throw new Error("symbolic links are not supported as formal verification subjects");
+    }
     physicalPath = await realpath(lexicalPath);
   } catch (error) {
     throw new Error(`formal verification input/dependency unreadable (${lexicalPath}): ${errorMessage(error)}`);
   }
 
+  if (!isWithin(sandboxRoot, physicalPath)) {
+    throw new Error(`formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): outside sandbox.cwd`);
+  }
+  if (!isWithin(repositoryRoot, physicalPath)) {
+    throw new Error(`formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): outside Git repository`);
+  }
   const physicalDenied = validateReadPath(physicalPath, sandbox);
   if (physicalDenied) {
     throw new Error(
       `formal verification dependency read denied (${lexicalPath} -> ${physicalPath}): ${physicalDenied}`,
     );
   }
-  return physicalPath;
+  const physicalStat = await lstat(physicalPath);
+  if (!physicalStat.isFile()) {
+    throw new Error(`formal verification input/dependency is not a regular file (${lexicalPath})`);
+  }
 }
 
 function localDependencies(currentPath: string, content: Uint8Array): readonly string[] {

@@ -898,6 +898,7 @@ function wireOperatorTransport(
       userParts: payload.userParts,
       channel: "gui",
       resumeSessionHydrator: input.transport.resumeSessionHydrator,
+      persistCanonicalSessionEvent: input.transport.persistCanonicalSessionEvent,
       providerValidation: payload.providerDiscovery,
       contextUsageWindow: contextUsageWindowEvidence(
         committed.admission.providerId,

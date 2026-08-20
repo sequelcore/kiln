@@ -50,6 +50,7 @@ import {
 } from "../application/managed-invocation-attachment.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import { loadSessionDetail } from "./gui-session-detail.js";
+import { toCanonicalSessionEventPersistedTranscriptEventDraft } from "../application/operator-transcript-projection.js";
 import {
   createDefaultRegistry,
   getRuntimeProviderAvailability,
@@ -384,6 +385,12 @@ export async function guiCommand(
       operatorTurnExecutionBridge: operatorTurnComposition.bridge,
       systemPrompt: bootstrapContext.systemPrompt,
       onClear: sessionManager.onClear,
+      persistCanonicalSessionEvent: async (event) => {
+        await transcriptStore.appendManyNext(
+          event.kilnSessionId,
+          [toCanonicalSessionEventPersistedTranscriptEventDraft(event)],
+        );
+      },
       onContinueSession: async (sessionId, requestedRouteId) => {
         const meta = await transcriptStore.readMeta(sessionId);
         const binding = [...(meta?.executionBindings ?? [])].reverse().find((entry) => entry.status === "bound");

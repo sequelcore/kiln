@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { ManagedAgentResultHandoff } from "@kilnai/core/agents";
+import { canonicalTurnId, createOperatorAdoptionDecisionAuthority } from "@kilnai/core/events";
 import {
   FORMAL_VERIFICATION_FINISH_TRANSPORT,
+  OPERATOR_ADOPTION_DECISION_TRANSPORT,
   DevToolRegistry,
   formalVerificationToolMetadata,
   type FormalVerificationFinishTransportEnvelope,
 } from "@kilnai/core/tools";
 import {
   adoptBoundedWorkContractRevision,
+  createBoundedWorkAcceptanceDecisionRecord,
   createBoundedWorkCandidateEvidence,
   createBoundedWorkCandidate,
+  evaluateBoundedWorkAssurance,
   finishGoalExecutionAttempt,
+  type BoundedWorkCandidateIdentity,
   type GoalRun,
   GoalRunStore,
   startGoalExecutionAttempt,
@@ -32,44 +37,9 @@ function createWorkGovernanceTools(
       commit: () => undefined,
       release: () => undefined,
     })),
-    boundedWorkCandidateCloseout: options.boundedWorkCandidateCloseout ?? (async ({ goal, workItem, attempt }) => {
-      const candidate = createBoundedWorkCandidate({
-        goalRunId: goal.id,
-        workItemId: workItem.id,
-        contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
-        accountingLineageId: goal.boundedWorkContractRevision.accountingLineageId,
-        kind: "git_worktree",
-        baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
-        candidateContentDigest: `sha256:${"b".repeat(64)}`,
-        createdAt: attempt.startedAt,
-      });
-      return {
-        captured: true as const,
-        candidate,
-        evidence: [createBoundedWorkCandidateEvidence({
-          candidate,
-          executionAttempt: {
-            goalRunId: attempt.goalRunId,
-            workItemId: attempt.workItemId,
-            attemptId: attempt.id,
-            ...(Object.prototype.hasOwnProperty.call(attempt, "managedInvocationId")
-              ? { managedInvocationId: attempt.managedInvocationId }
-              : {}),
-          },
-          invocation: { toolCallScopeId: "scope-test", toolCallId: "call-test" },
-          attestation: {
-            producer: { kind: "registered_tool", toolName: "formal_verify" },
-            payload: formalVerificationToolMetadata({
-              verifier: { name: "dafny", version: "4.11.0" },
-              artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
-              checks: [{ symbol: "test", check: "correctness", outcome: "proved" }],
-            }),
-          },
-          recordedAt: attempt.startedAt,
-        })],
-      };
-    }),
-    boundedWorkGoalCloseout: options.boundedWorkGoalCloseout ?? (({ goal, candidate }) => ({
+    boundedWorkCandidateCloseout: options.boundedWorkCandidateCloseout ?? (async ({ goal, workItem, attempt }) =>
+      testCandidateCloseout({ goal, workItem, attempt })),
+    boundedWorkGoalCloseout: options.boundedWorkGoalCloseout ?? (({ goal, candidate, assuranceEvaluation }) => ({
       kind: "stop_acceptance_complete" as const,
       candidateDigest: candidate.candidateDigest,
       contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
@@ -86,6 +56,13 @@ function createWorkGovernanceTools(
         toolCalls: { kind: "unavailable" as const, reason: "test harness does not meter tool calls" },
         activeDurationMs: { kind: "unavailable" as const, reason: "test harness does not meter active duration" },
       },
+      acceptanceDecision: createBoundedWorkAcceptanceDecisionRecord({
+        revision: goal.boundedWorkContractRevision,
+        candidateDigest: candidate.candidateDigest,
+        assuranceEvaluation,
+        outcome: "accepted",
+        decidedAt: fixedNow(),
+      }),
     })),
   });
 }
@@ -98,8 +75,19 @@ function boundedWorkRevision(goalId: string, workItemIds: readonly string[], obj
     adoptedAt: "2026-08-12T18:00:00.000Z",
     adoptedBy: { kind: "operator", actorId: "test-operator", decisionId: `decision:${goalId}` },
     contract: {
-      schema: "kiln.bounded-work-contract/v1",
-      intent: { objective, acceptanceCriteria: ["test evidence"], nonGoals: [] },
+      schema: "kiln.bounded-work-contract/v2",
+      intent: {
+        objective,
+        acceptanceCriteria: [{ id: "evidence", statement: "test evidence" }],
+        nonGoals: [],
+      },
+      assurance: {
+        formalVerification: {
+          semantics: "allOf",
+          obligations: [{ id: "evidence-proof", symbol: "test", subjectPaths: ["packages/cli"] }],
+          mappings: [{ criterionId: "evidence", obligationIds: ["evidence-proof"] }],
+        },
+      },
       scope: { allowedWorkItemIds: workItemIds, permittedEffects: ["inspect", "modify_source", "run_verification"], permittedSurfaces: ["cli"], allowedRoots: ["packages/cli"], deniedRoots: [], refactorAuthority: "scoped", migrationAuthority: "none", dependencyAuthority: "none" },
       limits: { maxExecutionAttempts: 10, maxManagedInvocations: 10, maxConcurrentManagedInvocations: 3, maxChildDepth: 2, maxReviewRounds: 3, maxRemediationRounds: 3 },
       tripwires: {},
@@ -113,9 +101,36 @@ function boundedWorkContract(objective: string, workItemIds: readonly string[]) 
 }
 
 function boundedWorkCloseoutDecision(goal: ReturnType<GoalRunStore["get"]> & {}) {
+  const candidate = createBoundedWorkCandidate({
+    goalRunId: goal.id,
+    workItemId: goal.workItemIds[0] ?? "work-terminal",
+    contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
+    accountingLineageId: goal.boundedWorkContractRevision.accountingLineageId,
+    kind: "git_worktree",
+    baseline: { kind: "git_tree", digest: `sha256:${"a".repeat(64)}` },
+    candidateContentDigest: `sha256:${"b".repeat(64)}`,
+    createdAt: fixedNow(),
+  });
+  const evidence = testCandidateEvidence({
+    candidate,
+    attempt: {
+      goalRunId: goal.id,
+      workItemId: candidate.workItemId,
+      id: "synthetic-terminal-attempt",
+      startedAt: fixedNow(),
+    },
+    symbol: "test",
+  });
+  const assuranceEvaluation = evaluateBoundedWorkAssurance({
+    revision: goal.boundedWorkContractRevision,
+    candidate,
+    candidateSubjects: testCandidateSubjects(candidate),
+    candidateEvidence: [evidence],
+    evaluatedAt: fixedNow(),
+  });
   return {
     kind: "stop_acceptance_complete" as const,
-    candidateDigest: `sha256:${"d".repeat(64)}`,
+    candidateDigest: candidate.candidateDigest,
     contractRevisionDigest: goal.boundedWorkContractRevision.revisionDigest,
     accounting: {
       schema: "kiln.bounded-work-accounting/v1" as const,
@@ -130,10 +145,24 @@ function boundedWorkCloseoutDecision(goal: ReturnType<GoalRunStore["get"]> & {})
       toolCalls: { kind: "unavailable" as const },
       activeDurationMs: { kind: "unavailable" as const },
     },
+    acceptanceDecision: createBoundedWorkAcceptanceDecisionRecord({
+      revision: goal.boundedWorkContractRevision,
+      candidateDigest: candidate.candidateDigest,
+      assuranceEvaluation,
+      outcome: "accepted",
+      decidedAt: fixedNow(),
+    }),
   };
 }
 
 const contractAuthority = { kind: "operator" as const, actorId: "test-operator", decisionId: "operator-decision" };
+const operatorAdoptionContext = {
+  [OPERATOR_ADOPTION_DECISION_TRANSPORT]: createOperatorAdoptionDecisionAuthority({
+    ownerSessionId: "session-current",
+    operatorTurnId: canonicalTurnId("session-current", 1),
+    actorId: "test-operator",
+  }),
+};
 
 describe("work-governance-tool", () => {
   const policy = {
@@ -271,6 +300,144 @@ describe("work-governance-tool", () => {
 
     expect(missingTypes).toEqual([]);
     expect(unsupportedOneOf).toEqual([]);
+  });
+
+  it("exposes the v2 contract shape while keeping adoption authority runtime-owned", () => {
+    const tools = createWorkGovernanceTools(policy);
+    const goalCreate = tools.find((candidate) => candidate.name === "goal.create");
+    const supersede = tools.find((candidate) => candidate.name === "goal.bounded_work_contract.supersede");
+    const goalSchema = goalCreate?.inputSchema as {
+      readonly properties?: Record<string, unknown>;
+      readonly required?: readonly string[];
+    };
+    const supersedeSchema = supersede?.inputSchema as {
+      readonly properties?: Record<string, unknown>;
+      readonly required?: readonly string[];
+    };
+
+    expect(goalSchema.properties).not.toHaveProperty("operatorTurnId");
+    expect(goalSchema.properties).not.toHaveProperty("contractAuthority");
+    expect(goalSchema.required).not.toContain("operatorTurnId");
+    expect(goalSchema.required).not.toContain("contractAuthority");
+    expect(supersedeSchema.properties).not.toHaveProperty("contractAuthority");
+    expect(supersedeSchema.required).not.toContain("contractAuthority");
+
+    const contractSchema = goalSchema.properties?.boundedWorkContract as Record<string, unknown> | undefined;
+    expect(contractSchema).toMatchObject({
+      type: "object",
+      properties: {
+        schema: { const: "kiln.bounded-work-contract/v2" },
+        intent: {
+          properties: {
+            acceptanceCriteria: {
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  statement: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        assurance: {
+          properties: {
+            formalVerification: {
+              properties: {
+                semantics: { const: "allOf" },
+                obligations: { items: { properties: { subjectPaths: { type: "array" } } } },
+                mappings: { items: { properties: { criterionId: { type: "string" } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(contractSchema?.additionalProperties).toBe(false);
+  });
+
+  it("rejects legacy criteria and malformed or extra assurance in goal create and supersede", async () => {
+    const goalRunStore = new GoalRunStore({ now: fixedNow });
+    const workItemStore = new WorkItemStore({ now: fixedNow });
+    const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
+    const updateTool = tools.find((candidate) => candidate.name === "work_item.update");
+    const goalTool = tools.find((candidate) => candidate.name === "goal.create");
+    const supersedeTool = tools.find((candidate) => candidate.name === "goal.bounded_work_contract.supersede");
+    await updateTool?.execute({
+      name: "work_item.update",
+      input: {
+        id: "work-v2-contract-reader",
+        summary: "Exercise the v2 contract reader.",
+        workflowProfile: "small-fix",
+        triggers: [],
+        expectedEvidence: [],
+        verificationGates: [],
+      },
+    });
+
+    const valid = boundedWorkContract("Exercise the v2 contract reader.", ["work-v2-contract-reader"]);
+    const legacyCriteria = {
+      ...valid,
+      intent: { ...valid.intent, acceptanceCriteria: ["legacy criteria"] },
+    } as unknown;
+    const extraAssurance = {
+      ...valid,
+      assurance: { ...valid.assurance, unexpected: true },
+    } as unknown;
+    const missingFormalVerification = {
+      ...valid,
+      assurance: {},
+    } as unknown;
+
+    for (const [id, boundedWorkContractValue] of [
+      ["goal-v2-legacy-criteria", legacyCriteria],
+      ["goal-v2-extra-assurance", extraAssurance],
+      ["goal-v2-missing-formal-verification", missingFormalVerification],
+    ] as const) {
+      const result = await goalTool?.execute({
+        name: "goal.create",
+        input: {
+          id,
+          objective: "Exercise the v2 contract reader.",
+          workItemIds: ["work-v2-contract-reader"],
+          maximumAuthority: "read_only",
+          escalationPolicy: "deny",
+          authorityReason: "Reader regression test.",
+          workflowProfile: "small-fix",
+          boundedWorkContract: boundedWorkContractValue,
+        },
+      }, undefined, operatorAdoptionContext);
+      expect(result?.isError).toBe(true);
+      expect(goalRunStore.get(id)).toBeUndefined();
+    }
+
+    const initial = boundedWorkRevision(
+      "goal-v2-supersede-reader",
+      ["work-v2-contract-reader"],
+      "Exercise supersession reader.",
+    );
+    goalRunStore.create({
+      id: "goal-v2-supersede-reader",
+      objective: "Exercise supersession reader.",
+      ownerSessionId: "session-current",
+      source: { kind: "operator_direct", turnId: canonicalTurnId("session-current", 1) },
+      boundedWorkContractRevision: initial,
+      workItemIds: ["work-v2-contract-reader"],
+      authorityEnvelope: { maximumAuthority: "read_only", escalationPolicy: "deny", reason: "Reader regression test." },
+      routePolicy: { workflowProfile: "small-fix" },
+      evidenceRequirements: [],
+    });
+
+    const superseded = await supersedeTool?.execute({
+      name: "goal.bounded_work_contract.supersede",
+      input: {
+        goalRunId: "goal-v2-supersede-reader",
+        expectedRevisionDigest: initial.revisionDigest,
+        boundedWorkContract: extraAssurance,
+      },
+    }, undefined, operatorAdoptionContext);
+    expect(superseded?.isError).toBe(true);
+    expect(goalRunStore.get("goal-v2-supersede-reader")?.boundedWorkContractRevision.revision).toBe(1);
   });
 
   it("keeps managed invocation handoff runtime-owned during execution finish", () => {
@@ -1932,7 +2099,7 @@ describe("work-governance-tool", () => {
         boundedWorkContract: successorContract,
         contractAuthority,
       },
-    });
+    }, undefined, operatorAdoptionContext);
     expect(superseded).toMatchObject({ isError: false, metadata: { operation: "update" } });
     expect(goalRunStore.get("goal-contract-ops")?.boundedWorkContractRevision).toMatchObject({ revision: 2, parentRevisionDigest: initial.revisionDigest });
     expect(goalRunStore.get("goal-contract-ops")?.boundedWorkContractRevisionHistory).toHaveLength(2);
@@ -1940,7 +2107,7 @@ describe("work-governance-tool", () => {
     const stale = await supersede?.execute({
       name: "goal.bounded_work_contract.supersede",
       input: { goalRunId: "goal-contract-ops", expectedRevisionDigest: initial.revisionDigest, boundedWorkContract: successorContract, contractAuthority },
-    });
+    }, undefined, operatorAdoptionContext);
     expect(stale).toMatchObject({ isError: true });
     expect(stale?.output).toContain("bounded-work revision conflict");
   });
@@ -1982,12 +2149,12 @@ describe("work-governance-tool", () => {
         boundedWorkContract: boundedWorkContract("Execute linked work.", ["work-goal-linked"]),
         contractAuthority,
       },
-    });
+    }, undefined, operatorAdoptionContext);
 
     expect(createdGoal?.isError).toBe(false);
     expect(goalRunStore.get("goal-linked")?.ownerSessionId).toBe("session-current");
     expect(workItemStore.get("work-goal-linked")?.goalRunId).toBe("goal-linked");
-    expect(goalRunStore.get("goal-linked")?.source).toEqual({ kind: "operator_direct", turnId: "turn-goal-linked" });
+    expect(goalRunStore.get("goal-linked")?.source).toEqual({ kind: "operator_direct", turnId: canonicalTurnId("session-current", 1) });
     expect(workItemStore.get("work-goal-linked")?.planId).toBeUndefined();
 
     const started = await startTool?.execute({
@@ -2045,11 +2212,12 @@ describe("work-governance-tool", () => {
           planDigest: "sha256:synthetic",
         },
       },
-    });
+    }, undefined, operatorAdoptionContext);
 
-    expect(result?.isError).toBe(true);
-    expect(result?.output).toContain("contractAuthority");
-    expect(goalRunStore.get("goal-mixed-authority")).toBeUndefined();
+    expect(result?.isError).toBe(false);
+    expect(goalRunStore.get("goal-mixed-authority")?.boundedWorkContractRevision.adoptedBy).toEqual(
+      operatorAdoptionContext[OPERATOR_ADOPTION_DECISION_TRANSPORT].contractAuthority,
+    );
   });
 
   it("rejects goal-level route and agent-profile ownership in the same route policy", async () => {
@@ -2088,7 +2256,7 @@ describe("work-governance-tool", () => {
         preferredRouteId: "codex-oauth-readonly",
         managedAgentProfile: "scout",
       },
-    });
+    }, undefined, operatorAdoptionContext);
 
     expect(createdGoal?.isError).toBe(true);
     expect(createdGoal?.output).toContain("preferredRouteId");
@@ -2140,7 +2308,7 @@ describe("work-governance-tool", () => {
         preferredRouteId: "opencode-go-frontend-approved-write",
         managedAgentProfile: "frontend-coder",
       },
-    });
+    }, undefined, operatorAdoptionContext);
 
     expect(createdGoal?.isError).toBe(false);
     expect(goalRunStore.get("goal-route-owned")?.routePolicy).toEqual({
@@ -2207,7 +2375,7 @@ describe("work-governance-tool", () => {
     });
 
     expect(createdGoal?.isError).toBe(true);
-    expect(createdGoal?.output).toContain("ownerSessionId");
+    expect(createdGoal?.output).toContain("canonical runtime operator adoption decision");
     expect(goalRunStore.get("goal-no-session")).toBeUndefined();
   });
 
@@ -3322,7 +3490,7 @@ describe("work-governance-tool", () => {
         boundedWorkContract: boundedWorkContract("Close through one governed lifecycle.", [item.id]),
         contractAuthority,
       },
-    });
+    }, undefined, operatorAdoptionContext);
     const result = await completeTool?.execute({
       name: "work_item.complete",
       input: { id: item.id, providedEvidence: ["tests"] },
@@ -3431,7 +3599,7 @@ describe("work-governance-tool", () => {
         boundedWorkContract: boundedWorkContract("Own one work item.", [owned.id]),
         contractAuthority,
       },
-    });
+    }, undefined, operatorAdoptionContext);
 
     const reused = await goalTool?.execute({
       name: "goal.create",
@@ -3447,7 +3615,7 @@ describe("work-governance-tool", () => {
         boundedWorkContract: boundedWorkContract("Reuse an owned item.", [owned.id]),
         contractAuthority,
       },
-    });
+    }, undefined, operatorAdoptionContext);
     const terminalResult = await goalTool?.execute({
       name: "goal.create",
       input: {
@@ -3462,7 +3630,7 @@ describe("work-governance-tool", () => {
         boundedWorkContract: boundedWorkContract("Reuse a terminal item.", [terminal.id]),
         contractAuthority,
       },
-    });
+    }, undefined, operatorAdoptionContext);
 
     expect(reused?.isError).toBe(true);
     expect(reused?.output).toContain("already belongs to goal goal-owner");
@@ -3530,7 +3698,8 @@ describe("work-governance-tool", () => {
         payload: formalVerificationToolMetadata({
           verifier: { name: "dafny", version: "4.11.0" },
           artifact: { contentDigest: `sha256:${"2".repeat(64)}` },
-          checks: [{ symbol: "release", check: "correctness", outcome: "proved" }],
+          subjects: [{ path: "packages/cli", contentDigest: testSubjectDigest }],
+          checks: [{ symbol: "test", check: "correctness", outcome: "proved" }],
         }),
       },
       recordedAt: "2026-08-12T18:02:00.000Z",
@@ -3543,6 +3712,13 @@ describe("work-governance-tool", () => {
       attemptId: started.attempt.id,
       candidate,
       candidateEvidence: [candidateEvidence],
+      assuranceEvaluation: evaluateBoundedWorkAssurance({
+        revision: goal.boundedWorkContractRevision,
+        candidate,
+        candidateSubjects: testCandidateSubjects(candidate),
+        candidateEvidence: [candidateEvidence],
+        evaluatedAt: fixedNow(),
+      }),
     });
     const tools = createWorkGovernanceTools(policy, { workItemStore, goalRunStore });
     const evidenceTool = tools.find((candidate) => candidate.name === "goal.evidence.record");
@@ -3626,7 +3802,7 @@ describe("work-governance-tool", () => {
       goalRunStore: fixture.goalRunStore,
       boundedWorkCandidateCloseout: async (input) => {
         closeoutInput = input as unknown as Record<PropertyKey, unknown>;
-        return testCandidateCloseout(input);
+        return testCandidateCloseout({ ...input, includeEvidence: false });
       },
     });
     const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
@@ -3641,9 +3817,10 @@ describe("work-governance-tool", () => {
       },
     });
 
-    expect(result?.isError).toBe(false);
+    expect(result?.isError).toBe(true);
+    expect(result?.output).toContain("Assurance evaluation requires candidate evidence");
     expect(closeoutInput?.[FORMAL_VERIFICATION_FINISH_TRANSPORT]).toBeUndefined();
-    expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]?.candidateEvidence).toEqual([]);
+    expect(fixture.workItemStore.get(fixture.item.id)?.executionAttempts[0]?.candidateEvidence).toBeUndefined();
   });
 
   it("rejects a fabricated envelope even when the actual finish tool is registry-issued", async () => {
@@ -3700,7 +3877,24 @@ describe("work-governance-tool", () => {
           candidateContentDigest: `sha256:${marker.repeat(64)}`,
           createdAt: input.attempt.startedAt,
         });
-        return { captured: true as const, candidate, evidence: [] as const };
+        const evidence = testCandidateEvidence({
+          candidate,
+          attempt: input.attempt,
+          symbol: "test",
+          recordedAt: input.attempt.startedAt,
+        });
+        return {
+          captured: true as const,
+          candidate,
+          evidence: [evidence],
+          assuranceEvaluation: evaluateBoundedWorkAssurance({
+            revision: input.goal.boundedWorkContractRevision,
+            candidate,
+            candidateSubjects: testCandidateSubjects(candidate),
+            candidateEvidence: [evidence],
+            evaluatedAt: input.attempt.startedAt,
+          }),
+        };
       },
     });
     const finishTool = tools.find((tool) => tool.name === "work_item.execution.finish");
@@ -4067,10 +4261,55 @@ function executionFixture(prefix: string, expectedEvidence: readonly string[]) {
   return { goalRunStore, workItemStore, goal, item: started.item, attempt: started.attempt };
 }
 
+const testSubjectDigest = `sha256:${"e".repeat(64)}`;
+
+function testCandidateSubjects(candidate: BoundedWorkCandidateIdentity) {
+  return {
+    candidateContentDigest: candidate.candidateContentDigest,
+    digests: new Map([["packages/cli", testSubjectDigest]]),
+  };
+}
+
+function testCandidateEvidence(input: {
+  readonly candidate: BoundedWorkCandidateIdentity;
+  readonly attempt: {
+    readonly goalRunId: string;
+    readonly workItemId: string;
+    readonly id: string;
+    readonly managedInvocationId?: string;
+  };
+  readonly symbol: string;
+  readonly recordedAt?: string;
+}) {
+  return createBoundedWorkCandidateEvidence({
+    candidate: input.candidate,
+    executionAttempt: {
+      goalRunId: input.attempt.goalRunId,
+      workItemId: input.attempt.workItemId,
+      attemptId: input.attempt.id,
+      ...(input.attempt.managedInvocationId === undefined
+        ? {}
+        : { managedInvocationId: input.attempt.managedInvocationId }),
+    },
+    invocation: { toolCallScopeId: "scope-test", toolCallId: "call-test" },
+    attestation: {
+      producer: { kind: "registered_tool", toolName: "formal_verify" },
+      payload: formalVerificationToolMetadata({
+        verifier: { name: "dafny", version: "4.11.0" },
+        artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+        subjects: [{ path: "packages/cli", contentDigest: testSubjectDigest }],
+        checks: [{ symbol: input.symbol, check: "correctness", outcome: "proved" }],
+      }),
+    },
+    recordedAt: input.recordedAt ?? fixedNow(),
+  });
+}
+
 function testCandidateCloseout(input: {
   readonly goal: GoalRun;
   readonly workItem: WorkItem;
   readonly attempt: WorkItemExecutionAttempt;
+  readonly includeEvidence?: boolean;
 }) {
   const candidate = createBoundedWorkCandidate({
     goalRunId: input.goal.id,
@@ -4082,7 +4321,27 @@ function testCandidateCloseout(input: {
     candidateContentDigest: `sha256:${"b".repeat(64)}`,
     createdAt: input.attempt.startedAt,
   });
-  return { captured: true as const, candidate, evidence: [] as const };
+  const evidence = input.includeEvidence === false
+    ? undefined
+    : testCandidateEvidence({
+        candidate,
+        attempt: input.attempt,
+        symbol: "test",
+        recordedAt: input.attempt.startedAt,
+      });
+  const candidateEvidence = evidence === undefined ? [] : [evidence];
+  return {
+    captured: true as const,
+    candidate,
+    evidence: candidateEvidence,
+    assuranceEvaluation: evaluateBoundedWorkAssurance({
+      revision: input.goal.boundedWorkContractRevision,
+      candidate,
+      candidateSubjects: testCandidateSubjects(candidate),
+      candidateEvidence,
+      evaluatedAt: input.attempt.startedAt,
+    }),
+  };
 }
 
 function formalFinishTransport(
@@ -4099,6 +4358,7 @@ function formalFinishTransport(
       metadata: formalVerificationToolMetadata({
         verifier: { name: "dafny", version: "4.11.0" },
         artifact: { contentDigest: `sha256:${"c".repeat(64)}` },
+        subjects: [{ path: "packages/cli", contentDigest: testSubjectDigest }],
         checks: [{ symbol: "finish", check: "correctness", outcome: "proved" }],
       }),
       toolCallScopeId: "scope-formal-finish",

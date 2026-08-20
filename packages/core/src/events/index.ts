@@ -759,6 +759,17 @@ export type { EventStore } from "./event-store.js";
 export { createTraceContext, startSpan, endSpan, addSpanEvent } from "./trace.js";
 export type { TraceSpan, SpanEvent, TraceContext } from "./trace.js";
 export { createSessionEvent, compareSessionEvents } from "./session-event.js";
+export {
+  canonicalTurnId,
+  createOperatorAdoptionDecisionAuthority,
+  deterministicOperatorAdoptionDecisionId,
+  parseCanonicalTurnId,
+} from "./operator-adoption-decision.js";
+export type {
+  CanonicalTurnId,
+  CanonicalTurnIdentity,
+  OperatorAdoptionDecisionAuthority,
+} from "./operator-adoption-decision.js";
 export type {
   ContextUsageCaveat,
   ContextUsageCacheSemantics,
@@ -825,6 +836,7 @@ export type {
   CanonicalPlanAnalysisFindingDraft,
   CanonicalPlanAnalysisReportedEvent,
   CanonicalPlanApprovedEvent,
+  CanonicalOperatorAdoptionDecisionEvent,
   CanonicalGoalCreatedEvent,
   CanonicalGoalUpdatedEvent,
   CanonicalGoalCompletedEvent,

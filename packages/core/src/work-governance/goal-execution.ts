@@ -9,9 +9,13 @@ import {
   projectManagedOrchestrationAdoptionGate,
   projectManagedOrchestrationResultHandoff,
 } from "./work-item.js";
-import type { BoundedWorkCloseoutDecision } from "./bounded-work-decision.js";
+import {
+  parseBoundedWorkAcceptanceDecisionRecord,
+  type BoundedWorkCloseoutDecision,
+} from "./bounded-work-decision.js";
 import type { BoundedWorkCandidateEvidence } from "./bounded-work-evidence.js";
 import type { BoundedWorkCandidateIdentity } from "./bounded-work-candidate.js";
+import type { BoundedWorkAssuranceEvaluation } from "./bounded-work-assurance.js";
 import type {
   ManagedAgentResultHandoff,
 } from "../agents/managed-invocation/index.js";
@@ -122,6 +126,7 @@ export interface FinishGoalExecutionAttemptInput {
   readonly closeoutSummary?: string;
   readonly candidate?: BoundedWorkCandidateIdentity;
   readonly candidateEvidence?: readonly BoundedWorkCandidateEvidence[];
+  readonly assuranceEvaluation?: BoundedWorkAssuranceEvaluation;
 }
 
 export interface FailGoalExecutionAttemptInput {
@@ -305,6 +310,7 @@ export function finishGoalExecutionAttempt(input: FinishGoalExecutionAttemptInpu
     managedOrchestrationAdoption: input.managedOrchestrationAdoption,
     candidate: input.candidate,
     candidateEvidence: input.candidateEvidence,
+    assuranceEvaluation: input.assuranceEvaluation,
   });
   if (!completed) {
     throw new Error(`Work item ${input.workItemId} attempt ${input.attemptId} was not found.`);
@@ -411,19 +417,29 @@ function transitionGoalAfterCompletedItem(
 
 function assertBoundedWorkCloseoutDecision(input: CompleteGoalExecutionInput, goal: GoalRun): void {
   const decision = input.boundedWorkCloseoutDecision;
+  const acceptanceDecision = decision?.kind === "stop_acceptance_complete"
+    ? parseBoundedWorkAcceptanceDecisionRecord(decision.acceptanceDecision)
+    : undefined;
   if (
     !decision
     || decision.kind !== "stop_acceptance_complete"
+    || !acceptanceDecision
     || decision.contractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest
     || decision.accounting.accountingLineageId !== goal.id
     || decision.accounting.contractRevisionDigest !== goal.boundedWorkContractRevision.revisionDigest
+    || acceptanceDecision.outcome !== "accepted"
+    || acceptanceDecision.candidateDigest !== decision.candidateDigest
+    || acceptanceDecision.contractRevisionDigest !== decision.contractRevisionDigest
+    || acceptanceDecision.issuer.policyRevisionDigest !== decision.contractRevisionDigest
+    || JSON.stringify(acceptanceDecision.authority) !== JSON.stringify(goal.boundedWorkContractRevision.adoptedBy)
   ) {
     throw new Error(`Goal ${goal.id} requires a current bounded-work acceptance decision.`);
   }
   const candidateExists = goal.workItemIds.some((workItemId) =>
     input.workItemStore.get(workItemId)?.executionAttempts.some((attempt) =>
       attempt.status === "completed"
-      && attempt.candidate?.candidateDigest === decision.candidateDigest));
+      && attempt.candidate?.candidateDigest === decision.candidateDigest
+      && attempt.assuranceEvaluation?.evaluationDigest === acceptanceDecision.assuranceEvaluationDigest));
   if (!candidateExists) {
     throw new Error(`Goal ${goal.id} bounded-work acceptance does not reference a completed execution candidate.`);
   }

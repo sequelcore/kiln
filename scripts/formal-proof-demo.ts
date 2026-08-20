@@ -4,8 +4,8 @@
  *
  * The verifier produces real metadata with the executable's reported Dafny
  * version and `establishes: []`. This script deliberately does not mint
- * candidate evidence or assert a check-to-criterion mapping. Closeout therefore
- * pauses while #53/#92 authority is absent.
+ * candidate evidence. The contract carries a pre-adopted Assurance mapping,
+ * but its obligation remains unresolved and closeout therefore pauses.
  *
  * Not part of any build or test lane. It needs two external tools that Kiln
  * does not bundle, and it exits with a preflight message when they are absent.
@@ -24,6 +24,7 @@ import { createFormalVerifyTool } from "../packages/core/src/tools/infrastructur
 import {
   adoptBoundedWorkContractRevision,
   decideBoundedWorkCloseout,
+  evaluateBoundedWorkAssurance,
   type BoundedWorkAccountingSnapshot,
   type BoundedWorkContract,
 } from "../packages/core/src/work-governance/index.js";
@@ -35,6 +36,7 @@ import {
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
 const SUBJECT = "packages/core/src/work-governance/bounded-work-scope-policy.ts";
+const CRITERION_ID = "denied-root-precedence";
 const CRITERION = "A denied root always beats an allowed root";
 const rule = (title: string): void => console.log(`\n${"=".repeat(74)}\n${title}\n${"=".repeat(74)}`);
 
@@ -133,8 +135,19 @@ try {
 
   rule("2. candidate capture and subject resolution remain separate facts");
   const contract: BoundedWorkContract = {
-    schema: "kiln.bounded-work-contract/v1",
-    intent: { objective: "Prove the path admission rule.", acceptanceCriteria: [CRITERION], nonGoals: [] },
+    schema: "kiln.bounded-work-contract/v2",
+    intent: {
+      objective: "Prove the path admission rule.",
+      acceptanceCriteria: [{ id: CRITERION_ID, statement: CRITERION }],
+      nonGoals: [],
+    },
+    assurance: {
+      formalVerification: {
+        semantics: "allOf",
+        obligations: [{ id: "denied-root-proof", symbol: "admitPath", subjectPaths: [SUBJECT] }],
+        mappings: [{ criterionId: CRITERION_ID, obligationIds: ["denied-root-proof"] }],
+      },
+    },
     scope: {
       allowedWorkItemIds: ["work-scope-policy"],
       permittedEffects: ["modify_source", "run_verification"],
@@ -201,19 +214,28 @@ try {
   console.log(`subject     : ${SUBJECT} -> ${subjectDigest.slice(0, 30)}...`);
   console.log("evidence    : not minted by this demo; Runtime owns observation transport");
 
-  rule("3. closeout pauses without criterion-mapping authority");
+  rule("3. closeout pauses when the adopted Assurance obligation is unresolved");
+  const assuranceEvaluation = evaluateBoundedWorkAssurance({
+    revision,
+    candidate,
+    candidateSubjects,
+    candidateEvidence: [],
+    evaluatedAt: "2026-08-17T11:31:00.000Z",
+  });
   const closeout = decideBoundedWorkCloseout({
     revision,
     snapshot,
     candidateDigest: candidate.candidateDigest,
     candidateEvidence: [],
+    assuranceEvaluation,
+    decidedAt: "2026-08-17T11:32:00.000Z",
   });
   if (closeout.kind !== "pause_acceptance_incomplete") {
     throw new Error(`closeout unexpectedly completed: ${closeout.kind}`);
   }
   console.log(`closeout    : ${closeout.kind}`);
   console.log(`missing     : ${JSON.stringify(closeout.missingCriteria)}`);
-  console.log("authority   : #53/#92 mapping is absent; the facts-only observation credits no criterion");
+  console.log("authority   : the mapping was adopted before execution; no candidate-bound evidence proves it");
 
   rule("4. edited candidate tree is refused for the prior candidate");
   const staleRoot = mkdtempSync(join(tmpdir(), "kiln-formal-proof-demo-stale-"));

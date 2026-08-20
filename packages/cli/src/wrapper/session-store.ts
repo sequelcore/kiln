@@ -452,6 +452,7 @@ const CANONICAL_SESSION_EVENT_KINDS = new Set<CanonicalSessionEventKind>([
   'plan_submitted',
   'plan_analysis_reported',
   'plan_approved',
+  'operator_adoption_decision',
   'goal.created',
   'goal.updated',
   'goal.completed',

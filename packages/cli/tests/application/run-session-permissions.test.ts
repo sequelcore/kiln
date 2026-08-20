@@ -81,6 +81,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "openrouter", orderedFallbacks: ["claude"], scores: [] }),
         createSession: (providerId: string) => {
@@ -131,6 +132,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: ["opencode"], scores: [] }),
         createSession: (providerId: string) => {
@@ -175,6 +177,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -229,6 +232,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -285,6 +289,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -343,6 +348,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -410,6 +416,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -481,6 +488,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -552,6 +560,7 @@ describe("runSession tool permission gating", () => {
     ], "provider-session-42");
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -613,6 +622,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -666,6 +676,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -714,6 +725,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -773,6 +785,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -839,6 +852,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -911,6 +925,7 @@ describe("runSession tool permission gating", () => {
     ], "provider-session-42");
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -966,6 +981,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -1016,6 +1032,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -1083,6 +1100,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -1146,6 +1164,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -1204,6 +1223,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,
@@ -1256,6 +1276,7 @@ describe("runSession tool permission gating", () => {
     ]);
 
     const result = await runSession({
+      governedGoalTools: "forbidden",
       registry: {
         selectBest: () => ({ primary: "claude", orderedFallbacks: [], scores: [] }),
         createSession: () => session as any,

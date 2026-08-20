@@ -6,9 +6,14 @@ export {
 export type {
   AdoptBoundedWorkContractRevisionInput,
   AssessBoundedWorkScopeInput,
+  BoundedWorkAcceptanceCriterion,
+  BoundedWorkAssurance,
   BoundedWorkAdoptionAuthority,
   BoundedWorkContract,
   BoundedWorkContractRevision,
+  BoundedWorkFormalVerificationAssurance,
+  BoundedWorkFormalVerificationMapping,
+  BoundedWorkFormalVerificationObligation,
   BoundedWorkHarnessCapability,
   BoundedWorkIntent,
   BoundedWorkLimits,
@@ -54,6 +59,20 @@ export {
   normalizeFormalProofSubjects,
 } from "./formal-proof-subjects.js";
 export type {
+  BoundedWorkAssuranceCandidateProjection,
+  BoundedWorkAssuranceCriterionEvaluation,
+  BoundedWorkAssuranceEvaluation,
+  BoundedWorkAssuranceEvaluationOutcome,
+  BoundedWorkAssuranceObligationEvaluation,
+  EvaluateBoundedWorkAssuranceInput,
+} from "./bounded-work-assurance.js";
+export {
+  BOUNDED_WORK_ASSURANCE_EVALUATION_SCHEMA,
+  evaluateBoundedWorkAssurance,
+  isBoundedWorkAssuranceEvaluation,
+  parseBoundedWorkAssuranceEvaluation,
+} from "./bounded-work-assurance.js";
+export type {
   BoundedWorkBaselineIdentity,
   BoundedWorkCandidateIdentity,
   BoundedWorkCandidateKind,
@@ -84,6 +103,9 @@ export {
   parseBoundedWorkFormalVerificationAttestation,
 } from "./bounded-work-evidence.js";
 export type {
+  BoundedWorkAcceptanceDecisionIssuer,
+  BoundedWorkAcceptanceDecisionOutcome,
+  BoundedWorkAcceptanceDecisionRecord,
   BoundedWorkAccountingSnapshot,
   BoundedWorkAdmissionDecision,
   BoundedWorkCloseoutDecision,
@@ -93,9 +115,12 @@ export type {
   BoundedWorkReservation,
 } from "./bounded-work-decision.js";
 export {
+  BOUNDED_WORK_ACCEPTANCE_DECISION_SCHEMA,
+  createBoundedWorkAcceptanceDecisionRecord,
   decideBoundedWorkAdmission,
   decideBoundedWorkCloseout,
   normalizeBoundedWorkAccountingSnapshot,
+  parseBoundedWorkAcceptanceDecisionRecord,
 } from "./bounded-work-decision.js";
 export {
   resolveEvidenceRealization,
