@@ -220,19 +220,30 @@ describe("Kiln core builtin skills", () => {
     expect(skill?.instructions).toMatch(/does not grant route, provider, model, permission, budget, approval,\s+or lifecycle authority/i);
   });
 
-  it("requires tiered and claim-bound benchmark readiness", () => {
+  it("requires validity-first, statistically honest benchmark readiness", () => {
     const skill = KILN_CORE_BUILTIN_SKILLS.find((entry) => entry.name === "benchmark-readiness-review");
+    const instructions = skill?.instructions.replace(/\s+/g, " ");
 
     expect(skill).toBeDefined();
-    expect(skill?.instructions).toMatch(/claim, construct, and deployment decision/);
-    expect(skill?.instructions).toMatch(/model and\s+provider revision, route, prompt and tool catalog/);
-    expect(skill?.instructions).toMatch(/denominator, uncertainty, subgroup, and\s+failure analysis/);
-    expect(skill?.instructions).toContain("unsupported, failed, and unknown rows");
-    expect(skill?.instructions).toContain("internal-baseline-ready");
-    expect(skill?.instructions).toContain("public-claim-ready");
-    expect(skill?.instructions).toMatch(/Artifact availability does not imply independent\s+reproduction/);
-    expect(skill?.instructions).toMatch(/state exactly one highest justified verdict/);
-    expect(skill?.instructions).toMatch(/tiers are monotonic/);
+    expect(instructions).toMatch(/claim type.*measured construct.*decision/);
+    expect(instructions).toMatch(/model, model-plus-harness, product system, safeguard, or process/);
+    expect(instructions).toMatch(/controlled comparison.*maximum elicitation/);
+    expect(instructions).toMatch(/reference solution.*solvability.*ambiguity.*scorer coverage/);
+    expect(instructions).toMatch(/contamination.*shortcut.*saturation.*distribution shift/);
+    expect(instructions).toMatch(/model failure.*instrument failure/);
+    expect(instructions).toMatch(/outcome or final state.*trajectory constraints/);
+    expect(instructions).toMatch(/human.*calibrat.*judge.*position.*verbosity/);
+    expect(instructions).toMatch(/unit of analysis.*paired.*effect size.*uncertainty interval/);
+    expect(instructions).toMatch(/pass@k.*pass\^k/);
+    expect(instructions).toMatch(/unsupported, failed, invalid, retried, excluded, and unknown/);
+    expect(instructions).toContain("internal-decision-ready");
+    expect(instructions).toContain("external-evaluation-ready");
+    expect(instructions).toContain("public-claim-ready");
+    expect(instructions).toMatch(/repeatability.*reproducibility.*independent replication/);
+    expect(instructions).toMatch(/Artifact availability does not prove independent reproduction/);
+    expect(instructions).toMatch(/official or verified leaderboard status.*separate fact/);
+    expect(instructions).toMatch(/state exactly one highest justified verdict/);
+    expect(instructions).toMatch(/readiness gates are conjunctive and monotonic/);
   });
 
   it("requires ownership-aware config projection review", () => {
