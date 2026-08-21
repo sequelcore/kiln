@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConfigChangeProposal } from "../../src/application/config-proposal.js";
+import { proposeConfigMutation } from "../../src/application/config-mutation-authority.js";
 
 function withProject(test: (projectPath: string) => void): void {
   const projectPath = mkdtempSync(join(tmpdir(), "kiln-config-proposal-"));
@@ -16,7 +16,7 @@ function withProject(test: (projectPath: string) => void): void {
 
 describe("config proposals", () => {
   it("creates a valid skill upsert proposal without writing files", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "skill.upsert",
       payload: {
@@ -27,7 +27,7 @@ describe("config proposals", () => {
         instructions: "# Repo Review\n\nInspect evidence.",
       },
       now: new Date("2026-05-07T12:00:00.000Z"),
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("valid");
     expect(proposal.createdAt).toBe("2026-05-07T12:00:00.000Z");
@@ -36,7 +36,7 @@ describe("config proposals", () => {
   }));
 
   it("rejects invalid skill names", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "skill.upsert",
       payload: {
@@ -44,7 +44,7 @@ describe("config proposals", () => {
         description: "Review repository evidence.",
         instructions: "# Review",
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("invalid");
     expect(proposal.diagnostics).toEqual(expect.arrayContaining([
@@ -53,7 +53,7 @@ describe("config proposals", () => {
   }));
 
   it("creates an agent upsert proposal and reports write authority expansion", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "agent.upsert",
       payload: {
@@ -66,7 +66,7 @@ describe("config proposals", () => {
         skills: ["repo-review"],
         instructions: "Stay scoped.",
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("valid");
     expect(proposal.authorityImpact).toBe("expands-write");
@@ -74,7 +74,7 @@ describe("config proposals", () => {
   }));
 
   it("fails closed for unsupported agent tools", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "agent.upsert",
       payload: {
@@ -84,7 +84,7 @@ describe("config proposals", () => {
         tier: "coding",
         tools: ["read", "root-shell"],
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("invalid");
     expect(proposal.diagnostics).toEqual(expect.arrayContaining([
@@ -96,7 +96,7 @@ describe("config proposals", () => {
   }));
 
   it("fails closed for duplicate agent aliases", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "agent.upsert",
       payload: {
@@ -107,7 +107,7 @@ describe("config proposals", () => {
         goal: "Review architecture.",
         tier: "reasoning",
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("invalid");
     expect(proposal.diagnostics).toEqual(expect.arrayContaining([
@@ -120,7 +120,7 @@ describe("config proposals", () => {
   }));
 
   it("fails closed for legacy top-level agent model", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "agent.upsert",
       payload: {
@@ -130,7 +130,7 @@ describe("config proposals", () => {
         tier: "coding",
         model: "codex-oauth/gpt-5.5",
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("invalid");
     expect(proposal.diagnostics).toEqual(expect.arrayContaining([
@@ -159,14 +159,14 @@ describe("config proposals", () => {
       "",
     ].join("\n"), "utf-8");
 
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "agent.attach_skills",
       payload: {
         agent: "architect",
         skills: ["ddd-review", "existing"],
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("valid");
     expect(proposal.previewDiff).toContain("  - existing");
@@ -174,14 +174,14 @@ describe("config proposals", () => {
   }));
 
   it("fails closed when attaching skills to a missing project agent", () => withProject((projectPath) => {
-    const proposal = createConfigChangeProposal({
+    const proposal = proposeConfigMutation({
       projectPath,
       operation: "agent.attach_skills",
       payload: {
         agent: "missing-agent",
         skills: ["ddd-review"],
       },
-    });
+    }).proposal;
 
     expect(proposal.status).toBe("invalid");
     expect(proposal.diagnostics).toEqual(expect.arrayContaining([

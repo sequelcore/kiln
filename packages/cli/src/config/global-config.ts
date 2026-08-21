@@ -303,6 +303,64 @@ export interface GlobalConfigMutationResult {
   readonly invalidBackupPath?: string;
 }
 
+/**
+ * Commits exact canonical bytes for the global configuration file.
+ *
+ * The configuration mutation authority produces content by editing the YAML
+ * document tree, which preserves operator comments, ordering, and scalar style.
+ * Re-serializing that content from a plain object would discard exactly what
+ * ADR-014 requires be kept, so this writer commits the admitted bytes verbatim
+ * under the same lock, revision fence, validation, and atomic replacement as
+ * every other global mutation.
+ */
+export function commitGlobalConfigBytes(input: {
+  readonly content: string;
+  readonly expectedRevision: string;
+}): GlobalConfigMutationResult {
+  const configPath = resolveGlobalConfigPath();
+  mkdirSync(dirname(configPath), { recursive: true });
+  const lockPath = `${configPath}.lock`;
+  const lock = acquireGlobalConfigLock(configPath, lockPath);
+  const temporaryPath = `${configPath}.${lock.acquisitionId}.tmp`;
+
+  try {
+    const currentRaw = existsSync(configPath) ? readFileSync(configPath, "utf-8") : null;
+    const previousRevision = globalConfigRevision(currentRaw);
+    if (input.expectedRevision !== previousRevision) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_REVISION_CONFLICT", {
+        configPath,
+        expectedRevision: input.expectedRevision,
+        actualRevision: previousRevision,
+      });
+    }
+
+    const next = parseGlobalConfigRaw(input.content);
+    if (next === null) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", { configPath });
+    }
+    validateGlobalConfig(next);
+
+    const mode = currentRaw === null ? 0o600 : statSync(configPath).mode & 0o777;
+    try {
+      writeFileSync(temporaryPath, input.content, { encoding: "utf-8", mode });
+      if (currentRaw !== null) chmodSync(temporaryPath, mode);
+      renameSync(temporaryPath, configPath);
+    } catch (error) {
+      throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", { configPath }, error);
+    } finally {
+      rmSync(temporaryPath, { force: true });
+    }
+
+    return {
+      config: next,
+      previousRevision,
+      revision: globalConfigRevision(input.content),
+    };
+  } finally {
+    releaseGlobalConfigLock(lockPath, lock);
+  }
+}
+
 export function mutateGlobalConfig(
   mutation: (current: KilnGlobalConfig | null) => KilnGlobalConfig,
   options: GlobalConfigMutationOptions = {},

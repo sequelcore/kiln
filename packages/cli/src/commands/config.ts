@@ -14,7 +14,7 @@ import {
 } from "../application/config-status.js";
 import { effectiveConfigField } from "../application/effective-config-projection.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
-import { approveConfigChangeProposal } from "../application/config-approval.js";
+import { approveConfigMutation } from "../application/config-mutation-authority.js";
 import {
   KILN_CONFIG_SETUP_ACTIONS,
   type KilnConfigSetupAction,
@@ -177,7 +177,7 @@ export async function configCommand(
         return;
       }
       try {
-        const approval = approveConfigChangeProposal({
+        const approval = approveConfigMutation({
           projectPath: root,
           proposalId,
           approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",

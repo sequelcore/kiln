@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import {
   assertPolicyAdaptationPromotionEvidence,
   hashPolicyAdaptationConfiguration,
@@ -9,42 +9,40 @@ import {
   type PolicyAdaptationEvaluationReport,
 } from "@kilnai/core";
 import type {
-  KilnConfigChangeOperation,
-  KilnConfigChangeProposal,
+  KilnConfigActivationClass,
+  KilnConfigAuthorityImpact,
+  KilnConfigMutationOperation,
+  KilnConfigMutationScope,
+  KilnConfigReconciliationTarget,
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
-import { parse, stringify } from "yaml";
+import { isOperatorThemeName } from "@kilnai/gateway-contracts";
+import { parse, parseDocument, stringify } from "yaml";
 import type { KilnContextGovernanceConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import { parseAgentDefinitionContent, type KilnAgentDefinition } from "./agent-loader.js";
 
-export interface CreateConfigChangeProposalInput {
+/** Where an operation reads current state from and writes its canonical result to. */
+export interface ConfigMutationContext {
   readonly projectPath: string;
-  readonly operation: KilnConfigChangeOperation;
-  readonly payload: unknown;
-  readonly now?: Date;
+  readonly globalConfigPath: string;
 }
 
-export interface ConfigChangeProposalWrite {
-  readonly path: string;
-  readonly previousHash: string | null;
-  readonly nextHash: string;
-  readonly nextContent: string;
-}
-
-export interface ConfigChangeProposalRecord {
-  readonly proposal: KilnConfigChangeProposal;
-  readonly proposalHash: string;
-  readonly writes: readonly ConfigChangeProposalWrite[];
-}
-
-interface NormalizedProposalParts {
+/**
+ * One operation's admitted result. Handlers own structural validation, canonical
+ * content, and the authority/activation facts the lifecycle needs; they never
+ * write files, mint identity, or decide approval.
+ */
+export interface NormalizedConfigMutation {
+  readonly scope: KilnConfigMutationScope;
   readonly payload: Record<string, unknown>;
   readonly path: string;
   readonly nextContent: string;
   readonly diagnostics: readonly KilnConfigValidationDiagnostic[];
-  readonly authorityImpact: KilnConfigChangeProposal["authorityImpact"];
-  readonly nativeProjectionEffects: readonly string[];
-  readonly rollbackHint: string;
+  /** Authority delta between current and proposed state, not the proposed state alone. */
+  readonly authorityImpact: KilnConfigAuthorityImpact;
+  readonly affectedOwners: readonly string[];
+  readonly reconciliationTargets: readonly KilnConfigReconciliationTarget[];
+  readonly activation: KilnConfigActivationClass;
 }
 
 const SUPPORTED_AGENT_PROFILE_TOOLS = new Set([
@@ -56,99 +54,51 @@ const SUPPORTED_AGENT_PROFILE_TOOLS = new Set([
   "bash",
 ]);
 
-export function createConfigChangeProposal(input: CreateConfigChangeProposalInput): KilnConfigChangeProposal {
-  return createConfigChangeProposalRecord(input).proposal;
-}
+/** Agent profile tools that grant authority beyond reading the workspace. */
+const WRITE_AUTHORITY_TOOLS = new Set(["write", "bash"]);
+const READ_AUTHORITY_TOOLS = new Set(["web"]);
 
-export function createConfigChangeProposalRecord(input: CreateConfigChangeProposalInput): ConfigChangeProposalRecord {
-  const parts = normalizeProposal(input);
-  const projectRoot = resolve(input.projectPath);
-  const resolvedPath = resolve(parts.path);
-  if (!isInsideProject(projectRoot, resolvedPath)) {
-    const diagnostic: KilnConfigValidationDiagnostic = {
-      severity: "error",
-      field: "path",
-      message: "Canonical config writes must stay inside the project root.",
-    };
-    const proposal = buildProposal(input, {
-      ...parts,
-      diagnostics: [...parts.diagnostics, diagnostic],
-    });
-    return {
-      proposal,
-      proposalHash: hashStable(proposal),
-      writes: [],
-    };
-  }
-
-  const proposal = buildProposal(input, parts);
-  const existingContent = existsSync(parts.path) ? readFileSync(parts.path, "utf-8") : null;
-  const writes = proposal.status === "valid"
-    ? [{
-      path: parts.path,
-      previousHash: existingContent === null ? null : hashText(existingContent),
-      nextHash: hashText(parts.nextContent),
-      nextContent: parts.nextContent,
-    }]
-    : [];
-
-  return {
-    proposal,
-    proposalHash: hashStable({
-      proposal,
-      writes: writes.map((write) => ({
-        path: write.path,
-        previousHash: write.previousHash,
-        nextHash: write.nextHash,
-      })),
-    }),
-    writes,
-  };
-}
-
-function buildProposal(
-  input: CreateConfigChangeProposalInput,
-  parts: NormalizedProposalParts,
-): KilnConfigChangeProposal {
-  const existingContent = existsSync(parts.path) ? readFileSync(parts.path, "utf-8") : "";
-  const status = parts.diagnostics.some((diagnostic) => diagnostic.severity === "error") ? "invalid" : "valid";
-  const createdAt = (input.now ?? new Date()).toISOString();
-  const proposalSeed = {
-    operation: input.operation,
-    payload: parts.payload,
-    path: parts.path,
-    nextContent: parts.nextContent,
-  };
-
-  return {
-    proposalId: `cfg_${hashStable(proposalSeed).slice(0, 24)}`,
-    createdAt,
-    operation: input.operation,
-    status,
-    normalizedPayload: parts.payload,
-    affectedCanonicalPaths: [parts.path],
-    nativeProjectionEffects: parts.nativeProjectionEffects,
-    authorityImpact: parts.authorityImpact,
-    diagnostics: parts.diagnostics,
-    previewDiff: renderPreviewDiff(parts.path, existingContent, parts.nextContent),
-    rollbackHint: parts.rollbackHint,
-  };
-}
-
-function normalizeProposal(input: CreateConfigChangeProposalInput): NormalizedProposalParts {
-  switch (input.operation) {
+export function normalizeConfigMutation(
+  operation: KilnConfigMutationOperation,
+  context: ConfigMutationContext,
+  payload: unknown,
+): NormalizedConfigMutation {
+  switch (operation) {
     case "skill.upsert":
-      return normalizeSkillUpsert(input.projectPath, input.payload);
+      return normalizeSkillUpsert(context.projectPath, payload);
     case "agent.upsert":
-      return normalizeAgentUpsert(input.projectPath, input.payload);
+      return normalizeAgentUpsert(context.projectPath, payload);
     case "agent.attach_skills":
-      return normalizeAgentAttachSkills(input.projectPath, input.payload);
+      return normalizeAgentAttachSkills(context.projectPath, payload);
     case "context_governance.adapt":
-      return normalizeContextGovernanceAdaptation(input.projectPath, input.payload);
+      return normalizeContextGovernanceAdaptation(context.projectPath, payload);
+    case "preference.set":
+      return normalizePreferenceSet(context.globalConfigPath, payload);
+    case "mutation.rollback":
+      throw new Error("mutation.rollback is resolved by the mutation authority, not an operation handler.");
   }
 }
 
-function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: unknown): NormalizedProposalParts {
+/**
+ * Compares two agent tool sets and reports only what the change adds. Removing
+ * authority, or restating existing authority, is not an expansion.
+ */
+export function agentToolAuthorityImpact(
+  currentTools: readonly string[],
+  nextTools: readonly string[],
+): KilnConfigAuthorityImpact {
+  const current = new Set(currentTools);
+  const added = nextTools.filter((tool) => !current.has(tool));
+  if (added.some((tool) => WRITE_AUTHORITY_TOOLS.has(tool))) {
+    return "expands-write";
+  }
+  if (added.some((tool) => READ_AUTHORITY_TOOLS.has(tool))) {
+    return "expands-read";
+  }
+  return "none";
+}
+
+function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const path = join(projectPath, ".kiln", "kiln.yaml");
@@ -239,17 +189,19 @@ function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: u
   }
   const nextContent = stringify({ ...config, version: config.version ?? "1", contextGovernance: next });
   return {
+    scope: "project",
     payload,
     path,
     nextContent,
     diagnostics,
     authorityImpact: "none",
-    nativeProjectionEffects: [],
-    rollbackHint: `Restore the previous contextGovernance selection in ${path}`,
+    affectedOwners: ["context-governance"],
+    reconciliationTargets: ["repo-shims"],
+    activation: "next-session",
   };
 }
 
-function normalizeSkillUpsert(projectPath: string, rawPayload: unknown): NormalizedProposalParts {
+function normalizeSkillUpsert(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const name = requireId(payload.name, "name", diagnostics);
@@ -274,17 +226,121 @@ function normalizeSkillUpsert(projectPath: string, rawPayload: unknown): Normali
   }
 
   return {
+    scope: "project",
     payload: normalized,
     path,
     nextContent,
     diagnostics,
     authorityImpact: "none",
-    nativeProjectionEffects: ["native skill projections must be regenerated after apply"],
-    rollbackHint: existsSync(path) ? `Restore previous ${path}` : `Delete ${path}`,
+    affectedOwners: ["project-skill-catalog"],
+    reconciliationTargets: ["native-skills", "repo-shims"],
+    activation: "reconcile",
   };
 }
 
-function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): NormalizedProposalParts {
+/**
+ * Global operator preference. Preferences carry no execution authority and are
+ * read per use, so they activate immediately once committed.
+ */
+function normalizePreferenceSet(globalConfigPath: string, rawPayload: unknown): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const key = requireText(payload.key, "key", diagnostics);
+  const preference = SUPPORTED_OPERATOR_PREFERENCES.get(key);
+  if (key && !preference) {
+    diagnostics.push({
+      severity: "error",
+      field: "key",
+      message: `Unsupported operator preference: ${key}. Supported: ${[...SUPPORTED_OPERATOR_PREFERENCES.keys()].join(", ")}`,
+    });
+  }
+  const value = requireText(payload.value, "value", diagnostics);
+  if (preference && value) {
+    const rejection = preference.admit(value);
+    if (rejection) {
+      diagnostics.push({ severity: "error", field: "value", message: rejection });
+    }
+  }
+
+  // ADR-014: edit the YAML document tree so operator comments, ordering, and
+  // scalar style survive; never round-trip the file through a plain object.
+  const existingContent = existsSync(globalConfigPath) ? readFileSync(globalConfigPath, "utf-8") : "";
+  if (existingContent.trim().length === 0) {
+    // Setting a preference must never mint canonical configuration as a side
+    // effect. Adoption is an explicit operation with its own contract.
+    diagnostics.push({
+      severity: "error",
+      field: "global-config",
+      message: "Global configuration has not been adopted yet. Run Kiln setup before setting an operator preference.",
+    });
+  }
+  const document = parseDocument(existingContent);
+  if (document.errors.length > 0) {
+    diagnostics.push({
+      severity: "error",
+      field: "global-config",
+      message: `Global configuration cannot be parsed for mutation: ${document.errors[0]?.message ?? "unknown error"}`,
+    });
+  } else if (preference && value) {
+    document.setIn(preference.path, value);
+  }
+
+  return {
+    scope: "global",
+    payload: { key, value },
+    path: globalConfigPath,
+    nextContent: document.toString(),
+    diagnostics,
+    authorityImpact: "none",
+    affectedOwners: ["operator-preferences"],
+    reconciliationTargets: [],
+    activation: preference?.activation ?? "hot",
+  };
+}
+
+interface OperatorPreferenceDescriptor {
+  readonly activation: KilnConfigActivationClass;
+  /** Canonical document path this preference owns. */
+  readonly path: readonly string[];
+  /** Returns a rejection message, or undefined when the value is admitted. */
+  readonly admit: (value: string) => string | undefined;
+}
+
+/**
+ * The bounded preference surface. Each entry resolves the activation class its
+ * ownership-ledger row left to this authority, so no preference activates by
+ * assumption.
+ */
+const SUPPORTED_OPERATOR_PREFERENCES = new Map<string, OperatorPreferenceDescriptor>([
+  ["ui.theme", {
+    activation: "hot",
+    path: ["ui", "theme"],
+    admit: (value) => isOperatorThemeName(value) ? undefined : `Unknown operator theme '${value}'.`,
+  }],
+  ["identity.name", {
+    // Read fresh from global config at each use (for example `kiln trust`), and
+    // never baked into a projection or session cache, so it governs immediately.
+    activation: "hot",
+    path: ["identity", "name"],
+    admit: (value) => value.length <= 120 ? undefined : "Operator name must be 120 characters or fewer.",
+  }],
+  ["identity.timezone", {
+    activation: "hot",
+    path: ["identity", "timezone"],
+    admit: (value) => isSupportedTimeZone(value) ? undefined : `Unknown IANA time zone '${value}'.`,
+  }],
+]);
+
+function isSupportedTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const name = requireId(payload.name, "name", diagnostics);
@@ -328,18 +384,24 @@ function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): Normali
     diagnostics.push({ severity: "error", field: "agent", message: "Agent profile must contain valid name, role, goal, and tier frontmatter." });
   }
 
+  const currentTools = existsSync(path)
+    ? (parseAgentDefinitionContent(readFileSync(path, "utf-8"), "project")?.tools ?? [])
+    : [];
+
   return {
+    scope: "project",
     payload: normalized,
     path,
     nextContent,
     diagnostics,
-    authorityImpact: tools.includes("write") || tools.includes("bash") ? "expands-write" : "none",
-    nativeProjectionEffects: ["native agent projections must be regenerated after apply"],
-    rollbackHint: existsSync(path) ? `Restore previous ${path}` : `Delete ${path}`,
+    authorityImpact: agentToolAuthorityImpact(currentTools, tools),
+    affectedOwners: ["project-agent-catalog"],
+    reconciliationTargets: ["native-agents", "repo-shims"],
+    activation: "reconcile",
   };
 }
 
-function normalizeAgentAttachSkills(projectPath: string, rawPayload: unknown): NormalizedProposalParts {
+function normalizeAgentAttachSkills(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
   const agent = requireId(payload.agent, "agent", diagnostics);
@@ -363,13 +425,15 @@ function normalizeAgentAttachSkills(projectPath: string, rawPayload: unknown): N
     : undefined;
 
   return {
+    scope: "project",
     payload: { agent, skills },
     path,
     nextContent: nextAgent ? renderExistingAgent(nextAgent) : existing,
     diagnostics,
     authorityImpact: "none",
-    nativeProjectionEffects: ["native agent projections must be regenerated after apply"],
-    rollbackHint: `Restore previous ${path}`,
+    affectedOwners: ["project-agent-catalog"],
+    reconciliationTargets: ["native-agents", "repo-shims"],
+    activation: "reconcile",
   };
 }
 
@@ -394,20 +458,15 @@ function renderAgentMarkdown(agent: Record<string, unknown>): string {
   return `---\n${stringify(frontmatter).trim()}\n---\n\n${typeof instructions === "string" ? instructions.trim() : ""}\n`;
 }
 
+/**
+ * Re-renders an existing profile. Every admitted field is serialized: attaching
+ * a skill must not silently drop routing, economic, authority, or communication
+ * material that the operator authored. `scope` is derived at load time and is
+ * not canonical profile content.
+ */
 function renderExistingAgent(agent: KilnAgentDefinition): string {
-  return renderAgentMarkdown(removeUndefined({
-    name: agent.name,
-    displayName: agent.displayName,
-    role: agent.role,
-    goal: agent.goal,
-    tier: agent.tier,
-    tools: agent.tools,
-    skills: agent.skills,
-    taskAffinity: agent.taskAffinity,
-    targetId: agent.targetId,
-    authorityProfileId: agent.authorityProfileId,
-    instructions: agent.instructions,
-  }));
+  const { scope: _scope, instructions, ...profile } = agent;
+  return renderAgentMarkdown(removeUndefined({ ...profile, instructions }));
 }
 
 function optionalTaskAffinity(value: unknown, diagnostics: KilnConfigValidationDiagnostic[]): readonly string[] {
@@ -567,7 +626,7 @@ function normalizeAlias(value: string | undefined): string | undefined {
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
-function renderPreviewDiff(path: string, before: string, after: string): string {
+export function renderPreviewDiff(path: string, before: string, after: string): string {
   if (before === after) {
     return `--- ${path}\n+++ ${path}\n(no changes)\n`;
   }
@@ -580,7 +639,7 @@ function renderPreviewDiff(path: string, before: string, after: string): string 
   ].join("\n");
 }
 
-function hashStable(value: unknown): string {
+export function hashStable(value: unknown): string {
   return createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
@@ -588,7 +647,7 @@ export function hashText(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function isInsideProject(projectRoot: string, candidate: string): boolean {
+export function isInsideProject(projectRoot: string, candidate: string): boolean {
   const relativePath = relative(projectRoot, candidate);
   return relativePath.length === 0 || (!relativePath.startsWith("..") && !/^[A-Za-z]:/.test(relativePath));
 }

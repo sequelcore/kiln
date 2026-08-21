@@ -1198,17 +1198,19 @@ function projectConfigToolPresentation(toolName: string, output: string | undefi
   if (!record) {
     return undefined;
   }
-  const proposalId = readString(record.proposalId);
-  const approvalId = readString(record.approvalId);
-  const operation = readString(record.operation);
-  const status = readString(record.status);
+  // An apply result reports through its settlement; a proposal reports directly.
+  const settlement = asRecord(record.settlement) ?? record;
+  const proposalId = readString(settlement.proposalId);
+  const approvalId = readString(settlement.approvalId);
+  const operation = readString(settlement.operation);
+  const status = readString(settlement.outcome) ?? readString(record.status);
   const affectedPaths = readStringList(record.affectedCanonicalPaths);
-  const appliedWrites = Array.isArray(record.appliedWrites)
-    ? record.appliedWrites
+  const appliedWrites = Array.isArray(settlement.appliedWrites)
+    ? settlement.appliedWrites
       .map((write) => readString(asRecord(write)?.path))
       .filter((path): path is string => Boolean(path))
     : [];
-  const diagnostics = Array.isArray(record.diagnostics) ? record.diagnostics.length : 0;
+  const diagnostics = Array.isArray(settlement.diagnostics) ? settlement.diagnostics.length : 0;
   const summary = [
     operation,
     status,
@@ -2285,13 +2287,23 @@ function configChangePresentation(kind: OperatorSessionEventKind, payload: Recor
   const error = readString(payload.errorMessage);
   const appliedWrites = readStringList(payload.appliedWrites);
   const projectionEffects = readStringList(payload.projectionEffects);
+  const outcome = readString(payload.outcome);
+  const reconciliationErrors = readStringList(payload.reconciliationErrors);
+  const reconciliationFailed = outcome === "committed-reconciliation-failed";
   const titles: Record<string, string> = {
     config_change_proposed: "Config change proposed",
     config_change_approved: "Config change approved",
-    config_change_applied: "Config change applied",
+    config_change_applied: reconciliationFailed
+      ? "Config change applied, reconciliation failed"
+      : "Config change applied",
     config_change_failed: "Config change failed",
   };
-  const identitySummary = [operation, status, proposalId].filter((value): value is string => Boolean(value)).join(" · ");
+  const identitySummary = [
+    operation,
+    status,
+    reconciliationFailed ? "reconciliation failed" : undefined,
+    proposalId,
+  ].filter((value): value is string => Boolean(value)).join(" · ");
   const summary = error ?? (identitySummary || proposalId || "Config mutation");
   const details: OperatorEventDetailItem[] = [];
   addItem(details, "Proposal", proposalId);
@@ -2303,6 +2315,12 @@ function configChangePresentation(kind: OperatorSessionEventKind, payload: Recor
   addItem(details, "Surface", payload.surface);
   addItem(details, "Writes", appliedWrites.length > 0 ? appliedWrites.join(", ") : undefined);
   addItem(details, "Projections", projectionEffects.length > 0 ? projectionEffects.join(", ") : undefined);
+  addItem(details, "Outcome", outcome);
+  addItem(
+    details,
+    "Reconciliation errors",
+    reconciliationErrors.length > 0 ? reconciliationErrors.join(", ") : undefined,
+  );
   addItem(details, "Error", error);
   return {
     title: titles[kind] ?? "Config mutation",

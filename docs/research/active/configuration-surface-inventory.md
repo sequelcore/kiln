@@ -265,14 +265,15 @@ proposal, approval, revision fencing, atomicity, reconciliation, and rollback.
 ### B7 — Governed apply overstates atomicity and reconciliation success
 
 Stored proposals and approvals are parsed with unchecked JSON assertions
-([`config-mutation-store.ts`](../../../packages/cli/src/application/config-mutation-store.ts#L26)).
-Apply performs sequential `writeFileSync()` calls
-([`config-apply.ts`](../../../packages/cli/src/application/config-apply.ts#L67)).
-Projection errors become warnings while the result remains `status: "applied"`
-([`config-apply.ts`](../../../packages/cli/src/application/config-apply.ts#L86)).
+([`config-mutation-store.ts`](../../../packages/cli/src/application/config-mutation-store.ts)).
 
-By contrast, target creation already distinguishes `created`,
-`committed-refresh-failed`, and `rejected`
+Slice 4 resolved the remaining findings in this paragraph. Apply no longer
+performs sequential unguarded `writeFileSync()` calls: canonical content is
+written to a same-directory temporary file and atomically renamed
+([`config-mutation-authority.ts`](../../../packages/cli/src/application/config-mutation-authority.ts)).
+Reconciliation failure is no longer hidden behind a successful status: the
+terminal outcome distinguishes `committed`, `committed-reconciliation-failed`,
+and `rejected`, matching the honesty target that target creation already met
 ([`execution-route-creation.ts`](../../../packages/gateway-contracts/src/execution-route-creation.ts#L24)).
 Roadmap 12 should generalize that honest terminal-state distinction.
 
@@ -447,7 +448,7 @@ Global configuration is the base and project configuration is the override
 | --- | --- | --- | --- | --- |
 | `KilnConfigStatusSnapshot` / `kiln_config.read` | global/project/status/setup and projections | read-only | status is recomputed | no field descriptors or exact override chain |
 | Setup actions | setup read model | bounded adoption and projection sync | install/projection state | review-only actions block; not general config mutation |
-| Config propose/approve/apply | four project operations | stored proposal, durable approval, hash/path fences, sequential apply | `.kiln/proposals/config`, `.kiln/approvals/config` | unchecked store parsing, no atomic multi-write, no real rollback, projection failure reported as applied |
+| Config propose/approve/apply | project and global operations | base-revision fence, authority-derived approval, atomic replace, write-once settlement, exact-bytes rollback | `.kiln/mutations/config` | unchecked store parsing; multi-path atomicity still unproven because every current operation writes one path |
 | Global mutation primitive | current global bytes | CAS, lock, validation, temp file, atomic rename | revision and optional invalid backup | callers do not share one typed operation lifecycle |
 | Available Models | secret-free discovery/configuration projection | no dispatch authority | discovery cache only | GUI/CLI creation still requires complete raw policy/economic material |
 | Target creation | current discovery plus expected global revision | CAS global mutation and catalog refresh | global config and request result | no durable retry/idempotency receipt |

@@ -412,6 +412,13 @@ export interface CanonicalConfigChangeAppliedEvent extends SessionEventEnvelope<
   readonly approvalId: string;
   readonly appliedWrites: readonly string[];
   readonly projectionEffects: readonly string[];
+  /**
+   * Terminal outcome of the mutation. A committed change whose reconciliation
+   * failed is still applied, but operators must be able to see that it did not
+   * fully converge, so the distinction travels with the event.
+   */
+  readonly outcome: "committed" | "committed-reconciliation-failed";
+  readonly reconciliationErrors: readonly string[];
 }
 
 export interface CanonicalConfigChangeFailedEvent extends SessionEventEnvelope<"config_change_failed"> {

@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slices 0-3 complete - begin Slice 4 configuration mutation authority V2.
+Execution: Slices 0-3 complete - Slice 4 authority landed; convert the remaining direct writers.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -445,7 +445,50 @@ migration or dual read exists.
 
 ### Slice 4 - Configuration Mutation Authority V2
 
-Status: Ready.
+Status: In progress. The V2 authority is landed and owns both the project and
+global scopes: `config-mutation-authority` builds base-revision-bound proposals,
+derives authority impact by comparing current and proposed authority, requires
+approval when authority expands and always for a model-called apply, commits
+through same-directory temporary files and atomic replacement, converges one
+reconciliation owner, reads effective state back, and settles write-once so a
+retried apply replays instead of committing twice. Terminal outcomes are
+`committed`, `committed-reconciliation-failed`, or `rejected`, and the runtime
+session ledger projects a reconciliation-failed commit as an applied change
+rather than a failure. Rollback restores exact prior bytes through a governed
+`mutation.rollback` operation instead of a prose hint. Global content is edited
+through the YAML document tree, so operator comments and ordering survive, and
+a preference change fails closed rather than minting canonical configuration.
+The V1 proposal, approval, and apply modules, their contracts, and their store
+paths are deleted; no V1 records existed on disk, so nothing required migration
+or explicit discard. The ownership ledger's two `T4` activation rows
+(`identity.name`, `identity.timezone`) are resolved as `hot` against their
+actual read sites.
+
+Remaining before this slice closes: convert the direct writers that still
+bypass the authority - `kiln config set|reset` (project `writeKilnYaml` and an
+unfenced global `mutateGlobalConfig`), `kiln target`, `kiln import-native`,
+`skill-capture` (writes canonical `SKILL.md` directly),
+`operator-execution-route-preferences`, and `execution-route-creation` - each
+with its typed operation, deleting the direct write in the same change, plus
+permission-profile and capability-enablement operations. Spend-guard,
+work-limit, and managed-agent operations are deliberately excluded here; their
+product shape belongs to Slice 7A. `kiln init` also writes `.kiln/kiln.yaml`
+directly; it is first-run adoption rather than a settings mutation, so it
+transfers to Slice 5 with the rest of guided onboarding.
+
+Concurrency and crash behavior are explicit. The window from revision recheck
+through settlement is held under a path-scoped cross-process lock whose owner is
+reclaimed when its process is gone, so two applies cannot both pass the fence
+and overwrite each other. An apply entering that window writes a durable
+progress marker, and recovery resumes only a commit that this exact proposal
+started: byte-identical content written by anyone else is a conflict, not an
+interrupted commit. Settlement records are linked into place, so a crash cannot
+leave a truncated record that fails to parse forever.
+
+Known residual risk carried into the remaining cuts: multi-path atomicity is
+unproven because every current operation writes exactly one canonical path, and
+a rollback whose restored surface has no complete authority evaluator fails
+closed as `unknown`, which requires approval even when the restore is harmless.
 
 Generalize the existing governed lifecycle without creating a generic patch
 escape hatch. Add typed operations such as preference selection, provider

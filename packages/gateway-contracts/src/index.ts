@@ -31,13 +31,20 @@ export { ExecutionRouteCreateResultSchema, ExecutionRouteCreationRequestSchema }
 export type { ExecutionRouteCreateResult, ExecutionRouteCreationRequest } from "./execution-route-creation.js";
 
 export type {
+  KilnConfigActivationClass,
   KilnConfigAppliedWrite,
-  KilnConfigApplyResult,
-  KilnConfigChangeApproval,
-  KilnConfigChangeOperation,
-  KilnConfigChangeProposal,
-  KilnConfigChangeApprovalSurface,
-  KilnConfigProjectionEffectResult,
+  KilnConfigApprovalSurface,
+  KilnConfigAuthorityImpact,
+  KilnConfigMutationApproval,
+  KilnConfigMutationOperation,
+  KilnConfigMutationOutcome,
+  KilnConfigMutationProposal,
+  KilnConfigMutationResult,
+  KilnConfigMutationScope,
+  KilnConfigMutationSettlement,
+  KilnConfigReconciliationEffect,
+  KilnConfigReconciliationTarget,
+  KilnConfigRollbackEvidence,
   KilnConfigValidationDiagnostic,
 } from "./config-mutation.js";
 export {
@@ -49,7 +56,7 @@ export {
 export type { CommunicationIntentWire } from "./communication-intent.js";
 
 export {
-  KILN_CONFIG_CHANGE_OPERATIONS,
+  KILN_CONFIG_MUTATION_OPERATIONS,
 } from "./config-mutation.js";
 
 export type {

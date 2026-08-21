@@ -54,24 +54,30 @@ describe("runtime config mutation session events", () => {
           durationMs: 20,
           success: true,
           output: JSON.stringify({
-            proposalId: "cfg_skill",
-            approvalId: "cfgap_skill",
-            status: "applied",
-            appliedWrites: [
-              {
-                path: "C:/repo/.kiln/skills/repo-review/SKILL.md",
-                previousHash: null,
-                nextHash: "sha256-next",
-              },
-            ],
-            projectionEffects: [
-              {
-                target: "native-skills",
-                status: "ok",
-                summary: "1 native skill projections synced",
-                errors: [],
-              },
-            ],
+            settlement: {
+              proposalId: "cfg_skill",
+              approvalId: "cfgap_skill",
+              scope: "project",
+              operation: "skill.upsert",
+              outcome: "committed",
+              appliedWrites: [
+                {
+                  path: "C:/repo/.kiln/skills/repo-review/SKILL.md",
+                  previousHash: null,
+                  nextHash: "sha256-next",
+                },
+              ],
+              reconciliationEffects: [
+                {
+                  target: "native-skills",
+                  status: "ok",
+                  summary: "1 native skill projections synced",
+                  errors: [],
+                },
+              ],
+              diagnostics: [],
+            },
+            replayed: false,
           }),
         },
       ],
@@ -92,8 +98,84 @@ describe("runtime config mutation session events", () => {
         approvalId: "cfgap_skill",
         appliedWrites: ["C:/repo/.kiln/skills/repo-review/SKILL.md"],
         projectionEffects: ["native-skills:ok"],
+        outcome: "committed",
+        reconciliationErrors: [],
       }),
     ]));
+  });
+
+  it("projects a committed change whose reconciliation failed as applied, never as failed", () => {
+    const session = new RuntimeSession({
+      appName: "kiln",
+      tenantId: "test-tenant",
+      userId: "operator",
+      systemPrompt: "test",
+    });
+    session.addUserMessage(textParts("Apply config"));
+
+    const timestamp = new Date("2026-05-07T12:00:00.000Z");
+    const events = appendCanonicalTurnEvents({
+      session,
+      channel: "cli",
+      userMessageContent: "Apply config",
+      assistantMessageContent: "Config mutation committed with failed reconciliation.",
+      turnOutcome: "completed",
+      queued: false,
+      turnStartedAt: timestamp,
+      turnCompletedAt: timestamp,
+      continuity: { strategy: "new-session" },
+      runtimeEvents: [
+        {
+          type: "tool_result",
+          toolCallScopeId: "turn-1:response:1",
+          toolCallId: "tool-config-apply",
+          sessionId: session.id,
+          timestamp,
+          toolName: "kiln_config.apply_change",
+          durationMs: 20,
+          success: true,
+          output: JSON.stringify({
+            settlement: {
+              proposalId: "cfg_skill",
+              approvalId: "cfgap_skill",
+              scope: "project",
+              operation: "skill.upsert",
+              outcome: "committed-reconciliation-failed",
+              appliedWrites: [
+                {
+                  path: "C:/repo/.kiln/skills/repo-review/SKILL.md",
+                  previousHash: null,
+                  nextHash: "sha256-next",
+                },
+              ],
+              reconciliationEffects: [
+                {
+                  target: "native-skills",
+                  status: "failed",
+                  summary: "0 native skill projections synced",
+                  errors: ["harness unavailable"],
+                },
+              ],
+              diagnostics: [
+                { severity: "warning", field: "native-skills", message: "harness unavailable" },
+              ],
+            },
+            replayed: false,
+          }),
+        },
+      ],
+    });
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "config_change_applied",
+        proposalId: "cfg_skill",
+        projectionEffects: ["native-skills:failed"],
+        outcome: "committed-reconciliation-failed",
+        reconciliationErrors: ["harness unavailable"],
+      }),
+    ]));
+    expect(events.some((event) => event.kind === "config_change_failed")).toBe(false);
   });
 
   it("projects failed config apply results into canonical failure events", () => {
@@ -127,16 +209,23 @@ describe("runtime config mutation session events", () => {
           durationMs: 20,
           success: false,
           output: JSON.stringify({
-            proposalId: "cfg_skill",
-            approvalId: "cfgap_skill",
-            status: "failed",
-            diagnostics: [
-              {
-                severity: "error",
-                field: "approvalId",
-                message: "Config approval does not match the stored proposal.",
-              },
-            ],
+            settlement: {
+              proposalId: "cfg_skill",
+              approvalId: "cfgap_skill",
+              scope: "project",
+              operation: "skill.upsert",
+              outcome: "rejected",
+              appliedWrites: [],
+              reconciliationEffects: [],
+              diagnostics: [
+                {
+                  severity: "error",
+                  field: "approvalId",
+                  message: "Config approval does not match the stored proposal.",
+                },
+              ],
+            },
+            replayed: false,
           }),
         },
       ],

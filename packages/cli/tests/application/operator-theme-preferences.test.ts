@@ -1,26 +1,50 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("../../src/config/global-config.js", () => ({
-  mutateGlobalConfig: vi.fn(),
-  defaultGlobalConfig: () => ({
-    version: "4",
-    components: { include: ["baseline:core"] },
-  }),
-  resolveGlobalUiTheme: (config: { ui?: { theme?: string } } | null) => config?.ui?.theme,
-}));
-
-import { mutateGlobalConfig } from "../../src/config/global-config.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parse, stringify } from "yaml";
+import { defaultGlobalConfig } from "../../src/config/global-config.js";
 import {
   createCliOperatorThemeController,
   persistOperatorThemePreference,
   resolveGuiThemePreference,
 } from "../../src/application/operator-theme-preferences.js";
 
-const mutateGlobalConfigMock = mutateGlobalConfig as unknown as ReturnType<typeof vi.fn>;
+let tempDir: string;
+let globalHome: string;
+let previousXdgConfigHome: string | undefined;
+let previousCwd: string;
+
+function globalConfigPath(): string {
+  return join(globalHome, "kiln", "config.yaml");
+}
+
+function seedGlobalConfig(): void {
+  mkdirSync(join(globalHome, "kiln"), { recursive: true });
+  writeFileSync(globalConfigPath(), stringify(defaultGlobalConfig()), "utf-8");
+}
 
 describe("operator theme preferences", () => {
   beforeEach(() => {
-    mutateGlobalConfigMock.mockReset();
+    tempDir = mkdtempSync(join(tmpdir(), "kiln-theme-preferences-"));
+    globalHome = mkdtempSync(join(tmpdir(), "kiln-theme-config-"));
+    mkdirSync(join(tempDir, ".kiln"), { recursive: true });
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    previousCwd = process.cwd();
+    process.env.XDG_CONFIG_HOME = globalHome;
+    process.chdir(tempDir);
+    seedGlobalConfig();
+  });
+
+  afterEach(() => {
+    process.chdir(previousCwd);
+    if (previousXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(globalHome, { recursive: true, force: true });
   });
 
   it("resolves GUI theme preference from request, then GUI config, then TUI config", () => {
@@ -29,21 +53,13 @@ describe("operator theme preferences", () => {
     expect(resolveGuiThemePreference(undefined, null)).toBe("phosphor");
   });
 
-  it("persists operator theme defaults into neutral UI config", () => {
-    mutateGlobalConfigMock.mockImplementation((mutation) => ({
-      config: mutation({ version: "4", ui: { theme: "phosphor" } }),
-    }));
+  it("persists operator theme defaults through the mutation authority", async () => {
+    await persistOperatorThemePreference("vesper", { projectPath: tempDir });
 
-    persistOperatorThemePreference("vesper");
-
-    expect(mutateGlobalConfigMock.mock.calls[0]?.[0]({ version: "4", ui: { theme: "phosphor" } })).toEqual({
-      version: "4",
-      ui: { theme: "vesper" },
-    });
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).ui.theme).toBe("vesper");
   });
 
   it("lets CLI operator theme tool persist defaults but rejects live session changes", async () => {
-    mutateGlobalConfigMock.mockImplementation((mutation) => ({ config: mutation(null) }));
     const controller = createCliOperatorThemeController();
 
     await expect(controller.setTheme({ theme: "vesper", scope: "session" })).resolves.toEqual({
@@ -54,10 +70,6 @@ describe("operator theme preferences", () => {
       ok: true,
       appliedTheme: "vesper",
     });
-    expect(mutateGlobalConfigMock.mock.calls[0]?.[0](null)).toEqual({
-      version: "4",
-      components: { include: ["baseline:core"] },
-      ui: { theme: "vesper" },
-    });
+    expect(parse(readFileSync(globalConfigPath(), "utf-8")).ui.theme).toBe("vesper");
   });
 });

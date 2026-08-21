@@ -1,5 +1,5 @@
 import type { ActionEffectEnvelope, DevTool, ToolInput, ToolResult } from "@kilnai/core";
-import { applyConfigChange } from "./config-apply.js";
+import { applyConfigMutation } from "./config-mutation-authority.js";
 
 const CONFIG_APPLY_EFFECT: ActionEffectEnvelope = {
   operation: "mutate",
@@ -8,15 +8,18 @@ const CONFIG_APPLY_EFFECT: ActionEffectEnvelope = {
   dataEgress: "metadata",
   identityUse: "none",
   consequences: ["local-state"],
-  idempotency: "non-idempotent",
+  // Settlement is keyed by proposal identity, so a retried apply replays the
+  // committed result instead of writing twice.
+  idempotency: "idempotent",
 };
 
 export class KilnConfigApplyChangeTool implements DevTool {
   readonly name = "kiln_config.apply_change";
   readonly description = [
-    "Apply a previously approved canonical Kiln configuration-change proposal.",
-    "Requires proposalId and approvalId produced by Kiln's governed config approval flow.",
-    "Fails closed if the proposal is invalid, approval is missing, or canonical files changed after proposal creation.",
+    "Apply a canonical Kiln configuration-change proposal.",
+    "Always requires an operator approvalId; a model may never commit configuration on its own authority.",
+    "Fails closed if the proposal is invalid, the base revision changed, or an approval does not match.",
+    "Reports committed, committed-reconciliation-failed, or rejected honestly.",
   ].join(" ");
   readonly effectEnvelope = CONFIG_APPLY_EFFECT;
   readonly inputSchema = {
@@ -30,7 +33,7 @@ export class KilnConfigApplyChangeTool implements DevTool {
       approvalId: {
         type: "string",
         minLength: 1,
-        description: "Approval id created by the operator approval flow for this proposal.",
+        description: "Approval id created by the operator for this exact proposal. Always required for model-called applies.",
       },
     },
     required: ["proposalId", "approvalId"],
@@ -43,18 +46,16 @@ export class KilnConfigApplyChangeTool implements DevTool {
     const proposalId = parseString(input.input.proposalId);
     const approvalId = parseString(input.input.approvalId);
     if (!proposalId || !approvalId) {
-      return {
-        output: "kiln_config.apply_change requires proposalId and approvalId.",
-        isError: true,
-      };
+      return { output: "kiln_config.apply_change requires proposalId and approvalId.", isError: true };
     }
 
-    let result: Awaited<ReturnType<typeof applyConfigChange>>;
+    let result: Awaited<ReturnType<typeof applyConfigMutation>>;
     try {
-      result = await applyConfigChange({
+      result = await applyConfigMutation({
         projectPath: this.projectPath,
         proposalId,
         approvalId,
+        requester: "model",
       });
     } catch (error) {
       return {
@@ -64,7 +65,7 @@ export class KilnConfigApplyChangeTool implements DevTool {
     }
     return {
       output: JSON.stringify(result, null, 2),
-      isError: result.status !== "applied",
+      isError: result.settlement.outcome === "rejected",
     };
   }
 }

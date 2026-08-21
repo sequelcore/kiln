@@ -871,17 +871,23 @@ function projectConfigMutationEvents(input: {
     })];
   }
   if (input.runtimeEvent.toolName === "kiln_config.apply_change") {
-    const status = readString(payload.status);
-    if (status === "applied") {
+    // The mutation authority reports its terminal outcome inside the durable
+    // settlement. A committed change whose reconciliation failed is still a
+    // committed change and must never project as a failed mutation.
+    const settlement = isRecord(payload.settlement) ? payload.settlement : undefined;
+    const outcome = readString(settlement?.outcome);
+    if (outcome === "committed" || outcome === "committed-reconciliation-failed") {
       return [createSessionEvent<"config_change_applied">({
         kilnSessionId: input.sessionId,
         sequence: input.sequence(),
         kind: "config_change_applied",
         turnId: input.turnId,
-        proposalId: readString(payload.proposalId) ?? "unknown",
-        approvalId: readString(payload.approvalId) ?? "unknown",
-        appliedWrites: readObjectPathArray(payload.appliedWrites),
-        projectionEffects: readProjectionEffectArray(payload.projectionEffects),
+        proposalId: readString(settlement?.proposalId) ?? "unknown",
+        approvalId: readString(settlement?.approvalId) ?? "unknown",
+        appliedWrites: readObjectPathArray(settlement?.appliedWrites),
+        projectionEffects: readProjectionEffectArray(settlement?.reconciliationEffects),
+        outcome,
+        reconciliationErrors: readReconciliationErrors(settlement?.reconciliationEffects),
         source: input.source,
         timestamp: input.runtimeEvent.timestamp,
       })];
@@ -891,9 +897,9 @@ function projectConfigMutationEvents(input: {
       sequence: input.sequence(),
       kind: "config_change_failed",
       turnId: input.turnId,
-      proposalId: readString(payload.proposalId),
-      approvalId: readString(payload.approvalId),
-      errorMessage: firstDiagnosticMessage(payload.diagnostics) ?? input.runtimeEvent.resultSummary ?? "Config apply failed",
+      proposalId: readString(settlement?.proposalId),
+      approvalId: readString(settlement?.approvalId),
+      errorMessage: firstDiagnosticMessage(settlement?.diagnostics) ?? input.runtimeEvent.resultSummary ?? "Config apply rejected",
       source: input.source,
       timestamp: input.runtimeEvent.timestamp,
     })];
@@ -952,6 +958,17 @@ function isGoalRun(value: unknown): value is GoalRun {
     && typeof value.createdAt === "string"
     && typeof value.updatedAt === "string"
     && typeof value.sequence === "number";
+}
+
+/** Flattens reconciliation errors so a partial convergence failure stays legible. */
+function readReconciliationErrors(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    const errors = isRecord(entry) ? entry.errors : undefined;
+    return Array.isArray(errors) ? errors.filter((error): error is string => typeof error === "string") : [];
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

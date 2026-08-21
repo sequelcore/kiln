@@ -376,7 +376,7 @@ export async function guiCommand(
     workingDirectory: cwd,
     domainLabel: bootstrapContext.domainLabel,
     workspaceExplorer,
-    updateThemePreference: (theme) => persistGuiThemePreference(theme, globalConfig),
+    updateThemePreference: (theme) => persistGuiThemePreference(theme, { projectPath: cwd }),
     executionRouteSelection,
     createExecutionRoute: async (request, admittedEvidence) => {
       const result = await createCurrentExecutionRoute({

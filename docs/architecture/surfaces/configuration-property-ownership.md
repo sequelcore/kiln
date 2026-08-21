@@ -49,8 +49,8 @@ contract semantics remain with their Core owner.
 | Canonical property | Profile | Plane | Sensitivity / authority | Merge or default | Activation | Disposition / transfer |
 | --- | --- | --- | --- | --- | --- | --- |
 | `version` | G | I | L | breaking generations only; required | session | supported |
-| `identity.name` | G | I | L | absent | T4 | supported |
-| `identity.timezone` | G | I | L | absent | T4 | supported |
+| `identity.name` | G | I | L | absent | hot | supported |
+| `identity.timezone` | G | I | L | absent | hot | supported |
 | `activeInstructionProfiles[]` | G | I | M | project list appends/deduplicates | reconcile | supported |
 | `workGovernance.defaultPosture` | GG | I | H | central default `direct`; project may narrow | turn | supported |
 | `workGovernance.requireDelegationFor[]` | GG | I | H | union/deduplicate | turn | supported |

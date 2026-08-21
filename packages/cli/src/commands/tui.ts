@@ -1779,7 +1779,7 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     startupTransport === "direct" ? loadOperatorSessionHistory : undefined,
     startupTransport === "direct" ? handleResumeSession : undefined,
     bootstrap.refreshProviderDiscovery,
-    (themeName) => persistTuiThemePreference(themeName, globalConfig),
+    (themeName) => persistTuiThemePreference(themeName, { projectPath: cwd }),
     async () => {
       const snapshot = await readConfigStatusSnapshot({ projectPath: cwd });
       return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };

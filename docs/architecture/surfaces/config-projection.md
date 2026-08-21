@@ -577,15 +577,20 @@ skill, adjust an agent profile, or attach skills without receiving generic
 filesystem write authority and without editing YAML or native harness files
 directly.
 
-Config mutation is a control-plane lifecycle:
+Config mutation is a control-plane lifecycle owned by one application
+authority, `config-mutation-authority`, for both the project and global
+configuration scopes. No surface writes canonical configuration itself:
 
 1. inspect effective config through read-only setup/config views
-2. create a structured proposal against canonical Kiln config
-3. require an explicit operator approval bound to the stored proposal hash
-4. apply the approved proposal only if the current canonical files still match
-   the proposal base hashes
-5. run native projection through Kiln projection services
-6. emit canonical config mutation evidence for every operator surface
+2. create a structured proposal bound to the canonical base revision
+3. obtain an explicit operator approval bound to the stored proposal hash
+   whenever the proposal expands authority, and always for a model-called apply
+4. apply only if the canonical base revision is unchanged, writing through a
+   same-directory temporary file and atomic replacement
+5. converge declared reconciliation targets through the single reconciliation
+   owner
+6. read effective state back and settle the operation durably
+7. emit canonical config mutation evidence for every operator surface
 
 The model-callable tool surface is deliberately small:
 
@@ -596,7 +601,8 @@ kiln_config.read({
 })
 
 kiln_config.propose_change({
-  operation: "skill.upsert" | "agent.upsert" | "agent.attach_skills",
+  operation: "skill.upsert" | "agent.upsert" | "agent.attach_skills" |
+    "context_governance.adapt" | "preference.set" | "mutation.rollback",
   payload: { ... }
 })
 
@@ -605,6 +611,10 @@ kiln_config.apply_change({
   approvalId: "..."
 })
 ```
+
+A model-called apply always requires `approvalId`. Approval-free commits exist
+only for direct operator actions whose proposal reports `approvalRequired` as
+false, and a model never holds that authority.
 
 `targetRouting.set_default`, `target.set_enabled`, `projection.sync`, third-party pack
 installation, team/cloud distribution, and rich GUI editing are not implicit
@@ -620,17 +630,30 @@ raw values. `kiln config explain <identity>` returns the same field record used
 by those views. The tool may report provider health, projection status, and
 setup recommendations, but it does not grant mutation authority.
 
-`kiln_config.propose_change` returns a `KilnConfigChangeProposal`, not a patch
-string. A proposal records:
+`kiln_config.propose_change` returns a `KilnConfigMutationProposal`, not a
+patch string. A proposal records:
 
-- operation id
-- normalized payload
-- affected canonical config paths
-- native projection effects
-- authority impact
+- operation id and mutation scope (`project` or `global`)
+- the canonical base revision the proposal was derived from
+- normalized payload of desired intent
+- affected bounded-context owners and canonical config paths
+- reconciliation targets
+- authority impact, derived by comparing current and proposed authority
+- whether approval is required
+- activation class (`hot`, `next-turn`, `next-session`, `reconcile`, or
+  `restart-required`)
 - validation diagnostics
 - preview diff
-- rollback hint
+- whether the change will be restorable by rollback
+
+Proposal identity is derived from scope, operation, normalized payload, target
+path, proposed content, and base revision. The same intent against the same
+base always produces the same `proposalId`, which is what lets a retried apply
+be recognised as the same operation rather than a new one.
+
+Authority impact is a delta. Restating tools an agent profile already holds is
+not an expansion and needs no approval; adding `write` or `bash` is
+`expands-write` and does.
 
 Skill proposals validate against the canonical `SKILL.md` parser. Agent
 profile proposals validate against the Kiln agent-profile parser used by
@@ -644,27 +667,45 @@ such as `write` and `bash` are allowed only as explicit proposal data with
 `authorityImpact` surfaced for review; arbitrary or misspelled tool names fail
 closed.
 
-Config proposals are durable runtime state, not prompt text. Kiln stores them
-under `.kiln/proposals/config/` with the proposal hash, canonical target paths,
-desired content, previous content hashes, and next content hashes. Approval is
-also durable: `kiln config approve <proposalId>` creates a proposal-bound
-`approvalId` under `.kiln/approvals/config/`. `kiln_config.apply_change` must
-load both records and verify that the approval points to the same proposal hash
-before it writes anything. The model cannot self-approve by repeating an
-approval id in natural language.
+Config proposals are durable runtime state, not prompt text. Kiln stores
+proposals, approvals, and settlements under `.kiln/mutations/config/` with the
+proposal hash, canonical target paths, desired content, and the exact prior
+bytes rollback would restore. Approval is also durable: `kiln config approve
+<proposalId>` creates a proposal-bound `approvalId`. Apply loads both records
+and verifies that the approval points to the same proposal hash before it
+writes anything. The model cannot self-approve by repeating an approval id in
+natural language.
 
-Apply writes only canonical project config files under `.kiln/agents/` and
-`.kiln/skills/`. It rejects invalid proposals, missing approvals, consumed
-approvals, mismatched proposal hashes, path traversal, writes outside canonical
-config roots, and stale proposals whose target files changed after proposal
-creation. If the desired state already exists and the stored base hash still
-matches, apply remains idempotent.
+Project applies write only canonical project config files under `.kiln/agents/`,
+`.kiln/skills/`, and `.kiln/kiln.yaml`. Global applies write only the canonical
+global configuration file, delegating to the global configuration owner so the
+same lock, revision fence, validation, and atomic replacement apply. Global
+content is produced by editing the YAML document tree, so operator comments,
+ordering, and scalar style survive a mutation. Apply rejects invalid proposals,
+missing or mismatched approvals, consumed approvals, path traversal, writes
+outside canonical config roots, and stale proposals whose base revision changed.
 
-After canonical writes succeed, apply invokes the existing native projection
-services for the affected family and the repo-shim projection service. Native
-Claude Code, Codex, and OpenCode files are regenerated projections; config
-mutation tools never patch them directly. Projection failures are returned as
+A preference change never mints canonical configuration. If global configuration
+has not been adopted yet, the proposal fails closed and directs the operator to
+setup instead of writing a default file as a side effect.
+
+Settlement is write-once and keyed by proposal identity. A retried apply of an
+already committed proposal replays its stored settlement instead of writing
+again, and reports `replayed` as true. Rejections are deliberately not settled
+durably, so the same intent can be retried once the conflict that caused the
+rejection clears.
+
+After canonical writes succeed, the single reconciliation owner converges the
+targets the proposal declared, and effective state is read back. Native Claude
+Code, Codex, and OpenCode files are regenerated projections; config mutation
+tools never patch them directly. Reconciliation failures are returned as
 structured effects and diagnostics instead of hidden shell output.
+
+The terminal outcome is honest. `committed` means the canonical write and
+reconciliation both succeeded. `committed-reconciliation-failed` means the
+canonical write committed and reconciliation did not; it is never reported as a
+rejection, and every operator surface projects it as an applied change carrying
+failed projection effects. `rejected` means nothing was written.
 
 Config mutation authority is separate from filesystem write authority. A
 read-only child may receive `kiln_config.read` at most. Proposal authority can
