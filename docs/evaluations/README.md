@@ -33,3 +33,4 @@ Public claims require the evidence gates defined there.
 ## Tool Evaluations
 
 - [Formal Verification Pilot 2026](formal-verification-pilot-2026.md)
+- [LemmaScript Qualification Prepilot 2026](lemma-script-qualification-prepilot-2026.md)
