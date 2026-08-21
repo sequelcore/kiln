@@ -288,11 +288,13 @@ export class LemmaCheckTool implements DevTool {
     if (processResult.timedOut) {
       return makeFailure("timeout", ["timeout"], expectedVersions, baseDigests);
     }
-    if (!isSuccessfulSubprocess(processResult)) {
-      return makeFailure("process", ["process-failed"], expectedVersions, baseDigests);
-    }
-
     const parsed = parseQualificationOutput(processResult.stdout, this.options);
+    if (!isSuccessfulSubprocess(processResult)) {
+      if (typeof parsed === "string" || parsed.kind === "pipeline_passed") {
+        return makeFailure("process", ["process-failed"], expectedVersions, baseDigests);
+      }
+      return projectQualification(parsed, baseDigests);
+    }
     if (typeof parsed === "string") return makeFailure("output_parse", [parsed], expectedVersions, baseDigests);
 
     const output = projectQualification(parsed, baseDigests);

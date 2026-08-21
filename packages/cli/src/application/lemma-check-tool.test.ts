@@ -173,6 +173,43 @@ describe("lemma_check", () => {
     expect(JSON.stringify(output)).not.toMatch(/acceptance|establishes|criterion|Assurance|generated.*\.dfy|verification\.csv/iu);
   });
 
+  it("preserves a validated policy-ineligible result from the qualification process exit code", async () => {
+    const fixture = createFixture();
+    const qualification = {
+      ...fixture.qualificationResult,
+      kind: "policy_ineligible" as const,
+      status: "ineligible" as const,
+      stage: "policy",
+      facts: {
+        ...fixture.qualificationResult.facts,
+        policyEligible: false,
+        policyDiagnosticCodes: ["numeric-semantics"],
+      },
+    };
+    const tool = createLemmaCheckTool(fixture.workspacePath, {
+      ...fixture.options,
+      runner: async () => ({
+        exitCode: 1,
+        signal: null,
+        stdout: JSON.stringify(qualification),
+        stderr: "",
+        timedOut: false,
+      }),
+    });
+
+    const result = await tool.execute({ name: "lemma_check", input: {} });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.output)).toMatchObject({
+      kind: "policy_ineligible",
+      status: "ineligible",
+      stage: "policy",
+      policyEligible: false,
+      diagnosticCodes: ["numeric-semantics"],
+      benchmarkReady: false,
+    });
+  });
+
   it("returns only compact facts and never exposes generated artifacts or absolute paths", async () => {
     const fixture = createFixture();
     const tool = createLemmaCheckTool(fixture.workspacePath, {
