@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify } from "yaml";
 import { configCommand } from "../../src/commands/config.js";
 import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
 import type { KilnAppConfig } from "../../src/config.js";
+import { defaultGlobalConfig } from "../../src/config/global-config.js";
 import { DomainRegistry } from "@kilnai/core/domain";
 
 const MOCK_APP_CONFIG: KilnAppConfig = {
@@ -36,20 +37,41 @@ const DEFAULT_KILN: ResolvedKilnConfig = {
   permissions: { approval: "on-request", sandbox: "read-only" },
 };
 
+function seedProjectConfig(dir: string): void {
+  writeKiln(dir, DEFAULT_KILN);
+}
+
+function seedGlobalConfig(globalHome: string): void {
+  mkdirSync(join(globalHome, "kiln"), { recursive: true });
+  writeFileSync(join(globalHome, "kiln", "config.yaml"), stringify(defaultGlobalConfig()), "utf-8");
+}
+
 describe("configCommand", () => {
   let tempDir: string;
+  let globalHome: string;
+  let previousXdgConfigHome: string | undefined;
   let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "kiln-config-"));
-    vi.stubEnv("XDG_CONFIG_HOME", join(tempDir, "xdg"));
+    globalHome = mkdtempSync(join(tmpdir(), "kiln-config-home-"));
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = globalHome;
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
+    if (previousXdgConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    }
     rmSync(tempDir, { recursive: true, force: true });
+    rmSync(globalHome, { recursive: true, force: true });
     consoleSpy.mockRestore();
-    vi.unstubAllEnvs();
+    consoleErrorSpy.mockRestore();
   });
 
   it("show prints the secret-free effective configuration projection", async () => {
@@ -77,7 +99,7 @@ describe("configCommand", () => {
   });
 
   it("set updates an admitted project config value", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
     await configCommand(MOCK_APP_CONFIG, "set", ["domain", "backend"], tempDir);
 
@@ -86,29 +108,29 @@ describe("configCommand", () => {
   });
 
   it.each(["provider", "model", "mode"])("does not write global execution field %s into project config", async (field) => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
     const path = join(tempDir, ".kiln", "kiln.yaml");
     const before = readFileSync(path);
 
     await configCommand(MOCK_APP_CONFIG, "set", [field, "synthetic-value"], tempDir);
 
     expect(readFileSync(path)).toEqual(before);
-    expect(consoleSpy.mock.calls.flat().join("\n")).toContain(`Unknown config key: ${field}`);
+    expect(consoleErrorSpy.mock.calls.flat().join("\n")).toContain(`Unknown configuration key: ${field}`);
   });
 
   it("set handles boolean values", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "set", ["requireApproval", "false"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["requireApproval", "false", "--approve"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.requireApproval).toBe(false);
   });
 
   it("set handles numeric values", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "set", ["maxDepth", "5"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["maxDepth", "5", "--approve"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.maxDepth).toBe(5);
@@ -122,34 +144,35 @@ describe("configCommand", () => {
   });
 
   it("set updates permissions.approval", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "never"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["permissions.approval", "never", "--approve"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.permissions?.approval).toBe("never");
   });
 
   it("set updates permissions.sandbox", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "danger-full-access"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["permissions.sandbox", "danger-full-access", "--approve"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.permissions?.sandbox).toBe("danger-full-access");
   });
 
   it("sets global skill visibility and reviewed external catalog policy without hand editing", async () => {
-    const globalDir = join(tempDir, "xdg", "kiln");
+    seedGlobalConfig(globalHome);
+    const globalDir = join(globalHome, "kiln");
     const external = {
       version: 1,
       harnesses: { codex: { expectedFingerprint: `sha256:${"b".repeat(64)}`, keepImplicit: [{ sourceId: "plugin:docs:pdf:.", packageDigest: `sha256:${"a".repeat(64)}` }] } },
     };
     const builtin = { enabled: true, include: ["research-workflow", "orchestration-workflow"] };
-    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.builtin", JSON.stringify(builtin)], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.default", "explicit-only"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.overrides", '{"pdf":"implicit"}'], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.externalCatalog", JSON.stringify(external)], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.builtin", JSON.stringify(builtin), "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.default", "explicit-only", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.visibility.overrides", '{"pdf":"implicit"}', "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["--global", "skills.externalCatalog", JSON.stringify(external), "--approve"], tempDir);
 
     const global = parseYaml(readFileSync(join(globalDir, "config.yaml"), "utf8")) as ResolvedKilnConfig;
     expect(global.skills).toMatchObject({
@@ -160,32 +183,36 @@ describe("configCommand", () => {
   });
 
   it("rejects global-only skill policy without --global and leaves project bytes unchanged", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
     const path = join(tempDir, ".kiln", "kiln.yaml");
     const before = readFileSync(path);
-    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => { throw new Error("exit:1"); }) as never);
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
     try {
-      await expect(configCommand(MOCK_APP_CONFIG, "set", ["skills.visibility.default", "disabled"], tempDir))
-        .rejects.toThrow("exit:1");
+      await configCommand(MOCK_APP_CONFIG, "set", ["skills.visibility.default", "disabled", "--approve"], tempDir);
+      expect(process.exitCode).toBe(1);
+      expect(consoleErrorSpy.mock.calls.flat().join("\n")).toContain(
+        "error: scope: skills.visibility.default cannot be set in the project scope.",
+      );
     } finally {
-      exitSpy.mockRestore();
+      process.exitCode = previousExitCode;
     }
     expect(readFileSync(path)).toEqual(before);
   });
 
   it("set updates interactive-use policy", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.enabled", "true"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.browserProvider", "playwright"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.browserEnvironment", "isolated-headed"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedDomains", "example.com, docs.example.com"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowExternalBrowser", "false"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowComputer", "true"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerProvider", "windows-uia"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerEnvironment", "local-active-desktop"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedApplications", "Calculator, msedge"], tempDir);
-    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.applicationAliases", "{\"Calculator\":[\"Calculadora\",\"CalculatorApp\"]}"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.enabled", "true", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.browserProvider", "playwright", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.browserEnvironment", "isolated-headed", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedDomains", "example.com, docs.example.com", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowExternalBrowser", "false", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowComputer", "true", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerProvider", "windows-uia", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.computerEnvironment", "local-active-desktop", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.allowedApplications", "Calculator, msedge", "--approve"], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "set", ["interactiveUse.applicationAliases", "{\"Calculator\":[\"Calculadora\",\"CalculatorApp\"]}", "--approve"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.interactiveUse?.enabled).toBe(true);
@@ -203,9 +230,9 @@ describe("configCommand", () => {
   });
 
   it("reset writes default kiln.yaml", async () => {
-    writeKiln(tempDir, DEFAULT_KILN);
+    seedProjectConfig(tempDir);
 
-    await configCommand(MOCK_APP_CONFIG, "reset", [], tempDir);
+    await configCommand(MOCK_APP_CONFIG, "reset", ["--approve"], tempDir);
 
     const config = readKiln(tempDir);
     expect(config.domain).toBe("generic");

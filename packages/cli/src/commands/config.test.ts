@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { configCommand } from "./config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
-import { readGlobalConfig, resolveGlobalConfigPath } from "../config/global-config.js";
+import { defaultGlobalConfig, readGlobalConfig, resolveGlobalConfigPath } from "../config/global-config.js";
+import { stringify } from "yaml";
 
 const tempRoots: string[] = [];
 
@@ -12,6 +13,11 @@ function createTempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "kiln-config-command-"));
   tempRoots.push(root);
   return root;
+}
+
+function seedGlobalConfig(root: string): void {
+  mkdirSync(join(root, "xdg", "kiln"), { recursive: true });
+  writeFileSync(join(root, "xdg", "kiln", "config.yaml"), stringify(defaultGlobalConfig()), "utf-8");
 }
 
 function writeProjectConfig(root: string): void {
@@ -46,10 +52,10 @@ describe("config command", () => {
     writeProjectConfig(root);
 
     await configCommand({} as never, "set", ["activeInstructionProfiles", "sequel-engineering,project-standards"], root);
-    await configCommand({} as never, "set", ["workGovernance.defaultPosture", "orchestrate"], root);
-    await configCommand({} as never, "set", ["workGovernance.requireDelegationFor", "architecture,config"], root);
-    await configCommand({} as never, "set", ["workGovernance.requiredEvidence", "surface-map,plan,tests"], root);
-    await configCommand({} as never, "set", ["skills.selection.mode", "auto"], root);
+    await configCommand({} as never, "set", ["workGovernance.defaultPosture", "orchestrate", "--approve"], root);
+    await configCommand({} as never, "set", ["workGovernance.requireDelegationFor", "architecture,config", "--approve"], root);
+    await configCommand({} as never, "set", ["workGovernance.requiredEvidence", "surface-map,plan,tests", "--approve"], root);
+    await configCommand({} as never, "set", ["skills.selection.mode", "auto", "--approve"], root);
 
     expect(readKilnYaml(join(root, ".kiln"))).toMatchObject({
       activeInstructionProfiles: ["sequel-engineering", "project-standards"],
@@ -69,11 +75,12 @@ describe("config command", () => {
   it("sets global identity and operator doctrine keys with --global", async () => {
     const root = createTempRoot();
     process.env.XDG_CONFIG_HOME = join(root, "xdg");
+    seedGlobalConfig(root);
 
     await configCommand({} as never, "set", ["--global", "identity.name", "Ricardo"], root);
     await configCommand({} as never, "set", ["--global", "identity.timezone", "America/Tijuana"], root);
     await configCommand({} as never, "set", ["--global", "activeInstructionProfiles", "sequel-engineering"], root);
-    await configCommand({} as never, "set", ["--global", "skills.selection.mode", "auto"], root);
+    await configCommand({} as never, "set", ["--global", "skills.selection.mode", "auto", "--approve"], root);
 
     expect(readGlobalConfig()).toMatchObject({
       identity: {
@@ -96,7 +103,7 @@ describe("config command", () => {
     mkdirSync(join(root, "xdg", "kiln"), { recursive: true });
     writeFileSync(configPath, 'version: "1"\nidentity:\n  name: Previous\n', "utf-8");
 
-    await configCommand({} as never, "reset", ["--global"], root);
+    await configCommand({} as never, "reset", ["--global", "--approve"], root);
 
     expect(readGlobalConfig()).toMatchObject({ version: "4" });
     expect(consoleLog.mock.calls.flat().join("\n")).toContain("backed up");

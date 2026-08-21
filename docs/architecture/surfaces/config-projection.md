@@ -602,7 +602,8 @@ kiln_config.read({
 
 kiln_config.propose_change({
   operation: "skill.upsert" | "agent.upsert" | "agent.attach_skills" |
-    "context_governance.adapt" | "preference.set" | "mutation.rollback",
+    "context_governance.adapt" | "setting.set" | "setting.reset" |
+    "mutation.rollback",
   payload: { ... }
 })
 
@@ -685,9 +686,18 @@ ordering, and scalar style survive a mutation. Apply rejects invalid proposals,
 missing or mismatched approvals, consumed approvals, path traversal, writes
 outside canonical config roots, and stale proposals whose base revision changed.
 
-A preference change never mints canonical configuration. If global configuration
-has not been adopted yet, the proposal fails closed and directs the operator to
-setup instead of writing a default file as a side effect.
+A settings change never mints canonical configuration. If the target scope has
+not been adopted yet, the proposal fails closed and directs the operator to setup
+or `kiln init` instead of writing a default file as a side effect.
+
+`setting.set` and `setting.reset` are the only paths that change an admitted
+configuration key. Each key has one descriptor, projected from the canonical
+ownership ledger, that supplies its scope eligibility, value admission,
+activation class, owning bounded contexts, reconciliation targets, and ledger
+sensitivity. A key classified high or critical is treated as authority-affecting
+and requires an explicit approval; the authority does not guess whether a
+specific value widens or narrows. A reset replaces a whole scope and is always
+authority-affecting.
 
 Settlement is write-once and keyed by proposal identity. A retried apply of an
 already committed proposal replays its stored settlement instead of writing

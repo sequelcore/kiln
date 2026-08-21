@@ -276,7 +276,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         startedAt: settledAt,
       });
       return proposal.scope === "global"
-        ? commitGlobalWrite(record.writes, proposal.baseRevision)
+        ? commitGlobalWrite(record.writes, proposal.baseRevision, proposal.operation === "setting.reset")
         : commitProjectWrites(record.writes);
     });
   } catch (error) {
@@ -286,6 +286,9 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
     return commitOutcome;
   }
   const { appliedWrites, committedRevision } = commitOutcome;
+  const recoveryDiagnostics: readonly KilnConfigValidationDiagnostic[] = commitOutcome.invalidBackupPath
+    ? [diagnostic("configuration", `Previous invalid configuration backed up to ${commitOutcome.invalidBackupPath}`, "warning")]
+    : [];
 
   const reconcile = input.reconcile ?? reconcileConfigMutation;
   const reconciliationEffects = await reconcile(input.projectPath, proposal.reconciliationTargets);
@@ -306,7 +309,10 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
     committedRevision,
     appliedWrites,
     reconciliationEffects,
-    diagnostics: reconciliationEffects.flatMap((effect) => effect.errors.map((error) => diagnostic(effect.target, error, "warning"))),
+    diagnostics: [
+      ...recoveryDiagnostics,
+      ...reconciliationEffects.flatMap((effect) => effect.errors.map((error) => diagnostic(effect.target, error, "warning"))),
+    ],
     rollbackToken: proposal.proposalId,
     activation: proposal.activation,
     restore: record.writes.map((write): ConfigMutationRestorePoint => ({
@@ -322,6 +328,8 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
 interface CommitOutcome {
   readonly appliedWrites: readonly KilnConfigAppliedWrite[];
   readonly committedRevision: string;
+  /** Set when an unreadable configuration was retained before being replaced. */
+  readonly invalidBackupPath?: string;
 }
 
 function isCommitOutcome(value: CommitOutcome | KilnConfigMutationResult): value is CommitOutcome {
@@ -460,9 +468,11 @@ function commitProjectWrites(writes: readonly ConfigMutationWrite[]): {
 function commitGlobalWrite(
   writes: readonly ConfigMutationWrite[],
   baseRevision: string,
+  replaceInvalid: boolean,
 ): {
   readonly appliedWrites: readonly KilnConfigAppliedWrite[];
   readonly committedRevision: string;
+  readonly invalidBackupPath?: string;
 } {
   const write = writes[0];
   if (!write) {
@@ -471,10 +481,15 @@ function commitGlobalWrite(
   if (write.action === "delete") {
     throw new Error("Global configuration cannot be removed by a mutation; adoption owns its lifecycle.");
   }
-  const result = commitGlobalConfigBytes({ content: write.nextContent, expectedRevision: baseRevision });
+  const result = commitGlobalConfigBytes({
+    content: write.nextContent,
+    expectedRevision: baseRevision,
+    ...(replaceInvalid ? { invalidCurrent: "backup-and-replace" as const } : {}),
+  });
   return {
     appliedWrites: [{ path: write.path, previousHash: write.previousHash, nextHash: write.nextHash }],
     committedRevision: result.revision,
+    ...(result.invalidBackupPath === undefined ? {} : { invalidBackupPath: result.invalidBackupPath }),
   };
 }
 
@@ -646,9 +661,13 @@ function restoredAuthorityImpact(
     case "skill.upsert":
       // Skill content carries instructions, never a tool grant.
       return "none";
-    case "preference.set":
-      // The preference surface is a bounded key set with no authority material.
-      return "none";
+    case "setting.set":
+      // Restoring a settings document reverts whatever that key governs, and a
+      // whole-file restore can also revert unrelated authority material written
+      // afterwards, so this fails closed.
+      return "unknown";
+    case "setting.reset":
+      return "unknown";
     default:
       return "unknown";
   }

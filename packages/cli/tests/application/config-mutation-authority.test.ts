@@ -246,7 +246,7 @@ describe("config mutation authority", () => {
 
   it("writes a global preference through the authority rather than the surface", async () => {
     seedGlobalConfig();
-    const record = propose("preference.set", { key: "ui.theme", value: "vesper" });
+    const record = propose("setting.set", { scope: "global", key: "ui.theme", value: "vesper" });
 
     expect(record.proposal.scope).toBe("global");
     expect(record.proposal.activation).toBe("hot");
@@ -277,7 +277,7 @@ describe("config mutation authority", () => {
     ].join("\n");
     writeFileSync(globalConfigPath(), authored, "utf-8");
 
-    const record = propose("preference.set", { key: "ui.theme", value: "vesper" });
+    const record = propose("setting.set", { scope: "global", key: "ui.theme", value: "vesper" });
     const result = await applyConfigMutation({
       projectPath: tempDir,
       proposalId: record.proposal.proposalId,
@@ -540,30 +540,30 @@ describe("config mutation authority", () => {
     seedGlobalConfig();
     const name = proposeConfigMutation({
       projectPath: tempDir,
-      operation: "preference.set",
-      payload: { key: "identity.name", value: "Operator" },
+      operation: "setting.set",
+      payload: { scope: "global", key: "identity.name", value: "Operator" },
     });
     const timezone = proposeConfigMutation({
       projectPath: tempDir,
-      operation: "preference.set",
-      payload: { key: "identity.timezone", value: "America/Hermosillo" },
+      operation: "setting.set",
+      payload: { scope: "global", key: "identity.timezone", value: "America/Hermosillo" },
     });
 
     expect(name.proposal.activation).toBe("hot");
     expect(timezone.proposal.activation).toBe("hot");
   });
 
-  it("refuses an unsupported preference and an unknown preference value", () => {
+  it("refuses an unsupported key and an inadmissible value", () => {
     seedGlobalConfig();
     const unsupportedKey = proposeConfigMutation({
       projectPath: tempDir,
-      operation: "preference.set",
-      payload: { key: "permissions.ceiling", value: "full" },
+      operation: "setting.set",
+      payload: { scope: "global", key: "permissions.ceiling", value: "full" },
     });
     const unknownValue = proposeConfigMutation({
       projectPath: tempDir,
-      operation: "preference.set",
-      payload: { key: "ui.theme", value: "not-a-theme" },
+      operation: "setting.set",
+      payload: { scope: "global", key: "ui.theme", value: "not-a-theme" },
     });
 
     expect(unsupportedKey.proposal.status).toBe("invalid");

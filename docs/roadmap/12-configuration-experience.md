@@ -464,13 +464,31 @@ or explicit discard. The ownership ledger's two `T4` activation rows
 (`identity.name`, `identity.timezone`) are resolved as `hot` against their
 actual read sites.
 
+`kiln config set` and `kiln config reset` now run through the authority as the
+`setting.set` and `setting.reset` operations. A key table owns only the command
+surface - which keys are settable, where they live, which scopes admit them, and
+how an operator string becomes a value. Authority, activation, and ownership are
+read from the canonical project schema descriptors, which already carry
+`x-kiln-authority-impact`, so the command surface cannot become a second policy
+engine; a key with no descriptor fails closed as authority-affecting. The global
+family has no runtime schema until Slice 9, so its governance facts stay explicit
+and ledger-sourced. An authority-bearing change requires an explicit operator
+approval, which `kiln config set --approve` supplies in the same invocation.
+Project results are admitted by the project schema before the write, scope must
+be stated exactly, and a key resolving through a YAML alias is rejected rather
+than rewritten.
+Project documents are edited through the YAML document tree like global ones, so
+operator comments survive, and neither scope is created implicitly by a settings
+change. The in-command setter and value-parsing machinery, its `writeKilnYaml`
+and unfenced `mutateGlobalConfig` calls, and the duplicated key list are deleted;
+the admitted key set now has one owner.
+
 Remaining before this slice closes: convert the direct writers that still
-bypass the authority - `kiln config set|reset` (project `writeKilnYaml` and an
-unfenced global `mutateGlobalConfig`), `kiln target`, `kiln import-native`,
-`skill-capture` (writes canonical `SKILL.md` directly),
-`operator-execution-route-preferences`, and `execution-route-creation` - each
-with its typed operation, deleting the direct write in the same change, plus
-permission-profile and capability-enablement operations. Spend-guard,
+bypass the authority - `kiln target`, `kiln import-native`, `skill-capture`
+(writes canonical `SKILL.md` directly), `operator-execution-route-preferences`,
+and `execution-route-creation` - each with its typed operation, deleting the
+direct write in the same change, plus permission-profile and
+capability-enablement operations. Spend-guard,
 work-limit, and managed-agent operations are deliberately excluded here; their
 product shape belongs to Slice 7A. `kiln init` also writes `.kiln/kiln.yaml`
 directly; it is first-run adoption rather than a settings mutation, so it
@@ -486,9 +504,16 @@ interrupted commit. Settlement records are linked into place, so a crash cannot
 leave a truncated record that fails to parse forever.
 
 Known residual risk carried into the remaining cuts: multi-path atomicity is
-unproven because every current operation writes exactly one canonical path, and
-a rollback whose restored surface has no complete authority evaluator fails
-closed as `unknown`, which requires approval even when the restore is harmless.
+unproven because every current operation writes exactly one canonical path; a
+rollback whose restored surface has no complete authority evaluator fails closed
+as `unknown`, which requires approval even when the restore is harmless; and
+`setting.set` classifies authority from schema metadata rather than comparing
+values, so narrowing an authority-bearing key also requires approval. Ordered
+comparison per key would remove that friction and belongs with the
+permission-profile operation. The ledger admits global `permissions.*` under the
+`GP` profile, but the command surface keeps them project-only, matching the
+behavior it replaced; admitting them globally needs the merger's attenuation
+semantics and belongs with the same operation.
 
 Generalize the existing governed lifecycle without creating a generic patch
 escape hatch. Add typed operations such as preference selection, provider

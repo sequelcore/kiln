@@ -63,8 +63,8 @@ export async function persistOperatorThemePreference(
   const projectPath = options?.projectPath ?? process.cwd();
   const record = proposeConfigMutation({
     projectPath,
-    operation: "preference.set",
-    payload: { key: "ui.theme", value: resolvedTheme },
+    operation: "setting.set",
+    payload: { scope: "global", key: "ui.theme", value: resolvedTheme },
   });
   if (record.proposal.status !== "valid") {
     throw new Error(

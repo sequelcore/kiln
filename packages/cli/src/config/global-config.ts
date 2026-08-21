@@ -316,6 +316,12 @@ export interface GlobalConfigMutationResult {
 export function commitGlobalConfigBytes(input: {
   readonly content: string;
   readonly expectedRevision: string;
+  /**
+   * Retains the existing bytes before replacing a configuration that no longer
+   * validates. Recovery from an unreadable config must never silently discard
+   * what the operator had.
+   */
+  readonly invalidCurrent?: "backup-and-replace";
 }): GlobalConfigMutationResult {
   const configPath = resolveGlobalConfigPath();
   mkdirSync(dirname(configPath), { recursive: true });
@@ -340,6 +346,20 @@ export function commitGlobalConfigBytes(input: {
     }
     validateGlobalConfig(next);
 
+    let invalidBackupPath: string | undefined;
+    if (currentRaw !== null && input.invalidCurrent === "backup-and-replace" && !isValidGlobalConfigRaw(currentRaw)) {
+      invalidBackupPath = `${configPath}.invalid-${lock.acquisitionId}.bak`;
+      try {
+        writeFileSync(invalidBackupPath, currentRaw, {
+          encoding: "utf-8",
+          flag: "wx",
+          mode: statSync(configPath).mode & 0o777,
+        });
+      } catch (backupError) {
+        throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", { configPath, invalidBackupPath }, backupError);
+      }
+    }
+
     const mode = currentRaw === null ? 0o600 : statSync(configPath).mode & 0o777;
     try {
       writeFileSync(temporaryPath, input.content, { encoding: "utf-8", mode });
@@ -355,9 +375,18 @@ export function commitGlobalConfigBytes(input: {
       config: next,
       previousRevision,
       revision: globalConfigRevision(input.content),
+      ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
     };
   } finally {
     releaseGlobalConfigLock(lockPath, lock);
+  }
+}
+
+function isValidGlobalConfigRaw(raw: string): boolean {
+  try {
+    return parseGlobalConfigRaw(raw) !== null;
+  } catch {
+    return false;
   }
 }
 

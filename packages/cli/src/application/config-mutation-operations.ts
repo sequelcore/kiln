@@ -16,8 +16,17 @@ import type {
   KilnConfigReconciliationTarget,
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
-import { isOperatorThemeName } from "@kilnai/gateway-contracts";
-import { parse, parseDocument, stringify } from "yaml";
+import { parse, parseDocument, stringify, type Document } from "yaml";
+import { defaultGlobalConfig } from "../config/global-config.js";
+import { defaultKilnYaml } from "../kiln-yaml.js";
+import { isAlias, isCollection } from "yaml";
+import {
+  configSettingDescriptor,
+  configSettingGovernance,
+  configSettingKeys,
+  parseConfigSettingValue,
+} from "./config-setting-descriptors.js";
+import { parseProjectConfigStructure } from "../config/project-config-schema.js";
 import type { KilnContextGovernanceConfig, ResolvedKilnConfig } from "../kiln-yaml-types.js";
 import { parseAgentDefinitionContent, type KilnAgentDefinition } from "./agent-loader.js";
 
@@ -72,8 +81,10 @@ export function normalizeConfigMutation(
       return normalizeAgentAttachSkills(context.projectPath, payload);
     case "context_governance.adapt":
       return normalizeContextGovernanceAdaptation(context.projectPath, payload);
-    case "preference.set":
-      return normalizePreferenceSet(context.globalConfigPath, payload);
+    case "setting.set":
+      return normalizeSettingSet(context, payload);
+    case "setting.reset":
+      return normalizeSettingReset(context, payload);
     case "mutation.rollback":
       throw new Error("mutation.rollback is resolved by the mutation authority, not an operation handler.");
   }
@@ -239,105 +250,201 @@ function normalizeSkillUpsert(projectPath: string, rawPayload: unknown): Normali
 }
 
 /**
- * Global operator preference. Preferences carry no execution authority and are
- * read per use, so they activate immediately once committed.
+ * Sets one admitted configuration key in the requested scope.
+ *
+ * The key's descriptor supplies scope eligibility, value admission, activation,
+ * owners, and whether the change can affect authority. Content is produced by
+ * editing the YAML document tree so operator comments and ordering survive.
  */
-function normalizePreferenceSet(globalConfigPath: string, rawPayload: unknown): NormalizedConfigMutation {
+function normalizeSettingSet(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const scope = admitScope(payload.scope, diagnostics);
   const key = requireText(payload.key, "key", diagnostics);
-  const preference = SUPPORTED_OPERATOR_PREFERENCES.get(key);
-  if (key && !preference) {
+  const descriptor = key ? configSettingDescriptor(key) : undefined;
+  if (key && !descriptor) {
     diagnostics.push({
       severity: "error",
       field: "key",
-      message: `Unsupported operator preference: ${key}. Supported: ${[...SUPPORTED_OPERATOR_PREFERENCES.keys()].join(", ")}`,
+      message: `Unknown configuration key: ${key}. Supported keys: ${configSettingKeys().join(", ")}`,
     });
   }
-  const value = requireText(payload.value, "value", diagnostics);
-  if (preference && value) {
-    const rejection = preference.admit(value);
-    if (rejection) {
-      diagnostics.push({ severity: "error", field: "value", message: rejection });
+  if (descriptor && !descriptor.scopes.includes(scope)) {
+    diagnostics.push({
+      severity: "error",
+      field: "scope",
+      message: `${descriptor.key} cannot be set in the ${scope} scope. Supported scopes: ${descriptor.scopes.join(", ")}.`,
+    });
+  }
+
+  const rawValue = requireText(payload.value, "value", diagnostics);
+  let admitted: unknown;
+  if (descriptor && rawValue) {
+    const parsed = parseConfigSettingValue(descriptor, rawValue);
+    if (parsed.ok) {
+      admitted = parsed.value;
+    } else {
+      diagnostics.push({ severity: "error", field: "value", message: parsed.message });
     }
   }
 
-  // ADR-014: edit the YAML document tree so operator comments, ordering, and
-  // scalar style survive; never round-trip the file through a plain object.
-  const existingContent = existsSync(globalConfigPath) ? readFileSync(globalConfigPath, "utf-8") : "";
-  if (existingContent.trim().length === 0) {
-    // Setting a preference must never mint canonical configuration as a side
-    // effect. Adoption is an explicit operation with its own contract.
+  const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context.projectPath);
+  const document = readCanonicalDocument(path, scope, diagnostics);
+  if (document && descriptor && admitted !== undefined) {
+    if (targetsAlias(document, descriptor.path)) {
+      diagnostics.push({
+        severity: "error",
+        field: "key",
+        message: `${descriptor.key} resolves through a YAML alias. Edit the anchor directly instead.`,
+      });
+    } else {
+      document.setIn([...descriptor.path], admitted);
+    }
+  }
+
+  const nextContent = document?.toString() ?? "";
+  if (scope === "project" && nextContent && diagnostics.every((entry) => entry.severity !== "error")) {
+    // Structural and semantic admission runs before the write, never after it.
+    admitProjectStructure(nextContent, path, diagnostics);
+  }
+
+  const governance = descriptor
+    ? configSettingGovernance(descriptor, scope)
+    : { authorityBearing: true, activation: "next-session" as const, owners: [] };
+
+  return {
+    scope,
+    payload: { scope, key, value: rawValue },
+    path,
+    nextContent,
+    diagnostics,
+    // Authority comes from the owning schema's metadata. A key that can change
+    // what Kiln may do fails closed rather than guessing whether one value
+    // widens or narrows.
+    authorityImpact: governance.authorityBearing ? "unknown" : "none",
+    affectedOwners: governance.owners,
+    reconciliationTargets: descriptor?.reconciliationTargets ?? [],
+    activation: governance.activation,
+  };
+}
+
+/** Scope must be stated exactly; a typo must never silently target another document. */
+function admitScope(
+  value: unknown,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): KilnConfigMutationScope {
+  if (value === "project" || value === "global") {
+    return value;
+  }
+  diagnostics.push({
+    severity: "error",
+    field: "scope",
+    message: `Scope must be exactly "project" or "global"; received ${JSON.stringify(value)}.`,
+  });
+  return "project";
+}
+
+/** Rejects a path that resolves through a YAML alias, per ADR-014. */
+function targetsAlias(document: Document, path: readonly string[]): boolean {
+  for (let depth = 1; depth <= path.length; depth += 1) {
+    const node = document.getIn(path.slice(0, depth), true);
+    if (isAlias(node)) {
+      return true;
+    }
+    if (depth < path.length && node !== undefined && !isCollection(node)) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function admitProjectStructure(
+  content: string,
+  path: string,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): void {
+  try {
+    parseProjectConfigStructure(parse(content), path);
+  } catch (error) {
     diagnostics.push({
       severity: "error",
-      field: "global-config",
-      message: "Global configuration has not been adopted yet. Run Kiln setup before setting an operator preference.",
+      field: "configuration",
+      message: `Result rejected by the project configuration schema: ${error instanceof Error ? error.message : String(error)}`,
     });
+  }
+}
+
+/**
+ * Restores one configuration scope to its defaults.
+ *
+ * A reset can revert permission, governance, and interactive-use material in
+ * one step, so it always counts as authority-affecting and requires approval.
+ */
+function normalizeSettingReset(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const scope = admitScope(payload.scope, diagnostics);
+  const path = scope === "global" ? context.globalConfigPath : projectConfigPath(context.projectPath);
+  // Reset is an explicit request for defaults, so unlike a settings change it
+  // may establish a configuration that does not exist yet.
+
+  const defaults = scope === "global" ? defaultGlobalConfig() : defaultKilnYaml("generic");
+  return {
+    scope,
+    payload: { scope },
+    path,
+    // Reset replaces the document outright, so comment preservation does not
+    // apply: the operator asked for defaults, not an edit of what they wrote.
+    nextContent: stringify(defaults),
+    diagnostics,
+    authorityImpact: "unknown",
+    affectedOwners: scope === "global" ? ["operator-preferences", "permission-authority"] : ["project-composition", "permission-authority"],
+    reconciliationTargets: ["repo-shims"],
+    activation: "next-session",
+  };
+}
+
+function projectConfigPath(projectPath: string): string {
+  return join(projectPath, ".kiln", "kiln.yaml");
+}
+
+/**
+ * Parses a canonical document for editing. A configuration that does not exist
+ * yet is never minted as a side effect of a settings change; adoption is an
+ * explicit operation with its own contract.
+ */
+function readCanonicalDocument(
+  path: string,
+  scope: KilnConfigMutationScope,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): Document | undefined {
+  const existingContent = existsSync(path) ? readFileSync(path, "utf-8") : "";
+  if (existingContent.trim().length === 0) {
+    diagnostics.push({
+      severity: "error",
+      field: "configuration",
+      message: scope === "global"
+        ? "Global configuration has not been adopted yet. Run Kiln setup before setting a configuration key."
+        : "Project configuration has not been initialized yet. Run 'kiln init' before setting a configuration key.",
+    });
+    return undefined;
   }
   const document = parseDocument(existingContent);
   if (document.errors.length > 0) {
     diagnostics.push({
       severity: "error",
-      field: "global-config",
-      message: `Global configuration cannot be parsed for mutation: ${document.errors[0]?.message ?? "unknown error"}`,
+      field: "configuration",
+      message: `Canonical configuration cannot be parsed for mutation: ${document.errors[0]?.message ?? "unknown error"}`,
     });
-  } else if (preference && value) {
-    document.setIn(preference.path, value);
+    return undefined;
   }
-
-  return {
-    scope: "global",
-    payload: { key, value },
-    path: globalConfigPath,
-    nextContent: document.toString(),
-    diagnostics,
-    authorityImpact: "none",
-    affectedOwners: ["operator-preferences"],
-    reconciliationTargets: [],
-    activation: preference?.activation ?? "hot",
-  };
-}
-
-interface OperatorPreferenceDescriptor {
-  readonly activation: KilnConfigActivationClass;
-  /** Canonical document path this preference owns. */
-  readonly path: readonly string[];
-  /** Returns a rejection message, or undefined when the value is admitted. */
-  readonly admit: (value: string) => string | undefined;
-}
-
-/**
- * The bounded preference surface. Each entry resolves the activation class its
- * ownership-ledger row left to this authority, so no preference activates by
- * assumption.
- */
-const SUPPORTED_OPERATOR_PREFERENCES = new Map<string, OperatorPreferenceDescriptor>([
-  ["ui.theme", {
-    activation: "hot",
-    path: ["ui", "theme"],
-    admit: (value) => isOperatorThemeName(value) ? undefined : `Unknown operator theme '${value}'.`,
-  }],
-  ["identity.name", {
-    // Read fresh from global config at each use (for example `kiln trust`), and
-    // never baked into a projection or session cache, so it governs immediately.
-    activation: "hot",
-    path: ["identity", "name"],
-    admit: (value) => value.length <= 120 ? undefined : "Operator name must be 120 characters or fewer.",
-  }],
-  ["identity.timezone", {
-    activation: "hot",
-    path: ["identity", "timezone"],
-    admit: (value) => isSupportedTimeZone(value) ? undefined : `Unknown IANA time zone '${value}'.`,
-  }],
-]);
-
-function isSupportedTimeZone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
+  return document;
 }
 
 function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
