@@ -58,6 +58,10 @@ co-located Java, `javac`, and `jar` tools at `25.0.3`.
 | Diagnostics | 0 |
 | Source digest | `sha256:98b39abfdd4f3e293ac4304542214bfc6da5f450cf1603a5d2f9304b02a39cd1` |
 | Case manifest digest | `sha256:db6b61380c1bb0314eabbc55d6f49e0d303e5bf3ea9ab0d618a6d128ead4087b` |
+| Dependency-tree digest | `sha256:fec8afd604a0225e5c884bee7565402eb23a1a541e6c35337e4b68babb2ee025` |
+| Bound dependency files | 12,561 |
+| Bound packages | 246 |
+| Bun runtime digest | `sha256:0187f68d843f825a72ada4a7eca60db896ed753759a7f8252edcd31ac1bf1b9c` |
 | Generated/proof digest | `sha256:8d8605b8d77cab79e9a2ef1e74dd94ce262bb7260ce753eaaa76464b0e5bd659` |
 | TypeScript observations | 4/4 valid and matched expected |
 | Dafny observations | 4/4 valid and matched expected |
@@ -67,16 +71,23 @@ co-located Java, `javac`, and `jar` tools at `25.0.3`.
 
 Verification at this revision:
 
-- focused qualification and differential tests: 79 passed;
+- focused qualification, dependency-binding, and differential tests: 186
+  passed;
 - script TypeScript check: passed;
-- repository typecheck: passed;
+- product compile and script TypeScript check: passed;
 - documentation check: passed;
 - live TypeScript/LemmaScript/Dafny/Java differential execution: passed with
-  complete observations and a validly killed mutant.
+  complete observations, a stable dependency-tree digest, and a validly killed
+  mutant.
 
-The broad script suite passed 214 tests and retained two unrelated working-tree
-failures: two CLI tests import the Core root barrel, and one CLI fixture contains
-a machine-specific path. Neither file is part of this evaluation slice.
+The broad script suite passed 244 tests and retained two unrelated working-tree
+failure classes: three CLI tests import the Core root barrel, and one CLI
+fixture contains a machine-specific path. None of those files is part of this
+evaluation slice.
+
+The repository test typecheck is currently blocked by an unrelated untracked
+CLI test importing a not-yet-present `execution-target-evidence-store` module.
+The product compile and this slice's script typecheck both pass.
 
 ## Complexity disposition
 
@@ -89,27 +100,30 @@ trust LemmaScript's successful exit. It cannot show that the proof concerns the
 executed TypeScript and cannot detect empty verification, trust escapes, or
 artifact substitution.
 
-The prepilot adds only external qualification and differential runners, a
-fail-closed policy, and a synthetic fixture. It adds no durable product state,
-lifecycle, configuration, or compatibility path. The differential oracle is
-finite-domain and fixture-specific by design; it is not a generic TypeScript
+The prepilot adds only external qualification and differential runners, one
+lock-v3 dependency-binding observer, a fail-closed policy, and a synthetic
+fixture. It adds no durable product state, lifecycle, configuration, or
+compatibility path. The binding over-approximates the lock-resolved runtime
+closure and refuses ancestor resolution/configuration influence. It is not a
+runtime module loader or a package-provisioning owner. The differential oracle
+is finite-domain and fixture-specific by design; it is not a generic TypeScript
 semantics owner.
 
 ## Blocking unknowns
 
 Before a comparative pilot:
 
-1. Bind the installed LemmaScript dependency tree, not only its entrypoint and
-   observed version.
-2. Replace or independently validate the lexical Dafny trust scan if proof
+1. Replace or independently validate the lexical Dafny trust scan if proof
    additions or a broader language profile are admitted.
-3. Define private held-out tasks, intent oracles, mutations, and invalid-run
+2. Define private held-out tasks, intent oracles, mutations, and invalid-run
    accounting before a comparative pilot.
-4. Qualify additional private task families and translation mutations; one
+3. Qualify additional private task families and translation mutations; one
    complete boolean fixture does not establish wider translator correctness.
 
-Residual implementation risks remain explicit: endpoint hashes cannot detect a
-tool replaced and restored during one invocation, and a pathological descendant
+Residual implementation risks remain explicit: the manifest binds what the
+admitted commands can resolve, not which modules they actually loaded; endpoint
+hashes cannot detect a tool replaced and restored during one invocation; lock
+declarations do not prove registry provenance; and a pathological descendant
 process might outlive hard timeout settlement. Neither risk is hidden by the
 successful qualification result.
 
@@ -119,7 +133,8 @@ Supported claim:
 
 > Under the recorded tool versions and narrow four-input fixture, Kiln observed
 > matching TypeScript, generated-Dafny, and independent expected results, and
-> detected one calibrated executable translation mutation.
+> detected one calibrated executable translation mutation. The lock-resolved
+> LemmaScript runtime closure was byte-bound and unchanged across execution.
 
 Unsupported claims include that LemmaScript generally preserves TypeScript
 semantics, that arbitrary TypeScript applications are correct, that the

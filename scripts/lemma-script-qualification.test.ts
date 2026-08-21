@@ -1,8 +1,8 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildLemmaScriptChildEnvironment,
   type LemmaScriptProcessRequest,
   type LemmaScriptProcessResult,
   type LemmaScriptQualificationInput,
@@ -11,6 +11,7 @@ import {
 } from "./lemma-script-qualification.js";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
+const FIXTURE_PARENT = resolve(REPOSITORY_ROOT, "..");
 const FIXTURE_SOURCE = resolve(REPOSITORY_ROOT, "scripts/fixtures/lemma-script-qualification-v1/access-policy.ts");
 const TYPED_INFO = {
   schema: 1,
@@ -57,6 +58,7 @@ interface ProcessRunnerOptions {
   readonly dafnyVersion?: string;
   readonly mutateProofDuringVerification?: boolean;
   readonly mutateLemmaScriptDuringVersion?: boolean;
+  readonly mutateDependencyDuringVersion?: boolean;
 }
 
 afterEach(() => {
@@ -66,16 +68,74 @@ afterEach(() => {
 });
 
 function createToolInputs(): { readonly input: LemmaScriptQualificationInput; readonly root: string } {
-  const root = mkdtempSync(join(tmpdir(), "kiln-lemma-script-qualification-test-"));
+  const root = mkdtempSync(join(FIXTURE_PARENT, ".lemma-script-qualification-test-"));
   temporaryRoots.push(root);
-  const lscScriptPath = join(root, "lsc.js");
+  const lscScriptPath = join(root, "tools", "dist", "lsc.js");
   const dafnyExecutable = join(root, "dafny");
+  mkdirSync(join(root, "tools", "dist"), { recursive: true });
+  mkdirSync(join(root, "node_modules", "lemmascript"), { recursive: true });
+  mkdirSync(join(root, "node_modules", "runtime-dependency"), { recursive: true });
+  mkdirSync(join(root, "tools", "node_modules", "lemmascript"), { recursive: true });
   writeFileSync(lscScriptPath, "#!/usr/bin/env node\n", "utf8");
   writeFileSync(dafnyExecutable, "dafny fixture executable\n", "utf8");
+  writeFileSync(
+    join(root, "node_modules", "lemmascript", "package.json"),
+    '{"name":"lemmascript","version":"0.6.0"}\n',
+  );
+  writeFileSync(join(root, "node_modules", "lemmascript", "index.js"), "export const version = '0.6.0';\n");
+  writeFileSync(
+    join(root, "node_modules", "runtime-dependency", "package.json"),
+    '{"name":"runtime-dependency","version":"1.0.0"}\n',
+  );
+  writeFileSync(join(root, "node_modules", "runtime-dependency", "index.js"), "export const runtime = true;\n");
+  writeFileSync(
+    join(root, "tools", "node_modules", "lemmascript", "package.json"),
+    '{"name":"lemmascript","version":"0.5.9"}\n',
+  );
+  writeFileSync(join(root, "tools", "node_modules", "lemmascript", "index.js"), "export const version = '0.5.9';\n");
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({
+      name: "lemma-host",
+      version: "1.0.0",
+      bin: { lsc: "tools/dist/lsc.js" },
+      dependencies: { lemmascript: "0.6.0", "runtime-dependency": "1.0.0" },
+    }),
+  );
+  writeFileSync(
+    join(root, "package-lock.json"),
+    JSON.stringify({
+      name: "lemma-host",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      packages: {
+        "": {
+          name: "lemma-host",
+          version: "1.0.0",
+          dependencies: { lemmascript: "0.6.0", "runtime-dependency": "1.0.0" },
+        },
+        "node_modules/lemmascript": { version: "0.6.0", dependencies: {} },
+        "node_modules/runtime-dependency": { version: "1.0.0", dependencies: {} },
+      },
+    }),
+  );
+  writeFileSync(
+    join(root, "tools", "package-lock.json"),
+    JSON.stringify({
+      name: "lemma-tools",
+      version: "1.0.0",
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "lemma-tools", version: "1.0.0", dependencies: { lemmascript: "0.5.9" } },
+        "node_modules/lemmascript": { version: "0.5.9", dependencies: {} },
+      },
+    }),
+  );
   return {
     root,
     input: {
       sourcePath: FIXTURE_SOURCE,
+      lemmaScriptPackageRoot: root,
       lscScriptPath,
       dafnyExecutable,
       expectedLemmaScriptVersion: "0.9.0",
@@ -104,6 +164,11 @@ function processRunnerFor(
     const [first, second, third] = request.args;
     if (second === "version") {
       if (options.mutateLemmaScriptDuringVersion) writeFileSync(request.args[0] ?? "", "changed lsc bytes\n", "utf8");
+      if (options.mutateDependencyDuringVersion)
+        writeFileSync(
+          join(request.cwd, "node_modules", "runtime-dependency", "index.js"),
+          "export const runtime = false;\n",
+        );
       return successfulProcessResult("0.9.0\n");
     }
     if (first === "--version") return successfulProcessResult(`Dafny ${options.dafnyVersion ?? "4.11.0"}\n`);
@@ -158,7 +223,6 @@ describe("runLemmaScriptQualification", () => {
     const result = await runLemmaScriptQualification(input, {
       processRunner: processRunnerFor(calls),
     });
-
     expect(result.kind).toBe("pipeline_passed");
     expect(result.semanticEquivalence).toBe("unresolved");
     expect(result.benchmarkReady).toBe(false);
@@ -173,6 +237,19 @@ describe("runLemmaScriptQualification", () => {
     expect(result.facts.digests.proof).toBe(result.facts.digests.generated);
     expect(result.facts.digests.lemmaScriptExecutable).toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(result.facts.digests.dafnyExecutable).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(result.facts.dependencyBinding).toEqual({
+      schema: "kiln.lemma-script-dependency-binding/v1",
+      digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+      manifestFileCount: expect.any(Number),
+      packageCount: 3,
+      runtime: {
+        role: "bun",
+        digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+        byteLength: expect.any(Number),
+      },
+      allowedCommands: ["gen --backend=dafny", "info --typed", "version"],
+    });
+    expect(JSON.stringify(result.facts.dependencyBinding)).not.toContain(input.lemmaScriptPackageRoot);
     expect(result.facts.processes.map(({ label, argvRoles }) => ({ label, argvRoles }))).toEqual([
       { label: "lemmascript_version", argvRoles: ["lsc_script", "version"] },
       { label: "dafny_version", argvRoles: ["dafny_executable", "--version"] },
@@ -188,7 +265,16 @@ describe("runLemmaScriptQualification", () => {
     expect(result).not.toHaveProperty("criterion");
     expect(result).not.toHaveProperty("acceptance");
     expect(calls).toHaveLength(5);
-    expect(existsSync(calls[0]?.cwd ?? "")).toBe(false);
+    expect(calls[0]?.cwd).toBe(input.lemmaScriptPackageRoot);
+    const lscCalls = calls.filter(({ executable }) => executable === process.execPath);
+    expect(lscCalls.every(({ cwd }) => cwd === input.lemmaScriptPackageRoot)).toBe(true);
+    expect(lscCalls.every(({ env }) => env !== undefined)).toBe(true);
+    expect(
+      lscCalls.every(({ env }) =>
+        Object.keys(env ?? {}).every((key) => !/^(?:NODE_OPTIONS|NODE_PATH)$/iu.test(key) && !/^BUN_/iu.test(key)),
+      ),
+    ).toBe(true);
+    expect(new Set(lscCalls.map(({ env }) => env))).toHaveLength(1);
     expect(JSON.stringify(result.facts.processes)).not.toContain(input.lscScriptPath);
     expect(JSON.stringify(result.facts.processes)).not.toContain(input.dafnyExecutable);
     expect(JSON.stringify(result.facts.processes)).not.toContain("access-policy.dfy");
@@ -268,6 +354,16 @@ describe("runLemmaScriptQualification", () => {
     expect(result.stage).toBe("tool_integrity");
   });
 
+  it("detects transitive dependency mutation during qualification", async () => {
+    const { input } = createToolInputs();
+    const result = await runLemmaScriptQualification(input, {
+      processRunner: processRunnerFor([], { mutateDependencyDuringVersion: true }),
+    });
+
+    expect(result.kind).toBe("pipeline_failed");
+    expect(result.stage).toBe("tool_integrity");
+  });
+
   it("fails closed on a generated/proof byte mismatch and does not invoke Dafny", async () => {
     const { input } = createToolInputs();
     const calls: LemmaScriptProcessRequest[] = [];
@@ -306,6 +402,45 @@ describe("runLemmaScriptQualification", () => {
     expect(result.kind).toBe("invalid_input");
     expect(result.stage).toBe("input");
     expect(calls).toHaveLength(0);
+  });
+
+  it("does not invoke any process when the dependency binding is invalid", async () => {
+    const { input, root } = createToolInputs();
+    writeFileSync(
+      join(root, "node_modules", "runtime-dependency", "package.json"),
+      '{"name":"runtime-dependency","version":"2.0.0"}\n',
+    );
+    const calls: LemmaScriptProcessRequest[] = [];
+
+    const result = await runLemmaScriptQualification(input, { processRunner: processRunnerFor(calls) });
+
+    expect(result.kind).toBe("invalid_input");
+    expect(result.stage).toBe("input");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects forbidden operator environment influence before any process call", async () => {
+    const { input } = createToolInputs();
+    const calls: LemmaScriptProcessRequest[] = [];
+    const previous = process.env.NODE_OPTIONS;
+    process.env.NODE_OPTIONS = "--trace-warnings";
+    try {
+      const result = await runLemmaScriptQualification(input, { processRunner: processRunnerFor(calls) });
+
+      expect(result.kind).toBe("invalid_input");
+      expect(result.stage).toBe("input");
+      expect(calls).toHaveLength(0);
+    } finally {
+      if (previous === undefined) delete process.env.NODE_OPTIONS;
+      else process.env.NODE_OPTIONS = previous;
+    }
+  });
+
+  it("builds a portable narrow child environment without leaking unrelated variables", () => {
+    expect(buildLemmaScriptChildEnvironment({ PATH: "portable", HOME: "portable", SECRET: "hidden" })).toEqual({
+      PATH: "portable",
+      HOME: "portable",
+    });
   });
 
   it("rejects a symlink in every executable/source input position", async () => {
@@ -353,6 +488,7 @@ describe("runLemmaScriptQualification", () => {
     const { input } = createToolInputs();
     const required = [
       `--source=${input.sourcePath}`,
+      `--lsc-root=${input.lemmaScriptPackageRoot}`,
       `--lsc=${input.lscScriptPath}`,
       `--dafny=${input.dafnyExecutable}`,
       "--lsc-version=0.9.0",
@@ -362,6 +498,7 @@ describe("runLemmaScriptQualification", () => {
 
     await expect(main([...required, "--unknown=value"])).resolves.toBe(1);
     await expect(main([...required, `--source=${input.sourcePath}`])).resolves.toBe(1);
+    await expect(main(required.filter((option) => !option.startsWith("--lsc-root=")))).resolves.toBe(1);
   });
 
   it("returns a typed cleanup failure instead of rejecting", async () => {

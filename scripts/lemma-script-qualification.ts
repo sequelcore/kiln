@@ -7,6 +7,15 @@ import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import { correctnessEfforts, parseDafnyProofLog } from "../packages/core/src/verification/dafny-proof-log.js";
 import {
+  LEMMA_SCRIPT_ALLOWED_COMMANDS,
+  type LEMMA_SCRIPT_DEPENDENCY_BINDING_SCHEMA,
+  type LemmaScriptAllowedCommand,
+  type LemmaScriptDependencyBindingRejectionCode,
+  type LemmaScriptDependencyBindingResult,
+  type LemmaScriptRuntimeFact,
+  observeLemmaScriptDependencyBinding,
+} from "./lemma-script-dependency-binding.js";
+import {
   evaluateLemmaScriptQualificationPolicy,
   type LemmaScriptQualificationInput as PolicyInput,
   type LemmaScriptQualificationResult as PolicyResult,
@@ -14,6 +23,7 @@ import {
 
 export interface LemmaScriptQualificationInput {
   readonly sourcePath: string;
+  readonly lemmaScriptPackageRoot: string;
   readonly lscScriptPath: string;
   readonly dafnyExecutable: string;
   readonly expectedLemmaScriptVersion: string;
@@ -64,6 +74,15 @@ export interface LemmaScriptQualificationDigests {
   readonly dafnyExecutable?: string;
 }
 
+export interface LemmaScriptDependencyBindingSummary {
+  readonly schema: typeof LEMMA_SCRIPT_DEPENDENCY_BINDING_SCHEMA;
+  readonly digest: string;
+  readonly manifestFileCount: number;
+  readonly packageCount: number;
+  readonly runtime: LemmaScriptRuntimeFact;
+  readonly allowedCommands: readonly LemmaScriptAllowedCommand[];
+}
+
 export interface LemmaScriptProcessObservation {
   readonly label: ProcessLabel;
   readonly argvRoles: readonly string[];
@@ -98,6 +117,7 @@ export interface LemmaScriptQualificationFacts {
   readonly versions: LemmaScriptQualificationVersions;
   readonly digests: LemmaScriptQualificationDigests;
   readonly processes: readonly LemmaScriptProcessObservation[];
+  readonly dependencyBinding?: LemmaScriptDependencyBindingSummary;
   readonly policyEligible?: boolean;
   readonly verification?: LemmaScriptVerificationFacts;
 }
@@ -176,6 +196,7 @@ interface MutableExecutionFacts {
   readonly versions: MutableVersions;
   readonly digests: MutableDigests;
   readonly processes: LemmaScriptProcessObservation[];
+  dependencyBinding?: LemmaScriptDependencyBindingSummary;
   policyEligible?: boolean;
   verification?: LemmaScriptVerificationFacts;
 }
@@ -183,6 +204,7 @@ interface MutableExecutionFacts {
 interface ExecutionContext {
   readonly facts: MutableExecutionFacts;
   readonly sourcePath: string;
+  readonly lemmaScriptPackageRoot: string;
   readonly lscScriptPath: string;
   readonly dafnyExecutable: string;
   readonly sourceBytes: Buffer;
@@ -191,17 +213,105 @@ interface ExecutionContext {
   readonly initialLemmaScriptDigest: string;
   readonly initialDafnyDigest: string;
   readonly workspacePath: string;
+  readonly lscChildEnvironment: NodeJS.ProcessEnv;
+  readonly dependencyBindingDigest: string;
 }
 
 const CANONICAL_VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/u;
 const DAFNY_VERSION_OUTPUT_PATTERN =
   /^(?:dafny(?:\s+version)?\s+)?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?:\+[0-9A-Za-z.-]+)?$/iu;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const CLI_OPTIONS = new Set(["source", "lsc", "dafny", "lsc-version", "dafny-version", "functions", "timeout-ms"]);
+const CLI_OPTIONS = new Set([
+  "source",
+  "lsc-root",
+  "lsc",
+  "dafny",
+  "lsc-version",
+  "dafny-version",
+  "functions",
+  "timeout-ms",
+]);
+const LEMMA_SCRIPT_CHILD_ENVIRONMENT_KEYS = new Set([
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "TMP",
+  "TEMP",
+  "TMPDIR",
+  "TEMPDIR",
+  "SYSTEMROOT",
+  "WINDIR",
+  "COMSPEC",
+  "PATHEXT",
+]);
+const DEPENDENCY_COMMAND_PROFILE = { allowedCommands: [...LEMMA_SCRIPT_ALLOWED_COMMANDS] } as const;
 const DEFAULT_PROCESS_RUNNER: LemmaScriptProcessRunner = runLemmaScriptProcess;
 const DEFAULT_CLEANUP: NonNullable<LemmaScriptQualificationOptions["cleanupWorkspace"]> = async (workspacePath) => {
   await rm(workspacePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
 };
+
+export function buildLemmaScriptChildEnvironment(
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(sourceEnvironment)) {
+    if (value !== undefined && LEMMA_SCRIPT_CHILD_ENVIRONMENT_KEYS.has(key.toUpperCase())) environment[key] = value;
+  }
+  return environment;
+}
+
+export type LemmaScriptDependencyBindingVerification =
+  | { readonly status: "valid"; readonly digest: string }
+  | {
+      readonly status: "drift";
+      readonly observedDigest: string;
+    }
+  | {
+      readonly status: "invalid";
+      readonly rejectionCodes: readonly LemmaScriptDependencyBindingRejectionCode[];
+    };
+
+export async function verifyLemmaScriptDependencyBinding(
+  lemmaScriptPackageRoot: string,
+  lscScriptPath: string,
+  expectedDigest: string,
+): Promise<LemmaScriptDependencyBindingVerification> {
+  const observation = await observeCurrentLemmaScriptDependencyBinding(lemmaScriptPackageRoot, lscScriptPath);
+  if (observation.status === "invalid") {
+    return { status: "invalid", rejectionCodes: observation.rejectionCodes };
+  }
+  if (observation.facts.digest !== expectedDigest) {
+    return { status: "drift", observedDigest: observation.facts.digest };
+  }
+  return { status: "valid", digest: observation.facts.digest };
+}
+
+async function observeCurrentLemmaScriptDependencyBinding(
+  lemmaScriptPackageRoot: string,
+  lscScriptPath: string,
+): Promise<LemmaScriptDependencyBindingResult> {
+  return observeLemmaScriptDependencyBinding({
+    packageRoot: lemmaScriptPackageRoot,
+    entrypointPath: lscScriptPath,
+    spawnCwd: lemmaScriptPackageRoot,
+    runtimeExecutablePath: process.execPath,
+    environment: process.env,
+    commandProfile: DEPENDENCY_COMMAND_PROFILE,
+  });
+}
+
+function dependencyBindingSummary(
+  observation: Extract<LemmaScriptDependencyBindingResult, { readonly status: "valid" }>,
+): LemmaScriptDependencyBindingSummary {
+  return {
+    schema: observation.facts.schema,
+    digest: observation.facts.digest,
+    manifestFileCount: observation.facts.manifest.length,
+    packageCount: observation.facts.packages.length,
+    runtime: { ...observation.facts.runtime },
+    allowedCommands: [...observation.facts.allowedCommands],
+  };
+}
 
 export async function runLemmaScriptQualification(
   input: LemmaScriptQualificationInput,
@@ -227,8 +337,17 @@ export async function runLemmaScriptQualification(
   }
 
   const sourcePath = resolve(input.sourcePath);
+  const lemmaScriptPackageRoot = resolve(input.lemmaScriptPackageRoot);
   const lscScriptPath = resolve(input.lscScriptPath);
   const dafnyExecutable = resolve(input.dafnyExecutable);
+  const dependencyBinding = await observeCurrentLemmaScriptDependencyBinding(lemmaScriptPackageRoot, lscScriptPath);
+  if (dependencyBinding.status === "invalid") {
+    return makeInvalidInput(
+      `LemmaScript dependency binding is invalid (${dependencyBinding.rejectionCodes.join(", ")})`,
+      toFacts(facts),
+    );
+  }
+  facts.dependencyBinding = dependencyBindingSummary(dependencyBinding);
   let workspacePath: string | undefined;
   let context: ExecutionContext | undefined;
   let result: LemmaScriptQualificationResult;
@@ -243,6 +362,7 @@ export async function runLemmaScriptQualification(
     context = {
       facts,
       sourcePath,
+      lemmaScriptPackageRoot,
       lscScriptPath,
       dafnyExecutable,
       sourceBytes,
@@ -251,6 +371,8 @@ export async function runLemmaScriptQualification(
       initialLemmaScriptDigest: digestBytes(lscBytes),
       initialDafnyDigest: digestBytes(dafnyBytes),
       workspacePath,
+      lscChildEnvironment: buildLemmaScriptChildEnvironment(),
+      dependencyBindingDigest: dependencyBinding.facts.digest,
     };
     result = await executePipeline(context, input);
   } catch {
@@ -430,6 +552,20 @@ async function verifyToolIntegrity(
   result: LemmaScriptQualificationResult,
 ): Promise<LemmaScriptQualificationResult> {
   try {
+    const dependencyBinding = await verifyLemmaScriptDependencyBinding(
+      context.lemmaScriptPackageRoot,
+      context.lscScriptPath,
+      context.dependencyBindingDigest,
+    );
+    if (dependencyBinding.status !== "valid") {
+      return makeFailure(
+        "tool_integrity",
+        dependencyBinding.status === "drift"
+          ? "the LemmaScript dependency binding changed during qualification"
+          : "the LemmaScript dependency binding could not be re-observed after qualification",
+        toFacts(context.facts),
+      );
+    }
     const currentLemmaScriptDigest = digestBytes(await readFile(context.lscScriptPath));
     const currentDafnyDigest = digestBytes(await readFile(context.dafnyExecutable));
     if (
@@ -535,6 +671,9 @@ async function validateInput(input: LemmaScriptQualificationInput): Promise<stri
     ["lscScriptPath", input.lscScriptPath],
     ["dafnyExecutable", input.dafnyExecutable],
   ];
+  if (typeof input.lemmaScriptPackageRoot !== "string" || !isAbsolute(input.lemmaScriptPackageRoot)) {
+    return "lemmaScriptPackageRoot must be an absolute path";
+  }
   for (const [name, value] of paths) {
     if (typeof value !== "string" || !isAbsolute(value)) return `${name} must be an absolute path`;
     if (!(await isRegularNonSymlink(resolve(value)))) return `${name} must refer to a regular non-symlink file`;
@@ -632,11 +771,14 @@ async function invokeProcess(
   argvRoles: readonly string[],
   args: readonly string[],
 ): Promise<LemmaScriptProcessResult> {
+  const lscProcess =
+    label === "lemmascript_version" || label === "lemmascript_typed_info" || label === "lemmascript_generate_dafny";
   const request: LemmaScriptProcessRequest = {
     executable: label === "dafny_version" || label === "dafny_verify" ? context.dafnyExecutable : process.execPath,
     args: [...args],
-    cwd: context.workspacePath,
+    cwd: lscProcess ? context.lemmaScriptPackageRoot : context.workspacePath,
     timeoutMs: context.timeoutMs,
+    ...(lscProcess ? { env: context.lscChildEnvironment } : {}),
   };
   let outcome: LemmaScriptProcessResult;
   try {
@@ -696,6 +838,7 @@ function toFacts(facts: MutableExecutionFacts): LemmaScriptQualificationFacts {
     versions: facts.versions,
     digests: { ...facts.digests },
     processes: facts.processes.map((process) => ({ ...process, argvRoles: [...process.argvRoles] })),
+    ...(facts.dependencyBinding === undefined ? {} : { dependencyBinding: facts.dependencyBinding }),
     ...(facts.policyEligible === undefined ? {} : { policyEligible: facts.policyEligible }),
     ...(facts.verification === undefined ? {} : { verification: facts.verification }),
   };
@@ -873,6 +1016,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
     values.set(name, argument.slice(separator + 1));
   }
   const sourcePath = values.get("source");
+  const lemmaScriptPackageRoot = values.get("lsc-root");
   const lscScriptPath = values.get("lsc");
   const dafnyExecutable = values.get("dafny");
   const expectedLemmaScriptVersion = values.get("lsc-version");
@@ -880,6 +1024,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   const functions = values.get("functions");
   if (
     sourcePath === undefined ||
+    lemmaScriptPackageRoot === undefined ||
     lscScriptPath === undefined ||
     dafnyExecutable === undefined ||
     expectedLemmaScriptVersion === undefined ||
@@ -893,6 +1038,7 @@ function parseArguments(argv: readonly string[]): ParsedArguments {
   return {
     input: {
       sourcePath,
+      lemmaScriptPackageRoot,
       lscScriptPath,
       dafnyExecutable,
       expectedLemmaScriptVersion,

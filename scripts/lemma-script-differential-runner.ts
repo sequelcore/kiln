@@ -17,15 +17,18 @@ import {
   parseLemmaScriptCases,
 } from "./lemma-script-differential-oracle.js";
 import {
+  buildLemmaScriptChildEnvironment,
   type LemmaScriptProcessResult,
   type LemmaScriptProcessRunner,
   runLemmaScriptProcess,
   runLemmaScriptQualification,
+  verifyLemmaScriptDependencyBinding,
 } from "./lemma-script-qualification.js";
 
 export interface LemmaScriptDifferentialRunnerInput {
   readonly sourcePath: string;
   readonly caseManifestPath: string;
+  readonly lemmaScriptPackageRoot: string;
   readonly lscScriptPath: string;
   readonly dafnyExecutable: string;
   readonly javaExecutable: string;
@@ -63,6 +66,7 @@ interface DifferentialDigests {
   readonly proof?: string;
   readonly cleanProgram?: string;
   readonly mutantProgram?: string;
+  readonly dependencyTree?: string;
 }
 
 interface DifferentialRunnerFacts {
@@ -131,6 +135,7 @@ export async function runLemmaScriptDifferential(
   const qualification = await runLemmaScriptQualification(
     {
       sourcePath: validation.sourcePath,
+      lemmaScriptPackageRoot: validation.lemmaScriptPackageRoot,
       lscScriptPath: validation.lscScriptPath,
       dafnyExecutable: validation.dafnyExecutable,
       expectedLemmaScriptVersion: validation.expectedLemmaScriptVersion,
@@ -145,20 +150,28 @@ export async function runLemmaScriptDifferential(
     lemmaScript: qualification.facts.versions.lemmaScript,
     dafny: qualification.facts.versions.dafny,
   };
+  const dependencyTreeDigest = qualification.facts.dependencyBinding?.digest;
+  const qualifiedDigests = withDependencyTree(initial.digests, dependencyTreeDigest);
   if (qualification.kind !== "pipeline_passed") {
-    return invalidResult(qualifiedVersions, initial.digests, ["LemmaScript qualification did not pass."]);
+    return invalidResult(qualifiedVersions, qualifiedDigests, ["LemmaScript qualification did not pass."]);
+  }
+  if (dependencyTreeDigest === undefined) {
+    return invalidResult(qualifiedVersions, qualifiedDigests, [
+      "LemmaScript qualification omitted dependency binding facts.",
+    ]);
   }
   if (qualification.facts.digests.source !== initial.digests.source) {
-    return invalidResult(qualifiedVersions, initial.digests, [
+    return invalidResult(qualifiedVersions, qualifiedDigests, [
       "Qualification source digest did not match the observed source.",
     ]);
   }
+  const lscChildEnvironment = buildLemmaScriptChildEnvironment();
 
   let workspacePath: string;
   try {
     workspacePath = await mkdtemp(join(tmpdir(), "kiln-lemma-script-differential-"));
   } catch {
-    return invalidResult(qualifiedVersions, initial.digests, ["Could not create an isolated differential workspace."]);
+    return invalidResult(qualifiedVersions, qualifiedDigests, ["Could not create an isolated differential workspace."]);
   }
 
   let result: LemmaScriptDifferentialRunnerResult;
@@ -166,13 +179,15 @@ export async function runLemmaScriptDifferential(
     result = await executeDifferential(
       validation,
       initial,
+      dependencyTreeDigest,
       qualifiedVersions,
       qualification.facts.digests.generated as string,
       workspacePath,
       processRunner,
+      lscChildEnvironment,
     );
   } catch {
-    result = invalidResult(qualifiedVersions, initial.digests, ["Differential execution failed closed."]);
+    result = invalidResult(qualifiedVersions, qualifiedDigests, ["Differential execution failed closed."]);
   }
 
   try {
@@ -191,11 +206,14 @@ export async function runLemmaScriptDifferential(
 async function executeDifferential(
   input: ValidatedInput,
   initial: InitialArtifacts,
+  dependencyTreeDigest: string,
   versions: DifferentialVersions,
   qualifiedGeneratedDigest: string,
   workspacePath: string,
   processRunner: LemmaScriptProcessRunner,
+  lscChildEnvironment: NodeJS.ProcessEnv,
 ): Promise<LemmaScriptDifferentialRunnerResult> {
+  const baseDigests = withDependencyTree(initial.digests, dependencyTreeDigest);
   const stagedSource = join(workspacePath, basename(input.sourcePath));
   const stagedManifest = join(workspacePath, "cases.json");
   await writeFile(stagedSource, initial.source);
@@ -213,7 +231,7 @@ async function executeDifferential(
     observedTools.javac !== input.expectedJavaVersion ||
     observedTools.jar !== input.expectedJavaVersion
   ) {
-    return invalidResult(observedVersions, initial.digests, [
+    return invalidResult(observedVersions, baseDigests, [
       "Observed Java tool versions did not match the expected version.",
     ]);
   }
@@ -231,7 +249,7 @@ async function executeDifferential(
     timeoutMs: input.timeoutMs,
   });
   if (!successful(typescript)) {
-    return invalidResult(observedVersions, initial.digests, [
+    return invalidResult(observedVersions, baseDigests, [
       "The staged TypeScript evaluator did not execute successfully.",
     ]);
   }
@@ -239,11 +257,24 @@ async function executeDifferential(
   const generation = await processRunner({
     executable: process.execPath,
     args: [input.lscScriptPath, "gen", "--backend=dafny", stagedSource],
-    cwd: workspacePath,
+    cwd: input.lemmaScriptPackageRoot,
     timeoutMs: input.timeoutMs,
+    env: lscChildEnvironment,
   });
   if (!successful(generation)) {
-    return invalidResult(observedVersions, initial.digests, ["LemmaScript generation did not execute successfully."]);
+    return invalidResult(observedVersions, baseDigests, ["LemmaScript generation did not execute successfully."]);
+  }
+  const dependencyBinding = await verifyLemmaScriptDependencyBinding(
+    input.lemmaScriptPackageRoot,
+    input.lscScriptPath,
+    dependencyTreeDigest,
+  );
+  if (dependencyBinding.status !== "valid") {
+    return invalidResult(observedVersions, baseDigests, [
+      dependencyBinding.status === "drift"
+        ? "LemmaScript dependency tree changed during repeated generation."
+        : "LemmaScript dependency binding became invalid during repeated generation.",
+    ]);
   }
 
   const generatedPath = `${stagedSource.slice(0, -3)}.dfy.gen`;
@@ -251,11 +282,11 @@ async function executeDifferential(
   const generated = await readRegularFile(generatedPath);
   const proof = await readRegularFile(proofPath);
   if (!generated.equals(proof)) {
-    return invalidResult(observedVersions, initial.digests, ["Generated Dafny and proof bytes differed."]);
+    return invalidResult(observedVersions, baseDigests, ["Generated Dafny and proof bytes differed."]);
   }
   const generatedDigest = digest(generated);
   if (generatedDigest !== qualifiedGeneratedDigest) {
-    return invalidResult(observedVersions, initial.digests, [
+    return invalidResult(observedVersions, baseDigests, [
       "Repeated generation did not preserve the qualified Dafny digest.",
     ]);
   }
@@ -264,7 +295,7 @@ async function executeDifferential(
   if (clean.status === "invalid") {
     return invalidResult(
       observedVersions,
-      withGenerated(initial.digests, generatedDigest),
+      withGenerated(baseDigests, generatedDigest),
       clean.diagnostics.map((d) => d.message),
     );
   }
@@ -273,7 +304,7 @@ async function executeDifferential(
   const cleanRun = await runDafnyProgram(input, cleanPath, workspacePath, processRunner);
   const cleanObservations = successful(cleanRun) ? parseLemmaScriptObservationLines(cleanRun.stdout) : undefined;
   if (cleanObservations === undefined || cleanObservations.status === "invalid") {
-    return invalidResult(observedVersions, withPrograms(initial.digests, generated, clean.program), [
+    return invalidResult(observedVersions, withPrograms(baseDigests, generated, clean.program), [
       "Clean Dafny execution did not produce exactly four valid observations.",
     ]);
   }
@@ -282,7 +313,7 @@ async function executeDifferential(
   if (mutationSource.status === "invalid") {
     return invalidResult(
       observedVersions,
-      withPrograms(initial.digests, generated, clean.program),
+      withPrograms(baseDigests, generated, clean.program),
       mutationSource.diagnostics.map((d) => d.message),
     );
   }
@@ -290,7 +321,7 @@ async function executeDifferential(
   if (mutant.status === "invalid") {
     return invalidResult(
       observedVersions,
-      withPrograms(initial.digests, generated, clean.program),
+      withPrograms(baseDigests, generated, clean.program),
       mutant.diagnostics.map((d) => d.message),
     );
   }
@@ -300,7 +331,7 @@ async function executeDifferential(
   const mutantParsed = successful(mutantRun) ? parseLemmaScriptObservationLines(mutantRun.stdout) : undefined;
   const parsedManifest = parseLemmaScriptCases(JSON.parse(initial.manifest.toString("utf8")) as unknown);
   if (parsedManifest.status === "invalid") {
-    return invalidResult(observedVersions, withPrograms(initial.digests, generated, clean.program, mutant.program), [
+    return invalidResult(observedVersions, withPrograms(baseDigests, generated, clean.program, mutant.program), [
       "The case manifest became invalid during differential execution.",
     ]);
   }
@@ -312,7 +343,7 @@ async function executeDifferential(
         : [],
     execution: successful(mutantRun) && mutantParsed?.status === "valid" ? "executed" : "invalid",
   });
-  const completeDigests = withPrograms(initial.digests, generated, clean.program, mutant.program);
+  const completeDigests = withPrograms(baseDigests, generated, clean.program, mutant.program);
   if (mutation.status !== "killed") {
     return invalidResult(
       observedVersions,
@@ -362,6 +393,9 @@ async function validateInput(input: LemmaScriptDifferentialRunnerInput): Promise
   ];
   if (paths.some((path) => typeof path !== "string" || !isAbsolute(path)))
     return "All artifact paths must be absolute.";
+  if (typeof input.lemmaScriptPackageRoot !== "string" || !isAbsolute(input.lemmaScriptPackageRoot)) {
+    return "lemmaScriptPackageRoot must be an absolute path.";
+  }
   if (!input.sourcePath.toLowerCase().endsWith(".ts")) return "The candidate source must use the .ts extension.";
   if (
     !CANONICAL_VERSION.test(input.expectedLemmaScriptVersion) ||
@@ -541,6 +575,13 @@ function invalidResult(
 
 function withGenerated(digests: DifferentialDigests, generatedDigest: string): DifferentialDigests {
   return { ...digests, generated: generatedDigest, proof: generatedDigest };
+}
+
+function withDependencyTree(
+  digests: DifferentialDigests,
+  dependencyTreeDigest: string | undefined,
+): DifferentialDigests {
+  return dependencyTreeDigest === undefined ? digests : { ...digests, dependencyTree: dependencyTreeDigest };
 }
 
 function withPrograms(
