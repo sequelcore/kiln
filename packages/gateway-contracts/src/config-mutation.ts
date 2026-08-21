@@ -10,7 +10,7 @@ export const KILN_CONFIG_CHANGE_OPERATIONS = [
 export type KilnConfigChangeOperation = typeof KILN_CONFIG_CHANGE_OPERATIONS[number];
 export type KilnConfigChangeApprovalSurface = Extract<
   OperatorSurfaceKind,
-  "cli" | "tui" | "gui" | "native" | "sdk" | "runtime"
+  "cli" | "tui" | "gui" | "sdk" | "runtime"
 >;
 
 export interface KilnConfigValidationDiagnostic {

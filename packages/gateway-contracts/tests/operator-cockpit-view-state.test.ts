@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createOperatorCockpitBenchmarkFixture,
-} from "../src/operator-cockpit-benchmark.js";
+import { createOperatorCockpitFixture } from "./fixtures/operator-cockpit.js";
 import {
   normalizeManagedAgentOperatorEvents,
   projectOperatorCockpitReadOnlyView,
@@ -12,7 +10,7 @@ import {
 
 describe("operator cockpit read-only view state", () => {
   it("derives focused session, filtered timeline, and replay cursor without mutation dispatch", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "view-state",
       instanceCount: 2,
       sessionCount: 3,
@@ -78,7 +76,7 @@ describe("operator cockpit read-only view state", () => {
   });
 
   it("fails closed when focus, filters, or replay targets do not resolve", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "view-state-fail",
       instanceCount: 1,
       sessionCount: 1,
@@ -126,7 +124,7 @@ describe("operator cockpit read-only view state", () => {
   });
 
   it("does not resolve replay when filter state is invalid", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "view-state-invalid-filter-replay",
       instanceCount: 1,
       sessionCount: 1,
@@ -168,7 +166,7 @@ describe("operator cockpit read-only view state", () => {
   });
 
   it("filters managed invocation and tool timelines from explicit projected targets", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "view-state-targets",
       instanceCount: 1,
       sessionCount: 1,
@@ -1073,7 +1071,7 @@ describe("operator cockpit read-only view state", () => {
   });
 
   it("fails closed for unresolved managed child detail targets", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "view-state-missing-detail",
       instanceCount: 1,
       sessionCount: 1,
@@ -1170,7 +1168,7 @@ describe("operator cockpit read-only view state", () => {
   });
 
   it("fails closed for scoped timeline filters without their enclosing target", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "view-state-scoped-targets",
       instanceCount: 1,
       sessionCount: 1,

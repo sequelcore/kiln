@@ -86,14 +86,6 @@ voice:
         output:
           modes: [audio-on-demand, transcript-only]
           failureMode: fail-closed
-      native:
-        enabled: true
-        input:
-          modes: [microphone, file]
-          failureMode: fail-open
-        output:
-          modes: [audio-on-demand, transcript-only]
-          failureMode: fail-closed
       sdk:
         enabled: true
         input:

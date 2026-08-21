@@ -77,15 +77,6 @@ operatorVoice:
         output:
           modes: [audio-on-demand, transcript-only]
           failureMode: fail-closed
-      native:
-        enabled: true
-        input:
-          modes: [microphone, file]
-          failureMode: fail-closed
-        output:
-          modes: [audio-on-demand, transcript-only]
-          failureMode: fail-closed
-
 managedAgents:
   enabled: true
   defaultVoiceProfile: english-default

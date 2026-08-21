@@ -86,7 +86,6 @@ export const VALID_VOICE_SURFACES = [
   "messenger",
   "instagram",
   "gui",
-  "native",
   "tui",
   "cli",
   "sdk",

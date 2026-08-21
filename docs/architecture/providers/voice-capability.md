@@ -50,7 +50,7 @@ semantics.
 
 CLI owns global operator config loading and adapter construction for
 developer-local surfaces. It may inject `operatorVoice` and local adapters into
-GUI, TUI, and native operator transports, but it must not create a separate
+GUI and TUI operator transports, but it must not create a separate
 voice schema.
 
 ## Configuration Contract
@@ -138,10 +138,6 @@ operatorVoice:
           modes: [microphone, file]
       tui:
         enabled: true
-      native:
-        enabled: true
-        input:
-          modes: [microphone, file]
 ```
 
 `voice` is deployable app policy. `operatorVoice` is machine-local operator
@@ -156,7 +152,6 @@ Supported surfaces are:
 - `messenger`
 - `instagram`
 - `gui`
-- `native`
 - `tui`
 - `cli`
 - `sdk`
@@ -168,7 +163,7 @@ Supported input modes are `audio-part`, `microphone`, and `file`.
 Supported output modes are `audio-response`, `transcript-only`,
 `artifact-only`, and `audio-on-demand`. `audio-on-demand` is the preferred
 operator-surface mode when text remains canonical and audio is generated only
-after an explicit GUI, TUI, or native surface action.
+after an explicit GUI or TUI surface action.
 
 Failure modes are:
 
@@ -229,7 +224,7 @@ Runtime owns automatic intent selection. It evaluates the final assistant text
 after egress and grounding policy, plus runtime escalation evidence, and chooses
 only from intents declared by the active TTS profile. Explicit admitted intent is
 preserved when valid; otherwise selection falls through `calm`, `careful`,
-`brief`, then `neutral`. This keeps GUI, TUI, API, native, SDK, widget, and
+`brief`, then `neutral`. This keeps GUI, TUI, API, SDK, widget, and
 channel projections consistent because surfaces receive the same synthesized
 audio result instead of running their own tone logic.
 
@@ -243,11 +238,11 @@ All surfaces consume the same `VoiceConfig`:
   and receive response `parts` alongside assistant text
 - GUI and widget microphone and audio file controls create canonical audio
   content parts through `@kilnai/gateway-contracts/voice-input-parts`
-- GUI App Gateway and native GUI gateway WebSocket message frames carry
+- GUI App Gateway WebSocket message frames carry
   explicit input `parts` into the admitted-turn pipeline
-- local GUI, TUI, and native operator transports may inject `operatorVoice`
+- local GUI and TUI operator transports may inject `operatorVoice`
   from global config into the same admitted-turn pipeline
-- Gateway WebSocket `done` frames carry response `parts` for GUI, TUI, native,
+- Gateway WebSocket `done` frames carry response `parts` for GUI, TUI,
   and widget projections
 - GUI and widget render audio output parts as compact playback actions plus artifact
   links when an artifact URI is available
@@ -257,7 +252,6 @@ All surfaces consume the same `VoiceConfig`:
   URLs with Cloud API `audio.link`; Instagram and Messenger deliver them as
   Send API `audio` attachments.
 - TUI projects audio output parts as terminal artifact text
-- native advertises shared voice input capture and output playback capability
   slots while leaving provider policy in the app contract
 - CLI surfaces may expose file input, transcript output, and artifact links
 - recorder sessions may synthesize narration tracks and preserve evidence
@@ -268,7 +262,7 @@ artifact policy, or replay semantics.
 
 For operator direct surfaces, audio ingress is transformed inside
 `processAdmittedTurn` before tenant routing, task-shape analysis, knowledge
-retrieval, or provider execution. This keeps GUI, TUI, and native direct
+retrieval, or provider execution. This keeps GUI and TUI direct
 sessions from bypassing the governed STT path and prevents raw audio from being
 sent to a text-only model route.
 
@@ -341,7 +335,6 @@ Current contract and implementation entry points:
 - `packages/widget/src/widget.ts`
 - `packages/widget/src/voice-parts.ts`
 - `packages/tui/src/gateway-session.ts`
-- `packages/native/src/shared/native-surface.ts`
 
 Channel outbound media delivery uses channel-owned artifact-to-public-media
 bridges. The runtime audio artifact is the evidence source, not itself a public
@@ -381,4 +374,3 @@ Focused coverage lives in:
 - `packages/sdk/tests/use-kiln-chat.test.ts`
 - `packages/widget/tests/widget.test.ts`
 - `packages/tui/tests/gateway-session.test.ts`
-- `packages/native/tests/native-boundary.test.ts`

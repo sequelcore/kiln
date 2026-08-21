@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OperatorSessionEvent } from "../src/frames.js";
-import {
-  createOperatorCockpitBenchmarkFixture,
-} from "../src/operator-cockpit-benchmark.js";
+import { createOperatorCockpitFixture } from "./fixtures/operator-cockpit.js";
 import {
   projectOperatorCockpitReadOnlyView,
 } from "../src/operator-cockpit-projection.js";
@@ -269,7 +267,7 @@ describe("operator workspace home projection", () => {
   });
 
   it("summarizes gateway targets, sessions, managed agents, resources, and attention from shared cockpit state", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "workspace-home",
       instanceCount: 2,
       sessionCount: 3,
@@ -621,7 +619,7 @@ describe("operator workspace home projection", () => {
   });
 
   it("does not count a superseded pause requirement as pending or blocking", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "workspace-home-superseded",
       instanceCount: 1,
       sessionCount: 1,

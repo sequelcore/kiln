@@ -7,7 +7,7 @@ Voice has two configuration scopes:
   and external channels.
 - Operator voice belongs in `~/.kiln/config.yaml` under the top-level
   `operatorVoice` key. It controls the developer's local operator surfaces:
-  `kiln gui`, `kiln tui`, and native operator shells.
+  `kiln gui` and `kiln tui`.
 
 Both scopes use the same `VoiceConfig` shape. The difference is ownership:
 `voice` travels with a deployable app, while `operatorVoice` stays with the
@@ -35,7 +35,6 @@ Implemented today:
   transcribe audio before model transport
 - GUI and widget playback controls for audio output parts
 - TUI terminal projection for audio artifact references
-- native surface capability advertisement for voice capture and playback
 - Meta channel outbound voice delivery through signed HTTPS media URLs:
   WhatsApp uses Cloud API `audio.link`; Instagram and Messenger use Send API
   `audio` attachments.
@@ -111,7 +110,7 @@ voice:
 ## Operator Voice
 
 Use `operatorVoice` in `~/.kiln/config.yaml` when the developer machine owns
-the provider policy for local GUI, TUI, or native operator use. This is the
+the provider policy for local GUI or TUI operator use. This is the
 right place for local Whisper and Kokoro because the executable paths,
 installed models, and device choices are machine-local.
 
@@ -184,14 +183,6 @@ operatorVoice:
           failureMode: fail-closed
       tui:
         enabled: true
-        output:
-          modes: [audio-on-demand, transcript-only]
-          failureMode: fail-closed
-      native:
-        enabled: true
-        input:
-          modes: [microphone, file]
-          failureMode: fail-closed
         output:
           modes: [audio-on-demand, transcript-only]
           failureMode: fail-closed
@@ -474,7 +465,7 @@ error explanation or making a short confirmation slightly quicker.
 
 Supported surfaces:
 
-`api`, `web`, `whatsapp`, `messenger`, `instagram`, `gui`, `native`, `tui`,
+`api`, `web`, `whatsapp`, `messenger`, `instagram`, `gui`, `tui`,
 `cli`, `sdk`, `widget`, `recorder`.
 
 Supported input modes:
@@ -566,7 +557,6 @@ bun run --cwd packages/runtime test tests/gateway/gui-frame-parts.test.ts
 bun run --cwd packages/gui test tests/composer.test.tsx tests/message-row.test.tsx tests/session-store.test.ts
 bun run --cwd packages/widget test tests/widget.test.ts tests/ws-client.test.ts
 bun run --cwd packages/tui test tests/gateway-session.test.ts
-bun run --cwd packages/native test tests/native-boundary.test.ts
 ```
 
 ## Architecture

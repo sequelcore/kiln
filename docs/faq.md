@@ -54,8 +54,6 @@ These are current workspace identities, not promised future package names:
 - `@kilnai/cli`: local CLI, GUI/TUI launchers, config projection, and MCP
   tooling.
 - `@kilnai/gui`: public web operator surface served by the runtime.
-- `@kilnai/native`: Electron-backed native operator surface experiments and
-  projections.
 - `@kilnai/tui`: interactive terminal operator surface.
 
 ## Which operator surface should I use?

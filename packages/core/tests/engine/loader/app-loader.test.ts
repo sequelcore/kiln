@@ -404,13 +404,6 @@ voice:
         output:
           modes: [audio-response, transcript-only]
           failureMode: fail-closed
-      native:
-        enabled: true
-        input:
-          modes: [microphone, file]
-        output:
-          modes: [audio-response, transcript-only]
-
 teams:
   solo:
     agents:
@@ -435,8 +428,6 @@ teams:
     expect(app.voice?.policy?.surfaces?.whatsapp?.input?.modes).toEqual(["audio-part"]);
     expect(app.voice?.policy?.surfaces?.gui?.input?.modes).toEqual(["microphone", "file"]);
     expect(app.voice?.policy?.surfaces?.gui?.output?.modes).toEqual(["audio-response", "transcript-only"]);
-    expect(app.voice?.policy?.surfaces?.native?.input?.modes).toEqual(["microphone", "file"]);
-    expect(app.voice?.policy?.surfaces?.native?.output?.modes).toEqual(["audio-response", "transcript-only"]);
   });
 
   it("maps local voice provider configuration from YAML", () => {

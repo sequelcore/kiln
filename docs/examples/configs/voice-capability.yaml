@@ -116,12 +116,6 @@ voice:
           modes: [file]
         output:
           modes: [audio-on-demand, transcript-only]
-      native:
-        enabled: true
-        input:
-          modes: [microphone, file]
-        output:
-          modes: [audio-on-demand, transcript-only]
       recorder:
         enabled: true
         output:

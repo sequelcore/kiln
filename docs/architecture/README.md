@@ -162,10 +162,6 @@ Runtime, operator, and harness-facing surface contracts.
 
   Guide projection: [`../guides/channels/gateway-app-runtime.md`](../guides/channels/gateway-app-runtime.md).
 
-- [`surfaces/native-operator-surface.md`](surfaces/native-operator-surface.md)
-  Contract-only architecture for native operator surface projection:
-  precondition gates, explicit instance/session targets, benchmark fixtures,
-  and Rust hot-path boundaries.
 - [`surfaces/gui-execution-presentation.md`](surfaces/gui-execution-presentation.md)
   Canonical GUI execution-presentation contract for how governed work,
   evidence, and attention state render across the GUI surface.

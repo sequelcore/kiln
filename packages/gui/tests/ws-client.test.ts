@@ -927,7 +927,7 @@ describe("GuiWsClient", () => {
               latestCapture: {
                 uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
                 relation: "snapshot",
-                transport: "electron-webcontents",
+                transport: "snapshot-polling",
               },
             },
           },
@@ -970,7 +970,7 @@ describe("GuiWsClient", () => {
               latestCapture: {
                 uri: "kiln://artifacts/interactive-screenshots/artifact_1/content",
                 relation: "snapshot",
-                transport: "electron-webcontents",
+                transport: "snapshot-polling",
               },
             },
           },

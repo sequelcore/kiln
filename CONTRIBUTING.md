@@ -34,7 +34,6 @@ and platform-specific tool packages:
 | `packages/widget` | `@kilnai/widget` | Embeddable chat widget (Shadow DOM, auto-reconnect WebSocket, zero deps, IIFE bundle). No dependency on other packages. |
 | `packages/tui` | `@kilnai/tui` | Terminal operator surface. |
 | `packages/gui` | `@kilnai/gui` | Primary web operator surface served by the runtime gateway. |
-| `packages/native` | `@kilnai/native` (private) | Electron-backed native operator surface. It consumes gateway contracts and must not import runtime or core implementations directly. |
 | `packages/tools` | `@kilnai/tools` | Vendored developer-tool resolver for platform packages. |
 | `packages/tools-*` | `@kilnai/tools-*` | Platform-specific optional packages for vendored tool binaries. |
 
@@ -97,7 +96,6 @@ or start the GUI dev server to refresh the generated route tree before commit.
 - Channel adapters only in `packages/runtime/src/channels/`.
 - `@kilnai/runtime` depends on `@kilnai/core` and shared contracts; never the reverse.
 - Operator surfaces consume gateway/shared contracts. They must not create private runtime truth.
-- `@kilnai/native` must not import `@kilnai/core` or `@kilnai/runtime` implementations directly.
 - Runtime can serve compiled private surfaces, but it must not import their source code.
 
 ## Code standards

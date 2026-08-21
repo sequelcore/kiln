@@ -49,7 +49,7 @@ and `operatorWorkspaceHome`. `/gui/ws` carries runtime operator frames.
 ## MCP Boundary
 
 MCP is an external tool and host integration boundary. It is not the internal
-operator protocol between GUI/TUI/native surfaces and the gateway.
+operator protocol between GUI/TUI surfaces and the gateway.
 
 Use App Gateway MCP endpoints for external clients that need governed tools or
 resources. Use the operator HTTP/WS contracts for sessions, approvals,

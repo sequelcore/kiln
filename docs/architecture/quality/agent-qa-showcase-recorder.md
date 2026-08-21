@@ -55,10 +55,9 @@ The implemented baseline supports:
 
 Embedded in-app browser capture is an additional backend, not a recorder
 prerequisite. Real video can be recorded from a runtime-owned browser session
-without depending on the native product view. The native
-`electron-webcontents` product surface is implemented in `@kilnai/native`;
-future recorder integration may consume that surface evidence, but the recorder
-must still treat governed runtime artifacts as the durable recording source.
+without depending on an embedded product view. Kiln currently has no native
+embedded-browser surface; any future recorder integration must still treat
+governed runtime artifacts as the durable recording source.
 
 ## Computer Capture
 

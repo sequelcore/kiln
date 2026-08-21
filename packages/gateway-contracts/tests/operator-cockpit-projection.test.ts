@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OperatorSessionEvent } from "../src/frames.js";
-import {
-  createOperatorCockpitBenchmarkFixture,
-} from "../src/operator-cockpit-benchmark.js";
+import { createOperatorCockpitFixture } from "./fixtures/operator-cockpit.js";
 import {
   createOperatorCockpitReadOnlyAttachPlan,
   type ManagedAgentOperatorReplayEnvelope,
@@ -185,7 +183,7 @@ describe("operator cockpit read-only projection", () => {
   });
 
   it("projects canonical events into target-aware cockpit views without mutation authority", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "read-only",
       instanceCount: 2,
       sessionCount: 3,
@@ -270,7 +268,7 @@ describe("operator cockpit read-only projection", () => {
   });
 
   it("fails closed when an event references an unattached instance", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "missing-target",
       instanceCount: 1,
       sessionCount: 1,
@@ -305,7 +303,7 @@ describe("operator cockpit read-only projection", () => {
   });
 
   it("rejects ambiguous or unsupported attach targets before projection", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "bad-target",
       instanceCount: 1,
       sessionCount: 1,
@@ -1919,7 +1917,7 @@ describe("operator cockpit read-only projection", () => {
   });
 
   it("projects tool resource links as target-aware read-only cockpit resources", () => {
-    const fixture = createOperatorCockpitBenchmarkFixture({
+    const fixture = createOperatorCockpitFixture({
       fixtureId: "resource-links",
       instanceCount: 1,
       sessionCount: 1,

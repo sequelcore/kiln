@@ -56,7 +56,7 @@ independent runtimes.
 5. Direct-provider execution must remain first-class. Harness routes are useful
    fallbacks and comparison routes, not the required path to a good Kiln
    operator experience.
-6. IDE and native surfaces are clients of Kiln Gateway/operator contracts. They
+6. Future IDE and native surfaces are clients of Kiln Gateway/operator contracts. They
    must not fork work, session, or approval state.
 7. Runtime state must not surprise users by appearing in arbitrary workspaces.
    Project-local artifacts must be explicit project-owned configuration,

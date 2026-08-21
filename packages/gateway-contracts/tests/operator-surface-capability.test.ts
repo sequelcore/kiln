@@ -5,13 +5,12 @@ import {
   operatorSurfaceSupports,
 } from "../src/operator-surface-capability.js";
 import type { OperatorSurfaceCapabilitySnapshot } from "../src/operator-surface-capability.js";
-import type { GuiInboundFrame } from "../src/frames.js";
 
 describe("operator surface capability contract", () => {
-  it("accepts a native surface capability snapshot with performance and browser host slots", () => {
+  it("accepts an operator surface capability snapshot with an unavailable browser frame stream", () => {
     const snapshot = OperatorSurfaceCapabilitySnapshotSchema.parse({
-      surface: "native",
-      surfaceId: "native:local",
+      surface: "gui",
+      surfaceId: "gui:local",
       generatedAt: "2026-05-14T12:00:00.000Z",
       capabilities: [
         {
@@ -23,37 +22,26 @@ describe("operator surface capability contract", () => {
           status: "available",
         },
         {
-          capability: "embedded-browser-host",
+          capability: "browser-frame-stream",
           status: "unsupported",
-          reason: "Embedded browser hosting is unavailable on this surface.",
-        },
-        {
-          capability: "native-cockpit-contract",
-          status: "available",
-          reason: "Canonical native cockpit target and benchmark contracts are available.",
-        },
-        {
-          capability: "surface-performance-telemetry",
-          status: "available",
+          reason: "Live browser frames are unavailable on this surface.",
         },
       ],
     }) satisfies OperatorSurfaceCapabilitySnapshot;
 
     expect(operatorSurfaceSupports(snapshot, "gateway-attach")).toBe(true);
-    expect(operatorSurfaceSupports(snapshot, "surface-performance-telemetry")).toBe(true);
-    expect(operatorSurfaceSupports(snapshot, "native-cockpit-contract")).toBe(true);
-    expect(operatorSurfaceSupports(snapshot, "embedded-browser-host")).toBe(false);
-    expect(operatorSurfaceCapabilityStatus(snapshot, "embedded-browser-host")).toEqual({
-      capability: "embedded-browser-host",
+    expect(operatorSurfaceSupports(snapshot, "browser-frame-stream")).toBe(false);
+    expect(operatorSurfaceCapabilityStatus(snapshot, "browser-frame-stream")).toEqual({
+      capability: "browser-frame-stream",
       status: "unsupported",
-      reason: "Embedded browser hosting is unavailable on this surface.",
+      reason: "Live browser frames are unavailable on this surface.",
     });
   });
 
   it("rejects unknown surface kinds and unknown capabilities", () => {
     expect(() => {
       OperatorSurfaceCapabilitySnapshotSchema.parse({
-        surface: "private-native",
+        surface: "native",
         surfaceId: "bad",
         capabilities: [],
       });
@@ -61,8 +49,8 @@ describe("operator surface capability contract", () => {
 
     expect(() => {
       OperatorSurfaceCapabilitySnapshotSchema.parse({
-        surface: "native",
-        surfaceId: "native:local",
+        surface: "gui",
+        surfaceId: "gui:local",
         capabilities: [
           {
             capability: "private-runtime",
@@ -73,24 +61,4 @@ describe("operator surface capability contract", () => {
     }).toThrow();
   });
 
-  it("allows native as an operator session event source surface", () => {
-    const frame = {
-      type: "session_event",
-      event: {
-        eventId: "session-1:native:1",
-        kilnSessionId: "session-1",
-        sequence: 1,
-        timestamp: "2026-05-14T12:00:00.000Z",
-        kind: "turn_started",
-        source: {
-          actor: "runtime",
-          surface: "native",
-          component: "native-surface",
-        },
-        payload: {},
-      },
-    } satisfies GuiInboundFrame;
-
-    expect(frame.event.source?.surface).toBe("native");
-  });
 });

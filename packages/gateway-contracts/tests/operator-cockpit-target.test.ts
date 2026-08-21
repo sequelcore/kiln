@@ -79,7 +79,7 @@ describe("operator cockpit target contract", () => {
     const request = createOperatorCockpitCancellationRequest({
       requestId: "cancel-1",
       requestedAt: "2026-05-14T12:00:00.000Z",
-      requestedBySurface: "native",
+      requestedBySurface: "gui",
       target: {
         instanceId: "local",
         sessionId: "session-1",

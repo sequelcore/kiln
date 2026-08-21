@@ -205,89 +205,27 @@ navigation, inline diffs, and file context naturally live in the editor.
 An IDE extension must be a client of Kiln gateway and/or MCP contracts. It must
 not become a separate runtime, own session state, or bypass tool authority.
 
-## Native Operator Surface
+## Deferred Native Operator Surface
 
-Native desktop work is a surface decision, not a runtime decision. Kiln now has
-an initial first-class native package at `packages/native` / `@kilnai/native`.
+Kiln has no native operator package or supported native product surface. Native
+desktop work is deferred by Roadmap 10 until every other executable roadmap
+track is closed.
 
-The accepted v1 stack is:
+A future native surface is admissible only when current product evidence names
+a capability that GUI, TUI, and CLI cannot satisfy cleanly. The future decision
+must select its stack from then-current evidence; Electron, a package name,
+transport labels, schemas, and distribution formats are not reserved now.
 
-- Electron main process for native window lifecycle, process isolation, and the
-  embedded-browser host adapter.
-- React 19 and Vite renderer for consistency with the web GUI implementation
-  stack.
-- `@kilnai/gateway-contracts` as the shared capability, session-projection,
-  theme, and presentation contract source.
-- Gateway HTTP/WebSocket contracts for all runtime interaction.
+Any admitted native surface remains a client of gateway/operator contracts. It
+must not import runtime/core implementations, own session or browser authority,
+create desktop-only execution policy, or duplicate shared projections. Native
+shell bridges must be narrow and fail closed, and remote/task content must stay
+isolated from privileged host processes.
 
-The native surface must not import `@kilnai/core` or `@kilnai/runtime`
-implementation modules. It may consume `@kilnai/gateway-contracts` and future
-operator HTTP/WS clients only. The Electron renderer starts with Node
-integration disabled, context isolation enabled, sandbox enabled, web security
-enabled, denied popup windows, and navigation restricted to local
-file/dev-server origins until a governed runtime policy exists. Any preload
-bridge must be narrow, typed, surface-specific, and limited to native shell
-operations that cannot be represented as renderer-local state.
-
-The v1 implementation advertises native capability slots for gateway attach,
-session projection, theme projection, native window lifecycle, surface
-performance telemetry, and embedded browser hosting. Embedded browser hosting
-uses Electron `WebContentsView` and the `electron-webcontents` transport label.
-`@kilnai/native` now includes the first product embedded-browser operator
-surface: the renderer reserves and resizes a browser region, the main process
-owns the `WebContentsView`, and the renderer sends typed operator intents
-through a narrow preload bridge.
-
-The embedded browser host must keep all remote or task content isolated from the
-Electron renderer and main process. Host content runs with Node integration
-disabled, context isolation enabled, sandbox enabled, web security enabled, no
-host preload bridge, denied popup windows, denied permission prompts, blocked
-downloads, ephemeral partition state, and fail-closed navigation against a
-runtime-supplied allowlist. DevTools/CDP control belongs to the host adapter and
-must project audited evidence through gateway-shaped browser session data.
-
-The embedded browser operator surface follows the takeover contract used by
-browser foundations. Opening the surface creates a gateway-shaped browser
-session projection with `surfaceMode: "embedded-browser"` and
-`transport: "electron-webcontents"`. Takeover transfers ownership from agent to
-operator and runtime browser dispatch fails closed while the operator owns the
-surface. Operator pointer, wheel, text, and key intents are admitted only while
-ownership is `operator`, and text evidence is stored as sanitized summaries.
-Release returns ownership to `agent`; runtime resume is admitted only after
-release and must be proven by a fresh host observation/evidence projection.
-
-The native surface is justified when product evidence shows a real need for
-native capabilities that the web GUI cannot provide cleanly, including:
-
-- native window lifecycle
-- tray or background operation
-- native notifications
-- packaged install and update flow
-- multi-window desktop review
-- embedded browser hosting
-- local high-density projection
-- OS credential integration
-- enterprise device-management expectations
-
-The native surface consumes the same gateway/operator contracts as GUI, TUI,
-CLI, SDK, and widget. It must not introduce in-process imports from
-runtime/core, a second session model, or a desktop-only execution policy.
-
-`@kilnai/native` is the repository package and desktop shell boundary. Product
-distribution will eventually package that surface as OS-native artifacts, but
-installer format, code signing, update transport, release channels, crash/log
-collection, user-data migration, rollback, and uninstall behavior are not part
-of the current surface foundation. Those decisions require a dedicated
-packaging and distribution roadmap once the native surface is functionally
-ready to ship outside developer workspaces.
-
-Performance is a v1 design concern. Native projections must render canonical
-bounded data, preserve `instanceId`/`sessionId`/`turnId`/`eventId` identity, use
-resource links for large artifacts, and expose initial telemetry for first
-paint, frame handling, projection update time, memory usage, and dropped
-frames. Rust, WASM, or sidecar acceleration may be added only for measured
-projection/replay hot paths and must never own authority, scheduling, provider
-routing, memory, config, replay truth, or policy.
+Packaging, signing, updates, rollback, crash reporting, local-state migration,
+and uninstall behavior require explicit ownership before distribution. Rust,
+WASM, or sidecar acceleration remains governed by the separate optimization
+guardrail and cannot own control-plane semantics.
 
 ## Startup And Operator Performance
 
@@ -314,18 +252,12 @@ behind async process boundaries with bounded timeouts and diagnostic statuses,
 so operator transports can become usable while deeper provider evidence is
 still being refreshed.
 
-Native operator surface projection is contract-only until the active native operator surface
-benchmark-validation roadmap proves value with benchmark fixtures. Stable
-target, precondition, benchmark, and Rust-boundary rules live in
-`native-operator-surface.md`.
+There is no native startup or rendering benchmark while Roadmap 10 is deferred.
+Any future comparison starts from the then-current active surfaces and shared
+contracts after the roadmap is re-admitted.
 
-Completion standard: the native surface can be removed without changing
-core/runtime semantics.
-
-Electron remains rejected as the general web GUI substrate. It may be accepted
-for a first-class native operator surface when a native-only capability, such as
-embedded Chromium browser hosting, justifies the desktop stack and still
-preserves runtime ownership.
+Electron remains rejected as the general web GUI substrate. A future native
+track may evaluate it again without treating the removed prototype as precedent.
 
 ## Remote GUI
 

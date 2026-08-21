@@ -913,7 +913,6 @@ export type GuiBrowserSessionControlAction = "takeover" | "release";
 export type GuiBrowserLiveViewportTransport =
   | "snapshot-polling"
   | "cdp-screencast"
-  | "electron-webcontents"
   | "webrtc"
   | "hosted-url";
 export type GuiBrowserLiveViewportFormat = "jpeg" | "png";

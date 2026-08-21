@@ -128,7 +128,7 @@ MCP is the external tool and host integration boundary.
 
 Use the App Gateway MCP endpoint when external agents, IDEs, wrappers, or tool
 hosts need Kiln tools or resources. Do not use MCP as the internal GUI-to-
-gateway operator protocol. GUI, TUI, CLI, and native surfaces should use the
+gateway operator protocol. GUI, TUI, and CLI surfaces should use the
 operator HTTP/WS contract for sessions, approvals, health, telemetry, resource
 inspection, replay, and operator actions.
 

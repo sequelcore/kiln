@@ -158,11 +158,11 @@ describe("validateVoiceConfig", () => {
     });
   });
 
-  it("rejects invalid policy surface keys", () => {
+  it.each(["dashboard", "native"])("rejects unsupported policy surface %s", (surface) => {
     const config = validVoiceConfig({
       policy: {
         surfaces: {
-          dashboard: { enabled: true },
+          [surface]: { enabled: true },
         },
       },
     } as unknown as VoiceConfig);
@@ -170,8 +170,8 @@ describe("validateVoiceConfig", () => {
     const errors = validateVoiceConfig(config);
 
     expect(errors).toContainEqual({
-      field: "voice.policy.surfaces.dashboard",
-      message: "must be one of: api, web, whatsapp, messenger, instagram, gui, native, tui, cli, sdk, widget, recorder",
+      field: `voice.policy.surfaces.${surface}`,
+      message: "must be one of: api, web, whatsapp, messenger, instagram, gui, tui, cli, sdk, widget, recorder",
     });
   });
 

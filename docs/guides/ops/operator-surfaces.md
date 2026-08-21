@@ -12,7 +12,7 @@ runtime, gateway contracts, core, or CLI layer first.
 | Context | Recommended surface | Why |
 |---|---|---|
 | Local rich supervision | GUI via `kiln gui` | Best fit for session management, approvals, workspace browsing, telemetry, and multi-agent visibility. |
-| Desktop-native operation | Native from source | Future fit for embedded browser hosting, native window lifecycle, notifications, packaged installs, and OS-level integrations. Native remains experimental. |
+| Desktop-native operation | Not currently supported | Native work is deferred until every other executable roadmap track is closed. |
 | SSH or terminal-first work | TUI via `kiln tui` | Best fit when a browser is unavailable, terminal workflow is preferred, or a remote shell is the control channel. |
 | Automation and scripts | CLI via `kiln` | Best fit for one-shot runs, CI, scheduled jobs, config sync, auth, and machine-readable output. |
 | Code navigation and review | IDE surface | Best fit for inline diffs, jump-to-definition, editor-native context, and focused review. |
@@ -44,14 +44,9 @@ trusted tunnel.
 
 ## Native
 
-Use the native surface when the workflow needs desktop capabilities that a web
-GUI cannot provide cleanly: embedded browser hosting, native windows, local
-notifications, tray/background behavior, packaged install/update flow, or
-high-density local projection experiments.
-
-Native remains a client of gateway/operator contracts. It must not import
-runtime implementation code or own session authority. Native is experimental
-source work and has no supported distribution.
+Kiln has no native package or supported native surface. Roadmap 10 is the final
+deferred track and may reassess native-only product needs only after every other
+executable roadmap track is closed. Until then, use GUI, TUI, or CLI.
 
 ## TUI
 

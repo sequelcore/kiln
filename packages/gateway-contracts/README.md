@@ -8,7 +8,7 @@ Shared HTTP and WebSocket frame contracts for the Kiln operator gateway.
 > and the package coordinate is expected to change before the next release.
 
 Both the runtime gateway (`@kilnai/runtime`) and the operator clients
-(`@kilnai/gui`, `@kilnai/native`, `@kilnai/tui`, SDK, and widget) depend on
+(`@kilnai/gui`, `@kilnai/tui`, CLI, SDK, and widget) depend on
 this package so that frame shapes and shared operator projections are
 defined once and consumed by every surface. Neither side defines its own copy of
 these types; any shape change is made here and takes effect on the next build
@@ -52,31 +52,21 @@ rebuild this payload independently.
 ## Operator Surface Capabilities
 
 `src/operator-surface-capability.ts` defines the shared surface vocabulary and
-capability negotiation contract for CLI, TUI, GUI, native, IDE, SDK, widget,
+capability negotiation contract for CLI, TUI, GUI, IDE, SDK, widget,
 gateway, and runtime consumers.
 
 Capability snapshots advertise what a surface can support without granting
-authority. The native surface starts with explicit capability slots for gateway
-attach, session projection, native window lifecycle, surface performance
-telemetry, embedded-browser host proof, and native operator surface contract readiness.
-Browser session projections use explicit transport labels such as
-`snapshot-polling`, `cdp-screencast`, `electron-webcontents`, `webrtc`, and
-`hosted-url` so surfaces can distinguish artifact monitors, frame streams,
-native embedded hosts, and remote live views without inferring behavior from
-package names or local feature flags.
+authority. Browser session projections use explicit transport labels such as
+`snapshot-polling`, `cdp-screencast`, `webrtc`, and `hosted-url` so surfaces can
+distinguish artifact monitors, frame streams, and remote live views without
+inferring behavior from package names or local feature flags.
 
-`src/operator-cockpit-benchmark.ts` and
-`src/operator-cockpit-target.ts` define shared native operator surface
-benchmark contracts for high-density surface comparison. `src/operator-cockpit-projection.ts` defines
-the shared read-only operator surface projection over canonical events and explicit
-attach targets. GUI and native must use the same synthetic event fixtures,
-shared presentation baseline, shared read-only projection baseline, read-only
+`src/operator-cockpit-target.ts`, `src/operator-cockpit-projection.ts`, and
+`src/operator-cockpit-view-state.ts` define the active shared read-only operator
+surface contract. GUI, TUI, CLI, runtime, and SDK consume the same
 instance/session/timeline/invocation/tool/resource/cost projections, explicit
-instance/session targets, read-only action intents, and cancellation request
-validation before any native operator surface or Rust hot-path claim is considered. The
-read-only projection baseline measures the same shared projection substrate
-later surfaces and Rust/WASM/sidecar candidates must match; it is not a
-browser-rendering benchmark. The shared read-only attach plan validates
+targets, action intents, and cancellation-request validation. The shared
+read-only attach plan validates
 explicit local, remote, team, cloud, CI, or simulated gateway URLs and records
 planned HTTP/WebSocket connection intent without opening sockets. Resource
 links are projected as target-aware read-only resources carrying
@@ -89,47 +79,9 @@ focus/filter/replay cursor state from that same projection with explicit
 fails closed when targets do not resolve. Timeline filters use projected
 targets such as `managedInvocationId`, `toolCallId`, and `resourceUri` rather
 than raw event payload parsing. Session, managed-invocation, and tool-call
-filters require their enclosing instance/session target.
-`measureOperatorCockpitReadOnlyViewStateBaseline` measures only TypeScript
-view-state derivation over that shared projection substrate. It is contract
-measurement only and not a browser benchmark, native rendering benchmark,
-network attach benchmark, dispatch benchmark, or Rust/WASM/sidecar implementation.
-Rust optimization is documented as a separate roadmap track in
-`docs/roadmap/00.0.1-rust-module-optimization.md`. No Rust proof harness,
-readiness command, bridge, or implementation package is exported from
-`@kilnai/gateway-contracts`. A future Rust module must enter through its own
-approved roadmap slice or ADR with a narrow TypeScript-owned port, canonical
-input/output fixtures, parity evidence, fail-closed behavior, and a deletion or
-conversion plan for any spike code.
-`createOperatorCockpitBenchmarkEvidenceReport` is the shared promotion gate
-over those benchmark outputs. It records implemented evidence, missing evidence,
-and native-surface promotion eligibility while defaulting to contract-only
-recommendations when only shared TypeScript baselines exist. Rust candidacy is
-not part of this native-surface benchmark gate.
-Phase 3 benchmark evidence is expressed through typed report contracts for
-browser rendering, native rendering, target clarity, interaction latency, and
-memory. These contracts are auditable metadata shapes only; they do not run
-benchmarks, attach to gateways, dispatch actions, or provide Rust
-implementation.
-Phase 3 Slice 1 also adds runner admission/workload validation through
-`createOperatorCockpitBenchmarkRunnerAdmission` for `web-gui` and
-`native-cockpit` surfaces, `browser-rendering` and `native-rendering` runner
-kinds, and single-session-heavy/multi-session/multi-instance workloads. This
-contract keeps `execution: not-started`, `mutationDispatch: disabled`, and
-`networkAttach: not-started`, and fails closed on mismatched surface/runner
-pairs via `surface-runner-mismatch`. It also fails closed on contradictory or
-invalid fixture summaries (for example,
-`activeManagedSessionCount > sessionCount`) before workload thresholds are
-evaluated.
-Phase 3 Slice 2 adds orchestration planning through
-`createOperatorCockpitBenchmarkRunnerOrchestrationPlan`. Planning becomes
-`planned` only when both web and native admissions are already `admitted` for
-the same workload kind and fixture summary; otherwise it fails closed with typed
-blocked reasons. It keeps `execution: not-started`,
-`mutationDispatch: disabled`, `networkAttach: not-started`, and
-`recommendation/evidence: not-promoted`.
-It is not a rendering runner, network attach runner, dispatch mechanism, or
-Rust implementation.
+filters require their enclosing instance/session target. Synthetic high-volume
+fixture generation belongs to tests until a current benchmark owner admits a
+real runner and evidence contract.
 
 Managed child invocation events carry an operator-facing
 `OperatorManagedAgentCapabilitySnapshot`. The snapshot records the admitted

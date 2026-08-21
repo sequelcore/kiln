@@ -187,7 +187,7 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   `tests/`, so type drift between tests and source has been invisible. The
   `typecheck:tests` gate now exists and admits packages one at a time;
   `@kilnai/tools`, `@kilnai/gateway-contracts`, `@kilnai/sdk`, `@kilnai/tui`,
-  `@kilnai/native`, `@kilnai/core`, and `@kilnai/cli` currently qualify.
+  `@kilnai/core`, and `@kilnai/cli` currently qualify.
   `@kilnai/runtime` is the last package outside the gate.
 
   Remaining backlog, measured by extending each package's own `tsconfig.json`
@@ -199,7 +199,6 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   | gateway-contracts | 0 (admitted) |
   | sdk | 0 (admitted) |
   | tui | 0 (admitted) |
-  | native | 0 (admitted) |
   | core | 0 (admitted) |
   | cli | 0 (admitted) |
   | runtime | 996 |
@@ -211,7 +210,7 @@ files, 3,965 tests), surfaces, and gateway-contracts lanes remain green.
   `TS6059` violations that cannot be resolved from inside `sdk`, so
   `packages/sdk/tsconfig.test.json` uses `"rootDir": "../.."` (the monorepo
   root) instead. No compiler option is loosened; the same pattern now applies
-  to `tui`, `native`, `core`, and `cli`, and will apply to `gui`, which shares
+  to `tui`, `core`, and `cli`, and will apply to `gui`, which shares
   the fixtures.
 
   Backlog counts are provisional until a package is actually admitted, because

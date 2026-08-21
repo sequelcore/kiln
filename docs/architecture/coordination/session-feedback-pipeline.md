@@ -40,7 +40,7 @@ explicit operator approval and the normal work-governance gates.
 - `@kilnai/gateway-contracts` owns cross-surface presentation contracts only
   after the domain contract is stable enough to expose to GUI, TUI, native,
   SDK, or widget consumers.
-- `@kilnai/cli`, `@kilnai/gui`, `@kilnai/tui`, and native surfaces own user
+- `@kilnai/cli`, `@kilnai/gui`, and `@kilnai/tui` own user
   interaction and consent UX. They do not own feedback semantics.
 - External issue and pull-request providers are adapters behind explicit
   outbound ports. GitHub is one adapter, not the domain.

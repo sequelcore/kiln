@@ -35,9 +35,9 @@ roadmap reorganization.
 | 4 | [06 - Prompt Governance Plane](06-prompt-governance-plane.md) | Research | Normal | Define the versioned prompt-component inventory, evaluation fixtures, and promotion thresholds, then run component-removal ablations after higher-priority Ready work. |
 | 5 | [07 - Stack Governance Plane](07-stack-governance-plane.md) | Research | Normal | Define read-only fixtures and the typed stack-policy contract. |
 | 6 | [09 - Rust Optimization Guardrail](09-rust-optimization-guardrail.md) | Guardrail | Conditional | Admit no implementation without a module-specific ADR and parity benchmark. |
-| 7 | [10 - Native Operator Surface](10-native-operator-surface.md) | Queued | Normal | Define workload fixture governance after release and control-plane work. |
-| 8 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
-| 9 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
+| 7 | [11 - Capability Fabric](11-capability-fabric.md) | Research | Normal | Implement read-only discovery adapters over the completed canonical catalog. |
+| 8 | [08.75 - Inbound Agent Workers](08.75-inbound-agent-workers.md) | Research | Deferred | Land the bounded verification surface as locally useful work; inbound slices wait on `08` identity. |
+| 9 | [10 - Native Operator Surface](10-native-operator-surface.md) | Deferred | Deferred | Reassess the product need only after every other executable roadmap track is closed. |
 
 ## Dependency Rules
 
@@ -65,8 +65,10 @@ roadmap reorganization.
   independently useful to local and outbound delegates, so it is admissible
   before the inbound premise resolves.
 - `09` is a decision boundary, not queued implementation.
-- `10` owns native surface promotion and remains sequenced behind stable release,
-  gateway, and benchmark evidence.
+- `10` is the final roadmap track. It owns the future native-surface product
+  decision and is not admissible until every other executable roadmap track is
+  closed by completion, rejection, or removal. No native implementation or
+  native-only runtime contract is retained while it is deferred.
 - `11` owns cross-harness capability discovery, deferred tool search, portable
   execution, agent-backed capabilities, and the portable operator-question
   lifecycle. It reuses `06` progressive disclosure and existing Agent Task/A2A
