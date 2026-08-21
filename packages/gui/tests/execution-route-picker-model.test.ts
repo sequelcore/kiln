@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { executionRouteBrands, filterExecutionRouteOptions, projectExecutionRoutePicker } from "../src/components/execution-route-picker-model.js";
+import {
+  conciseExecutionRouteUnavailableReason,
+  executionRouteBrands,
+  filterExecutionRouteOptions,
+  projectExecutionRoutePicker,
+} from "../src/components/execution-route-picker-model.js";
 
 const catalog = {
   routes: [
@@ -60,5 +65,10 @@ describe("execution target picker model", () => {
     });
 
     expect(executionRouteBrands(routes)).toEqual([{ id: "all", label: "all" }]);
+  });
+
+  it("presents canonical unavailability codes as operator-readable text", () => {
+    expect(conciseExecutionRouteUnavailableReason("model-unavailable")).toBe("Model unavailable");
+    expect(conciseExecutionRouteUnavailableReason("missing-credentials, quota-stale")).toBe("Missing credentials, Quota stale");
   });
 });

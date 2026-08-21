@@ -11,7 +11,7 @@ test.describe("parity category 9 - canonical execution targets", () => {
 
     const unavailable = page.getByRole("option", { name: /DeepSeek Flash, Automatic, Unavailable/ });
     await expect(unavailable).toBeDisabled();
-    await expect(page.getByText("provider-model-unavailable")).toBeVisible();
+    await expect(page.getByText("Model unavailable")).toBeVisible();
 
     await page.getByRole("option", { name: "Sol Medium, Automatic" }).click();
     await expect(targetSelector).toContainText("Sol Medium");

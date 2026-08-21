@@ -17,6 +17,7 @@ import {
   resolveGlobalConfigPath,
   type KilnGlobalConfig,
 } from "../config/global-config.js";
+import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
 import { readKilnYaml, type KilnProjectConfig } from "../kiln-yaml.js";
 import {
   applyConfigMutation,
@@ -25,7 +26,12 @@ import {
   type ApplyConfigMutationInput,
   type ProposeConfigMutationInput,
 } from "./config-mutation-authority.js";
-import { ConfigMutationStore, type ConfigMutationProposalRecord } from "./config-mutation-store.js";
+import {
+  ConfigMutationStore,
+  type InterruptedConfigMutation,
+  type ConfigMutationProposalRecord,
+  type StoredConfigMutationSettlement,
+} from "./config-mutation-store.js";
 
 type OnboardingPosture = KilnConfigurationOnboardingApplyRequest["posture"];
 
@@ -46,6 +52,18 @@ export interface ConfigurationOnboardingDependencies {
   readonly approveMutation?: typeof approveConfigMutation;
   readonly applyMutation?: (input: ApplyConfigMutationInput) => ReturnType<typeof applyConfigMutation>;
   readonly saveProposal?: (projectPath: string, record: ConfigMutationProposalRecord) => void;
+  readonly readLatestSettlement?: (
+    projectPath: string,
+    operation: ProposeConfigMutationInput["operation"],
+  ) => StoredConfigMutationSettlement | null;
+  readonly hasActiveMutation?: (
+    projectPath: string,
+    operation: ProposeConfigMutationInput["operation"],
+  ) => boolean;
+  readonly readInterruptedMutation?: (
+    projectPath: string,
+    operation: ProposeConfigMutationInput["operation"],
+  ) => InterruptedConfigMutation | null;
 }
 
 export interface ReadConfigurationOnboardingInput {
@@ -68,7 +86,7 @@ export interface ApplyConfigurationOnboardingInput {
 
 const defaultDependencies: Required<Pick<
   ConfigurationOnboardingDependencies,
-  "readGlobalConfig" | "readTargetAuthority" | "readProjectConfig" | "proposeMutation" | "approveMutation" | "applyMutation" | "saveProposal"
+  "readGlobalConfig" | "readTargetAuthority" | "readProjectConfig" | "proposeMutation" | "approveMutation" | "applyMutation" | "saveProposal" | "readLatestSettlement" | "hasActiveMutation" | "readInterruptedMutation"
 >> = {
   readGlobalConfig: readDefaultGlobalConfig,
   readTargetAuthority: (config, globalConfigPath) => readGlobalExecutionTargetAuthority(config, { globalConfigPath }),
@@ -77,6 +95,9 @@ const defaultDependencies: Required<Pick<
   approveMutation: approveConfigMutation,
   applyMutation: applyConfigMutation,
   saveProposal: (projectPath, record) => new ConfigMutationStore(projectPath).saveProposal(record),
+  readLatestSettlement: (projectPath, operation) => new ConfigMutationStore(projectPath).readLatestSettlement(operation),
+  hasActiveMutation: (projectPath, operation) => new ConfigMutationStore(projectPath).hasActiveProgress(operation),
+  readInterruptedMutation: (projectPath, operation) => new ConfigMutationStore(projectPath).readInterruptedMutation(operation),
 };
 type ConfigurationOnboardingPorts = typeof defaultDependencies;
 
@@ -105,6 +126,22 @@ export function readConfigurationOnboarding(
   const projectState = dependencies.readProjectConfig(input.projectPath);
   if (projectState.error !== undefined) {
     blockers.push({ code: "project-config-invalid", message: "Project configuration is not structurally admitted." });
+  }
+  if (globalConfig && projectState.config && projectState.error === undefined) {
+    try {
+      deriveEffectiveKilnYaml(globalConfig, projectState.config);
+    } catch {
+      blockers.push({ code: "project-config-invalid", message: "Project configuration is not admitted against current global policy." });
+    }
+  }
+
+  let projectReconciliationPending = false;
+  let targetReconciliationPending = false;
+  try {
+    projectReconciliationPending = reconciliationPending(input.projectPath, "project.adopt", dependencies);
+    targetReconciliationPending = reconciliationPending(input.projectPath, "target.select", dependencies);
+  } catch {
+    blockers.push({ code: "project-config-invalid", message: "Configuration mutation evidence is not structurally admitted." });
   }
 
   const directTargets = globalConfig?.targetCatalog?.targets.filter((target) => target.kind === "direct") ?? [];
@@ -149,12 +186,16 @@ export function readConfigurationOnboarding(
       && projectPosture === "read-only"
       && isSafeApproval(projectApproval)
       && defaultTargetId !== null
+      && !projectReconciliationPending
+      && !targetReconciliationPending
       ? "complete"
       : "ready";
   const nextAction = blockers.length > 0
     ? nextActionForBlocker(blockers[0]!)
     : status === "complete"
       ? "Start the first turn."
+      : projectReconciliationPending || targetReconciliationPending
+        ? "Retry onboarding to reconcile the committed configuration before the first turn."
       : defaultTargetId === null
         ? "Select an admitted direct target and apply onboarding."
         : "Apply onboarding to this project.";
@@ -196,10 +237,7 @@ export async function applyConfigurationOnboarding(
     return onboardingResult("blocked", null, null, snapshot.blockers, snapshot.nextAction);
   }
 
-  const selectedTargetId = request.targetId
-    ?? snapshot.defaultTargetId
-    ?? snapshot.targets[0]?.id
-    ?? null;
+  const selectedTargetId = request.targetId ?? snapshot.defaultTargetId;
   if (selectedTargetId === null || !snapshot.targets.some((target) => target.id === selectedTargetId)) {
     return onboardingResult("blocked", null, null, [{
       code: "target-not-admitted",
@@ -218,9 +256,12 @@ export async function applyConfigurationOnboarding(
   }
 
   const projectState = dependencies.readProjectConfig(input.projectPath);
+  const projectReconciliationPending = reconciliationPending(input.projectPath, "project.adopt", dependencies);
+  const targetReconciliationPending = reconciliationPending(input.projectPath, "target.select", dependencies);
   let projectSummary: KilnConfigurationOnboardingMutationSummary | null = null;
   const projectAlreadySafe = projectState.config?.permissions?.sandbox === "read-only"
-    && isSafeApproval(projectState.config.permissions.approval);
+    && isSafeApproval(projectState.config.permissions.approval)
+    && !projectReconciliationPending;
   if (!projectAlreadySafe) {
     projectSummary = await runMutation({
       input,
@@ -234,7 +275,7 @@ export async function applyConfigurationOnboarding(
   }
 
   let targetSummary: KilnConfigurationOnboardingMutationSummary | null = null;
-  if (snapshot.defaultTargetId !== selectedTargetId) {
+  if (snapshot.defaultTargetId !== selectedTargetId || targetReconciliationPending) {
     targetSummary = await runMutation({
       input,
       dependencies,
@@ -265,6 +306,18 @@ async function runMutation(input: {
   readonly payload: unknown;
 }): Promise<KilnConfigurationOnboardingMutationSummary> {
   const globalConfigPath = input.input.globalConfigPath ?? resolveGlobalConfigPath();
+  const interrupted = input.dependencies.readInterruptedMutation(input.input.projectPath, input.operation);
+  if (interrupted !== null) {
+    const result = await input.dependencies.applyMutation({
+      projectPath: input.input.projectPath,
+      proposalId: interrupted.record.proposal.proposalId,
+      ...(interrupted.approvalId === undefined ? {} : { approvalId: interrupted.approvalId }),
+      requester: "operator",
+      globalConfigPath,
+      readEffectiveState: async () => undefined,
+    });
+    return mutationSummary(result.settlement.outcome, result.replayed, result.settlement.diagnostics);
+  }
   const record = input.dependencies.proposeMutation({
     projectPath: input.input.projectPath,
     operation: input.operation,
@@ -298,6 +351,15 @@ async function runMutation(input: {
 
 function mergeDependencies(input: ConfigurationOnboardingDependencies = {}): ConfigurationOnboardingPorts {
   return { ...defaultDependencies, ...input };
+}
+
+function reconciliationPending(
+  projectPath: string,
+  operation: ProposeConfigMutationInput["operation"],
+  dependencies: ConfigurationOnboardingPorts,
+): boolean {
+  return dependencies.hasActiveMutation(projectPath, operation)
+    || dependencies.readLatestSettlement(projectPath, operation)?.outcome === "committed-reconciliation-failed";
 }
 
 function readProjectConfigState(projectPath: string): ConfigurationOnboardingProjectState {
@@ -366,9 +428,10 @@ function safeDiagnosticField(field: string): string {
 
 function safeDiagnosticMessage(message: string): string {
   if (/secret|token|credential|api.?key/iu.test(message)) return "Configuration mutation was rejected.";
+  if (/(?:\b[A-Za-z]:[\\/]|\\\\[^\\/\s]+[\\/]|(?:^|[\s("'=])\/(?:[^\s/]+\/|[^\s]+))/u.test(message)) {
+    return "Configuration mutation requires attention.";
+  }
   return message
-    .replace(/\b[A-Za-z]:\\[^\s)]+/gu, "<path>")
-    .replace(/\/(?:[^\s/]+\/)+[^\s)]+/gu, "<path>")
     .slice(0, 512);
 }
 

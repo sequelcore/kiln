@@ -22,7 +22,7 @@ describe("managed agent coordination policy", () => {
       policyId: "managed-agent-coordination-v1",
       topology: "direct",
       maxConcurrentChildren: 0,
-      reasons: ["work is inside the direct-execution envelope"],
+      reasons: ["no coordination trigger applies"],
     });
   });
 

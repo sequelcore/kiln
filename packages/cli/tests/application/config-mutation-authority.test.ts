@@ -227,6 +227,145 @@ describe("config mutation authority", () => {
     expect(reconcileOk).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps reconciliation single-flight for concurrent recovery proposals", async () => {
+    seedGlobalConfig();
+    const initial = proposeConfigMutation({
+      projectPath: tempDir,
+      operation: "project.adopt",
+      payload: { scope: "project", posture: "read-only" },
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const store = new ConfigMutationStore(tempDir);
+    store.saveProposal(initial);
+    const first = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: initial.proposal.proposalId,
+      requester: "operator",
+      reconcile: async () => [{
+        target: "repo-shims",
+        status: "failed",
+        summary: "initial reconciliation failed",
+        errors: ["fixture failure"],
+      }],
+      readEffectiveState: async () => undefined,
+    });
+    expect(first.settlement.outcome).toBe("committed-reconciliation-failed");
+
+    const recoveryA = proposeConfigMutation({
+      projectPath: tempDir,
+      operation: "project.adopt",
+      payload: { scope: "project", posture: "read-only" },
+      now: new Date("2026-01-01T00:00:01.000Z"),
+    });
+    const recoveryB = proposeConfigMutation({
+      projectPath: tempDir,
+      operation: "project.adopt",
+      payload: { scope: "project", posture: "read-only" },
+      now: new Date("2026-01-01T00:00:02.000Z"),
+    });
+    store.saveProposal(recoveryA);
+    store.saveProposal(recoveryB);
+
+    let announceA!: () => void;
+    let finishA!: () => void;
+    const aStarted = new Promise<void>((resolve) => {
+      announceA = resolve;
+    });
+    const aMayFinish = new Promise<void>((resolve) => {
+      finishA = resolve;
+    });
+    const pendingA = applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: recoveryA.proposal.proposalId,
+      requester: "operator",
+      reconcile: async () => {
+        announceA();
+        await aMayFinish;
+        return [{
+          target: "repo-shims",
+          status: "failed",
+          summary: "recovery A failed",
+          errors: ["fixture failure A"],
+        }];
+      },
+      readEffectiveState: async () => undefined,
+    });
+    await aStarted;
+
+    const recoveryBResult = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: recoveryB.proposal.proposalId,
+      requester: "operator",
+      reconcile: async () => [{
+        target: "repo-shims",
+        status: "ok",
+        summary: "recovery B succeeded",
+        errors: [],
+      }],
+      readEffectiveState: async () => undefined,
+    });
+    expect(recoveryBResult.settlement.outcome).toBe("rejected");
+    expect(recoveryBResult.settlement.diagnostics[0]?.message).toContain("already in progress");
+    expect(recoveryBResult.settlement.diagnostics[0]?.message).not.toContain(store.lockPathFor(recoveryB.writes[0]!.path));
+    expect(recoveryBResult.settlement.diagnostics[0]?.message).not.toMatch(/[\\/]/u);
+
+    finishA();
+    expect((await pendingA).settlement.outcome).toBe("committed-reconciliation-failed");
+    expect(store.readLatestSettlement("project.adopt")?.outcome).toBe("committed-reconciliation-failed");
+  });
+
+  it("blocks every competing operation on a path until its interrupted proposal settles", async () => {
+    seedGlobalConfig();
+    const interrupted = proposeConfigMutation({
+      projectPath: tempDir,
+      operation: "project.adopt",
+      payload: { scope: "project", posture: "read-only" },
+    });
+    const store = new ConfigMutationStore(tempDir);
+    store.saveProposal(interrupted);
+    const interruptedWrite = interrupted.writes[0]!;
+    store.writeProgressMarker({
+      proposalId: interrupted.proposal.proposalId,
+      path: interruptedWrite.path,
+      intendedRevision: `sha256:${createHash("sha256").update(interruptedWrite.nextContent).digest("hex")}`,
+      startedAt: new Date().toISOString(),
+    });
+    writeFileSync(interruptedWrite.path, interruptedWrite.nextContent, "utf-8");
+
+    const competitor = proposeConfigMutation({
+      projectPath: tempDir,
+      operation: "setting.set",
+      payload: { scope: "project", key: "domain", value: "backend" },
+    });
+    store.saveProposal(competitor);
+    const competitorReconcile = vi.fn(async () => []);
+    const refused = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: competitor.proposal.proposalId,
+      requester: "operator",
+      reconcile: competitorReconcile,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(refused.settlement.outcome).toBe("rejected");
+    expect(refused.settlement.diagnostics[0]?.message).toContain("interrupted");
+    expect(competitorReconcile).not.toHaveBeenCalled();
+    expect(readFileSync(interruptedWrite.path, "utf-8")).toBe(interruptedWrite.nextContent);
+
+    const recovered = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: interrupted.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    expect(recovered.settlement.outcome).toBe("committed");
+    expect(store.readSettlement(interrupted.proposal.proposalId)).toMatchObject({
+      baseRevision: "absent",
+      restore: [{ path: interruptedWrite.path, previousContent: null }],
+    });
+  });
+
   it("rejects replay when the committed revision is no longer effective", async () => {
     const record = propose("skill.upsert", {
       name: "replay-guard",

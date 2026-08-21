@@ -178,4 +178,19 @@ describe("initCommand", () => {
     expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
     expect(consoleError.mock.calls.flat().join("\n")).toContain("target");
   });
+
+  it("requires an explicit target in non-interactive mode when no default exists", async () => {
+    const result = await initCommand(appConfig, projectPath, {
+      interactive: false,
+      approve: true,
+      dependencies: {
+        readGlobalConfig: () => ({ ...globalConfig(), targetRouting: undefined }),
+        readTargetAuthority: () => ({ current: true }),
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(consoleError.mock.calls.flat().join("\n")).toContain("Select an admitted direct target");
+  });
 });

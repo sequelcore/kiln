@@ -565,8 +565,20 @@ the Slice 4 authority, and default-target changes use the governed
 `target.select` operation. The CLI provides interactive confirmation and
 deterministic `--non-interactive`, `--target-id`, and `--approve` inputs. A
 declined confirmation or target-selection approval returns before apply, so
-cancellation writes nothing. Reruns derive `complete` from canonical state and
-perform no mutation. The GUI keeps its draft only in component memory and
+cancellation writes nothing. `--approve` cannot choose an unnamed first catalog
+entry: changing an absent default requires an exact target identity. Reruns
+derive `complete` from canonical state and perform no mutation after successful
+reconciliation; a committed reconciliation failure remains `ready` and is
+retried through a new governed settlement before the first turn. The existing
+path lock stays held through reconciliation and settlement, while the durable
+in-progress marker keeps the read model at `ready`; concurrent retries fail
+closed and cannot hide a later reconciliation failure. Terminal markers are
+ignored and cleaned without leaving onboarding permanently pending after a crash;
+an interrupted write resumes its exact proposal and approval so rollback still
+restores the pre-crash bytes; other operations targeting the same canonical path
+fail closed until recovery settles.
+The GUI keeps
+its draft only in component memory and
 requires the ephemeral local operator capability for apply; remote attach has
 no mutation token and remains read-only.
 
@@ -587,11 +599,15 @@ paths, so an unexpected second-operation failure can settle honestly as
 `partial`; routine missing approval is preflighted before either write.
 
 Acceptance evidence: cancellation and declined approval are side-effect free;
-rerun is a no-op; non-interactive input is explicit; the adopted project
-composes to `on-request` or stricter approval with a `read-only` sandbox; the
-first route resolves to the exact admitted provider/model; GUI apply rejects a
-missing or incorrect local capability; and wire results redact paths and
-credential-like diagnostics.
+stable rerun is a no-op and failed reconciliation is not forgotten;
+an in-progress reconciliation never reports `complete`, and concurrent recovery
+attempts never publish competing terminal outcomes;
+non-interactive target changes are explicit; the adopted project composes to
+`on-request` or stricter approval with a `read-only` sandbox; structurally valid
+but globally inadmissible project policy blocks before readiness; the first
+route resolves to the exact admitted provider/model; GUI apply rejects a missing
+or incorrect local capability; and wire results redact paths, including paths
+with spaces, and credential-like diagnostics.
 
 ### Slice 6 - Searchable Settings Foundation
 

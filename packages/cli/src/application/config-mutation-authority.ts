@@ -37,7 +37,7 @@ import {
   type StoredConfigMutationSettlement,
 } from "./config-mutation-store.js";
 import { reconcileConfigMutation } from "./config-mutation-reconciliation.js";
-import { withConfigMutationLock } from "./config-mutation-lock.js";
+import { ConfigMutationLockUnavailableError, withConfigMutationLock } from "./config-mutation-lock.js";
 
 /** Reads effective state after a commit. Injected so tests do not need real harness projections. */
 export interface EffectiveStateReadBackPort {
@@ -208,12 +208,12 @@ export function approveConfigMutation(input: ApproveConfigMutationInput): KilnCo
  */
 export async function applyConfigMutation(input: ApplyConfigMutationInput): Promise<KilnConfigMutationResult> {
   const store = new ConfigMutationStore(input.projectPath);
-  const settledAt = (input.now ?? new Date()).toISOString();
+  const attemptedAt = (input.now ?? new Date()).toISOString();
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
 
   const record = store.readProposal(input.proposalId);
   if (!record) {
-    return rejected(input, settledAt, "project", [diagnostic("proposalId", "Config proposal not found.")]);
+    return rejected(input, attemptedAt, "project", [diagnostic("proposalId", "Config proposal not found.")]);
   }
   const existingSettlement = store.readSettlement(input.proposalId);
   if (existingSettlement) {
@@ -227,18 +227,21 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
       }
     }
     if (replayDiagnostics.length > 0) {
-      return rejected(input, settledAt, record.proposal.scope, replayDiagnostics, record.proposal);
+      return rejected(input, attemptedAt, record.proposal.scope, replayDiagnostics, record.proposal);
     }
+    // A crash can occur after terminal publication but before marker cleanup.
+    // Terminal settlement is authoritative, so replay may safely retire it.
+    store.clearProgressMarker(input.proposalId);
     return await withReadBack(input, existingSettlement, true);
   }
   const proposal = record.proposal;
   if (proposal.status !== "valid") {
-    return rejected(input, settledAt, proposal.scope, [diagnostic("proposal", "Only valid config proposals can be applied.")], proposal);
+    return rejected(input, attemptedAt, proposal.scope, [diagnostic("proposal", "Only valid config proposals can be applied.")], proposal);
   }
 
   const approvalDiagnostics = checkApproval(store, record, input.approvalId, input.requester);
   if (approvalDiagnostics.length > 0) {
-    return rejected(input, settledAt, proposal.scope, approvalDiagnostics, proposal);
+    return rejected(input, attemptedAt, proposal.scope, approvalDiagnostics, proposal);
   }
 
   const pathDiagnostics = validateWritePath({
@@ -249,94 +252,105 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
     path: record.writes[0]?.path ?? "",
   });
   if (pathDiagnostics.length > 0) {
-    return rejected(input, settledAt, proposal.scope, pathDiagnostics, proposal);
+    return rejected(input, attemptedAt, proposal.scope, pathDiagnostics, proposal);
   }
 
   const write = record.writes[0];
   if (!write) {
-    return rejected(input, settledAt, proposal.scope, [diagnostic("write", "Valid proposal carries no canonical write.")], proposal);
+    return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", "Valid proposal carries no canonical write.")], proposal);
   }
 
-  // Everything from the fence recheck through settlement runs under one lock
-  // for this canonical path, so two applies cannot both pass the fence and
-  // overwrite each other while each believes it settled the only change.
-  let commitOutcome: CommitOutcome | KilnConfigMutationResult;
   try {
-    commitOutcome = withConfigMutationLock(store.lockPathFor(write.path), () => {
-      const currentContent = existsSync(write.path) ? readFileSync(write.path, "utf-8") : null;
-      const currentRevision = revisionOf(currentContent);
-      const marker = store.readProgressMarker(proposal.proposalId);
-      const interrupted = marker !== null
-        && marker.path === write.path
-        && currentRevision === marker.intendedRevision;
+    // The existing path lock owns the complete commit/reconcile/settle window.
+    // A second recovery attempt fails closed instead of publishing a competing
+    // reconciliation result for the same canonical revision.
+    return await withConfigMutationLock(store.lockPathFor(write.path), async () => {
+      let commitOutcome: CommitOutcome;
+      try {
+        const currentContent = existsSync(write.path) ? readFileSync(write.path, "utf-8") : null;
+        const currentRevision = revisionOf(currentContent);
+        const marker = store.readProgressMarker(proposal.proposalId);
+        const interruptedForPath = store.readInterruptedMutationForPath(write.path);
+        if (interruptedForPath !== null
+          && interruptedForPath.record.proposal.proposalId !== proposal.proposalId) {
+          return rejected(input, attemptedAt, proposal.scope, [diagnostic(
+            "proposalId",
+            "An interrupted configuration mutation must be resumed before a new proposal can apply.",
+          )], proposal);
+        }
+        const interrupted = marker !== null
+          && marker.path === write.path
+          && currentRevision === marker.intendedRevision;
 
-      if (interrupted) {
-        // This exact proposal entered its commit window and the canonical path
-        // already holds the content it intended. Resume settlement rather than
-        // rejecting a change that did land.
-        return { appliedWrites: appliedWritesFor(write), committedRevision: currentRevision } satisfies CommitOutcome;
-      }
-      if (currentRevision !== proposal.baseRevision) {
-        return rejected(input, settledAt, proposal.scope, [diagnostic(
-          write.path,
-          "Config proposal is stale; the canonical revision changed after the proposal was created.",
-        )], proposal);
+        if (interrupted) {
+          // This exact proposal entered its commit window and the canonical path
+          // already holds the content it intended. Resume settlement rather than
+          // rejecting a change that did land.
+          commitOutcome = { appliedWrites: appliedWritesFor(write), committedRevision: currentRevision };
+        } else if (currentRevision !== proposal.baseRevision) {
+          return rejected(input, attemptedAt, proposal.scope, [diagnostic(
+            write.path,
+            "Config proposal is stale; the canonical revision changed after the proposal was created.",
+          )], proposal);
+        } else {
+          store.writeProgressMarker({
+            proposalId: proposal.proposalId,
+            path: write.path,
+            intendedRevision: intendedRevision(write),
+            startedAt: attemptedAt,
+          });
+          commitOutcome = proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
+            ? commitGlobalWrite(record.writes, proposal.baseRevision, proposal.operation === "setting.reset")
+            : commitProjectWrites(record.writes);
+        }
+      } catch (error) {
+        return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
       }
 
-      store.writeProgressMarker({
+      const { appliedWrites, committedRevision } = commitOutcome;
+      const recoveryDiagnostics: readonly KilnConfigValidationDiagnostic[] = commitOutcome.invalidBackupPath
+        ? [diagnostic("configuration", `Previous invalid configuration backed up to ${commitOutcome.invalidBackupPath}`, "warning")]
+        : [];
+      const reconcile = input.reconcile ?? reconcileConfigMutation;
+      const reconciliationEffects = await reconcile(input.projectPath, proposal.reconciliationTargets);
+      const settledAt = nextSettlementTime(store, proposal.operation, input.now ?? new Date());
+      const approval = input.approvalId ? store.readApproval(input.approvalId) : null;
+
+      const failedReconciliation = reconciliationEffects.some((effect) => effect.status === "failed");
+      const settlement = store.settle({
         proposalId: proposal.proposalId,
-        path: write.path,
-        intendedRevision: intendedRevision(write),
-        startedAt: settledAt,
+        approvalId: input.approvalId ?? null,
+        scope: proposal.scope,
+        operation: proposal.operation,
+        settledAt,
+        outcome: failedReconciliation ? "committed-reconciliation-failed" : "committed",
+        baseRevision: proposal.baseRevision,
+        committedRevision,
+        appliedWrites,
+        reconciliationEffects,
+        diagnostics: [
+          ...recoveryDiagnostics,
+          ...reconciliationEffects.flatMap((effect) => effect.errors.map((error) => diagnostic(effect.target, error, "warning"))),
+        ],
+        rollbackToken: proposal.proposalId,
+        activation: proposal.activation,
+        restore: record.writes.map((write): ConfigMutationRestorePoint => ({
+          path: write.path,
+          previousContent: write.previousContent,
+        })),
       });
-      return proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
-        ? commitGlobalWrite(record.writes, proposal.baseRevision, proposal.operation === "setting.reset")
-        : commitProjectWrites(record.writes);
+      if (approval && approval.status === "approved") {
+        store.markApprovalConsumed(approval, settledAt);
+      }
+      store.clearProgressMarker(proposal.proposalId);
+      return await withReadBack(input, settlement, false);
     });
   } catch (error) {
-    return rejected(input, settledAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
+    if (error instanceof ConfigMutationLockUnavailableError) {
+      return rejected(input, attemptedAt, proposal.scope, [diagnostic("write", commitErrorMessage(error))], proposal);
+    }
+    throw error;
   }
-  if (!isCommitOutcome(commitOutcome)) {
-    return commitOutcome;
-  }
-  const { appliedWrites, committedRevision } = commitOutcome;
-  const recoveryDiagnostics: readonly KilnConfigValidationDiagnostic[] = commitOutcome.invalidBackupPath
-    ? [diagnostic("configuration", `Previous invalid configuration backed up to ${commitOutcome.invalidBackupPath}`, "warning")]
-    : [];
-
-  const reconcile = input.reconcile ?? reconcileConfigMutation;
-  const reconciliationEffects = await reconcile(input.projectPath, proposal.reconciliationTargets);
-  const approval = input.approvalId ? store.readApproval(input.approvalId) : null;
-  if (approval && approval.status === "approved") {
-    store.markApprovalConsumed(approval, settledAt);
-  }
-
-  const failedReconciliation = reconciliationEffects.some((effect) => effect.status === "failed");
-  const settlement = store.settle({
-    proposalId: proposal.proposalId,
-    approvalId: input.approvalId ?? null,
-    scope: proposal.scope,
-    operation: proposal.operation,
-    settledAt,
-    outcome: failedReconciliation ? "committed-reconciliation-failed" : "committed",
-    baseRevision: proposal.baseRevision,
-    committedRevision,
-    appliedWrites,
-    reconciliationEffects,
-    diagnostics: [
-      ...recoveryDiagnostics,
-      ...reconciliationEffects.flatMap((effect) => effect.errors.map((error) => diagnostic(effect.target, error, "warning"))),
-    ],
-    rollbackToken: proposal.proposalId,
-    activation: proposal.activation,
-    restore: record.writes.map((write): ConfigMutationRestorePoint => ({
-      path: write.path,
-      previousContent: write.previousContent,
-    })),
-  });
-  store.clearProgressMarker(proposal.proposalId);
-
-  return await withReadBack(input, settlement, false);
 }
 
 interface CommitOutcome {
@@ -346,8 +360,15 @@ interface CommitOutcome {
   readonly invalidBackupPath?: string;
 }
 
-function isCommitOutcome(value: CommitOutcome | KilnConfigMutationResult): value is CommitOutcome {
-  return "appliedWrites" in value;
+/** Keeps operation settlements totally ordered even when a deterministic test clock is reused. */
+function nextSettlementTime(
+  store: ConfigMutationStore,
+  operation: KilnConfigMutationOperation,
+  candidate: Date,
+): string {
+  const latest = store.readLatestSettlement(operation);
+  const latestTime = latest === null ? Number.NEGATIVE_INFINITY : Date.parse(latest.settledAt);
+  return new Date(Math.max(candidate.getTime(), latestTime + 1)).toISOString();
 }
 
 function appliedWritesFor(write: ConfigMutationWrite): readonly KilnConfigAppliedWrite[] {

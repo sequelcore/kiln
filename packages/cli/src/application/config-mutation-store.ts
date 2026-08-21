@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
 import type {
   KilnConfigMutationApproval,
+  KilnConfigMutationOperation,
   KilnConfigMutationProposal,
   KilnConfigMutationSettlement,
 } from "@kilnai/gateway-contracts";
@@ -59,6 +60,12 @@ export interface ConfigMutationProgressMarker {
   readonly startedAt: string;
 }
 
+export interface InterruptedConfigMutation {
+  readonly record: ConfigMutationProposalRecord;
+  readonly marker: ConfigMutationProgressMarker;
+  readonly approvalId?: string;
+}
+
 /**
  * Durable governance records for the configuration mutation authority.
  *
@@ -96,6 +103,52 @@ export class ConfigMutationStore {
     rmSync(this.markerPath(proposalId), { force: true });
   }
 
+  /** Whether an operation has entered its commit window without settling yet. */
+  hasActiveProgress(operation: KilnConfigMutationOperation): boolean {
+    return this.readInterruptedMutation(operation) !== null;
+  }
+
+  /** Exact proposal and approval whose commit window was interrupted. */
+  readInterruptedMutation(operation: KilnConfigMutationOperation): InterruptedConfigMutation | null {
+    return this.readInterruptedMutationMatching({ operation }, `operation ${operation}`);
+  }
+
+  /** Any unresolved proposal that owns the commit window for this canonical path. */
+  readInterruptedMutationForPath(canonicalPath: string): InterruptedConfigMutation | null {
+    return this.readInterruptedMutationMatching({ canonicalPath }, "canonical path");
+  }
+
+  private readInterruptedMutationMatching(
+    filter: { readonly operation?: KilnConfigMutationOperation; readonly canonicalPath?: string },
+    description: string,
+  ): InterruptedConfigMutation | null {
+    const directory = join(this.root, "in-progress");
+    if (!existsSync(directory)) return null;
+    const candidates = readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => readJson<ConfigMutationProgressMarker>(join(directory, entry.name)))
+      .flatMap((marker) => {
+        if (marker === null || this.readSettlement(marker.proposalId) !== null) return [];
+        const record = this.readProposal(marker.proposalId);
+        if (record === null) return [];
+        if (filter.operation !== undefined && record.proposal.operation !== filter.operation) return [];
+        if (filter.canonicalPath !== undefined && !samePath(marker.path, filter.canonicalPath)) return [];
+        return [{ marker, record }];
+      })
+      .sort((left, right) => left.marker.startedAt.localeCompare(right.marker.startedAt)
+        || left.marker.proposalId.localeCompare(right.marker.proposalId));
+    if (candidates.length > 1) {
+      throw new Error(`Multiple interrupted configuration mutations exist for ${description}.`);
+    }
+    const interrupted = candidates[0];
+    if (!interrupted) return null;
+    const approval = this.readApprovalForProposal(interrupted.record);
+    return {
+      ...interrupted,
+      ...(approval === null ? {} : { approvalId: approval.approvalId }),
+    };
+  }
+
   saveProposal(record: ConfigMutationProposalRecord): void {
     writeJson(this.proposalPath(record.proposal.proposalId), record);
   }
@@ -112,6 +165,20 @@ export class ConfigMutationStore {
     return readJson<StoredConfigMutationApproval>(this.approvalPath(approvalId));
   }
 
+  private readApprovalForProposal(record: ConfigMutationProposalRecord): StoredConfigMutationApproval | null {
+    const directory = join(this.root, "approvals");
+    if (!existsSync(directory)) return null;
+    return readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => readJson<StoredConfigMutationApproval>(join(directory, entry.name)))
+      .filter((approval): approval is StoredConfigMutationApproval => approval !== null
+        && approval.proposalId === record.proposal.proposalId
+        && approval.proposalHash === record.proposalHash
+        && approval.status === "approved")
+      .sort((left, right) => left.approvedAt.localeCompare(right.approvedAt) || left.approvalId.localeCompare(right.approvalId))
+      .at(-1) ?? null;
+  }
+
   markApprovalConsumed(
     approval: StoredConfigMutationApproval,
     consumedAt: string,
@@ -123,6 +190,18 @@ export class ConfigMutationStore {
 
   readSettlement(proposalId: string): StoredConfigMutationSettlement | null {
     return readJson<StoredConfigMutationSettlement>(this.settlementPath(proposalId));
+  }
+
+  /** Latest durable outcome for one operation in this project namespace. */
+  readLatestSettlement(operation: KilnConfigMutationOperation): StoredConfigMutationSettlement | null {
+    const directory = join(this.root, "settlements");
+    if (!existsSync(directory)) return null;
+    return readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => readJson<StoredConfigMutationSettlement>(join(directory, entry.name)))
+      .filter((settlement): settlement is StoredConfigMutationSettlement => settlement?.operation === operation)
+      .sort((left, right) => left.settledAt.localeCompare(right.settledAt) || left.proposalId.localeCompare(right.proposalId))
+      .at(-1) ?? null;
   }
 
   /**
@@ -199,6 +278,10 @@ function projectNamespace(projectPath: string): string {
 
 function hashPath(value: string): string {
   return createHash("sha256").update(resolve(value).toLowerCase()).digest("hex").slice(0, 16);
+}
+
+function samePath(left: string, right: string): boolean {
+  return resolve(left).toLowerCase() === resolve(right).toLowerCase();
 }
 
 function safeId(value: string): string {

@@ -221,7 +221,7 @@ fixtures live under
 `packages/cli/tests/research/capability-fabric-baseline.test.ts`. Records bind
 SDK and runtime versions separately, exact official source revisions and
 artifact digests, npm integrity, semantic-loss classifications, fixture
-digests, and bounded live-evidence status. Codex `0.147.0`, Claude `0.3.232`,
+digests, and bounded live-evidence status. Codex `0.147.0`, Claude `0.3.237`,
 and OpenCode V2 `1.18.18` pass focused wrapper compatibility tests. The Codex
 read-only and approved-write proofs both completed through the SDK's exact
 bundled CLI with `gpt-5.6-sol`; the write produced canonical evidence without

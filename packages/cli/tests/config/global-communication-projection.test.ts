@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveCommunicationIntent } from "@kilnai/core";
+import { resolveCommunicationIntent } from "@kilnai/core/agents";
 import {
   readGlobalCommunicationProjectionSnapshot,
   syncGlobalCommunicationProjection,

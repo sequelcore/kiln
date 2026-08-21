@@ -56,7 +56,9 @@ export async function initCommand(
     return null;
   }
 
-  let targetId = flags.targetId ?? snapshot.defaultTargetId ?? snapshot.targets[0]?.id;
+  let targetId = flags.targetId
+    ?? snapshot.defaultTargetId
+    ?? (interactive ? snapshot.targets[0]?.id : undefined);
   const posture = flags.posture ?? snapshot.posture;
   let approve = flags.approve === true;
 
@@ -68,7 +70,9 @@ export async function initCommand(
       return null;
     }
     if (targetId !== snapshot.defaultTargetId && !approve) {
-      const approval = await prompt("Approve changing the default target? (y/n)", "n");
+      const selectedTarget = snapshot.targets.find((target) => target.id === targetId);
+      const targetLabel = selectedTarget ? `${selectedTarget.label} (${selectedTarget.id})` : targetId;
+      const approval = await prompt(`Approve changing the default target to ${targetLabel}? (y/n)`, "n");
       approve = isAffirmative(approval);
       if (!approve) {
         console.log("Onboarding cancelled. No configuration was written.");

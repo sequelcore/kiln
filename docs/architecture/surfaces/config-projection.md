@@ -705,6 +705,18 @@ again, and reports `replayed` as true. Rejections are deliberately not settled
 durably, so the same intent can be retried once the conflict that caused the
 rejection clears.
 
+The path-scoped mutation lock spans the revision fence, canonical commit,
+reconciliation, and terminal settlement. The existing in-progress marker makes
+that open window observable without adding a second state authority. Competing
+applies fail closed, terminal timestamps are monotonic per operation, and read
+models must treat an active marker as pending rather than infer completion from
+canonical bytes alone. A terminal settlement makes a leftover marker inactive;
+replay removes it. An interrupted mutation is resumed by its exact proposal and
+original approval rather than replaced by a no-op proposal, preserving the base
+revision, restore point, rollback token, and approval lineage of the write that
+actually landed. Every competing proposal for that canonical path fails closed,
+regardless of operation, until that recovery settles.
+
 After canonical writes succeed, the single reconciliation owner converges the
 targets the proposal declared, and effective state is read back. Native Claude
 Code, Codex, and OpenCode files are regenerated projections; config mutation
@@ -715,7 +727,9 @@ The terminal outcome is honest. `committed` means the canonical write and
 reconciliation both succeeded. `committed-reconciliation-failed` means the
 canonical write committed and reconciliation did not; it is never reported as a
 rejection, and every operator surface projects it as an applied change carrying
-failed projection effects. `rejected` means nothing was written.
+failed projection effects. A later retry remains pending until its own terminal
+settlement and cannot race another reconciliation for the same canonical path.
+`rejected` means nothing was written.
 
 Config mutation authority is separate from filesystem write authority. A
 read-only child may receive `kiln_config.read` at most. Proposal authority can

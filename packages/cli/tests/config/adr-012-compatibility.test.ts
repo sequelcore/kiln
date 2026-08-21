@@ -76,7 +76,7 @@ describe("ADR-012 global config compatibility", () => {
     },
     {
       name: "stale detached dist",
-      runningModulePath: "C:\\Users\\Fixture\\.bun\\install\\global\\node_modules\\@kilnai\\cli\\dist\\build-identity.js",
+      runningModulePath: "C:\\Users\\ExampleUser\\.bun\\install\\global\\node_modules\\@kilnai\\cli\\dist\\build-identity.js",
       expected: "detached-from-checkout",
     },
     {

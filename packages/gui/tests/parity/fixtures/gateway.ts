@@ -129,6 +129,12 @@ export const test = base.extend<Record<string, never>, GatewayFixture>({
 export async function waitForGuiReady(page: Page): Promise<void> {
   await expect(page.getByRole("status", { name: "Runtime bootstrap" })).toBeHidden({ timeout: 15_000 });
   await expect(page.locator("#composer-input")).toBeAttached({ timeout: 15_000 });
+  const targetSelector = page.getByRole("button", { name: /Execution target selector/ });
+  if ((await targetSelector.getAttribute("aria-label"))?.includes("Current selection: none")) {
+    await targetSelector.click();
+    await page.getByRole("option", { name: "Claude, Automatic" }).click();
+    await expect(targetSelector).toHaveAttribute("aria-label", /Current selection: Claude/);
+  }
 }
 
 export { expect };

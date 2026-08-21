@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../src/config.js";
-import type { DefaultBuiltinToolRegistryOptions, ResolvedInvocationEffect } from "@kilnai/core";
-import type { ToolResourceReadResult } from "@kilnai/core/tools";
+import type { ResolvedInvocationEffect } from "@kilnai/core/engine";
+import type { DefaultBuiltinToolRegistryOptions, ToolResourceReadResult } from "@kilnai/core/tools";
 
 const coreMocks = vi.hoisted(() => {
   const connect = vi.fn().mockResolvedValue(undefined);

@@ -182,7 +182,7 @@ describe("capability-fabric compatibility baseline", () => {
     const lockfile = await readFile(resolve(repositoryRoot, "bun.lock"), "utf8");
     const expected = {
       codex: ["@openai/codex-sdk", "0.147.0"],
-      claude: ["@anthropic-ai/claude-agent-sdk", "0.3.232"],
+      claude: ["@anthropic-ai/claude-agent-sdk", "0.3.237"],
       "opencode-v2": ["@opencode-ai/sdk", "1.18.18"],
     } as const;
 
@@ -195,6 +195,6 @@ describe("capability-fabric compatibility baseline", () => {
       expect(lockfile).toContain(sdk.npmIntegrity as string);
     }
 
-    expect(runtimeDependencies["@anthropic-ai/claude-agent-sdk"]).toBe("0.3.232");
+    expect(runtimeDependencies["@anthropic-ai/claude-agent-sdk"]).toBe("0.3.237");
   });
 });

@@ -3,8 +3,8 @@
   "harness": "claude",
   "sdk": {
     "package": "@anthropic-ai/claude-agent-sdk",
-    "version": "0.3.232",
-    "npmIntegrity": "sha512-8od7hJk9fZnF1/oYYiR9PvroGbZRQrpmNgKirjHNGoj5ur5YcAZLohI70XVUAUe3KvjB1msLxtkvmlAT9sqFAg=="
+    "version": "0.3.237",
+    "npmIntegrity": "sha512-MVjJ+13YP5uzA3WcCrtDmEirPcwdVsJjTGn/WbUtcXh0Y40KzcG5QocEo4x+QXl5eQ9kKIoDtcjIAfAAauXfeA=="
   },
   "runtime": {
     "name": "claude",
@@ -14,16 +14,16 @@
   },
   "source": {
     "repository": "https://github.com/anthropics/claude-agent-sdk-typescript",
-    "tag": "v0.3.232",
-    "commit": "8716a39f83dd7506e6421199caface603d4941ab"
+    "tag": "v0.3.237",
+    "commit": "591a180a197a73ce90042a6f97a7c59c100d2c3a"
   },
   "sourceArtifacts": [
-    { "id": "repository-readme", "origin": "official-repository", "path": "README.md", "sha256": "d7f8965afea6198e0448bb8a3f3e0806d4dd6cfb3696cab21b1ee36faaef2065", "supports": "Official tagged SDK usage, query, and custom-tool surface documentation." },
-    { "id": "published-sdk-types", "origin": "published-npm-package", "path": "sdk.d.ts", "sha256": "65ec4f17eb95dc6fa85d964249d4d27e31a150e4bfbaf94c531090862b7a1fd7", "supports": "Published 0.3.232 message, MCP/function invocation, deferred loading, elicitation, subagent, and plugin declarations." },
-    { "id": "published-tool-types", "origin": "published-npm-package", "path": "sdk-tools.d.ts", "sha256": "8060faab6c27ba4e08b7057cb46ce13805728fd286d12a249d85e8929dfd9241", "supports": "Published typed inputs and outputs for builtin tools including Agent, WebSearch, WebFetch, and AskUserQuestion." }
+    { "id": "repository-readme", "origin": "official-repository", "path": "README.md", "sha256": "a923405f92c474ca40c62d0b5ffb2897aba56f779a7ea36807555b1553d0cdab", "supports": "Official tagged SDK usage, query, and custom-tool surface documentation." },
+    { "id": "published-sdk-types", "origin": "published-npm-package", "path": "sdk.d.ts", "sha256": "f3ff9d3107cae9250f90005bef4a6fcac038055255522cf54d3840cdf2f0d3d8", "supports": "Published 0.3.237 message, MCP/function invocation, deferred loading, elicitation, subagent, and plugin declarations." },
+    { "id": "published-tool-types", "origin": "published-npm-package", "path": "sdk-tools.d.ts", "sha256": "0f499b9ca910978b1cd2ad8370858018b0ca5a0fbf491a4001f632d7b19923e1", "supports": "Published typed inputs and outputs for builtin tools including Agent, WebSearch, WebFetch, and AskUserQuestion." }
   ],
   "capabilities": [
-    { "id": "claude.mcp-function-invocation", "classification": "portable-function/mcp", "stability": "stable", "eligible": true, "representation": "lossy", "semanticLoss": ["SDK 0.3.232 preserves structured tool_use_result content and _meta, but the current Kiln adapter still projects tool-result output as a string."], "sourceArtifacts": ["published-sdk-types"] },
+    { "id": "claude.mcp-function-invocation", "classification": "portable-function/mcp", "stability": "stable", "eligible": true, "representation": "lossy", "semanticLoss": ["SDK 0.3.237 preserves structured tool_use_result content and _meta, but the current Kiln adapter still projects tool-result output as a string."], "sourceArtifacts": ["published-sdk-types"] },
     { "id": "claude.deferred-tool-loading", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "unrepresentable", "semanticLoss": ["The SDK exposes alwaysLoad and deferred-tool lifecycle fields, but Kiln has not yet admitted native search selection or deterministic replay semantics."], "sourceArtifacts": ["published-sdk-types"] },
     { "id": "claude.builtin-tools", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "lossy", "semanticLoss": ["Published input and output types describe builtin tools, but execution, permission, and availability remain harness-owned."], "sourceArtifacts": ["published-sdk-types", "published-tool-types"] },
     { "id": "claude.agent-tool", "classification": "harness-private", "stability": "stable", "eligible": false, "representation": "lossy", "semanticLoss": ["The SDK exposes typed agent definitions and results, but this native subagent lifecycle is not Kiln Agent Task or A2A authority."], "sourceArtifacts": ["published-sdk-types", "published-tool-types"] },

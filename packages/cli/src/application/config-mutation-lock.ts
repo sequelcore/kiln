@@ -12,7 +12,7 @@ export class ConfigMutationLockUnavailableError extends Error {
   readonly name = "ConfigMutationLockUnavailableError";
 
   constructor(readonly lockPath: string, cause?: unknown) {
-    super(`Configuration mutation is already in progress: ${lockPath}`);
+    super("Configuration mutation is already in progress.");
     this.cause = cause;
   }
 }
@@ -28,10 +28,10 @@ export class ConfigMutationLockUnavailableError extends Error {
  * A lock whose owning process is gone is reclaimed, because a crashed apply must
  * not block the operator forever.
  */
-export function withConfigMutationLock<T>(lockPath: string, run: () => T): T {
+export async function withConfigMutationLock<T>(lockPath: string, run: () => T | Promise<T>): Promise<T> {
   const lock = acquire(lockPath);
   try {
-    return run();
+    return await run();
   } finally {
     release(lockPath, lock);
   }

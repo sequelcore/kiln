@@ -49,7 +49,7 @@ describe("ExecutionRoutePicker", () => {
     render(<ExecutionRoutePicker catalog={catalog} onSelect={vi.fn()} onRepair={onRepair} />);
     const offline = screen.getByRole("option", { name: /Offline, Exact account, Unavailable/ });
     expect(offline).toHaveAttribute("aria-disabled", "true");
-    expect(within(offline).getByText("missing-credentials")).toBeInTheDocument();
+    expect(within(offline).getByText("Missing credentials")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Authenticate private-provider" }));
     fireEvent.click(screen.getByRole("button", { name: "Refresh execution targets" }));
     expect(onRepair).toHaveBeenNthCalledWith(1, { routeId: "offline", providerId: "private-provider", action: "authenticate-provider" });

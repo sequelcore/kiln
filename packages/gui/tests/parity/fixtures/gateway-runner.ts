@@ -649,7 +649,7 @@ function createDeterministicOperatorRouting(): {
       {
         ...executionRoute("deepseek-flash-unavailable", "DeepSeek Flash", "opencode-go", "deepseek-v3.2-speciale"),
         availability: "unavailable" as const,
-        reasonCodes: ["provider-model-unavailable"],
+        reasonCodes: ["model-unavailable"],
         repairActions: ["refresh-route-catalog" as const],
       },
     ],
@@ -807,7 +807,10 @@ async function main(): Promise<void> {
       ? restoredSessionDetail
       : contextSessionDetails[sessionId] ?? null,
     builtinToolOptions: {
-      memoryResources: { repository: memoryRepository },
+      memoryResources: {
+        repository: memoryRepository,
+        authority: { kind: "trusted-internal" },
+      },
     },
     operatorTransport: {
       sessionManager: {

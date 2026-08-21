@@ -70,7 +70,14 @@ export function filterExecutionRouteOptions(
 }
 
 export function conciseExecutionRouteUnavailableReason(reason: string): string {
-  return reason.length > 72 ? `${reason.slice(0, 69).trimEnd()}…` : reason;
+  const readable = reason
+    .split(", ")
+    .map((code) => {
+      const words = code.replaceAll("-", " ");
+      return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+    })
+    .join(", ");
+  return readable.length > 72 ? `${readable.slice(0, 69).trimEnd()}…` : readable;
 }
 
 function projectRoute(route: ExecutionRouteCatalogEntry): ExecutionRoutePickerRow {

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { CommunicationIntent } from "@kilnai/core";
+import type { CommunicationIntent } from "@kilnai/core/agents";
 import {
   PROJECT_CONFIG_FIELD_DESCRIPTORS,
   PROJECT_CONFIG_SCHEMA,

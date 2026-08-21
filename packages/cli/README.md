@@ -58,8 +58,13 @@ kiln init --non-interactive --target-id <target-id> --approve
 
 Provider and target admission must already be complete. Creating a new target
 is a separate governed operation; `kiln init` does not manufacture the policy,
-economic, or discovery evidence required to admit one. Rerunning an already
-adopted project is a no-op.
+economic, or discovery evidence required to admit one. Automation must name an
+exact `--target-id` when no default exists; `--approve` never selects the first
+catalog entry implicitly. Rerunning a reconciled project is a no-op. If the
+canonical write committed but reconciliation failed, rerunning retries that
+reconciliation before reporting the first turn ready. While that reconciliation
+is active, status remains pending and another apply fails closed. Crash recovery
+resumes the exact interrupted proposal, retaining its approval and rollback.
 
 ### `kiln dev`
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const projectMocks = vi.hoisted(() => ({
   resolveProjectRoot: vi.fn(),
   collectProjectContextEvidence: vi.fn(),
-  renderProjectContextMarkdown: vi.fn(),
+  renderProjectContextEvidenceMarkdown: vi.fn(),
   writeProjectContextAdoption: vi.fn(),
 }));
 
@@ -13,7 +13,7 @@ vi.mock("../../src/application/project-root-resolver.js", () => ({
 
 vi.mock("../../src/application/project-context.js", () => ({
   collectProjectContextEvidence: projectMocks.collectProjectContextEvidence,
-  renderProjectContextMarkdown: projectMocks.renderProjectContextMarkdown,
+  renderProjectContextEvidenceMarkdown: projectMocks.renderProjectContextEvidenceMarkdown,
   writeProjectContextAdoption: projectMocks.writeProjectContextAdoption,
 }));
 
@@ -47,7 +47,7 @@ describe("projectCommand", () => {
       workspacePackages: ["packages/*"],
       docs: ["README.md"],
     });
-    projectMocks.renderProjectContextMarkdown.mockReturnValue("# Project Context");
+    projectMocks.renderProjectContextEvidenceMarkdown.mockReturnValue("# Project Context");
     projectMocks.writeProjectContextAdoption.mockReturnValue({
       written: true,
       path: "C:/project/.kiln/project-context.md",
