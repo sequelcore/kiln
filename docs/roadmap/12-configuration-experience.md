@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slice 0 in progress - ADR-014 and ADR-015 are ratified; finish the property ledger and ADR-012 compatibility fixture before Slice 1.
+Execution: Slice 0 complete - begin the Slice 1 project schema pilot.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -250,9 +250,11 @@ documented re-adoption path; it never preserves a live legacy execution path.
 
 ### Slice 0 - Configuration Inventory And ADR
 
-Status: In progress. ADR-014 and ADR-015 are ratified and the project-schema
-mechanism spike passes. The property-level ownership ledger and ADR-012 build /
-diagnostic compatibility fixture remain before Slice 0 closes.
+Status: Complete. ADR-014 and ADR-015 are ratified, the project-schema
+mechanism spike passes, the property-level ownership ledger names every current
+field or repeated-record property, and the ADR-012 build/diagnostic fixture
+covers linked, detached, and rebuilt checkout paths. Unresolved implementation
+work is transferred to the exact later slice and owner recorded in the ledger.
 
 Inventory every reader, writer, schema, type assertion, merge rule, default,
 scope, generated artifact, durable store, projection, docs owner, CLI command,
@@ -274,7 +276,7 @@ configuration or runtime admission.
 
 ### Slice 1 - Project Schema Pilot
 
-Status: Blocked on Slice 0.
+Status: Ready.
 
 Use `.kiln/kiln.yaml` as the first bounded schema-first migration. Replace the
 unchecked or duplicated structural type and validator paths with one runtime

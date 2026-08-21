@@ -1,22 +1,24 @@
 # Configuration Surface Inventory
 
-Status: active repository surface map for Roadmap 12 Slice 0; not yet fit as
-the pre-ADR evidence base.
+Status: completed Roadmap 12 Slice 0 evidence base. Current property ownership
+is promoted to the architecture ledger; unresolved implementation work is
+transferred below to an exact later slice and owner.
 
 Owner: [Roadmap 12 — Configuration Experience](../../roadmap/12-configuration-experience.md)
 
-Evidence cutoff: `dev` at
-`3fa87a53748aad1337fd1349d45fc706f21562aa`, inspected 2026-08-20 with the
-operator-owned dirty worktree paths excluded.
+Evidence cutoff: `dev` at `b04f6bcd6034892a10d055b0dea5afb17c2ed87a`,
+extended by the Slice 0 ledger and ADR-012 fixture in the immediately following
+change. Operator-owned formal-verification worktree paths remained excluded.
 
 Promotion targets: the Roadmap 12 schema and mutation ADR, configuration
 architecture, generated-schema policy, and the bounded fidelity spike.
 
-Exit condition: every configuration field has a ratified structural and
-semantic owner; blockers and unknowns are resolved or transferred to an exact
-roadmap dependency; the accepted decisions are promoted to an ADR; and the
-unique inventory evidence is deleted or reduced to durable evidence that the
-ADR cannot carry.
+Exit condition: met. Every configuration property is covered by
+[Configuration Property Ownership](../../architecture/surfaces/configuration-property-ownership.md),
+including repeated-record patterns, current readers/writers, classification,
+activation evidence, and exact transfers. ADR-014 and ADR-015 own the durable
+decisions; this document retains only evidence and blocker history that those
+decisions cannot carry.
 
 ## Question
 
@@ -61,15 +63,17 @@ reconstructible or obsolete state.
 ## Review Disposition
 
 The GPT-5.6 Pro review of `dev@6367d67b` found three High and five Medium
-findings. B1–B9 remain legitimate roadmap blockers after the routing
-corrections below, but this document remains an interim surface map until:
+findings. B1–B9 remain legitimate implementation blockers after the routing
+corrections below, but they no longer block Slice 0 because each has an exact
+owner, target slice, closure evidence, and transfer condition. Slice 0 closed
+after:
 
 - H1–H3 have focused failing behavioral fixtures and bounded corrections;
-- every property has a ledger entry rather than a grouped `mixed` disposition;
+- every property received a ledger entry rather than a grouped `mixed` disposition;
 - every blocker names its slice, owner, closure evidence, and transfer
   condition;
-- ADR-012 compatibility is revalidated; and
-- the reduced pre-ADR mechanism spike passes.
+- ADR-012 compatibility was revalidated; and
+- the reduced pre-ADR mechanism spike passed.
 
 The current corrective work closes H1 and H3. The authority decision for H2 is
 ratified in [ADR-015](../../adr/ADR-015-model-facing-execution-authority.md),
@@ -309,9 +313,9 @@ than surface-local inference.
 
 | Blocker | Blocking slice | Owner | Closure evidence | Transfer condition |
 | --- | --- | --- | --- | --- |
-| H1 | Slice 1 project pilot and Slice 2 parity | CLI project composition | failing then passing ceiling preservation/rejection tests across status and runtime composition | closed only when project cannot omit or widen the global ceiling |
+| H1 | Containment closed; replacement schema in Slice 1 and provenance in Slice 2 | CLI project composition | passing global-field preservation and broadening-rejection tests across status/runtime | transfer only the schema/provenance replacement; do not re-open whole-object replacement |
 | H2 | Authority decision and immediate containment closed; replacement schema in Slice 1 and provenance parity in Slice 2 | CLI permission composition, Runtime caller attenuation, Core invocation/effect admission | cross-surface denial, parent, egress, memory, Tools MCP, and route-startup negative fixtures | ADR-015 is authoritative; transfer only the named schema/read-model artifacts, not another authority source |
-| H3 | Slice 1 project pilot | project configuration and run verification owners | global-plus-project required failing gate changes terminal result; `coverageThreshold` implemented or deleted | no transfer while admitted project gates can disappear |
+| H3 | Containment closed; strict field schema in Slice 1 | project configuration and run verification owners | passing required-gate preservation tests; obsolete `coverageThreshold` rejected | transfer strict schema ownership only; do not restore replacement merge |
 | B1 | Slice 9 app/gateway migration; also blocks onboarding that emits gateway config | CLI init writer and Core gateway reader | generated output passes the production gateway reader | may remain outside the project-schema pilot after the writer/reader contradiction is named |
 | B2 | Slices 1 and 2 | CLI effective composition and shared status projection | one admitted composition path produces identical runtime/status outcomes | expand closure to include H1–H3 rather than status merge alone |
 | B3 | Slice 1 | project structural schema owner | every project property parses from `unknown` with stable path diagnostics; asserted path deleted | none; direct pilot blocker |
@@ -336,19 +340,13 @@ merge policy.
 
 ## Field Group Inventory
 
-The paths below are an interim surface map, not the property-level ledger
-required by Slice 0 acceptance. They group repeated records only when the
-current source defines one shared structural shape. `Intent`, `evidence`, and
-activation classifications are ADR inputs where the code does not encode them.
-
-The completion ledger must contain one row per property with canonical
-identity, structural owner, semantic owner, reader, writer, merge/default rule,
-consumer, plane, sensitivity, authority impact, activation, durable store, and
-one disposition: `supported`, `managed evidence`, `projection`, `obsolete`, or
-`unreachable`. Every current `mixed` row must be split by member. Declared
-residue such as `ResolvedKilnConfig.providers` and `skillGeneration` requires a
-source/consumer/disposition or deletion
-([`kiln-yaml-types.ts`](../../../packages/cli/src/kiln-yaml-types.ts#L687)).
+The paths below retain the compact scouting map. The completed member-level
+contract is [Configuration Property Ownership](../../architecture/surfaces/configuration-property-ownership.md).
+That ledger gives every leaf or repeated-record property a canonical identity,
+structural and semantic owner, reader, writer, merge/default rule, consumer,
+plane, sensitivity, authority impact, activation, durable store, disposition,
+and exact transfer. It also resolves `ResolvedKilnConfig` residue rather than
+treating derived fields as another configuration authority.
 
 ### Global configuration
 
@@ -559,6 +557,14 @@ Use one small global document at the same canonical version to prove:
 
 The fixture must cover linked checkout, stale and rebuilt `dist`, and the
 `doctor` linkage verdict, or the ADR must amend its outdated build premise.
+
+**Result:** passed in
+`packages/cli/tests/config/adr-012-compatibility.test.ts`. The fixture holds the
+document at canonical version `"3"`, admits an additive optional field, rejects
+an unknown field through the single diagnostic owner, and asserts the exact
+running CLI version and resolved module path once. Its doctor matrix covers a
+linked source checkout, a detached stale global `dist`, and a rebuilt checkout
+`dist`.
 
 ### Later vertical conformance suite
 

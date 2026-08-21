@@ -177,6 +177,9 @@ Runtime, operator, and harness-facing surface contracts.
   Canonical global config, native harness projection, install-state, drift detection,
   sync/uninstall/import-native behavior, engine enablement removal, and
   managed-agent target projection.
+- [`surfaces/configuration-property-ownership.md`](surfaces/configuration-property-ownership.md)
+  Property-level ownership, classification, activation, writer lifecycle, and
+  exact roadmap transfer for the four canonical YAML families.
 - [`surfaces/inspectable-agent-work.md`](surfaces/inspectable-agent-work.md)
   Canonical cross-surface and cross-harness inspectability contract for agent
   work: work identity, authority, lifecycle, evidence, resources, attention

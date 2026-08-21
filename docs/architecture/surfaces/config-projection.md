@@ -54,6 +54,10 @@ No GUI, TUI, runtime, SDK, or MCP surface may rebuild these rules independently.
 Those surfaces consume resolved config, route health, gateway contracts, or
 runtime tool options.
 
+The property-level owner, classification, current activation evidence, and
+roadmap transfer for every canonical YAML field are recorded in
+[Configuration Property Ownership](configuration-property-ownership.md).
+
 ## Target Catalog Projection
 
 `targetCatalog` is the single source for direct and harness execution targets,
