@@ -39,18 +39,27 @@ package-install instruction.
 
 ### `kiln init`
 
-Interactive wizard that generates `app.yaml` and `gateway.yaml`:
+Adopt the current project for its first safe planning turn:
 
 ```bash
 kiln init
 ```
 
-Walks you through:
-- Provider selection
-- Channel selection
-- Team mode selection for YAML app scaffolding
-- Quality gates (test, lint, typecheck)
-- Domain detection (React, Python, docs, etc.)
+The interactive flow selects an already admitted direct target, confirms the
+restrictive `read-only` permission posture, and writes only
+`.kiln/kiln.yaml` through the configuration mutation authority. It never
+writes credentials, machine paths, `app.yaml`, `gateway.yaml`, or wizard state.
+
+For deterministic automation:
+
+```bash
+kiln init --non-interactive --target-id <target-id> --approve
+```
+
+Provider and target admission must already be complete. Creating a new target
+is a separate governed operation; `kiln init` does not manufacture the policy,
+economic, or discovery evidence required to admit one. Rerunning an already
+adopted project is a no-op.
 
 ### `kiln dev`
 

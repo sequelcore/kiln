@@ -26,6 +26,7 @@ import {
   type GuiDeliberationLevelId,
   type ExecutionRouteCatalog,
   type KilnConfigSetupAction,
+  type KilnConfigurationOnboardingApplyRequest,
   type OperatorWorkspaceTreeEntry,
   type OperatorThemeName,
 } from "@kilnai/gateway-contracts";
@@ -60,6 +61,7 @@ import {
 import { SessionList, type SessionHistoryLoadState } from "./session-list.js";
 import {
   resolveGatewayHttpBaseUrl,
+  readOperatorToken,
   toWsUrl,
   OPERATOR_TERMINAL_PANEL_ID,
 } from "./app-shell-runtime.js";
@@ -99,6 +101,7 @@ import { SettingsWorkspace } from "./settings-workspace.js";
 import type { SettingsSection } from "./settings-navigation.js";
 import { SetupPanel } from "./setup-panel.js";
 import { AvailableModelsPanel } from "./available-models-panel.js";
+import { ConfigurationOnboardingPanel } from "./configuration-onboarding-panel.js";
 
 const CommandPalette = lazy(async () => {
   const module = await import("./command-palette.js");
@@ -282,6 +285,8 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const [memoryLatticeInvalidationTick, setMemoryLatticeInvalidationTick] = useState(0);
   const [setupActionInFlight, setSetupActionInFlight] = useState<KilnConfigSetupAction | null>(null);
   const [setupActionFeedback, setSetupActionFeedback] = useState<string | null>(null);
+  const [onboardingApplying, setOnboardingApplying] = useState(false);
+  const [onboardingFeedback, setOnboardingFeedback] = useState<string | null>(null);
   const [managedAgentActionFailure, setManagedAgentActionFailure] = useState<ManagedAgentActionFailure | null>(null);
   const [operatorTerminalAvailable, setOperatorTerminalAvailable] = useState(false);
   const [operatorTerminalExpanded, setOperatorTerminalExpandedState] = useState(false);
@@ -403,7 +408,10 @@ function useAppShellRuntimeView(props: AppShellProps) {
   const authenticateProvider = useSessionStore((state) => state.authenticateProvider);
   const disconnect = useSessionStore((state) => state.disconnect);
   const setTheme = useUiStore((state) => state.setTheme);
-  const gatewayClient = useMemo(() => new GuiGatewayClient(resolveGatewayHttpBaseUrl()), []);
+  const gatewayClient = useMemo(
+    () => new GuiGatewayClient(resolveGatewayHttpBaseUrl(), readOperatorToken()),
+    [],
+  );
   const workspaceDocuments = useWorkspaceDocuments({
     gatewayClient,
     onLastDocumentClosed: () => {
@@ -773,6 +781,28 @@ function useAppShellRuntimeView(props: AppShellProps) {
     queryFn: async () => gatewayClient.loadConfigSetup(),
     enabled: gatewayReady && settingsSection === "configuration",
   });
+  const onboardingQuery = useQuery({
+    queryKey: ["gui", "configuration-onboarding", gatewayReady ? "ready" : "waiting"],
+    queryFn: async () => gatewayClient.loadConfigurationOnboarding(),
+    enabled: gatewayReady && settingsSection === "configuration",
+  });
+
+  const applyOnboarding = async (
+    request: KilnConfigurationOnboardingApplyRequest,
+  ): Promise<void> => {
+    if (onboardingApplying) return;
+    setOnboardingApplying(true);
+    setOnboardingFeedback(null);
+    try {
+      const result = await gatewayClient.applyConfigurationOnboarding(request);
+      setOnboardingFeedback(result.nextAction);
+      await Promise.all([onboardingQuery.refetch(), setupQuery.refetch()]);
+    } catch (error) {
+      setOnboardingFeedback(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOnboardingApplying(false);
+    }
+  };
 
   const executeSetupAction = async (action: KilnConfigSetupAction): Promise<void> => {
     if (setupActionInFlight) {
@@ -1087,7 +1117,7 @@ function useAppShellRuntimeView(props: AppShellProps) {
             onSelectSection={openSettings}
             onBack={() => props.onCloseSettings?.()}
             appearance={<AppearanceSettingsPanel onThemeSelected={persistThemePreference} />}
-            configuration={(
+            configuration={onboardingQuery.data?.status === "complete" ? (
               <SetupPanel
                 snapshot={setupQuery.data ?? null}
                 loading={Boolean(setupQuery.isLoading)}
@@ -1099,6 +1129,20 @@ function useAppShellRuntimeView(props: AppShellProps) {
                 actionInFlight={setupActionInFlight}
                 actionFeedback={setupActionFeedback}
               />
+            ) : (
+              <section aria-label="First-run configuration" className="h-full overflow-auto bg-workspace-viewer px-5 py-7 sm:px-8 sm:py-9">
+                <div className="mx-auto w-full max-w-3xl">
+                  <ConfigurationOnboardingPanel
+                    snapshot={onboardingQuery.data ?? null}
+                    loading={Boolean(onboardingQuery.isLoading)}
+                    applying={onboardingApplying}
+                    error={onboardingQuery.error instanceof Error ? onboardingQuery.error : null}
+                    feedback={onboardingFeedback}
+                    onRefresh={() => void onboardingQuery.refetch()}
+                    onApply={(request) => void applyOnboarding(request)}
+                  />
+                </div>
+              </section>
             )}
             availableModels={<AvailableModelsPanel catalog={availableModels} catalogRevision={executionRouteCatalog.revision} creationResult={executionRouteCreationResult} send={outboundSend} />}
           />

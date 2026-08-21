@@ -15,6 +15,10 @@ import { withWorkGovernanceContext } from "../application/work-governance-contex
 import { readConfigStatusSnapshot } from "../application/config-status.js";
 import { executeConfigSetupAction } from "../application/config-setup-actions.js";
 import {
+  applyConfigurationOnboarding,
+  readConfigurationOnboarding,
+} from "../application/configuration-onboarding.js";
+import {
   createCliTranscriptSessionTokenUsageReader,
   createRuntimeSessionTurnBudgetFromGlobalConfig,
 } from "../application/session-turn-budget.js";
@@ -370,6 +374,14 @@ export async function guiCommand(
       return { ...snapshot.setup, ...(snapshot.effectiveConfig ? { effectiveConfig: snapshot.effectiveConfig } : {}) };
     },
     executeSetupAction: async (action) => executeConfigSetupAction({ projectPath: cwd, action }),
+    getConfigurationOnboarding: async () => readConfigurationOnboarding({ projectPath: cwd }),
+    applyConfigurationOnboarding: async (request) => applyConfigurationOnboarding({
+      projectPath: cwd,
+      request,
+      approve: true,
+      approvedBy: process.env.USERNAME ?? process.env.USER ?? "operator",
+      approvalSurface: "gui",
+    }),
     loadOperatorSessionHistory: () => loadOperatorSessionSummaries(sessionStore, transcriptStore),
     getSessionDetail: (sessionId) => loadSessionDetail(transcriptStore, sessionId),
     workingDirectory: cwd,

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyToml } from "smol-toml";
+import { stringify as stringifyYaml } from "yaml";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readConfigStatusSnapshot as readConfigStatusSnapshotImplementation,
@@ -21,7 +22,7 @@ import {
   writeNativeProjectionInstallState,
 } from "../../src/config/native-projection-state.js";
 import { syncNativeSkillProjections } from "../../src/config/native-skill-projection.js";
-import { defaultKilnYaml, writeKilnYaml } from "../../src/kiln-yaml.js";
+import { defaultKilnYaml, type KilnProjectConfig } from "../../src/kiln-yaml.js";
 import {
   createRuntimePermissionObservationStore,
   deriveCodexRuntimePermissionRequest,
@@ -58,6 +59,11 @@ function writeProjectConfig(projectPath: string): void {
     ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
     permissions: { approval: "on-request", sandbox: "read-only" },
   });
+}
+
+function writeProjectConfigFixtureFile(kilnDir: string, config: KilnProjectConfig): void {
+  mkdirSync(kilnDir, { recursive: true });
+  writeFileSync(join(kilnDir, "kiln.yaml"), stringifyYaml(config), "utf8");
 }
 
 function writeSkill(root: string, name: string, description: string): void {
@@ -287,7 +293,8 @@ describe("config-status", () => {
     expect(snapshot.effectiveConfig).toBeUndefined();
     expect(snapshot.errors).toContain(
       "effective config: Project permissions.sandbox cannot broaden global.permissions.",
-    );
+);
+
   });
 
   it("reports the retired global V1 boundary through config health", async () => {
@@ -1018,7 +1025,7 @@ describe("config-status", () => {
     };
 
     await syncNativeSkillProjections(tempDir, { userHome, skillConfig });
-    writeKilnYaml(join(tempDir, ".kiln"), defaultKilnYaml("default"));
+    writeProjectConfigFixtureFile(join(tempDir, ".kiln"), defaultKilnYaml("default"));
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [

@@ -1,172 +1,142 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
-import { DomainRegistry } from "@kilnai/core";
+import type {
+  KilnConfigurationOnboardingApplyRequest,
+  KilnConfigurationOnboardingSnapshot,
+} from "@kilnai/gateway-contracts";
 import type { KilnAppConfig } from "../config.js";
-import { generateAppYaml, generateGatewayYaml } from "./init-templates.js";
-import type { InitOptions } from "./init-templates.js";
-import { defaultKilnYaml, writeKilnYaml } from "../kiln-yaml.js";
-import type { KilnProjectConfig } from "../kiln-yaml-types.js";
+import { readKilnYaml, type KilnProjectConfig } from "../kiln-yaml.js";
+import {
+  applyConfigurationOnboarding,
+  readConfigurationOnboarding,
+  type ConfigurationOnboardingDependencies,
+} from "../application/configuration-onboarding.js";
 
 export interface InitFlags {
-  force?: boolean;
   interactive?: boolean;
-  domain?: string;
-  provider?: string;
-  channels?: string;
-  teamMode?: string;
+  targetId?: string;
+  posture?: KilnConfigurationOnboardingApplyRequest["posture"];
+  approve?: boolean;
+  /** Test/runtime injection; never serialized into canonical project state. */
+  dependencies?: ConfigurationOnboardingDependencies;
 }
 
-async function prompt(question: string, defaultVal?: string): Promise<string> {
+async function prompt(question: string, defaultValue?: string): Promise<string> {
+  const { createInterface } = await import("node:readline");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    const suffix = defaultVal ? ` [${defaultVal}]` : "";
+    const suffix = defaultValue ? ` [${defaultValue}]` : "";
     rl.question(`${question}${suffix}: `, (answer) => {
       rl.close();
-      resolve(answer.trim() || defaultVal || "");
+      resolve(answer.trim() || defaultValue || "");
     });
   });
 }
 
+/**
+ * Runs the first-run project adoption flow. The only canonical writer is the
+ * configuration mutation authority reached through the onboarding service;
+ * this command never creates app/gateway/memory templates or provider intent.
+ */
 export async function initCommand(
-  appConfig: KilnAppConfig,
+  _appConfig: KilnAppConfig,
   projectPath?: string,
-  flags?: InitFlags,
+  flags: InitFlags = {},
 ): Promise<KilnProjectConfig | null> {
   const root = projectPath ?? process.cwd();
-  const appDir = join(root, ".kiln");
+  const interactive = flags.interactive !== false && process.stdin.isTTY === true;
+  const snapshot = readConfigurationOnboarding({
+    projectPath: root,
+    posture: flags.posture,
+    dependencies: flags.dependencies,
+  });
 
-  if (existsSync(appDir) && !flags?.force) {
-    console.log("Already initialized.");
+  if (snapshot.status === "blocked") {
+    reportBlocked(snapshot);
     return null;
   }
 
-  const isInteractive =
-    flags?.interactive !== false && process.stdin.isTTY === true;
+  let targetId = flags.targetId ?? snapshot.defaultTargetId ?? snapshot.targets[0]?.id;
+  const posture = flags.posture ?? snapshot.posture;
+  let approve = flags.approve === true;
 
-  const builtins = DomainRegistry.loadBuiltinDomains();
-  const registry = appConfig.createRegistry();
-  for (const d of builtins) {
-    registry.register(d);
-  }
-  registry.loadInstalledDomains(root);
-
-  const allDomains = registry.all();
-  const detected = registry.detect(root);
-  const detectedDomain = detected.length > 0 ? detected[0]! : null;
-
-  let chosenDomainName: string;
-  let chosenProvider: string;
-  let chosenChannels: string[];
-  let chosenTeamMode: string;
-
-  if (isInteractive) {
-    if (detectedDomain) {
-      console.log(`\nDetected domain: ${detectedDomain.displayName} (${detectedDomain.name})`);
-      const confirm = await prompt("Use detected domain? (y/n)", "y");
-      if (confirm.toLowerCase() === "n") {
-        if (allDomains.length > 0) {
-          console.log("\nAvailable domains:");
-          for (let i = 0; i < allDomains.length; i++) {
-            console.log(`  ${i + 1}. ${allDomains[i]!.displayName} (${allDomains[i]!.name})`);
-          }
-          const sel = await prompt(`Select domain (1-${allDomains.length})`, "1");
-          const idx = parseInt(sel, 10) - 1;
-          const selected = allDomains[Math.max(0, Math.min(idx, allDomains.length - 1))];
-          chosenDomainName = selected?.name ?? detectedDomain.name;
-        } else {
-          chosenDomainName = detectedDomain.name;
-        }
-      } else {
-        chosenDomainName = detectedDomain.name;
-      }
-    } else if (allDomains.length > 0) {
-      console.log("\nNo domain detected. Available domains:");
-      for (let i = 0; i < allDomains.length; i++) {
-        console.log(`  ${i + 1}. ${allDomains[i]!.displayName} (${allDomains[i]!.name})`);
-      }
-      const sel = await prompt(`Select domain (1-${allDomains.length})`, "1");
-      const idx = parseInt(sel, 10) - 1;
-      const selected = allDomains[Math.max(0, Math.min(idx, allDomains.length - 1))];
-      chosenDomainName = selected?.name ?? "generic";
-    } else {
-      chosenDomainName = "generic";
+  if (interactive) {
+    targetId = await chooseTarget(snapshot, targetId);
+    const postureAccepted = isAffirmative(await prompt("Use the read-only permission posture? (y/n)", "y"));
+    if (!postureAccepted) {
+      console.log("Onboarding cancelled. No configuration was written.");
+      return null;
     }
+    if (targetId !== snapshot.defaultTargetId && !approve) {
+      const approval = await prompt("Approve changing the default target? (y/n)", "n");
+      approve = isAffirmative(approval);
+      if (!approve) {
+        console.log("Onboarding cancelled. No configuration was written.");
+        return null;
+      }
+    }
+    const confirmation = await prompt("Apply onboarding? (y/n)", "y");
+    if (!isAffirmative(confirmation)) {
+      console.log("Onboarding cancelled. No configuration was written.");
+      return null;
+    }
+  }
 
-    const providerAnswer = await prompt(
-      "Provider (anthropic/openai/deepseek/ollama)",
-      "anthropic",
-    );
-    chosenProvider = providerAnswer || "anthropic";
+  const request: KilnConfigurationOnboardingApplyRequest = {
+    schemaVersion: 1,
+    scope: "project",
+    posture,
+    targetId: targetId ?? null,
+  };
+  const result = await applyConfigurationOnboarding({
+    projectPath: root,
+    request,
+    approve,
+    dependencies: flags.dependencies,
+  });
 
-    const channelsAnswer = await prompt("Channels (comma-separated: cli,web,api)", "cli,web");
-    chosenChannels = (channelsAnswer || "cli,web")
-      .split(",")
-      .map((c) => c.trim())
-      .filter(Boolean);
-
-    const teamModeAnswer = await prompt(
-      "Team mode (sequential/supervisor/swarm)",
-      "sequential",
-    );
-    chosenTeamMode = teamModeAnswer || "sequential";
+  if (result.status === "blocked" || result.status === "rejected") {
+    const message = result.nextAction ?? "Onboarding did not complete.";
+    console.error(message);
+    return readAdoptedProject(root);
+  }
+  if (result.status === "partial") {
+    console.error(result.nextAction ?? "Onboarding partially applied; review the reported operation outcomes.");
+  } else if (result.projectAdoption === null && result.targetSelection === null) {
+    console.log("Already initialized.");
   } else {
-    if (flags?.domain) {
-      chosenDomainName = flags.domain;
-    } else if (detectedDomain) {
-      chosenDomainName = detectedDomain.name;
-    } else {
-      chosenDomainName = "generic";
-    }
-
-    chosenProvider = flags?.provider ?? "anthropic";
-    chosenChannels = flags?.channels
-      ? flags.channels.split(",").map((c) => c.trim()).filter(Boolean)
-      : ["cli", "web"];
-    chosenTeamMode = flags?.teamMode ?? "sequential";
+    console.log("Kiln project onboarding complete.");
   }
+  return readAdoptedProject(root);
+}
 
-  const chosenDomainConfig =
-    registry.get(chosenDomainName) ??
-    (detectedDomain?.name === chosenDomainName ? detectedDomain : null);
-  const qualityGates = chosenDomainConfig?.qualityGates ?? [];
+async function chooseTarget(snapshot: KilnConfigurationOnboardingSnapshot, current: string | undefined): Promise<string | undefined> {
+  if (snapshot.targets.length <= 1) return current;
+  console.log("\nAdmitted direct targets:");
+  snapshot.targets.forEach((target, index) => {
+    console.log(`  ${index + 1}. ${target.label} (${target.id})${target.selected ? " *" : ""}`);
+  });
+  const defaultIndex = Math.max(0, snapshot.targets.findIndex((target) => target.id === current));
+  const answer = await prompt(`Select target (1-${snapshot.targets.length})`, String(defaultIndex + 1));
+  const index = Number.parseInt(answer, 10) - 1;
+  return snapshot.targets[Math.max(0, Math.min(index, snapshot.targets.length - 1))]?.id ?? current;
+}
 
-  const kilnYaml: KilnProjectConfig = {
-    ...defaultKilnYaml(chosenDomainName),
-    channels: chosenChannels,
-    teamMode: chosenTeamMode,
-    requireApproval: true,
-    maxDepth: 3,
-    parallelWorkers: 2,
-  };
+function reportBlocked(snapshot: KilnConfigurationOnboardingSnapshot): void {
+  console.error(snapshot.blockers[0]?.message ?? "Onboarding is blocked.");
+  if (snapshot.nextAction) console.error(snapshot.nextAction);
+}
 
-  const initOptions: InitOptions = {
-    appName: "kiln",
-    domain: chosenDomainName,
-    domainDisplayName: chosenDomainConfig?.displayName ?? chosenDomainName,
-    provider: chosenProvider,
-    channels: chosenChannels,
-    teamMode: chosenTeamMode,
-    qualityGates: qualityGates.map((g) => ({
-      name: g.name,
-      command: g.command,
-      description: g.description ?? g.name,
-    })),
-  };
-
-  writeKilnYaml(appDir, kilnYaml);
-  const { writeFileSync: wfs, mkdirSync: mks } = await import("node:fs");
-  mks(join(appDir, "memory"), { recursive: true });
-  wfs(join(appDir, "app.yaml"), generateAppYaml(initOptions));
-  wfs(join(appDir, "gateway.yaml"), generateGatewayYaml(initOptions));
-
-  console.log(`Domain:   ${chosenDomainConfig?.displayName ?? chosenDomainName}`);
-  if (qualityGates.length > 0) {
-    console.log("Gates:    " + qualityGates.map((g) => g.name).join(", "));
+function readAdoptedProject(projectPath: string): KilnProjectConfig | null {
+  if (!existsSync(join(projectPath, ".kiln", "kiln.yaml"))) return null;
+  try {
+    return readKilnYaml(join(projectPath, ".kiln"));
+  } catch {
+    return null;
   }
-  console.log(`Provider: ${chosenProvider}`);
-  console.log(`Channels: ${chosenChannels.join(", ")}`);
-  console.log("Kiln initialized.");
+}
 
-  return kilnYaml;
+function isAffirmative(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "y" || normalized === "yes";
 }

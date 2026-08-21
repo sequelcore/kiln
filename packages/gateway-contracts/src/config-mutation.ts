@@ -14,6 +14,7 @@ export const KILN_CONFIG_MUTATION_OPERATIONS = [
   "context_governance.adapt",
   "setting.set",
   "setting.reset",
+  "project.adopt",
   "target.select",
   "target.create",
   "native.import",

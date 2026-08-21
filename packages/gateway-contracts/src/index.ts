@@ -47,6 +47,28 @@ export type {
   KilnConfigRollbackEvidence,
   KilnConfigValidationDiagnostic,
 } from "./config-mutation.js";
+
+export type {
+  KilnConfigurationOnboardingApplyRequest,
+  KilnConfigurationOnboardingBlocker,
+  KilnConfigurationOnboardingMutationSummary,
+  KilnConfigurationOnboardingResult,
+  KilnConfigurationOnboardingSnapshot,
+  KilnConfigurationOnboardingTarget,
+} from "./configuration-onboarding.js";
+export {
+  KILN_CONFIGURATION_ONBOARDING_BLOCKER_CODES,
+  KILN_CONFIGURATION_ONBOARDING_POSTURES,
+  KILN_CONFIGURATION_ONBOARDING_RESULT_STATUSES,
+  KILN_CONFIGURATION_ONBOARDING_SCOPES,
+  KILN_CONFIGURATION_ONBOARDING_STATUSES,
+  KilnConfigurationOnboardingApplyRequestSchema,
+  KilnConfigurationOnboardingBlockerSchema,
+  KilnConfigurationOnboardingMutationSummarySchema,
+  KilnConfigurationOnboardingResultSchema,
+  KilnConfigurationOnboardingSnapshotSchema,
+  KilnConfigurationOnboardingTargetSchema,
+} from "./configuration-onboarding.js";
 export {
   COMMUNICATION_INTERACTION_BEHAVIORS,
   COMMUNICATION_REQUIRED_CONTENT,

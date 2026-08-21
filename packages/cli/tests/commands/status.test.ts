@@ -2,11 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { stringify } from "yaml";
 import {
   statusCommand as statusCommandImplementation,
   type StatusCommandOptions,
 } from "../../src/commands/status.js";
-import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
+import { defaultKilnYaml, type KilnProjectConfig } from "../../src/kiln-yaml.js";
 import { resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
@@ -22,6 +23,11 @@ function persistGlobalConfig(config: KilnGlobalConfig): void {
     });
   }
   persistGlobalConfigFixture(admitted.config);
+}
+
+function writeProjectConfig(kilnDir: string, config: KilnProjectConfig): void {
+  mkdirSync(kilnDir, { recursive: true });
+  writeFileSync(join(kilnDir, "kiln.yaml"), stringify(config), "utf8");
 }
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ProviderModelEligibilityRequirements } from "@kilnai/core/agents";
@@ -123,7 +129,7 @@ describe("statusCommand", () => {
   it("prints domain when initialized", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, defaultKilnYaml("python"));
+    writeProjectConfig(kilnDir, defaultKilnYaml("python"));
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
 
@@ -134,7 +140,7 @@ describe("statusCommand", () => {
   it("shows all config values", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, {
+    writeProjectConfig(kilnDir, {
       version: "1",
       domain: "react-typescript",
       channels: ["cli", "web"],
@@ -156,7 +162,7 @@ describe("statusCommand", () => {
   it("shows memory file count", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(join(kilnDir, "memory"), { recursive: true });
-    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeProjectConfig(kilnDir, { ...defaultKilnYaml("python") });
     writeFileSync(join(kilnDir, "memory", "chunk1.jsonl"), "{}");
     writeFileSync(join(kilnDir, "memory", "chunk2.jsonl"), "{}");
 
@@ -169,7 +175,7 @@ describe("statusCommand", () => {
   it("shows managed-agent route health", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, defaultKilnYaml("python"));
+    writeProjectConfig(kilnDir, defaultKilnYaml("python"));
     const harnessBase = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
     const directTarget = harnessBase.targetCatalog!.targets[0]!;
     if (directTarget.kind !== "direct") throw new Error("fixture direct target is required");
@@ -205,7 +211,7 @@ describe("statusCommand", () => {
   it("shows a policy-uncovered direct route as unavailable without throwing or resolving credentials", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, defaultKilnYaml("python"));
+    writeProjectConfig(kilnDir, defaultKilnYaml("python"));
     const uncovered = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "operator-default");
     const coveredTarget = uncovered.targetCatalog!.targets[0]!;
     if (coveredTarget.kind !== "direct") throw new Error("fixture direct target is required");
@@ -227,7 +233,7 @@ describe("statusCommand", () => {
   it("shows configured engine route health", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeProjectConfig(kilnDir, { ...defaultKilnYaml("python") });
     persistGlobalConfig({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-test", "codex-direct"),
       engines: {
@@ -260,7 +266,7 @@ describe("statusCommand", () => {
     mkdirSync(kilnDir, { recursive: true });
     const previousFirecrawlKey = process.env.FIRECRAWL_API_KEY;
     process.env.FIRECRAWL_API_KEY = "fc-test";
-    writeKilnYaml(kilnDir, {
+    writeProjectConfig(kilnDir, {
       ...defaultKilnYaml("python"),
       web: {
         enabled: true,
@@ -321,7 +327,7 @@ describe("statusCommand", () => {
         },
       },
     });
-    writeKilnYaml(kilnDir, {
+    writeProjectConfig(kilnDir, {
       ...defaultKilnYaml("python"),
       web: {
         enabled: true,
@@ -354,7 +360,7 @@ describe("statusCommand", () => {
   it("shows skill catalog health from canonical Kiln status evidence", async () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
-    writeKilnYaml(kilnDir, { ...defaultKilnYaml("python") });
+    writeProjectConfig(kilnDir, { ...defaultKilnYaml("python") });
     writeSkill(join(kilnDir, "skills"), "project-ui", "Project UI workflow.");
 
     await statusCommand(MOCK_APP_CONFIG, tempDir);
@@ -377,7 +383,7 @@ describe("statusCommand", () => {
     const kilnDir = join(tempDir, ".kiln");
     mkdirSync(kilnDir, { recursive: true });
     delete process.env.KILN_TEST_MISSING_WEB_KEY;
-    writeKilnYaml(kilnDir, {
+    writeProjectConfig(kilnDir, {
       ...defaultKilnYaml("python"),
       web: {
         enabled: true,

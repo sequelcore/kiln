@@ -77,6 +77,9 @@ import {
 import {
   KilnConfigSetupActionRequestSchema,
   KilnConfigSetupActionResultSchema,
+  KilnConfigurationOnboardingApplyRequestSchema,
+  KilnConfigurationOnboardingResultSchema,
+  KilnConfigurationOnboardingSnapshotSchema,
   isGuiExecutableConfigSetupAction,
   OperatorResourceReadRequestSchema,
   buildOperatorToolResultPayload,
@@ -97,6 +100,9 @@ import {
   type KilnConfigSetupAction,
   type KilnConfigSetupActionResult,
   type KilnConfigSetupSnapshot,
+  type KilnConfigurationOnboardingApplyRequest,
+  type KilnConfigurationOnboardingResult,
+  type KilnConfigurationOnboardingSnapshot,
   type GuiMemoryLatticeScope,
   type GuiSessionDetail,
   type OperatorSessionSummary,
@@ -148,6 +154,10 @@ export interface StartGuiGatewayOptions {
   }) => Promise<GuiDashboardSnapshot>;
   readonly getSetupSnapshot?: () => Promise<KilnConfigSetupSnapshot>;
   readonly executeSetupAction?: (action: KilnConfigSetupAction) => Promise<KilnConfigSetupActionResult>;
+  readonly getConfigurationOnboarding?: () => Promise<KilnConfigurationOnboardingSnapshot>;
+  readonly applyConfigurationOnboarding?: (
+    request: KilnConfigurationOnboardingApplyRequest,
+  ) => Promise<KilnConfigurationOnboardingResult>;
   readonly getProviderAvailability?: () => Promise<Record<string, boolean>> | Record<string, boolean>;
   readonly discoverOperatorProviders?: () => Promise<readonly GuiProviderDiscoveryResult[]>;
   readonly initialOperatorDiscovery?: readonly GuiProviderDiscoveryResult[];
@@ -472,10 +482,10 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
       ? options.initialOperatorDiscovery
       : markGuiProviderDiscoveryStale(options.initialOperatorDiscovery)
     : undefined;
-  const operatorTerminalCapability = transportOptions && options.workingDirectory
+  const operatorTerminalCapability = options.workingDirectory
     ? crypto.randomUUID()
     : undefined;
-  const operatorTerminalService = operatorTerminalCapability && options.workingDirectory
+  const operatorTerminalService = transportOptions && operatorTerminalCapability && options.workingDirectory
     ? new OperatorTerminalService({
         workspaceRoot: options.workingDirectory,
         adapter: options.operatorTerminalAdapter ?? new BunPtyAdapter(),
@@ -522,7 +532,7 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
 
   const guiCorsMiddleware = async (c: Context, next: Next): Promise<Response | void> => {
     c.header("Access-Control-Allow-Origin", "*");
-    c.header("Access-Control-Allow-Headers", "Content-Type, Accept");
+    c.header("Access-Control-Allow-Headers", "Content-Type, Accept, X-Kiln-Operator-Token");
     c.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 
     if (c.req.method === "OPTIONS") {
@@ -581,6 +591,34 @@ export async function startGuiGateway(options: StartGuiGatewayOptions): Promise<
     }
     const result = await options.executeSetupAction(parsed.data.action);
     return c.json(KilnConfigSetupActionResultSchema.parse(result));
+  });
+
+  app.get("/gui/api/config/onboarding", async (c) => {
+    if (!options.getConfigurationOnboarding) {
+      return c.json({ error: "configuration_onboarding_unavailable" }, 404);
+    }
+    return c.json(KilnConfigurationOnboardingSnapshotSchema.parse(
+      await options.getConfigurationOnboarding(),
+    ));
+  });
+
+  app.post("/gui/api/config/onboarding", async (c) => {
+    if (!options.applyConfigurationOnboarding) {
+      return c.json({ error: "configuration_onboarding_unavailable" }, 404);
+    }
+    if (!operatorTerminalCapability
+      || c.req.header("x-kiln-operator-token") !== operatorTerminalCapability) {
+      return c.json({ error: "operator_authorization_required" }, 403);
+    }
+    const parsed = KilnConfigurationOnboardingApplyRequestSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      return c.json({ error: "invalid_configuration_onboarding_request" }, 400);
+    }
+    return c.json(KilnConfigurationOnboardingResultSchema.parse(
+      await options.applyConfigurationOnboarding(parsed.data),
+    ));
   });
 
   app.get("/gui/api/workspace/tree", async (c) => {

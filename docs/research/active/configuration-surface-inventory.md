@@ -157,12 +157,10 @@ unknown field; no legacy alias or inert compatibility field remains.
 
 ## Findings That Block Schema Implementation
 
-### B1 — `kiln init` generates a gateway document its loader rejects
+### B1 — `kiln init` generated a gateway document its loader rejected
 
-The init template emits `apps[*].path` and `modeB` but omits
-`apps[*].config`
-([`init-templates.ts`](../../../packages/cli/src/commands/init-templates.ts#L118)),
-while the gateway loader requires `apps[*].config`
+The former init template emitted `apps[*].path` and `modeB` but omitted
+`apps[*].config`, while the gateway loader requires `apps[*].config`
 ([`gateway-loader.ts`](../../../packages/core/src/engine/gateway/gateway-loader.ts#L194)).
 
 A bounded Bun probe passed the generated document directly to
@@ -177,8 +175,13 @@ The missing `config` field causes the rejection. `path` and `modeB` are silently
 ignored inside the app binding; they are not rejected by the gateway root
 unknown-field check. This is a proven generated-artifact/reader contradiction. Existing template
 tests validate YAML syntax and selected keys but do not admit the generated
-document through the production loader
-([`init-templates.test.ts`](../../../packages/cli/tests/commands/init-templates.test.ts#L89)).
+document through the production loader.
+
+**Current correction:** Slice 5 deleted the invalid app/gateway init templates
+and their tests. `kiln init` now writes only the minimal project document
+through `project.adopt`; it is no longer an app/gateway writer. Any future
+generated deployable configuration remains blocked on the Slice 9 production
+schemas and readers.
 
 ### B2 — Project effective status bypasses the runtime narrowing check
 
@@ -238,29 +241,19 @@ app object
 The inventory must resolve whether each field is supported intent, obsolete
 contract residue, or a missing reader path.
 
-### B6 — Canonical writers do not share one mutation lifecycle
+### B6 — Canonical writers did not share one mutation lifecycle
 
-The global mutation primitive provides byte revisions, expected-revision CAS,
-an interprocess lock, validation, same-directory temporary writes, and atomic
-replacement
-([`global-config.ts`](../../../packages/cli/src/config/global-config.ts#L243)).
-Other writers bypass the governed proposal lifecycle:
-
-- project `config set/reset` calls the direct `writeKilnYaml()` writer
-  ([`config.ts`](../../../packages/cli/src/commands/config.ts#L180));
-- target selection and target creation mutate global config directly
-  ([`target.ts`](../../../packages/cli/src/commands/target.ts#L32),
-  [`execution-route-creation.ts`](../../../packages/cli/src/application/execution-route-creation.ts#L14));
-- persisted theme changes call the global primitive directly
-  ([`operator-theme-preferences.ts`](../../../packages/cli/src/application/operator-theme-preferences.ts#L47));
-- `kiln init` writes project, app, and gateway YAML directly
-  ([`init.ts`](../../../packages/cli/src/commands/init.ts#L151));
-- cron mutation rewrites `app.yaml` directly
-  ([`cron.ts`](../../../packages/cli/src/commands/cron.ts#L142)).
-
-Direct human operations are not automatically defects. The blocker is the lack
-of one typed application-port contract defining which operations require
+At audit time, project settings, target selection and creation, preferences,
+project initialization, and cron mutation bypassed the governed proposal
+lifecycle in different ways. Direct human operations were not automatically
+defects; the blocker was the lack of one typed application-port contract for
 proposal, approval, revision fencing, atomicity, reconciliation, and rollback.
+
+**Current correction:** Slices 4 and 5 moved project settings, target
+selection/creation, native import, preferences, and project adoption behind the
+configuration mutation authority. The direct whole-object project writer and
+the init templates are deleted. Cron remains the app-owned writer debt carried
+to Slice 9.
 
 ### B7 — Governed apply overstates atomicity and reconciliation success
 

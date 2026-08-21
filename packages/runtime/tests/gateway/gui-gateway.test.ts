@@ -1504,6 +1504,94 @@ describe("startGuiGateway static mount", () => {
     }
   });
 
+  it("keeps onboarding reads secret-free and requires the local operator capability to apply", async () => {
+    const distDir = createGuiDist();
+    const stop = vi.fn();
+    let appFetch: ((request: Request) => Promise<Response>) | undefined;
+    const readiness = {
+      schemaVersion: 1 as const,
+      status: "ready" as const,
+      scope: "project" as const,
+      posture: "read-only" as const,
+      targets: [{
+        id: "codex-terra",
+        label: "Codex Terra",
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        selected: true,
+      }],
+      defaultTargetId: "codex-terra",
+      blockers: [],
+      nextAction: "Apply onboarding to this project.",
+    };
+    const applyConfigurationOnboarding = vi.fn(async () => ({
+      schemaVersion: 1 as const,
+      status: "committed" as const,
+      projectAdoption: { outcome: "committed" as const, replayed: false, diagnostics: [] },
+      targetSelection: null,
+      blockers: [],
+      nextAction: "Start the first turn.",
+    }));
+    vi.stubGlobal("Bun", {
+      serve: vi.fn().mockImplementation(({ port, fetch }: { port?: number; fetch: typeof appFetch }) => {
+        appFetch = fetch;
+        return { port: port ?? 4810, stop };
+      }),
+    });
+
+    const { startGuiGateway } = await import("../../src/gateway/gui-gateway.js");
+    let gateway: Awaited<ReturnType<typeof startGuiGateway>> | undefined;
+    try {
+      gateway = await startGuiGateway({
+        guiDistPath: distDir,
+        workingDirectory: "C:/workspace/kiln",
+        getSnapshot: async () => ({}) as never,
+        getConfigurationOnboarding: async () => readiness,
+        applyConfigurationOnboarding,
+      });
+
+      const read = await appFetch!(new Request("http://localhost/gui/api/config/onboarding"));
+      expect(read.status).toBe(200);
+      expect(await read.json()).toEqual(readiness);
+
+      const requestBody = {
+        schemaVersion: 1,
+        scope: "project",
+        posture: "read-only",
+        targetId: "codex-terra",
+      };
+      const missing = await appFetch!(new Request("http://localhost/gui/api/config/onboarding", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(requestBody),
+      }));
+      expect(missing.status).toBe(403);
+
+      const wrong = await appFetch!(new Request("http://localhost/gui/api/config/onboarding", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-kiln-operator-token": "wrong" },
+        body: JSON.stringify(requestBody),
+      }));
+      expect(wrong.status).toBe(403);
+
+      const applied = await appFetch!(new Request("http://localhost/gui/api/config/onboarding", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-kiln-operator-token": gateway.operatorTerminalCapability!,
+        },
+        body: JSON.stringify(requestBody),
+      }));
+      expect(applied.status).toBe(200);
+      expect(await applied.json()).toMatchObject({ status: "committed" });
+      expect(applyConfigurationOnboarding).toHaveBeenCalledTimes(1);
+      expect(applyConfigurationOnboarding).toHaveBeenCalledWith(requestBody);
+    } finally {
+      gateway?.shutdown();
+      rmSync(distDir, { recursive: true, force: true });
+    }
+  });
+
   it("reads resources through target-aware operator resource requests", async () => {
     const distDir = createGuiDist();
     const stop = vi.fn();

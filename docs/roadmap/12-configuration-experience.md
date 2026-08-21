@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slices 0-4 complete - Slice 5 is the next bounded product proof.
+Execution: Slices 0-5 complete - Slice 6 is the next bounded product proof.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -26,11 +26,12 @@ problem and architecture direction; this file owns implementation order,
 dependencies, promotion gates, and residuals.
 
 The 2026-08-20 operator priority decision makes Configuration Experience the
-current product track. Execute bounded slices through Slice 5's first safe turn
-without opening YAML, updating the queue after each slice, then reassess Kiln
-Connect sequencing. This is a product sequence, not a claim that every slice in
-this track is a technical dependency of Connect. Roadmap 08.5 Slice 0 remains
-independently admissible safety hardening.
+current product track. Slice 5 proved the first safe project turn without
+opening YAML. Continue with the searchable settings foundation, updating the
+queue after each slice, then reassess Kiln Connect sequencing. This is a
+product sequence, not a claim that every slice in this track is a technical
+dependency of Connect. Roadmap 08.5 Slice 0 remains independently admissible
+safety hardening.
 
 ## Current Position
 
@@ -501,9 +502,9 @@ permission delta that has a demonstrated consumer. Slice 5 may admit a minimal
 safe-permission preset through the canonical permission owner when onboarding
 proves that consumer; capability enablement waits for an admitted capability
 owner and concrete first-turn requirement. Spend-guard, work-limit, and
-managed-agent operations remain in Slice 7A. `kiln init` remains the one direct
-first-run adoption writer and transfers to Slice 5 rather than becoming a
-settings mutation.
+managed-agent operations remain in Slice 7A. `kiln init` remained the one
+direct first-run adoption writer and transferred to Slice 5 rather than
+becoming a settings mutation.
 
 Concurrency and crash behavior are explicit. The window from revision recheck
 through settlement is held under a path-scoped cross-process lock whose owner is
@@ -552,23 +553,50 @@ authority. Rollback is another validated operation, not filesystem copying.
 
 ### Slice 5 - Guided Onboarding
 
-Status: Ready. Slices 1, 2, and 4 are complete.
+Status: Complete. The shared secret-free onboarding contract derives readiness
+from canonical project configuration and the current globally admitted direct
+target catalog. Its only Slice 5 permission posture is `read-only`; broader
+permission choices remain governed settings work. It stores no completion flag,
+step, draft, provider material, credential, or machine path.
 
-Implement a minimal first-run CLI flow and the equivalent GUI entry point. Ask
-only for provider connection, default target, safe permission posture,
-scope, and optional capabilities required for the first useful run. Ask for a
-paid-usage posture only when a connected route can cross from included use into
-additional spend. Resolve defaults and presets through canonical owners and emit
-only intent that differs materially from defaults.
+`kiln init` and GUI Settings > Configuration invoke the same onboarding
+application port. Project adoption is a typed `project.adopt` operation through
+the Slice 4 authority, and default-target changes use the governed
+`target.select` operation. The CLI provides interactive confirmation and
+deterministic `--non-interactive`, `--target-id`, and `--approve` inputs. A
+declined confirmation or target-selection approval returns before apply, so
+cancellation writes nothing. Reruns derive `complete` from canonical state and
+perform no mutation. The GUI keeps its draft only in component memory and
+requires the ephemeral local operator capability for apply; remote attach has
+no mutation token and remains read-only.
 
-Acceptance: a new operator can complete a safe first turn without opening YAML;
-cancellation causes no partial state; rerun is idempotent; non-interactive mode
-is deterministic; secrets and machine paths are never written to canonical
-configuration.
+The bounded first-turn proof starts from an already admitted current direct
+target. A completely virgin provider and target cannot be admitted honestly
+without data-policy, economic, discovery, and identity evidence. Manufacturing
+that evidence in onboarding would create a second authority and duplicate the
+Slice 7 target wizard. Slice 5 therefore does not ask for provider connection,
+paid-usage posture, capabilities, or raw route material when no owner can yet
+complete those choices. It blocks with an actionable explanation and transfers
+true provider-to-target first run to Slice 7.
+
+The obsolete init templates and direct project writer were deleted. `kiln init`
+no longer creates `app.yaml`, `gateway.yaml`, memory directories, channels,
+team mode, or provider intent; deployable app and gateway authoring remains with
+Slice 9. Project adoption and target selection still touch separate canonical
+paths, so an unexpected second-operation failure can settle honestly as
+`partial`; routine missing approval is preflighted before either write.
+
+Acceptance evidence: cancellation and declined approval are side-effect free;
+rerun is a no-op; non-interactive input is explicit; the adopted project
+composes to `on-request` or stricter approval with a `read-only` sandbox; the
+first route resolves to the exact admitted provider/model; GUI apply rejects a
+missing or incorrect local capability; and wire results redact paths and
+credential-like diagnostics.
 
 ### Slice 6 - Searchable Settings Foundation
 
-Status: Blocked on the descriptor and mutation contracts.
+Status: Ready. Slices 1, 2, 4, and 5 provide the descriptor, effective-value,
+mutation, and first-run surface contracts.
 
 Build one cross-surface settings information architecture: General, Providers,
 Models, Permissions, Tools, Usage and Limits, Agents, Health, and Advanced.
@@ -631,7 +659,7 @@ are deleted in the same slice with no alias or dual read.
 
 ### Slice 8 - Live Activation And Reconciliation
 
-Status: Queued behind Slice 5's first safe-turn vertical proof.
+Status: Queued behind Slice 6's settings foundation.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

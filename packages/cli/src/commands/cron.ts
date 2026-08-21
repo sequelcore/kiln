@@ -58,7 +58,7 @@ async function listCommand(appYamlPath: string): Promise<void> {
   const { Scheduler } = await import("@kilnai/runtime");
 
   if (!existsSync(appYamlPath)) {
-    console.log("No app.yaml found. Run 'init' first.");
+    console.log("No app.yaml found. Create or select an app configuration first.");
     return;
   }
 
@@ -145,7 +145,7 @@ async function addCommand(appYamlPath: string, args: string[]): Promise<void> {
   }
 
   if (!existsSync(appYamlPath)) {
-    console.error("No app.yaml found. Run 'init' first.");
+    console.error("No app.yaml found. Create or select an app configuration first.");
     process.exit(1);
   }
 
@@ -185,7 +185,7 @@ function removeCommand(appYamlPath: string, args: string[]): void {
   }
 
   if (!existsSync(appYamlPath)) {
-    console.error("No app.yaml found. Run 'init' first.");
+    console.error("No app.yaml found. Create or select an app configuration first.");
     process.exit(1);
   }
 
@@ -220,7 +220,7 @@ async function runCommand(appYamlPath: string, args: string[]): Promise<void> {
   const { Scheduler } = await import("@kilnai/runtime");
 
   if (!existsSync(appYamlPath)) {
-    console.error("No app.yaml found. Run 'init' first.");
+    console.error("No app.yaml found. Create or select an app configuration first.");
     process.exit(1);
   }
 

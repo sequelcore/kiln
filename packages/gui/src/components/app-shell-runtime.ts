@@ -45,9 +45,14 @@ export function toWsUrl(path: string): string {
     ? `${window.location.hostname}:${gatewayPort}`
     : window.location.host;
   const url = new URL(`${protocol}//${authority}${path}`);
-  const operatorToken = new URLSearchParams(window.location.hash.slice(1)).get("operatorToken")?.trim();
+  const operatorToken = readOperatorToken();
   if (operatorToken) url.searchParams.set("operatorToken", operatorToken);
   return url.toString();
+}
+
+/** Ephemeral local-launch capability; the URL fragment never reaches the server. */
+export function readOperatorToken(): string | undefined {
+  return new URLSearchParams(window.location.hash.slice(1)).get("operatorToken")?.trim() || undefined;
 }
 
 export function resolveGatewayHttpBaseUrl(): string {

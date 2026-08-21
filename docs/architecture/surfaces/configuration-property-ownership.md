@@ -24,11 +24,11 @@ explicit without repeating them hundreds of times.
 | `GP` | CLI permission shape | CLI configured admission; Core owns effects | `readGlobalConfig` | configuration mutation authority | every model-facing surface | global bound/default |
 | `GM` | Core MCP shape, CLI boundary validator | Core MCP admission | `readMcpConfigurationSource` | configuration mutation authority | MCP resolution and native projection | global; project may narrow/override server fields |
 | `GC` | Core contract persisted by CLI | named Core communication/voice/gateway owner | `readGlobalConfig` | configuration mutation authority | policy resolver or Runtime ingress | global only unless the row says project precedence |
-| `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYaml` | config mutation authority (`writeKilnYaml` remains for `kiln init` only) | run, status, GUI/TUI, Tools MCP | `.kiln/kiln.yaml`; project |
+| `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYaml` | configuration mutation authority, including `project.adopt` | run, status, GUI/TUI, Tools MCP | `.kiln/kiln.yaml`; project |
 | `PP` | shared CLI permission shape | CLI configured admission | `readKilnYaml` | project mutation paths | every model-facing surface | project; attenuation only |
-| `A` | Core `RawApp`/`AppLoader` | Core app domain | `parseAppYaml` | init; cron for triggers | App Gateway and Core validators | `app.yaml`; deployable app |
+| `A` | Core `RawApp`/`AppLoader` | Core app domain | `parseAppYaml` | cron for triggers | App Gateway and Core validators | `app.yaml`; deployable app |
 | `AS` | separate Core app-side reader | Runtime/provider/events owner | specialized YAML reader | no shared writer | Runtime startup/request path | same `app.yaml`; deployable app |
-| `W` | Core `RawGateway`/gateway loader | Core gateway domain | `parseGatewayYaml` | init template only | Runtime App/Model Gateway | `gateway.yaml`; deployment |
+| `W` | Core `RawGateway`/gateway loader | Core gateway domain | `parseGatewayYaml` | no shared writer | Runtime App/Model Gateway | `gateway.yaml`; deployment |
 | `D` | `ResolvedKilnConfig` only | projection owner | global/project composition | none | status/runtime if reachable | derived; never canonical state |
 
 Plane is `I` desired intent, `E` managed evidence, or `P` derived projection.
@@ -721,9 +721,9 @@ These fields are not additional durable configuration sources.
 | --- | --- | --- |
 | Global config mutation | CLI configuration mutation authority plus exact-byte `commitGlobalConfigBytes`; validation, revision CAS, lock, same-directory temporary file, atomic replace, invalid backup | complete in Slice 4; the unfenced object mutator is deleted and the authority is the only production global writer |
 | Target creation/import and UI preferences | Typed `target.create`, `target.select`, and `native.import` operations; target evidence remains content-addressed under its own owner | complete in Slice 4; activation and reconciliation settle honestly through execution-route or native-permission readback |
-| Project init/config set | `kiln config set` now edits the document tree through the mutation authority with a typed result; `writeKilnYaml` whole-object serialization remains only in `kiln init` | done for `config set`; `kiln init` transfers to Slice 5 adoption |
+| Project adoption/config set | `project.adopt`, `setting.set`, and `setting.reset` edit the project document through the mutation authority with typed results; the direct whole-object project writer is deleted | complete in Slices 4 and 5 |
 | Project proposal/approval/apply | One config mutation authority for both scopes; base-revision fence, path-scoped lock, atomic replace, write-once settlement, honest terminal outcome | done in Slice 4; multi-path atomicity still unproven because each operation writes one path |
-| App/gateway init | CLI templates write whole files | replace only when their Slice 9 schemas and readers admit generated output |
+| App/gateway authoring | no init template or shared writer remains; deployable documents are authored explicitly | add a writer only when Slice 9 schemas and readers can admit its complete output |
 | App cron mutation | CLI rewrites `app.yaml` through generic serialization | replace with app-owned AST mutation in Slice 9 |
 | Native/repo projection | CLI projection owners write generated artifacts and drift state | remain projections; bind canonical revision to projection/activation evidence in Slices 2 and 4 |
 
@@ -735,7 +735,7 @@ These fields are not additional durable configuration sources.
 | Effective value provenance and command/runtime overrides | Gateway Contracts plus CLI status owner, Slice 2 | every surface returns the same source, override chain, health, revision, authority, and activation |
 | Intent mixed with target, context, and policy evidence | execution-routing/context owners, Slice 3 | managed evidence moves to named stores or is explicitly justified as intent; exact revisions remain referenced |
 | Divergent writer and activation lifecycles | CLI configuration application-port owner, Slice 4 | typed mutation result distinguishes rejected, committed, reconciliation-failed, and rolled-back; activation tests per field |
-| Init emits `apps[].path`/`modeB` while gateway requires `apps[].config` | CLI init writer plus Core gateway reader, Slice 9 | generated gateway bytes pass the production reader |
+| App/gateway generated authoring | Core app/gateway schema owner, Slice 9 | any future generated bytes pass the production readers; the invalid init templates were deleted in Slice 5 |
 | App root split among `AppLoader`, runtime-mode, billing, and events readers | Core app structural/graph owner, Slice 9 | one strict structural boundary delegates named semantic admission; no silent unknown roots |
 | Declared-but-unreachable app/domain properties and duplicate app/gateway route intent | owning Core knowledge/eval/tool/voice/safety/gateway domains, Slice 9 | each property is mapped and consumed, or deleted with examples/docs/tests aligned |
 | Gateway nested unknowns, raw `botToken`, and numeric `NaN` mapping | Core gateway schema owner, Slice 9 | strict schema rejects unknown/malformed fields and persists only secret references |

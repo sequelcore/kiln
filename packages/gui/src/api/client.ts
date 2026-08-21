@@ -6,6 +6,9 @@ import type {
   KilnConfigSetupAction,
   KilnConfigSetupActionResult,
   KilnConfigSetupSnapshot,
+  KilnConfigurationOnboardingApplyRequest,
+  KilnConfigurationOnboardingResult,
+  KilnConfigurationOnboardingSnapshot,
   GuiProviderDescriptor,
   GuiContinuationInfo,
   GuiSessionDetail,
@@ -24,6 +27,9 @@ import type {
 import {
   KilnConfigSetupActionResultSchema,
   KilnConfigSetupSnapshotSchema,
+  KilnConfigurationOnboardingApplyRequestSchema,
+  KilnConfigurationOnboardingResultSchema,
+  KilnConfigurationOnboardingSnapshotSchema,
   GuiMemoryLatticeGraphRequestSchema,
   GuiMemoryLatticeGraphResponseSchema,
   OperatorResourceReadRequestSchema,
@@ -43,6 +49,9 @@ export type {
   KilnConfigSetupAction,
   KilnConfigSetupActionResult,
   KilnConfigSetupSnapshot,
+  KilnConfigurationOnboardingApplyRequest,
+  KilnConfigurationOnboardingResult,
+  KilnConfigurationOnboardingSnapshot,
   OperatorSessionSummary,
   GuiTelemetrySnapshot,
   OperatorResourceReadRequest,
@@ -52,7 +61,10 @@ export type {
 export class GuiGatewayClient {
   private resolvedBaseUrl: string | null = null;
 
-  constructor(private readonly baseUrl: string = window.location.origin) {}
+  constructor(
+    private readonly baseUrl: string = window.location.origin,
+    private readonly operatorToken?: string,
+  ) {}
 
   async loadDashboard(): Promise<GuiDashboardSnapshot> {
     const candidateBaseUrls = this.resolveCandidateBaseUrls();
@@ -232,6 +244,63 @@ export class GuiGatewayClient {
         ? `Setup action failed (${failures.join(" | ")})`
         : "Setup action failed.",
     );
+  }
+
+  async loadConfigurationOnboarding(): Promise<KilnConfigurationOnboardingSnapshot> {
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/config/onboarding", candidateBaseUrl);
+      try {
+        const response = await fetch(url, { headers: { accept: "application/json" } });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = KilnConfigurationOnboardingSnapshotSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+    throw new Error(failures.length > 0
+      ? `Onboarding status fetch failed (${failures.join(" | ")})`
+      : "Onboarding status fetch failed.");
+  }
+
+  async applyConfigurationOnboarding(
+    request: KilnConfigurationOnboardingApplyRequest,
+  ): Promise<KilnConfigurationOnboardingResult> {
+    const admittedRequest = KilnConfigurationOnboardingApplyRequestSchema.parse(request);
+    const candidateBaseUrls = this.resolveCandidateBaseUrls();
+    const failures: string[] = [];
+    for (const candidateBaseUrl of candidateBaseUrls) {
+      const url = new URL("/gui/api/config/onboarding", candidateBaseUrl);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "content-type": "application/json",
+            ...(this.operatorToken ? { "x-kiln-operator-token": this.operatorToken } : {}),
+          },
+          body: JSON.stringify(admittedRequest),
+        });
+        if (!response.ok) {
+          failures.push(`${candidateBaseUrl}: status ${response.status}`);
+          continue;
+        }
+        const payload = KilnConfigurationOnboardingResultSchema.parse(await response.json());
+        this.resolvedBaseUrl = candidateBaseUrl;
+        return payload;
+      } catch (error) {
+        failures.push(`${candidateBaseUrl}: ${errorMessage(error)}`);
+      }
+    }
+    throw new Error(failures.length > 0
+      ? `Onboarding apply failed (${failures.join(" | ")})`
+      : "Onboarding apply failed.");
   }
 
   async loadSessionDetail(sessionId: string): Promise<GuiSessionDetail | null> {
@@ -529,6 +598,7 @@ function parseDashboardSnapshot(value: unknown): GuiDashboardSnapshot {
   if (!Array.isArray(snapshot.providers)) {
     throw new Error("Invalid dashboard providers payload.");
   }
+
   const executionRouteCatalog = ExecutionRouteCatalogSchema.parse(snapshot.executionRouteCatalog);
   if (!isTelemetrySnapshot(snapshot.telemetry)) {
     throw new Error("Invalid dashboard telemetry payload.");

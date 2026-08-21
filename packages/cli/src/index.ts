@@ -44,6 +44,16 @@ export type { ClaudeSessionConfig } from "./wrapper/claude-code-process.js";
 export { ClaudeSession } from "./wrapper/claude-code-process.js";
 export type { SessionContext, SessionMode, SessionReport, WrapperConfig } from "./wrapper/index.js";
 export { SessionManager } from "./wrapper/session-manager.js";
+export {
+  applyConfigurationOnboarding,
+  readConfigurationOnboarding,
+} from "./application/configuration-onboarding.js";
+export type {
+  ApplyConfigurationOnboardingInput,
+  ConfigurationOnboardingDependencies,
+  ConfigurationOnboardingProjectState,
+  ReadConfigurationOnboardingInput,
+} from "./application/configuration-onboarding.js";
 
 export async function createCli(config: KilnAppConfig): Promise<void> {
   const args = process.argv.slice(2);
@@ -56,7 +66,7 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   const goalCommand = findOperatorCommand("goal", "cli");
 
   const COMMANDS: Record<string, string> = {
-    init: `Initialize ${APP_NAME} in the current project (--force, --non-interactive, --domain, --provider, --channels, --team-mode)`,
+    init: `Adopt this project for a safe first turn (--non-interactive, --target-id, --approve)`,
     run: "Start a CLI-only coding session with Claude Code (use --plan for plan mode, --agent for agent profile)",
     plan: planCommand?.description ?? "Start a planning session before execution (3-phase workflow)",
     project: "Scout or adopt canonical repo context for generated project shims",
@@ -99,7 +109,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
     }
     console.log("\nOptions:");
     console.log("  --target     Execution target for `run` and `plan` from global configuration");
-    console.log("  --provider   Provider setting for commands that edit project configuration (for example, init)");
+    console.log("  --provider   Provider setting for commands that explicitly support provider intent");
+    console.log("  --target-id  Admitted direct target for `init`");
+    console.log("  --permission-posture  Safe project permission posture for `init` (read-only)");
+    console.log("  --approve    Approve authority-bearing target selection during `init`");
     console.log("  --deliberation-level  Provider-advertised deliberation level override");
     console.log("  --authority  Requested turn authority (auto, read_only, audited, destructive)");
     console.log("  --agent      Agent name from .kiln/agents or ~/.kiln/agents");
@@ -167,12 +180,10 @@ export async function createCli(config: KilnAppConfig): Promise<void> {
   if (command === "init") {
     const { initCommand } = await import("./commands/init.js");
     await initCommand(config, process.cwd(), {
-      force: args.includes("--force"),
       interactive: !args.includes("--non-interactive"),
-      domain: findFlag(args, "--domain"),
-      provider: findFlag(args, "--provider"),
-      channels: findFlag(args, "--channels"),
-      teamMode: findFlag(args, "--team-mode"),
+      targetId: findFlag(args, "--target-id"),
+      posture: findFlag(args, "--permission-posture") === "read-only" ? "read-only" : undefined,
+      approve: args.includes("--approve"),
     });
     return;
   }

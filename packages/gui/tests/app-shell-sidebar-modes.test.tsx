@@ -115,6 +115,19 @@ vi.mock("../src/api/client.js", () => ({
       };
     }
 
+    async loadConfigurationOnboarding() {
+      return {
+        schemaVersion: 1,
+        status: "complete",
+        scope: "project",
+        posture: "read-only",
+        targets: [{ id: "codex-terra", label: "Codex Terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", selected: true }],
+        defaultTargetId: "codex-terra",
+        blockers: [],
+        nextAction: "Start the first turn.",
+      };
+    }
+
     async saveThemePreference() {}
   },
 }));
@@ -388,6 +401,23 @@ describe("AppShell sidebar modes", () => {
             nativeProjections: [],
             permissionIntegrity: [],
             recommendedActions: ["none" as const],
+          },
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }
+      if (queryKey.includes("configuration-onboarding")) {
+        return {
+          data: {
+            schemaVersion: 1 as const,
+            status: "complete" as const,
+            scope: "project" as const,
+            posture: "read-only" as const,
+            targets: [{ id: "codex-terra", label: "Codex Terra", providerId: "codex-oauth", providerModelId: "gpt-5.6-terra", selected: true }],
+            defaultTargetId: "codex-terra",
+            blockers: [],
+            nextAction: "Start the first turn.",
           },
           error: null,
           isFetching: false,

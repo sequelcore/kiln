@@ -3,16 +3,12 @@ import {
   mkdtempSync,
   rmSync,
   writeFileSync,
-  readFileSync,
-  existsSync,
   mkdirSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parse as parseYaml } from "yaml";
 import {
   readKilnYaml,
-  writeKilnYaml,
   mergeKilnYaml,
   defaultKilnYaml,
   KilnYamlError,
@@ -187,51 +183,6 @@ describe("readKilnYaml", () => {
     );
 
     expect(() => readKilnYaml(join(tempDir, ".kiln"))).toThrow(KilnYamlError);
-  });
-});
-
-describe("writeKilnYaml", () => {
-  let tempDir: string;
-
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), "kiln-yaml-write-"));
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it("writes valid YAML file", () => {
-    const config: ResolvedKilnConfig = {
-      version: "1",
-      domain: "react-ts",
-      provider: "openai",
-    };
-    writeKilnYaml(tempDir, config);
-    const path = join(tempDir, "kiln.yaml");
-    expect(existsSync(path)).toBe(true);
-    const parsed = parseYaml(readFileSync(path, "utf-8")) as ResolvedKilnConfig;
-    expect(parsed.version).toBe("1");
-    expect(parsed.domain).toBe("react-ts");
-    expect(parsed.provider).toBe("openai");
-  });
-
-  it("creates kilnDir if it does not exist", () => {
-    const nested = join(tempDir, "subdir", ".kiln");
-    const config: ResolvedKilnConfig = { version: "1" };
-    writeKilnYaml(nested, config);
-    expect(existsSync(join(nested, "kiln.yaml"))).toBe(true);
-  });
-
-  it("writes nested permissions object", () => {
-    const config: ResolvedKilnConfig = {
-      version: "1",
-      permissions: { approval: "on-request", sandbox: "read-only" },
-    };
-    writeKilnYaml(tempDir, config);
-    const parsed = parseYaml(readFileSync(join(tempDir, "kiln.yaml"), "utf-8")) as ResolvedKilnConfig;
-    expect(parsed.permissions?.approval).toBe("on-request");
-    expect(parsed.permissions?.sandbox).toBe("read-only");
   });
 });
 

@@ -591,6 +591,61 @@ describe("GuiGatewayClient", () => {
     });
   });
 
+  it("reads secret-free onboarding readiness and applies with the local operator capability", async () => {
+    const readiness = {
+      schemaVersion: 1,
+      status: "ready",
+      scope: "project",
+      posture: "read-only",
+      targets: [{
+        id: "codex-terra",
+        label: "Codex Terra",
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-terra",
+        selected: true,
+      }],
+      defaultTargetId: "codex-terra",
+      blockers: [],
+      nextAction: "Apply onboarding to this project.",
+    } as const;
+    const result = {
+      schemaVersion: 1,
+      status: "committed",
+      projectAdoption: { outcome: "committed", replayed: false, diagnostics: [] },
+      targetSelection: null,
+      blockers: [],
+      nextAction: "Start the first turn.",
+    } as const;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(readiness), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GuiGatewayClient("http://localhost:4810", "local-capability");
+    expect(await client.loadConfigurationOnboarding()).toEqual(readiness);
+    expect(await client.applyConfigurationOnboarding({
+      schemaVersion: 1,
+      scope: "project",
+      posture: "read-only",
+      targetId: "codex-terra",
+    })).toEqual(result);
+
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "x-kiln-operator-token": "local-capability",
+      },
+    });
+  });
+
   it("rejects oversized Memory Lattice graph queries before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

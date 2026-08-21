@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse, stringify } from "yaml";
+import { parse } from "yaml";
 import { KilnYamlError, validateAgentScopeInheritance } from "./kiln-yaml-types.js";
 import { readMcpConfigurationSource } from "./config/mcp-config.js";
 import { parseProjectConfigStructure } from "./config/project-config-schema.js";
@@ -118,14 +118,6 @@ export function readKilnYaml(kilnDir: string): KilnProjectConfig | null {
       `Failed to parse kiln.yaml: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-}
-
-export function writeKilnYaml(kilnDir: string, config: KilnProjectConfig): void {
-  if (!existsSync(kilnDir)) {
-    mkdirSync(kilnDir, { recursive: true });
-  }
-  const path = join(kilnDir, "kiln.yaml");
-  writeFileSync(path, stringify(config), "utf-8");
 }
 
 export function mergeKilnYaml(base: ResolvedKilnConfig, override: KilnProjectConfig): ResolvedKilnConfig {

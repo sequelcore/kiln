@@ -18,6 +18,7 @@ import type {
 } from "@kilnai/gateway-contracts";
 import { parse, parseDocument, stringify, type Document } from "yaml";
 import { defaultGlobalConfig, validateGlobalConfig } from "../config/global-config.js";
+import { deriveEffectiveKilnYaml } from "../config/config-merger.js";
 import { defaultKilnYaml } from "../kiln-yaml.js";
 import { isAlias, isCollection } from "yaml";
 import {
@@ -93,6 +94,8 @@ export function normalizeConfigMutation(
       return normalizeSettingSet(context, payload);
     case "setting.reset":
       return normalizeSettingReset(context, payload);
+    case "project.adopt":
+      return normalizeProjectAdopt(context, payload);
     case "target.select":
       return normalizeTargetSelect(context, payload);
     case "target.create":
@@ -443,6 +446,145 @@ function normalizeSettingReset(
     reconciliationTargets: ["repo-shims"],
     activation: "next-session",
   };
+}
+
+/**
+ * Adopts the smallest project document that is structurally admitted by the
+ * project schema. Existing valid project intent is preserved; adoption only
+ * supplies the requested permission posture when it is not already present.
+ * No provider, target evidence, credential, channel, team, or machine path is
+ * authored here.
+ */
+function normalizeProjectAdopt(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  if (payload.scope !== "project") {
+    diagnostics.push({
+      severity: "error",
+      field: "scope",
+      message: 'Project adoption scope must be exactly "project".',
+    });
+  }
+  const posture = payload.posture === "read-only" ? payload.posture : "read-only";
+  if (payload.posture !== posture) {
+    diagnostics.push({
+      severity: "error",
+      field: "posture",
+      message: 'Project adoption posture must be "read-only".',
+    });
+  }
+
+  const path = projectConfigPath(context.projectPath);
+  const existingContent = existsSync(path) ? readFileSync(path, "utf-8") : "";
+  const safeApproval = safeProjectApproval(context.globalConfigPath);
+  let nextContent: string;
+  let currentPermissions: Record<string, unknown> = {};
+  let projectApproval = safeApproval;
+  if (existingContent.trim().length === 0) {
+    nextContent = stringify({
+      version: "1",
+      permissions: {
+        approval: safeApproval,
+        sandbox: posture,
+      },
+    });
+  } else {
+    try {
+      const existing = parseProjectConfigStructure(parse(existingContent), path);
+      currentPermissions = asRecord(existing.permissions);
+      projectApproval = stricterProjectApproval(currentPermissions.approval, safeApproval);
+      const document = parseDocument(existingContent);
+      document.setIn(["permissions", "approval"], projectApproval);
+      document.setIn(["permissions", "sandbox"], posture);
+      nextContent = document.toString();
+    } catch (error) {
+      diagnostics.push({
+        severity: "error",
+        field: "configuration",
+        message: `Existing project configuration is not structurally admitted: ${errorMessage(error)}`,
+      });
+      nextContent = existingContent;
+    }
+  }
+
+  if (diagnostics.every((entry) => entry.severity !== "error")) {
+    admitProjectStructure(nextContent, path, diagnostics);
+  }
+  if (diagnostics.every((entry) => entry.severity !== "error")) {
+    try {
+      const globalContent = existsSync(context.globalConfigPath)
+        ? readFileSync(context.globalConfigPath, "utf-8")
+        : "";
+      if (globalContent.trim().length === 0) {
+        throw new Error("Global configuration has not been adopted yet.");
+      }
+      const global = parse(globalContent);
+      validateGlobalConfig(global);
+      const project = parseProjectConfigStructure(parse(nextContent), path);
+      deriveEffectiveKilnYaml(global, project);
+    } catch (error) {
+      diagnostics.push({
+        severity: "error",
+        field: "configuration",
+        message: `Project configuration is not admitted against current global composition: ${errorMessage(error)}`,
+      });
+    }
+  }
+
+  const nextPermissions = {
+    ...currentPermissions,
+    approval: projectApproval,
+    sandbox: currentPermissions.sandbox ?? posture,
+  };
+  let authorityImpact = permissionAuthorityImpact(currentPermissions, nextPermissions);
+  // Establishing the canonical safe baseline does not expand project
+  // authority. The comparison helper intentionally fails closed for complex
+  // permission records, so normalize this one known-safe creation case.
+  if (existingContent.trim().length === 0 && posture === "read-only") {
+    authorityImpact = "none";
+  }
+
+  return {
+    scope: "project",
+    payload: { scope: "project", posture, approval: projectApproval },
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact,
+    affectedOwners: ["project-configuration", "model-facing-execution-authority"],
+    reconciliationTargets: ["repo-shims"],
+    activation: "next-session",
+  };
+}
+
+/**
+ * Project onboarding never weakens a global approval bound. `untrusted` is
+ * stricter than the canonical first-turn `on-request` baseline and is carried
+ * into the project document when either global permission family requires it.
+ */
+type SafeProjectApproval = "on-request" | "on-failure" | "untrusted";
+
+function safeProjectApproval(globalConfigPath: string): SafeProjectApproval {
+  if (!existsSync(globalConfigPath)) return "on-request";
+  try {
+    const global = parse(readFileSync(globalConfigPath, "utf-8")) as Record<string, unknown>;
+    const permissions = asRecord(global.permissions);
+    const ceiling = asRecord(global.permissionCeiling);
+    return stricterProjectApproval(permissions.approval, ceiling.approval, "on-request");
+  } catch {
+    return "on-request";
+  }
+}
+
+function stricterProjectApproval(...values: readonly unknown[]): SafeProjectApproval {
+  const rank: Record<SafeProjectApproval, number> = { untrusted: 0, "on-failure": 1, "on-request": 2 };
+  return values.reduce<SafeProjectApproval>((strictest, value) => {
+    if (value !== "untrusted" && value !== "on-failure" && value !== "on-request") return strictest;
+    return rank[value] < rank[strictest] ? value : strictest;
+  }, "on-request");
 }
 
 /**

@@ -1,153 +1,181 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { parse as parseYaml } from "yaml";
-import { initCommand } from "../../src/commands/init.js";
-import type { ResolvedKilnConfig } from "../../src/kiln-yaml-types.js";
-import type { KilnAppConfig } from "../../src/config.js";
+import { join } from "node:path";
+import { parse } from "yaml";
 import { DomainRegistry } from "@kilnai/core/domain";
+import { defaultGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { proposeConfigMutation } from "../../src/application/config-mutation-authority.js";
+import { initCommand } from "../../src/commands/init.js";
+import type { KilnAppConfig } from "../../src/config.js";
 
-const MOCK_APP_CONFIG: KilnAppConfig = {
+const readlineState = vi.hoisted(() => ({ answers: [] as string[], questions: [] as string[] }));
+vi.mock("node:readline", () => ({
+  createInterface: () => ({
+    question: (question: string, callback: (answer: string) => void) => {
+      readlineState.questions.push(question);
+      callback(readlineState.answers.shift() ?? "n");
+    },
+    close: vi.fn(),
+  }),
+}));
+
+const target = {
+  id: "codex-default",
+  kind: "direct" as const,
+  label: "Codex default",
+  providerId: "codex-oauth",
+  providerModelId: "gpt-5.6-terra",
+};
+
+function globalConfig(): KilnGlobalConfig {
+  return {
+    ...defaultGlobalConfig(),
+    targetCatalog: {
+      evidenceRevision: `sha256:${"a".repeat(64)}`,
+      accounts: [],
+      accountPolicies: [],
+      targets: [target] as never,
+    },
+    targetRouting: { defaultTargetId: target.id },
+  };
+}
+
+const appConfig: KilnAppConfig = {
   createRegistry: () => new DomainRegistry(),
   buildSystemPrompt: () => "",
 };
 
-const NON_INTERACTIVE = { interactive: false };
-
 describe("initCommand", () => {
-  let tempDir: string;
+  let projectPath: string;
+  let globalHome: string;
+  let previousXdgConfigHome: string | undefined;
+  let consoleLog: ReturnType<typeof vi.spyOn>;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+  let originalTTY: PropertyDescriptor | undefined;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), "kiln-init-"));
+    projectPath = mkdtempSync(join(tmpdir(), "kiln-init-v5-"));
+    globalHome = mkdtempSync(join(tmpdir(), "kiln-init-v5-global-"));
+    mkdirSync(join(globalHome, "kiln"), { recursive: true });
+    writeFileSync(join(globalHome, "kiln", "config.yaml"), "version: '4'\n", "utf8");
+    previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = globalHome;
+    readlineState.answers = [];
+    readlineState.questions = [];
+    consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    originalTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    if (originalTTY) Object.defineProperty(process.stdin, "isTTY", originalTTY);
+    else Reflect.deleteProperty(process.stdin, "isTTY");
+    consoleLog.mockRestore();
+    consoleError.mockRestore();
+    rmSync(projectPath, { recursive: true, force: true });
+    rmSync(globalHome, { recursive: true, force: true });
+    if (previousXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
   });
 
-  it("creates .kiln/ directory", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(existsSync(join(tempDir, ".kiln"))).toBe(true);
-  });
-
-  it("creates kiln.yaml with correct fields", async () => {
-    const config = await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-
-    expect(config).not.toBeNull();
-    expect(config!.version).toBe("1");
-    expect(config!.requireApproval).toBe(true);
-    expect(config!.maxDepth).toBe(3);
-    expect(config!.parallelWorkers).toBe(2);
-    expect(config).not.toHaveProperty("provider");
-    expect(config).not.toHaveProperty("model");
-    expect(config).not.toHaveProperty("mode");
-    expect(config!.permissions?.approval).toBe("on-request");
-    expect(config!.permissions?.sandbox).toBe("read-only");
-
-    const onDisk = parseYaml(
-      readFileSync(join(tempDir, ".kiln", "kiln.yaml"), "utf-8"),
-    ) as ResolvedKilnConfig;
-    expect(onDisk.version).toBe("1");
-    expect(onDisk.requireApproval).toBe(true);
-  });
-
-  it("creates memory/ subdirectory", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(existsSync(join(tempDir, ".kiln", "memory"))).toBe(true);
-  });
-
-  it("skips if already initialized (no force)", async () => {
-    const first = await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(first).not.toBeNull();
-
-    const second = await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(second).toBeNull();
-  });
-
-  it("re-initializes with --force flag", async () => {
-    const first = await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(first).not.toBeNull();
-
-    const second = await initCommand(MOCK_APP_CONFIG, tempDir, { force: true, interactive: false });
-    expect(second).not.toBeNull();
-    expect(second!.version).toBe("1");
-  });
-
-  it("does not add ignored project-local memory database entries", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-
-    expect(existsSync(join(tempDir, ".gitignore"))).toBe(false);
-  });
-
-  it("does not create .gitignore on re-init just for memory database entries", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    await initCommand(MOCK_APP_CONFIG, tempDir, { force: true, interactive: false });
-
-    expect(existsSync(join(tempDir, ".gitignore"))).toBe(false);
-  });
-
-  it("non-interactive init with --domain flag uses specified domain", async () => {
-    const config = await initCommand(MOCK_APP_CONFIG, tempDir, {
+  it("adopts only the minimal project document and no legacy templates", async () => {
+    const result = await initCommand(appConfig, projectPath, {
       interactive: false,
-      domain: "generic",
+      dependencies: {
+        readGlobalConfig: globalConfig,
+        readTargetAuthority: () => ({ current: true }),
+      },
     });
-    expect(config).not.toBeNull();
-    expect(config!.domain).toBe("generic");
+
+    expect(result?.version).toBe("1");
+    const kilnDir = join(projectPath, ".kiln");
+    expect(parse(readFileSync(join(kilnDir, "kiln.yaml"), "utf8"))).toEqual({
+      version: "1",
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    });
+    expect(existsSync(join(kilnDir, "app.yaml"))).toBe(false);
+    expect(existsSync(join(kilnDir, "gateway.yaml"))).toBe(false);
+    expect(existsSync(join(kilnDir, "memory"))).toBe(false);
   });
 
-  it("uses --provider only for the generated app gateway, not project config", async () => {
-    const config = await initCommand(MOCK_APP_CONFIG, tempDir, {
+  it("reruns idempotently without proposing another project adoption", async () => {
+    const propose = vi.fn(proposeConfigMutation);
+    const dependencies = {
+      readGlobalConfig: globalConfig,
+      readTargetAuthority: () => ({ current: true }),
+      proposeMutation: propose,
+    };
+
+    await initCommand(appConfig, projectPath, { interactive: false, dependencies });
+    const second = await initCommand(appConfig, projectPath, { interactive: false, dependencies });
+
+    expect(second?.version).toBe("1");
+    expect(propose).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels before apply and writes nothing", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    readlineState.answers = ["y", "n"];
+
+    const result = await initCommand(appConfig, projectPath, {
+      dependencies: {
+        readGlobalConfig: globalConfig,
+        readTargetAuthority: () => ({ current: true }),
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(consoleLog.mock.calls.flat().join("\n")).toContain("cancelled");
+    expect(readlineState.questions.some((question) => question.startsWith("Apply onboarding"))).toBe(true);
+  });
+
+  it("treats a declined safe posture as cancellation before any write", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    readlineState.answers = ["n"];
+
+    const result = await initCommand(appConfig, projectPath, {
+      dependencies: {
+        readGlobalConfig: globalConfig,
+        readTargetAuthority: () => ({ current: true }),
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(consoleLog.mock.calls.flat().join("\n")).toContain("cancelled");
+    expect(readlineState.questions.some((question) => question.startsWith("Apply onboarding"))).toBe(false);
+  });
+
+  it("treats declined target approval as cancellation before any write", async () => {
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    readlineState.answers = ["y", "n", "y"];
+    const withoutDefault = { ...globalConfig(), targetRouting: undefined };
+
+    const result = await initCommand(appConfig, projectPath, {
+      dependencies: {
+        readGlobalConfig: () => withoutDefault,
+        readTargetAuthority: () => ({ current: true }),
+      },
+    });
+
+    expect(result).toBeNull();
+    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(consoleLog.mock.calls.flat().join("\n")).toContain("cancelled");
+  });
+
+  it("does not write when the global target is unavailable", async () => {
+    const result = await initCommand(appConfig, projectPath, {
       interactive: false,
-      provider: "openai",
+      dependencies: {
+        readGlobalConfig: () => ({ version: "4" }),
+        readTargetAuthority: () => undefined,
+      },
     });
-    expect(config).not.toBeNull();
-    expect(config).not.toHaveProperty("provider");
-    expect(readFileSync(join(tempDir, ".kiln", "gateway.yaml"), "utf8")).toContain("name: openai");
-  });
 
-  it("non-interactive init with --channels flag uses specified channels", async () => {
-    const config = await initCommand(MOCK_APP_CONFIG, tempDir, {
-      interactive: false,
-      channels: "cli,api",
-    });
-    expect(config).not.toBeNull();
-    expect(config!.channels).toEqual(["cli", "api"]);
-  });
-
-  it("non-interactive init with --team-mode flag uses specified team mode", async () => {
-    const config = await initCommand(MOCK_APP_CONFIG, tempDir, {
-      interactive: false,
-      teamMode: "supervisor",
-    });
-    expect(config).not.toBeNull();
-    expect(config!.teamMode).toBe("supervisor");
-  });
-
-  it("non-interactive init generates app.yaml file", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(existsSync(join(tempDir, ".kiln", "app.yaml"))).toBe(true);
-  });
-
-  it("non-interactive init generates gateway.yaml file", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    expect(existsSync(join(tempDir, ".kiln", "gateway.yaml"))).toBe(true);
-  });
-
-  it("generated app.yaml is valid YAML", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    const content = readFileSync(join(tempDir, ".kiln", "app.yaml"), "utf-8");
-    expect(() => parseYaml(content)).not.toThrow();
-  });
-
-  it("generated gateway.yaml is valid YAML", async () => {
-    await initCommand(MOCK_APP_CONFIG, tempDir, NON_INTERACTIVE);
-    const content = readFileSync(join(tempDir, ".kiln", "gateway.yaml"), "utf-8");
-    expect(() => parseYaml(content)).not.toThrow();
-  });
-
-  it("TTY detection: interactive is false when process.stdin.isTTY is undefined", async () => {
-    const config = await initCommand(MOCK_APP_CONFIG, tempDir, { force: false });
-    expect(config).not.toBeNull();
+    expect(result).toBeNull();
+    expect(existsSync(join(projectPath, ".kiln", "kiln.yaml"))).toBe(false);
+    expect(consoleError.mock.calls.flat().join("\n")).toContain("target");
   });
 });
