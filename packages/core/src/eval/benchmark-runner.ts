@@ -17,6 +17,7 @@ export interface BenchmarkItemExecutionContext {
   readonly datasetName: string;
   readonly datasetVersion: string;
   readonly runIndex: number;
+  readonly repeatIndex: number;
   readonly item: DatasetItem;
 }
 
@@ -50,18 +51,25 @@ export class BenchmarkBaselineRunner {
     const namespace = this.options.artifactNamespace ?? DEFAULT_ARTIFACT_NAMESPACE;
     let nextRunIndex = 0;
     let activeRunIndex = 0;
+    const repeatIndexByItem = new Map<string, number>();
     const runner = new ExperimentRunner({
       dataset: this.options.dataset,
       experimentName: `${this.options.profile.id}:${this.options.dataset.name}`,
       scorers: this.options.scorers,
       generateOutput: async (input, item) => {
-        return this.options.executeItem(input, {
+        const repeatIndex = repeatIndexByItem.get(item.id) ?? 0;
+        const generated = await this.options.executeItem(input, {
           profile: this.options.profile,
           datasetName: this.options.dataset.name,
           datasetVersion: this.options.datasetVersion,
           runIndex: activeRunIndex,
+          repeatIndex,
           item,
         });
+        if (generated.trial?.status !== "invalid") {
+          repeatIndexByItem.set(item.id, repeatIndex + 1);
+        }
+        return generated;
       },
     });
     const consistency = await new ConsistencyRunner({
@@ -186,6 +194,10 @@ export class BenchmarkBaselineRunner {
         kind: "route",
         title: "route evidence",
         value: collectResultEvidence(consistency, (result) => ({
+          routeId: readMetadata(result, "routeId"),
+          expectedRouteId: readMetadata(result, "expectedRouteId"),
+          runIndex: readMetadata(result, "runIndex"),
+          repeatIndex: readMetadata(result, "repeatIndex"),
           providerId: readMetadata(result, "providerId"),
           modelId: readMetadata(result, "modelId"),
           accountId: readMetadata(result, "accountId"),

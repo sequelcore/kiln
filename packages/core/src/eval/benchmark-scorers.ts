@@ -334,7 +334,9 @@ class ExecutionIntegrityScorer implements Scorer {
     // intended one did, so a silent fallback would otherwise score as clean.
     const expectedProviderId = input.metadata.expectedProviderId;
     const expectedModelId = input.metadata.expectedModelId;
+    const expectedRouteId = input.metadata.expectedRouteId;
     const expectedAccountId = input.metadata.expectedAccountId;
+    const routeId = input.metadata.routeId;
     const accountId = input.metadata.accountId;
     const mismatches: string[] = [];
     if (typeof expectedProviderId === "string" && expectedProviderId !== providerId) {
@@ -342,6 +344,9 @@ class ExecutionIntegrityScorer implements Scorer {
     }
     if (typeof expectedModelId === "string" && expectedModelId !== modelId) {
       mismatches.push(`model ${modelId} is not the requested ${expectedModelId}`);
+    }
+    if (typeof expectedRouteId === "string" && expectedRouteId !== routeId) {
+      mismatches.push(`route ${String(routeId ?? "missing")} is not the requested ${expectedRouteId}`);
     }
     if (typeof expectedAccountId === "string" && expectedAccountId !== accountId) {
       mismatches.push(`account ${String(accountId ?? "missing")} is not the requested ${expectedAccountId}`);
@@ -356,7 +361,10 @@ class ExecutionIntegrityScorer implements Scorer {
     return {
       name: this.name,
       score: 1,
-      reasoning: expectedProviderId === undefined && expectedModelId === undefined && expectedAccountId === undefined
+      reasoning: expectedProviderId === undefined
+        && expectedModelId === undefined
+        && expectedRouteId === undefined
+        && expectedAccountId === undefined
         ? "successful terminal state and resolved route identity observed; no route was requested to compare against"
         : "successful terminal state and execution identity matching the requested route/account",
     };

@@ -40,6 +40,7 @@ describe("BenchmarkBaselineRunner", () => {
       ],
     };
     const calls = new Map<string, number>();
+    const contexts = new Map<string, Array<{ runIndex: number; repeatIndex: number }>>();
     const runner = new BenchmarkBaselineRunner({
       profile,
       dataset,
@@ -51,6 +52,9 @@ describe("BenchmarkBaselineRunner", () => {
       executeItem: async (_input, context) => {
         const count = (calls.get(context.item.id) ?? 0) + 1;
         calls.set(context.item.id, count);
+        const itemContexts = contexts.get(context.item.id) ?? [];
+        itemContexts.push({ runIndex: context.runIndex, repeatIndex: context.repeatIndex });
+        contexts.set(context.item.id, itemContexts);
         return {
           output: context.item.id,
           durationMs: 1,
@@ -73,6 +77,53 @@ describe("BenchmarkBaselineRunner", () => {
     expect(result.consistency.runs.map((run) => run.results.map((entry) => entry.itemId))).toEqual([
       ["flaky-route", "already-valid"],
       ["flaky-route"],
+    ]);
+    expect(contexts).toEqual(new Map([
+      ["flaky-route", [
+        { runIndex: 0, repeatIndex: 0 },
+        { runIndex: 1, repeatIndex: 0 },
+      ]],
+      ["already-valid", [{ runIndex: 0, repeatIndex: 0 }]],
+    ]));
+  });
+
+  it("advances repeatIndex after each valid attempt", async () => {
+    const baseProfile = KILN_BENCHMARK_PROFILES[0]!;
+    const profile = {
+      ...baseProfile,
+      minimumK: 2,
+      maxInvalidAttempts: 0,
+    };
+    const contexts: Array<{ runIndex: number; repeatIndex: number }> = [];
+    const runner = new BenchmarkBaselineRunner({
+      profile,
+      dataset: {
+        name: "repeat-index",
+        items: [{ id: "item", input: "input" }],
+      },
+      datasetVersion: "v1",
+      k: 2,
+      configHash: "sha256:repeat-index",
+      artifactStore: new MemoryArtifactResourceStore(),
+      scorers: profile.requiredScorers.map((name) => new PassingScorer(name)),
+      executeItem: async (_input, context) => {
+        contexts.push({ runIndex: context.runIndex, repeatIndex: context.repeatIndex });
+        return {
+          output: "output",
+          durationMs: 1,
+          costUsd: 0,
+          inputTokens: 1,
+          outputTokens: 1,
+          trial: { status: "valid" },
+        };
+      },
+    });
+
+    await runner.run();
+
+    expect(contexts).toEqual([
+      { runIndex: 0, repeatIndex: 0 },
+      { runIndex: 1, repeatIndex: 1 },
     ]);
   });
 
@@ -119,6 +170,10 @@ describe("BenchmarkBaselineRunner", () => {
         metadata: {
           providerId: "codex-oauth",
           modelId: "gpt-5.5",
+          routeId: "codex-benchmark-route",
+          expectedRouteId: "codex-benchmark-route",
+          runIndex: 42,
+          repeatIndex: 7,
           toolCalls: context.item.id === "first"
             ? [{ name: "status" }]
             : [{ name: "resource_read" }],
@@ -207,6 +262,10 @@ describe("BenchmarkBaselineRunner", () => {
         expect.objectContaining({
           providerId: "codex-oauth",
           modelId: "gpt-5.5",
+          routeId: "codex-benchmark-route",
+          expectedRouteId: "codex-benchmark-route",
+          runIndex: 42,
+          repeatIndex: 7,
         }),
       ]),
     });

@@ -138,6 +138,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       : undefined);
     let workspaceChanges: BenchmarkWriteWorkspaceChanges | undefined;
     let observedVerification: BackendBenchmarkVerification | FrontendBenchmarkVerification | undefined;
+    let expectedRouteId: string | undefined;
     try {
     const sessionInput = benchmarkWorkspace.kind === "synthetic-fixture"
       ? [
@@ -162,6 +163,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       executionCatalog: directExecutionCatalog,
       routeId: options.flags?.targetId,
     });
+    expectedRouteId = configuredRouteCandidates[0]?.routeId;
     if (writeMode && configuredRouteCandidates.length === 0) {
       throw new Error("Benchmark write profiles require a configured direct execution target.");
     }
@@ -393,7 +395,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       } : {}),
       output: runOutput,
     };
-    let selectedAccountOverrideId: string | undefined;
     let accountFallbackCount = 0;
     const result = await (configuredRouteCandidates.length > 0 && directExecutionCatalog
       ? (async () => {
@@ -416,7 +417,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
             });
             try {
               const dispatched = await dispatcher.dispatch(runInput);
-              selectedAccountOverrideId = accountOverrideId;
               accountFallbackCount = index;
               return dispatched;
             } catch (error) {
@@ -469,7 +469,10 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         : attempt.providerId;
       return [`${routeIdentity}: ${attempt.error}`];
     });
-    const boundExecution = result.executionBindings.find((binding) => binding.status === "bound");
+    const boundExecution = [...result.executionBindings].reverse().find((binding) => binding.status === "bound");
+    const executionIdentityMismatch = boundExecution !== undefined
+      && ((expectedRouteId !== undefined && boundExecution.routeId !== expectedRouteId)
+        || (scheduledAccountOverrideId !== undefined && boundExecution.accountId !== scheduledAccountOverrideId));
     const formalVerificationObservations = result.transcript.flatMap((entry) => {
       if (
         entry.event.type !== "tool_result"
@@ -485,11 +488,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       costUsd: result.finalCostUsd,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      trial: result.successfulProviderId
-        ? { status: "valid" }
-        : { status: "invalid", reason: "route-unavailable" },
+      trial: accountFallbackCount > 0
+        ? { status: "invalid", reason: "account-fallback" }
+        : executionIdentityMismatch
+          ? { status: "invalid", reason: "execution-identity-mismatch" }
+          : result.successfulProviderId
+            ? { status: "valid" }
+            : { status: "invalid", reason: "route-unavailable" },
       metadata: {
         activeAgentId: context.profile.id,
+        runIndex: context.runIndex,
+        repeatIndex: context.repeatIndex,
         providerId: result.successfulProviderId,
         modelId: result.successfulModelId,
         // The route the trial asked for, recorded alongside the route it got.
@@ -498,7 +507,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ...(preferredProvider ? { expectedProviderId: preferredProvider } : {}),
         ...(effectiveModel ? { expectedModelId: effectiveModel } : {}),
         ...(boundExecution ? { accountId: boundExecution.accountId } : {}),
-        ...(selectedAccountOverrideId ? { expectedAccountId: selectedAccountOverrideId } : {}),
+        ...(expectedRouteId ? { expectedRouteId } : {}),
+        ...(boundExecution ? { routeId: boundExecution.routeId } : {}),
+        ...(scheduledAccountOverrideId ? { expectedAccountId: scheduledAccountOverrideId } : {}),
         ...(scheduledAccountOverrideId ? { scheduledAccountId: scheduledAccountOverrideId } : {}),
         ...(accountFallbackCount > 0 ? { accountFallbackCount } : {}),
         costEvidence: result.finalCostEvidence,
@@ -540,8 +551,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         trial: { status: "invalid", reason: "account-route-unavailable" },
         metadata: {
           activeAgentId: context.profile.id,
+          runIndex: context.runIndex,
+          repeatIndex: context.repeatIndex,
           sessionSucceeded: false,
           diagnostics: ["Canonical execution account route was unavailable before provider dispatch."],
+          ...(expectedRouteId ? { expectedRouteId } : {}),
+          ...(scheduledAccountOverrideId ? { expectedAccountId: scheduledAccountOverrideId } : {}),
           ...(scheduledAccountOverrideId ? { scheduledAccountId: scheduledAccountOverrideId } : {}),
           benchmarkWorkspaceKind: benchmarkWorkspace.kind,
           benchmarkContextKind: benchmarkWorkspace.kind === "synthetic-fixture" ? "sanitized" : "repository",
@@ -586,7 +601,7 @@ function resolveBenchmarkAccountOverrideCandidates(
     : context.item.id;
   const pairIds = flags?.benchmarkPairIds ?? [pairId];
   const pairIndex = Math.max(0, pairIds.indexOf(pairId));
-  const preferredIndex = (pairIndex + context.runIndex * pairIds.length) % accounts.length;
+  const preferredIndex = (pairIndex + context.repeatIndex) % accounts.length;
   return accounts.map((_, offset) => accounts[(preferredIndex + offset) % accounts.length]!);
 }
 

@@ -528,6 +528,7 @@ describe("execution integrity route identity", () => {
     sessionSucceeded: true,
     providerId: "opencode-go",
     modelId: "kimi-k3",
+    routeId: "route-go",
     expectedToolCalls: [{ name: "read" }],
     toolCalls: [{ name: "read" }],
   };
@@ -552,6 +553,27 @@ describe("execution integrity route identity", () => {
     expect(result.reasoning).toContain("not the requested");
   });
 
+  it("fails when the trial ran on a different route than it requested", async () => {
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: { ...clean, expectedRouteId: "route-codex" },
+    });
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("route route-go is not the requested route-codex");
+  });
+
+  it("fails closed when the requested route is missing from observed identity", async () => {
+    const { routeId: _routeId, ...withoutRoute } = clean;
+    const result = await integrityScorer().score({
+      input: "Read a file.",
+      output: "answer",
+      metadata: { ...withoutRoute, expectedRouteId: "route-go" },
+    });
+    expect(result.score).toBe(0);
+    expect(result.reasoning).toContain("route missing is not the requested route-go");
+  });
+
   it("fails when an account-balanced trial ran on a different account than assigned", async () => {
     const result = await integrityScorer().score({
       input: "Read a file.",
@@ -572,9 +594,17 @@ describe("execution integrity route identity", () => {
     const result = await integrityScorer().score({
       input: "Read a file.",
       output: "answer",
-      metadata: { ...clean, expectedProviderId: "opencode-go", expectedModelId: "kimi-k3" },
+      metadata: {
+        ...clean,
+        expectedProviderId: "opencode-go",
+        expectedModelId: "kimi-k3",
+        expectedRouteId: "route-go",
+        expectedAccountId: "subscription-a",
+        accountId: "subscription-a",
+      },
     });
     expect(result.score).toBe(1);
+    expect(result.reasoning).toContain("matching the requested route/account");
   });
 
   it("says so when no route was requested, rather than implying a match", async () => {

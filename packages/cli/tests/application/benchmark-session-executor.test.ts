@@ -246,6 +246,9 @@ function makeBenchmarkContext(item: {
 }, profile: {
   readonly id?: string;
   readonly authorityProfile?: string;
+} = {}, execution: {
+  readonly runIndex?: number;
+  readonly repeatIndex?: number;
 } = {}): BenchmarkItemExecutionContext {
   return {
     profile: {
@@ -268,7 +271,8 @@ function makeBenchmarkContext(item: {
     },
     datasetName: "exact-format",
     datasetVersion: "1",
-    runIndex: 0,
+    runIndex: execution.runIndex ?? 0,
+    repeatIndex: execution.repeatIndex ?? 0,
     item,
   };
 }
@@ -815,7 +819,7 @@ describe("createBenchmarkSessionExecutor", () => {
     }));
   });
 
-  it("assigns paired items to the same account and rotates later repetitions", async () => {
+  it("assigns paired items to the same account, ignores run order, and rotates later repetitions", async () => {
     benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
       makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
@@ -828,45 +832,55 @@ describe("createBenchmarkSessionExecutor", () => {
         benchmarkPairIds: ["pair-a", "pair-b"],
       },
     });
-    const executePair = (itemId: string, pairId: string, runIndex: number) => executor(
+    const executePair = (itemId: string, pairId: string, runIndex: number, repeatIndex: number) => executor(
       "Return exactly one sentence.",
-      {
-        ...makeBenchmarkContext({
-          id: itemId,
-          input: "Return exactly one sentence.",
-          metadata: { pairId },
-        }),
-        runIndex,
-      },
+      makeBenchmarkContext({
+        id: itemId,
+        input: "Return exactly one sentence.",
+        metadata: { pairId },
+      }, {}, { runIndex, repeatIndex }),
     );
 
-    await executePair("pair-a-control", "pair-a", 0);
-    await executePair("pair-a-treatment", "pair-a", 0);
-    await executePair("pair-b-control", "pair-b", 0);
-    await executePair("pair-a-control", "pair-a", 1);
+    await executePair("pair-a-control", "pair-a", 0, 0);
+    await executePair("pair-a-treatment", "pair-a", 1, 0);
+    await executePair("pair-b-control", "pair-b", 2, 0);
+    await executePair("pair-a-control-retry", "pair-a", 3, 0);
+    await executePair("pair-a-control-repeat", "pair-a", 4, 1);
 
     const assignedAccounts = benchmarkExecutorMocks.createCanonicalRunSessionDispatcher.mock.calls
-      .slice(-4)
+      .slice(-5)
       .map(([input]) => input.accountOverrideId);
     expect(assignedAccounts).toEqual([
       "subscription-a",
       "subscription-a",
       "subscription-b",
-      "subscription-c",
+      "subscription-a",
+      "subscription-b",
     ]);
   });
 
-  it("fails over within the admitted account pool and records the effective binding", async () => {
+  it("retains an account fallback as an invalid trial and records scheduled and observed identity", async () => {
     benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
     benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
       makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
     );
     const unavailable = new Error("first account unavailable");
     unavailable.name = "OperatorSessionExecutionRoutingError";
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
     benchmarkExecutorMocks.createCanonicalRunSessionDispatcher
       .mockImplementationOnce(() => ({ dispatch: vi.fn().mockRejectedValue(unavailable), close: vi.fn() }))
       .mockImplementationOnce(() => ({
-        dispatch: (payload: object) => benchmarkExecutorMocks.runSession(payload),
+        dispatch: async (payload: object) => ({
+          ...await defaultRun(payload),
+          executionBindings: [{
+            status: "bound",
+            routeId: "benchmark-codex",
+            accountId: "subscription-b",
+            credentialId: "credential-b",
+            credentialRevision: "revision-b",
+          }],
+        }),
         close: vi.fn(),
       }));
     const executor = createBenchmarkSessionExecutor({
@@ -888,11 +902,112 @@ describe("createBenchmarkSessionExecutor", () => {
       .slice(-2)
       .map(([input]) => input.accountOverrideId);
     expect(attemptedAccounts).toEqual(["subscription-a", "subscription-b"]);
-    expect(result.trial).toEqual({ status: "valid" });
+    expect(result.trial).toEqual({ status: "invalid", reason: "account-fallback" });
     expect(result.metadata).toMatchObject({
       scheduledAccountId: "subscription-a",
-      expectedAccountId: "subscription-b",
+      expectedAccountId: "subscription-a",
       accountFallbackCount: 1,
+      accountId: "subscription-b",
+      expectedRouteId: "benchmark-codex",
+      routeId: "benchmark-codex",
+    });
+  });
+
+  it("records benchmark indices and configured and observed route identity", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (options: object) => ({
+      ...await defaultRun(options),
+      executionBindings: [{
+        status: "bound",
+        routeId: "stale-route",
+        accountId: "stale-account",
+        credentialId: "credential-stale",
+        credentialRevision: "revision-stale",
+      }, {
+        status: "bound",
+        routeId: "benchmark-codex",
+        accountId: "subscription-c",
+        credentialId: "credential-c",
+        credentialRevision: "revision-c",
+      }],
+    }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        targetId: "benchmark-codex",
+        accountOverrideIds: ["subscription-a", "subscription-b", "subscription-c"],
+        benchmarkPairIds: ["pair-a"],
+      },
+    });
+
+    const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "pair-a-control",
+      input: "Return exactly one sentence.",
+      metadata: { pairId: "pair-a" },
+    }, {}, { runIndex: 17, repeatIndex: 2 }));
+
+    expect(result.trial).toEqual({ status: "valid" });
+    expect(result.metadata).toMatchObject({
+      runIndex: 17,
+      repeatIndex: 2,
+      expectedRouteId: "benchmark-codex",
+      routeId: "benchmark-codex",
+      expectedAccountId: "subscription-c",
+      scheduledAccountId: "subscription-c",
+      accountId: "subscription-c",
+      expectedProviderId: "codex-oauth",
+      expectedModelId: "benchmark-model",
+      providerId: "codex",
+      modelId: "benchmark-model",
+    });
+  });
+
+  it("invalidates a bound execution whose route or scheduled account differs", async () => {
+    benchmarkExecutorMocks.isDirectApiProvider.mockReturnValue(true);
+    benchmarkExecutorMocks.readGlobalConfig.mockReturnValue(
+      makeOperatorSurfaceGlobalConfig("codex-oauth", "benchmark-model", "benchmark-codex"),
+    );
+    const defaultRun = benchmarkExecutorMocks.runSession.getMockImplementation();
+    if (!defaultRun) throw new Error("benchmark run mock was not initialized");
+    benchmarkExecutorMocks.runSession.mockImplementationOnce(async (options: object) => ({
+      ...await defaultRun(options),
+      executionBindings: [{
+        status: "bound",
+        routeId: "unexpected-route",
+        accountId: "unexpected-account",
+        credentialId: "credential-unexpected",
+        credentialRevision: "revision-unexpected",
+      }],
+    }));
+    const executor = createBenchmarkSessionExecutor({
+      appConfig: MOCK_APP_CONFIG,
+      flags: {
+        targetId: "benchmark-codex",
+        accountOverrideIds: ["subscription-a"],
+        benchmarkPairIds: ["pair-a"],
+      },
+    });
+
+    const result = await executor("Return exactly one sentence.", makeBenchmarkContext({
+      id: "pair-a-control",
+      input: "Return exactly one sentence.",
+      metadata: { pairId: "pair-a" },
+    }, {}, { runIndex: 3, repeatIndex: 1 }));
+
+    expect(result.trial).toEqual({ status: "invalid", reason: "execution-identity-mismatch" });
+    expect(result.metadata).toMatchObject({
+      runIndex: 3,
+      repeatIndex: 1,
+      expectedRouteId: "benchmark-codex",
+      routeId: "unexpected-route",
+      expectedAccountId: "subscription-a",
+      scheduledAccountId: "subscription-a",
+      accountId: "unexpected-account",
     });
   });
 

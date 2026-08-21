@@ -646,6 +646,8 @@ describe("benchmarkCommand", () => {
       metadata: {
         observedVerification: { status: "passed" },
         workspaceChanges: { changed: [], added: [], deleted: [] },
+        routeId: "dataset-route",
+        repeatIndex: 99,
       },
     }) + "\n", "utf8");
 
@@ -655,7 +657,7 @@ describe("benchmarkCommand", () => {
       "--k", "1",
       "--output", join(root, "spoofed.json"),
     ], { executeItem: vi.fn() })).rejects.toThrow(
-      "declares executor-owned metadata: observedVerification, workspaceChanges",
+      "declares executor-owned metadata: observedVerification, workspaceChanges, routeId, repeatIndex",
     );
   });
 
