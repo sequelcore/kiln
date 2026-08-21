@@ -24,7 +24,7 @@ explicit without repeating them hundreds of times.
 | `GP` | CLI permission shape | CLI configured admission; Core owns effects | `readGlobalConfig` | `mutateGlobalConfig` | every model-facing surface | global bound/default |
 | `GM` | Core MCP shape, CLI boundary validator | Core MCP admission | `readMcpConfigurationSource` | `mutateGlobalConfig` | MCP resolution and native projection | global; project may narrow/override server fields |
 | `GC` | Core contract persisted by CLI | named Core communication/voice/gateway owner | `readGlobalConfig` | `mutateGlobalConfig` | policy resolver or Runtime ingress | global only unless the row says project precedence |
-| `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYaml` | `writeKilnYaml`, proposal/apply | run, status, GUI/TUI, Tools MCP | `.kiln/kiln.yaml`; project |
+| `P` | CLI `KilnProjectConfig` | CLI project composition | `readKilnYaml` | config mutation authority (`writeKilnYaml` remains for `kiln init` only) | run, status, GUI/TUI, Tools MCP | `.kiln/kiln.yaml`; project |
 | `PP` | shared CLI permission shape | CLI configured admission | `readKilnYaml` | project mutation paths | every model-facing surface | project; attenuation only |
 | `A` | Core `RawApp`/`AppLoader` | Core app domain | `parseAppYaml` | init; cron for triggers | App Gateway and Core validators | `app.yaml`; deployable app |
 | `AS` | separate Core app-side reader | Runtime/provider/events owner | specialized YAML reader | no shared writer | Runtime startup/request path | same `app.yaml`; deployable app |
@@ -719,10 +719,10 @@ These fields are not additional durable configuration sources.
 
 | Operation | Current owner and behavior | Target lifecycle |
 | --- | --- | --- |
-| Global config mutation | CLI `mutateGlobalConfig`; validation, revision CAS, lock, same-directory temporary file, atomic replace, invalid backup | retain as the global application-port primitive in Slice 4 |
+| Global config mutation | CLI `mutateGlobalConfig` and `commitGlobalConfigBytes`; validation, revision CAS, lock, same-directory temporary file, atomic replace, invalid backup | retained as the global primitive; the mutation authority is now its only caller for settings, and remaining direct callers are named in Roadmap 12 Slice 4 |
 | Target creation/import and UI preferences | CLI callers of `mutateGlobalConfig`; route refresh or immediate theme projection varies | declare activation/reconciliation result through the Slice 4 typed operation |
-| Project init/config set | CLI `writeKilnYaml`; whole-object serialization, no shared atomic lifecycle | replace with AST mutation and typed result in Slice 4 |
-| Project proposal/approval/apply | CLI application services; hash/path fences, sequential writes, no atomic multi-file commit, reconciliation failure can be overstated | converge on one Slice 4 application port and honest terminal result |
+| Project init/config set | `kiln config set` now edits the document tree through the mutation authority with a typed result; `writeKilnYaml` whole-object serialization remains only in `kiln init` | done for `config set`; `kiln init` transfers to Slice 5 adoption |
+| Project proposal/approval/apply | One config mutation authority for both scopes; base-revision fence, path-scoped lock, atomic replace, write-once settlement, honest terminal outcome | done in Slice 4; multi-path atomicity still unproven because each operation writes one path |
 | App/gateway init | CLI templates write whole files | replace only when their Slice 9 schemas and readers admit generated output |
 | App cron mutation | CLI rewrites `app.yaml` through generic serialization | replace with app-owned AST mutation in Slice 9 |
 | Native/repo projection | CLI projection owners write generated artifacts and drift state | remain projections; bind canonical revision to projection/activation evidence in Slices 2 and 4 |

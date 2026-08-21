@@ -891,16 +891,21 @@ The same policy can be edited through `kiln config set` without hand-editing
 YAML:
 
 ```bash
-kiln config set interactiveUse.enabled true
-kiln config set interactiveUse.browserProvider playwright
-kiln config set interactiveUse.browserEnvironment isolated-headless
-kiln config set interactiveUse.allowedDomains example.com,docs.example.com
-kiln config set interactiveUse.allowComputer true
-kiln config set interactiveUse.computerProvider windows-uia
-kiln config set interactiveUse.computerEnvironment local-active-desktop
-kiln config set interactiveUse.allowedApplications Calculator,msedge,notepad
-kiln config set interactiveUse.applicationAliases '{"notepad":["Notepad","Bloc de notas","notas"]}'
+kiln config set interactiveUse.enabled true --approve
+kiln config set interactiveUse.browserProvider playwright --approve
+kiln config set interactiveUse.browserEnvironment isolated-headless --approve
+kiln config set interactiveUse.allowedDomains example.com,docs.example.com --approve
+kiln config set interactiveUse.allowComputer true --approve
+kiln config set interactiveUse.computerProvider windows-uia --approve
+kiln config set interactiveUse.computerEnvironment local-active-desktop --approve
+kiln config set interactiveUse.allowedApplications Calculator,msedge,notepad --approve
+kiln config set interactiveUse.applicationAliases '{"notepad":["Notepad","Bloc de notas","notas"]}' --approve
 ```
+
+These keys govern what Kiln is allowed to do, so the mutation authority
+treats them as authority-affecting and refuses to commit them without an
+explicit operator approval. `--approve` supplies that approval in the same
+invocation; without it the command prints the proposal and changes nothing.
 
 The runtime Playwright provider is optional. Runtime hosts that enable
 `browserProvider: playwright` must install Playwright and a Chromium browser:

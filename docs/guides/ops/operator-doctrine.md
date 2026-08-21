@@ -63,16 +63,21 @@ and aligned with repository architecture.
 Set the global work posture:
 
 ```bash
-kiln config set --global workGovernance.defaultPosture direct
-kiln config set --global workGovernance.requireDelegationFor ""
-kiln config set --global workGovernance.requiredEvidence ""
+kiln config set --global workGovernance.defaultPosture direct --approve
+kiln config set --global workGovernance.requireDelegationFor "" --approve
+kiln config set --global workGovernance.requiredEvidence "" --approve
 ```
+
+These keys govern what Kiln is allowed to do, so the mutation authority
+treats them as authority-affecting and refuses to commit them without an
+explicit operator approval. `--approve` supplies that approval in the same
+invocation; without it the command prints the proposal and changes nothing.
 
 Enable task-aware skill admission when you want selected model/task
 recommendations to become governed context automatically:
 
 ```bash
-kiln config set --global skills.selection.mode auto
+kiln config set --global skills.selection.mode auto --approve
 ```
 
 ## Project Overrides
@@ -82,8 +87,8 @@ values override global values for that repo:
 
 ```bash
 kiln config set activeInstructionProfiles sequel-engineering,kiln-project
-kiln config set workGovernance.defaultPosture direct
-kiln config set skills.selection.mode advisory
+kiln config set workGovernance.defaultPosture direct --approve
+kiln config set skills.selection.mode advisory --approve
 ```
 
 Project-specific doctrine belongs in `.kiln/instructions/<profile>.md`.
