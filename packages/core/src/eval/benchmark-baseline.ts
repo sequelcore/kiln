@@ -577,7 +577,7 @@ function missingEvidenceArtifacts(baseline: BenchmarkBaselineResult): readonly B
     "route",
     "cost",
     "cache-topology",
-    ...(["kiln-model-roster-backend-write", "kiln-model-roster-frontend-render"].includes(baseline.profileId)
+    ...(["kiln-model-roster-backend-write", "kiln-model-roster-frontend-render", "kiln-formal-verification-pilot"].includes(baseline.profileId)
       ? ["diff" as const, "verification" as const]
       : []),
   ];

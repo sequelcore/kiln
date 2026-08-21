@@ -199,6 +199,23 @@ describe("benchmark baseline readiness", () => {
     ]);
   });
 
+  it("requires diff and verification evidence for the formal verification pilot", () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-formal-verification-pilot")!;
+    const report = evaluateBenchmarkReadiness({
+      profiles: [profile],
+      baselines: [baselineFor(profile.id, {
+        evidenceArtifacts: baselineFor(profile.id).evidenceArtifacts.filter((artifact) =>
+          artifact.kind !== "diff" && artifact.kind !== "verification"),
+      })],
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.profileReadiness[0]?.issues).toEqual(expect.arrayContaining([
+      "missing required evidence artifact diff",
+      "missing required evidence artifact verification",
+    ]));
+  });
+
   it("reports external-ready when a candidate track has its required surface ready", () => {
     const report = evaluateBenchmarkReadiness({
       profiles: [KILN_BENCHMARK_PROFILES[0]!],
