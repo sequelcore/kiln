@@ -233,6 +233,20 @@ shims. A code or public contract replacement removes the old path in the same
 slice. Renamed fields are not accepted under both names, and surfaces do not
 select between old and new schemas.
 
+### Remaining-slice replacement rule
+
+For every remaining Roadmap 12 slice, the operator is the sole consumer of
+global configuration. Refactor the global configuration directly into the
+target contract and delete the replaced shape, reader, writer, tests, fixtures,
+documentation, and generated artifacts in the same slice. Do not add migration
+code, legacy readers, compatibility aliases, dual-state operation, deprecation
+windows, or state-conversion commands. Existing local configuration may be
+discarded and re-adopted through the new canonical path.
+
+This rule does not prohibit rollback within the current contract for an atomic
+mutation. It prohibits preserving or reconstructing superseded configuration
+contracts.
+
 Durable local state is evaluated separately. A slice must classify existing
 records as:
 
