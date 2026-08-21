@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { verifyBackendBenchmarkLease } from "../../src/application/benchmark-backend-verifier.js";
-import type { BackendBenchmarkCaseId } from "../../src/application/benchmark-backend-cases.js";
+import {
+  BACKEND_BENCHMARK_CASES,
+  type BackendBenchmarkCaseId,
+} from "../../src/application/benchmark-backend-cases.js";
 import { createBenchmarkWriteWorkspaceLease } from "../../src/application/benchmark-write-workspace.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 
@@ -82,7 +85,16 @@ describe("backend benchmark Docker verifier v2", () => {
       );
       try {
         await writeFile(join(lease.rootPath, "src", "solution.mjs"), `${implementation}\n`, "utf8");
-        await expect(verifyBackendBenchmarkLease({ lease, benchmarkCaseId })).resolves.toMatchObject({
+        const benchmarkCase = BACKEND_BENCHMARK_CASES[benchmarkCaseId];
+        await expect(verifyBackendBenchmarkLease({
+          lease,
+          benchmarkCase: {
+            id: benchmarkCase.id,
+            hiddenTestSource: benchmarkCase.hiddenTestSource,
+            hiddenTestDigest: benchmarkCase.testDigest,
+            hiddenTestCount: benchmarkCase.testCount,
+          },
+        })).resolves.toMatchObject({
           status: "passed",
           benchmarkCaseId,
           tests: { exitCode: 0, failed: 0, timedOut: false },

@@ -239,63 +239,69 @@ describe("createBenchmarkProfileScorers", () => {
     })).resolves.toMatchObject({ score: 0 });
   });
 
-  it("scores the formal pilot from hidden behavior and candidate-bound treatment evidence", async () => {
+  it("scores private screening from the exact TypeScript diff and candidate-bound lemma_check facts", async () => {
     const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-formal-verification-pilot")!;
     const scorers = createBenchmarkProfileScorers(profile);
-    const diff = scorers.find((scorer) => scorer.name === "formal-diff-integrity")!;
-    const compliance = scorers.find((scorer) => scorer.name === "formal-verification-compliance")!;
-    const proofDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+    const diff = scorers.find((scorer) => scorer.name === "screening-diff-integrity")!;
+    const compliance = scorers.find((scorer) => scorer.name === "lemma-check-compliance")!;
+    const sourceDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
     const metadata = {
-      formalVerificationArm: "treatment",
-      formalVerificationExpectedVersion: "4.11.0",
+      formalScreeningArm: "T",
       observedVerification: {
         changes: {
           changed: [
             {
-              path: "proof/model.dfy",
+              path: "src/solution.ts",
               beforeHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              afterHash: proofDigest,
-            },
-            {
-              path: "src/solution.mjs",
-              beforeHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-              afterHash: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              afterHash: sourceDigest,
             },
           ],
           added: [],
           deleted: [],
         },
       },
-      formalVerificationObservations: [{
-        kind: "formal_verification",
-        toolName: "formal_verify",
-        verifier: { name: "dafny", version: "4.11.0" },
-        artifact: { contentDigest: proofDigest },
-        subjects: [{ path: "proof/model.dfy", contentDigest: proofDigest }],
-        checks: [{ symbol: "Remaining", check: "correctness", outcome: "proved" }],
+      lemmaCheckObservations: [{
+        kind: "pipeline_passed",
+        status: "passed",
+        stage: "complete",
+        semanticEquivalence: "unresolved",
+        benchmarkReady: false,
+        policyEligible: true,
+        digests: {
+          source: sourceDigest,
+          generated: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          lemmaScriptExecutable: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          dafnyExecutable: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          dependencyBinding: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        },
+        verification: {
+          correctnessChecks: { total: 1, passed: 1, failed: 0, inconclusive: 0 },
+        },
       }],
     };
 
     await expect(diff.score({ input: "fix", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
     await expect(compliance.score({ input: "fix", output: "done", metadata })).resolves.toMatchObject({ score: 1 });
+    const lemmaObservation = metadata.lemmaCheckObservations[0];
+    if (!lemmaObservation) throw new Error("lemma observation fixture is required");
     await expect(compliance.score({
       input: "fix",
       output: "done",
       metadata: {
         ...metadata,
-        formalVerificationObservations: [{
-          ...metadata.formalVerificationObservations[0],
-          subjects: [{
-            path: "proof/model.dfy",
-            contentDigest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-          }],
+        lemmaCheckObservations: [{
+          ...lemmaObservation,
+          digests: {
+            ...lemmaObservation.digests,
+            source: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          },
         }],
       },
     })).resolves.toMatchObject({ score: 0 });
     await expect(compliance.score({
       input: "fix",
       output: "done",
-      metadata: { formalVerificationArm: "control" },
+      metadata: { formalScreeningArm: "C0" },
     })).resolves.toMatchObject({ score: 1 });
   });
 

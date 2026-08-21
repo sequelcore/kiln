@@ -36,10 +36,10 @@ function createBenchmarkScorer(name: string): Scorer {
       return new BackendTestVerificationScorer();
     case "diff-integrity":
       return new BackendDiffIntegrityScorer();
-    case "formal-diff-integrity":
-      return new FormalPilotDiffIntegrityScorer();
-    case "formal-verification-compliance":
-      return new FormalVerificationComplianceScorer();
+    case "screening-diff-integrity":
+      return new FormalScreeningDiffIntegrityScorer();
+    case "lemma-check-compliance":
+      return new LemmaCheckComplianceScorer();
     case "render-verification":
       return new FrontendRenderVerificationScorer();
     case "frontend-diff-integrity":
@@ -111,8 +111,8 @@ class BackendDiffIntegrityScorer implements Scorer {
   }
 }
 
-class FormalPilotDiffIntegrityScorer implements Scorer {
-  readonly name = "formal-diff-integrity";
+class FormalScreeningDiffIntegrityScorer implements Scorer {
+  readonly name = "screening-diff-integrity";
 
   async score(input: EvalInput): Promise<EvalScore> {
     const verification = readRecord(input.metadata?.observedVerification);
@@ -120,60 +120,62 @@ class FormalPilotDiffIntegrityScorer implements Scorer {
     const changed = readRecordArray(changes?.changed);
     const added = readRecordArray(changes?.added);
     const deleted = readRecordArray(changes?.deleted);
-    const expectedPaths = ["proof/model.dfy", "src/solution.mjs"];
-    const valid = changed.length === expectedPaths.length
-      && expectedPaths.every((path) => changed.some((entry) =>
-        entry.path === path
-        && isSha256(entry.beforeHash)
-        && isSha256(entry.afterHash)
-        && entry.beforeHash !== entry.afterHash
-      ))
+    const sourceChange = changed[0];
+    const valid = changed.length === 1
+      && sourceChange?.path === "src/solution.ts"
+      && isSha256(sourceChange.beforeHash)
+      && isSha256(sourceChange.afterHash)
+      && sourceChange.beforeHash !== sourceChange.afterHash
       && added.length === 0
       && deleted.length === 0;
     return valid
-      ? { name: this.name, score: 1, reasoning: "candidate changed exactly the implementation and formal model" }
-      : { name: this.name, score: 0, reasoning: "candidate diff is missing a required file or exceeds the paired pilot scope" };
+      ? { name: this.name, score: 1, reasoning: "candidate changed only the source translated and behaviorally scored" }
+      : { name: this.name, score: 0, reasoning: "candidate diff is missing or exceeds the private screening source scope" };
   }
 }
 
-class FormalVerificationComplianceScorer implements Scorer {
-  readonly name = "formal-verification-compliance";
+class LemmaCheckComplianceScorer implements Scorer {
+  readonly name = "lemma-check-compliance";
 
   async score(input: EvalInput): Promise<EvalScore> {
-    const arm = input.metadata?.formalVerificationArm;
-    const observations = readRecordArray(input.metadata?.formalVerificationObservations);
-    if (arm === "control") {
+    const arm = input.metadata?.formalScreeningArm;
+    const observations = readRecordArray(input.metadata?.lemmaCheckObservations);
+    if (arm === "C0") {
       return observations.length === 0
-        ? { name: this.name, score: 1, reasoning: "control arm emitted no formal-verification observation" }
-        : { name: this.name, score: 0, reasoning: "control arm received treatment-only formal-verification evidence" };
+        ? { name: this.name, score: 1, reasoning: "C0 emitted no treatment-only lemma_check facts" }
+        : { name: this.name, score: 0, reasoning: "C0 received treatment-only lemma_check facts" };
     }
-    if (arm !== "treatment") {
-      return { name: this.name, score: 0, reasoning: "formal-verification arm identity is missing" };
+    if (arm !== "T") {
+      return { name: this.name, score: 0, reasoning: "screening arm identity is missing or unsupported" };
     }
     const verification = readRecord(input.metadata?.observedVerification);
     const changes = readRecord(verification?.changes);
-    const proofChange = readRecordArray(changes?.changed).find((entry) => entry.path === "proof/model.dfy");
-    const finalDigest = proofChange?.afterHash;
-    const expectedVersion = input.metadata?.formalVerificationExpectedVersion;
+    const sourceChange = readRecordArray(changes?.changed).find((entry) => entry.path === "src/solution.ts");
+    const finalDigest = sourceChange?.afterHash;
     const matching = observations.some((observation) => {
-      const verifier = readRecord(observation.verifier);
-      const artifact = readRecord(observation.artifact);
-      const subjects = readRecordArray(observation.subjects);
-      const checks = readRecordArray(observation.checks);
-      return observation.kind === "formal_verification"
-        && observation.toolName === "formal_verify"
-        && verifier?.name === "dafny"
-        && typeof expectedVersion === "string"
-        && verifier.version === expectedVersion
+      const digests = readRecord(observation.digests);
+      const checkFacts = readRecord(readRecord(observation.verification)?.correctnessChecks);
+      return observation.kind === "pipeline_passed"
+        && observation.status === "passed"
+        && observation.stage === "complete"
+        && observation.semanticEquivalence === "unresolved"
+        && observation.benchmarkReady === false
+        && observation.policyEligible === true
         && isSha256(finalDigest)
-        && artifact?.contentDigest === finalDigest
-        && subjects.some((subject) => subject.path === "proof/model.dfy" && subject.contentDigest === finalDigest)
-        && checks.length > 0
-        && checks.every((check) => check.outcome === "proved");
+        && digests?.source === finalDigest
+        && isSha256(digests.generated)
+        && isSha256(digests.lemmaScriptExecutable)
+        && isSha256(digests.dafnyExecutable)
+        && isSha256(digests.dependencyBinding)
+        && typeof checkFacts?.total === "number"
+        && checkFacts.total > 0
+        && checkFacts.passed === checkFacts.total
+        && checkFacts.failed === 0
+        && checkFacts.inconclusive === 0;
     });
     return matching
-      ? { name: this.name, score: 1, reasoning: "treatment carries proved Dafny evidence for the final model bytes" }
-      : { name: this.name, score: 0, reasoning: "treatment lacks current, proved, version-matched Dafny evidence" };
+      ? { name: this.name, score: 1, reasoning: "T carries successful facts-only lemma_check feedback for the final source bytes" }
+      : { name: this.name, score: 0, reasoning: "T lacks successful candidate-bound lemma_check facts" };
   }
 }
 

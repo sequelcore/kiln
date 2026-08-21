@@ -241,7 +241,7 @@ export class BenchmarkBaselineRunner {
         title: "out-of-process verification evidence",
         value: collectResultEvidence(consistency, (result) => ({
           observedVerification: readMetadata(result, "observedVerification"),
-          formalVerificationObservations: readArrayMetadata(result, "formalVerificationObservations"),
+          lemmaCheckObservations: readArrayMetadata(result, "lemmaCheckObservations"),
         })),
       },
     ];

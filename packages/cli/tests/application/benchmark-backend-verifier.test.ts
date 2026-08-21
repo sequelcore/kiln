@@ -12,6 +12,13 @@ import { resolveProjectRoot } from "../../src/application/project-root-resolver.
 
 const FIXTURE = "packages/core/evals/fixtures/model-roster-backend-write-v2/idempotent-reservation";
 const CASE_ID = "idempotent-reservation";
+const CASE_PAYLOAD = {
+  id: CASE_ID,
+  hiddenTestSource: BACKEND_BENCHMARK_CASES[CASE_ID].hiddenTestSource,
+  hiddenTestDigest: BACKEND_BENCHMARK_CASES[CASE_ID].testDigest,
+  hiddenTestCount: BACKEND_BENCHMARK_CASES[CASE_ID].testCount,
+} as const;
+const LEGACY_ALLOWED_CHANGED_PATHS = ["src/solution.mjs"] as const;
 
 describe("verifyBackendBenchmarkLease", () => {
   it("runs the fixed hidden tests in a locked-down pinned container", async () => {
@@ -20,7 +27,12 @@ describe("verifyBackendBenchmarkLease", () => {
     const runner = passingRunner();
 
     try {
-      const result = await verifyBackendBenchmarkLease({ lease, runner, benchmarkCaseId: CASE_ID });
+      const result = await verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCase: CASE_PAYLOAD,
+        allowedChangedPaths: LEGACY_ALLOWED_CHANGED_PATHS,
+      });
 
       expect(result).toMatchObject({
         status: "passed",
@@ -59,41 +71,16 @@ describe("verifyBackendBenchmarkLease", () => {
     const runner = passingRunner();
 
     try {
-      await expect(verifyBackendBenchmarkLease({ lease, runner, benchmarkCaseId: CASE_ID })).resolves.toMatchObject({
+      await expect(verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCase: CASE_PAYLOAD,
+        allowedChangedPaths: LEGACY_ALLOWED_CHANGED_PATHS,
+      })).resolves.toMatchObject({
         status: "failed",
         violations: [expect.stringContaining("outside the admitted scope: README.md")],
       });
       expect(runner.run).not.toHaveBeenCalled();
-    } finally {
-      lease.cleanup();
-    }
-  });
-
-  it("admits an explicit proof path without broadening the default scope", async () => {
-    const lease = createBenchmarkWriteWorkspaceLease(
-      resolveProjectRoot().rootPath,
-      "packages/core/evals/fixtures/formal-verification-pilot-v1/idempotent-reservation",
-    );
-    writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
-    writeFileSync(`${lease.rootPath}/proof/model.dfy`, "function Fixed(): bool { true }\n", "utf8");
-    const runner = passingRunner();
-
-    try {
-      await expect(verifyBackendBenchmarkLease({
-        lease,
-        runner,
-        benchmarkCaseId: CASE_ID,
-        allowedChangedPaths: ["src/solution.mjs", "proof/model.dfy"],
-      })).resolves.toMatchObject({
-        status: "passed",
-        violations: [],
-        changes: {
-          changed: [
-            expect.objectContaining({ path: "proof/model.dfy" }),
-            expect.objectContaining({ path: "src/solution.mjs" }),
-          ],
-        },
-      });
     } finally {
       lease.cleanup();
     }
@@ -108,10 +95,42 @@ describe("verifyBackendBenchmarkLease", () => {
     };
 
     try {
-      await expect(verifyBackendBenchmarkLease({ lease, runner, benchmarkCaseId: CASE_ID })).resolves.toMatchObject({
+      await expect(verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCase: CASE_PAYLOAD,
+        allowedChangedPaths: LEGACY_ALLOWED_CHANGED_PATHS,
+      })).resolves.toMatchObject({
         status: "failed",
         tests: { passed: 3, failed: 1, timedOut: true },
       });
+    } finally {
+      lease.cleanup();
+    }
+  });
+
+  it("rejects a hidden-source digest or positive test-count mismatch before Docker", async () => {
+    const lease = createBenchmarkWriteWorkspaceLease(resolveProjectRoot().rootPath, FIXTURE);
+    writeFileSync(`${lease.rootPath}/src/solution.mjs`, "export const fixed = true;\n", "utf8");
+    const runner = passingRunner();
+
+    try {
+      const badDigest = { ...CASE_PAYLOAD, hiddenTestDigest: `sha256:${"0".repeat(64)}` };
+      await expect(verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCase: badDigest,
+        allowedChangedPaths: LEGACY_ALLOWED_CHANGED_PATHS,
+      })).resolves.toMatchObject({ status: "failed", tests: { exitCode: -1 } });
+
+      const badCount = { ...CASE_PAYLOAD, hiddenTestCount: CASE_PAYLOAD.hiddenTestCount + 1 };
+      await expect(verifyBackendBenchmarkLease({
+        lease,
+        runner,
+        benchmarkCase: badCount,
+        allowedChangedPaths: LEGACY_ALLOWED_CHANGED_PATHS,
+      })).resolves.toMatchObject({ status: "failed", tests: { exitCode: -1 } });
+      expect(runner.run).not.toHaveBeenCalled();
     } finally {
       lease.cleanup();
     }

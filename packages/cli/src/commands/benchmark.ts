@@ -9,6 +9,7 @@ import {
   KILN_EXTERNAL_BENCHMARK_TRACKS,
   FileArtifactResourceStore,
   createBenchmarkProfileScorers,
+  evaluateFormalVerificationScreening,
   evaluateBenchmarkReadiness,
   evaluateVerifiedEfficiencyPublicationReadiness,
   generateBenchmarkPublicReport,
@@ -24,10 +25,24 @@ import {
 } from "@kilnai/core";
 import type { KilnAppConfig } from "../config.js";
 import {
+  readGlobalConfig,
+} from "../config/global-config.js";
+import {
+  resolveFormalScreeningConfig,
+  type ResolvedFormalScreeningConfig,
+} from "../config/formal-screening-config.js";
+import {
   BENCHMARK_EXECUTION_ENVELOPE,
+  FORMAL_SCREENING_BUDGET,
+  FORMAL_SCREENING_EXECUTION_ENVELOPE,
   createBenchmarkSessionExecutor,
   type BenchmarkSessionExecutorFlags,
 } from "../application/benchmark-session-executor.js";
+import {
+  hashPrivateFormalScreeningTree,
+  loadPrivateFormalScreeningPackage,
+  type PrivateFormalScreeningPackageFacts,
+} from "../application/private-formal-screening-package.js";
 import { resolveBenchmarkPermissionPolicy } from "../config/model-facing-permission-policy.js";
 import {
   BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
@@ -53,6 +68,10 @@ export interface BenchmarkCommandDependencies {
   readonly createExecuteItem?: (flags: BenchmarkSessionExecutorFlags) => BenchmarkItemExecutor;
   readonly now?: () => Date;
   readonly repositoryRoot?: string;
+  /** Strict test seam for the operator-owned private formal screening package. */
+  readonly formalScreeningPackage?: PrivateFormalScreeningPackageFacts;
+  /** Strict test seam for the operator-owned formal screening toolchain config. */
+  readonly formalScreeningConfig?: ResolvedFormalScreeningConfig;
 }
 
 export async function benchmarkCommand(
@@ -109,6 +128,7 @@ function printHelp(): void {
     "  kiln benchmark readiness --baseline <path>",
     "  kiln benchmark report --baseline <path> --output <path> [--publication-manifest <path>] [--repository-root <path>]",
     "  kiln benchmark run-internal --profile <id> [--dataset <path>] [--k <n>] [--output <path>] [--target <execution-target-id>] [--accounts <id,id,...>] [--deliberation-level <id> | --deliberation-level-sweep <ids>]",
+    "  kiln benchmark run-internal --profile kiln-formal-verification-pilot --k 2 --target <execution-target-id> --accounts <single-account-id>",
     "  kiln benchmark prepare-verifiers",
     "  kiln benchmark project-bfcl --input <path> --output <path>",
     "  kiln benchmark project-agentdojo --input <path> --output <path>",
@@ -116,6 +136,8 @@ function printHelp(): void {
     "",
     "The readiness command expects a JSON file containing either an array of",
     "BenchmarkBaselineResult entries or an object with a baselines array.",
+    "The formal-verification pilot loads its eight private C0/T pairs from the",
+    "globally configured package; it never accepts a public --dataset path.",
   ].join("\n"));
 }
 
@@ -320,24 +342,44 @@ async function runInternalBenchmark(
   if (!profile) {
     throw new Error(`Unknown benchmark profile '${profileId}'.`);
   }
+  const formalScreeningProfile = profile.id === "kiln-formal-verification-pilot";
+  if (formalScreeningProfile) {
+    validateFormalScreeningFlags(args, profile.minimumK);
+  }
   const writeProfile = profile.id === "kiln-model-roster-backend-write"
     || profile.id === "kiln-model-roster-frontend-render"
-    || profile.id === "kiln-formal-verification-pilot";
-  const datasetPath = readFlag(args, "--dataset") ?? defaultDatasetPath(profile.id);
-  const datasetContent = readFileSync(datasetPath, "utf-8");
-  const dataset = parseDatasetJsonl(datasetNameFromPath(datasetPath), datasetContent);
-  assertNoExecutorOwnedMetadata(dataset.items);
+    || formalScreeningProfile;
   const repositoryRoot = dependencies.repositoryRoot ?? resolveProjectRoot().rootPath;
-  const workspaceFixtures = collectWorkspaceFixtureEvidence(repositoryRoot, dataset.items);
+  const formalContext = formalScreeningProfile
+    ? resolveFormalScreeningDependencies(repositoryRoot, dependencies)
+    : undefined;
+  const datasetPath = formalScreeningProfile ? undefined : readFlag(args, "--dataset") ?? defaultDatasetPath(profile.id);
+  const datasetContent = datasetPath ? readFileSync(datasetPath, "utf-8") : undefined;
+  const dataset = formalContext
+    ? projectPrivateFormalScreeningDataset(formalContext.package, profile.id)
+    : parseRequiredDataset(datasetPath, datasetContent);
+  assertNoExecutorOwnedMetadata(dataset.items);
+  const workspaceFixtures = formalContext
+    ? []
+    : collectWorkspaceFixtureEvidence(repositoryRoot, dataset.items);
   const workspaceFixtureHashes = new Map(
     workspaceFixtures.map((fixture) => [fixture.path, fixture.sha256] as const),
   );
   const k = parsePositiveInteger(readFlag(args, "--k") ?? String(profile.minimumK), "--k");
+  if (formalScreeningProfile && k !== 2) {
+    throw new Error("Formal verification screening requires --k 2.");
+  }
   const outputPath = readFlag(args, "--output") ?? defaultOutputPath(profile.id, dependencies.now?.() ?? new Date());
   const artifactRoot = resolve(`${outputPath}.artifacts`);
   const deliberationMembers = readDeliberationLevelMembers(args);
   const artifactStore = new FileArtifactResourceStore({ rootDir: artifactRoot });
   const accountOverrideIds = readAccountPool(args);
+  if (formalScreeningProfile && accountOverrideIds.length !== 1) {
+    throw new Error("Formal verification screening requires exactly one --accounts id.");
+  }
+  const formalPackageTreeDigest = formalContext
+    ? hashPrivateFormalScreeningTree(formalContext.package.rootPath)
+    : undefined;
   const benchmarkPairIds = [...new Set(dataset.items.map((item) => (
     typeof item.metadata?.pairId === "string" && item.metadata.pairId.trim().length > 0
       ? item.metadata.pairId.trim()
@@ -352,93 +394,88 @@ async function runInternalBenchmark(
     const executorFlags = readExecutorFlags(args, deliberationLevel, accountOverrideIds, benchmarkPairIds);
     const executor = dependencies.createExecuteItem?.(executorFlags)
       ?? dependencies.executeItem
-      ?? createBenchmarkSessionExecutor({ appConfig: config, flags: executorFlags });
+      ?? createBenchmarkSessionExecutor({
+        appConfig: config,
+        flags: executorFlags,
+        ...(formalContext ? {
+          formalScreeningPackage: formalContext.package,
+          formalScreeningConfig: formalContext.config,
+        } : {}),
+      });
+    const datasetVersion = formalContext?.package.version ?? requiredDatasetVersion(datasetPath);
+    const configHash = formalContext
+      ? computeFormalScreeningConfigHash({
+          profile,
+          dataset,
+          datasetVersion,
+          k,
+          targetId: readRequiredExecutorFlag(args, "--target"),
+          accountId: requireSingleFormalAccountId(accountOverrideIds),
+          deliberationLevel,
+          packageFacts: formalContext.package,
+          packageTreeDigest: requireStringValue(formalPackageTreeDigest, "formal package tree digest"),
+          screeningConfig: formalContext.config,
+        })
+      : computeConfigHash({
+          profile,
+          datasetName: dataset.name,
+          datasetVersion,
+          datasetContentHash: hashContent(requireStringValue(datasetContent, "benchmark dataset content")),
+          workspaceFixtures,
+          benchmarkContext: workspaceFixtures.length > 0 ? {
+            mode: writeProfile
+              ? "sanitized-disposable-write-v2"
+              : "sanitized-synthetic-v1",
+            postRunFixtureVerification: true,
+          } : { mode: "repository-worktree-v1" },
+          k,
+          authorityProfile: profile.authorityProfile,
+          permissionPolicy: benchmarkPermissionPolicy,
+          executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+          ...(profile.id === "kiln-model-roster-backend-write" ? {
+            strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
+            verifier: {
+              id: BACKEND_VERIFIER_ID,
+              version: BACKEND_VERIFIER_VERSION,
+              image: BACKEND_VERIFIER_IMAGE,
+              cases: Object.values(BACKEND_BENCHMARK_CASES).map((entry) => ({
+                id: entry.id,
+                hiddenTestDigest: entry.testDigest,
+                testCount: entry.testCount,
+              })),
+              allowedChangedPaths: BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
+            },
+          } : {}),
+          ...(profile.id === "kiln-model-roster-frontend-render" ? {
+            strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
+            verifier: {
+              id: FRONTEND_VERIFIER_ID,
+              version: FRONTEND_VERIFIER_VERSION,
+              image: FRONTEND_VERIFIER_IMAGE,
+              imageId: FRONTEND_VERIFIER_IMAGE_ID,
+              sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST,
+              allowedChangedPaths: FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS,
+              viewport: { width: 1280, height: 720 },
+              reducedMotion: "reduce",
+              accessibilityEngine: "axe-core@4.12.1",
+              cases: FRONTEND_BENCHMARK_CASE_IDS,
+            },
+          } : {}),
+          targetId: executorFlags.targetId ?? "configured-default",
+          accountOverrideIds: executorFlags.accountOverrideIds ?? [],
+          accountAssignment: "paired-preferred-with-explicit-failover-v1",
+          deliberationLevel: deliberationLevel ?? "provider-default",
+          deliberationMode: deliberationMembers.length > 1
+            ? "sweep"
+            : deliberationLevel ? "fixed" : "provider-default",
+          scorerNames: profile.requiredScorers,
+        });
     const runner = new BenchmarkBaselineRunner({
       profile,
       dataset,
-      datasetVersion: datasetVersionFromPath(datasetPath),
+      datasetVersion,
       k,
-      configHash: computeConfigHash({
-        profile,
-        datasetName: dataset.name,
-        datasetVersion: datasetVersionFromPath(datasetPath),
-        datasetContentHash: hashContent(datasetContent),
-        workspaceFixtures,
-        benchmarkContext: workspaceFixtures.length > 0 ? {
-          mode: writeProfile
-            ? "sanitized-disposable-write-v2"
-            : "sanitized-synthetic-v1",
-          postRunFixtureVerification: true,
-        } : { mode: "repository-worktree-v1" },
-        k,
-        authorityProfile: profile.authorityProfile,
-        permissionPolicy: benchmarkPermissionPolicy,
-        executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
-        ...(profile.id === "kiln-model-roster-backend-write" ? {
-          strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
-          verifier: {
-            id: BACKEND_VERIFIER_ID,
-            version: BACKEND_VERIFIER_VERSION,
-            image: BACKEND_VERIFIER_IMAGE,
-            cases: Object.values(BACKEND_BENCHMARK_CASES).map((entry) => ({
-              id: entry.id,
-              hiddenTestDigest: entry.testDigest,
-              testCount: entry.testCount,
-            })),
-            allowedChangedPaths: BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS,
-          },
-        } : {}),
-        ...(profile.id === "kiln-formal-verification-pilot" ? {
-          pairedDesign: {
-            arms: ["control", "treatment"],
-            assignment: "same-preferred-account-with-explicit-failover",
-            treatmentDifference: "formal_verify strict projection",
-            primaryOutcome: "out-of-process hidden functional tests",
-          },
-          strictToolProjection: {
-            control: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
-            treatment: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch", "formal_verify"],
-          },
-          verifier: {
-            id: BACKEND_VERIFIER_ID,
-            version: BACKEND_VERIFIER_VERSION,
-            image: BACKEND_VERIFIER_IMAGE,
-            cases: [
-              "idempotent-reservation",
-              "atomic-transfer",
-              "default-deny-access",
-              "bounded-retry",
-            ].map((id) => {
-              const entry = BACKEND_BENCHMARK_CASES[id as keyof typeof BACKEND_BENCHMARK_CASES];
-              return { id: entry.id, hiddenTestDigest: entry.testDigest, testCount: entry.testCount };
-            }),
-            allowedChangedPaths: ["src/solution.mjs", "proof/model.dfy"],
-          },
-        } : {}),
-        ...(profile.id === "kiln-model-roster-frontend-render" ? {
-          strictToolProjection: ["read", "read_many", "grep", "glob", "tree", "stat", "write", "edit", "patch"],
-          verifier: {
-            id: FRONTEND_VERIFIER_ID,
-            version: FRONTEND_VERIFIER_VERSION,
-            image: FRONTEND_VERIFIER_IMAGE,
-            imageId: FRONTEND_VERIFIER_IMAGE_ID,
-            sourceDigest: FRONTEND_VERIFIER_SOURCE_DIGEST,
-            allowedChangedPaths: FRONTEND_VERIFIER_ALLOWED_CHANGED_PATHS,
-            viewport: { width: 1280, height: 720 },
-            reducedMotion: "reduce",
-            accessibilityEngine: "axe-core@4.12.1",
-            cases: FRONTEND_BENCHMARK_CASE_IDS,
-          },
-        } : {}),
-        targetId: executorFlags.targetId ?? "configured-default",
-        accountOverrideIds: executorFlags.accountOverrideIds ?? [],
-        accountAssignment: "paired-preferred-with-explicit-failover-v1",
-        deliberationLevel: deliberationLevel ?? "provider-default",
-        deliberationMode: deliberationMembers.length > 1
-          ? "sweep"
-          : deliberationLevel ? "fixed" : "provider-default",
-        scorerNames: profile.requiredScorers,
-      }),
+      configHash,
       scorers: createBenchmarkProfileScorers(profile),
       artifactStore,
       executeItem: requireWorkspaceFixtureEvidence(
@@ -449,8 +486,18 @@ async function runInternalBenchmark(
     const result = await runner.run();
     runs.push({ deliberationLevel: deliberationLevel ?? null, ...result });
   }
+  if (formalContext && formalPackageTreeDigest
+    && hashPrivateFormalScreeningTree(formalContext.package.rootPath) !== formalPackageTreeDigest) {
+    throw new Error("Private formal screening package changed during execution; all observations are discarded.");
+  }
   const baselines = runs.map((run) => run.baseline);
   const singleRun = runs.length === 1 ? runs[0] : undefined;
+  const formalScreeningReport = formalContext && singleRun
+    ? evaluateFormalVerificationScreening(
+        projectFormalScreeningObservations(singleRun.consistency, dataset, formalContext.package),
+        { pairIds: benchmarkPairIds },
+      )
+    : undefined;
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, JSON.stringify({
     artifactRoot,
@@ -461,13 +508,342 @@ async function runInternalBenchmark(
       consistency: singleRun.consistency,
       artifactUris: singleRun.artifactUris,
     } : {}),
+    ...(formalScreeningReport ? { formalScreening: formalScreeningReport } : {}),
   }, null, 2), "utf-8");
   printJson({
     outputPath,
     artifactRoot,
     ...(singleRun ? { baseline: singleRun.baseline } : { baselines }),
     readiness: evaluateBenchmarkReadiness({ baselines }),
+    ...(formalScreeningReport ? { formalScreening: formalScreeningReport } : {}),
   });
+}
+
+interface FormalScreeningContext {
+  readonly package: PrivateFormalScreeningPackageFacts;
+  readonly config: ResolvedFormalScreeningConfig;
+}
+
+const FORMAL_SCREENING_BASE_TOOLS = [
+  "read",
+  "read_many",
+  "grep",
+  "glob",
+  "tree",
+  "stat",
+  "write",
+  "edit",
+  "patch",
+] as const;
+
+const FORMAL_SCREENING_COMMON_FORBIDDEN_TOOLS = [
+  "bash",
+  "web_search",
+  "tool_catalog_search",
+  "memory_save",
+] as const;
+
+function validateFormalScreeningFlags(args: readonly string[], minimumK: number): void {
+  if (args.includes("--dataset")) {
+    throw new Error("Formal verification screening does not accept --dataset; it loads the configured private package.");
+  }
+  const requestedK = readFlag(args, "--k");
+  if (requestedK !== undefined && parsePositiveInteger(requestedK, "--k") !== 2) {
+    throw new Error("Formal verification screening requires --k 2.");
+  }
+  if (minimumK !== 2) {
+    throw new Error("Formal verification screening profile must declare minimumK 2.");
+  }
+  const target = readFlag(args, "--target");
+  if (!target || target.trim().length === 0) {
+    throw new Error("Formal verification screening requires explicit --target identity.");
+  }
+  const accounts = readFlag(args, "--accounts")
+    ?.split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean) ?? [];
+  if (accounts.length !== 1) {
+    throw new Error("Formal verification screening requires exactly one --accounts id.");
+  }
+  if (args.includes("--deliberation-level-sweep")) {
+    throw new Error("Formal verification screening does not allow deliberation sweeps; use one fixed/default member.");
+  }
+}
+
+function resolveFormalScreeningDependencies(
+  repositoryRoot: string,
+  dependencies: BenchmarkCommandDependencies,
+): FormalScreeningContext {
+  const injectedPackage = dependencies.formalScreeningPackage;
+  const injectedConfig = dependencies.formalScreeningConfig;
+  if ((injectedPackage === undefined) !== (injectedConfig === undefined)) {
+    throw new Error("Formal screening test dependencies must provide both package and config.");
+  }
+  if (injectedPackage && injectedConfig) {
+    return { package: injectedPackage, config: injectedConfig };
+  }
+  const globalConfig = readGlobalConfig();
+  const config = resolveFormalScreeningConfig(globalConfig);
+  const packageFacts = loadPrivateFormalScreeningPackage({
+    packagePath: config.privatePackagePath,
+    repositoryRoot,
+  });
+  return { package: packageFacts, config };
+}
+
+function projectPrivateFormalScreeningDataset(
+  packageFacts: PrivateFormalScreeningPackageFacts,
+  profileId: string,
+): {
+  readonly name: string;
+  readonly items: readonly {
+    readonly id: string;
+    readonly input: string;
+    readonly metadata: Readonly<Record<string, unknown>>;
+  }[];
+} {
+  return {
+    name: `${profileId}-private`,
+    items: packageFacts.cases.map((screeningCase) => {
+      const treatment = screeningCase.arm === "T";
+      const expectedToolCalls = treatment
+        ? [{ name: "read" }, { name: "lemma_check" }]
+        : [{ name: "read" }];
+      const allowedExtraToolCalls = treatment
+        ? [...FORMAL_SCREENING_BASE_TOOLS, "lemma_check"]
+        : [...FORMAL_SCREENING_BASE_TOOLS];
+      const forbiddenToolCalls = [
+        ...FORMAL_SCREENING_COMMON_FORBIDDEN_TOOLS,
+        ...(treatment ? [] : ["lemma_check"]),
+      ].map((name) => ({ name }));
+      return {
+        id: screeningCase.id,
+        input: screeningCase.prompt,
+        metadata: {
+          pairId: screeningCase.pairId,
+          formalScreeningArm: screeningCase.arm,
+          privateScreeningCaseId: screeningCase.id,
+          ...(screeningCase.category ? { category: screeningCase.category } : {}),
+          expectedAgentId: profileId,
+          expectedToolCalls,
+          allowedExtraToolCalls,
+          forbiddenToolCalls,
+        },
+      };
+    }),
+  };
+}
+
+function computeFormalScreeningConfigHash(input: {
+  readonly profile: {
+    readonly id: string;
+    readonly version: string;
+    readonly authorityProfile: string;
+    readonly maxInvalidAttempts: number;
+  };
+  readonly dataset: { readonly items: readonly unknown[] };
+  readonly datasetVersion: string;
+  readonly k: number;
+  readonly targetId: string;
+  readonly accountId: string;
+  readonly deliberationLevel?: string;
+  readonly packageFacts: PrivateFormalScreeningPackageFacts;
+  readonly packageTreeDigest: string;
+  readonly screeningConfig: ResolvedFormalScreeningConfig;
+}): string {
+  const packageFacts = input.packageFacts;
+  const projection = {
+    C0: [...FORMAL_SCREENING_BASE_TOOLS],
+    T: [...FORMAL_SCREENING_BASE_TOOLS, "lemma_check"],
+  } as const;
+  const toolchain = {
+    lemmaScript: {
+      expectedVersion: input.screeningConfig.expectedLemmaScriptVersion,
+      contentDigest: hashFile(input.screeningConfig.lscScriptPath),
+    },
+    dafny: {
+      expectedVersion: input.screeningConfig.expectedDafnyVersion,
+      contentDigest: hashFile(input.screeningConfig.dafnyExecutable),
+    },
+  };
+  const protocolHash = computeConfigHash({
+    policyId: "formal-verification-screening-v2",
+    arms: ["C0", "T"],
+    pairCount: 8,
+    repeatCount: input.k,
+    fallback: "disabled",
+    trialInvalidation: "account-route-fallback",
+  });
+  const budgetHash = computeConfigHash({
+    k: input.k,
+    maxInvalidAttempts: input.profile.maxInvalidAttempts,
+    executionEnvelope: FORMAL_SCREENING_EXECUTION_ENVELOPE,
+    fixedBudget: FORMAL_SCREENING_BUDGET,
+    datasetItemCount: input.dataset.items.length,
+  });
+  const toolProjectionHash = {
+    C0: computeConfigHash(projection.C0),
+    T: computeConfigHash(projection.T),
+  };
+  const verifierHash = computeConfigHash({
+    kind: "private-formal-screening-hidden-functional",
+    hiddenTestDigests: [...new Set(packageFacts.cases.map((entry) => entry.hiddenTestDigest))].sort(),
+    hiddenTestCounts: [...new Set(packageFacts.cases.map((entry) => entry.hiddenTestCount))].sort(),
+    hiddenOracleExhaustive: true,
+  });
+  return computeConfigHash({
+    profile: {
+      id: input.profile.id,
+      version: input.profile.version,
+      authorityProfile: input.profile.authorityProfile,
+    },
+    dataset: {
+      name: "private-formal-screening",
+      version: input.datasetVersion,
+      itemCount: input.dataset.items.length,
+    },
+    fixedRoute: {
+      targetId: input.targetId,
+      accountId: input.accountId,
+      fallback: "disabled",
+    },
+    pairedDesign: {
+      arms: ["C0", "T"],
+      pairCount: 8,
+      repeatCount: 2,
+      assignment: "fixed-account-and-route",
+      outcome: "mechanical-validity-screening-only",
+    },
+    screening: {
+      packageTreeDigest: input.packageTreeDigest,
+      manifestVersion: packageFacts.version,
+      protocolHash,
+      budgetHash,
+      toolProjectionHash,
+      verifierHash,
+      toolchain,
+    },
+    execution: {
+      envelope: FORMAL_SCREENING_EXECUTION_ENVELOPE,
+      budget: FORMAL_SCREENING_BUDGET,
+      deliberationLevel: input.deliberationLevel ?? "provider-default",
+      permissionProfile: input.profile.authorityProfile,
+    },
+  });
+}
+
+function hashFile(path: string): string {
+  return hashContent(readFileSync(path));
+}
+
+interface FormalScreeningResultLike {
+  readonly itemId: string;
+  readonly scores?: readonly { readonly name: string; readonly score: number }[];
+  readonly trial?: { readonly status?: string };
+  readonly metadata?: Readonly<Record<string, unknown>>;
+}
+
+interface FormalScreeningConsistencyLike {
+  readonly runs: readonly { readonly results: readonly FormalScreeningResultLike[] }[];
+}
+
+function projectFormalScreeningObservations(
+  consistency: FormalScreeningConsistencyLike,
+  dataset: {
+    readonly items: readonly {
+      readonly id: string;
+      readonly input: string;
+      readonly metadata?: Readonly<Record<string, unknown>>;
+    }[];
+  },
+  packageFacts: PrivateFormalScreeningPackageFacts,
+): readonly Record<string, unknown>[] {
+  const itemById = new Map(dataset.items.map((item) => [item.id, item] as const));
+  const caseById = new Map(packageFacts.cases.map((entry) => [entry.id, entry] as const));
+  return consistency.runs.flatMap((run) => run.results.map((result) => {
+    const metadata = result.metadata ?? {};
+    const item = itemById.get(result.itemId);
+    const itemMetadata = item?.metadata ?? {};
+    const caseId = readStringValue(itemMetadata.privateScreeningCaseId) ?? result.itemId;
+    const screeningCase = caseById.get(caseId);
+    const arm = readStringValue(itemMetadata.formalScreeningArm) ?? screeningCase?.arm;
+    const pairId = readStringValue(itemMetadata.pairId) ?? screeningCase?.pairId;
+    const fixtureHash = readStringFromMetadata(metadata, [
+      "fixtureHash",
+      "formalScreeningFixtureHash",
+      "workspaceFixtureHash",
+    ]) ?? (screeningCase ? hashFileTreeIfAccessible(screeningCase.visibleFixturePath) : undefined);
+    const hiddenScore = result.scores?.find((score) => score.name === "test-verification");
+    return {
+      itemId: result.itemId,
+      pairId,
+      arm,
+      repeatIndex: readValueFromMetadata(metadata, ["repeatIndex"]),
+      valid: result.trial?.status === "valid",
+      promptHash: readStringFromMetadata(metadata, ["promptHash", "formalScreeningPromptHash"])
+        ?? (item ? hashContent(item.input) : undefined),
+      fixtureHash,
+      protocolHash: readStringFromMetadata(metadata, ["protocolHash", "formalScreeningProtocolHash"]),
+      expectedRoute: readStringFromMetadata(metadata, ["expectedRoute", "expectedRouteId"]),
+      observedRoute: readStringFromMetadata(metadata, ["observedRoute", "routeId"]),
+      expectedProvider: readStringFromMetadata(metadata, ["expectedProvider", "expectedProviderId"]),
+      observedProvider: readStringFromMetadata(metadata, ["observedProvider", "providerId"]),
+      expectedModel: readStringFromMetadata(metadata, ["expectedModel", "expectedModelId"]),
+      observedModel: readStringFromMetadata(metadata, ["observedModel", "modelId"]),
+      expectedAccount: readStringFromMetadata(metadata, ["expectedAccount", "expectedAccountId"]),
+      observedAccount: readStringFromMetadata(metadata, ["observedAccount", "accountId"]),
+      fallbackUsed: readBooleanFromMetadata(metadata, ["fallbackUsed"])
+        ?? (typeof metadata.accountFallbackCount === "number" && metadata.accountFallbackCount > 0),
+      budgetHash: readStringFromMetadata(metadata, ["budgetHash", "formalScreeningBudgetHash"]),
+      toolProjectionHash: readStringFromMetadata(metadata, ["toolProjectionHash", "formalScreeningToolProjectionHash"]),
+      verifierHash: readStringFromMetadata(metadata, ["verifierHash", "formalScreeningVerifierHash"]),
+      treatmentToolchainHash: readStringFromMetadata(metadata, [
+        "treatmentToolchainHash",
+        "formalScreeningTreatmentToolchainHash",
+      ]),
+      hiddenOracleExhaustive: readBooleanFromMetadata(metadata, ["hiddenOracleExhaustive", "formalScreeningHiddenOracleExhaustive"]),
+      lemmaCheckPassed: readBooleanFromMetadata(metadata, ["lemmaCheckPassed", "formalScreeningLemmaCheckPassed"]),
+      hiddenPassed: hiddenScore?.score === 1,
+    };
+  }));
+}
+
+function hashFileTreeIfAccessible(path: string): string | undefined {
+  try {
+    return hashPrivateFormalScreeningTree(path);
+  } catch {
+    return undefined;
+  }
+}
+
+function readValueFromMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+): unknown {
+  for (const key of keys) {
+    if (Object.hasOwn(metadata, key)) return metadata[key];
+  }
+  return undefined;
+}
+
+function readStringFromMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+): string | undefined {
+  const value = readValueFromMetadata(metadata, keys);
+  return readStringValue(value);
+}
+
+function readBooleanFromMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+): boolean | undefined {
+  const value = readValueFromMetadata(metadata, keys);
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 function prepareBenchmarkVerifiers(): void {
@@ -537,6 +913,14 @@ const EXECUTOR_OWNED_BENCHMARK_METADATA = new Set([
   "observedVerification",
   "formalVerificationObservations",
   "formalVerificationExpectedVersion",
+  "lemmaCheckObservations",
+  "lemmaCheckPassed",
+  "treatmentToolchainHash",
+  "budgetHash",
+  "toolProjectionHash",
+  "verifierHash",
+  "protocolHash",
+  "hiddenOracleExhaustive",
   "accountId",
   "expectedAccountId",
   "scheduledAccountId",
@@ -706,6 +1090,40 @@ function readFlag(args: readonly string[], flag: string): string | undefined {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
+function readRequiredExecutorFlag(args: readonly string[], flag: string): string {
+  const value = readFlag(args, flag);
+  if (!value || value.trim().length === 0) {
+    throw new Error(`Formal verification screening requires ${flag}.`);
+  }
+  return value;
+}
+
+function parseRequiredDataset(
+  path: string | undefined,
+  content: string | undefined,
+): ReturnType<typeof parseDatasetJsonl> {
+  if (!path || content === undefined) {
+    throw new Error("Benchmark dataset could not be resolved.");
+  }
+  return parseDatasetJsonl(datasetNameFromPath(path), content);
+}
+
+function requiredDatasetVersion(path: string | undefined): string {
+  return datasetVersionFromPath(requireStringValue(path, "benchmark dataset path"));
+}
+
+function requireSingleFormalAccountId(accountIds: readonly string[]): string {
+  if (accountIds.length !== 1 || !accountIds[0]) {
+    throw new Error("Formal verification screening requires exactly one resolved account id.");
+  }
+  return accountIds[0];
+}
+
+function requireStringValue(value: string | undefined, label: string): string {
+  if (value === undefined) throw new Error(`${label} is required.`);
+  return value;
+}
+
 function readExecutorFlags(
   args: readonly string[],
   deliberationLevel?: string,
@@ -817,8 +1235,11 @@ function computeConfigHash(value: unknown): string {
   return `sha256:${createHash("sha256").update(stableStringify(value)).digest("hex")}`;
 }
 
-function hashContent(value: string): string {
-  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+function hashContent(value: string | Buffer): string {
+  const hash = createHash("sha256");
+  if (typeof value === "string") hash.update(value, "utf8");
+  else hash.update(value);
+  return `sha256:${hash.digest("hex")}`;
 }
 
 function stableStringify(value: unknown): string {

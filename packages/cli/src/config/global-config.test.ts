@@ -246,6 +246,64 @@ describe("global-config", () => {
     });
   });
 
+  it("readGlobalConfig() accepts the operator-owned formal screening inputs", () => {
+    existsSyncMock.mockReturnValue(true);
+    readFileSyncMock.mockReturnValue([
+      'version: "4"',
+      "verification:",
+      "  formal:",
+      "    dafny:",
+      "      executable: /opt/dafny/dafny",
+      "      expectedVersion: 4.11.0",
+      "    screening:",
+      "      packagePath: /private/kiln-formal-screening",
+      "      lemmaScript:",
+      "        packageRoot: /opt/lemmascript",
+      "        entrypoint: /opt/lemmascript/tools/dist/lsc.js",
+      "        expectedVersion: 0.6.0",
+    ].join("\n"));
+
+    expect(readGlobalConfig()?.verification?.formal.screening).toEqual({
+      packagePath: "/private/kiln-formal-screening",
+      lemmaScript: {
+        packageRoot: "/opt/lemmascript",
+        entrypoint: "/opt/lemmascript/tools/dist/lsc.js",
+        expectedVersion: "0.6.0",
+      },
+    });
+  });
+
+  it.each([
+    ["relative package", "packagePath: private/screening", "verification.formal.screening.packagePath must be an absolute path"],
+    ["relative LemmaScript root", "packageRoot: tools/lemmascript", "verification.formal.screening.lemmaScript.packageRoot must be an absolute path"],
+    ["relative LemmaScript entrypoint", "entrypoint: tools/dist/lsc.js", "verification.formal.screening.lemmaScript.entrypoint must be an absolute path"],
+    ["moving LemmaScript version", "expectedVersion: latest", "verification.formal.screening.lemmaScript.expectedVersion must be a canonical version"],
+  ])("readGlobalConfig() rejects a formal screening %s", (_case, replacement, message) => {
+    existsSyncMock.mockReturnValue(true);
+    const lines = [
+      'version: "4"',
+      "verification:",
+      "  formal:",
+      "    dafny:",
+      "      executable: /opt/dafny/dafny",
+      "      expectedVersion: 4.11.0",
+      "    screening:",
+      "      packagePath: /private/kiln-formal-screening",
+      "      lemmaScript:",
+      "        packageRoot: /opt/lemmascript",
+      "        entrypoint: /opt/lemmascript/tools/dist/lsc.js",
+      "        expectedVersion: 0.6.0",
+    ];
+    const field = replacement.split(":", 1)[0]!.trim();
+    const index = field === "expectedVersion"
+      ? lines.findLastIndex((line) => line.trimStart().startsWith(`${field}:`))
+      : lines.findIndex((line) => line.trimStart().startsWith(`${field}:`));
+    lines[index] = `${lines[index]!.match(/^\s*/u)?.[0] ?? ""}${replacement}`;
+    readFileSyncMock.mockReturnValue(lines.join("\n"));
+
+    expect(() => readGlobalConfig()).toThrow(message);
+  });
+
   it.each([
     ["unknown nested field", ["verification:", "  formal:", "    dafny:", "      path: dafny"], "Unknown verification.formal.dafny field: path"],
     ["empty executable", ["verification:", "  formal:", "    dafny:", "      executable: \"\"", "      expectedVersion: 4.11.0"], "verification.formal.dafny.executable must be a non-empty string"],

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type {
   BenchmarkItemExecutor,
@@ -12,7 +12,6 @@ import {
   WorkItemStore,
   createSessionBuiltinToolOptions,
   defineDeliberationLevelId,
-  isFormalVerificationToolResultMetadata,
   mapProviderModelRouteErrorToOutcome,
 } from "@kilnai/core";
 import {
@@ -82,14 +81,42 @@ import {
 import { createBenchmarkAuthorityWorkspaceLease } from "./benchmark-authority-workspace.js";
 import {
   verifyBackendBenchmarkLease,
+  type BackendVerifierCasePayload,
   type BackendBenchmarkVerification,
 } from "./benchmark-backend-verifier.js";
 import {
   verifyFrontendBenchmarkLease,
   type FrontendBenchmarkVerification,
 } from "./benchmark-frontend-verifier.js";
+import {
+  createLemmaCheckTool,
+} from "./lemma-check-tool.js";
+import type {
+  PrivateFormalScreeningCaseFacts,
+  PrivateFormalScreeningPackageFacts,
+} from "./private-formal-screening-package.js";
+import { createPrivateFormalScreeningWorkspaceLease } from "./private-formal-screening-package.js";
+import type { ResolvedFormalScreeningConfig } from "../config/formal-screening-config.js";
+import { BACKEND_BENCHMARK_CASES } from "./benchmark-backend-cases.js";
 
 export const BENCHMARK_EXECUTION_ENVELOPE = { toolRounds: { max: 8 } } as const;
+export const FORMAL_SCREENING_BUDGET = Object.freeze({
+  toolRounds: 8,
+  maxToolCalls: 24,
+  maxTotalTokens: 64_000,
+  wallClockMs: 600_000,
+});
+export const FORMAL_SCREENING_EXECUTION_ENVELOPE = {
+  toolRounds: { max: FORMAL_SCREENING_BUDGET.toolRounds },
+} as const;
+const FORMAL_SCREENING_PROTOCOL_HASH = digestCanonicalValue({
+  id: "kiln-formal-verification-screening-v2",
+  candidatePath: "src/solution.ts",
+  allowedChangedPaths: ["src/solution.ts"],
+  arms: ["C0", "T"],
+  toolRounds: FORMAL_SCREENING_BUDGET.toolRounds,
+});
+const LEMMA_CHECK_TIMEOUT_MS = 30_000;
 const WRITE_BENCHMARK_PROFILE_IDS = new Set([
   "kiln-model-roster-backend-write",
   "kiln-model-roster-frontend-render",
@@ -109,24 +136,40 @@ export interface BenchmarkSessionExecutorFlags {
 export interface BenchmarkSessionExecutorOptions {
   readonly appConfig: KilnAppConfig;
   readonly flags?: BenchmarkSessionExecutorFlags;
+  /** Host-owned private formal screening facts supplied by the command. */
+  readonly formalScreeningPackage?: PrivateFormalScreeningPackageFacts;
+  /** Host-owned resolved formal screening toolchain supplied by the command. */
+  readonly formalScreeningConfig?: ResolvedFormalScreeningConfig;
 }
 
 export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutorOptions): BenchmarkItemExecutor {
   let deliberationResolutionPromise: Promise<DeliberationResolution> | undefined;
   return async (input, context) => {
     const startedAt = Date.now();
+    const isFormalScreening = context.profile.id === "kiln-formal-verification-pilot";
+    const formalScreeningCase = isFormalScreening
+      ? resolveFormalScreeningCase(options, context)
+      : undefined;
     const accountOverrideCandidates = resolveBenchmarkAccountOverrideCandidates(options.flags, context);
     const scheduledAccountOverrideId = accountOverrideCandidates[0];
-    const formalVerificationArm = resolveFormalVerificationPilotArm(context);
+    const formalScreeningArm = formalScreeningCase?.arm;
     const repositoryRoot = resolveProjectRoot().rootPath;
-    const benchmarkWorkspace = resolveBenchmarkWorkspace(
-      repositoryRoot,
-      context.item.metadata?.workspaceFixture,
-    );
-    const writeMode = WRITE_BENCHMARK_PROFILE_IDS.has(context.profile.id);
-    const writeLease = writeMode
-      ? createBenchmarkWriteWorkspaceLease(repositoryRoot, context.item.metadata?.workspaceFixture)
+    const privateFormalScreeningLease = formalScreeningCase
+      ? createPrivateFormalScreeningWorkspaceLease(formalScreeningCase)
       : undefined;
+    const benchmarkWorkspace = privateFormalScreeningLease
+      ? {
+          kind: "synthetic-fixture" as const,
+          rootPath: privateFormalScreeningLease.rootPath,
+        }
+      : resolveBenchmarkWorkspace(
+          repositoryRoot,
+          context.item.metadata?.workspaceFixture,
+        );
+    const writeMode = WRITE_BENCHMARK_PROFILE_IDS.has(context.profile.id);
+    const writeLease = privateFormalScreeningLease ?? (writeMode
+      ? createBenchmarkWriteWorkspaceLease(repositoryRoot, context.item.metadata?.workspaceFixture)
+      : undefined);
     const authorityLease = benchmarkWorkspace.kind === "synthetic-fixture"
       ? createBenchmarkAuthorityWorkspaceLease()
       : undefined;
@@ -163,7 +206,19 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       executionCatalog: directExecutionCatalog,
       routeId: options.flags?.targetId,
     });
-    expectedRouteId = configuredRouteCandidates[0]?.routeId;
+    const configuredRouteCandidate = configuredRouteCandidates[0];
+    expectedRouteId = configuredRouteCandidate?.routeId;
+    if (isFormalScreening) {
+      if (!options.flags?.targetId || options.flags.targetId.trim().length === 0) {
+        throw new Error("Formal screening requires an explicit targetId.");
+      }
+      if (configuredRouteCandidates.length !== 1) {
+        throw new Error("Formal screening requires exactly one configured route candidate.");
+      }
+      if (!directExecutionCatalog) {
+        throw new Error("Formal screening requires a canonical direct execution catalog.");
+      }
+    }
     if (writeMode && configuredRouteCandidates.length === 0) {
       throw new Error("Benchmark write profiles require a configured direct execution target.");
     }
@@ -253,39 +308,52 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         caller: { kind: "operator_surface", id: "benchmark" },
       },
     });
-    if (context.profile.id === "kiln-formal-verification-pilot" && !configuredBuiltinToolOptions.formalVerify) {
-      throw new Error("Formal-verification pilot requires the globally configured formal_verify capability.");
-    }
+    const sessionBuiltinToolOptions = isFormalScreening
+      ? omitFormalVerificationCapability(configuredBuiltinToolOptions)
+      : configuredBuiltinToolOptions;
     const boundedWork = createProjectBoundedWorkAuthority(cwd, {
       authorityStateRoot,
       projectIdentityRoot: cwd,
-      formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
+      ...(isFormalScreening ? {} : {
+        formalVerificationCapability: observeFormalVerificationCapability(configuredBuiltinToolOptions),
+      }),
     });
     benchmarkCleanupRegistry.register(async () => boundedWork.close());
     const workItemStore = new WorkItemStore();
     const goalRunStore = new GoalRunStore();
     const baseBuiltinToolOptions = {
-      ...configuredBuiltinToolOptions,
+      ...sessionBuiltinToolOptions,
       workItemStore,
       goalRunStore,
       additionalTools: [
-        ...(configuredBuiltinToolOptions.additionalTools ?? []),
+        ...(sessionBuiltinToolOptions.additionalTools ?? []),
         ...(benchmarkWorkspace.kind === "repository" ? createKilnConfigTools(repositoryRoot) : []),
+        ...(isFormalScreening && formalScreeningArm === "T" && formalScreeningCase && options.formalScreeningConfig
+          ? [createLemmaCheckTool(cwd, {
+              requiredFunctionNames: formalScreeningCase.requiredFunctionNames,
+              toolchain: options.formalScreeningConfig,
+              timeoutMs: LEMMA_CHECK_TIMEOUT_MS,
+            })]
+          : []),
       ],
     };
+    const formalToolProjection = isFormalScreening
+      ? [
+          ...WRITE_BENCHMARK_TOOLS,
+          ...(formalScreeningArm === "T" ? ["lemma_check"] : []),
+        ]
+      : undefined;
     let builtinToolOptions = createSessionBuiltinToolOptions(writeMode
       ? {
           ...baseBuiltinToolOptions,
           toolProjection: {
             mode: "strict" as const,
-            alwaysOnTools: formalVerificationArm === "treatment"
-              ? [...WRITE_BENCHMARK_TOOLS, "formal_verify"]
-              : WRITE_BENCHMARK_TOOLS,
+            alwaysOnTools: formalToolProjection ?? WRITE_BENCHMARK_TOOLS,
           },
         }
       : withProgressiveRuntimeToolProjection(baseBuiltinToolOptions, "read-only"));
-    const benchmarkManagedAccountComposition = benchmarkWorkspace.kind === "synthetic-fixture" && globalConfig
-      ? createManagedAccountRuntimeComposition(managedRouteConfig!, cwd, {
+    const benchmarkManagedAccountComposition = benchmarkWorkspace.kind === "synthetic-fixture" && managedRouteConfig
+      ? createManagedAccountRuntimeComposition(managedRouteConfig, cwd, {
           compositionKey: authorityStateRoot,
           databasePath: join(authorityStateRoot, "managed-account-leases.sqlite"),
       })
@@ -315,7 +383,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         directAdapterFactory: createManagedDirectProviderAdapterFactory({
           builtinToolOptions: () => builtinToolOptions,
           runtimeEnv: env,
-          executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+          executionEnvelope: isFormalScreening
+            ? FORMAL_SCREENING_EXECUTION_ENVELOPE
+            : BENCHMARK_EXECUTION_ENVELOPE,
         }),
         builtinToolOptions: () => builtinToolOptions,
         artifactStore: builtinToolOptions.artifactResources?.store,
@@ -350,7 +420,9 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       skipGitRepoCheck: options.flags?.skipGitRepoCheck,
       builtinToolOptions,
       managedInvocation: managedInvocationAttachment,
-      executionEnvelope: BENCHMARK_EXECUTION_ENVELOPE,
+      executionEnvelope: isFormalScreening
+        ? FORMAL_SCREENING_EXECUTION_ENVELOPE
+        : BENCHMARK_EXECUTION_ENVELOPE,
       requestedAuthority: writeMode ? "destructive" as const : "read_only" as const,
       model: effectiveModel,
       deliberationResolution: executionDeliberation,
@@ -364,6 +436,8 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       },
     );
     const runOutput = createNonHumanRunOutputSink();
+    const formalAbortController = isFormalScreening ? new AbortController() : undefined;
+    let formalWallClockTimedOut = false;
     const runInput = {
       governedGoalTools: "forbidden" as const,
       registry,
@@ -379,6 +453,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       sessionId,
       env,
       sessionHooks,
+      ...(formalAbortController ? { abortSignal: formalAbortController.signal } : {}),
       ...(writeLease ? {
         toolSandbox: {
           policy: new SandboxPolicy({
@@ -396,9 +471,20 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       output: runOutput,
     };
     let accountFallbackCount = 0;
+    const formalWallClockTimer = formalAbortController
+      ? setTimeout(() => {
+          formalWallClockTimedOut = true;
+          formalAbortController.abort();
+        }, FORMAL_SCREENING_BUDGET.wallClockMs)
+      : undefined;
     const result = await (configuredRouteCandidates.length > 0 && directExecutionCatalog
       ? (async () => {
-          const candidates = accountOverrideCandidates.length > 0
+          if (!configuredRouteCandidate) {
+            throw new Error("Canonical benchmark dispatch requires one configured route candidate.");
+          }
+          const candidates = isFormalScreening
+            ? [scheduledAccountOverrideId]
+            : accountOverrideCandidates.length > 0
             ? accountOverrideCandidates
             : [undefined];
           let lastRoutingError: unknown;
@@ -409,7 +495,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
               cwd,
               authorityStateRoot,
               executionId: `${sessionId}:account:${index}`,
-              routeId: configuredRouteCandidates[0]!.routeId,
+              routeId: configuredRouteCandidate.routeId,
               ...(accountOverrideId ? { accountOverrideId } : {}),
               ...(executionDeliberation
                 ? { routeEvidence: { deliberationResolution: executionDeliberation } }
@@ -432,11 +518,12 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           ...runInput,
           routeCandidates: routeCandidates.length > 0 ? routeCandidates : undefined,
         })).finally(async () => {
+      if (formalWallClockTimer !== undefined) clearTimeout(formalWallClockTimer);
       await benchmarkCleanupRegistry.runAll();
       await manager.cleanupWorktree(sessionContext);
       closeBuiltinResources(configuredBuiltinToolOptions);
     });
-    if (workspaceFixtureHash) {
+    if (workspaceFixtureHash && !isFormalScreening) {
       verifyBenchmarkWorkspaceUnchanged(repositoryRoot, benchmarkWorkspace, workspaceFixtureHash);
     }
     workspaceChanges = writeLease?.collectChanges();
@@ -445,11 +532,14 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         || context.profile.id === "kiln-formal-verification-pilot")
       && writeLease
     ) {
+      const verifierCase = formalScreeningCase
+        ? toBackendVerifierCasePayload(formalScreeningCase)
+        : toPublicBackendVerifierCasePayload(context.item.metadata?.benchmarkCaseId);
       observedVerification = await verifyBackendBenchmarkLease({
         lease: writeLease,
-        benchmarkCaseId: context.item.metadata?.benchmarkCaseId,
-        ...(context.profile.id === "kiln-formal-verification-pilot"
-          ? { allowedChangedPaths: ["src/solution.mjs", "proof/model.dfy"] }
+        benchmarkCase: verifierCase,
+        ...(formalScreeningCase
+          ? { allowedChangedPaths: formalScreeningCase.allowedChangedPaths }
           : {}),
       });
       workspaceChanges = observedVerification.changes;
@@ -473,28 +563,65 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     const executionIdentityMismatch = boundExecution !== undefined
       && ((expectedRouteId !== undefined && boundExecution.routeId !== expectedRouteId)
         || (scheduledAccountOverrideId !== undefined && boundExecution.accountId !== scheduledAccountOverrideId));
-    const formalVerificationObservations = result.transcript.flatMap((entry) => {
-      if (
-        entry.event.type !== "tool_result"
-        || entry.event.toolName !== "formal_verify"
-        || !isFormalVerificationToolResultMetadata(entry.event.metadata)
-      ) return [];
-      return [entry.event.metadata];
-    });
+    const formalExecutionIdentityMismatch = isFormalScreening && (
+      boundExecution === undefined
+      || executionIdentityMismatch
+      || result.successfulProviderId !== preferredProvider
+      || result.successfulModelId !== effectiveModel
+    );
+    const lemmaCheckObservations = isFormalScreening
+      ? result.transcript.flatMap((entry) => parseLemmaCheckObservation(entry.event))
+      : [];
+    const finalSourceHash = observedVerification?.changes.changed.find(
+      (entry) => entry.path === "src/solution.ts",
+    )?.afterHash;
+    const passedLemmaCheckObservations = lemmaCheckObservations.filter(
+      (observation) => isPassedLemmaCheckObservation(observation, finalSourceHash),
+    );
+    const treatmentToolchainHashes = new Set(
+      passedLemmaCheckObservations.flatMap(readLemmaCheckDependencyBinding),
+    );
+    const lemmaCheckPassed = isFormalScreening
+      && formalScreeningArm === "T"
+      && passedLemmaCheckObservations.length > 0
+      && treatmentToolchainHashes.size === 1;
+    const treatmentToolchainHash = lemmaCheckPassed
+      ? [...treatmentToolchainHashes][0]
+      : undefined;
+    const durationMs = Date.now() - startedAt;
+    const budgetExceeded = isFormalScreening && (
+      result.toolCallCount > FORMAL_SCREENING_BUDGET.maxToolCalls
+      || result.inputTokens + result.outputTokens > FORMAL_SCREENING_BUDGET.maxTotalTokens
+      || durationMs > FORMAL_SCREENING_BUDGET.wallClockMs
+    );
+    const formalInfrastructureValid = !isFormalScreening || (
+      !formalWallClockTimedOut
+      && !budgetExceeded
+      && accountFallbackCount === 0
+      && !formalExecutionIdentityMismatch
+      && result.successfulProviderId !== undefined
+    );
+    const formalVerifierHash = formalScreeningCase
+      ? computeFormalVerifierHash(formalScreeningCase)
+      : undefined;
 
     return {
       output: result.accumulatedText,
-      durationMs: Date.now() - startedAt,
+      durationMs,
       costUsd: result.finalCostUsd,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
-      trial: accountFallbackCount > 0
-        ? { status: "invalid", reason: "account-fallback" }
-        : executionIdentityMismatch
-          ? { status: "invalid", reason: "execution-identity-mismatch" }
-          : result.successfulProviderId
-            ? { status: "valid" }
-            : { status: "invalid", reason: "route-unavailable" },
+      trial: formalWallClockTimedOut
+        ? { status: "invalid", reason: "timeout" }
+        : budgetExceeded
+          ? { status: "invalid", reason: "budget" }
+          : accountFallbackCount > 0
+          ? { status: "invalid", reason: "account-fallback" }
+          : formalExecutionIdentityMismatch || executionIdentityMismatch
+            ? { status: "invalid", reason: "execution-identity-mismatch" }
+            : formalInfrastructureValid && result.successfulProviderId
+             ? { status: "valid" }
+             : { status: "invalid", reason: "route-unavailable" },
       metadata: {
         activeAgentId: context.profile.id,
         runIndex: context.runIndex,
@@ -516,8 +643,19 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         sessionSucceeded: result.sessionSucceeded,
         providerRequests: result.providerRequests,
         deliberationResolution,
-        ...(formalVerificationArm ? {
-          formalVerificationExpectedVersion: configuredBuiltinToolOptions.formalVerify!.verifierVersion,
+        ...(isFormalScreening ? {
+          formalScreeningArm,
+          lemmaCheckObservations,
+          lemmaCheckPassed,
+          formalScreeningBudget: FORMAL_SCREENING_BUDGET,
+          budgetHash: digestCanonicalValue(FORMAL_SCREENING_BUDGET),
+          toolProjectionHash: digestCanonicalValue(
+            [...(formalToolProjection ?? WRITE_BENCHMARK_TOOLS)].sort(),
+          ),
+          hiddenOracleExhaustive: formalScreeningCase?.hiddenOracleExhaustive,
+          verifierHash: formalVerifierHash,
+          ...(treatmentToolchainHash ? { treatmentToolchainHash } : {}),
+          protocolHash: FORMAL_SCREENING_PROTOCOL_HASH,
         } : {}),
         toolCalls: result.transcript.flatMap((entry) => {
           if (entry.event.type !== "tool_use") return [];
@@ -537,7 +675,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         ...(workspaceFixtureHash ? { workspaceFixtureHash } : {}),
         ...(workspaceChanges ? { workspaceChanges } : {}),
         ...(observedVerification ? { observedVerification } : {}),
-        ...(formalVerificationObservations.length > 0 ? { formalVerificationObservations } : {}),
       },
     };
     } catch (error) {
@@ -562,6 +699,19 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
           benchmarkContextKind: benchmarkWorkspace.kind === "synthetic-fixture" ? "sanitized" : "repository",
           ...(benchmarkWorkspace.fixturePath ? { workspaceFixture: benchmarkWorkspace.fixturePath } : {}),
           ...(workspaceFixtureHash ? { workspaceFixtureHash } : {}),
+          ...(isFormalScreening ? {
+            formalScreeningArm,
+            lemmaCheckObservations: [],
+            lemmaCheckPassed: false,
+            formalScreeningBudget: FORMAL_SCREENING_BUDGET,
+            budgetHash: digestCanonicalValue(FORMAL_SCREENING_BUDGET),
+            toolProjectionHash: digestCanonicalValue(
+              [...WRITE_BENCHMARK_TOOLS, ...(formalScreeningArm === "T" ? ["lemma_check"] : [])].sort(),
+            ),
+            hiddenOracleExhaustive: formalScreeningCase?.hiddenOracleExhaustive,
+            verifierHash: formalScreeningCase ? computeFormalVerifierHash(formalScreeningCase) : undefined,
+            protocolHash: FORMAL_SCREENING_PROTOCOL_HASH,
+          } : {}),
         },
       };
     } finally {
@@ -578,21 +728,38 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
   };
 }
 
-function resolveFormalVerificationPilotArm(
+function resolveFormalScreeningCase(
+  options: BenchmarkSessionExecutorOptions,
   context: BenchmarkItemExecutionContext,
-): "control" | "treatment" | undefined {
-  if (context.profile.id !== "kiln-formal-verification-pilot") return undefined;
-  const arm = context.item.metadata?.formalVerificationArm;
-  if (arm !== "control" && arm !== "treatment") {
-    throw new Error("Formal-verification pilot items require a control or treatment arm.");
+): PrivateFormalScreeningCaseFacts {
+  if (!options.formalScreeningPackage || !options.formalScreeningConfig) {
+    throw new Error("Formal screening requires formalScreeningPackage and formalScreeningConfig.");
   }
-  return arm;
+  const screeningCase = options.formalScreeningPackage.cases.find((candidate) => candidate.id === context.item.id);
+  if (!screeningCase) {
+    throw new Error(`Formal screening case '${context.item.id}' is not present in the private package.`);
+  }
+  const arm = context.item.metadata?.formalScreeningArm;
+  if (arm !== "C0" && arm !== "T") {
+    throw new Error("Formal screening items require an exact C0 or T formalScreeningArm.");
+  }
+  if (arm !== screeningCase.arm) {
+    throw new Error(`Formal screening arm '${arm}' does not match private case arm '${screeningCase.arm}'.`);
+  }
+  return screeningCase;
 }
 
 function resolveBenchmarkAccountOverrideCandidates(
   flags: BenchmarkSessionExecutorFlags | undefined,
   context: BenchmarkItemExecutionContext,
 ): readonly string[] {
+  if (context.profile.id === "kiln-formal-verification-pilot") {
+    const accounts = flags?.accountOverrideIds;
+    if (!accounts || accounts.length !== 1 || typeof accounts[0] !== "string" || accounts[0].trim().length === 0) {
+      throw new Error("Formal screening requires exactly one accountOverrideId and forbids account fallback.");
+    }
+    return [accounts[0]];
+  }
   const accounts = flags?.accountOverrideIds;
   if (!accounts || accounts.length === 0) return [];
   const pairId = typeof context.item.metadata?.pairId === "string"
@@ -603,6 +770,114 @@ function resolveBenchmarkAccountOverrideCandidates(
   const pairIndex = Math.max(0, pairIds.indexOf(pairId));
   const preferredIndex = (pairIndex + context.repeatIndex) % accounts.length;
   return accounts.map((_, offset) => accounts[(preferredIndex + offset) % accounts.length]!);
+}
+
+function omitFormalVerificationCapability<T extends { readonly formalVerify?: unknown }>(
+  options: T,
+): Omit<T, "formalVerify"> {
+  const { formalVerify: _formalVerify, ...withoutFormalVerification } = options;
+  return withoutFormalVerification;
+}
+
+function toBackendVerifierCasePayload(screeningCase: PrivateFormalScreeningCaseFacts): BackendVerifierCasePayload {
+  return {
+    id: screeningCase.id,
+    hiddenTestSource: screeningCase.hiddenTestSource,
+    hiddenTestDigest: screeningCase.hiddenTestDigest,
+    hiddenTestCount: screeningCase.hiddenTestCount,
+  };
+}
+
+function toPublicBackendVerifierCasePayload(value: unknown): BackendVerifierCasePayload {
+  if (typeof value !== "string") {
+    throw new Error("Backend benchmark verification requires a benchmark case id.");
+  }
+  const benchmarkCase = BACKEND_BENCHMARK_CASES[value as keyof typeof BACKEND_BENCHMARK_CASES];
+  if (!benchmarkCase || benchmarkCase.id !== value) {
+    throw new Error(`Backend benchmark case '${value}' is not admitted.`);
+  }
+  return {
+    id: benchmarkCase.id,
+    hiddenTestSource: benchmarkCase.hiddenTestSource,
+    hiddenTestDigest: benchmarkCase.testDigest,
+    hiddenTestCount: benchmarkCase.testCount,
+  };
+}
+
+function computeFormalVerifierHash(screeningCase: PrivateFormalScreeningCaseFacts): string {
+  return digestCanonicalValue({
+    verifierId: "kiln.backend-write.v2",
+    verifierVersion: "2",
+    benchmarkCaseId: screeningCase.id,
+    testDigest: screeningCase.hiddenTestDigest,
+    hiddenTestCount: screeningCase.hiddenTestCount,
+    allowedChangedPaths: screeningCase.allowedChangedPaths,
+  });
+}
+
+function parseLemmaCheckObservation(event: {
+  readonly type: string;
+  readonly toolName?: string;
+  readonly output?: unknown;
+}): readonly [Record<string, unknown>] | readonly [] {
+  if (event.type !== "tool_result" || event.toolName !== "lemma_check" || typeof event.output !== "string") {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(event.output);
+  } catch {
+    return [];
+  }
+  if (!isRecord(parsed) || typeof parsed.kind !== "string" || typeof parsed.status !== "string"
+    || typeof parsed.stage !== "string" || parsed.semanticEquivalence !== "unresolved"
+    || parsed.benchmarkReady !== false || !isRecord(parsed.digests)) {
+    return [];
+  }
+  return [parsed];
+}
+
+function isPassedLemmaCheckObservation(
+  observation: Record<string, unknown>,
+  finalSourceHash: string | undefined,
+): boolean {
+  const digests = isRecord(observation.digests) ? observation.digests : undefined;
+  const verification = isRecord(observation.verification) ? observation.verification : undefined;
+  const correctnessChecks = verification && isRecord(verification.correctnessChecks)
+    ? verification.correctnessChecks
+    : undefined;
+  return observation.kind === "pipeline_passed"
+    && observation.status === "passed"
+    && observation.stage === "complete"
+    && observation.policyEligible === true
+    && typeof finalSourceHash === "string"
+    && digests?.source === finalSourceHash
+    && isSha256Digest(digests.generated)
+    && isSha256Digest(digests.lemmaScriptExecutable)
+    && isSha256Digest(digests.dafnyExecutable)
+    && isSha256Digest(digests.dependencyBinding)
+    && typeof correctnessChecks?.total === "number"
+    && correctnessChecks.total > 0
+    && correctnessChecks.passed === correctnessChecks.total
+    && correctnessChecks.failed === 0
+    && correctnessChecks.inconclusive === 0;
+}
+
+function readLemmaCheckDependencyBinding(observation: Record<string, unknown>): readonly string[] {
+  const digests = isRecord(observation.digests) ? observation.digests : undefined;
+  return isSha256Digest(digests?.dependencyBinding) ? [digests.dependencyBinding] : [];
+}
+
+function isSha256Digest(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function digestCanonicalValue(value: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex")}`;
 }
 
 async function resolveBenchmarkDeliberation(input: {

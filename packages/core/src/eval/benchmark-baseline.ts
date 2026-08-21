@@ -336,15 +336,15 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
   },
   {
     id: "kiln-formal-verification-pilot",
-    version: "1",
-    displayName: "Kiln Formal Verification Pilot",
+    version: "2",
+    displayName: "Kiln Formal Verification Screening",
     surface: "model-roster-backend-write",
-    purpose: "Measures paired functional outcomes when the same invariant-heavy task does or does not expose deterministic Dafny feedback.",
+    purpose: "Screens whether a private paired C0/T LemmaScript experiment is mechanically valid before any effect study.",
     authorityProfile: "foundation-apply-approved-writes",
     requiredScorers: [
       "test-verification",
-      "formal-diff-integrity",
-      "formal-verification-compliance",
+      "screening-diff-integrity",
+      "lemma-check-compliance",
       "tool-trajectory",
       "latency",
       "cost",
@@ -352,24 +352,25 @@ export const KILN_BENCHMARK_PROFILES: readonly BenchmarkProfile[] = [
     ],
     admissionScorers: [
       "test-verification",
-      "formal-diff-integrity",
-      "formal-verification-compliance",
+      "screening-diff-integrity",
+      "lemma-check-compliance",
       "execution-integrity",
     ],
-    minimumDatasetItems: 8,
-    minimumPassRate: 0.75,
-    minimumPassAtK: 0.5,
+    minimumDatasetItems: 16,
+    minimumPassRate: 0,
+    minimumPassAtK: 0,
     minimumK: 2,
     maximumInvalidTrialRate: 0.1,
-    maxInvalidAttempts: 2,
+    maxInvalidAttempts: 0,
     reproducibilityRequirements: [
-      "four matched task pairs with identical prompts and fixture bytes",
-      "paired preferred-account assignment with explicit failover evidence under one fixed provider/model target",
-      "strict arm-specific tool projection",
+      "eight private matched task pairs with identical prompt and visible fixture bytes",
+      "one fixed provider/model/route/account with fallback disabled",
+      "strict C0 and T tool projections differing only by lemma_check",
       "Git-materialized disposable candidate workspace",
-      "out-of-process hidden functional tests",
-      "candidate-bound Dafny result metadata for treatment trials",
-      "versioned dataset, fixture hashes, config hash, and complete invalid-run accounting",
+      "private out-of-process exhaustive hidden functional tests",
+      "host-only candidate-bound LemmaScript facts for T trials",
+      "private package, toolchain, fixture, protocol, config, and complete invalid-run hashes",
+      "mechanical-validity-screening-only claim ceiling and benchmarkReady false",
     ],
     externalTrackCandidates: [],
   },
@@ -527,6 +528,9 @@ function evaluateProfileReadiness(
   }
 
   const issues = [
+    ...(profile.id === "kiln-formal-verification-pilot"
+      ? ["experimental formal screening is facts-only and benchmarkReady remains false"]
+      : []),
     ...baselineIntegrityIssues(baseline),
     ...(baseline.datasetItemCount >= profile.minimumDatasetItems
       ? []

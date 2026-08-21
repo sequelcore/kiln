@@ -17,6 +17,7 @@ import {
 } from "./lemma-script-dependency-binding.js";
 import {
   evaluateLemmaScriptQualificationPolicy,
+  type LemmaScriptQualificationDiagnosticCode,
   type LemmaScriptQualificationInput as PolicyInput,
   type LemmaScriptQualificationResult as PolicyResult,
 } from "./lemma-script-qualification-policy.js";
@@ -119,6 +120,7 @@ export interface LemmaScriptQualificationFacts {
   readonly processes: readonly LemmaScriptProcessObservation[];
   readonly dependencyBinding?: LemmaScriptDependencyBindingSummary;
   readonly policyEligible?: boolean;
+  readonly policyDiagnosticCodes?: readonly LemmaScriptQualificationDiagnosticCode[];
   readonly verification?: LemmaScriptVerificationFacts;
 }
 
@@ -198,6 +200,7 @@ interface MutableExecutionFacts {
   readonly processes: LemmaScriptProcessObservation[];
   dependencyBinding?: LemmaScriptDependencyBindingSummary;
   policyEligible?: boolean;
+  policyDiagnosticCodes?: readonly LemmaScriptQualificationDiagnosticCode[];
   verification?: LemmaScriptVerificationFacts;
 }
 
@@ -510,6 +513,7 @@ async function executePipeline(
     return makeFailure("policy", "LemmaScript qualification policy failed", toFacts(context.facts));
   }
   context.facts.policyEligible = policyResult.status === "eligible";
+  context.facts.policyDiagnosticCodes = uniquePolicyDiagnosticCodes(policyResult);
   if (policyResult.status !== "eligible") {
     return {
       kind: "policy_ineligible",
@@ -840,8 +844,14 @@ function toFacts(facts: MutableExecutionFacts): LemmaScriptQualificationFacts {
     processes: facts.processes.map((process) => ({ ...process, argvRoles: [...process.argvRoles] })),
     ...(facts.dependencyBinding === undefined ? {} : { dependencyBinding: facts.dependencyBinding }),
     ...(facts.policyEligible === undefined ? {} : { policyEligible: facts.policyEligible }),
+    ...(facts.policyDiagnosticCodes === undefined ? {} : { policyDiagnosticCodes: [...facts.policyDiagnosticCodes] }),
     ...(facts.verification === undefined ? {} : { verification: facts.verification }),
   };
+}
+
+function uniquePolicyDiagnosticCodes(result: PolicyResult): readonly LemmaScriptQualificationDiagnosticCode[] {
+  const codes = result.diagnostics.map((diagnostic) => diagnostic.code);
+  return [...new Set(codes)];
 }
 
 function makeInvalidInput(message: string, facts: LemmaScriptQualificationFacts): LemmaScriptQualificationResult {

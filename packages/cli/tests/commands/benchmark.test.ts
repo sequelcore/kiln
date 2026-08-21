@@ -8,6 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KILN_BENCHMARK_PROFILES } from "@kilnai/core/eval";
 import { benchmarkCommand } from "../../src/commands/benchmark.js";
 import { hashBenchmarkWorkspace, resolveBenchmarkWorkspace } from "../../src/application/benchmark-workspace.js";
+import {
+  hashPrivateFormalScreeningTree,
+  loadPrivateFormalScreeningPackage,
+  type PrivateFormalScreeningManifest,
+  type PrivateFormalScreeningPackageFacts,
+} from "../../src/application/private-formal-screening-package.js";
+import type { ResolvedFormalScreeningConfig } from "../../src/config/formal-screening-config.js";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -20,6 +27,19 @@ const MOCK_APP_CONFIG = {
     throw new Error("createRegistry not called in benchmark tests");
   },
   mcpServerName: "kiln",
+};
+
+const FORMAL_APP_CONFIG = {
+  ...MOCK_APP_CONFIG,
+  kilnYaml: {
+    version: "1" as const,
+    permissions: {
+      approval: "never" as const,
+      sandbox: "workspace-write" as const,
+      safeDefaults: false,
+      tools: [],
+    },
+  },
 };
 
 const REQUIRED_EVIDENCE_ARTIFACTS = [
@@ -106,6 +126,82 @@ function artifactIdFromUri(uri: string): string {
 
 function sha256(content: string | Buffer): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
+}
+
+function createPrivateScreeningPackage(baseRoot: string): {
+  readonly packagePath: string;
+  readonly facts: PrivateFormalScreeningPackageFacts;
+} {
+  const packagePath = join(baseRoot, "private-formal-screening");
+  mkdirSync(join(packagePath, "visible"), { recursive: true });
+  mkdirSync(join(packagePath, "hidden"), { recursive: true });
+  mkdirSync(join(packagePath, "oracle"), { recursive: true });
+  mkdirSync(join(packagePath, "mutants"), { recursive: true });
+  writeFileSync(join(packagePath, "hidden", "private-secret.txt"), "private-secret", "utf8");
+  writeFileSync(join(packagePath, "oracle", "oracle.json"), "{\"oracle\":true}\n", "utf8");
+  writeFileSync(join(packagePath, "mutants", "mutant.json"), "{\"mutant\":true}\n", "utf8");
+  const hiddenTestSource = [
+    "import test from \"node:test\";",
+    "import assert from \"node:assert/strict\";",
+    "test(\"one\", () => assert.equal(1, 1));",
+    "test(\"two\", () => assert.equal(2, 2));",
+    "",
+  ].join("\n");
+  const cases = Array.from({ length: 8 }, (_, index) => {
+    const pairId = `pair-${index + 1}`;
+    const visibleFixture = `visible/case-${index + 1}`;
+    const visiblePath = join(packagePath, ...visibleFixture.split("/"));
+    mkdirSync(join(visiblePath, "src"), { recursive: true });
+    writeFileSync(join(visiblePath, "README.md"), `Private task ${index + 1}.\n`, "utf8");
+    writeFileSync(join(visiblePath, "src", "solution.ts"), "// visible implementation\n", "utf8");
+    const common = {
+      pairId,
+      prompt: `Implement private task ${index + 1}.`,
+      visibleFixture,
+      candidatePath: "src/solution.ts" as const,
+      allowedChangedPaths: ["src/solution.ts"] as ["src/solution.ts"],
+      hiddenTestSource,
+      hiddenTestDigest: sha256(hiddenTestSource),
+      hiddenTestCount: 2,
+      hiddenOracleExhaustive: true as const,
+      requiredFunctionNames: ["solve"],
+      category: index % 2 === 0 ? "idempotency" : "authorization",
+    };
+    return [
+      { ...common, id: `${pairId}-C0`, arm: "C0" as const },
+      { ...common, id: `${pairId}-T`, arm: "T" as const },
+    ];
+  }).flat();
+  const manifest: PrivateFormalScreeningManifest = {
+    version: "private-formal-screening-v1",
+    visibleRoot: "visible",
+    hiddenRoot: "hidden",
+    oracleRoot: "oracle",
+    oracleDigest: hashPrivateFormalScreeningTree(join(packagePath, "oracle")),
+    mutantRoot: "mutants",
+    mutantDigest: hashPrivateFormalScreeningTree(join(packagePath, "mutants")),
+    cases,
+  };
+  writeFileSync(join(packagePath, "manifest.json"), `${JSON.stringify(manifest)}\n`, "utf8");
+  return {
+    packagePath,
+    facts: loadPrivateFormalScreeningPackage({ packagePath, repositoryRoot: REPOSITORY_ROOT }),
+  };
+}
+
+function createFormalScreeningConfig(packagePath: string): ResolvedFormalScreeningConfig {
+  const lscScriptPath = join(packagePath, "lemma-script.js");
+  const dafnyExecutable = join(packagePath, "dafny.exe");
+  writeFileSync(lscScriptPath, "lemma-script\n", "utf8");
+  writeFileSync(dafnyExecutable, "dafny\n", "utf8");
+  return {
+    privatePackagePath: packagePath,
+    lemmaScriptPackageRoot: packagePath,
+    lscScriptPath,
+    expectedLemmaScriptVersion: "0.6.0",
+    dafnyExecutable,
+    expectedDafnyVersion: "4.11.0",
+  };
 }
 
 describe("benchmarkCommand", () => {
@@ -436,6 +532,176 @@ describe("benchmarkCommand", () => {
   it("fails closed when readiness has no baseline file", async () => {
     await expect(benchmarkCommand(MOCK_APP_CONFIG, "readiness", [])).rejects.toThrow(
       "benchmark readiness requires --baseline <path>.",
+    );
+  });
+
+  it.each([
+    {
+      name: "dataset",
+      args: ["--dataset", "public.jsonl", "--k", "2", "--target", "target", "--accounts", "account"],
+      message: "does not accept --dataset",
+    },
+    {
+      name: "k",
+      args: ["--k", "1", "--target", "target", "--accounts", "account"],
+      message: "requires --k 2",
+    },
+    {
+      name: "target",
+      args: ["--k", "2", "--accounts", "account"],
+      message: "requires explicit --target",
+    },
+    {
+      name: "account",
+      args: ["--k", "2", "--target", "target", "--accounts", "account-a,account-b"],
+      message: "requires exactly one --accounts id",
+    },
+    {
+      name: "deliberation sweep",
+      args: ["--k", "2", "--target", "target", "--accounts", "account", "--deliberation-level-sweep", "low,high"],
+      message: "does not allow deliberation sweeps",
+    },
+  ])("rejects formal screening $name before reading any public dataset or global config", async ({ args, message }) => {
+    await expect(benchmarkCommand(MOCK_APP_CONFIG, "run-internal", [
+      "--profile", "kiln-formal-verification-pilot", ...args,
+    ])).rejects.toThrow(message);
+  });
+
+  it("projects the injected private package into 8x2 screening observations and keeps the report facts-only", async () => {
+    const privatePackage = createPrivateScreeningPackage(root);
+    const config = createFormalScreeningConfig(privatePackage.packagePath);
+    const firstOutputPath = join(root, "formal-first.json");
+    const secondOutputPath = join(root, "formal-second.json");
+    let generatedOutput = "first outcome";
+    let mutatePrivatePackageDuringRun = false;
+    const executeItem = async (_input: string, context: {
+      readonly item: { readonly id: string; readonly metadata?: Readonly<Record<string, unknown>> };
+      readonly repeatIndex: number;
+    }) => {
+      if (mutatePrivatePackageDuringRun) {
+        mutatePrivatePackageDuringRun = false;
+        writeFileSync(join(privatePackage.packagePath, "hidden", "private-secret.txt"), "changed", "utf8");
+      }
+      const arm = context.item.metadata?.formalScreeningArm;
+      const sourceAfterHash = sha256(`${context.item.id}-${context.repeatIndex}`);
+      return {
+        output: generatedOutput,
+        durationMs: 10,
+        costUsd: 0.01,
+        inputTokens: 5,
+        outputTokens: 3,
+        trial: { status: "valid" as const },
+        metadata: {
+          runIndex: 0,
+          repeatIndex: context.repeatIndex,
+          activeAgentId: "kiln-formal-verification-pilot",
+          providerId: "provider-fixed",
+          modelId: "model-fixed",
+          expectedProviderId: "provider-fixed",
+          expectedModelId: "model-fixed",
+          routeId: "target",
+          expectedRouteId: "target",
+          accountId: "account",
+          expectedAccountId: "account",
+          accountFallbackCount: 0,
+          promptHash: sha256(String(context.item.id)),
+          fixtureHash: "fixture-fixed",
+          protocolHash: "protocol-fixed",
+          budgetHash: "budget-fixed",
+          toolProjectionHash: `projection-${String(arm)}`,
+          verifierHash: "verifier-fixed",
+          hiddenOracleExhaustive: true,
+          lemmaCheckPassed: arm === "T",
+          ...(arm === "T" ? { treatmentToolchainHash: sha256("dependency") } : {}),
+          sessionSucceeded: true,
+          toolCalls: arm === "T" ? [{ name: "read" }, { name: "lemma_check" }] : [{ name: "read" }],
+          observedVerification: {
+            verifierId: "kiln.backend-write.v2",
+            verifierVersion: "2",
+            benchmarkCaseId: context.item.id,
+            status: "passed",
+            testDigest: sha256("hidden"),
+            violations: [],
+            tests: { exitCode: 0, passed: 1, failed: 0, timedOut: false },
+            changes: {
+              changed: [{ path: "src/solution.ts", beforeHash: sha256("before"), afterHash: sourceAfterHash }],
+              added: [],
+              deleted: [],
+            },
+          },
+          ...(arm === "T" ? {
+            lemmaCheckObservations: [{
+              kind: "pipeline_passed",
+              status: "passed",
+              stage: "complete",
+              semanticEquivalence: "unresolved",
+              benchmarkReady: false,
+              policyEligible: true,
+              digests: {
+                source: sourceAfterHash,
+                generated: sha256("generated"),
+                lemmaScriptExecutable: sha256("lemma-script"),
+                dafnyExecutable: sha256("dafny"),
+                dependencyBinding: sha256("dependency"),
+              },
+              verification: { correctnessChecks: { total: 1, passed: 1, failed: 0, inconclusive: 0 } },
+            }],
+          } : { lemmaCheckObservations: [] }),
+          ...CACHE_TOPOLOGY_METADATA,
+        },
+      };
+    };
+
+    const run = async (outputPath: string) => benchmarkCommand(
+      FORMAL_APP_CONFIG,
+      "run-internal",
+      [
+        "--profile", "kiln-formal-verification-pilot",
+        "--k", "2",
+        "--output", outputPath,
+        "--target", "target",
+        "--accounts", "account",
+      ],
+      {
+        repositoryRoot: REPOSITORY_ROOT,
+        formalScreeningPackage: privatePackage.facts,
+        formalScreeningConfig: config,
+        executeItem,
+      },
+    );
+
+    await run(firstOutputPath);
+    generatedOutput = "second outcome";
+    await run(secondOutputPath);
+
+    const first = JSON.parse(readFileSync(firstOutputPath, "utf-8")) as {
+      readonly baseline: { readonly configHash: string };
+      readonly consistency: { readonly runs: readonly { readonly results: readonly unknown[] }[] };
+      readonly formalScreening: {
+        readonly plannedBlockCount: number;
+        readonly plannedTrialCount: number;
+        readonly benchmarkReady: boolean;
+      };
+    };
+    const second = JSON.parse(readFileSync(secondOutputPath, "utf-8")) as {
+      readonly baseline: { readonly configHash: string };
+    };
+    expect(first.consistency.runs.flatMap((run) => run.results)).toHaveLength(32);
+    expect(first.formalScreening).toMatchObject({
+      plannedBlockCount: 16,
+      plannedTrialCount: 32,
+      benchmarkReady: false,
+    });
+    expect(first.formalScreening).not.toHaveProperty("effect");
+    expect(first.formalScreening).not.toHaveProperty("winner");
+    expect(first.formalScreening).not.toHaveProperty("difference");
+    expect(first.baseline.configHash).toBe(second.baseline.configHash);
+    expect(JSON.stringify(first)).not.toContain("private-secret");
+    expect(JSON.stringify(first)).not.toContain(privatePackage.packagePath);
+
+    mutatePrivatePackageDuringRun = true;
+    await expect(run(join(root, "formal-drift.json"))).rejects.toThrow(
+      "Private formal screening package changed during execution",
     );
   });
 

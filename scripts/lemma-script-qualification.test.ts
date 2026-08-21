@@ -389,6 +389,7 @@ describe("runLemmaScriptQualification", () => {
     expect(result.semanticEquivalence).toBe("unresolved");
     expect(result.benchmarkReady).toBe(false);
     expect(result.facts.policyEligible).toBe(false);
+    expect(result.facts.policyDiagnosticCodes).toEqual(["generated-trust-pattern"]);
     expect(calls.some(({ args }) => args[0] === "verify")).toBe(false);
   });
 

@@ -95,14 +95,15 @@ describe("benchmark baseline readiness", () => {
       requiredScorers: expect.arrayContaining(["render-verification", "frontend-diff-integrity"]),
     });
     expect(KILN_BENCHMARK_PROFILES.find((profile) => profile.id === "kiln-formal-verification-pilot")).toMatchObject({
-      version: "1",
+      version: "2",
       authorityProfile: "foundation-apply-approved-writes",
-      minimumDatasetItems: 8,
+      minimumDatasetItems: 16,
       minimumK: 2,
+      maxInvalidAttempts: 0,
       admissionScorers: [
         "test-verification",
-        "formal-diff-integrity",
-        "formal-verification-compliance",
+        "screening-diff-integrity",
+        "lemma-check-compliance",
         "execution-integrity",
       ],
     });
@@ -214,6 +215,19 @@ describe("benchmark baseline readiness", () => {
       "missing required evidence artifact diff",
       "missing required evidence artifact verification",
     ]));
+  });
+
+  it("never promotes the mechanical formal screening through generic benchmark readiness", () => {
+    const profile = KILN_BENCHMARK_PROFILES.find((entry) => entry.id === "kiln-formal-verification-pilot")!;
+    const report = evaluateBenchmarkReadiness({
+      profiles: [profile],
+      baselines: [baselineFor(profile.id)],
+    });
+
+    expect(report.status).toBe("blocked");
+    expect(report.profileReadiness[0]?.issues).toContain(
+      "experimental formal screening is facts-only and benchmarkReady remains false",
+    );
   });
 
   it("reports external-ready when a candidate track has its required surface ready", () => {

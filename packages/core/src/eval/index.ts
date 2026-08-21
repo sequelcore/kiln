@@ -117,3 +117,24 @@ export type {
   BenchmarkTrack,
   BenchmarkTrackId,
 } from "./benchmark-baseline.js";
+export {
+  evaluateFormalVerificationScreening,
+  screeningBlockKey,
+  FORMAL_VERIFICATION_SCREENING_K,
+  FORMAL_VERIFICATION_SCREENING_PAIR_COUNT,
+  FORMAL_VERIFICATION_SCREENING_REPEAT_INDICES,
+  FORMAL_VERIFICATION_SCREENING_DEFAULT_PAIR_IDS,
+} from "./formal-verification-screening.js";
+export type {
+  FormalVerificationScreeningArm,
+  FormalVerificationScreeningRepeatIndex,
+  FormalVerificationScreeningObservation,
+  FormalVerificationScreeningOptions,
+  FormalVerificationScreeningIdentityIssue,
+  FormalVerificationScreeningBlock,
+  FormalVerificationScreeningReconciliation,
+  FormalVerificationScreeningArmMetrics,
+  FormalVerificationScreeningPass2Details,
+  FormalVerificationScreeningGates,
+  FormalVerificationScreeningReport,
+} from "./formal-verification-screening.js";

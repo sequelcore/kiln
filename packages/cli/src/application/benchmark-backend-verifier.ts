@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,10 +8,7 @@ import type {
   BenchmarkWriteWorkspaceChanges,
   BenchmarkWriteWorkspaceLease,
 } from "./benchmark-write-workspace.js";
-import {
-  requireBackendBenchmarkCase,
-  type BackendBenchmarkCaseId,
-} from "./benchmark-backend-cases.js";
+import { countBenchmarkHiddenTests } from "./benchmark-hidden-test-source.js";
 
 export const BACKEND_VERIFIER_ID = "kiln.backend-write.v2";
 export const BACKEND_VERIFIER_VERSION = "2";
@@ -32,10 +29,17 @@ export interface BackendVerifierRunner {
   cleanup(containerName: string): Promise<void>;
 }
 
+export interface BackendVerifierCasePayload {
+  readonly id: string;
+  readonly hiddenTestSource: string;
+  readonly hiddenTestDigest: string;
+  readonly hiddenTestCount: number;
+}
+
 export interface BackendBenchmarkVerification {
   readonly verifierId: typeof BACKEND_VERIFIER_ID;
   readonly verifierVersion: typeof BACKEND_VERIFIER_VERSION;
-  readonly benchmarkCaseId: BackendBenchmarkCaseId;
+  readonly benchmarkCaseId: string;
   readonly status: "passed" | "failed";
   readonly testDigest: string;
   readonly runner: {
@@ -57,16 +61,16 @@ export interface BackendBenchmarkVerification {
 
 export async function verifyBackendBenchmarkLease(input: {
   readonly lease: BenchmarkWriteWorkspaceLease;
-  readonly benchmarkCaseId: unknown;
+  readonly benchmarkCase: BackendVerifierCasePayload;
   readonly allowedChangedPaths?: readonly string[];
   readonly runner?: BackendVerifierRunner;
 }): Promise<BackendBenchmarkVerification> {
-  const benchmarkCase = requireBackendBenchmarkCase(input.benchmarkCaseId);
+  const benchmarkCase = input.benchmarkCase;
   const changes = input.lease.collectChanges();
-  const violations = validateAllowedChanges(
-    changes,
-    input.allowedChangedPaths ?? [benchmarkCase.allowedChangedPath],
-  );
+  const violations = [
+    ...validateBackendVerifierCasePayload(benchmarkCase),
+    ...validateAllowedChanges(changes, input.allowedChangedPaths ?? BACKEND_VERIFIER_ALLOWED_CHANGED_PATHS),
+  ];
   if (violations.length > 0) {
     return failedScopeVerification(changes, violations, benchmarkCase);
   }
@@ -78,7 +82,7 @@ export async function verifyBackendBenchmarkLease(input: {
     await writeFile(testPath, benchmarkCase.hiddenTestSource, "utf8");
     const result = await runner.run(containerName, buildBackendVerifierDockerArgs(containerName, input.lease.rootPath, verifierRoot));
     const counts = parseTapCounts(result.stdout);
-    const status = !result.timedOut && result.exitCode === 0 && counts.passed === benchmarkCase.testCount && counts.failed === 0
+    const status = !result.timedOut && result.exitCode === 0 && counts.passed === benchmarkCase.hiddenTestCount && counts.failed === 0
       ? "passed"
       : "failed";
     return {
@@ -86,7 +90,7 @@ export async function verifyBackendBenchmarkLease(input: {
       verifierVersion: BACKEND_VERIFIER_VERSION,
       benchmarkCaseId: benchmarkCase.id,
       status,
-      testDigest: benchmarkCase.testDigest,
+      testDigest: benchmarkCase.hiddenTestDigest,
       runner: {
         kind: "docker",
         image: BACKEND_VERIFIER_IMAGE,
@@ -129,17 +133,50 @@ function validateAllowedChanges(
   return [];
 }
 
+function validateBackendVerifierCasePayload(casePayload: BackendVerifierCasePayload): readonly string[] {
+  const violations: string[] = [];
+  if (typeof casePayload?.id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(casePayload.id)) {
+    violations.push("Backend benchmark case id must be a non-empty portable synthetic identifier.");
+  }
+  if (typeof casePayload?.hiddenTestSource !== "string" || casePayload.hiddenTestSource.trim().length === 0) {
+    violations.push("Backend benchmark hidden test source must be non-empty.");
+  }
+  if (typeof casePayload?.hiddenTestDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(casePayload.hiddenTestDigest)) {
+    violations.push("Backend benchmark hidden test digest must be a sha256 digest.");
+  } else if (typeof casePayload.hiddenTestSource === "string") {
+    const actualDigest = `sha256:${createHash("sha256").update(casePayload.hiddenTestSource, "utf8").digest("hex")}`;
+    if (actualDigest !== casePayload.hiddenTestDigest) {
+      violations.push("Backend benchmark hidden test digest does not match its source.");
+    }
+  }
+  if (typeof casePayload?.hiddenTestCount !== "number"
+    || !Number.isSafeInteger(casePayload.hiddenTestCount)
+    || casePayload.hiddenTestCount <= 0) {
+    violations.push("Backend benchmark hidden test count must be a positive integer.");
+  } else if (typeof casePayload.hiddenTestSource === "string") {
+    const actualCount = countBenchmarkHiddenTests(casePayload.hiddenTestSource);
+    if (actualCount !== casePayload.hiddenTestCount) {
+      violations.push("Backend benchmark hidden test count does not match its source.");
+    }
+  }
+  return violations;
+}
+
 function failedScopeVerification(
   changes: BenchmarkWriteWorkspaceChanges,
   violations: readonly string[],
-  benchmarkCase: ReturnType<typeof requireBackendBenchmarkCase>,
+  benchmarkCase: BackendVerifierCasePayload,
 ): BackendBenchmarkVerification {
+  const benchmarkCaseId = typeof benchmarkCase?.id === "string" ? benchmarkCase.id : "invalid-case";
+  const testDigest = typeof benchmarkCase?.hiddenTestDigest === "string"
+    ? benchmarkCase.hiddenTestDigest
+    : "sha256:" + "0".repeat(64);
   return {
     verifierId: BACKEND_VERIFIER_ID,
     verifierVersion: BACKEND_VERIFIER_VERSION,
-    benchmarkCaseId: benchmarkCase.id,
+    benchmarkCaseId,
     status: "failed",
-    testDigest: benchmarkCase.testDigest,
+    testDigest,
     runner: {
       kind: "docker",
       image: BACKEND_VERIFIER_IMAGE,
