@@ -1,12 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ExecutionRouteCreationRequest } from "@kilnai/gateway-contracts";
 import { createCurrentExecutionRoute } from "../../src/application/current-execution-route-creation.js";
 
 describe("createCurrentExecutionRoute", () => {
   it("rejects discovery drift immediately before mutation", async () => {
-    const mutate = vi.fn();
     await expect(createCurrentExecutionRoute({
       request: request(), admittedEvidence: { entry: entry(), catalogObservedAt: "2026-08-13T18:00:00.000Z", expiresAt: "2027-08-13T18:00:00.000Z", evidenceIdentity: "fixture", evidenceRevision: `sha256:${"d".repeat(64)}` },
+      projectPath: "C:/fixture/project",
+      approvalSurface: "cli",
+      operatorApproved: true,
       resolveCurrentEvidence: async () => ({
         catalog: { observedAt: "2026-08-13T18:01:00.000Z", entries: [{ ...entry(), eligibilityState: "ineligible" as const }] },
         executionCatalog: catalog(),
@@ -14,9 +16,7 @@ describe("createCurrentExecutionRoute", () => {
         targetEvidence: { version: 1, accounts: [], targets: [] },
         revision: request().expectedRevision,
       }),
-      mutateGlobalConfig: mutate, refreshExecutionRoutes: async () => undefined,
     })).rejects.toThrow(/changed/u);
-    expect(mutate).not.toHaveBeenCalled();
   });
 });
 

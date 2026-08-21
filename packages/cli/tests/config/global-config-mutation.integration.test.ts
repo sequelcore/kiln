@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   GlobalConfigMutationError,
-  mutateGlobalConfig,
   readGlobalConfig,
   resolveGlobalConfigPath,
 } from "../../src/config/global-config.js";
+import { persistGlobalConfigFixture } from "./global-config-fixture.js";
 
 describe.sequential("global config mutation integration", () => {
   let root: string;
@@ -26,13 +26,13 @@ describe.sequential("global config mutation integration", () => {
   });
 
   it("creates and replaces the real canonical file without torn or residual lock state", () => {
-    mutateGlobalConfig(() => ({
+    persistGlobalConfigFixture({
       version: "4",
       identity: { name: "operator" },
-    }));
+    });
     const first = readGlobalConfig();
 
-    mutateGlobalConfig((current) => ({
+    persistGlobalConfigFixture((current) => ({
       ...current!,
       ui: { theme: "vesper" },
     }));
@@ -47,12 +47,12 @@ describe.sequential("global config mutation integration", () => {
   });
 
   it("fails closed on an unparseable lock instead of overwriting concurrent state", () => {
-    mutateGlobalConfig(() => ({ version: "4" }));
+    persistGlobalConfigFixture({ version: "4" });
     const configPath = resolveGlobalConfigPath();
     const before = readFileSync(configPath, "utf8");
     writeFileSync(`${configPath}.lock`, "incomplete-owner", "utf8");
 
-    expect(() => mutateGlobalConfig(() => ({ version: "4", identity: { name: "changed" } })))
+    expect(() => persistGlobalConfigFixture({ version: "4", identity: { name: "changed" } }))
       .toThrow(expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
       }));

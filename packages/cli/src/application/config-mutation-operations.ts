@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import {
   assertPolicyAdaptationPromotionEvidence,
   hashPolicyAdaptationConfiguration,
@@ -17,9 +17,17 @@ import type {
   KilnConfigValidationDiagnostic,
 } from "@kilnai/gateway-contracts";
 import { parse, parseDocument, stringify, type Document } from "yaml";
-import { defaultGlobalConfig } from "../config/global-config.js";
+import { defaultGlobalConfig, validateGlobalConfig } from "../config/global-config.js";
 import { defaultKilnYaml } from "../kiln-yaml.js";
 import { isAlias, isCollection } from "yaml";
+import {
+  projectExecutionCatalogFromIntent,
+  readExecutionTargetEvidenceSnapshot,
+  type DirectExecutionTargetIntent,
+  type ExecutionTargetCatalogIntent,
+  type ExecutionTargetEvidenceRevision,
+  type ExecutionTargetEvidenceSnapshot,
+} from "../config/execution-target-evidence-store.js";
 import {
   configSettingDescriptor,
   configSettingGovernance,
@@ -74,7 +82,7 @@ export function normalizeConfigMutation(
 ): NormalizedConfigMutation {
   switch (operation) {
     case "skill.upsert":
-      return normalizeSkillUpsert(context.projectPath, payload);
+      return normalizeSkillUpsert(context, payload);
     case "agent.upsert":
       return normalizeAgentUpsert(context.projectPath, payload);
     case "agent.attach_skills":
@@ -85,6 +93,12 @@ export function normalizeConfigMutation(
       return normalizeSettingSet(context, payload);
     case "setting.reset":
       return normalizeSettingReset(context, payload);
+    case "target.select":
+      return normalizeTargetSelect(context, payload);
+    case "target.create":
+      return normalizeTargetCreate(context, payload);
+    case "native.import":
+      return normalizeNativeImport(context, payload);
     case "mutation.rollback":
       throw new Error("mutation.rollback is resolved by the mutation authority, not an operation handler.");
   }
@@ -212,38 +226,59 @@ function normalizeContextGovernanceAdaptation(projectPath: string, rawPayload: u
   };
 }
 
-function normalizeSkillUpsert(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
+function normalizeSkillUpsert(context: ConfigMutationContext, rawPayload: unknown): NormalizedConfigMutation {
   const payload = asRecord(rawPayload);
   const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const scopeValue = payload.scope;
+  if (scopeValue !== undefined && scopeValue !== "project" && scopeValue !== "user") {
+    diagnostics.push({ severity: "error", field: "scope", message: "Skill scope must be exactly project or user." });
+  }
+  const userScope = scopeValue === "user";
   const name = requireId(payload.name, "name", diagnostics);
   const description = requireText(payload.description, "description", diagnostics);
+  const license = optionalText(payload.license, "license", diagnostics);
+  const compatibility = optionalText(payload.compatibility, "compatibility", diagnostics);
+  if (compatibility !== undefined && compatibility.length > 500) {
+    diagnostics.push({ severity: "error", field: "compatibility", message: "Must be at most 500 characters." });
+  }
+  const metadata = optionalMetadata(payload.metadata, diagnostics);
+  const handler = optionalText(payload.handler, "handler", diagnostics);
   const instructions = requireText(payload.instructions, "instructions", diagnostics);
   const tools = optionalStringList(payload.tools, "tools", diagnostics);
   const tags = optionalStringList(payload.tags, "tags", diagnostics);
-  const path = join(projectPath, ".kiln", "skills", name || "invalid-skill", "SKILL.md");
+  const triggers = optionalSkillTriggers(payload.triggers, diagnostics);
+  const path = join(context.projectPath, ".kiln", "skills", name || "invalid-skill", "SKILL.md");
+  const canonicalPath = userScope
+    ? join(dirname(context.globalConfigPath), "skills", name || "invalid-skill", "SKILL.md")
+    : path;
   const normalized = {
     name,
     description,
+    license,
+    compatibility,
+    metadata,
+    handler,
     tools,
     tags,
+    triggers,
     instructions,
   };
   const nextContent = renderSkillMarkdown(normalized);
 
   try {
-    parseSkillMd(nextContent, path);
+    parseSkillMd(nextContent, canonicalPath);
   } catch (error) {
     diagnostics.push({ severity: "error", field: "skill", message: errorMessage(error) });
   }
 
   return {
-    scope: "project",
-    payload: normalized,
-    path,
+    scope: userScope ? "global" : "project",
+    payload: { scope: userScope ? "user" : "project", ...removeUndefined(normalized) },
+    path: canonicalPath,
     nextContent,
     diagnostics,
     authorityImpact: "none",
-    affectedOwners: ["project-skill-catalog"],
+    affectedOwners: [userScope ? "user-skill-catalog" : "project-skill-catalog"],
     reconciliationTargets: ["native-skills", "repo-shims"],
     activation: "reconcile",
   };
@@ -410,6 +445,238 @@ function normalizeSettingReset(
   };
 }
 
+/**
+ * Persists the operator's default execution target and the GUI's explicit
+ * selection as one global-document mutation. The target catalog remains the
+ * routing owner; this operation only selects an already-admitted direct
+ * target and optional account override.
+ */
+function normalizeTargetSelect(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const targetId = requireCanonicalId(payload.targetId, "targetId", diagnostics);
+  const accountOverrideId = payload.accountOverrideId === null
+    ? undefined
+    : payload.accountOverrideId === undefined
+      ? undefined
+      : requireCanonicalId(payload.accountOverrideId, "accountOverrideId", diagnostics);
+  const path = context.globalConfigPath;
+  const document = readValidGlobalDocument(path, diagnostics);
+  let authorityImpact: KilnConfigAuthorityImpact = "none";
+  if (document && targetId) {
+    const current = parse(document.toString()) as Record<string, unknown>;
+    const catalog = asRecord(current.targetCatalog);
+    const targets = Array.isArray(catalog.targets) ? catalog.targets : [];
+    const target = targets.find((entry) => isRecord(entry) && entry.id === targetId);
+    if (!isRecord(target)) {
+      diagnostics.push({ severity: "error", field: "targetId", message: `Execution target '${targetId}' is not configured.` });
+    } else if (target.kind !== "direct") {
+      diagnostics.push({ severity: "error", field: "targetId", message: `Execution target '${targetId}' is not a direct operator target.` });
+    } else {
+      const selection = asRecord(target.accountSelection);
+      if (accountOverrideId !== undefined) {
+        if (selection.mode !== "automatic") {
+          diagnostics.push({ severity: "error", field: "accountOverrideId", message: "Account override requires an automatic direct target." });
+        } else {
+          const policies = Array.isArray(catalog.accountPolicies) ? catalog.accountPolicies : [];
+          const policy = policies.find((entry) => isRecord(entry) && entry.id === selection.accountPolicyId);
+          const accountIds = isRecord(policy) && Array.isArray(policy.accountIds) ? policy.accountIds : [];
+          if (!accountIds.includes(accountOverrideId)) {
+            diagnostics.push({ severity: "error", field: "accountOverrideId", message: `Account override '${accountOverrideId}' is not eligible for execution target '${targetId}'.` });
+          }
+        }
+      }
+      const currentSelection = asRecord(asRecord(current.ui).targetSelection);
+      const currentRoutingTarget = asRecord(current.targetRouting).defaultTargetId;
+      const currentSelectionTarget = currentSelection.targetId;
+      const currentOverride = currentSelection.accountOverrideId;
+      if (currentRoutingTarget !== targetId
+        || (currentSelectionTarget !== undefined && currentSelectionTarget !== targetId)
+        || currentOverride !== accountOverrideId) {
+        // A route choice can change provider, model, account, billing, and
+        // execution effects. No complete cross-route authority comparison is
+        // available here, so selection fails closed until explicitly approved.
+        authorityImpact = "unknown";
+      }
+      document.setIn(["targetRouting", "defaultTargetId"], targetId);
+      document.setIn(["ui", "targetSelection"], {
+        targetId,
+        ...(accountOverrideId === undefined ? {} : { accountOverrideId }),
+      });
+    }
+  }
+  const nextContent = document?.toString() ?? "";
+  if (document && diagnostics.every((entry) => entry.severity !== "error")) {
+    admitGlobalStructure(nextContent, diagnostics);
+  }
+  return {
+    scope: "global",
+    payload: { targetId, ...(accountOverrideId === undefined ? {} : { accountOverrideId }) },
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact,
+    affectedOwners: ["execution-routing", "operator-preferences"],
+    reconciliationTargets: ["execution-routes"],
+    activation: "next-session",
+  };
+}
+
+/**
+ * Adds a target intent whose managed evidence was already admitted and
+ * published by the execution-target evidence owner. The proposal itself never
+ * writes evidence bytes; it fences the global reference against the exact
+ * published revision and validates the complete projected catalog before
+ * producing canonical YAML.
+ */
+function normalizeTargetCreate(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const targetRecord = asRecord(payload.target);
+  const target = targetRecord as unknown as DirectExecutionTargetIntent;
+  const targetId = requireCanonicalId(targetRecord.id, "target.id", diagnostics);
+  if (targetRecord.kind !== "direct") {
+    diagnostics.push({ severity: "error", field: "target.kind", message: "Target creation currently admits direct execution targets only." });
+  }
+  const evidenceRevision = requireEvidenceRevision(payload.evidenceRevision, diagnostics);
+  const expectedRevision = requireConfigRevision(payload.expectedRevision, diagnostics);
+  const path = context.globalConfigPath;
+  const document = readValidGlobalDocument(path, diagnostics);
+  let nextContent = "";
+  if (document && evidenceRevision) {
+    const actualRevision = existsSync(path) ? `sha256:${hashText(readFileSync(path, "utf-8"))}` : "absent";
+    if (expectedRevision !== actualRevision) {
+      diagnostics.push({ severity: "error", field: "expectedRevision", message: `Global configuration changed before target creation (expected ${expectedRevision}, found ${actualRevision}).` });
+    }
+    const current = parse(document.toString()) as Record<string, unknown>;
+    const currentIntent = asRecord(current.targetCatalog) as unknown as ExecutionTargetCatalogIntent;
+    if (!currentIntent || typeof currentIntent.evidenceRevision !== "string") {
+      diagnostics.push({ severity: "error", field: "targetCatalog", message: "Global config must declare targetCatalog before creating a target." });
+    } else if (currentIntent.evidenceRevision === evidenceRevision) {
+      diagnostics.push({ severity: "error", field: "evidenceRevision", message: "Target creation must reference a newly published evidence revision, not the revision already bound to canonical config." });
+    } else if (currentIntent.targets.some((entry) => entry.id === targetId)) {
+      diagnostics.push({ severity: "error", field: "target.id", message: `Execution target '${targetId}' is already configured.` });
+    } else {
+      let evidence: ExecutionTargetEvidenceSnapshot;
+      try {
+        evidence = readExecutionTargetEvidenceSnapshot({ globalConfigPath: context.globalConfigPath, revision: evidenceRevision });
+      } catch (error) {
+        diagnostics.push({ severity: "error", field: "evidenceRevision", message: errorMessage(error) });
+        evidence = { version: 1, accounts: [], targets: [] };
+      }
+      const nextIntent: ExecutionTargetCatalogIntent = {
+        ...currentIntent,
+        evidenceRevision,
+        targets: [...currentIntent.targets, target],
+      };
+      try {
+        // This proves the evidence owner published a complete snapshot that
+        // contains every configured account/target and the new route identity.
+        projectExecutionCatalogFromIntent(nextIntent, evidence, evidenceRevision);
+        document.setIn(["targetCatalog", "evidenceRevision"], evidenceRevision);
+        document.setIn(["targetCatalog", "targets"], nextIntent.targets);
+        nextContent = document.toString();
+        admitGlobalStructure(nextContent, diagnostics);
+      } catch (error) {
+        diagnostics.push({ severity: "error", field: "targetCatalog", message: errorMessage(error) });
+      }
+    }
+  }
+  return {
+    scope: "global",
+    payload: { target, evidenceRevision, expectedRevision },
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact: "expands-write",
+    affectedOwners: ["execution-routing", "execution-target-evidence"],
+    reconciliationTargets: ["execution-routes"],
+    activation: "next-session",
+  };
+}
+
+/**
+ * Imports only typed native intent. Existing global state must already be
+ * valid; import is not an adoption path and cannot use backup-and-replace.
+ */
+function normalizeNativeImport(
+  context: ConfigMutationContext,
+  rawPayload: unknown,
+): NormalizedConfigMutation {
+  const payload = asRecord(rawPayload);
+  const diagnostics: KilnConfigValidationDiagnostic[] = [];
+  const target = payload.target;
+  if (target !== "codex" && target !== "opencode") {
+    diagnostics.push({ severity: "error", field: "target", message: "Native import target must be codex or opencode." });
+  }
+  const importedPermissions = payload.permissions === undefined
+    ? undefined
+    : asRecord(payload.permissions);
+  if (payload.permissions !== undefined && Object.keys(asRecord(payload.permissions)).length === 0) {
+    diagnostics.push({ severity: "error", field: "permissions", message: "Imported permissions must be a non-empty object when provided." });
+  }
+  if (importedPermissions !== undefined) {
+    const supported = new Set(["approval", "sandbox"]);
+    for (const key of Object.keys(importedPermissions)) {
+      if (!supported.has(key)) {
+        diagnostics.push({ severity: "error", field: `permissions.${key}`, message: "Native import only admits approval and sandbox permission intent." });
+      }
+    }
+    if (importedPermissions.approval !== undefined
+      && !["untrusted", "on-failure", "on-request", "never"].includes(String(importedPermissions.approval))) {
+      diagnostics.push({ severity: "error", field: "permissions.approval", message: "Unknown native approval posture." });
+    }
+    if (importedPermissions.sandbox !== undefined
+      && !["read-only", "workspace-write", "danger-full-access"].includes(String(importedPermissions.sandbox))) {
+      diagnostics.push({ severity: "error", field: "permissions.sandbox", message: "Unknown native sandbox posture." });
+    }
+  }
+  const path = context.globalConfigPath;
+  const document = readValidGlobalDocument(path, diagnostics);
+  let nextContent = "";
+  let authorityImpact: KilnConfigAuthorityImpact = "none";
+  if (document && (target === "codex" || target === "opencode")) {
+    const current = parse(document.toString()) as Record<string, unknown>;
+    const currentPermissions = asRecord(current.permissions);
+    const currentEngines = asRecord(current.engines);
+    const nextPermissions = importedPermissions === undefined
+      ? currentPermissions
+      : { ...currentPermissions, ...importedPermissions };
+    const currentEngine = asRecord(currentEngines[target]);
+    const nextEngine = { ...currentEngine, enabled: true };
+    document.setIn(["engines", target], nextEngine);
+    if (importedPermissions !== undefined) {
+      for (const [key, value] of Object.entries(importedPermissions)) {
+        document.setIn(["permissions", key], value);
+      }
+    }
+    nextContent = document.toString();
+    if (currentEngine.enabled !== true) authorityImpact = "expands-write";
+    const permissionImpact = permissionAuthorityImpact(currentPermissions, nextPermissions);
+    if (permissionImpact === "expands-write" || permissionImpact === "unknown") authorityImpact = permissionImpact;
+    if (diagnostics.every((entry) => entry.severity !== "error")) {
+      admitGlobalStructure(nextContent, diagnostics);
+    }
+  }
+  return {
+    scope: "global",
+    payload: { target, ...(importedPermissions === undefined ? {} : { permissions: importedPermissions }) },
+    path,
+    nextContent,
+    diagnostics,
+    authorityImpact,
+    affectedOwners: ["native-config-import", "permission-authority"],
+    reconciliationTargets: ["native-permissions"],
+    activation: "reconcile",
+  };
+}
+
 function projectConfigPath(projectPath: string): string {
   return join(projectPath, ".kiln", "kiln.yaml");
 }
@@ -445,6 +712,109 @@ function readCanonicalDocument(
     return undefined;
   }
   return document;
+}
+
+function readValidGlobalDocument(
+  path: string,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): Document | undefined {
+  const document = readCanonicalDocument(path, "global", diagnostics);
+  if (!document) return undefined;
+  try {
+    validateGlobalConfig(parse(document.toString()));
+  } catch (error) {
+    diagnostics.push({
+      severity: "error",
+      field: "configuration",
+      message: `Canonical global configuration is invalid; import and selection require explicit adoption: ${errorMessage(error)}`,
+    });
+    return undefined;
+  }
+  return document;
+}
+
+function admitGlobalStructure(
+  content: string,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): void {
+  try {
+    validateGlobalConfig(parse(content));
+  } catch (error) {
+    diagnostics.push({
+      severity: "error",
+      field: "configuration",
+      message: `Result rejected by the global configuration validator: ${errorMessage(error)}`,
+    });
+  }
+}
+
+function requireCanonicalId(
+  value: unknown,
+  field: string,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.trim())) {
+    diagnostics.push({ severity: "error", field, message: "Must be a canonical identifier." });
+    return "";
+  }
+  return value.trim();
+}
+
+function requireEvidenceRevision(
+  value: unknown,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): ExecutionTargetEvidenceRevision {
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    diagnostics.push({ severity: "error", field: "evidenceRevision", message: "Must be an execution-target evidence SHA-256 revision." });
+    return `sha256:${"0".repeat(64)}`;
+  }
+  return value as ExecutionTargetEvidenceRevision;
+}
+
+function requireConfigRevision(
+  value: unknown,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): string {
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    diagnostics.push({ severity: "error", field: "expectedRevision", message: "Must be the current global configuration SHA-256 revision." });
+    return "invalid";
+  }
+  return value;
+}
+
+/**
+ * Compare the scalar permission dimensions with a conservative monotonic
+ * ordering. Complex rule changes are not ordered by pattern semantics here,
+ * so they fail closed as unknown rather than being treated as a narrowing.
+ */
+export function permissionAuthorityImpact(
+  current: Record<string, unknown>,
+  next: Record<string, unknown>,
+): KilnConfigAuthorityImpact {
+  if (stableStringify(current) === stableStringify(next)) return "none";
+  const approvalRank: Record<string, number> = { untrusted: 0, "on-failure": 1, "on-request": 2, never: 3 };
+  const sandboxRank: Record<string, number> = { "read-only": 0, "workspace-write": 1, "danger-full-access": 2 };
+  const currentApproval = String(current.approval ?? "on-request");
+  const nextApproval = String(next.approval ?? "on-request");
+  const currentSandbox = String(current.sandbox ?? "read-only");
+  const nextSandbox = String(next.sandbox ?? "read-only");
+  if (approvalRank[currentApproval] === undefined || approvalRank[nextApproval] === undefined
+    || sandboxRank[currentSandbox] === undefined || sandboxRank[nextSandbox] === undefined) {
+    return "unknown";
+  }
+  if ((approvalRank[nextApproval] ?? 0) > (approvalRank[currentApproval] ?? 0)
+    || (sandboxRank[nextSandbox] ?? 0) > (sandboxRank[currentSandbox] ?? 0)
+    || (current.safeDefaults !== false && next.safeDefaults === false)) {
+    return "expands-write";
+  }
+  if ((approvalRank[nextApproval] ?? 0) < (approvalRank[currentApproval] ?? 0)
+    || (sandboxRank[nextSandbox] ?? 0) < (sandboxRank[currentSandbox] ?? 0)
+    || (current.safeDefaults === false && next.safeDefaults === true)) {
+    const scalarOnly = Object.keys(current).every((key) => ["approval", "sandbox", "safeDefaults"].includes(key))
+      && Object.keys(next).every((key) => ["approval", "sandbox", "safeDefaults"].includes(key));
+    return scalarOnly ? "none" : "unknown";
+  }
+  return "unknown";
 }
 
 function normalizeAgentUpsert(projectPath: string, rawPayload: unknown): NormalizedConfigMutation {
@@ -547,15 +917,25 @@ function normalizeAgentAttachSkills(projectPath: string, rawPayload: unknown): N
 function renderSkillMarkdown(skill: {
   readonly name: string;
   readonly description: string;
+  readonly license?: string;
+  readonly compatibility?: string;
+  readonly metadata?: Readonly<Record<string, string>>;
+  readonly handler?: string;
   readonly tools: readonly string[];
   readonly tags: readonly string[];
+  readonly triggers?: readonly Record<string, unknown>[];
   readonly instructions: string;
 }): string {
   const frontmatter = removeUndefined({
     name: skill.name,
     description: skill.description,
+    license: skill.license,
+    compatibility: skill.compatibility,
+    metadata: skill.metadata && Object.keys(skill.metadata).length > 0 ? skill.metadata : undefined,
+    handler: skill.handler,
     tools: skill.tools.length > 0 ? skill.tools : undefined,
     tags: skill.tags.length > 0 ? skill.tags : undefined,
+    triggers: skill.triggers && skill.triggers.length > 0 ? skill.triggers : undefined,
   });
   return `---\n${stringify(frontmatter).trim()}\n---\n\n${skill.instructions.trim()}\n`;
 }
@@ -716,8 +1096,56 @@ function optionalStringListPreservingDuplicates(
   return strings;
 }
 
+function optionalMetadata(
+  value: unknown,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): Readonly<Record<string, string>> | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    diagnostics.push({ severity: "error", field: "metadata", message: "Expected a string-to-string/number/boolean object." });
+    return undefined;
+  }
+  const metadata: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry !== "string" && typeof entry !== "number" && typeof entry !== "boolean") {
+      diagnostics.push({ severity: "error", field: `metadata.${key}`, message: "Expected string, number, or boolean." });
+      continue;
+    }
+    metadata[key] = String(entry);
+  }
+  return metadata;
+}
+
+function optionalSkillTriggers(
+  value: unknown,
+  diagnostics: KilnConfigValidationDiagnostic[],
+): readonly Record<string, unknown>[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    diagnostics.push({ severity: "error", field: "triggers", message: "Expected an array of event trigger objects." });
+    return [];
+  }
+  const triggers: Record<string, unknown>[] = [];
+  for (const [index, entry] of value.entries()) {
+    if (!isRecord(entry) || typeof entry.event !== "string" || entry.event.trim().length === 0) {
+      diagnostics.push({ severity: "error", field: `triggers[${index}]`, message: "Expected an object with a non-empty event." });
+      continue;
+    }
+    if (entry.filter !== undefined && !isRecord(entry.filter)) {
+      diagnostics.push({ severity: "error", field: `triggers[${index}].filter`, message: "Expected an object." });
+      continue;
+    }
+    triggers.push({ event: entry.event.trim(), ...(entry.filter === undefined ? {} : { filter: entry.filter }) });
+  }
+  return triggers;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return isRecord(value) ? value : {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function removeUndefined(input: Record<string, unknown>): Record<string, unknown> {
@@ -737,13 +1165,40 @@ export function renderPreviewDiff(path: string, before: string, after: string): 
   if (before === after) {
     return `--- ${path}\n+++ ${path}\n(no changes)\n`;
   }
-  return [
-    `--- ${path}`,
-    `+++ ${path}`,
-    "@@ proposed content @@",
-    after.trimEnd(),
-    "",
-  ].join("\n");
+  const beforeLines = before.trimEnd().split("\n");
+  const afterLines = after.trimEnd().split("\n");
+  return [`--- ${path}`, `+++ ${path}`, "@@ exact proposed change @@", ...buildLineDiff(beforeLines, afterLines), ""].join("\n");
+}
+
+function buildLineDiff(beforeLines: readonly string[], afterLines: readonly string[]): string[] {
+  const lengths = Array.from({ length: beforeLines.length + 1 }, () =>
+    Array.from({ length: afterLines.length + 1 }, () => 0));
+  for (let beforeIndex = beforeLines.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
+    for (let afterIndex = afterLines.length - 1; afterIndex >= 0; afterIndex -= 1) {
+      lengths[beforeIndex]![afterIndex] = beforeLines[beforeIndex] === afterLines[afterIndex]
+        ? lengths[beforeIndex + 1]![afterIndex + 1]! + 1
+        : Math.max(lengths[beforeIndex + 1]![afterIndex]!, lengths[beforeIndex]![afterIndex + 1]!);
+    }
+  }
+  const diff: string[] = [];
+  let beforeIndex = 0;
+  let afterIndex = 0;
+  while (beforeIndex < beforeLines.length && afterIndex < afterLines.length) {
+    if (beforeLines[beforeIndex] === afterLines[afterIndex]) {
+      diff.push(` ${beforeLines[beforeIndex]}`);
+      beforeIndex += 1;
+      afterIndex += 1;
+    } else if (lengths[beforeIndex + 1]![afterIndex]! >= lengths[beforeIndex]![afterIndex + 1]!) {
+      diff.push(`-${beforeLines[beforeIndex]}`);
+      beforeIndex += 1;
+    } else {
+      diff.push(`+${afterLines[afterIndex]}`);
+      afterIndex += 1;
+    }
+  }
+  for (; beforeIndex < beforeLines.length; beforeIndex += 1) diff.push(`-${beforeLines[beforeIndex]}`);
+  for (; afterIndex < afterLines.length; afterIndex += 1) diff.push(`+${afterLines[afterIndex]}`);
+  return diff;
 }
 
 export function hashStable(value: unknown): string {

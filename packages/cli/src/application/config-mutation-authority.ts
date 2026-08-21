@@ -83,9 +83,9 @@ export interface ApplyConfigMutationInput {
  * Builds a validated proposal without writing canonical configuration.
  *
  * Identity is derived from scope, operation, normalized payload, target path,
- * proposed content, and base revision, so the same intent against the same base
- * always yields the same proposal id. That is what makes a retried apply
- * recognisable as the same operation rather than a new one.
+ * proposed content, base revision, and creation instant. Apply retries reuse
+ * the stored proposal id; a later decision to apply the same intent after a
+ * rollback receives a new identity rather than replaying an obsolete outcome.
  */
 export function proposeConfigMutation(input: ProposeConfigMutationInput): ConfigMutationProposalRecord {
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
@@ -101,6 +101,7 @@ export function proposeConfigMutation(input: ProposeConfigMutationInput): Config
     projectPath: input.projectPath,
     globalConfigPath,
     scope: normalized.scope,
+    operation: input.operation,
     path: normalized.path,
   }));
 
@@ -116,6 +117,7 @@ export function proposeConfigMutation(input: ProposeConfigMutationInput): Config
     path: normalized.path,
     nextContent: removesPath ? null : normalized.nextContent,
     baseRevision,
+    createdAt,
   };
 
   const proposal: KilnConfigMutationProposal = {
@@ -209,14 +211,25 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
   const settledAt = (input.now ?? new Date()).toISOString();
   const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
 
-  const existingSettlement = store.readSettlement(input.proposalId);
-  if (existingSettlement) {
-    return await withReadBack(input, existingSettlement, true);
-  }
-
   const record = store.readProposal(input.proposalId);
   if (!record) {
     return rejected(input, settledAt, "project", [diagnostic("proposalId", "Config proposal not found.")]);
+  }
+  const existingSettlement = store.readSettlement(input.proposalId);
+  if (existingSettlement) {
+    const replayDiagnostics = checkReplayAuthorization(store, record, existingSettlement, input.approvalId, input.requester);
+    const write = record.writes[0];
+    if (!write) replayDiagnostics.push(diagnostic("write", "Settled config proposal carries no canonical write."));
+    if (write) {
+      const currentContent = existsSync(write.path) ? readFileSync(write.path, "utf-8") : null;
+      if (revisionOf(currentContent) !== existingSettlement.committedRevision) {
+        replayDiagnostics.push(diagnostic(write.path, "The settled proposal is no longer the effective canonical revision; create a new proposal."));
+      }
+    }
+    if (replayDiagnostics.length > 0) {
+      return rejected(input, settledAt, record.proposal.scope, replayDiagnostics, record.proposal);
+    }
+    return await withReadBack(input, existingSettlement, true);
   }
   const proposal = record.proposal;
   if (proposal.status !== "valid") {
@@ -232,6 +245,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
     projectPath: input.projectPath,
     globalConfigPath,
     scope: proposal.scope,
+    operation: proposal.operation,
     path: record.writes[0]?.path ?? "",
   });
   if (pathDiagnostics.length > 0) {
@@ -275,7 +289,7 @@ export async function applyConfigMutation(input: ApplyConfigMutationInput): Prom
         intendedRevision: intendedRevision(write),
         startedAt: settledAt,
       });
-      return proposal.scope === "global"
+      return proposal.scope === "global" && resolve(write.path) === resolve(globalConfigPath)
         ? commitGlobalWrite(record.writes, proposal.baseRevision, proposal.operation === "setting.reset")
         : commitProjectWrites(record.writes);
     });
@@ -434,6 +448,31 @@ function checkApproval(
   return [];
 }
 
+function checkReplayAuthorization(
+  store: ConfigMutationStore,
+  record: ConfigMutationProposalRecord,
+  settlement: StoredConfigMutationSettlement,
+  approvalId: string | undefined,
+  requester: ConfigMutationRequester,
+): KilnConfigValidationDiagnostic[] {
+  const requiresApproval = requester === "model" || record.proposal.approvalRequired;
+  if (!approvalId) {
+    return requiresApproval
+      ? [diagnostic("approvalId", "Replaying this configuration settlement requires its matching operator approval.")]
+      : [];
+  }
+  if (settlement.approvalId !== approvalId) {
+    return [diagnostic("approvalId", "Config approval does not match the durable settlement.")];
+  }
+  const approval = store.readApproval(approvalId);
+  if (!approval
+    || approval.proposalId !== record.proposal.proposalId
+    || approval.proposalHash !== record.proposalHash) {
+    return [diagnostic("approvalId", "Config approval does not match the stored proposal.")];
+  }
+  return [];
+}
+
 /** Project writes replace canonical files through a temporary file so a failure cannot leave a partial file. */
 function commitProjectWrites(writes: readonly ConfigMutationWrite[]): {
   readonly appliedWrites: readonly KilnConfigAppliedWrite[];
@@ -575,13 +614,22 @@ function validateWritePath(input: {
   readonly projectPath: string;
   readonly globalConfigPath: string;
   readonly scope: KilnConfigMutationScope;
+  readonly operation: KilnConfigMutationOperation | null;
   readonly path: string;
 }): readonly KilnConfigValidationDiagnostic[] {
   const resolvedPath = resolve(input.path);
   if (input.scope === "global") {
-    return resolvedPath === resolve(input.globalConfigPath)
-      ? []
-      : [diagnostic(input.path, "Global mutations may only write the canonical global configuration file.")];
+    if (resolvedPath === resolve(input.globalConfigPath)) return [];
+    const globalRoot = resolve(dirname(input.globalConfigPath));
+    const userSkillsRoot = resolve(join(globalRoot, "skills"));
+    if ((input.operation === "skill.upsert" || input.operation === "mutation.rollback")
+      && isInside(userSkillsRoot, resolvedPath)) {
+      if (!isPhysicallyInsideRoot(globalRoot, resolvedPath)) {
+        return [diagnostic(input.path, "Refused a user skill path whose physical target escapes the global Kiln root.")];
+      }
+      return [];
+    }
+    return [diagnostic(input.path, "Global mutations may only write the canonical global configuration file or user-owned skills.")];
   }
 
   const projectRoot = resolve(input.projectPath);
@@ -603,8 +651,19 @@ function validateWritePath(input: {
 }
 
 function isPhysicallyInsideProject(projectRoot: string, candidate: string): boolean {
+  return isPhysicallyInsideRoot(projectRoot, candidate);
+}
+
+function isPhysicallyInsideRoot(projectRoot: string, candidate: string): boolean {
   try {
-    const realProjectRoot = realpathSync(projectRoot);
+    let existingRoot = projectRoot;
+    while (!existsSync(existingRoot)) {
+      const parent = dirname(existingRoot);
+      if (parent === existingRoot) return false;
+      existingRoot = parent;
+    }
+    const realRootAncestor = realpathSync(existingRoot);
+    const physicalRoot = resolve(realRootAncestor, relative(existingRoot, projectRoot));
     let existingAncestor = candidate;
     while (!existsSync(existingAncestor)) {
       const parent = dirname(existingAncestor);
@@ -613,7 +672,7 @@ function isPhysicallyInsideProject(projectRoot: string, candidate: string): bool
     }
     const realAncestor = realpathSync(existingAncestor);
     const physicalCandidate = resolve(realAncestor, relative(existingAncestor, candidate));
-    return isInside(realProjectRoot, physicalCandidate);
+    return isInside(physicalRoot, physicalCandidate);
   } catch {
     return false;
   }

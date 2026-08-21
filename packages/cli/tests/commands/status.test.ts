@@ -7,7 +7,8 @@ import {
   type StatusCommandOptions,
 } from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
-import { mutateGlobalConfig, resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
@@ -20,7 +21,7 @@ function persistGlobalConfig(config: KilnGlobalConfig): void {
       snapshot: admitted.evidence,
     });
   }
-  mutateGlobalConfig(() => admitted.config);
+  persistGlobalConfigFixture(admitted.config);
 }
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ProviderModelEligibilityRequirements } from "@kilnai/core/agents";

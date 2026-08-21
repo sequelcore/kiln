@@ -5,7 +5,6 @@ import type { KilnAppConfig } from "../config.js";
 import {
   readGlobalConfig,
   readGlobalConfigSnapshot,
-  mutateGlobalConfig,
   readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
 import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
@@ -382,6 +381,10 @@ export async function guiCommand(
       const result = await createCurrentExecutionRoute({
         request,
         admittedEvidence,
+        projectPath: cwd,
+        approvalSurface: "gui",
+        // The GUI invokes this callback only for the operator's explicit create action.
+        operatorApproved: true,
         resolveCurrentEvidence: async () => {
           const snapshot = readGlobalConfigSnapshot();
           const targetAuthority = readGlobalExecutionTargetAuthority(snapshot.config);
@@ -397,8 +400,6 @@ export async function guiCommand(
             revision: snapshot.revision,
           };
         },
-        mutateGlobalConfig,
-        refreshExecutionRoutes: async () => { await executionRouteSelection.getCatalog(); },
       });
       return { status: result.status, revision: result.revision };
     },

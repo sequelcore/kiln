@@ -1,6 +1,5 @@
-import type { AvailableModelCatalog, AvailableModelCatalogEntry, ExecutionRouteCreationRequest } from "@kilnai/gateway-contracts";
+import type { AvailableModelCatalog, AvailableModelCatalogEntry, ExecutionRouteCreationRequest, KilnConfigApprovalSurface } from "@kilnai/gateway-contracts";
 import type { ExecutionCatalogInput } from "@kilnai/core";
-import type { GlobalConfigMutationOptions, GlobalConfigMutationResult, KilnGlobalConfig } from "../config/global-config.js";
 import type {
   ExecutionTargetCatalogIntent,
   ExecutionTargetEvidenceSnapshot,
@@ -17,6 +16,9 @@ export async function createCurrentExecutionRoute(input: {
     readonly evidenceIdentity: string;
     readonly evidenceRevision: `sha256:${string}`;
   };
+  readonly projectPath: string;
+  readonly approvalSurface: KilnConfigApprovalSurface;
+  readonly operatorApproved: boolean;
   readonly resolveCurrentEvidence: () => Promise<{
     readonly catalog: AvailableModelCatalog;
     readonly executionCatalog: ExecutionCatalogInput;
@@ -24,8 +26,6 @@ export async function createCurrentExecutionRoute(input: {
     readonly targetEvidence: ExecutionTargetEvidenceSnapshot;
     readonly revision: string;
   }>;
-  readonly mutateGlobalConfig: (mutation: (current: KilnGlobalConfig | null) => KilnGlobalConfig, options: GlobalConfigMutationOptions) => GlobalConfigMutationResult;
-  readonly refreshExecutionRoutes: () => Promise<void>;
 }) {
   const current = await input.resolveCurrentEvidence();
   const exact = current.catalog.entries.find((candidate) => sameIdentity(candidate, input.admittedEvidence.entry));
@@ -52,8 +52,9 @@ export async function createCurrentExecutionRoute(input: {
     expectedRevision: current.revision,
     currentIntent: current.targetIntent,
     currentEvidence: current.targetEvidence,
-    mutateGlobalConfig: input.mutateGlobalConfig,
-    refreshExecutionRoutes: input.refreshExecutionRoutes,
+    projectPath: input.projectPath,
+    approvalSurface: input.approvalSurface,
+    operatorApproved: input.operatorApproved,
   });
 }
 

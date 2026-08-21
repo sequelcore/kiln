@@ -3,9 +3,11 @@ import type {
   KilnConfigReconciliationEffect,
   KilnConfigReconciliationTarget,
 } from "@kilnai/gateway-contracts";
-import { loadKilnConfig, loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
+import { globalToKilnYaml, loadKilnConfig, loadKilnConfigWithGlobalAuthority } from "../config/config-merger.js";
 import { configuredCommunicationCandidates } from "../config/communication-policy.js";
+import { readGlobalConfig, readGlobalExecutionTargetAuthority } from "../config/global-config.js";
 import { syncNativeAgentProjections } from "../config/native-agent-projection.js";
+import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import { syncNativeSkillProjections } from "../config/native-skill-projection.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { writeRepoShimProjections } from "./repo-shim-projection.js";
@@ -40,14 +42,10 @@ async function reconcileTarget(
         return await reconcileNativeSkills(projectPath);
       case "repo-shims":
         return await reconcileRepoShims(projectPath);
+      case "native-permissions":
+        return await reconcileNativePermissions(projectPath);
       case "execution-routes":
-        // Route material is reconciled by its own owner during target operations.
-        return {
-          target,
-          status: "skipped",
-          summary: "Execution routes are reconciled by the execution-route owner.",
-          errors: [],
-        };
+        return reconcileExecutionRoutes();
     }
   } catch (error) {
     return {
@@ -87,6 +85,48 @@ async function reconcileNativeSkills(projectPath: string): Promise<KilnConfigRec
     status: result.errors.length === 0 ? "ok" : "failed",
     summary: `${result.synced} native skill projections synced`,
     errors: result.errors,
+  };
+}
+
+async function reconcileNativePermissions(projectPath: string): Promise<KilnConfigReconciliationEffect> {
+  const globalConfig = readGlobalConfig();
+  if (!globalConfig) {
+    return {
+      target: "native-permissions",
+      status: "failed",
+      summary: "Native permission projection has no canonical global configuration.",
+      errors: ["Canonical global configuration is unavailable after commit."],
+    };
+  }
+  const result = await syncNativePermissionProjections(globalToKilnYaml(globalConfig), projectPath, {
+    force: true,
+    modelGateway: globalConfig.modelGateway,
+  });
+  return {
+    target: "native-permissions",
+    status: result.errors.length === 0 ? "ok" : "failed",
+    summary: result.errors.length === 0
+      ? "Native permission projections for the current project converged."
+      : "Native permission projections for the current project did not fully converge.",
+    errors: result.errors,
+  };
+}
+
+function reconcileExecutionRoutes(): KilnConfigReconciliationEffect {
+  const authority = readGlobalExecutionTargetAuthority(readGlobalConfig());
+  if (!authority) {
+    return {
+      target: "execution-routes",
+      status: "failed",
+      summary: "Execution-route authority is unavailable after commit.",
+      errors: ["Canonical target intent or its exact managed evidence revision is unavailable."],
+    };
+  }
+  return {
+    target: "execution-routes",
+    status: "ok",
+    summary: `${authority.executionCatalog.routes.length} execution routes verified from canonical intent and evidence.`,
+    errors: [],
   };
 }
 

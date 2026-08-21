@@ -291,11 +291,6 @@ export class GlobalConfigMutationError extends Error {
   }
 }
 
-export interface GlobalConfigMutationOptions {
-  readonly expectedRevision?: string;
-  readonly invalidCurrent?: "backup-and-replace";
-}
-
 export interface GlobalConfigMutationResult {
   readonly config: KilnGlobalConfig;
   readonly previousRevision: string;
@@ -387,83 +382,6 @@ function isValidGlobalConfigRaw(raw: string): boolean {
     return parseGlobalConfigRaw(raw) !== null;
   } catch {
     return false;
-  }
-}
-
-export function mutateGlobalConfig(
-  mutation: (current: KilnGlobalConfig | null) => KilnGlobalConfig,
-  options: GlobalConfigMutationOptions = {},
-): GlobalConfigMutationResult {
-  const configPath = resolveGlobalConfigPath();
-  const configDirectory = dirname(configPath);
-  const lockPath = `${configPath}.lock`;
-  mkdirSync(configDirectory, { recursive: true });
-  const lock = acquireGlobalConfigLock(configPath, lockPath);
-  const temporaryPath = `${configPath}.${lock.acquisitionId}.tmp`;
-
-  try {
-    const currentRaw = existsSync(configPath) ? readFileSync(configPath, "utf-8") : null;
-    const previousRevision = globalConfigRevision(currentRaw);
-    if (options.expectedRevision !== undefined && options.expectedRevision !== previousRevision) {
-      throw new GlobalConfigMutationError("GLOBAL_CONFIG_REVISION_CONFLICT", {
-        configPath,
-        expectedRevision: options.expectedRevision,
-        actualRevision: previousRevision,
-      });
-    }
-    let current: KilnGlobalConfig | null;
-    let invalidBackupPath: string | undefined;
-    try {
-      current = parseGlobalConfigRaw(currentRaw);
-    } catch (error) {
-      if (currentRaw === null || options.invalidCurrent !== "backup-and-replace") throw error;
-      const mode = statSync(configPath).mode & 0o777;
-      invalidBackupPath = `${configPath}.invalid-${lock.acquisitionId}.bak`;
-      try {
-        writeFileSync(invalidBackupPath, currentRaw, { encoding: "utf-8", flag: "wx", mode });
-      } catch (backupError) {
-        throw new GlobalConfigMutationError(
-          "GLOBAL_CONFIG_WRITE_FAILED",
-          { configPath, invalidBackupPath },
-          backupError,
-        );
-      }
-      current = null;
-    }
-    const next = mutation(current);
-    validateGlobalConfig(next);
-    const serialized = stringify(next);
-    if (current !== null && JSON.stringify(current) === JSON.stringify(next)) {
-      return {
-        config: next,
-        previousRevision,
-        revision: previousRevision,
-        ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
-      };
-    }
-    const mode = currentRaw === null ? 0o600 : statSync(configPath).mode & 0o777;
-    try {
-      writeFileSync(temporaryPath, serialized, { encoding: "utf-8", mode });
-      if (currentRaw !== null) chmodSync(temporaryPath, mode);
-      // Node replaces an existing destination on Windows and POSIX; never unlink
-      // the canonical path first because that would expose a missing-config gap.
-      renameSync(temporaryPath, configPath);
-    } catch (error) {
-      throw new GlobalConfigMutationError("GLOBAL_CONFIG_WRITE_FAILED", {
-        configPath,
-        ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
-      }, error);
-    } finally {
-      rmSync(temporaryPath, { force: true });
-    }
-    return {
-      config: next,
-      previousRevision,
-      revision: globalConfigRevision(serialized),
-      ...(invalidBackupPath === undefined ? {} : { invalidBackupPath }),
-    };
-  } finally {
-    releaseGlobalConfigLock(lockPath, lock);
   }
 }
 

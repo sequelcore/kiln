@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parse as parseToml } from "smol-toml";
 import {
-  createImportNativePlan,
   extractCodexNativeConfig,
   extractOpenCodeNativeConfig,
   parseImportNativeTarget,
 } from "../../src/commands/import-native.js";
-import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 describe("import-native command helpers", () => {
   it("extracts provider, model, approval, and sandbox from Codex TOML", () => {
@@ -30,61 +28,6 @@ describe("import-native command helpers", () => {
         "permissions.sandbox",
       ],
     });
-  });
-
-  it("merges imported Codex fields without clobbering unrelated Kiln fields", () => {
-    const currentConfig: KilnGlobalConfig = {
-      version: "4",
-      identity: { name: "Alex", timezone: "America/Tijuana" },
-      engines: {
-        claude: { enabled: true, billing: "subscription" },
-      },
-      permissions: {
-        approval: "never",
-        tools: [{ tool: "Read", action: "allow" }],
-      },
-      mcp: {
-        servers: {
-          kiln: { transport: "stdio", command: "kiln-mcp" },
-        },
-      },
-    };
-
-    const plan = createImportNativePlan({
-      target: "codex",
-      nativeConfigPath: "C:/Users/ExampleUser/.codex/config.toml",
-      globalConfigPath: "C:/Users/ExampleUser/.kiln/config.yaml",
-      currentConfig,
-      nativeDocument: {
-        model: "gpt-5.4",
-        approval_policy: "on-request",
-        sandbox_mode: "workspace-write",
-      },
-    });
-
-    expect(plan.after).toEqual({
-      version: "4",
-      identity: { name: "Alex", timezone: "America/Tijuana" },
-      engines: {
-        claude: { enabled: true, billing: "subscription" },
-        codex: { enabled: true },
-      },
-      permissions: {
-        approval: "on-request",
-        sandbox: "workspace-write",
-        tools: [{ tool: "Read", action: "allow" }],
-      },
-      mcp: {
-        servers: {
-          kiln: { transport: "stdio", command: "kiln-mcp" },
-        },
-      },
-      components: { include: ["baseline:core"] },
-    });
-    expect(plan.hasChanges).toBe(true);
-    expect(plan.diff).toContain("--- C:/Users/ExampleUser/.kiln/config.yaml");
-    expect(plan.diff).toContain("+++ C:/Users/ExampleUser/.kiln/config.yaml");
-    expect(plan.extractedFields).not.toContain("model");
   });
 
   it("extracts provider, model, and permissions from OpenCode JSON", () => {

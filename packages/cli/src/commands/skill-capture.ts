@@ -1,12 +1,13 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { KilnAppConfig } from "../config.js";
 import { SessionStore, TranscriptStore } from "../wrapper/session-store.js";
 import type { PersistedTranscriptEvent as StoredTranscriptEvent } from "../wrapper/session-store.js";
-import type { PersistedTranscriptEvent as SkillCaptureTranscriptEvent } from "@kilnai/core";
+import { parseSkillMd, type PersistedTranscriptEvent as SkillCaptureTranscriptEvent } from "@kilnai/core";
 import { resolveProjectRoot } from "../application/project-root-resolver.js";
+import { applyConfigMutation, proposeConfigMutation } from "../application/config-mutation-authority.js";
+import { ConfigMutationStore } from "../application/config-mutation-store.js";
+import { resolveGlobalConfigPath } from "../config/global-config.js";
 
 const MAX_NAME_LENGTH = 40;
 
@@ -153,7 +154,7 @@ export async function skillCaptureCommand(
   }
 
   const skillsDir = normalized.flags.scope === "user"
-    ? join(homedir(), ".kiln", "skills", skillName)
+    ? join(dirname(resolveGlobalConfigPath()), "skills", skillName)
     : join(projectPath, ".kiln", "skills", skillName);
   const skillFilePath = join(skillsDir, "SKILL.md");
 
@@ -180,8 +181,36 @@ export async function skillCaptureCommand(
     }
   }
 
-  await mkdir(skillsDir, { recursive: true });
-  await writeFile(skillFilePath, draft.content, "utf-8");
+  const parsed = parseSkillMd(draft.content, skillFilePath);
+  const record = proposeConfigMutation({
+    projectPath,
+    operation: "skill.upsert",
+    payload: {
+      scope: normalized.flags.scope === "user" ? "user" : "project",
+      name: skillName,
+      description: parsed.description,
+      ...(parsed.license ? { license: parsed.license } : {}),
+      ...(parsed.compatibility ? { compatibility: parsed.compatibility } : {}),
+      ...(Object.keys(parsed.metadata ?? {}).length > 0 ? { metadata: parsed.metadata } : {}),
+      ...(parsed.handler ? { handler: parsed.handler } : {}),
+      ...(parsed.tools.length > 0 ? { tools: parsed.tools } : {}),
+      ...(parsed.tags.length > 0 ? { tags: parsed.tags } : {}),
+      ...(parsed.triggers.length > 0 ? { triggers: parsed.triggers } : {}),
+      instructions: parsed.instructions,
+    },
+  });
+  if (record.proposal.status !== "valid") {
+    throw new Error(`Skill capture rejected: ${record.proposal.diagnostics.map((entry) => entry.message).join("; ")}`);
+  }
+  new ConfigMutationStore(projectPath).saveProposal(record);
+  const result = await applyConfigMutation({
+    projectPath,
+    proposalId: record.proposal.proposalId,
+    requester: "operator",
+  });
+  if (result.settlement.outcome === "rejected") {
+    throw new Error(`Skill capture rejected: ${result.settlement.diagnostics.map((entry) => entry.message).join("; ")}`);
+  }
   console.log(`Skill saved: ${skillFilePath}`);
 }
 

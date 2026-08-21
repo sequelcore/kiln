@@ -1,4 +1,4 @@
-import type { GlobalConfigMutationOptions, GlobalConfigMutationResult, KilnGlobalConfig } from "../config/global-config.js";
+import type { KilnConfigApprovalSurface } from "@kilnai/gateway-contracts";
 import {
   defineExecutionTargetEvidenceSnapshot,
   executionTargetEvidenceRevision,
@@ -9,27 +9,25 @@ import {
 } from "../config/execution-target-evidence-store.js";
 import { resolveGlobalConfigPath } from "../config/global-config.js";
 import type { CompleteExecutionRouteDraft } from "./execution-route-draft.js";
+import { applyConfigMutation, approveConfigMutation, proposeConfigMutation } from "./config-mutation-authority.js";
+import { ConfigMutationStore } from "./config-mutation-store.js";
 
-export interface ExecutionRouteRefreshPort {
-  (): Promise<void>;
-}
-
-export type ExecutionRouteCreationCommitResult = GlobalConfigMutationResult & {
+export interface ExecutionRouteCreationCommitResult {
   readonly status: "created" | "committed-refresh-failed";
-};
+  readonly revision: string;
+}
 
 export async function createExecutionRoute(input: {
   readonly draft: CompleteExecutionRouteDraft;
   readonly expectedRevision: string;
   readonly currentIntent: ExecutionTargetCatalogIntent;
   readonly currentEvidence: ExecutionTargetEvidenceSnapshot;
-  readonly mutateGlobalConfig: (
-    mutation: (current: KilnGlobalConfig | null) => KilnGlobalConfig,
-    options: GlobalConfigMutationOptions,
-  ) => GlobalConfigMutationResult;
+  readonly projectPath: string;
+  readonly approvalSurface: KilnConfigApprovalSurface;
+  /** True only after the owning operator surface confirms this exact create request. */
+  readonly operatorApproved: boolean;
   readonly publishEvidence?: typeof writeExecutionTargetEvidenceSnapshot;
   readonly globalConfigPath?: string;
-  readonly refreshExecutionRoutes: ExecutionRouteRefreshPort;
 }): Promise<ExecutionRouteCreationCommitResult> {
   const nextEvidence = defineExecutionTargetEvidenceSnapshot({
     ...input.currentEvidence,
@@ -49,20 +47,43 @@ export async function createExecutionRoute(input: {
   if (published.revision !== nextEvidenceRevision) {
     throw new Error("Published execution-target evidence revision changed after validation.");
   }
-  const result = input.mutateGlobalConfig((current) => {
-    if (!current?.targetCatalog) throw new Error("Global config must declare targetCatalog before creating a direct target.");
-    if (current.targetCatalog.evidenceRevision !== input.currentIntent.evidenceRevision) {
-      throw new Error("Execution-target managed evidence changed before target publication.");
-    }
-    return {
-      ...current,
-      targetCatalog: nextIntent,
-    };
-  }, { expectedRevision: input.expectedRevision });
-  try {
-    await input.refreshExecutionRoutes();
-    return { ...result, status: "created" };
-  } catch {
-    return { ...result, status: "committed-refresh-failed" };
+  const globalConfigPath = input.globalConfigPath ?? resolveGlobalConfigPath();
+  const record = proposeConfigMutation({
+    projectPath: input.projectPath,
+    globalConfigPath,
+    operation: "target.create",
+    payload: {
+      target: input.draft.intent,
+      evidenceRevision: nextEvidenceRevision,
+      expectedRevision: input.expectedRevision,
+    },
+  });
+  if (record.proposal.status !== "valid") {
+    throw new Error(`Execution target creation rejected: ${record.proposal.diagnostics.map((entry) => entry.message).join("; ")}`);
   }
+  if (record.proposal.approvalRequired && !input.operatorApproved) {
+    throw new Error("Execution target creation requires explicit operator approval.");
+  }
+  new ConfigMutationStore(input.projectPath).saveProposal(record);
+  const approval = record.proposal.approvalRequired
+    ? approveConfigMutation({
+        projectPath: input.projectPath,
+        proposalId: record.proposal.proposalId,
+        surface: input.approvalSurface,
+      })
+    : undefined;
+  const result = await applyConfigMutation({
+    projectPath: input.projectPath,
+    globalConfigPath,
+    proposalId: record.proposal.proposalId,
+    ...(approval ? { approvalId: approval.approvalId } : {}),
+    requester: "operator",
+  });
+  if (result.settlement.outcome === "rejected" || !result.settlement.committedRevision) {
+    throw new Error(`Execution target creation rejected: ${result.settlement.diagnostics.map((entry) => entry.message).join("; ")}`);
+  }
+  return {
+    status: result.settlement.outcome === "committed" ? "created" : "committed-refresh-failed",
+    revision: result.settlement.committedRevision,
+  };
 }

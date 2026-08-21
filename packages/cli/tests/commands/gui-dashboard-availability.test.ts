@@ -156,7 +156,6 @@ const configMocks = vi.hoisted(() => ({
   } | null,
   defaultGlobalConfig: vi.fn(() => ({ version: "4" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
-  mutateGlobalConfig: vi.fn(),
   resolveGlobalDefaultProvider: vi.fn((config: { targetRouting?: { defaultTargetId?: string }; targetCatalog?: { targets?: readonly { id: string; providerId: string }[] } } | null) => {
     const provider = config?.targetCatalog?.targets?.find((target) => target.id === config.targetRouting?.defaultTargetId)?.providerId ?? "";
     return provider.length > 0 ? provider : undefined;
@@ -302,7 +301,6 @@ vi.mock("../../src/config/global-config.js", async (importOriginal) => {
     resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
     resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
     resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
-    mutateGlobalConfig: configMocks.mutateGlobalConfig,
   };
 });
 

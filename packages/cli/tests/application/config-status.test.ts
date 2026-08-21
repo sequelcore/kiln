@@ -26,7 +26,7 @@ import {
   createRuntimePermissionObservationStore,
   deriveCodexRuntimePermissionRequest,
 } from "../../src/wrapper/runtime-permission-observation.js";
-import { mutateGlobalConfig } from "../../src/config/global-config.js";
+import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
 
 let tempDir: string;
@@ -54,10 +54,10 @@ function writeProjectConfig(projectPath: string): void {
     "  sandbox: read-only",
     "",
   ].join("\n"), "utf-8");
-  mutateGlobalConfig(() => ({
+  persistGlobalConfigFixture({
     ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
     permissions: { approval: "on-request", sandbox: "read-only" },
-  }));
+  });
 }
 
 function writeSkill(root: string, name: string, description: string): void {
@@ -207,10 +207,10 @@ describe("config-status", () => {
       "          fromEnv: KILN_SUPER_SECRET_TOKEN",
       "",
     ].join("\n"), "utf-8");
-    mutateGlobalConfig(() => ({
+    persistGlobalConfigFixture({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
       permissions: { approval: "on-request", sandbox: "read-only" },
-    }));
+    });
 
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome: join(tempDir, "home") });
     const permissions = snapshot.effectiveConfig?.fields.find((field) => field.identity === "/permissions");
@@ -273,10 +273,10 @@ describe("config-status", () => {
       "  sandbox: workspace-write",
       "",
     ].join("\n"), "utf-8");
-    mutateGlobalConfig(() => ({
+    persistGlobalConfigFixture({
       ...makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.4-mini", "codex-default"),
       permissions: { approval: "on-request", sandbox: "read-only" },
-    }));
+    });
 
     const snapshot = await readConfigStatusSnapshot({
       projectPath: tempDir,
@@ -1305,7 +1305,7 @@ describe("config-status", () => {
 
   it("reports missing global Claude concise projection from canonical communication intent", async () => {
     writeProjectConfig(tempDir);
-    mutateGlobalConfig((current) => {
+    persistGlobalConfigFixture((current) => {
       if (!current) throw new Error("expected the fixture global config to exist");
       return {
         ...current,

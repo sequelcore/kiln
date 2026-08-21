@@ -2,7 +2,7 @@
 
 Status: In progress
 Priority: Urgent
-Execution: Slices 0-3 complete - Slice 4 authority landed; convert the remaining direct writers.
+Execution: Slices 0-4 complete - Slice 5 is the next bounded product proof.
 Created: 2026-08-14
 Reprioritized: 2026-08-20
 
@@ -445,7 +445,7 @@ migration or dual read exists.
 
 ### Slice 4 - Configuration Mutation Authority V2
 
-Status: In progress. The V2 authority is landed and owns both the project and
+Status: Complete. The V2 authority owns both the project and
 global scopes: `config-mutation-authority` builds base-revision-bound proposals,
 derives authority impact by comparing current and proposed authority, requires
 approval when authority expands and always for a model-called apply, commits
@@ -483,16 +483,27 @@ change. The in-command setter and value-parsing machinery, its `writeKilnYaml`
 and unfenced `mutateGlobalConfig` calls, and the duplicated key list are deleted;
 the admitted key set now has one owner.
 
-Remaining before this slice closes: convert the direct writers that still
-bypass the authority - `kiln target`, `kiln import-native`, `skill-capture`
-(writes canonical `SKILL.md` directly), `operator-execution-route-preferences`,
-and `execution-route-creation` - each with its typed operation, deleting the
-direct write in the same change, plus permission-profile and
-capability-enablement operations. Spend-guard,
-work-limit, and managed-agent operations are deliberately excluded here; their
-product shape belongs to Slice 7A. `kiln init` also writes `.kiln/kiln.yaml`
-directly; it is first-run adoption rather than a settings mutation, so it
-transfers to Slice 5 with the rest of guided onboarding.
+The final cut added typed `target.select`, `target.create`, and `native.import`
+operations; admitted both project and user `skill.upsert`; and migrated `kiln
+target`, `kiln import-native`, `skill-capture`, and execution-route creation.
+Target creation keeps managed evidence under its content-addressed owner and
+binds the canonical intent to the exact already-published revision. Native
+import fails closed on invalid canonical state and reconciles through the one
+native-permission projection owner. The unused route-preference writer and the
+unfenced object-level global mutator were deleted, leaving exact-byte commit as
+the authority's single low-level global write primitive.
+
+Standalone permission-profile and capability-enablement operations are not
+part of this slice. No admitted preset vocabulary, capability catalog, or
+current product caller owns them, so adding them would create speculative
+configuration and a second policy vocabulary. `native.import` owns the real
+permission delta that has a demonstrated consumer. Slice 5 may admit a minimal
+safe-permission preset through the canonical permission owner when onboarding
+proves that consumer; capability enablement waits for an admitted capability
+owner and concrete first-turn requirement. Spend-guard, work-limit, and
+managed-agent operations remain in Slice 7A. `kiln init` remains the one direct
+first-run adoption writer and transfers to Slice 5 rather than becoming a
+settings mutation.
 
 Concurrency and crash behavior are explicit. The window from revision recheck
 through settlement is held under a path-scoped cross-process lock whose owner is
@@ -503,17 +514,20 @@ started: byte-identical content written by anyone else is a conflict, not an
 interrupted commit. Settlement records are linked into place, so a crash cannot
 leave a truncated record that fails to parse forever.
 
-Known residual risk carried into the remaining cuts: multi-path atomicity is
-unproven because every current operation writes exactly one canonical path; a
+Known residual risk carried into later slices: multi-path atomicity is
+unproven because every admitted operation writes exactly one canonical path; a
 rollback whose restored surface has no complete authority evaluator fails closed
 as `unknown`, which requires approval even when the restore is harmless; and
 `setting.set` classifies authority from schema metadata rather than comparing
-values, so narrowing an authority-bearing key also requires approval. Ordered
-comparison per key would remove that friction and belongs with the
-permission-profile operation. The ledger admits global `permissions.*` under the
-`GP` profile, but the command surface keeps them project-only, matching the
-behavior it replaced; admitting them globally needs the merger's attenuation
-semantics and belongs with the same operation.
+values, so narrowing an authority-bearing key also requires approval. A future
+permission-profile consumer must first prove ordered comparison and the
+merger's attenuation semantics; the current command surface therefore keeps
+global `permissions.*` unavailable rather than introducing a partial contract.
+Target creation may leave an unreferenced immutable evidence snapshot when its
+later config proposal loses the revision fence. That snapshot is not authority
+until canonical intent references its exact digest; the evidence-store owner
+may add garbage collection only when retained snapshots become an observed
+operational cost.
 
 Generalize the existing governed lifecycle without creating a generic patch
 escape hatch. Add typed operations such as preference selection, provider
@@ -538,7 +552,7 @@ authority. Rollback is another validated operation, not filesystem copying.
 
 ### Slice 5 - Guided Onboarding
 
-Status: Blocked on Slices 1, 2, and 4.
+Status: Ready. Slices 1, 2, and 4 are complete.
 
 Implement a minimal first-run CLI flow and the equivalent GUI entry point. Ask
 only for provider connection, default target, safe permission posture,
@@ -617,7 +631,7 @@ are deleted in the same slice with no alias or dual read.
 
 ### Slice 8 - Live Activation And Reconciliation
 
-Status: Blocked on Slice 4.
+Status: Queued behind Slice 5's first safe-turn vertical proof.
 
 Implement activation behavior as an explicit contract. Hot preferences apply
 immediately. Next-turn and next-session changes bind the new revision at their

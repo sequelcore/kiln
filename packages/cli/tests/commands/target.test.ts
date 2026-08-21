@@ -14,15 +14,29 @@ const globalConfigMocks = vi.hoisted(() => ({
     },
     targetRouting: { defaultTargetId: "terra" },
   } as Record<string, unknown>,
-  mutate: vi.fn(),
+}));
+
+const mutationMocks = vi.hoisted(() => ({
+  propose: vi.fn(),
+  approve: vi.fn(),
+  apply: vi.fn(),
+  save: vi.fn(),
 }));
 
 vi.mock("../../src/config/global-config.js", () => ({
   defaultGlobalConfig: () => ({ version: "4" }),
   readGlobalConfig: () => globalConfigMocks.config,
-  mutateGlobalConfig: (mutation: (current: unknown) => unknown) => {
-    globalConfigMocks.config = mutation(globalConfigMocks.config) as Record<string, unknown>;
-    globalConfigMocks.mutate(globalConfigMocks.config);
+}));
+
+vi.mock("../../src/application/config-mutation-authority.js", () => ({
+  proposeConfigMutation: mutationMocks.propose,
+  approveConfigMutation: mutationMocks.approve,
+  applyConfigMutation: mutationMocks.apply,
+}));
+
+vi.mock("../../src/application/config-mutation-store.js", () => ({
+  ConfigMutationStore: class {
+    saveProposal = mutationMocks.save;
   },
 }));
 
@@ -31,7 +45,20 @@ describe("targetCommand", () => {
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    globalConfigMocks.mutate.mockClear();
+    mutationMocks.propose.mockReset().mockImplementation(({ payload }: { readonly payload: { readonly targetId: string } }) => {
+      const target = (globalConfigMocks.config.targetCatalog as { readonly targets: readonly { readonly id: string; readonly kind: string }[] }).targets
+        .find((candidate) => candidate.id === payload.targetId);
+      return {
+        proposal: target?.kind === "direct"
+          ? { proposalId: "cfg_target", status: "valid", approvalRequired: true, diagnostics: [], previewDiff: "target diff" }
+          : { proposalId: "cfg_target", status: "invalid", approvalRequired: false, diagnostics: [{ message: target ? `Execution target '${payload.targetId}' is not a direct operator target.` : `Execution target '${payload.targetId}' is not configured.` }] },
+      };
+    });
+    mutationMocks.approve.mockReset().mockReturnValue({ approvalId: "approval_target" });
+    mutationMocks.apply.mockReset().mockResolvedValue({
+      settlement: { outcome: "committed", diagnostics: [] },
+    });
+    mutationMocks.save.mockReset();
   });
 
   afterEach(() => {
@@ -47,11 +74,29 @@ describe("targetCommand", () => {
   });
 
   it("selects one configured direct target without retaining an account override", async () => {
-    await targetCommand(["select", "terra"]);
-    expect(globalConfigMocks.mutate).toHaveBeenCalledWith(expect.objectContaining({
-      targetRouting: { defaultTargetId: "terra" },
-      ui: { targetSelection: { targetId: "terra" } },
+    await targetCommand(["select", "terra", "--approve"]);
+    expect(mutationMocks.propose).toHaveBeenCalledWith(expect.objectContaining({
+      operation: "target.select",
+      payload: { targetId: "terra" },
     }));
+    expect(mutationMocks.save).toHaveBeenCalledOnce();
+    expect(mutationMocks.approve).toHaveBeenCalledWith(expect.objectContaining({
+      proposalId: "cfg_target",
+      surface: "cli",
+    }));
+    expect(mutationMocks.apply).toHaveBeenCalledWith(expect.objectContaining({
+      proposalId: "cfg_target",
+      approvalId: "approval_target",
+      requester: "operator",
+    }));
+  });
+
+  it("requires explicit approval before selecting a target with unknown authority impact", async () => {
+    await expect(targetCommand(["select", "terra"]))
+      .rejects.toThrow("repeat with --approve");
+    expect(mutationMocks.save).not.toHaveBeenCalled();
+    expect(mutationMocks.approve).not.toHaveBeenCalled();
+    expect(mutationMocks.apply).not.toHaveBeenCalled();
   });
 
   it("rejects harness targets as the direct operator default", async () => {

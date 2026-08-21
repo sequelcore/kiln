@@ -1,45 +1,90 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createExecutionRoute } from "../../src/application/execution-route-creation.js";
 import { executionTargetEvidenceRevision } from "../../src/config/execution-target-evidence-store.js";
 
+const mutationMocks = vi.hoisted(() => ({
+  propose: vi.fn(),
+  approve: vi.fn(),
+  apply: vi.fn(),
+  save: vi.fn(),
+}));
+
+vi.mock("../../src/application/config-mutation-authority.js", () => ({
+  proposeConfigMutation: mutationMocks.propose,
+  approveConfigMutation: mutationMocks.approve,
+  applyConfigMutation: mutationMocks.apply,
+}));
+
+vi.mock("../../src/application/config-mutation-store.js", () => ({
+  ConfigMutationStore: class {
+    saveProposal = mutationMocks.save;
+  },
+}));
+
 describe("createExecutionRoute", () => {
-  it("commits with expected revision and refreshes only after success", async () => {
-    const order: string[] = [];
-    const mutate = vi.fn((mutation, options) => {
-      order.push("mutate");
-      expect(options).toEqual({ expectedRevision: "sha256:expected" });
-      const config = mutation(emptyTargetConfig());
-      return { config, previousRevision: "sha256:expected", revision: "sha256:next" };
+  beforeEach(() => {
+    mutationMocks.propose.mockReset().mockReturnValue({
+      proposal: { proposalId: "cfg_target_create", status: "valid", approvalRequired: true, diagnostics: [] },
     });
-    const refresh = vi.fn(async () => { order.push("refresh"); });
-    const result = await createExecutionRoute({ ...creationInput(), mutateGlobalConfig: mutate, refreshExecutionRoutes: refresh });
-    expect(order).toEqual(["mutate", "refresh"]);
-    expect(result.status).toBe("created");
+    mutationMocks.approve.mockReset().mockReturnValue({ approvalId: "approval_target_create" });
+    mutationMocks.apply.mockReset().mockResolvedValue({
+      settlement: { outcome: "committed", committedRevision: "sha256:next", diagnostics: [] },
+    });
+    mutationMocks.save.mockReset();
   });
 
-  it("reports a committed revision when only the post-commit refresh fails", async () => {
-    const result = await createExecutionRoute({
-      ...creationInput(),
-      mutateGlobalConfig: (mutation) => ({ config: mutation(emptyTargetConfig()), previousRevision: "sha256:expected", revision: "sha256:committed" }),
-      refreshExecutionRoutes: async () => { throw new Error("refresh failed"); },
-    });
-    expect(result).toMatchObject({ status: "committed-refresh-failed", revision: "sha256:committed" });
+  it("commits target intent through the authority with exact config and evidence revisions", async () => {
+    const input = creationInput();
+    const result = await createExecutionRoute(input);
+
+    expect(mutationMocks.propose).toHaveBeenCalledWith(expect.objectContaining({
+      projectPath: "C:/fixture/project",
+      operation: "target.create",
+      payload: expect.objectContaining({
+        target: input.draft.intent,
+        expectedRevision: "sha256:expected",
+        evidenceRevision: executionTargetEvidenceRevision({
+          ...input.currentEvidence,
+          targets: [...input.currentEvidence.targets, input.draft.evidence],
+        }),
+      }),
+    }));
+    expect(mutationMocks.approve).toHaveBeenCalledWith(expect.objectContaining({ surface: "cli" }));
+    expect(mutationMocks.apply).toHaveBeenCalledWith(expect.objectContaining({
+      approvalId: "approval_target_create",
+      requester: "operator",
+    }));
+    expect(result).toEqual({ status: "created", revision: "sha256:next" });
   });
 
-  it.each(["revision drift", "invalid current config"])("does not refresh or partially apply when mutation rejects %s", async (message) => {
-    const refresh = vi.fn();
-    await expect(createExecutionRoute({
-      ...creationInput(),
-      mutateGlobalConfig: () => { throw new Error(message); },
-      refreshExecutionRoutes: refresh,
-    })).rejects.toThrow(message);
-    expect(refresh).not.toHaveBeenCalled();
+  it("reports a committed revision when reconciliation fails after commit", async () => {
+    mutationMocks.apply.mockResolvedValue({
+      settlement: { outcome: "committed-reconciliation-failed", committedRevision: "sha256:committed", diagnostics: [{ message: "refresh failed" }] },
+    });
+
+    const result = await createExecutionRoute(creationInput());
+
+    expect(result).toEqual({ status: "committed-refresh-failed", revision: "sha256:committed" });
+  });
+
+  it("reports an authority rejection without claiming the target was created", async () => {
+    mutationMocks.apply.mockResolvedValue({
+      settlement: { outcome: "rejected", committedRevision: null, diagnostics: [{ message: "revision drift" }] },
+    });
+
+    await expect(createExecutionRoute(creationInput())).rejects.toThrow("revision drift");
+  });
+
+  it("does not mint durable approval without an explicit operator decision", async () => {
+    await expect(createExecutionRoute({ ...creationInput(), operatorApproved: false }))
+      .rejects.toThrow("requires explicit operator approval");
+    expect(mutationMocks.approve).not.toHaveBeenCalled();
+    expect(mutationMocks.apply).not.toHaveBeenCalled();
   });
 
   it("validates the complete intent/evidence pair before publishing either authority", async () => {
     const input = creationInput();
     const publishEvidence = vi.fn(input.publishEvidence);
-    const mutateGlobalConfig = vi.fn();
 
     await expect(createExecutionRoute({
       ...input,
@@ -51,12 +96,10 @@ describe("createExecutionRoute", () => {
         },
       },
       publishEvidence,
-      mutateGlobalConfig,
-      refreshExecutionRoutes: vi.fn(),
     })).rejects.toThrow("managed evidence provider model mismatch");
 
     expect(publishEvidence).not.toHaveBeenCalled();
-    expect(mutateGlobalConfig).not.toHaveBeenCalled();
+    expect(mutationMocks.propose).not.toHaveBeenCalled();
   });
 });
 
@@ -125,6 +168,10 @@ function creationInput() {
   return {
     draft: completeDraft(),
     expectedRevision: "sha256:expected",
+    projectPath: "C:/fixture/project",
+    approvalSurface: "cli" as const,
+    operatorApproved: true,
+    globalConfigPath: "C:/fixture/home/kiln/config.yaml",
     currentEvidence,
     currentIntent,
     publishEvidence: ({ snapshot }: { readonly snapshot: unknown }) => ({
@@ -132,14 +179,6 @@ function creationInput() {
       path: "fixture-evidence.json",
       created: true,
     }),
-  };
-}
-
-function emptyTargetConfig() {
-  const currentEvidence = emptyEvidence();
-  return {
-    version: "4" as const,
-    targetCatalog: emptyIntent(executionTargetEvidenceRevision(currentEvidence)),
   };
 }
 

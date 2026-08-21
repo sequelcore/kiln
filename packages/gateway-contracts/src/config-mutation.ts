@@ -14,6 +14,9 @@ export const KILN_CONFIG_MUTATION_OPERATIONS = [
   "context_governance.adapt",
   "setting.set",
   "setting.reset",
+  "target.select",
+  "target.create",
+  "native.import",
   "mutation.rollback",
 ] as const;
 
@@ -98,6 +101,7 @@ export interface KilnConfigAppliedWrite {
 export type KilnConfigReconciliationTarget =
   | "native-agents"
   | "native-skills"
+  | "native-permissions"
   | "repo-shims"
   | "execution-routes";
 

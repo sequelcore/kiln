@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
   defaultGlobalConfig,
-  mutateGlobalConfig,
   readGlobalExecutionCatalog,
   readGlobalConfig,
   readGlobalConfigSnapshot,
@@ -18,6 +17,8 @@ import { createCurrentExecutionRoute } from "../application/current-execution-ro
 import { createOperatorExecutionRouteSelectionPort } from "../application/operator-execution-route-selection.js";
 import { createDefaultRegistry, getRuntimeProviderAvailability } from "../wrapper/session-registry.js";
 import { readExecutionTargetEvidenceSnapshot } from "../config/execution-target-evidence-store.js";
+import { applyConfigMutation, approveConfigMutation, proposeConfigMutation } from "../application/config-mutation-authority.js";
+import { ConfigMutationStore } from "../application/config-mutation-store.js";
 
 export async function targetCommand(args: readonly string[] = []): Promise<void> {
   if (args[0] === "available") {
@@ -29,7 +30,7 @@ export async function targetCommand(args: readonly string[] = []): Promise<void>
     return;
   }
   if (args[0] === "select") {
-    selectTarget(args[1]);
+    await selectTarget(args[1], args.includes("--approve"));
     return;
   }
   const config = readGlobalConfig() ?? defaultGlobalConfig();
@@ -45,19 +46,34 @@ export async function targetCommand(args: readonly string[] = []): Promise<void>
   }
 }
 
-function selectTarget(targetId: string | undefined): void {
+async function selectTarget(targetId: string | undefined, operatorApproved: boolean): Promise<void> {
   const id = targetId?.trim();
   if (!id) throw new Error("target select requires one target id.");
-  mutateGlobalConfig((current) => {
-    const target = current?.targetCatalog?.targets.find((candidate) => candidate.id === id);
-    if (!current || !target) throw new Error(`Execution target '${id}' is not configured.`);
-    if (target.kind !== "direct") throw new Error(`Execution target '${id}' is not a direct operator target.`);
-    return {
-      ...current,
-      targetRouting: { defaultTargetId: id },
-      ui: { ...current.ui, targetSelection: { targetId: id } },
-    };
+  const projectPath = process.cwd();
+  const record = proposeConfigMutation({
+    projectPath,
+    operation: "target.select",
+    payload: { targetId: id },
   });
+  if (record.proposal.status !== "valid") {
+    throw new Error(record.proposal.diagnostics.map((entry) => entry.message).join("; "));
+  }
+  if (record.proposal.approvalRequired && !operatorApproved) {
+    throw new Error(`Target selection changes execution authority. Review the proposal and repeat with --approve.\n${record.proposal.previewDiff}`);
+  }
+  new ConfigMutationStore(projectPath).saveProposal(record);
+  const approval = record.proposal.approvalRequired
+    ? approveConfigMutation({ projectPath, proposalId: record.proposal.proposalId, surface: "cli" })
+    : undefined;
+  const result = await applyConfigMutation({
+    projectPath,
+    proposalId: record.proposal.proposalId,
+    ...(approval ? { approvalId: approval.approvalId } : {}),
+    requester: "operator",
+  });
+  if (result.settlement.outcome === "rejected") {
+    throw new Error(result.settlement.diagnostics.map((entry) => entry.message).join("; "));
+  }
   console.log(`Selected execution target: ${id}`);
 }
 
@@ -66,13 +82,25 @@ export async function targetCreateCommand(args: readonly string[], input: {
   readonly create?: Parameters<typeof runRouteCreateCommand>[0]["create"];
 } = {}): Promise<void> {
   const preview = args.includes("--preview");
+  const operatorApproved = args.includes("--approve");
   const path = args.find((arg) => !arg.startsWith("--"));
   const source = (input.readSource ?? ((candidate) => readFileSync(candidate ?? 0, "utf-8")))(path);
-  const result = await runRouteCreateCommand({ source, preview, create: input.create ?? createTargetFromCurrentEvidence });
+  const result = await runRouteCreateCommand({
+    source,
+    preview,
+    create: input.create ?? ((request, isPreview) => createTargetFromCurrentEvidence(request, isPreview, operatorApproved)),
+  });
   console.log(JSON.stringify(result));
 }
 
-async function createTargetFromCurrentEvidence(request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, preview: boolean) {
+async function createTargetFromCurrentEvidence(
+  request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest,
+  preview: boolean,
+  operatorApproved: boolean,
+) {
+  if (!preview && !operatorApproved) {
+    throw new Error("Execution target creation changes authority. Review with --preview, then repeat with --approve.");
+  }
   const resolve = async () => {
     const snapshot = readGlobalConfigSnapshot();
     const executionCatalog = readGlobalExecutionCatalog(snapshot.config);
@@ -102,9 +130,10 @@ async function createTargetFromCurrentEvidence(request: import("@kilnai/gateway-
   return createCurrentExecutionRoute({
     request,
     admittedEvidence: executionRouteCreationDiscoveryEvidence(initial.discovery, entry),
+    projectPath: process.cwd(),
+    approvalSurface: "cli",
+    operatorApproved,
     resolveCurrentEvidence: resolve,
-    mutateGlobalConfig,
-    refreshExecutionRoutes: async () => { await resolve(); },
   });
 }
 

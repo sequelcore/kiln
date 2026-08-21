@@ -10,7 +10,14 @@ import {
   proposeConfigMutation,
 } from "../../src/application/config-mutation-authority.js";
 import { ConfigMutationStore } from "../../src/application/config-mutation-store.js";
-import { defaultGlobalConfig } from "../../src/config/global-config.js";
+import { defaultGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import {
+  executionTargetEvidenceRevision,
+  writeExecutionTargetEvidenceSnapshot,
+  type ExecutionTargetCatalogIntent,
+} from "../../src/config/execution-target-evidence-store.js";
+import { syntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
+import { makeOperatorSurfaceGlobalConfig, makeOperatorSurfaceTargetEvidence } from "../commands/operator-surface-v4-fixture.js";
 
 let tempDir: string;
 let globalHome: string;
@@ -26,6 +33,40 @@ function globalConfigPath(): string {
 function seedGlobalConfig(): void {
   mkdirSync(join(globalHome, "kiln"), { recursive: true });
   writeFileSync(globalConfigPath(), stringify(defaultGlobalConfig()), "utf-8");
+}
+
+function seedGlobalConfigWithTargetCatalog(intent: ExecutionTargetCatalogIntent): void {
+  mkdirSync(join(globalHome, "kiln"), { recursive: true });
+  writeFileSync(globalConfigPath(), stringify({ ...defaultGlobalConfig(), targetCatalog: intent }), "utf-8");
+}
+
+function admittedTargetState() {
+  const config = makeOperatorSurfaceGlobalConfig("codex-oauth", "gpt-5.6-terra", "selected-target");
+  return {
+    intent: config.targetCatalog!,
+    evidence: makeOperatorSurfaceTargetEvidence("codex-oauth", "gpt-5.6-terra", "selected-target"),
+  };
+}
+
+function emptyTargetState() {
+  const admitted = admittedTargetState();
+  const evidence = { ...admitted.evidence, targets: [] };
+  return {
+    evidence,
+    intent: {
+      ...admitted.intent,
+      evidenceRevision: executionTargetEvidenceRevision(evidence),
+      targets: [],
+    } satisfies ExecutionTargetCatalogIntent,
+  };
+}
+
+function targetWithRevision(current: ExecutionTargetCatalogIntent, targetId: string) {
+  const template = admittedTargetState().intent.targets[0]!;
+  const target = { ...template, id: targetId, label: "Created target" };
+  return {
+    intent: { ...current, targets: [target] } satisfies ExecutionTargetCatalogIntent,
+  };
 }
 
 function propose(operation: Parameters<typeof proposeConfigMutation>[0]["operation"], payload: unknown) {
@@ -184,6 +225,60 @@ describe("config mutation authority", () => {
     expect(retry.settlement.committedRevision).toBe(first.settlement.committedRevision);
     // The retry must not re-run reconciliation, because the change already committed.
     expect(reconcileOk).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects replay when the committed revision is no longer effective", async () => {
+    const record = propose("skill.upsert", {
+      name: "replay-guard",
+      description: "Prove honest replay",
+      instructions: "Keep replay bound to effective state.",
+    });
+    const first = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    rmSync(record.writes[0]!.path, { force: true });
+
+    const replay = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(first.settlement.outcome).toBe("committed");
+    expect(replay.settlement.outcome).toBe("rejected");
+    expect(replay.settlement.diagnostics[0]?.message).toContain("no longer the effective canonical revision");
+  });
+
+  it("does not let a model replay an operator settlement without its matching approval", async () => {
+    const record = propose("skill.upsert", {
+      name: "model-replay-guard",
+      description: "Prove requester replay checks",
+      instructions: "Require operator approval for model callers.",
+    });
+    await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    const replay = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "model",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(replay.settlement.outcome).toBe("rejected");
+    expect(replay.settlement.diagnostics[0]?.field).toBe("approvalId");
   });
 
   it("reports a committed write whose reconciliation failed as committed, never rejected", async () => {
@@ -435,6 +530,266 @@ describe("config mutation authority", () => {
     });
     expect(unapproved.settlement.outcome).toBe("rejected");
     expect(readFileSync(join(tempDir, ".kiln", "agents", "reviewer.md"), "utf-8")).not.toContain("bash");
+  });
+
+  it("preserves the complete admitted skill shape and supports user-global ownership", async () => {
+    const record = propose("skill.upsert", {
+      scope: "user",
+      name: "portable-review",
+      description: "Review a portable fixture.",
+      license: "MIT",
+      compatibility: "Kiln 3",
+      metadata: { owner: "fixture", revision: 2 },
+      handler: "review.handler",
+      tools: ["read"],
+      tags: ["review"],
+      triggers: [{ event: "task_started", filter: { source: "fixture" } }],
+      instructions: "Read the fixture and report findings.",
+    });
+
+    expect(record.proposal.scope).toBe("global");
+    expect(record.proposal.affectedCanonicalPaths[0]).toBe(join(globalHome, "kiln", "skills", "portable-review", "SKILL.md"));
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(result.settlement.outcome).toBe("committed");
+    const content = readFileSync(join(globalHome, "kiln", "skills", "portable-review", "SKILL.md"), "utf-8");
+    expect(content).toContain("license: MIT");
+    expect(content).toContain("compatibility: Kiln 3");
+    expect(content).toContain("handler: review.handler");
+    expect(content).toContain("task_started");
+    expect(content).toContain("owner: fixture");
+  });
+
+  it("rolls back a newly created user-global skill through the same authority", async () => {
+    const created = propose("skill.upsert", {
+      scope: "user",
+      name: "portable-review",
+      description: "Review a portable fixture.",
+      instructions: "Read the fixture and report findings.",
+    });
+    const committed = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: created.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+    const path = join(globalHome, "kiln", "skills", "portable-review", "SKILL.md");
+    expect(existsSync(path)).toBe(true);
+
+    const rollback = propose("mutation.rollback", { token: committed.settlement.rollbackToken });
+    const restored = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: rollback.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(restored.settlement.outcome).toBe("committed");
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it("fails closed when native import sees invalid canonical global configuration", async () => {
+    mkdirSync(join(globalHome, "kiln"), { recursive: true });
+    const invalid = "version: 'not-canonical'\npermissions: [invalid]\n";
+    writeFileSync(globalConfigPath(), invalid, "utf-8");
+
+    const record = propose("native.import", {
+      target: "codex",
+      permissions: { approval: "on-request", sandbox: "read-only" },
+    });
+
+    expect(record.proposal.status).toBe("invalid");
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(result.settlement.outcome).toBe("rejected");
+    expect(readFileSync(globalConfigPath(), "utf-8")).toBe(invalid);
+    expect(readdirSync(join(globalHome, "kiln")).some((entry) => entry.includes("invalid-") && entry.endsWith(".bak"))).toBe(false);
+  });
+
+  it("rejects unknown native permission fields and scalar values", () => {
+    seedGlobalConfig();
+
+    const unknownField = propose("native.import", {
+      target: "codex",
+      permissions: { tools: [] },
+    });
+    const unknownValue = propose("native.import", {
+      target: "codex",
+      permissions: { approval: "yolo" },
+    });
+
+    expect(unknownField.proposal.status).toBe("invalid");
+    expect(unknownField.proposal.diagnostics.some((entry) => entry.field === "permissions.tools")).toBe(true);
+    expect(unknownValue.proposal.status).toBe("invalid");
+    expect(unknownValue.proposal.diagnostics.some((entry) => entry.field === "permissions.approval")).toBe(true);
+  });
+
+  it("selects an admitted execution target and persists the GUI selection together", async () => {
+    const state = admittedTargetState();
+    seedGlobalConfigWithTargetCatalog(state.intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: state.evidence });
+
+    const record = propose("target.select", { targetId: "selected-target" });
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.authorityImpact).toBe("unknown");
+
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(result.settlement.outcome).toBe("committed");
+    const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
+    expect(config.targetRouting).toEqual({ defaultTargetId: "selected-target" });
+    expect(config.ui?.targetSelection).toEqual({ targetId: "selected-target" });
+  });
+
+  it("requires approval when routing and UI selection have drifted", () => {
+    const state = admittedTargetState();
+    const other = { ...state.intent.targets[0]!, id: "other-target", label: "Other target" };
+    seedGlobalConfigWithTargetCatalog({ ...state.intent, targets: [...state.intent.targets, other] });
+    const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
+    writeFileSync(globalConfigPath(), stringify({
+      ...config,
+      targetRouting: { defaultTargetId: "other-target" },
+      ui: { targetSelection: { targetId: "selected-target" } },
+    }), "utf-8");
+
+    const record = propose("target.select", { targetId: "selected-target" });
+
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.authorityImpact).toBe("unknown");
+    expect(record.proposal.approvalRequired).toBe(true);
+  });
+
+  it("rejects selection of a target that is not in the admitted catalog", () => {
+    seedGlobalConfigWithTargetCatalog(admittedTargetState().intent);
+    const before = readFileSync(globalConfigPath(), "utf-8");
+    const record = propose("target.select", { targetId: "missing-target" });
+
+    expect(record.proposal.status).toBe("invalid");
+    expect(record.proposal.diagnostics.some((entry) => entry.field === "targetId")).toBe(true);
+    expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
+  });
+
+  it("creates a target only from the exact expected config and published evidence revisions", async () => {
+    const current = emptyTargetState();
+    seedGlobalConfigWithTargetCatalog(current.intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: current.evidence });
+    const expectedRevision = `sha256:${createHash("sha256").update(readFileSync(globalConfigPath(), "utf-8")).digest("hex")}`;
+    const next = targetWithRevision(current.intent, "created-target");
+    const nextEvidence = syntheticExecutionTargetEvidence(next.intent);
+    const nextEvidenceRevision = executionTargetEvidenceRevision(nextEvidence);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: nextEvidence });
+
+    const record = propose("target.create", {
+      target: next.intent.targets[0],
+      evidenceRevision: nextEvidenceRevision,
+      expectedRevision,
+    });
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.affectedCanonicalPaths).toEqual([globalConfigPath()]);
+
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(result.settlement.outcome).toBe("committed");
+    const config = parse(readFileSync(globalConfigPath(), "utf-8")) as KilnGlobalConfig;
+    expect(config.targetCatalog?.targets.map((target) => target.id)).toEqual(["created-target"]);
+    expect(config.targetCatalog?.evidenceRevision).toBe(nextEvidenceRevision);
+  });
+
+  it("rejects target creation when the fenced global revision is stale", () => {
+    const current = emptyTargetState();
+    seedGlobalConfigWithTargetCatalog(current.intent);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: current.evidence });
+    const next = targetWithRevision(current.intent, "stale-target");
+    const nextEvidence = syntheticExecutionTargetEvidence(next.intent);
+    const nextEvidenceRevision = executionTargetEvidenceRevision(nextEvidence);
+    writeExecutionTargetEvidenceSnapshot({ globalConfigPath: globalConfigPath(), snapshot: nextEvidence });
+    const before = readFileSync(globalConfigPath(), "utf-8");
+
+    const record = propose("target.create", {
+      target: next.intent.targets[0],
+      evidenceRevision: nextEvidenceRevision,
+      expectedRevision: `sha256:${"0".repeat(64)}`,
+    });
+
+    expect(record.proposal.status).toBe("invalid");
+    expect(record.proposal.diagnostics.some((entry) => entry.field === "expectedRevision")).toBe(true);
+    expect(readFileSync(globalConfigPath(), "utf-8")).toBe(before);
+  });
+
+  it("derives native import approval from the permission delta and preserves YAML comments", async () => {
+    mkdirSync(join(globalHome, "kiln"), { recursive: true });
+    const before = [
+      "version: '4'",
+      "engines:",
+      "  codex:",
+      "    enabled: false",
+      "    billing: plus-quota",
+      "permissions:",
+      "  # operator rationale must survive typed import",
+      "  approval: on-request",
+      "  sandbox: read-only",
+      "",
+    ].join("\n");
+    writeFileSync(globalConfigPath(), before, "utf-8");
+
+    const record = propose("native.import", {
+      target: "codex",
+      permissions: { sandbox: "workspace-write" },
+    });
+    expect(record.proposal.status).toBe("valid");
+    expect(record.proposal.authorityImpact).toBe("expands-write");
+    expect(record.proposal.approvalRequired).toBe(true);
+    expect(record.proposal.previewDiff).toContain("-  sandbox: read-only");
+    expect(record.proposal.previewDiff).toContain("+  sandbox: workspace-write");
+
+    const approval = approveConfigMutation({ projectPath: tempDir, proposalId: record.proposal.proposalId });
+    const result = await applyConfigMutation({
+      projectPath: tempDir,
+      proposalId: record.proposal.proposalId,
+      approvalId: approval.approvalId,
+      requester: "operator",
+      reconcile: reconcileOk,
+      readEffectiveState: async () => undefined,
+    });
+
+    expect(result.settlement.outcome).toBe("committed");
+    const after = readFileSync(globalConfigPath(), "utf-8");
+    expect(after).toBe(record.writes[0]?.nextContent);
+    expect(after).toContain("operator rationale must survive typed import");
+    expect(parse(after)).toMatchObject({
+      engines: { codex: { enabled: true } },
+      permissions: { approval: "on-request", sandbox: "workspace-write" },
+    });
   });
 
   it("settles an interrupted commit instead of reporting a stale conflict", async () => {

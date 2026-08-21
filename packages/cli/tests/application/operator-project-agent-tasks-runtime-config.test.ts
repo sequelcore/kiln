@@ -7,9 +7,10 @@ import {
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core/agents";
 import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService, type ManagedCommittedInvocationRequest } from "@kilnai/runtime";
-import { mutateGlobalConfig, resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
 import { writeExecutionTargetEvidenceSnapshot, type ExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
+import { persistGlobalConfigFixture } from "../config/global-config-fixture.js";
 import type { ResolvedManagedTargetConfig } from "../../src/config/resolved-managed-target.js";
 import type { DirectProviderCredentialBinding } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
@@ -26,16 +27,16 @@ function persistGlobalConfig(
       globalConfigPath: resolveGlobalConfigPath(),
       snapshot: evidence,
     });
-    mutateGlobalConfig(() => ({
+    persistGlobalConfigFixture({
       ...admitted.config,
       targetCatalog: {
         ...admitted.config.targetCatalog!,
         evidenceRevision: published.revision,
       },
-    }));
+    });
     return;
   }
-  mutateGlobalConfig(() => admitted.config);
+  persistGlobalConfigFixture(admitted.config);
 }
 import { createOperatorProjectAgentTaskApplicationComposition } from "../../src/application/operator-project-agent-tasks.js";
 import { createNativeHarnessInspectionService } from "../../src/application/native-harness-inspection.js";

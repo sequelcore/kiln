@@ -1,38 +1,21 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import readline from "node:readline";
-import { stringify as stringifyYaml } from "yaml";
 import { parse as parseToml } from "smol-toml";
-import { globalToKilnYaml } from "../config/config-merger.js";
 import { HARNESSES_WITH_NATIVE_CONFIG_IMPORT } from "../config/harness-integration-capabilities.js";
 import { stripJsonComments } from "../config/json-comments.js";
 import { resolveNativeHarnessDir } from "../config/native-harness-home.js";
 import {
-  CANONICAL_GLOBAL_CONFIG_VERSION,
-  defaultGlobalConfig,
   readGlobalConfig,
-  resolveGlobalConfigPath,
-  mutateGlobalConfig,
-  type KilnGlobalConfig,
 } from "../config/global-config.js";
-import { syncNativePermissionProjections } from "../config/native-permission-projection.js";
 import type { KilnAppConfig } from "../config.js";
 import { KilnYamlError } from "../kiln-yaml.js";
 import type { KilnYamlPermissions } from "../kiln-yaml-types.js";
+import { applyConfigMutation, approveConfigMutation, proposeConfigMutation } from "../application/config-mutation-authority.js";
+import { ConfigMutationStore } from "../application/config-mutation-store.js";
 
 export const IMPORT_NATIVE_TARGETS = HARNESSES_WITH_NATIVE_CONFIG_IMPORT;
 export type ImportNativeTargetId = typeof IMPORT_NATIVE_TARGETS[number];
-
-export interface ImportNativePlan {
-  readonly target: ImportNativeTargetId;
-  readonly nativeConfigPath: string;
-  readonly globalConfigPath: string;
-  readonly before: KilnGlobalConfig;
-  readonly after: KilnGlobalConfig;
-  readonly extractedFields: readonly string[];
-  readonly diff: string;
-  readonly hasChanges: boolean;
-}
 
 export function parseImportNativeTarget(target: string | undefined): ImportNativeTargetId {
   const normalized = target?.trim();
@@ -116,31 +99,6 @@ export function extractOpenCodeNativeConfig(
   };
 }
 
-export function createImportNativePlan(input: {
-  readonly target: ImportNativeTargetId;
-  readonly nativeConfigPath: string;
-  readonly globalConfigPath: string;
-  readonly currentConfig: KilnGlobalConfig | null;
-  readonly nativeDocument: Record<string, unknown>;
-}): ImportNativePlan {
-  const before: KilnGlobalConfig = input.currentConfig ?? defaultGlobalConfig();
-  const imported = extractNativeConfig(input.target, input.nativeDocument);
-  const after = mergeImportedGlobalConfig(before, imported);
-  const diff = buildUnifiedConfigDiff(input.globalConfigPath, before, after);
-  const appliedFields = imported.extractedFields.filter((field) => field !== "model");
-
-  return {
-    target: input.target,
-    nativeConfigPath: input.nativeConfigPath,
-    globalConfigPath: input.globalConfigPath,
-    before,
-    after,
-    extractedFields: appliedFields,
-    diff,
-    hasChanges: JSON.stringify(before) !== JSON.stringify(after),
-  };
-}
-
 export async function importNativeCommand(
   _appConfig: KilnAppConfig,
   targetArg: string | undefined,
@@ -162,77 +120,74 @@ export async function importNativeCommand(
 
   const currentGlobal = readCurrentGlobalConfigForImport();
   const nativeDocument = readNativeDocument(target, nativeConfigPath);
-  const plan = createImportNativePlan({
-    target,
-    nativeConfigPath,
-    globalConfigPath: currentGlobal.path,
-    currentConfig: currentGlobal.config,
-    nativeDocument,
+  if (currentGlobal.invalid) {
+    console.error(`Error: existing global config is invalid; repair or re-adopt it before importing native intent: ${currentGlobal.invalid.reason}`);
+    process.exit(1);
+  }
+  const projectPath = process.cwd();
+  const imported = extractNativeConfig(target, nativeDocument);
+  const extractedFields = imported.extractedFields.filter((field) => field !== "model");
+  const record = proposeConfigMutation({
+    projectPath,
+    operation: "native.import",
+    payload: {
+      target,
+      ...(imported.permissions ? { permissions: imported.permissions } : {}),
+    },
   });
-
-  if (plan.extractedFields.length === 0 || !plan.hasChanges) {
+  if (record.proposal.status !== "valid") {
+    console.error(`Error: native import rejected: ${record.proposal.diagnostics.map((entry) => entry.message).join("; ")}`);
+    process.exit(1);
+  }
+  const write = record.writes[0];
+  if (!write || write.previousContent === write.nextContent) {
     console.log(`No Kiln-relevant native changes found for ${target}.`);
     return;
   }
-
-  if (currentGlobal.invalid) {
-    console.log(`Existing global config is invalid and will be backed up before writing canonical config: ${currentGlobal.invalid.reason}`);
-  }
-  console.log(plan.diff);
+  console.log(record.proposal.previewDiff);
   const approved = args.includes("--yes") || await confirmImportNative();
   if (!approved) {
     console.error("Error: import-native cancelled");
     process.exit(1);
   }
-
-  const mutation = mutateGlobalConfig(
-    (current) => mergeImportedGlobalConfig(
-      current ?? defaultGlobalConfig(),
-      extractNativeConfig(target, nativeDocument),
-    ),
-    currentGlobal.invalid ? { invalidCurrent: "backup-and-replace" } : undefined,
-  );
-  if (mutation.invalidBackupPath) {
-    console.log(`Backed up invalid global config to ${mutation.invalidBackupPath}`);
-  }
-  const committed = mutation.config;
-  const syncResult = await syncNativePermissionProjections(globalToKilnYaml(committed), process.cwd(), {
-    force: true,
-    modelGateway: committed.modelGateway,
+  new ConfigMutationStore(projectPath).saveProposal(record);
+  const approval = record.proposal.approvalRequired
+    ? approveConfigMutation({ projectPath, proposalId: record.proposal.proposalId, surface: "cli" })
+    : undefined;
+  const result = await applyConfigMutation({
+    projectPath,
+    proposalId: record.proposal.proposalId,
+    ...(approval ? { approvalId: approval.approvalId } : {}),
+    requester: "operator",
   });
-  if (syncResult.errors.length > 0) {
-    console.error("Error: imported config was written, but native re-projection failed:");
-    for (const error of syncResult.errors) {
-      console.error(`  - ${error}`);
-    }
+  if (result.settlement.outcome === "rejected") {
+    console.error(`Error: native import rejected: ${result.settlement.diagnostics.map((entry) => entry.message).join("; ")}`);
+    process.exit(1);
+  }
+  if (result.settlement.outcome === "committed-reconciliation-failed") {
+    console.error("Error: imported config committed, but native permission reconciliation failed:");
+    for (const diagnostic of result.settlement.diagnostics) console.error(`  - ${diagnostic.message}`);
     process.exit(1);
   }
 
-  console.log(`Imported ${plan.extractedFields.join(", ")} from ${target} native config.`);
+  console.log(`Imported ${extractedFields.join(", ")} from ${target} native config.`);
 }
 
 interface CurrentGlobalConfigForImport {
-  readonly path: string;
-  readonly config: KilnGlobalConfig | null;
   readonly invalid?: {
     readonly reason: string;
   };
 }
 
 function readCurrentGlobalConfigForImport(): CurrentGlobalConfigForImport {
-  const path = resolveGlobalConfigPath();
   try {
-    return {
-      path,
-      config: readGlobalConfig(),
-    };
+    readGlobalConfig();
+    return {};
   } catch (error) {
     if (!(error instanceof KilnYamlError)) {
       throw error;
     }
     return {
-      path,
-      config: null,
       invalid: {
         reason: error.message,
       },
@@ -255,77 +210,6 @@ function extractNativeConfig(target: ImportNativeTargetId, nativeDocument: Recor
     return extractOpenCodeNativeConfig(nativeDocument);
   }
   throw new Error(`Unsupported import-native target: ${target}`);
-}
-
-function mergeImportedGlobalConfig(
-  base: KilnGlobalConfig,
-  imported: ImportedNativeConfig,
-): KilnGlobalConfig {
-  const engines = {
-    ...base.engines,
-    [imported.provider]: {
-      ...base.engines?.[imported.provider],
-      enabled: true,
-    },
-  };
-  return {
-    ...base,
-    version: CANONICAL_GLOBAL_CONFIG_VERSION,
-    engines,
-    permissions: imported.permissions
-      ? { ...base.permissions, ...imported.permissions }
-      : base.permissions,
-    components: base.components ?? { include: ["baseline:core"] },
-  };
-}
-
-function buildUnifiedConfigDiff(
-  path: string,
-  before: KilnGlobalConfig,
-  after: KilnGlobalConfig,
-): string {
-  const beforeLines = stringifyYaml(before).trimEnd().split("\n");
-  const afterLines = stringifyYaml(after).trimEnd().split("\n");
-  const diffLines = buildLineDiff(beforeLines, afterLines);
-  return [`--- ${path}`, `+++ ${path}`, ...diffLines].join("\n");
-}
-
-function buildLineDiff(beforeLines: readonly string[], afterLines: readonly string[]): string[] {
-  const lengths: number[][] = Array.from({ length: beforeLines.length + 1 }, () =>
-    Array.from({ length: afterLines.length + 1 }, () => 0)
-  );
-
-  for (let beforeIndex = beforeLines.length - 1; beforeIndex >= 0; beforeIndex -= 1) {
-    for (let afterIndex = afterLines.length - 1; afterIndex >= 0; afterIndex -= 1) {
-      lengths[beforeIndex]![afterIndex] = beforeLines[beforeIndex] === afterLines[afterIndex]
-        ? lengths[beforeIndex + 1]![afterIndex + 1]! + 1
-        : Math.max(lengths[beforeIndex + 1]![afterIndex]!, lengths[beforeIndex]![afterIndex + 1]!);
-    }
-  }
-
-  const diff: string[] = [];
-  let beforeIndex = 0;
-  let afterIndex = 0;
-  while (beforeIndex < beforeLines.length && afterIndex < afterLines.length) {
-    if (beforeLines[beforeIndex] === afterLines[afterIndex]) {
-      diff.push(` ${beforeLines[beforeIndex]}`);
-      beforeIndex += 1;
-      afterIndex += 1;
-    } else if (lengths[beforeIndex + 1]![afterIndex]! >= lengths[beforeIndex]![afterIndex + 1]!) {
-      diff.push(`-${beforeLines[beforeIndex]}`);
-      beforeIndex += 1;
-    } else {
-      diff.push(`+${afterLines[afterIndex]}`);
-      afterIndex += 1;
-    }
-  }
-  for (; beforeIndex < beforeLines.length; beforeIndex += 1) {
-    diff.push(`-${beforeLines[beforeIndex]}`);
-  }
-  for (; afterIndex < afterLines.length; afterIndex += 1) {
-    diff.push(`+${afterLines[afterIndex]}`);
-  }
-  return diff;
 }
 
 function readNativeDocument(target: ImportNativeTargetId, path: string): Record<string, unknown> {

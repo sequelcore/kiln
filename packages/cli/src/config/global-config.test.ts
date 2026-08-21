@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(),
@@ -43,7 +44,7 @@ import {
   resolveGlobalConfigPath,
   resolveGlobalModelGatewayConfig,
   GlobalConfigMutationError,
-  mutateGlobalConfig,
+  commitGlobalConfigBytes,
 } from "./global-config.js";
 
 const existsSyncMock = existsSync as unknown as ReturnType<typeof vi.fn>;
@@ -58,6 +59,23 @@ const statSyncMock = statSync as unknown as ReturnType<typeof vi.fn>;
 const chmodSyncMock = chmodSync as unknown as ReturnType<typeof vi.fn>;
 const fsyncSyncMock = fsyncSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = homedir as unknown as ReturnType<typeof vi.fn>;
+
+function revisionOf(raw: string | null): string {
+  if (raw === null) return "absent";
+  return `sha256:${createHash("sha256").update(raw ?? "").digest("hex")}`;
+}
+
+function commitGlobalConfigForTest(input: {
+  readonly content?: string;
+  readonly currentRaw?: string | null;
+  readonly invalidCurrent?: "backup-and-replace";
+} = {}) {
+  return commitGlobalConfigBytes({
+    content: input.content ?? 'version: "4"\n',
+    expectedRevision: revisionOf(input.currentRaw === undefined ? 'version: "4"\n' : input.currentRaw),
+    ...(input.invalidCurrent === undefined ? {} : { invalidCurrent: input.invalidCurrent }),
+  });
+}
 
 const V4_DIRECT_TARGET_INTENT_YAML = "    - { id: codex-terra, kind: direct, label: Codex Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: codex-policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }";
 const V4_HARNESS_TARGET_INTENT_YAML = "    - { id: claude-cli, kind: harness, label: Claude CLI, providerId: claude, providerModelId: claude-opus-4-6, dataClassification: internal }";
@@ -1491,17 +1509,18 @@ describe("global-config", () => {
     expect(() => readGlobalConfig()).toThrow("Global config must be an object");
   });
 
-  it("mutateGlobalConfig() atomically replaces on Windows without unlinking the destination", () => {
+  it("commitGlobalConfigBytes() atomically replaces on Windows without unlinking the destination", () => {
     existsSyncMock.mockImplementation((path: string) =>
       String(path).endsWith("config.yaml"),
     );
     readFileSyncMock.mockReturnValue('version: "4"\nui:\n  theme: phosphor\n');
     statSyncMock.mockReturnValue({ mode: 0o100640 });
 
-    const result = mutateGlobalConfig((current) => ({
-      ...(current ?? defaultGlobalConfig()),
-      ui: { theme: "vesper" },
-    }));
+    const currentRaw = 'version: "4"\nui:\n  theme: phosphor\n';
+    const result = commitGlobalConfigForTest({
+      currentRaw,
+      content: 'version: "4"\nui:\n  theme: vesper\n',
+    });
 
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
     const lockPath = `${configPath}.lock`;
@@ -1546,20 +1565,20 @@ describe("global-config", () => {
     expect(result.revision).not.toBe(result.previousRevision);
   });
 
-  it("mutateGlobalConfig() returns deterministic revision conflict evidence without invoking the mutation", () => {
+  it("commitGlobalConfigBytes() returns deterministic revision conflict evidence", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue('version: "4"\n');
-    const mutation = vi.fn((current) => current ?? defaultGlobalConfig());
-
     expect(() =>
-      mutateGlobalConfig(mutation, { expectedRevision: "sha256:stale" }),
+      commitGlobalConfigBytes({
+        content: 'version: "4"\n',
+        expectedRevision: "sha256:stale",
+      }),
     ).toThrow(
       expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_REVISION_CONFLICT",
         evidence: expect.objectContaining({ expectedRevision: "sha256:stale" }),
       }),
     );
-    expect(mutation).not.toHaveBeenCalled();
     expect(
       writeFileSyncMock.mock.calls.some(([path]) => typeof path === "string"),
     ).toBe(false);
@@ -1569,27 +1588,10 @@ describe("global-config", () => {
     );
   });
 
-  it("mutateGlobalConfig() preserves revision and avoids replacement for a semantic no-op", () => {
-    existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('version: "4"\nui:\n  theme: phosphor\n');
-
-    const result = mutateGlobalConfig((current) => ({ ...current! }));
-
-    expect(result.revision).toBe(result.previousRevision);
-    expect(
-      renameSyncMock.mock.calls.some(
-        ([, destination]) =>
-          destination === join("/home/test-user", ".kiln", "config.yaml"),
-      ),
-    ).toBe(false);
-    expect(
-      writeFileSyncMock.mock.calls.some(([path]) => typeof path === "string"),
-    ).toBe(false);
-  });
-
-  it("mutateGlobalConfig() cannot delete a successor lock acquired after its atomic release claim", () => {
+  it("commitGlobalConfigBytes() cannot delete a successor lock acquired after its atomic release claim", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue('version: "4"\n');
+    statSyncMock.mockReturnValue({ mode: 0o100600 });
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
     const lockPath = `${configPath}.lock`;
     let successorAcquired = false;
@@ -1602,7 +1604,7 @@ describe("global-config", () => {
         throw new Error("successor lock was deleted");
     });
 
-    expect(() => mutateGlobalConfig((current) => current!)).not.toThrow();
+    expect(() => commitGlobalConfigForTest()).not.toThrow();
 
     expect(successorAcquired).toBe(true);
     expect(rmSyncMock).not.toHaveBeenCalledWith(lockPath, { force: true });
@@ -1612,14 +1614,14 @@ describe("global-config", () => {
     );
   });
 
-  it("mutateGlobalConfig() ownership-safely claims a partially initialized lock before cleanup", () => {
+  it("commitGlobalConfigBytes() ownership-safely claims a partially initialized lock before cleanup", () => {
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
     const lockPath = `${configPath}.lock`;
     fsyncSyncMock.mockImplementation(() => {
       throw new Error("lock fsync failed");
     });
 
-    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+    expect(() => commitGlobalConfigForTest({ currentRaw: null })).toThrow(
       expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
       }),
@@ -1635,14 +1637,14 @@ describe("global-config", () => {
     expect(rmSyncMock).not.toHaveBeenCalledWith(lockPath, { force: true });
   });
 
-  it("mutateGlobalConfig() reports lock contention and does not read or write config", () => {
+  it("commitGlobalConfigBytes() reports lock contention and does not read or write config", () => {
     openSyncMock.mockImplementation(() => {
       const error = new Error("exists") as NodeJS.ErrnoException;
       error.code = "EEXIST";
       throw error;
     });
 
-    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+    expect(() => commitGlobalConfigForTest({ currentRaw: null })).toThrow(
       expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
       }),
@@ -1660,13 +1662,13 @@ describe("global-config", () => {
     expect(rmSyncMock).not.toHaveBeenCalled();
   });
 
-  it("mutateGlobalConfig() cleans its temporary and lock files when atomic replacement fails", () => {
+  it("commitGlobalConfigBytes() cleans its temporary and lock files when atomic replacement fails", () => {
     existsSyncMock.mockReturnValue(false);
     renameSyncMock.mockImplementation((from: string) => {
       if (from.endsWith(".tmp")) throw new Error("replace failed");
     });
 
-    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+    expect(() => commitGlobalConfigForTest({ currentRaw: null })).toThrow(
       expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_WRITE_FAILED",
       }),
@@ -1679,7 +1681,7 @@ describe("global-config", () => {
     });
   });
 
-  it("mutateGlobalConfig() recovers a dead owner's lock and its exact temporary file", () => {
+  it("commitGlobalConfigBytes() recovers a dead owner's lock and its exact temporary file", () => {
     const staleAcquisitionId = "11111111-1111-4111-8111-111111111111";
     openSyncMock
       .mockImplementationOnce(() => {
@@ -1705,7 +1707,7 @@ describe("global-config", () => {
       throw error;
     });
 
-    mutateGlobalConfig(() => defaultGlobalConfig());
+    commitGlobalConfigForTest({ currentRaw: null });
 
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
     expect(kill).toHaveBeenCalledWith(424242, 0);
@@ -1723,7 +1725,7 @@ describe("global-config", () => {
     expect(openSyncMock).toHaveBeenCalledTimes(2);
   });
 
-  it("mutateGlobalConfig() does not clean a stale lock claimed first by a competing recoverer", () => {
+  it("commitGlobalConfigBytes() does not clean a stale lock claimed first by a competing recoverer", () => {
     const staleAcquisitionId = "11111111-1111-4111-8111-111111111111";
     openSyncMock.mockImplementation(() => {
       const error = new Error("exists") as NodeJS.ErrnoException;
@@ -1748,7 +1750,7 @@ describe("global-config", () => {
       throw error;
     });
 
-    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+    expect(() => commitGlobalConfigForTest({ currentRaw: null })).toThrow(
       expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
       }),
@@ -1763,12 +1765,14 @@ describe("global-config", () => {
     });
   });
 
-  it("mutateGlobalConfig() backs up invalid bytes while holding the lock before replacement", () => {
+  it("commitGlobalConfigBytes() backs up invalid bytes while holding the lock before replacement", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue("invalid: [\n");
     statSyncMock.mockReturnValue({ mode: 0o100600 });
 
-    const result = mutateGlobalConfig(() => defaultGlobalConfig(), {
+    const result = commitGlobalConfigForTest({
+      currentRaw: "invalid: [\n",
+      content: 'version: "4"\n',
       invalidCurrent: "backup-and-replace",
     });
 
@@ -1787,7 +1791,7 @@ describe("global-config", () => {
     );
   });
 
-  it("mutateGlobalConfig() fails closed when lock owner liveness is unknown", () => {
+  it("commitGlobalConfigBytes() fails closed when lock owner liveness is unknown", () => {
     openSyncMock.mockImplementation(() => {
       const error = new Error("exists") as NodeJS.ErrnoException;
       error.code = "EEXIST";
@@ -1806,7 +1810,7 @@ describe("global-config", () => {
       throw error;
     });
 
-    expect(() => mutateGlobalConfig(() => defaultGlobalConfig())).toThrow(
+    expect(() => commitGlobalConfigForTest({ currentRaw: null })).toThrow(
       expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
         evidence: expect.objectContaining({ lockOwnerPid: 424242 }),
