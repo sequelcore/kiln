@@ -1,6 +1,6 @@
 import type { ExecutionCatalog, ProviderUsageSnapshot } from "@kilnai/core";
 import { CodexOAuthCredentialPoolService } from "@kilnai/runtime";
-import { projectDirectExecutionCatalog, readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionCatalog } from "../config/global-config.js";
 
 export interface AccountUsageInspectionService {
   inspect(): Promise<AccountUsageInspection>;
@@ -76,7 +76,7 @@ function defaultOptions(): CreateAccountUsageInspectionServiceOptions {
   const codex = new CodexOAuthCredentialPoolService();
   return {
     readExecutionCatalog: () => {
-      const catalog = projectDirectExecutionCatalog(readGlobalConfig());
+      const catalog = readGlobalExecutionCatalog(readGlobalConfig());
       if (!catalog) throw new Error("Execution catalog is required to inspect account usage.");
       return catalog;
     },

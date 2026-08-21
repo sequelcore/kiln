@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -46,10 +46,20 @@ test("profiles the first usable GUI interaction when browser measurement is enab
  */
 async function seedGlobalConfiguration(): Promise<string> {
   const configHome = await mkdtemp(join(tmpdir(), "kiln-startup-profile-config-"));
-  await mkdir(join(configHome, "kiln"), { recursive: true });
+  const kilnHome = join(configHome, "kiln");
+  const sourceConfigPath = resolve(repoRoot, "scripts", "fixtures", "startup-profile-global-config.yaml");
+  const configSource = await readFile(sourceConfigPath, "utf8");
+  const evidenceRevision = configSource.match(/^[ \t]*evidenceRevision:[ \t]*["']?(sha256:[a-f0-9]{64})["']?[ \t]*$/mu)?.[1];
+  if (!evidenceRevision) throw new Error("Startup profile fixture does not declare an execution-target evidence revision.");
+  const evidenceDirectory = join(kilnHome, "evidence", "execution-targets");
+  await mkdir(evidenceDirectory, { recursive: true });
   await copyFile(
-    resolve(repoRoot, "scripts", "fixtures", "startup-profile-global-config.yaml"),
-    join(configHome, "kiln", "config.yaml"),
+    sourceConfigPath,
+    join(kilnHome, "config.yaml"),
+  );
+  await copyFile(
+    resolve(repoRoot, "scripts", "fixtures", "startup-profile-execution-target-evidence.json"),
+    join(evidenceDirectory, `${evidenceRevision.slice("sha256:".length)}.json`),
   );
   return configHome;
 }

@@ -26,7 +26,7 @@ function deferred<T>() {
  * Shared between the `config-status.js` mock (still the sole source of
  * `workGovernance` evidence, consulted by `inspection.inspectWorkGovernance()`)
  * and the `global-config.js` mock below. Managed-agent policy remains global,
- * while target and authority identity live in their dedicated V3 catalogs.
+ * while target and authority identity live in their dedicated V4 catalogs.
  */
 const TEST_MANAGED_AGENTS_CONFIG = {
   enabled: true,
@@ -52,7 +52,7 @@ const TEST_MANAGED_AGENTS_CONFIG = {
       worstCaseReservation: { kind: "not-comparable", reason: "subscription-basis" },
     }],
   }],
-};
+} as const;
 
 const TEST_AUTHORITY_PROFILES = [{
   id: "test-readonly",
@@ -64,16 +64,17 @@ const TEST_AUTHORITY_PROFILES = [{
     writes: false,
   },
   memory: { access: "read-only" },
-}];
+}] as const;
 
 const TEST_TARGET_CATALOG = {
+  evidenceRevision: `sha256:${"0".repeat(64)}` as const,
   accounts: [{
     id: "test-account",
     providerId: "codex-oauth",
     credentialId: "synthetic-test-credential",
     maxConcurrency: 1,
     reservedAffinitySlots: 0,
-    economics: { capacityIdentity: "test-account", subscriptionClass: "subscription", quotaClassId: "test-account", creditPosture: "disabled", overagePosture: "disabled" },
+    economics: { creditPosture: "disabled", overagePosture: "disabled" },
   }],
   accountPolicies: [{ id: "managed-codex-policy", accountIds: ["test-account"], strategy: "economic-least-pressure" }],
   targets: [{
@@ -83,24 +84,10 @@ const TEST_TARGET_CATALOG = {
     providerId: "codex-oauth",
     providerModelId: "gpt-5.6-terra",
     dataClassification: "internal",
-    dataPolicyEvidence: {
-      providerId: "codex-oauth",
-      providerModelId: "gpt-5.6-terra",
-      dataUse: "not-used",
-      trainingPosture: "prohibited",
-      retention: { posture: "zero", days: 0 },
-      permittedMaximumClassification: "internal",
-      permittedClassifications: ["public", "internal"],
-      sourceIdentity: "operator-project-agent-tasks-fixture",
-      sourceRevision: "rev-1",
-      sourceDigest: `sha256:${"b".repeat(64)}`,
-      observedAt: "2026-08-01T00:00:00.000Z",
-      expiresAt: "2027-08-01T00:00:00.000Z",
-    },
     accountSelection: { mode: "automatic", accountPolicyId: "managed-codex-policy" },
-    economics: { adapterCapabilityId: "codex", adapterCapabilityVersion: "v1", authBillingChannel: "oauth", executionMode: "direct", serviceTier: "standard", rateCardBasis: "subscription", envelopeSemantics: "turn", fallbackPosture: "disabled", overagePosture: "disabled", contextClass: "standard", cacheClass: "provider", priceEvidence: { kind: "subscription", rateCardId: "codex", rateCardRevision: "v1", evidence: { sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"a".repeat(64)}`, observedAt: "2026-08-01T00:00:00.000Z", validUntil: "2026-09-01T00:00:00.000Z", confidence: "high", authority: "configured" } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } },
+    economics: { authBillingChannel: "oauth", executionMode: "direct", serviceTier: "standard", fallbackPosture: "disabled", overagePosture: "disabled", executionEnvelope: { limits: [] } },
   }],
-};
+} as const;
 
 vi.mock("../../src/config/config-merger.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/config/config-merger.js")>();
@@ -115,14 +102,17 @@ vi.mock("../../src/config/config-merger.js", async (importOriginal) => {
 
 vi.mock("../../src/config/global-config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
+  const fixtures = await import("../config/execution-target-evidence-fixture.js");
+  const config = (): import("../../src/config/global-config.js").KilnGlobalConfig => ({
+    version: "4",
+    managedAgents: TEST_MANAGED_AGENTS_CONFIG,
+    authorityProfiles: TEST_AUTHORITY_PROFILES,
+    targetCatalog: TEST_TARGET_CATALOG,
+  });
   return {
     ...actual,
-    readGlobalConfig: vi.fn(() => ({
-      version: "3",
-      managedAgents: TEST_MANAGED_AGENTS_CONFIG,
-      authorityProfiles: TEST_AUTHORITY_PROFILES,
-      targetCatalog: TEST_TARGET_CATALOG,
-    })),
+    readGlobalConfig: vi.fn(config),
+    readGlobalExecutionTargetAuthority: vi.fn(() => fixtures.syntheticExecutionTargetAuthority(config())),
   };
 });
 

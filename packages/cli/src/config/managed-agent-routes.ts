@@ -35,7 +35,6 @@ import {
   defineManagedAgentWriteAuthority,
   defineManagedAgentWriteScope,
   deriveProviderModelEligibility,
-  defineExecutionCatalog,
   digestManagedEconomicValue,
   isDirectProviderId,
 } from "@kilnai/core";
@@ -83,9 +82,10 @@ import type {
   KilnModelTaskSuitabilityOverride,
   KilnYamlSkillsConfig,
   KilnAuthorityProfileConfig,
-  KilnTargetCatalogConfig,
+  KilnTargetCatalogIntentConfig,
   KilnDeliberationPolicyConfig,
 } from "../kiln-yaml-types.js";
+import type { ExecutionTargetEvidenceSnapshot } from "./execution-target-evidence-store.js";
 import type {
   ProviderCreateConfig,
   ProviderId,
@@ -259,7 +259,8 @@ export interface ManagedAgentRouteConfigSource {
   readonly skills?: KilnYamlSkillsConfig;
   readonly engines?: Record<string, { readonly enabled?: boolean }>;
   readonly executionCatalog?: ExecutionCatalog;
-  readonly targetCatalog?: KilnTargetCatalogConfig;
+  readonly executionTargetEvidence?: ExecutionTargetEvidenceSnapshot;
+  readonly targetCatalog?: KilnTargetCatalogIntentConfig;
   readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
   readonly deliberationPolicy?: KilnDeliberationPolicyConfig;
 }
@@ -1231,17 +1232,7 @@ function resolveRouteConfigs(
 }
 
 function resolveSourceExecutionCatalog(config: ManagedAgentRouteConfigSource): ExecutionCatalog | undefined {
-  if (config.executionCatalog) return config.executionCatalog;
-  if (!config.targetCatalog) return undefined;
-  return defineExecutionCatalog({
-    accounts: config.targetCatalog.accounts,
-    accountPolicies: config.targetCatalog.accountPolicies,
-    routes: config.targetCatalog.targets.flatMap((target) => {
-      if (target.kind !== "direct") return [];
-      const { kind: _kind, ...route } = target;
-      return [route];
-    }),
-  });
+  return config.executionCatalog;
 }
 
 function resolveAgentAdmissionProfile(

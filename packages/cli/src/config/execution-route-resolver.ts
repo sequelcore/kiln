@@ -1,5 +1,10 @@
-import { projectDirectExecutionCatalog, type KilnGlobalConfig } from "./global-config.js";
-import { isDirectProviderId, type DirectProviderId, type ModelTaskSuitabilityTask } from "@kilnai/core";
+import type { KilnGlobalConfig } from "./global-config.js";
+import {
+  isDirectProviderId,
+  type DirectProviderId,
+  type ExecutionCatalog,
+  type ModelTaskSuitabilityTask,
+} from "@kilnai/core";
 
 /** A configured operator execution target, before provider availability admission. */
 export interface ExecutionRouteCandidate {
@@ -10,6 +15,8 @@ export interface ExecutionRouteCandidate {
 
 export interface ResolveExecutionRouteCandidatesInput {
   readonly globalConfig?: KilnGlobalConfig | null;
+  /** The catalog admitted from the exact evidence revision named by globalConfig. */
+  readonly executionCatalog?: ExecutionCatalog | null;
   /** An explicit operator choice. It replaces the configured default route. */
   readonly routeId?: string;
 }
@@ -21,7 +28,7 @@ export interface ResolveExecutionRouteCandidatesInput {
 export function resolveExecutionRouteCandidates(
   input: ResolveExecutionRouteCandidatesInput,
 ): readonly ExecutionRouteCandidate[] {
-  const catalog = projectDirectExecutionCatalog(input.globalConfig);
+  const catalog = input.executionCatalog;
   const routing = input.globalConfig?.targetRouting;
   if (!catalog || !routing) return [];
 

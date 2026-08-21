@@ -1,290 +1,83 @@
-# Sanitized global V3 configuration for an account-backed model team.
-# Target labels carry the work intent. GUI, TUI, and `kiln run` select a target;
-# Kiln selects an eligible account automatically. Credential IDs are opaque
-# references resolved by the credential subsystem, never secret material.
-# The synthetic data-policy source is `synthetic-example-data-policy@2026-08-13`;
-# its digest is the SHA-256 of that exact stable identifier and revision.
-version: "3"
+# Sanitized global V4 intent for an account-backed model team. Managed facts
+# are admitted separately and selected by the exact evidence revision below.
+version: "4"
 
-identity:
-  name: Alex
-  timezone: America/Tijuana
+identity: { name: Alex, timezone: America/Tijuana }
 
 targetCatalog:
+  # Example digest only. A real setup publishes the admitted snapshot first.
+  evidenceRevision: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   accounts:
     - id: codex-oauth-primary
       providerId: codex-oauth
       credentialId: codex-oauth-primary
       maxConcurrency: 1
       reservedAffinitySlots: 0
-      economics:
-        capacityIdentity: codex-oauth-primary
-        subscriptionClass: subscription
-        quotaClassId: codex-oauth-primary
-        creditPosture: disabled
-        overagePosture: disabled
+      economics: { creditPosture: disabled, overagePosture: disabled }
     - id: codex-oauth-secondary
       providerId: codex-oauth
       credentialId: codex-oauth-secondary
       maxConcurrency: 1
       reservedAffinitySlots: 0
-      economics:
-        capacityIdentity: codex-oauth-secondary
-        subscriptionClass: subscription
-        quotaClassId: codex-oauth-secondary
-        creditPosture: disabled
-        overagePosture: disabled
+      economics: { creditPosture: disabled, overagePosture: disabled }
     - id: opencode-go-primary
       providerId: opencode-go
       credentialId: opencode-go-primary
       maxConcurrency: 1
       reservedAffinitySlots: 0
-      economics:
-        capacityIdentity: opencode-go-primary
-        subscriptionClass: subscription
-        quotaClassId: opencode-go-primary
-        creditPosture: disabled
-        overagePosture: disabled
-
+      economics: { creditPosture: disabled, overagePosture: disabled }
   accountPolicies:
-    - id: codex-oauth-automatic
-      accountIds:
-        - codex-oauth-primary
-        - codex-oauth-secondary
-      strategy: economic-least-pressure
-    - id: opencode-go-automatic
-      accountIds:
-        - opencode-go-primary
-      strategy: economic-least-pressure
-
+    - { id: codex-oauth-automatic, accountIds: [codex-oauth-primary, codex-oauth-secondary], strategy: economic-least-pressure }
+    - { id: opencode-go-automatic, accountIds: [opencode-go-primary], strategy: economic-least-pressure }
   targets:
     - id: codex-terra
       kind: direct
-      label: Terra — balanced implementation
+      label: Terra - balanced implementation
       providerId: codex-oauth
       providerModelId: gpt-5.6-terra
       dataClassification: internal
-      dataPolicyEvidence:
-        providerId: codex-oauth
-        providerModelId: gpt-5.6-terra
-        dataUse: not-used
-        trainingPosture: prohibited
-        retention: { posture: zero, days: 0 }
-        permittedMaximumClassification: internal
-        permittedClassifications: [public, internal]
-        sourceIdentity: synthetic-example-data-policy
-        sourceRevision: 2026-08-13
-        sourceDigest: sha256:cb3cd1035ca5a545be87f2934c14080e683427ea271cbc4928209484ce00577b
-        observedAt: 2026-08-13T00:00:00Z
-        expiresAt: 2026-09-01T00:00:00Z
-      accountSelection:
-        mode: automatic
-        accountPolicyId: codex-oauth-automatic
-      economics:
-        adapterCapabilityId: codex-oauth-direct
-        adapterCapabilityVersion: v1
+      accountSelection: { mode: automatic, accountPolicyId: codex-oauth-automatic }
+      economics: &subscription-intent
         authBillingChannel: oauth-subscription
         executionMode: direct
         serviceTier: standard
-        rateCardBasis: provider-subscription
-        envelopeSemantics: configured-upper-bound
         fallbackPosture: disabled
         overagePosture: disabled
-        contextClass: standard-context
-        cacheClass: provider-cache
-        priceEvidence:
-          kind: subscription
-          rateCardId: codex-oauth-subscription
-          rateCardRevision: rev-2026-08
-          evidence:
-            sourceIdentity: operator-subscription-terms
-            sourceRevision: rev-2026-08
-            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-            observedAt: 2026-08-01T00:00:00.000Z
-            validUntil: 2026-09-01T00:00:00.000Z
-            confidence: high
-            authority: provider-reported
-        auxiliaryCharges: []
-        executionEnvelope:
-          limits: []
+        executionEnvelope: { limits: [] }
     - id: codex-sol
       kind: direct
-      label: Sol — architecture and review
+      label: Sol - architecture and review
       providerId: codex-oauth
       providerModelId: gpt-5.6-sol
       dataClassification: internal
-      dataPolicyEvidence:
-        providerId: codex-oauth
-        providerModelId: gpt-5.6-sol
-        dataUse: not-used
-        trainingPosture: prohibited
-        retention: { posture: zero, days: 0 }
-        permittedMaximumClassification: internal
-        permittedClassifications: [public, internal]
-        sourceIdentity: synthetic-example-data-policy
-        sourceRevision: 2026-08-13
-        sourceDigest: sha256:cb3cd1035ca5a545be87f2934c14080e683427ea271cbc4928209484ce00577b
-        observedAt: 2026-08-13T00:00:00Z
-        expiresAt: 2026-09-01T00:00:00Z
-      accountSelection:
-        mode: automatic
-        accountPolicyId: codex-oauth-automatic
-      economics:
-        adapterCapabilityId: codex-oauth-direct
-        adapterCapabilityVersion: v1
-        authBillingChannel: oauth-subscription
-        executionMode: direct
-        serviceTier: standard
-        rateCardBasis: provider-subscription
-        envelopeSemantics: configured-upper-bound
-        fallbackPosture: disabled
-        overagePosture: disabled
-        contextClass: standard-context
-        cacheClass: provider-cache
-        priceEvidence:
-          kind: subscription
-          rateCardId: codex-oauth-subscription
-          rateCardRevision: rev-2026-08
-          evidence:
-            sourceIdentity: operator-subscription-terms
-            sourceRevision: rev-2026-08
-            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-            observedAt: 2026-08-01T00:00:00.000Z
-            validUntil: 2026-09-01T00:00:00.000Z
-            confidence: high
-            authority: provider-reported
-        auxiliaryCharges: []
-        executionEnvelope:
-          limits: []
+      accountSelection: { mode: automatic, accountPolicyId: codex-oauth-automatic }
+      economics: *subscription-intent
     - id: codex-luna
       kind: direct
-      label: Luna — bounded mechanical edits
+      label: Luna - bounded mechanical edits
       providerId: codex-oauth
       providerModelId: gpt-5.6-luna
       dataClassification: internal
-      dataPolicyEvidence:
-        providerId: codex-oauth
-        providerModelId: gpt-5.6-luna
-        dataUse: not-used
-        trainingPosture: prohibited
-        retention: { posture: zero, days: 0 }
-        permittedMaximumClassification: internal
-        permittedClassifications: [public, internal]
-        sourceIdentity: synthetic-example-data-policy
-        sourceRevision: 2026-08-13
-        sourceDigest: sha256:cb3cd1035ca5a545be87f2934c14080e683427ea271cbc4928209484ce00577b
-        observedAt: 2026-08-13T00:00:00Z
-        expiresAt: 2026-09-01T00:00:00Z
-      accountSelection:
-        mode: automatic
-        accountPolicyId: codex-oauth-automatic
-      economics:
-        adapterCapabilityId: codex-oauth-direct
-        adapterCapabilityVersion: v1
-        authBillingChannel: oauth-subscription
-        executionMode: direct
-        serviceTier: standard
-        rateCardBasis: provider-subscription
-        envelopeSemantics: configured-upper-bound
-        fallbackPosture: disabled
-        overagePosture: disabled
-        contextClass: standard-context
-        cacheClass: provider-cache
-        priceEvidence:
-          kind: subscription
-          rateCardId: codex-oauth-subscription
-          rateCardRevision: rev-2026-08
-          evidence:
-            sourceIdentity: operator-subscription-terms
-            sourceRevision: rev-2026-08
-            sourceDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-            observedAt: 2026-08-01T00:00:00.000Z
-            validUntil: 2026-09-01T00:00:00.000Z
-            confidence: high
-            authority: provider-reported
-        auxiliaryCharges: []
-        executionEnvelope:
-          limits: []
+      accountSelection: { mode: automatic, accountPolicyId: codex-oauth-automatic }
+      economics: *subscription-intent
     - id: opencode-go-glm
       kind: direct
-      label: GLM — approved service work
+      label: GLM - approved service work
       providerId: opencode-go
       providerModelId: glm-5.2
       dataClassification: internal
-      dataPolicyEvidence:
-        providerId: opencode-go
-        providerModelId: glm-5.2
-        dataUse: not-used
-        trainingPosture: prohibited
-        retention: { posture: zero, days: 0 }
-        permittedMaximumClassification: internal
-        permittedClassifications: [public, internal]
-        sourceIdentity: synthetic-example-data-policy
-        sourceRevision: 2026-08-13
-        sourceDigest: sha256:cb3cd1035ca5a545be87f2934c14080e683427ea271cbc4928209484ce00577b
-        observedAt: 2026-08-13T00:00:00Z
-        expiresAt: 2026-09-01T00:00:00Z
-      accountSelection:
-        mode: automatic
-        accountPolicyId: opencode-go-automatic
-      economics:
-        adapterCapabilityId: opencode-go-direct
-        adapterCapabilityVersion: v1
-        authBillingChannel: oauth-subscription
-        executionMode: direct
-        serviceTier: standard
-        rateCardBasis: provider-subscription
-        envelopeSemantics: configured-upper-bound
-        fallbackPosture: disabled
-        overagePosture: disabled
-        contextClass: standard-context
-        cacheClass: provider-cache
-        priceEvidence:
-          kind: subscription
-          rateCardId: opencode-go-subscription
-          rateCardRevision: rev-2026-08
-          evidence:
-            sourceIdentity: operator-subscription-terms
-            sourceRevision: rev-2026-08
-            sourceDigest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-            observedAt: 2026-08-01T00:00:00.000Z
-            validUntil: 2026-09-01T00:00:00.000Z
-            confidence: high
-            authority: provider-reported
-        auxiliaryCharges: []
-        executionEnvelope:
-          limits: []
+      accountSelection: { mode: automatic, accountPolicyId: opencode-go-automatic }
+      economics: *subscription-intent
 
-targetRouting:
-  defaultTargetId: codex-terra
+targetRouting: { defaultTargetId: codex-terra }
+ui: { targetSelection: { targetId: codex-terra } }
 
-# The initial GUI/TUI preference names a target, not a provider or credential.
-ui:
-  targetSelection:
-    targetId: codex-terra
-
-# Model Gateway is an ingress and virtual-name overlay. The canonical provider,
-# model, account policy, and economics remain in targetCatalog.
 modelGateway:
   port: 4819
-  replay:
-    ttlMs: 300000
-    maxEntries: 1000
-    hmacKeyEnv: KILN_MODEL_GATEWAY_REPLAY_HMAC_KEY
-  codexComposite:
-    # Queued Codex requests retain no decoded or encoded application body.
-    maxQueuedRequests: 32
-    queueTimeoutMs: 30000
+  replay: { ttlMs: 300000, maxEntries: 1000, hmacKeyEnv: KILN_MODEL_GATEWAY_REPLAY_HMAC_KEY }
+  codexComposite: { maxQueuedRequests: 32, queueTimeoutMs: 30000 }
   surfaces:
-    openAIResponses:
-      # 64 MiB raw JSON ceiling. Keep context compaction enabled separately;
-      # byte admission does not imply useful model context at this size.
-      maxBodyBytes: 67108864
-      maxConcurrentRequests: 8
-    anthropicMessages:
-      # Claude Code's Messages ingress has a separate 32 MiB ceiling.
-      maxBodyBytes: 33554432
-      maxConcurrentRequests: 8
+    openAIResponses: { maxBodyBytes: 67108864, maxConcurrentRequests: 8 }
   principals:
     - tokenEnv: KILN_CODEX_TOKEN
       ingress: openai-responses
@@ -293,191 +86,11 @@ modelGateway:
       applicationId: codex
       callerId: example-operator
       capabilityId: model-invoke
-      scopes:
-        - model.invoke
+      scopes: [model.invoke]
       budgetEvidenceId: example-subscription-budget
-      virtualModelIds:
-        - managed-codex-terra
-        - managed-codex-sol
-        - managed-codex-luna
-        - managed-opencode-go-glm
-    - tokenEnv: KILN_OPENCODE_TOKEN
-      ingress: openai-responses
-      nativeHarness: opencode
-      tenantId: example-team
-      applicationId: opencode
-      callerId: example-operator
-      capabilityId: model-invoke
-      scopes:
-        - model.invoke
-      budgetEvidenceId: example-subscription-budget
-      virtualModelIds:
-        - managed-codex-terra
-        - managed-codex-sol
-        - managed-codex-luna
-        - managed-opencode-go-glm
-    - tokenEnv: ANTHROPIC_AUTH_TOKEN
-      ingress: anthropic-messages
-      nativeHarness: claude
-      tenantId: example-team
-      applicationId: claude
-      callerId: example-operator
-      capabilityId: model-invoke
-      scopes:
-        - model.invoke
-      budgetEvidenceId: example-subscription-budget
-      virtualModelIds:
-        - claude-kiln-codex-terra
-        - claude-kiln-opencode-go-glm
+      virtualModelIds: [managed-codex-terra, managed-codex-sol, managed-codex-luna, managed-opencode-go-glm]
   virtualModels:
-    - id: managed-codex-terra
-      displayName: Codex Terra through Kiln
-      contextTokens: 200000
-      outputTokens: 8192
-      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      targetId: codex-terra
-      capabilities:
-        - text
-      affinity:
-        continuity: none
-    - id: managed-codex-sol
-      displayName: Codex Sol through Kiln
-      contextTokens: 200000
-      outputTokens: 8192
-      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      targetId: codex-sol
-      capabilities:
-        - text
-      affinity:
-        continuity: none
-    - id: managed-codex-luna
-      displayName: Codex Luna through Kiln
-      contextTokens: 200000
-      outputTokens: 8192
-      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      targetId: codex-luna
-      capabilities:
-        - text
-      affinity:
-        continuity: none
-    - id: managed-opencode-go-glm
-      displayName: OpenCode Go GLM through Kiln
-      contextTokens: 131072
-      outputTokens: 8192
-      baseInstructions: Use the caller-provided instructions and tools without claiming a different model identity.
-      targetId: opencode-go-glm
-      capabilities:
-        - text
-      affinity:
-        continuity: none
-    - id: claude-kiln-codex-terra
-      displayName: Codex Terra through Kiln
-      contextTokens: 200000
-      outputTokens: 8192
-      targetId: codex-terra
-      capabilities:
-        - text
-      affinity:
-        continuity: none
-    - id: claude-kiln-opencode-go-glm
-      displayName: OpenCode Go GLM through Kiln
-      contextTokens: 131072
-      outputTokens: 8192
-      targetId: opencode-go-glm
-      capabilities:
-        - text
-      affinity:
-        continuity: none
-
-managedAgents:
-  enabled: true
-  defaultAuthorityProfileId: readonly-plan
-  requireApproval: true
-  economicPolicies:
-    - id: subscription-priority
-      revision: rev-2026-08
-      evidenceRequirements:
-        quota: required-for-account-bound
-        price: required
-      noRouteAction: deny
-      comparisonDomains:
-        - id: subscription-priority
-          rank: 0
-          unit: request
-          scheme:
-            kind: unit
-          rateCardBasis: provider-subscription
-          envelopeSemantics: configured-upper-bound
-      candidates:
-        - targetId: codex-sol
-          comparisonDomainId: subscription-priority
-          priorityRank: 0
-          ceiling:
-            kind: none
-          worstCaseReservation:
-            kind: not-comparable
-            reason: subscription-basis
-        - targetId: opencode-go-glm
-          comparisonDomainId: subscription-priority
-          priorityRank: 1
-          ceiling:
-            kind: none
-          worstCaseReservation:
-            kind: not-comparable
-            reason: subscription-basis
-
-authorityProfiles:
-  - id: readonly-plan
-    admissionProfile: foundation-readonly-plan
-    workingDirectory: project
-    tools:
-      allowed: [read, tree, grep, glob]
-      network: false
-      writes: false
-    memory: { access: read-only }
-  - id: approved-service-work
-    admissionProfile: foundation-apply-approved-writes
-    workingDirectory: project
-    tools:
-      allowed: [read, tree, grep, glob, write, edit, apply-patch]
-      network: false
-      writes: true
-    memory: { access: write-proposals }
-    writeAuthority:
-      workspace:
-        mode: apply-approved
-        allowedPaths: [.] 
-        deniedPaths: [.git, node_modules, .kiln]
-      approval:
-        mode: required-before-apply
-
-skills:
-  selection:
-    mode: auto
-  builtin:
-    enabled: true
-    include:
-      - repo-context-review
-      - codebase-scouting
-      - implementation-planning
-      - tdd-workflow
-      - code-review-findings
-      - clean-architecture-boundary-review
-      - ddd-boundary-review
-      - refactoring-safety
-      - security-scope-review
-      - managed-agent-risk-review
-      - benchmark-readiness-review
-      - config-projection-review
-
-permissions:
-  approval: on-request
-  sandbox: read-only
-
-workGovernance:
-  defaultPosture: direct
-  requireDelegationFor: []
-  requiredEvidence: []
-
-activeInstructionProfiles:
-  - sequel-engineering
+    - { id: managed-codex-terra, displayName: Codex Terra through Kiln, contextTokens: 200000, outputTokens: 8192, baseInstructions: Use caller instructions and tools., targetId: codex-terra, capabilities: [text], affinity: { continuity: none } }
+    - { id: managed-codex-sol, displayName: Codex Sol through Kiln, contextTokens: 200000, outputTokens: 8192, baseInstructions: Use caller instructions and tools., targetId: codex-sol, capabilities: [text], affinity: { continuity: none } }
+    - { id: managed-codex-luna, displayName: Codex Luna through Kiln, contextTokens: 200000, outputTokens: 8192, baseInstructions: Use caller instructions and tools., targetId: codex-luna, capabilities: [text], affinity: { continuity: none } }
+    - { id: managed-opencode-go-glm, displayName: GLM through Kiln, contextTokens: 200000, outputTokens: 8192, baseInstructions: Use caller instructions and tools., targetId: opencode-go-glm, capabilities: [text], affinity: { continuity: none } }

@@ -13,6 +13,7 @@ type ExecutionRoutesRefreshedFrame = Extract<GuiInboundFrame, { type: "execution
 export interface ExecutionRouteCreationDiscoveryEvidence {
   readonly entry: import("@kilnai/gateway-contracts").AvailableModelCatalogEntry;
   readonly catalogObservedAt: string;
+  readonly expiresAt: string;
   readonly evidenceIdentity: string;
   readonly evidenceRevision: `sha256:${string}`;
 }
@@ -107,9 +108,24 @@ export function executionRouteCreationDiscoveryEvidence(
   discovery: GuiProviderModelDiscoveryProjection,
   entry: import("@kilnai/gateway-contracts").AvailableModelCatalogEntry,
 ): ExecutionRouteCreationDiscoveryEvidence {
+  const source = discovery.entries.find((candidate) =>
+    candidate.providerRoute.providerId === entry.providerId
+    && candidate.providerRoute.scope === entry.providerRouteId
+    && candidate.providerRoute.providerModelId === entry.providerModelId
+  );
+  const expiresAt = source?.freshness.expiresAt;
+  if (!expiresAt || source.freshness.status !== "fresh" || Date.parse(expiresAt) <= Date.now()) {
+    throw new Error("Execution route creation requires current discovery evidence with an explicit expiry.");
+  }
   const evidenceIdentity = `${discovery.catalogEvidence.source.kind}:${discovery.catalogEvidence.source.id}`;
   const stable = JSON.stringify({ evidenceIdentity, entry });
-  return { entry, catalogObservedAt: discovery.catalogEvidence.observedAt, evidenceIdentity, evidenceRevision: `sha256:${createHash("sha256").update(stable).digest("hex")}` };
+  return {
+    entry,
+    catalogObservedAt: discovery.catalogEvidence.observedAt,
+    expiresAt,
+    evidenceIdentity,
+    evidenceRevision: `sha256:${createHash("sha256").update(stable).digest("hex")}`,
+  };
 }
 
 function stripFrameType(frame: unknown): unknown {

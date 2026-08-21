@@ -5,7 +5,7 @@ import type { BenchmarkItemExecutionContext } from "@kilnai/core/eval";
 import { createBenchmarkSessionExecutor } from "../../src/application/benchmark-session-executor.js";
 import { resolveProjectRoot } from "../../src/application/project-root-resolver.js";
 import { createManagedDirectProviderAdapterFactory } from "../../src/config/managed-agent-direct-adapters.js";
-import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v3-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
 
 const benchmarkExecutorMocks = vi.hoisted(() => ({
   cleanupWorktree: vi.fn(),
@@ -93,10 +93,16 @@ vi.mock("../../src/application/instruction-profile-context.js", () => ({
   resolveInstructionProfileContextCandidates: benchmarkExecutorMocks.resolveInstructionProfileContextCandidates,
 }));
 
-vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
-  readGlobalConfig: benchmarkExecutorMocks.readGlobalConfig,
-}));
+vi.mock("../../src/config/global-config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
+  const fixtures = await import("../config/execution-target-evidence-fixture.js");
+  return {
+    ...actual,
+    readGlobalConfig: benchmarkExecutorMocks.readGlobalConfig,
+    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+  };
+});
 
 vi.mock("../../src/config/config-merger.js", () => ({
   loadKilnConfig: benchmarkExecutorMocks.loadKilnConfig,

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createOperatorExecutionRouteSelectionPort } from "../../src/application/operator-execution-route-selection.js";
 import { economicConfig } from "../config/managed-economic-policy-config-fixture.js";
+import { syntheticExecutionCatalog } from "../config/execution-target-evidence-fixture.js";
+
+const readExecutionCatalog = (config: ReturnType<typeof economicConfig> | null) =>
+  config ? syntheticExecutionCatalog(config) ?? undefined : undefined;
 
 describe("operator execution target selection", () => {
   it("projects route availability from the configured account candidates", async () => {
@@ -17,6 +21,7 @@ describe("operator execution target selection", () => {
     });
     const port = createOperatorExecutionRouteSelectionPort({
       readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
+      readExecutionCatalog,
       resolveAccountAvailability,
     });
 
@@ -49,6 +54,7 @@ describe("operator execution target selection", () => {
   ] as const)("projects sanitized %s account evidence through admission", async (_name, reasonCodes) => {
     const port = createOperatorExecutionRouteSelectionPort({
       readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
+      readExecutionCatalog,
       resolveAccountAvailability: async () => [{ accountId: "codex-account", available: false, reasonCodes }],
     });
 
@@ -62,6 +68,7 @@ describe("operator execution target selection", () => {
     async (reasonCode) => {
       const port = createOperatorExecutionRouteSelectionPort({
         readConfigSnapshot: () => ({ config: economicConfig(), revision: `sha256:${"a".repeat(64)}` }),
+        readExecutionCatalog,
         resolveAccountAvailability: async () => [{
           accountId: "codex-account",
           available: false,

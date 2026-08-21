@@ -12,7 +12,7 @@ import {
 } from "../../src/commands/run.js";
 import { readGlobalConfig } from "../../src/config/global-config.js";
 import { loadKilnConfig } from "../../src/config/config-merger.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
@@ -387,6 +387,15 @@ vi.mock("../../src/application/repo-summary-cache.js", () => ({
 
 vi.mock("../../src/config/global-config.js", () => ({
   readGlobalConfig: vi.fn(() => undefined),
+  readGlobalExecutionCatalog: vi.fn((config) => config?.targetCatalog
+    ? {
+        accounts: config.targetCatalog.accounts,
+        accountPolicies: config.targetCatalog.accountPolicies,
+        routes: config.targetCatalog.targets
+          .filter((target: { kind: string }) => target.kind === "direct")
+          .map(({ kind: _kind, ...target }: { kind: string }) => target),
+      }
+    : undefined),
   projectDirectExecutionCatalog: vi.fn((config) => config?.targetCatalog
     ? {
         accounts: config.targetCatalog.accounts,

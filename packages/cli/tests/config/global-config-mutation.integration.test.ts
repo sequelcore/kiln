@@ -27,7 +27,7 @@ describe.sequential("global config mutation integration", () => {
 
   it("creates and replaces the real canonical file without torn or residual lock state", () => {
     mutateGlobalConfig(() => ({
-      version: "3",
+      version: "4",
       identity: { name: "operator" },
     }));
     const first = readGlobalConfig();
@@ -37,9 +37,9 @@ describe.sequential("global config mutation integration", () => {
       ui: { theme: "vesper" },
     }));
 
-    expect(first).toEqual({ version: "3", identity: { name: "operator" } });
+    expect(first).toEqual({ version: "4", identity: { name: "operator" } });
     expect(readGlobalConfig()).toEqual({
-      version: "3",
+      version: "4",
       identity: { name: "operator" },
       ui: { theme: "vesper" },
     });
@@ -47,12 +47,12 @@ describe.sequential("global config mutation integration", () => {
   });
 
   it("fails closed on an unparseable lock instead of overwriting concurrent state", () => {
-    mutateGlobalConfig(() => ({ version: "3" }));
+    mutateGlobalConfig(() => ({ version: "4" }));
     const configPath = resolveGlobalConfigPath();
     const before = readFileSync(configPath, "utf8");
     writeFileSync(`${configPath}.lock`, "incomplete-owner", "utf8");
 
-    expect(() => mutateGlobalConfig(() => ({ version: "3", identity: { name: "changed" } })))
+    expect(() => mutateGlobalConfig(() => ({ version: "4", identity: { name: "changed" } })))
       .toThrow(expect.objectContaining<Partial<GlobalConfigMutationError>>({
         code: "GLOBAL_CONFIG_LOCK_UNAVAILABLE",
       }));

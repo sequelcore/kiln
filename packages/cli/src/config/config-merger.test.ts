@@ -69,7 +69,7 @@ describe("config-merger", () => {
 
   it("rejects a project sandbox or approval policy that broadens global authority", () => {
     const globalConfig = {
-      version: "3",
+      version: "4",
       permissions: { approval: "on-request", sandbox: "read-only" },
     } as KilnGlobalConfig;
     const projectConfig = {
@@ -85,7 +85,7 @@ describe("config-merger", () => {
 
   it("rejects a project bounded work ceiling because the ceiling is global-only", () => {
     const globalConfig = {
-      version: "3",
+      version: "4",
       workGovernance: {
         boundedWorkCeiling: {
           allowedEffects: ["inspect", "modify_source"],
@@ -129,7 +129,7 @@ describe("config-merger", () => {
 
   it("rejects a project request above global permissions even when the ceiling is wider", () => {
     const globalConfig = {
-      version: "3",
+      version: "4",
       permissions: { approval: "on-request", sandbox: "read-only" },
       permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
       workGovernance: {
@@ -155,7 +155,7 @@ describe("config-merger", () => {
 
   it("checks global permissions and permissionCeiling as independent scalar bounds", () => {
     const globalConfig = {
-      version: "3",
+      version: "4",
       permissions: { approval: "on-request", sandbox: "read-only" },
       permissionCeiling: { approval: "on-request", sandbox: "workspace-write" },
     } as KilnGlobalConfig;
@@ -166,7 +166,7 @@ describe("config-merger", () => {
     })).toThrow("Project permissions.sandbox cannot broaden global.permissions.");
 
     expect(() => deriveEffectiveKilnYaml({
-      version: "3",
+      version: "4",
       permissionCeiling: { sandbox: "read-only" },
     } as KilnGlobalConfig, {
       version: "1",
@@ -176,7 +176,7 @@ describe("config-merger", () => {
 
   it("rejects project authority-bearing dimensions with a stable path diagnostic", () => {
     const globalConfig = {
-      version: "3",
+      version: "4",
       permissions: {
         approval: "on-request",
         sandbox: "read-only",
@@ -200,13 +200,13 @@ describe("config-merger", () => {
     const merged = { ...projectConfig, version: "1" } as ResolvedKilnConfig;
     mergeKilnYamlMock.mockReturnValue(merged);
 
-    expect(deriveEffectiveKilnYaml({ version: "3" } as KilnGlobalConfig, projectConfig)).toBe(merged);
+    expect(deriveEffectiveKilnYaml({ version: "4" } as KilnGlobalConfig, projectConfig)).toBe(merged);
     expect(mergeKilnYamlMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns global-converted-to-ResolvedKilnConfig when only global config exists", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "3",
+      version: "4",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],
@@ -332,7 +332,7 @@ describe("config-merger", () => {
 
   it("merges global as base with project as override - project scalar wins", async () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "3",
+      version: "4",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],
@@ -409,7 +409,7 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps provider, model, permissions, mcp, hooks correctly", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "3",
+      version: "4",
       engines: { codex: { enabled: true, billing: "plus-quota" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],
@@ -513,7 +513,7 @@ describe("config-merger", () => {
 
   it("globalToKilnYaml() maps undefined model to undefined", () => {
     const globalConfig: KilnGlobalConfig = {
-      version: "3",
+      version: "4",
       engines: { claude: { enabled: true, billing: "subscription" } },
       targetCatalog: {
         accounts: [], accountPolicies: [],

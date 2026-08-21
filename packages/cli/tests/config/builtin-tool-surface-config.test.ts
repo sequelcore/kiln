@@ -42,7 +42,7 @@ describe("builtin tool surface config", () => {
     const projectPath = mkdtempSync(join(tmpdir(), "kiln-formal-surface-"));
     try {
       const globalConfig: KilnGlobalConfig = {
-        version: "3",
+        version: "4",
         verification: {
           formal: {
             dafny: {

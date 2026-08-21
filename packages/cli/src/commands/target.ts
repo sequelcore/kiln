@@ -2,19 +2,22 @@ import { readFileSync } from "node:fs";
 import {
   defaultGlobalConfig,
   mutateGlobalConfig,
-  projectDirectExecutionCatalog,
+  readGlobalExecutionCatalog,
   readGlobalConfig,
   readGlobalConfigSnapshot,
+  resolveGlobalConfigPath,
 } from "../config/global-config.js";
 import {
   projectGuiProviderModelDiscovery,
   resolveGuiOperatorDiscoveryResults,
+  executionRouteCreationDiscoveryEvidence,
 } from "@kilnai/runtime";
 import { projectAvailableModelDiagnostic } from "../application/available-model-diagnostic.js";
 import { runRouteCreateCommand } from "../application/route-create-command.js";
 import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
 import { createOperatorExecutionRouteSelectionPort } from "../application/operator-execution-route-selection.js";
 import { createDefaultRegistry, getRuntimeProviderAvailability } from "../wrapper/session-registry.js";
+import { readExecutionTargetEvidenceSnapshot } from "../config/execution-target-evidence-store.js";
 
 export async function targetCommand(args: readonly string[] = []): Promise<void> {
   if (args[0] === "available") {
@@ -72,19 +75,37 @@ export async function targetCreateCommand(args: readonly string[], input: {
 async function createTargetFromCurrentEvidence(request: import("@kilnai/gateway-contracts").ExecutionRouteCreationRequest, preview: boolean) {
   const resolve = async () => {
     const snapshot = readGlobalConfigSnapshot();
-    const executionCatalog = projectDirectExecutionCatalog(snapshot.config);
-    if (!executionCatalog) throw new Error("Direct target catalog is unavailable.");
+    const executionCatalog = readGlobalExecutionCatalog(snapshot.config);
+    const targetIntent = snapshot.config?.targetCatalog;
+    if (!executionCatalog || !targetIntent) throw new Error("Direct target catalog is unavailable.");
+    const targetEvidence = readExecutionTargetEvidenceSnapshot({
+      globalConfigPath: resolveGlobalConfigPath(),
+      revision: targetIntent.evidenceRevision,
+    });
     const { registry } = createDefaultRegistry();
     const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
     const selection = createOperatorExecutionRouteSelectionPort({ readConfigSnapshot: () => snapshot, resolveAccountAvailability: async () => [] });
     const executionRouteCatalog = await selection.getCatalog();
-    return { catalog: projectAvailableModelDiagnostic({ discovery, executionRouteCatalog }), executionCatalog, revision: snapshot.revision };
+    return {
+      catalog: projectAvailableModelDiagnostic({ discovery, executionRouteCatalog }),
+      discovery,
+      executionCatalog,
+      targetIntent,
+      targetEvidence,
+      revision: snapshot.revision,
+    };
   };
   const initial = await resolve();
   const entry = initial.catalog.entries.find((candidate) => candidate.providerId === request.discoveryIdentity.providerId && candidate.providerRouteId === request.discoveryIdentity.providerRouteId && candidate.providerModelId === request.discoveryIdentity.providerModelId);
   if (!entry || entry.discoveryState !== "observed" || entry.eligibilityState !== "eligible" || initial.revision !== request.expectedRevision) throw new Error("Current target creation evidence is stale or unavailable.");
   if (preview) return { status: "previewed", revision: initial.revision };
-  return createCurrentExecutionRoute({ request, admittedEvidence: { entry, catalogObservedAt: initial.catalog.observedAt }, resolveCurrentEvidence: resolve, mutateGlobalConfig, refreshExecutionRoutes: async () => { await resolve(); } });
+  return createCurrentExecutionRoute({
+    request,
+    admittedEvidence: executionRouteCreationDiscoveryEvidence(initial.discovery, entry),
+    resolveCurrentEvidence: resolve,
+    mutateGlobalConfig,
+    refreshExecutionRoutes: async () => { await resolve(); },
+  });
 }
 
 export async function targetAvailableModelsCommand(input: {

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "./execution-route-resolver.js";
 import type { KilnGlobalConfig } from "./global-config.js";
-import { economicConfig } from "../../tests/config/managed-economic-policy-config-fixture.js";
+import {
+  economicConfig,
+} from "../../tests/config/managed-economic-policy-config-fixture.js";
+import { syntheticExecutionCatalog } from "../../tests/config/execution-target-evidence-fixture.js";
 
 const fixture = economicConfig();
 const standardTarget = fixture.targetCatalog!.targets[0]!;
@@ -16,27 +19,28 @@ const config: KilnGlobalConfig = {
   },
   targetRouting: { defaultTargetId: "terra" },
 };
+const executionCatalog = syntheticExecutionCatalog(config);
 
 describe("resolveExecutionRouteCandidates", () => {
-  it("derives only the default dispatch identity from V3 target routing", () => {
-    expect(resolveExecutionRouteCandidates({ globalConfig: config })).toEqual([
+  it("derives only the default dispatch identity from V4 target routing", () => {
+    expect(resolveExecutionRouteCandidates({ globalConfig: config, executionCatalog })).toEqual([
       { routeId: "terra", provider: "codex-oauth", model: "gpt-5.6-terra" },
     ]);
   });
 
   it("uses an explicit route as the sole operator selection", () => {
-    expect(resolveExecutionRouteCandidates({ globalConfig: config, routeId: "luna" })).toEqual([
+    expect(resolveExecutionRouteCandidates({ globalConfig: config, executionCatalog, routeId: "luna" })).toEqual([
       { routeId: "luna", provider: "codex-oauth", model: "gpt-5.6-luna" },
     ]);
   });
 
   it("fails closed for an unknown explicit route", () => {
-    expect(() => resolveExecutionRouteCandidates({ globalConfig: config, routeId: "unknown" }))
+    expect(() => resolveExecutionRouteCandidates({ globalConfig: config, executionCatalog, routeId: "unknown" }))
       .toThrow("Execution target 'unknown' is not configured.");
   });
 
   it("does not infer execution candidates from legacy direct models or gateway virtual models", () => {
-    expect(resolveExecutionRouteCandidates({ globalConfig: { version: "3" } })).toEqual([]);
+    expect(resolveExecutionRouteCandidates({ globalConfig: { version: "4" }, executionCatalog: undefined })).toEqual([]);
   });
 
   it("rejects native harness routes instead of treating them as direct execution targets", () => {
@@ -55,7 +59,10 @@ describe("resolveExecutionRouteCandidates", () => {
         }],
       },
     } as KilnGlobalConfig;
-    expect(() => resolveExecutionRouteCandidates({ globalConfig: nativeRouteConfig }))
+    expect(() => resolveExecutionRouteCandidates({
+      globalConfig: nativeRouteConfig,
+      executionCatalog: syntheticExecutionCatalog(nativeRouteConfig),
+    }))
       .toThrow("Execution target 'terra' is not configured.");
   });
 

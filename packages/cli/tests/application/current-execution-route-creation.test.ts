@@ -6,8 +6,14 @@ describe("createCurrentExecutionRoute", () => {
   it("rejects discovery drift immediately before mutation", async () => {
     const mutate = vi.fn();
     await expect(createCurrentExecutionRoute({
-      request: request(), admittedEvidence: { entry: entry(), catalogObservedAt: "2026-08-13T18:00:00.000Z" },
-      resolveCurrentEvidence: async () => ({ catalog: { observedAt: "2026-08-13T18:01:00.000Z", entries: [{ ...entry(), eligibilityState: "ineligible" as const }] }, executionCatalog: catalog(), revision: request().expectedRevision }),
+      request: request(), admittedEvidence: { entry: entry(), catalogObservedAt: "2026-08-13T18:00:00.000Z", expiresAt: "2027-08-13T18:00:00.000Z", evidenceIdentity: "fixture", evidenceRevision: `sha256:${"d".repeat(64)}` },
+      resolveCurrentEvidence: async () => ({
+        catalog: { observedAt: "2026-08-13T18:01:00.000Z", entries: [{ ...entry(), eligibilityState: "ineligible" as const }] },
+        executionCatalog: catalog(),
+        targetIntent: { evidenceRevision: `sha256:${"e".repeat(64)}`, accounts: [], accountPolicies: [], targets: [] },
+        targetEvidence: { version: 1, accounts: [], targets: [] },
+        revision: request().expectedRevision,
+      }),
       mutateGlobalConfig: mutate, refreshExecutionRoutes: async () => undefined,
     })).rejects.toThrow(/changed/u);
     expect(mutate).not.toHaveBeenCalled();

@@ -32,6 +32,7 @@ describe("execution target draft", () => {
     expect(() => completeExecutionRouteDraft({
       draft: startExecutionRouteDraft(discovery),
       material: { ...material(), apiKey: "not-allowed" } as never,
+      discoveryEvidence: managedDiscoveryEvidence(),
       catalog: catalog(),
     })).toThrow(/secret or credential/u);
   });
@@ -40,6 +41,7 @@ describe("execution target draft", () => {
     const complete = completeExecutionRouteDraft({
       draft: startExecutionRouteDraft(discovery),
       material: material(),
+      discoveryEvidence: managedDiscoveryEvidence(),
       catalog: catalog(),
     });
     expect(complete.status).toBe("complete");
@@ -55,6 +57,7 @@ describe("execution target draft", () => {
     expect(() => completeExecutionRouteDraft({
       draft: startExecutionRouteDraft(discovery),
       material: material(),
+      discoveryEvidence: managedDiscoveryEvidence(),
       catalog: {
         ...existing,
         routes: [{
@@ -74,3 +77,4 @@ const economics = { adapterCapabilityId: "fixture", adapterCapabilityVersion: "v
 const policy = { providerId: discovery.providerId, providerModelId: discovery.providerModelId, dataUse: "not-used" as const, trainingPosture: "prohibited" as const, retention: { posture: "zero" as const, days: 0 }, permittedMaximumClassification: "confidential" as const, permittedClassifications: ["public", "internal", "confidential"] as const, sourceIdentity: "fixture", sourceRevision: "v1", sourceDigest: `sha256:${"b".repeat(64)}` as const, observedAt: "2026-01-01T00:00:00.000Z", expiresAt: "2027-01-01T00:00:00.000Z" };
 function catalog() { return { accounts: [{ id: "account", providerId: discovery.providerId, credentialId: "opaque-ref", maxConcurrency: 1, reservedAffinitySlots: 0, economics: accountEconomics }], accountPolicies: [], routes: [] }; }
 function material() { return { routeId: "fixture-route", label: "Fixture route", accountSelection: { mode: "exact" as const, accountId: "account" }, dataClassification: "confidential" as const, dataPolicyEvidence: policy, economics }; }
+function managedDiscoveryEvidence() { return { evidenceIdentity: "runtime-provider-catalog:fixture", evidenceRevision: `sha256:${"d".repeat(64)}` as const, observedAt: "2026-08-20T00:00:00.000Z", expiresAt: "2027-08-20T00:00:00.000Z" }; }

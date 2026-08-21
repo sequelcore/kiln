@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../src/config/global-config.js", () => ({
   mutateGlobalConfig: vi.fn(),
   defaultGlobalConfig: () => ({
-    version: "3",
+    version: "4",
     components: { include: ["baseline:core"] },
   }),
   resolveGlobalUiTheme: (config: { ui?: { theme?: string } } | null) => config?.ui?.theme,
@@ -24,20 +24,20 @@ describe("operator theme preferences", () => {
   });
 
   it("resolves GUI theme preference from request, then GUI config, then TUI config", () => {
-    expect(resolveGuiThemePreference("vesper", { version: "3", ui: { theme: "automata" } })).toBe("vesper");
-    expect(resolveGuiThemePreference(undefined, { version: "3", ui: { theme: "automata" } })).toBe("automata");
+    expect(resolveGuiThemePreference("vesper", { version: "4", ui: { theme: "automata" } })).toBe("vesper");
+    expect(resolveGuiThemePreference(undefined, { version: "4", ui: { theme: "automata" } })).toBe("automata");
     expect(resolveGuiThemePreference(undefined, null)).toBe("phosphor");
   });
 
   it("persists operator theme defaults into neutral UI config", () => {
     mutateGlobalConfigMock.mockImplementation((mutation) => ({
-      config: mutation({ version: "3", ui: { theme: "phosphor" } }),
+      config: mutation({ version: "4", ui: { theme: "phosphor" } }),
     }));
 
     persistOperatorThemePreference("vesper");
 
-    expect(mutateGlobalConfigMock.mock.calls[0]?.[0]({ version: "3", ui: { theme: "phosphor" } })).toEqual({
-      version: "3",
+    expect(mutateGlobalConfigMock.mock.calls[0]?.[0]({ version: "4", ui: { theme: "phosphor" } })).toEqual({
+      version: "4",
       ui: { theme: "vesper" },
     });
   });
@@ -55,7 +55,7 @@ describe("operator theme preferences", () => {
       appliedTheme: "vesper",
     });
     expect(mutateGlobalConfigMock.mock.calls[0]?.[0](null)).toEqual({
-      version: "3",
+      version: "4",
       components: { include: ["baseline:core"] },
       ui: { theme: "vesper" },
     });

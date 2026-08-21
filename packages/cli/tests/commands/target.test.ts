@@ -3,7 +3,7 @@ import { targetAvailableModelsCommand, targetCommand } from "../../src/commands/
 
 const globalConfigMocks = vi.hoisted(() => ({
   config: {
-    version: "3",
+    version: "4",
     targetCatalog: {
       accounts: [],
       accountPolicies: [],
@@ -18,7 +18,7 @@ const globalConfigMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../src/config/global-config.js", () => ({
-  defaultGlobalConfig: () => ({ version: "3" }),
+  defaultGlobalConfig: () => ({ version: "4" }),
   readGlobalConfig: () => globalConfigMocks.config,
   mutateGlobalConfig: (mutation: (current: unknown) => unknown) => {
     globalConfigMocks.config = mutation(globalConfigMocks.config) as Record<string, unknown>;

@@ -15,7 +15,7 @@ vi.mock("../config/global-config.js", async (importOriginal) => ({
 describe("operator execution-route preferences", () => {
   it("resolves a persisted GUI execution target and optional account override", () => {
     const config: KilnGlobalConfig = {
-      version: "3",
+      version: "4",
       ui: { targetSelection: { targetId: "terra", accountOverrideId: "work" } },
     };
 
@@ -23,13 +23,13 @@ describe("operator execution-route preferences", () => {
   });
 
   it("persists only canonical execution-route references", () => {
-    const current = { version: "3", ui: { theme: "phosphor" } } satisfies KilnGlobalConfig;
+    const current = { version: "4", ui: { theme: "phosphor" } } satisfies KilnGlobalConfig;
     mutateGlobalConfig.mockImplementation((mutation) => ({ config: mutation(current) }));
 
     persistGuiExecutionRouteSelectionPreference("terra", "work");
 
     expect(mutateGlobalConfig.mock.calls[0]?.[0](current)).toEqual({
-      version: "3",
+      version: "4",
       ui: { theme: "phosphor", targetSelection: { targetId: "terra", accountOverrideId: "work" } },
     });
   });

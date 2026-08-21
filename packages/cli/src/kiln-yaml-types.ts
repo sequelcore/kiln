@@ -9,6 +9,11 @@ import type {
 } from "@kilnai/core";
 import type { KilnMemoryAuthorityOperation } from "./wrapper/session.js";
 import type { KilnProjectConfig } from "./config/project-config-schema.js";
+import type {
+  DirectExecutionTargetIntent,
+  ExecutionTargetCatalogIntent,
+  HarnessExecutionTargetIntent,
+} from "./config/execution-target-evidence-store.js";
 
 export type { KilnWorkGovernanceEvidence } from "@kilnai/core";
 export type { KilnProjectConfig, KilnYamlQualityGate } from "./config/project-config-schema.js";
@@ -457,36 +462,10 @@ export interface KilnManagedAgentExternalRuntimeAttachmentConfig {
   readonly attachmentId: string;
 }
 
-/** Physical execution identity. Authority is selected separately by profile id. */
-export type KilnExecutionTargetConfig =
-  | {
-    readonly id: string;
-    readonly kind: "direct";
-    readonly label: string;
-    readonly providerId: string;
-    readonly providerModelId: string;
-    readonly accountSelection: import("@kilnai/core").ExecutionRouteAccountSelection;
-    readonly dataClassification: import("@kilnai/core").ExecutionDataClassification;
-    readonly dataPolicyEvidence: import("@kilnai/core").ExecutionRouteDataPolicyEvidence;
-    readonly economics: import("@kilnai/core").ExecutionRouteEconomicsConfig;
-  }
-  | {
-    readonly id: string;
-    readonly kind: "harness";
-    readonly label: string;
-    readonly providerId: string;
-    readonly providerModelId: string;
-    readonly dataClassification: import("@kilnai/core").ExecutionDataClassification;
-    readonly dataPolicyEvidence: import("@kilnai/core").ExecutionRouteDataPolicyEvidence;
-    readonly remoteHarness?: KilnManagedAgentRemoteHarnessConfig;
-    readonly externalRuntimeAttachment?: KilnManagedAgentExternalRuntimeAttachmentConfig;
-  };
+/** Operator-owned physical target declaration. Managed evidence is referenced by catalog revision. */
+export type KilnExecutionTargetIntentConfig = DirectExecutionTargetIntent | HarnessExecutionTargetIntent;
 
-export interface KilnTargetCatalogConfig {
-  readonly accounts: readonly import("@kilnai/core").ExecutionAccount[];
-  readonly accountPolicies: readonly import("@kilnai/core").ExecutionAccountPolicy[];
-  readonly targets: readonly KilnExecutionTargetConfig[];
-}
+export type KilnTargetCatalogIntentConfig = ExecutionTargetCatalogIntent;
 
 /** Reusable authority/environment policy, independent from physical target identity. */
 export interface KilnAuthorityProfileConfig {
@@ -676,7 +655,7 @@ export interface ResolvedKilnConfig extends KilnProjectConfig {
   readonly skillGeneration?: KilnYamlSkillGeneration;
   readonly hooks?: KilnHooksConfig;
   /** Global-only physical target authority projected into Runtime composition. */
-  readonly targetCatalog?: KilnTargetCatalogConfig;
+  readonly targetCatalog?: KilnTargetCatalogIntentConfig;
   /** Global-only reusable authority profiles projected into Runtime composition. */
   readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
 }

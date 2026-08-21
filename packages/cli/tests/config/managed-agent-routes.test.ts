@@ -27,6 +27,7 @@ import { validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/gl
 import {
   projectManagedEconomicJobAdoption,
   resolveManagedInvocationToolOptions,
+  type ManagedAgentRouteConfigSource,
 } from "../../src/config/managed-agent-routes.js";
 import type { ManagedAgentProviderModelCatalogDiagnostics } from "../../src/config/managed-agent-provider-models.js";
 import {
@@ -317,7 +318,7 @@ type ManagedConfigFixture = Omit<NonNullable<KilnGlobalConfig["managedAgents"]>,
   readonly targetFixtures?: readonly ManagedTargetFixture[];
 };
 
-function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig {
+function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig & ManagedAgentRouteConfigSource {
   const { targetFixtures = [], ...managedAgents } = overrides;
   const directTargets = targetFixtures.filter((target) => target.kind === "direct");
   const executionCatalog = defineExecutionCatalog({
@@ -425,15 +426,43 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig {
     .filter((profile, index, profiles) => profiles.findIndex((candidate) => candidate.id === profile.id) === index);
 
   return {
-    version: "3",
+    version: "4",
+    executionCatalog,
     targetCatalog: {
-      accounts: executionCatalog.accounts,
+      evidenceRevision: `sha256:${"f".repeat(64)}`,
+      accounts: executionCatalog.accounts.map((account) => ({
+        id: account.id,
+        providerId: account.providerId,
+        credentialId: account.credentialId,
+        maxConcurrency: account.maxConcurrency,
+        reservedAffinitySlots: account.reservedAffinitySlots,
+        economics: {
+          creditPosture: account.economics.creditPosture,
+          overagePosture: account.economics.overagePosture,
+        },
+      })),
       accountPolicies: executionCatalog.accountPolicies,
       targets: targetFixtures.map((target) => {
         const targetId = target.id;
         if (target.kind === "direct") {
           const route = executionCatalog.routes.find((candidate) => candidate.id === targetId)!;
-          return { ...route, id: target.id, kind: "direct" as const };
+          return {
+            id: target.id,
+            kind: "direct" as const,
+            label: route.label,
+            providerId: route.providerId,
+            providerModelId: route.providerModelId,
+            dataClassification: route.dataClassification,
+            accountSelection: route.accountSelection,
+            economics: {
+              authBillingChannel: route.economics.authBillingChannel,
+              executionMode: route.economics.executionMode,
+              serviceTier: route.economics.serviceTier,
+              fallbackPosture: route.economics.fallbackPosture,
+              overagePosture: route.economics.overagePosture,
+              executionEnvelope: route.economics.executionEnvelope,
+            },
+          };
         }
         return {
           id: target.id,
@@ -442,20 +471,6 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig {
           providerId: target.provider ?? "",
           providerModelId: target.model as string,
           dataClassification: "internal" as const,
-          dataPolicyEvidence: {
-            providerId: target.provider ?? "",
-            providerModelId: target.model as string,
-            dataUse: "not-used" as const,
-            trainingPosture: "prohibited" as const,
-            retention: { posture: "zero" as const, days: 0 },
-            permittedMaximumClassification: "internal" as const,
-            permittedClassifications: ["public", "internal"] as const,
-            sourceIdentity: "managed-agent-routes-test",
-            sourceRevision: "1",
-            sourceDigest: `sha256:${"d".repeat(64)}` as const,
-            observedAt: "2026-08-01T00:00:00.000Z",
-            expiresAt: "2027-08-01T00:00:00.000Z",
-          },
           ...(target.remoteHarness ? { remoteHarness: target.remoteHarness } : {}),
           ...(target.externalRuntimeAttachment ? { externalRuntimeAttachment: target.externalRuntimeAttachment } : {}),
         };
@@ -469,6 +484,11 @@ function baseConfig(overrides: ManagedConfigFixture = {}): KilnGlobalConfig {
       ...managedAgents,
     },
   };
+}
+
+function persistedConfig(config: KilnGlobalConfig & ManagedAgentRouteConfigSource): KilnGlobalConfig {
+  const { executionCatalog: _executionCatalog, ...persisted } = config;
+  return persisted;
 }
 
 function testExecutionIdentity(targetId: string): {
@@ -1063,7 +1083,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   });
 
   it("admits direct sandbox working-directory routes with a shared sandbox lease manager", async () => {
-    validateGlobalConfig(baseConfig({
+    validateGlobalConfig(persistedConfig(baseConfig({
       economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
       targetFixtures: [{
         id: "codex-oauth-sandbox-readonly",
@@ -1071,7 +1091,7 @@ describe("resolveManagedInvocationToolOptions", () => {
         profiles: ["foundation-readonly-plan"],
         workingDirectory: "sandbox",
       }],
-    }));
+    })));
 
     const result = await resolveManagedInvocationToolOptions(baseConfig({
       economicPolicies: economicPolicyCovering(["codex-oauth-sandbox-readonly"]),
@@ -2784,7 +2804,7 @@ describe("resolveManagedInvocationToolOptions", () => {
   });
 
   it("rejects a harness route named as an economic-policy candidate at config validation", () => {
-    expect(() => validateGlobalConfig(baseConfig({
+    expect(() => validateGlobalConfig(persistedConfig(baseConfig({
       economicPolicies: economicPolicyCovering(["codex-harness-readonly"]),
       targetFixtures: [{
         id: "codex-harness-readonly",
@@ -2793,6 +2813,6 @@ describe("resolveManagedInvocationToolOptions", () => {
         model: "gpt-5.3-codex-spark",
         profiles: ["foundation-readonly-plan"],
       }],
-    }))).toThrow(/targetId must reference a direct target/u);
+    })))).toThrow(/targetId must reference a direct target/u);
   });
 });

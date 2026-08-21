@@ -20,6 +20,7 @@ explicit without repeating them hundreds of times.
 | `G` | CLI `KilnGlobalConfig` validators | CLI configuration | `readGlobalConfig` | `mutateGlobalConfig` | composition, status, CLI/GUI/TUI | `~/.kiln/config.yaml`; global |
 | `GG` | CLI work-governance shape | work-governance application | `readGlobalConfig` | `mutateGlobalConfig` | work admission and managed work | global; project may narrow |
 | `GR` | CLI catalog shape | Core execution routing/economics | `readGlobalConfig` | `mutateGlobalConfig`, target operations | Runtime route admission | global only |
+| `GE` | CLI managed-evidence schema | Core data-policy/routing/economics | `readGlobalExecutionTargetAuthority` | evidence publication and target migration | Runtime route admission | `~/.kiln/evidence/execution-targets/<sha256>.json`; global, immutable |
 | `GP` | CLI permission shape | CLI configured admission; Core owns effects | `readGlobalConfig` | `mutateGlobalConfig` | every model-facing surface | global bound/default |
 | `GM` | Core MCP shape, CLI boundary validator | Core MCP admission | `readMcpConfigurationSource` | `mutateGlobalConfig` | MCP resolution and native projection | global; project may narrow/override server fields |
 | `GC` | Core contract persisted by CLI | named Core communication/voice/gateway owner | `readGlobalConfig` | `mutateGlobalConfig` | policy resolver or Runtime ingress | global only unless the row says project precedence |
@@ -68,14 +69,15 @@ contract semantics remain with their Core owner.
 | `workGovernance.boundedWorkCeiling.minimumHarnessCapability` | GG | I | C | global minimum | turn | supported |
 | `engines.<id>.enabled` | G | I | H | engine default; no project override | reconcile | supported |
 | `engines.<id>.billing` | G | I | M | engine metadata | reconcile | supported |
+| `targetCatalog.evidenceRevision` | GR | I | C | exact SHA-256 evidence reference | session | supported |
 | `targetCatalog.accounts[].id` | GR | I | H | required, unique | session | supported |
 | `targetCatalog.accounts[].providerId` | GR | I | H | required | session | supported |
 | `targetCatalog.accounts[].credentialId` | GR | I | H ref | opaque reference | session | supported |
 | `targetCatalog.accounts[].maxConcurrency` | GR | I | H | required positive | session | supported |
 | `targetCatalog.accounts[].reservedAffinitySlots` | GR | I | H | bounded by concurrency | session | supported |
-| `targetCatalog.accounts[].economics.capacityIdentity` | GR | E | H | capacity evidence identity | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.accounts[].economics.subscriptionClass` | GR | E | M | validated evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.accounts[].economics.quotaClassId` | GR | E | H | quota evidence identity | session | managed-evidence; Slice 3 extraction |
+| `executionTargetEvidence.accounts[].economics.capacityIdentity` | GE | E | H | capacity evidence identity | session | managed-evidence |
+| `executionTargetEvidence.accounts[].economics.subscriptionClass` | GE | E | M | validated evidence | session | managed-evidence |
+| `executionTargetEvidence.accounts[].economics.quotaClassId` | GE | E | H | quota evidence identity | session | managed-evidence |
 | `targetCatalog.accounts[].economics.creditPosture` | GR | I | H | disabled or committed | session | supported |
 | `targetCatalog.accounts[].economics.overagePosture` | GR | I | H | disabled or committed | session | supported |
 | `targetCatalog.accountPolicies[].id` | GR | I | H | required, unique | session | supported |
@@ -90,38 +92,46 @@ contract semantics remain with their Core owner.
 | `targetCatalog.targets[].accountSelection.accountPolicyId` | GR | I | H | automatic only | session | supported |
 | `targetCatalog.targets[].accountSelection.accountId` | GR | I | H | exact only | session | supported |
 | `targetCatalog.targets[].dataClassification` | GR | I | C | required | session | supported |
-| `targetCatalog.targets[].dataPolicyEvidence.providerId` | GR | E | C | must match route | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.providerModelId` | GR | E | C | must match route | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.dataUse` | GR | E | C | validated evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.trainingPosture` | GR | E | C | validated evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.retention.posture` | GR | E | C | validated evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.retention.days` | GR | E | C | non-negative | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.permittedMaximumClassification` | GR | E | C | validated evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.permittedClassifications[]` | GR | E | C | non-empty | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.sourceIdentity` | GR | E | M | required | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.sourceRevision` | GR | E | M | required | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.sourceDigest` | GR | E | M | SHA-256 | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.observedAt` | GR | E | M | timestamp | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].dataPolicyEvidence.expiresAt` | GR | E | M | timestamp | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.adapterCapabilityId` | GR | E | H | adapter evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.adapterCapabilityVersion` | GR | E | H | adapter evidence | session | managed-evidence; Slice 3 extraction |
+| `executionTargetEvidence.version` | GE | E | H | schema version 1 | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.providerId` | GE | E | H | must match intent | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.providerRouteId` | GE | E | H | discovered route identity | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.providerModelId` | GE | E | H | must match intent | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.evidenceIdentity` | GE | E | H | required source identity | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.evidenceRevision` | GE | E | H | SHA-256 | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.observedAt` | GE | E | H | timestamp | session | managed-evidence |
+| `executionTargetEvidence.targets[].discovery.expiresAt` | GE | E | H | must be current | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.providerId` | GE | E | C | must match route | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.providerModelId` | GE | E | C | must match route | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.dataUse` | GE | E | C | validated evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.trainingPosture` | GE | E | C | validated evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.retention.posture` | GE | E | C | validated evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.retention.days` | GE | E | C | non-negative | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.permittedMaximumClassification` | GE | E | C | validated evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.permittedClassifications[]` | GE | E | C | non-empty | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.sourceIdentity` | GE | E | M | required | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.sourceRevision` | GE | E | M | required | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.sourceDigest` | GE | E | M | SHA-256 | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.observedAt` | GE | E | M | timestamp | session | managed-evidence |
+| `executionTargetEvidence.targets[].dataPolicyEvidence.expiresAt` | GE | E | M | timestamp | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.adapterCapabilityId` | GE | E | H | adapter evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.adapterCapabilityVersion` | GE | E | H | adapter evidence | session | managed-evidence |
 | `targetCatalog.targets[].economics.authBillingChannel` | GR | I | H | dispatch constraint | session | supported |
 | `targetCatalog.targets[].economics.executionMode` | GR | I | H | dispatch constraint | session | supported |
 | `targetCatalog.targets[].economics.serviceTier` | GR | I | H | dispatch constraint | session | supported |
-| `targetCatalog.targets[].economics.rateCardBasis` | GR | E | M | evidence basis | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.envelopeSemantics` | GR | E | M | evidence semantics | session | managed-evidence; Slice 3 extraction |
+| `executionTargetEvidence.targets[].economics.rateCardBasis` | GE | E | M | evidence basis | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.envelopeSemantics` | GE | E | M | evidence semantics | session | managed-evidence |
 | `targetCatalog.targets[].economics.fallbackPosture` | GR | I | H | disabled or committed | session | supported |
 | `targetCatalog.targets[].economics.overagePosture` | GR | I | H | disabled or committed | session | supported |
-| `targetCatalog.targets[].economics.contextClass` | GR | E | M | adapter evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.cacheClass` | GR | E | M | adapter evidence | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.priceEvidence.*` | GR | E | H | Core price-evidence union | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.auxiliaryCharges[].id` | GR | E | M | unique evidence identity | session | managed-evidence; Slice 3 extraction |
-| `targetCatalog.targets[].economics.auxiliaryCharges[].amount` | GR | E | H | managed economic amount | session | managed-evidence; Slice 3 extraction |
+| `executionTargetEvidence.targets[].economics.contextClass` | GE | E | M | adapter evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.cacheClass` | GE | E | M | adapter evidence | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.priceEvidence.*` | GE | E | H | Core price-evidence union | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.auxiliaryCharges[].id` | GE | E | M | unique evidence identity | session | managed-evidence |
+| `executionTargetEvidence.targets[].economics.auxiliaryCharges[].amount` | GE | E | H | managed economic amount | session | managed-evidence |
 | `targetCatalog.targets[].economics.executionEnvelope.limits[]` | GR | I | H | bounded economic envelope | session | supported |
 | `targetCatalog.targets[].remoteHarness.invokeUrl` | GR | I | C | harness only | session | supported |
 | `targetCatalog.targets[].remoteHarness.cancelUrl` | GR | I | C | harness only | session | supported |
 | `targetCatalog.targets[].remoteHarness.authTokenEnv` | GR | I | C ref | harness only | session | supported |
-| `targetCatalog.targets[].remoteHarness.limitations[]` | GR | E | H | harness only | session | managed-evidence; Slice 3 review |
+| `executionTargetEvidence.targets[].limitations[]` | GE | E | H | harness only | session | managed-evidence |
 | `targetCatalog.targets[].externalRuntimeAttachment.runtimeId` | GR | I | C | exact attachment | session | supported |
 | `targetCatalog.targets[].externalRuntimeAttachment.attachmentId` | GR | I | C | exact attachment | session | supported |
 | `targetRouting.defaultTargetId` | GR | I | H | required reference when present | session | supported |
@@ -213,20 +223,20 @@ contract named by the profile.
 | `managedAgents.worktreeLease.ref` | GR | I | H | optional | session | supported |
 | `managedAgents.worktreeLease.gitBinary` | GR | I | H ref | optional command | session | supported |
 | `managedAgents.economicPolicies[].id` | GR | I | H | unique | session | supported |
-| `managedAgents.economicPolicies[].revision` | GR | E | M | required | session | managed-evidence |
+| `managedAgents.economicPolicies[].revision` | GE | E | M | required | session | managed-evidence |
 | `managedAgents.economicPolicies[].evidenceRequirements.quota` | GR | I | H | required policy | session | supported |
 | `managedAgents.economicPolicies[].evidenceRequirements.price` | GR | I | H | required policy | session | supported |
 | `managedAgents.economicPolicies[].noRouteAction` | GR | I | C | `deny` | session | supported |
 | `managedAgents.economicPolicies[].comparisonDomains[].id` | GR | I | H | unique | session | supported |
 | `managedAgents.economicPolicies[].comparisonDomains[].rank` | GR | I | H | unique non-negative | session | supported |
-| `managedAgents.economicPolicies[].comparisonDomains[].unit` | GR | E | M | evidence unit | session | managed-evidence |
-| `managedAgents.economicPolicies[].comparisonDomains[].scheme` | GR | E | M | evidence scheme | session | managed-evidence |
-| `managedAgents.economicPolicies[].comparisonDomains[].rateCardBasis` | GR | E | M | evidence basis | session | managed-evidence |
-| `managedAgents.economicPolicies[].comparisonDomains[].envelopeSemantics` | GR | E | M | evidence semantics | session | managed-evidence |
+| `managedAgents.economicPolicies[].comparisonDomains[].unit` | GE | E | M | evidence unit | session | managed-evidence |
+| `managedAgents.economicPolicies[].comparisonDomains[].scheme` | GE | E | M | evidence scheme | session | managed-evidence |
+| `managedAgents.economicPolicies[].comparisonDomains[].rateCardBasis` | GE | E | M | evidence basis | session | managed-evidence |
+| `managedAgents.economicPolicies[].comparisonDomains[].envelopeSemantics` | GE | E | M | evidence semantics | session | managed-evidence |
 | `managedAgents.economicPolicies[].candidates[].targetId` | GR | I | H | route reference | session | supported |
 | `managedAgents.economicPolicies[].candidates[].comparisonDomainId` | GR | I | H | domain reference | session | supported |
 | `managedAgents.economicPolicies[].candidates[].priorityRank` | GR | I | H | non-negative | session | supported |
-| `managedAgents.economicPolicies[].candidates[].worstCaseReservation` | GR | E | H | exact/comparable evidence | session | managed-evidence |
+| `managedAgents.economicPolicies[].candidates[].worstCaseReservation` | GE | E | H | exact/comparable evidence | session | managed-evidence |
 | `managedAgents.economicPolicies[].candidates[].ceiling.kind` | GR | I | H | none or finite | session | supported |
 | `managedAgents.economicPolicies[].candidates[].ceiling.amount` | GR | I | H | finite only | session | supported |
 | `modelTaskSuitability[].provider` | GC | I | M | route selector | turn | supported |
@@ -402,17 +412,17 @@ fields reject at the project boundary.
 | `contextGovernance.preferredSources[]` | P | I | M | project only | turn | supported |
 | `contextGovernance.summaryAggressiveness` | P | I | M | project only | turn | supported |
 | `contextGovernance.cachePolicy` | P | I | M | project only | turn | supported |
-| `contextGovernance.adaptation.version` | P | E | M | exact evidence schema | turn | managed-evidence; Slice 3 extraction |
-| `contextGovernance.adaptation.revision` | P | E | M | monotonic evidence | turn | managed-evidence; Slice 3 extraction |
+| `contextGovernance.adaptation.version` | P | E | M | exact evidence schema | turn | supported |
+| `contextGovernance.adaptation.revision` | P | E | M | monotonic evidence | turn | supported |
 | `contextGovernance.adaptation.activePolicyId` | P | I | H | selected policy | turn | supported |
-| `contextGovernance.adaptation.activeConfigurationHash` | P | E | H | exact evidence | turn | managed-evidence; Slice 3 extraction |
+| `contextGovernance.adaptation.activeConfigurationHash` | P | E | H | exact evidence | turn | supported |
 | `contextGovernance.adaptation.frozen` | P | I | H | explicit state | turn | supported |
 | `contextGovernance.adaptation.freezeReason` | P | E | L | rationale | turn | managed-evidence |
 | `contextGovernance.adaptation.rollback.policyId` | P | I | H | rollback intent | turn | supported |
 | `contextGovernance.adaptation.rollback.configurationHash` | P | E | H | exact evidence | turn | managed-evidence |
 | `contextGovernance.adaptation.rollback.allocationMode` | P | I | H | rollback intent | turn | supported |
-| `contextGovernance.adaptation.candidateRecordHash` | P | E | M | evidence reference | turn | managed-evidence; Slice 3 extraction |
-| `contextGovernance.adaptation.evaluationEvidenceHash` | P | E | M | evidence reference | turn | managed-evidence; Slice 3 extraction |
+| `contextGovernance.adaptation.candidateRecordHash` | P | E | M | evidence reference | turn | supported |
+| `contextGovernance.adaptation.evaluationEvidenceHash` | P | E | M | evidence reference | turn | supported |
 
 ## App Configuration
 

@@ -7,11 +7,20 @@ import {
   type StatusCommandOptions,
 } from "../../src/commands/status.js";
 import { writeKilnYaml, defaultKilnYaml } from "../../src/kiln-yaml.js";
-import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
+import { mutateGlobalConfig, resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { writeExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
+import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
 
 function persistGlobalConfig(config: KilnGlobalConfig): void {
-  mutateGlobalConfig(() => config);
+  const admitted = withSyntheticExecutionTargetEvidence(config);
+  if (admitted.evidence) {
+    writeExecutionTargetEvidenceSnapshot({
+      globalConfigPath: resolveGlobalConfigPath(),
+      snapshot: admitted.evidence,
+    });
+  }
+  mutateGlobalConfig(() => admitted.config);
 }
 import type { KilnAppConfig } from "../../src/config.js";
 import type { ProviderModelEligibilityRequirements } from "@kilnai/core/agents";
@@ -174,11 +183,6 @@ describe("statusCommand", () => {
           kind: "harness",
           providerId: "codex",
           providerModelId: "gpt-5.3-codex-spark",
-          dataPolicyEvidence: {
-            ...physicalTarget.dataPolicyEvidence,
-            providerId: "codex",
-            providerModelId: "gpt-5.3-codex-spark",
-          },
         }],
       },
     });
@@ -304,7 +308,7 @@ describe("statusCommand", () => {
     process.env.TAVILY_API_KEY = "tv-test";
     process.env.FIRECRAWL_API_KEY = "fc-test";
     persistGlobalConfig({
-      version: "3",
+      version: "4",
       web: {
         searchProvider: {
           type: "tavily",

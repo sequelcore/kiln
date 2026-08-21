@@ -5,13 +5,14 @@ import { join } from "node:path";
 import { parse } from "yaml";
 import { createExecutionAccountRef } from "@kilnai/core/agents";
 import { SqliteManagedAccountLeaseAuthority } from "@kilnai/runtime";
-import { validateGlobalConfig } from "../../src/config/global-config.js";
+import { projectDirectExecutionCatalog, validateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { executionTargetEvidenceRevision, type ExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
 import {
   closeManagedAccountRuntimeComposition,
   createManagedAccountRuntimeComposition,
   projectManagedEconomicJobAdoption,
 } from "../../src/config/managed-agent-routes.js";
-import { economicConfig } from "./managed-economic-policy-config-fixture.js";
+import { economicConfig, economicExecutionCatalog, economicTargetEvidence } from "./managed-economic-policy-config-fixture.js";
 
 const testProfileAuthorityDigest = `sha256:${"9".repeat(64)}`;
 
@@ -49,9 +50,23 @@ function economicJob(jobId: string, economicAttemptId: string) {
 }
 
 function economicPolicyFixtureTarget() {
-  const target = economicConfig().targetCatalog!.targets[0]!;
-  if (target.kind !== "direct") throw new Error("Economic policy fixture expects a direct target.");
-  return target;
+  return economicExecutionCatalog().routes[0]!;
+}
+
+function economicRuntimeConfig() {
+  return { ...economicConfig(), executionCatalog: economicExecutionCatalog() };
+}
+
+function projectEconomicConfig(
+  config: KilnGlobalConfig,
+  evidence: ExecutionTargetEvidenceSnapshot = economicTargetEvidence(),
+) {
+  const evidenceRevision = executionTargetEvidenceRevision(evidence);
+  const revised = {
+    ...config,
+    targetCatalog: { ...config.targetCatalog!, evidenceRevision },
+  };
+  return projectDirectExecutionCatalog(revised, evidence, evidenceRevision);
 }
 
 function economicRoutingResolution() {
@@ -104,7 +119,7 @@ async function acquireRecoveryFixture(
   economicAttemptId: string,
 ) {
   const adoption = await projectManagedEconomicJobAdoption(
-    economicConfig(),
+    economicRuntimeConfig(),
     economicJob(jobId, economicAttemptId),
     { modelGatewayCandidates: { resolve: async () => economicRoutingResolution() } } as never,
   );
@@ -119,7 +134,7 @@ async function acquireRecoveryFixture(
 describe("managed economic policy config", () => {
   it("projects a replay-stable Core snapshot solely from config and persisted admission", async () => {
     const resolve = vi.fn(async () => []);
-    const adoption = await projectManagedEconomicJobAdoption(economicConfig(), {
+    const adoption = await projectManagedEconomicJobAdoption(economicRuntimeConfig(), {
       projectId: "project-a",
       callerId: "caller-a",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
@@ -172,7 +187,7 @@ describe("managed economic policy config", () => {
 
   it("maps exact persisted policy revision drift to identity-revision-conflict without capacity lookup", async () => {
     const resolve = vi.fn();
-    await expect(projectManagedEconomicJobAdoption(economicConfig(), {
+    await expect(projectManagedEconomicJobAdoption(economicRuntimeConfig(), {
       projectId: "project-a",
       callerId: "caller-a",
       adoptedDecisionAt: "2026-07-31T11:00:00.000Z",
@@ -198,7 +213,7 @@ describe("managed economic policy config", () => {
   });
 
   it("rejects a pre-V9 economic job shape with a typed identity conflict", async () => {
-    await expect(projectManagedEconomicJobAdoption(economicConfig(), {
+    await expect(projectManagedEconomicJobAdoption(economicRuntimeConfig(), {
       economicPolicyId: "default-economic-policy",
       economicPolicyRevision: "rev-2026-07",
       candidateSet: { candidates: [] },
@@ -210,12 +225,12 @@ describe("managed economic policy config", () => {
   it("releases orphaned pre-fence commitments when a new composition takes ownership", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "kiln-economic-held-recovery-"));
     try {
-      const first = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      const first = createManagedAccountRuntimeComposition(economicRuntimeConfig(), cwd)!;
       await expect(acquireRecoveryFixture(first, "job-held", "economic-attempt:held-001"))
         .resolves.toMatchObject({ status: "committed", record: { state: "held" } });
       closeManagedAccountRuntimeComposition(cwd);
 
-      const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      const restarted = createManagedAccountRuntimeComposition(economicRuntimeConfig(), cwd)!;
       expect(restarted.authority.createAgentTaskCommitmentRecoveryPort().query({
         jobId: "job-held", economicAttemptId: "economic-attempt:held-001",
       })).toBe("absent");
@@ -230,12 +245,12 @@ describe("managed economic policy config", () => {
   it("keeps recovered dispatch-fenced commitments settlement-pending and capacity-consuming", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "kiln-economic-fenced-recovery-"));
     try {
-      const first = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      const first = createManagedAccountRuntimeComposition(economicRuntimeConfig(), cwd)!;
       await acquireRecoveryFixture(first, "job-fenced", "economic-attempt:fenced-001");
       first.authority.fenceDispatch("job-fenced", "economic-attempt:fenced-001", "dispatch-fence-a");
       closeManagedAccountRuntimeComposition(cwd);
 
-      const restarted = createManagedAccountRuntimeComposition(economicConfig(), cwd)!;
+      const restarted = createManagedAccountRuntimeComposition(economicRuntimeConfig(), cwd)!;
       expect(restarted.authority.createAgentTaskCommitmentRecoveryPort().query({
         jobId: "job-fenced", economicAttemptId: "economic-attempt:fenced-001",
       })).toBe("dispatch-fenced");
@@ -253,7 +268,7 @@ describe("managed economic policy config", () => {
       .mockImplementationOnce(() => { throw new Error("synthetic recovery failure"); });
     const close = vi.spyOn(SqliteManagedAccountLeaseAuthority.prototype, "close");
     try {
-      expect(() => createManagedAccountRuntimeComposition(economicConfig(), cwd))
+      expect(() => createManagedAccountRuntimeComposition(economicRuntimeConfig(), cwd))
         .toThrow("Managed account startup recovery failed");
       expect(close).toHaveBeenCalledOnce();
     } finally {
@@ -287,7 +302,7 @@ describe("managed economic policy config", () => {
 
   it("keeps the documented subscription target-catalog example executable", () => {
     const example = parse(readFileSync(
-      new URL("../../../../docs/examples/configs/managed-targets-v3-subscription.yaml", import.meta.url),
+      new URL("../../../../docs/examples/configs/managed-targets-v4-subscription.yaml", import.meta.url),
       "utf8",
     ));
 
@@ -320,7 +335,7 @@ describe("managed economic policy config", () => {
   it("rejects unsupported providers, implicit fallback, and incompatible ceilings", () => {
     const unsupported = structuredClone(economicConfig()) as Record<string, any>;
     unsupported.targetCatalog.targets[0].providerId = "anthropic";
-    expect(() => validateGlobalConfig(unsupported)).toThrow(/dataPolicyEvidence.providerId must match the target providerId/);
+    expect(() => validateGlobalConfig(unsupported)).toThrow(/accountPolicyId provider must match route providerId/);
 
     const fallback = structuredClone(economicConfig()) as Record<string, any>;
     fallback.targetCatalog.targets[0].economics.fallbackPosture = "committed";
@@ -360,15 +375,15 @@ describe("managed economic policy config", () => {
 
     const underReserved = structuredClone(economicConfig()) as Record<string, any>;
     underReserved.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.amount.atoms = "24";
-    expect(() => validateGlobalConfig(underReserved)).toThrow(/must cover the derived minimum reservation/);
+    expect(() => projectEconomicConfig(underReserved as KilnGlobalConfig)).toThrow(/must cover the derived minimum reservation/);
 
     const mismatchedBasis = structuredClone(economicConfig()) as Record<string, any>;
     mismatchedBasis.managedAgents.economicPolicies[0].comparisonDomains[0].rateCardBasis = "different-rate-card";
-    expect(() => validateGlobalConfig(mismatchedBasis)).toThrow(/rateCardBasis must match route economics/);
+    expect(() => projectEconomicConfig(mismatchedBasis as KilnGlobalConfig)).toThrow(/rateCardBasis must match route economics/);
 
     const mismatchedEnvelope = structuredClone(economicConfig()) as Record<string, any>;
     mismatchedEnvelope.managedAgents.economicPolicies[0].comparisonDomains[0].envelopeSemantics = "different-envelope";
-    expect(() => validateGlobalConfig(mismatchedEnvelope)).toThrow(/envelopeSemantics must match route economics/);
+    expect(() => projectEconomicConfig(mismatchedEnvelope as KilnGlobalConfig)).toThrow(/envelopeSemantics must match route economics/);
 
     const missingReservation = structuredClone(economicConfig()) as Record<string, any>;
     delete missingReservation.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation;
@@ -380,48 +395,50 @@ describe("managed economic policy config", () => {
       kind: "not-comparable",
       reason: "subscription-basis",
     };
-    expect(() => validateGlobalConfig(notComparableMetered)).toThrow(/metered route requires an exact worst-case reservation/);
+    expect(() => projectEconomicConfig(notComparableMetered as KilnGlobalConfig)).toThrow(/metered route requires an exact worst-case reservation/);
 
     const subscription = structuredClone(economicConfig()) as Record<string, any>;
-    subscription.targetCatalog.targets[0].economics.priceEvidence.kind = "subscription";
-    delete subscription.targetCatalog.targets[0].economics.priceEvidence.unitPrices;
+    const subscriptionEvidence = structuredClone(economicTargetEvidence()) as Record<string, any>;
+    subscriptionEvidence.targets[0].economics.priceEvidence.kind = "subscription";
+    delete subscriptionEvidence.targets[0].economics.priceEvidence.unitPrices;
     subscription.managedAgents.economicPolicies[0].candidates[0].ceiling = { kind: "none" };
     subscription.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation = {
       kind: "not-comparable",
       reason: "subscription-basis",
     };
-    expect(() => validateGlobalConfig(subscription)).not.toThrow();
+    expect(() => projectEconomicConfig(subscription as KilnGlobalConfig, subscriptionEvidence as ExecutionTargetEvidenceSnapshot)).not.toThrow();
     subscription.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.reason = "included-basis";
-    expect(() => validateGlobalConfig(subscription)).toThrow(/subscription-basis/);
+    expect(() => projectEconomicConfig(subscription as KilnGlobalConfig, subscriptionEvidence as ExecutionTargetEvidenceSnapshot)).toThrow(/subscription-basis/);
 
-    const priceScheme = structuredClone(economicConfig()) as Record<string, any>;
-    priceScheme.targetCatalog.targets[0].economics.priceEvidence.unitPrices[0].price.scheme.currency = "EUR";
-    expect(() => validateGlobalConfig(priceScheme)).toThrow(/route price scheme must match its comparison domain/);
+    const priceScheme = structuredClone(economicTargetEvidence()) as Record<string, any>;
+    priceScheme.targets[0].economics.priceEvidence.unitPrices[0].price.scheme.currency = "EUR";
+    expect(() => projectEconomicConfig(economicConfig(), priceScheme as ExecutionTargetEvidenceSnapshot)).toThrow(/route price scheme must match its comparison domain/);
 
-    const auxiliaryScheme = structuredClone(economicConfig()) as Record<string, any>;
-    auxiliaryScheme.targetCatalog.targets[0].economics.auxiliaryCharges = [{
+    const auxiliaryScheme = structuredClone(economicTargetEvidence()) as Record<string, any>;
+    auxiliaryScheme.targets[0].economics.auxiliaryCharges = [{
       id: "tool-call",
       amount: { atoms: "1", scale: 2, unit: "request", scheme: { kind: "currency", currency: "EUR" } },
     }];
-    expect(() => validateGlobalConfig(auxiliaryScheme)).toThrow(/auxiliary charge unit and scheme must match its comparison domain/);
+    expect(() => projectEconomicConfig(economicConfig(), auxiliaryScheme as ExecutionTargetEvidenceSnapshot)).toThrow(/auxiliary charge unit and scheme must match its comparison domain/);
   });
 
   it("requires proven free routes to reserve exact zero without auxiliary charges", () => {
     const free = structuredClone(economicConfig()) as Record<string, any>;
-    free.targetCatalog.targets[0].economics.priceEvidence.kind = "free";
-    delete free.targetCatalog.targets[0].economics.priceEvidence.unitPrices;
+    const freeEvidence = structuredClone(economicTargetEvidence()) as Record<string, any>;
+    freeEvidence.targets[0].economics.priceEvidence.kind = "free";
+    delete freeEvidence.targets[0].economics.priceEvidence.unitPrices;
     free.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.amount.atoms = "0";
-    expect(() => validateGlobalConfig(free)).not.toThrow();
+    expect(() => projectEconomicConfig(free as KilnGlobalConfig, freeEvidence as ExecutionTargetEvidenceSnapshot)).not.toThrow();
 
     const nonzero = structuredClone(free);
     nonzero.managedAgents.economicPolicies[0].candidates[0].worstCaseReservation.amount.atoms = "1";
-    expect(() => validateGlobalConfig(nonzero)).toThrow(/exact zero worst-case reservation/);
+    expect(() => projectEconomicConfig(nonzero as KilnGlobalConfig, freeEvidence as ExecutionTargetEvidenceSnapshot)).toThrow(/exact zero worst-case reservation/);
 
-    const chargedAuxiliary = structuredClone(free);
-    chargedAuxiliary.targetCatalog.targets[0].economics.auxiliaryCharges = [{
+    const chargedAuxiliary = structuredClone(freeEvidence) as Record<string, any>;
+    chargedAuxiliary.targets[0].economics.auxiliaryCharges = [{
       id: "tool-call",
       amount: { atoms: "1", scale: 2, unit: "request", scheme: { kind: "currency", currency: "USD" } },
     }];
-    expect(() => validateGlobalConfig(chargedAuxiliary)).toThrow(/cannot declare separately charged auxiliary calls/);
+    expect(() => projectEconomicConfig(free as KilnGlobalConfig, chargedAuxiliary as ExecutionTargetEvidenceSnapshot)).toThrow(/cannot declare separately charged auxiliary calls/);
   });
 });

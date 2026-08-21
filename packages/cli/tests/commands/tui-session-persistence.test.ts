@@ -7,7 +7,7 @@ import { resolveCommunicationIntent } from "@kilnai/core/agents";
 import { createSessionEvent } from "@kilnai/core/events";
 import { type ContextArtifactCache, InMemoryContextArtifactCache } from "@kilnai/core/memory";
 import type { DefaultBuiltinToolRegistryOptions } from "@kilnai/core/tools";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
 import { MODEL_FACING_DEFAULT_PERMISSION_POLICY } from "../../src/config/model-facing-permission-policy.js";
 
 const TOOL_CALL_SCOPE_ID = "turn-1:response:1";
@@ -283,15 +283,23 @@ vi.mock("../../src/wrapper/session-manager.js", () => ({
     prepare = mockSessionManagerPrepare;
   },
 }));
-vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
-  readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
-  readGlobalConfigSnapshot: vi.fn(() => ({ config: mockGlobalConfig.value, revision: `sha256:${"a".repeat(64)}` })),
-  resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
-  resolveGlobalDefaultProvider: () => undefined,
-  resolveGlobalDefaultModel: () => undefined,
-  resolveGlobalUiTheme: () => undefined,
-}));
+vi.mock("../../src/config/global-config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
+  const fixtures = await import("../config/execution-target-evidence-fixture.js");
+  return {
+    ...actual,
+    readGlobalConfig: vi.fn(() => mockGlobalConfig.value),
+    readGlobalConfigSnapshot: vi.fn(() => ({ config: mockGlobalConfig.value, revision: `sha256:${"a".repeat(64)}` })),
+    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+    readGlobalExecutionTargetAuthority: (config: Parameters<typeof fixtures.syntheticExecutionTargetAuthority>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionTargetAuthority(config) : undefined,
+    resolveGlobalConfigPath: () => "C:\\Users\\operator\\.kiln\\config.yaml",
+    resolveGlobalDefaultProvider: () => undefined,
+    resolveGlobalDefaultModel: () => undefined,
+    resolveGlobalUiTheme: () => undefined,
+  };
+});
 
 // We test makeMultiProviderSessionFactory via a lightweight re-implementation
 // that mirrors the exported function's logic — this keeps tests fast and

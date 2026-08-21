@@ -27,7 +27,7 @@ import {
   deriveCodexRuntimePermissionRequest,
 } from "../../src/wrapper/runtime-permission-observation.js";
 import { mutateGlobalConfig } from "../../src/config/global-config.js";
-import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v3-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "../commands/operator-surface-v4-fixture.js";
 
 let tempDir: string;
 
@@ -313,10 +313,10 @@ describe("config-status", () => {
 
     expect(snapshot.global).toMatchObject({ status: "invalid" });
     expect(snapshot.errors).toEqual(expect.arrayContaining([
-      expect.stringMatching(/Global config version must be "3"/),
+      expect.stringMatching(/Global config version must be "4"/),
     ]));
     expect(health.value).toMatchObject({
-      global: { error: expect.stringContaining('Global config version must be "3"') },
+      global: { error: expect.stringContaining('Global config version must be "4"') },
     });
   });
 
@@ -1022,7 +1022,7 @@ describe("config-status", () => {
     const globalDir = join(tempDir, "xdg", "kiln");
     mkdirSync(globalDir, { recursive: true });
     writeFileSync(join(globalDir, "config.yaml"), [
-      'version: "3"', "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
+      'version: "4"', "skills:", "  builtin:", "    enabled: false", "  visibility:", "    overrides:", "      planner: explicit-only", "",
     ].join("\n"), "utf8");
     const snapshot = await readConfigStatusSnapshot({ projectPath: tempDir, userHome });
 

@@ -30,6 +30,7 @@ function modelGatewayCommand(
   overrides: Parameters<typeof runModelGatewayCommand>[1] = {},
 ): Promise<void> {
   return runModelGatewayCommand(args, {
+    readExecutionCatalog: () => executionCatalog,
     resolveModelGatewayHost: async () => TEST_MODEL_GATEWAY_HOST,
     inspectCodexNativeClient: () => ({ executable: "codex.exe", version: "0.147.0", nativeCatalog: { models: [{ slug: "gpt-native" }] } }),
     createAutostartAdapter: () => ({
@@ -109,11 +110,38 @@ const executionCatalog = defineExecutionCatalog({
   }],
 });
 const globalConfig = {
-  version: "3" as const,
+  version: "4" as const,
   targetCatalog: {
-    accounts: executionCatalog.accounts,
+    evidenceRevision: `sha256:${"f".repeat(64)}` as const,
+    accounts: executionCatalog.accounts.map((account) => ({
+      id: account.id,
+      providerId: account.providerId,
+      credentialId: account.credentialId,
+      maxConcurrency: account.maxConcurrency,
+      reservedAffinitySlots: account.reservedAffinitySlots,
+      economics: {
+        creditPosture: account.economics.creditPosture,
+        overagePosture: account.economics.overagePosture,
+      },
+    })),
     accountPolicies: executionCatalog.accountPolicies,
-    targets: executionCatalog.routes.map((route) => ({ ...route, kind: "direct" as const })),
+    targets: executionCatalog.routes.map((route) => ({
+      id: route.id,
+      kind: "direct" as const,
+      label: route.label,
+      providerId: route.providerId,
+      providerModelId: route.providerModelId,
+      dataClassification: route.dataClassification,
+      accountSelection: route.accountSelection,
+      economics: {
+        authBillingChannel: route.economics.authBillingChannel,
+        executionMode: route.economics.executionMode,
+        serviceTier: route.economics.serviceTier,
+        fallbackPosture: route.economics.fallbackPosture,
+        overagePosture: route.economics.overagePosture,
+        executionEnvelope: route.economics.executionEnvelope,
+      },
+    })),
   },
   targetRouting: { defaultTargetId: "codex-route" },
   modelGateway,
@@ -296,7 +324,7 @@ describe("modelGatewayCommand", () => {
 
     await expect(modelGatewayCommand(["serve", "--config", configPath], {
       startModelGatewayListener: start,
-      readGlobalConfig: () => ({ version: "3", modelGateway }),
+      readGlobalConfig: () => ({ version: "4", modelGateway }),
       env: { REPLAY_SECRET: "r".repeat(32), BEARER_TOKEN: "b".repeat(32) },
       log: vi.fn(),
     })).rejects.toThrow("targetCatalog and targetRouting");

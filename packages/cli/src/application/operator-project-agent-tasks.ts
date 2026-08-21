@@ -61,7 +61,7 @@ import { createDefaultRegistry } from "../wrapper/session-registry.js";
 import { deriveEffectiveKilnYaml, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { publicEffectiveConfigValue } from "./effective-config-projection.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
-import { projectDirectExecutionCatalog, readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionTargetAuthority } from "../config/global-config.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 
 const MAX_GOVERNANCE_EVIDENCE_AGE_MS = 5 * 60 * 1_000;
@@ -89,9 +89,11 @@ function loadOperatorProjectManagedRouteConfig(
   const projectConfig = readKilnYaml(join(rootPath, ".kiln"));
   const effectiveConfig = deriveEffectiveKilnYaml(globalConfig, projectConfig);
   if (!effectiveConfig) return undefined;
+  const targetAuthority = readGlobalExecutionTargetAuthority(globalConfig);
   return {
     ...effectiveConfig,
-    executionCatalog: projectDirectExecutionCatalog(globalConfig),
+    executionCatalog: targetAuthority?.executionCatalog,
+    executionTargetEvidence: targetAuthority?.evidence,
     targetCatalog: globalConfig?.targetCatalog,
     authorityProfiles: globalConfig?.authorityProfiles,
     engines: globalConfig?.engines,
@@ -336,15 +338,17 @@ export async function createOperatorProjectAgentTaskApplicationComposition(
   const governance = createOperatorProjectGovernanceReader(root.rootPath);
   const assertNativeRouteDataPolicy = (route: { readonly routeId: string; readonly providerId: string; readonly model: string }): SanitizedExecutionRouteDataPolicyDecision => {
     const currentPolicyConfig = loadOperatorProjectManagedRouteConfig(root.rootPath);
-    const target = currentPolicyConfig?.targetCatalog?.targets.find(({ id }) => id === route.routeId);
+    const directTarget = currentPolicyConfig?.executionCatalog?.routes.find(({ id }) => id === route.routeId);
+    const intentTarget = currentPolicyConfig?.targetCatalog?.targets.find(({ id }) => id === route.routeId);
+    const managedTarget = currentPolicyConfig?.executionTargetEvidence?.targets.find(({ targetId }) => targetId === route.routeId);
     try {
-      if (!target) throw new Error("Missing target data-policy authority.");
+      if (!intentTarget || !managedTarget) throw new Error("Missing target data-policy authority.");
       const result = evaluateExecutionTargetDataPolicy({
         routeId: route.routeId,
         providerId: route.providerId,
         providerModelId: route.model,
-        requestedClassification: target.dataClassification,
-        evidence: target.dataPolicyEvidence,
+        requestedClassification: directTarget?.dataClassification ?? intentTarget.dataClassification,
+        evidence: directTarget?.dataPolicyEvidence ?? managedTarget.dataPolicyEvidence,
       });
       if (result.decision.status === "denied") throw new Error("Target data policy denied execution.");
       if (!result.evidence) throw new Error("Admitted route policy omitted evidence.");

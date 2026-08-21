@@ -26,10 +26,13 @@ surface persistence, prompts, logs, events, or fixtures.
 
 ## Target Catalog
 
-The V3 catalog has three distinct concepts:
+The V4 intent catalog has three distinct concepts plus one exact evidence reference:
+
+- `evidenceRevision`: the immutable managed snapshot containing current
+  capacity, discovery, data-policy, adapter, and price facts.
 
 - `accounts`: configured execution identities. Each has `id`, `providerId`,
-  `credentialId`, capacity limits, and economics metadata.
+  `credentialId`, concurrency intent, and credit/overage posture.
 - `accountPolicies`: an eligible account set and a selection strategy.
 - `targets`: an operator-facing direct or harness execution choice. A direct
   target references either an automatic account policy or one exact account.

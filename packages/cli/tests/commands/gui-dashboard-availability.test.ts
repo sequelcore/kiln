@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KilnAppConfig } from "../../src/config.js";
-import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v3-fixture.js";
+import { makeOperatorSurfaceGlobalConfig } from "./operator-surface-v4-fixture.js";
 
 const gatewayHarness = vi.hoisted(() => ({
   snapshot: null as {
@@ -137,7 +137,7 @@ const registryMocks = vi.hoisted(() => {
 
 const configMocks = vi.hoisted(() => ({
   globalConfig: null as {
-    version?: "3";
+    version?: "4";
     targetRouting?: { defaultTargetId?: string };
     targetCatalog?: { targets?: readonly { id: string; providerId: string; providerModelId?: string }[] };
     managedAgents?: {
@@ -154,7 +154,7 @@ const configMocks = vi.hoisted(() => ({
       };
     };
   } | null,
-  defaultGlobalConfig: vi.fn(() => ({ version: "3" })),
+  defaultGlobalConfig: vi.fn(() => ({ version: "4" })),
   readGlobalConfig: vi.fn(() => configMocks.globalConfig),
   mutateGlobalConfig: vi.fn(),
   resolveGlobalDefaultProvider: vi.fn((config: { targetRouting?: { defaultTargetId?: string }; targetCatalog?: { targets?: readonly { id: string; providerId: string }[] } } | null) => {
@@ -286,17 +286,25 @@ vi.mock("@kilnai/core", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/config/global-config.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../src/config/global-config.js")>()),
-  defaultGlobalConfig: configMocks.defaultGlobalConfig,
-  readGlobalConfig: configMocks.readGlobalConfig,
-  readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
-  resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,
-  resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
-  resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
-  resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
-  mutateGlobalConfig: configMocks.mutateGlobalConfig,
-}));
+vi.mock("../../src/config/global-config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/config/global-config.js")>();
+  const fixtures = await import("../config/execution-target-evidence-fixture.js");
+  return {
+    ...actual,
+    defaultGlobalConfig: configMocks.defaultGlobalConfig,
+    readGlobalConfig: configMocks.readGlobalConfig,
+    readGlobalConfigSnapshot: vi.fn(() => ({ config: configMocks.globalConfig, revision: `sha256:${"a".repeat(64)}` })),
+    readGlobalExecutionCatalog: (config: Parameters<typeof fixtures.syntheticExecutionCatalog>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionCatalog(config) ?? undefined : undefined,
+    readGlobalExecutionTargetAuthority: (config: Parameters<typeof fixtures.syntheticExecutionTargetAuthority>[0] | undefined) =>
+      config ? fixtures.syntheticExecutionTargetAuthority(config) : undefined,
+    resolveGlobalConfigPath: configMocks.resolveGlobalConfigPath,
+    resolveGlobalDefaultProvider: configMocks.resolveGlobalDefaultProvider,
+    resolveGlobalDefaultModel: configMocks.resolveGlobalDefaultModel,
+    resolveGlobalUiTheme: configMocks.resolveGlobalUiTheme,
+    mutateGlobalConfig: configMocks.mutateGlobalConfig,
+  };
+});
 
 vi.mock("../../src/config/managed-agent-provider-models.js", async () => {
   const core = await vi.importActual<typeof import("@kilnai/core")>("@kilnai/core");

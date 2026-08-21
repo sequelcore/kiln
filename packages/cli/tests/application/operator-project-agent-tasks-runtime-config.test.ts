@@ -7,12 +7,35 @@ import {
   type ProviderModelEligibilityRequirements,
 } from "@kilnai/core/agents";
 import { normalizeRuntimeProviderDiscoveryCatalog, RuntimeManagedAgentInvocationService, type ManagedCommittedInvocationRequest } from "@kilnai/runtime";
-import { mutateGlobalConfig, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { mutateGlobalConfig, resolveGlobalConfigPath, type KilnGlobalConfig } from "../../src/config/global-config.js";
+import { writeExecutionTargetEvidenceSnapshot, type ExecutionTargetEvidenceSnapshot } from "../../src/config/execution-target-evidence-store.js";
+import { withSyntheticExecutionTargetEvidence } from "../config/execution-target-evidence-fixture.js";
 import type { ResolvedManagedTargetConfig } from "../../src/config/resolved-managed-target.js";
 import type { DirectProviderCredentialBinding } from "../../src/wrapper/direct-provider-adapter-factory.js";
 
-function persistGlobalConfig(config: KilnGlobalConfig): void {
-  mutateGlobalConfig(() => config);
+function persistGlobalConfig(
+  config: KilnGlobalConfig,
+  mutateEvidence?: (evidence: ExecutionTargetEvidenceSnapshot) => ExecutionTargetEvidenceSnapshot,
+): void {
+  const admitted = withSyntheticExecutionTargetEvidence(config);
+  const evidence = admitted.evidence && mutateEvidence
+    ? mutateEvidence(admitted.evidence)
+    : admitted.evidence;
+  if (evidence) {
+    const published = writeExecutionTargetEvidenceSnapshot({
+      globalConfigPath: resolveGlobalConfigPath(),
+      snapshot: evidence,
+    });
+    mutateGlobalConfig(() => ({
+      ...admitted.config,
+      targetCatalog: {
+        ...admitted.config.targetCatalog!,
+        evidenceRevision: published.revision,
+      },
+    }));
+    return;
+  }
+  mutateGlobalConfig(() => admitted.config);
 }
 import { createOperatorProjectAgentTaskApplicationComposition } from "../../src/application/operator-project-agent-tasks.js";
 import { createNativeHarnessInspectionService } from "../../src/application/native-harness-inspection.js";
@@ -274,13 +297,14 @@ const NATIVE_CODEX_DELIBERATION_AGENT = [
 
 function nativeCodexDeliberationConfig(): KilnGlobalConfig {
   return {
-    version: "3",
+    version: "4",
     workGovernance: {
       defaultPosture: "direct",
       requireDelegationFor: ["managed-agents"],
       requiredEvidence: [],
     },
     targetCatalog: {
+      evidenceRevision: `sha256:${"a".repeat(64)}`,
       accounts: [],
       accountPolicies: [],
       targets: [{
@@ -290,20 +314,6 @@ function nativeCodexDeliberationConfig(): KilnGlobalConfig {
         providerId: "codex",
         providerModelId: "gpt-5.6-codex",
         dataClassification: "internal",
-        dataPolicyEvidence: {
-          providerId: "codex",
-          providerModelId: "gpt-5.6-codex",
-          dataUse: "not-used",
-          trainingPosture: "prohibited",
-          retention: { posture: "zero", days: 0 },
-          permittedMaximumClassification: "internal",
-          permittedClassifications: ["public", "internal"],
-          sourceIdentity: "fixture-privacy-policy",
-          sourceRevision: "rev-2026-08",
-          sourceDigest: `sha256:${"b".repeat(64)}`,
-          observedAt: "2026-08-01T00:00:00.000Z",
-          expiresAt: "2027-08-31T00:00:00.000Z",
-        },
       }],
     },
     authorityProfiles: [{
@@ -375,13 +385,8 @@ function openCodeGoEconomicConfig(): KilnGlobalConfig {
           id: "opencode-go-direct",
           providerId: "opencode-go",
           providerModelId: "kimi-k2.6",
-          dataPolicyEvidence: {
-            ...target.dataPolicyEvidence,
-            providerId: "opencode-go",
-            providerModelId: "kimi-k2.6",
-          },
           accountSelection: { mode: "automatic" as const, accountPolicyId: "opencode-go-policy" },
-          economics: { ...target.economics, adapterCapabilityId: "opencode-go-direct" },
+          economics: target.economics,
         };
       }),
     },
@@ -562,7 +567,20 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
   it("persists exact native deliberation evidence through status and replay", async () => {
     useIsolatedGlobalConfigHome();
     routeCatalogTrace.injectNativeDeliberationCapabilities = true;
-    persistGlobalConfig(nativeCodexDeliberationConfig());
+    persistGlobalConfig(nativeCodexDeliberationConfig(), (evidence) => ({
+      ...evidence,
+      targets: evidence.targets.map((target) => ({
+        ...target,
+        dataPolicyEvidence: {
+          ...target.dataPolicyEvidence,
+          sourceIdentity: "fixture-privacy-policy",
+          sourceRevision: "rev-2026-08",
+          sourceDigest: `sha256:${"b".repeat(64)}`,
+          observedAt: "2026-08-01T00:00:00.000Z",
+          expiresAt: "2027-08-31T00:00:00.000Z",
+        },
+      })),
+    }));
     const projectRoot = createProjectRoot('version: "1"\n', {
       "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT,
     });
@@ -1022,37 +1040,28 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
     useIsolatedGlobalConfigHome();
     routeCatalogTrace.injectNativeDeliberationCapabilities = true;
     const config = nativeCodexDeliberationConfig();
-    persistGlobalConfig({
-      ...config,
-      targetCatalog: {
-        ...config.targetCatalog!,
-        targets: config.targetCatalog!.targets.map((target) => ({
-          ...target,
-          dataPolicyEvidence: { ...target.dataPolicyEvidence, expiresAt: "2026-08-14T00:00:00.000Z" },
-        })),
-      },
-    });
+    persistGlobalConfig(config, (evidence) => ({
+      ...evidence,
+      targets: evidence.targets.map((target) => ({
+        ...target,
+        dataPolicyEvidence: {
+          ...target.dataPolicyEvidence,
+          expiresAt: "2026-08-14T00:00:00.000Z",
+        },
+      })),
+    }));
     const projectRoot = createProjectRoot('version: "1"\n', { "native-codex-deliberation-worker.md": NATIVE_CODEX_DELIBERATION_AGENT });
     const start = vi.spyOn(RuntimeManagedAgentInvocationService.prototype, "start").mockResolvedValue({ status: "started" } as never);
-    const composition = await createOperatorProjectAgentTaskApplicationComposition({
-      projectPath: projectRoot,
-      discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
-    });
     const adapterCreationsBeforeDispatch = adapterTrace.createCalls;
     try {
-      const accepted = await composition.application.accept({
-        objective: "Reject expired data policy before materializing an adapter.",
-        configuredAgentProfileId: "native-codex-deliberation-worker",
-        callerId: "codex-native-harness",
-        idempotencyKey: "expired-native-data-policy",
-      });
-      await composition.close();
-      await expect(composition.application.getStatus({ callerId: "codex-native-harness" }, accepted.id)).resolves.toMatchObject({ state: "failed" });
+      await expect(createOperatorProjectAgentTaskApplicationComposition({
+        projectPath: projectRoot,
+        discoverProviderModels: async () => eligibleHarnessProviderCatalog("codex", "gpt-5.6-codex"),
+      })).rejects.toThrow("data-policy evidence is stale");
       expect(adapterTrace.createCalls).toBe(adapterCreationsBeforeDispatch);
       expect(start).not.toHaveBeenCalled();
       expect(adapterTrace.adapter.invoke).not.toHaveBeenCalled();
     } finally {
-      await composition.close();
       start.mockRestore();
     }
   });
@@ -1137,7 +1146,7 @@ describe("native-harness managed-route runtime config authority (#56 S1)", () =>
 
   it("rejects a project-declared managed target instead of treating it as global authority", async () => {
     useIsolatedGlobalConfigHome();
-    persistGlobalConfig({ version: "3" });
+    persistGlobalConfig({ version: "4" });
     const projectRoot = createProjectRoot([
       'version: "1"',
       "managedAgents:",

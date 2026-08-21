@@ -5,7 +5,7 @@ different problems and do not fall back to one another.
 
 | Concern | Owner | Applies to |
 | --- | --- | --- |
-| Operator execution | Global V3 `targetCatalog` and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
+| Operator execution | Global V4 `targetCatalog` intent, exact managed evidence, and `targetRouting` | GUI, TUI, `kiln run`, Model Gateway, and managed children |
 | Tenant model routing | Application `modelConfig` | That application's session orchestrator and provider pool |
 
 ## Operator targets
@@ -17,9 +17,10 @@ The catalog separates:
 
 | Record | Owns |
 | --- | --- |
-| `targetCatalog.accounts` | Opaque credential reference, capacity, quota, and account economics |
+| `targetCatalog.evidenceRevision` | Exact immutable managed-evidence snapshot admitted with this intent |
+| `targetCatalog.accounts` | Opaque credential reference, concurrency intent, and credit/overage posture |
 | `targetCatalog.accountPolicies` | Eligible accounts and deterministic automatic selection |
-| `targetCatalog.targets` | Direct or harness provider/model destination, data policy, account selection, and target economics |
+| `targetCatalog.targets` | Destination, classification, account selection, and material execution constraints |
 
 `targetRouting.defaultTargetId` selects the normal default. A surface preference
 may persist `ui.targetSelection.targetId`. The CLI accepts an explicit target:
@@ -53,14 +54,16 @@ switch provider, model, target, or credential after an effect may have escaped.
 
 ## Economics and data policy
 
-Every operational direct target carries complete data-policy and economic
-evidence. These records are execution authority, not display metadata. They
-include the adapter and billing channel, rate-card basis, price evidence,
-auxiliary charges, execution envelope, fallback posture, and overage posture.
+Every operational target resolves against one immutable managed-evidence
+snapshot. It owns discovery, data policy, account capacity classification,
+adapter facts, rate-card evidence, auxiliary charges, and freshness. Operator
+YAML retains billing channel, execution mode, service tier, envelope, fallback,
+and overage choices.
 
 Do not copy partial YAML fragments from prose. Use the complete
-[V3 target example](../../examples/configs/managed-targets-v3-subscription.yaml)
-and replace its synthetic evidence with current facts.
+[V4 target example](../../examples/configs/managed-targets-v4-subscription.yaml).
+Its adjacent JSON demonstrates the managed store; operational snapshots are
+published by Kiln and must not be hand-edited.
 
 ## Managed children
 

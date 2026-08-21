@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 import { defaultGlobalConfig, validateGlobalConfig } from "../../src/config/global-config.js";
+import {
+  executionTargetEvidenceRevision,
+  projectExecutionCatalogFromIntent,
+  type ExecutionTargetCatalogIntent,
+} from "../../src/config/execution-target-evidence-store.js";
 
 const FIXTURE_PATH = resolve(
   import.meta.dirname,
@@ -13,6 +18,16 @@ const FIXTURE_PATH = resolve(
   "scripts",
   "fixtures",
   "startup-profile-global-config.yaml",
+);
+const EVIDENCE_FIXTURE_PATH = resolve(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "scripts",
+  "fixtures",
+  "startup-profile-execution-target-evidence.json",
 );
 
 function readFixture(): Record<string, unknown> {
@@ -47,5 +62,18 @@ describe("startup profile global configuration fixture", () => {
     expect(fixture.targetCatalog.targets).toContainEqual(
       expect.objectContaining({ id: fixture.targetRouting.defaultTargetId, kind: "direct" }),
     );
+  });
+
+  it("binds the intent to an exact, admissible managed-evidence snapshot", () => {
+    const fixture = readFixture() as { targetCatalog: ExecutionTargetCatalogIntent };
+    const evidence = JSON.parse(readFileSync(EVIDENCE_FIXTURE_PATH, "utf8")) as unknown;
+
+    expect(executionTargetEvidenceRevision(evidence)).toBe(fixture.targetCatalog.evidenceRevision);
+    expect(projectExecutionCatalogFromIntent(
+      fixture.targetCatalog,
+      evidence,
+      fixture.targetCatalog.evidenceRevision,
+      { now: new Date("2026-08-20T00:00:00.000Z") },
+    ).routes).toHaveLength(1);
   });
 });

@@ -10,16 +10,17 @@ import type {
   ExecutionRouteSelectionIntent,
 } from "@kilnai/gateway-contracts";
 import type { OperatorExecutionRouteSelectionPort } from "@kilnai/runtime";
-import { projectDirectExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
+import { readGlobalExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
 
 export function createOperatorExecutionRouteSelectionPort(input: {
   readonly readConfigSnapshot: () => { readonly config: KilnGlobalConfig | null; readonly revision: string };
+  readonly readExecutionCatalog?: (config: KilnGlobalConfig | null) => ExecutionCatalog | undefined;
   readonly resolveAccountAvailability: (input: {
     readonly admission: ReturnType<typeof admitOperatorExecutionIntent>;
   }) => Promise<readonly OperatorExecutionRouteAccountAvailability[]>;
 }): OperatorExecutionRouteSelectionPort {
   const catalog = (config: KilnGlobalConfig | null): ExecutionCatalog => {
-    const configured = projectDirectExecutionCatalog(config);
+    const configured = (input.readExecutionCatalog ?? readGlobalExecutionCatalog)(config);
     if (!configured) return defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] });
     return defineExecutionCatalog(configured);
   };
@@ -59,11 +60,14 @@ export function createOperatorExecutionRouteSelectionPort(input: {
  * The session factory still needs derived provider evidence to establish its
  * first transport. The configured route remains the only selection input.
  */
-export function resolveOperatorStartupExecutionRoute(config: KilnGlobalConfig) {
-  const catalog = projectDirectExecutionCatalog(config);
+export function resolveOperatorStartupExecutionRoute(
+  config: KilnGlobalConfig,
+  catalog: ExecutionCatalog = readGlobalExecutionCatalog(config)
+    ?? defineExecutionCatalog({ accounts: [], accountPolicies: [], routes: [] }),
+) {
   const routeId = config.ui?.targetSelection?.targetId
     ?? config.targetRouting?.defaultTargetId;
-  const route = catalog?.routes.find((candidate) => candidate.id === routeId);
+  const route = catalog.routes.find((candidate) => candidate.id === routeId);
   if (!route) {
     throw new Error("No configured execution target is available for the operator surface.");
   }

@@ -1,0 +1,72 @@
+# Synthetic, parser-validated V4 target intent. Managed discovery, data-policy,
+# account-capacity, and price evidence lives in the referenced immutable JSON.
+version: "4"
+
+managedAgents:
+  defaultAuthorityProfileId: readonly-plan
+  economicPolicies:
+    - id: default-economic-policy
+      revision: rev-example-1
+      evidenceRequirements: { quota: required-for-account-bound, price: required }
+      noRouteAction: deny
+      comparisonDomains:
+        - id: usd-worst-case
+          rank: 0
+          unit: request
+          scheme: { kind: currency, currency: USD }
+          rateCardBasis: public-rate-card
+          envelopeSemantics: configured-upper-bound
+      candidates:
+        - targetId: codex-standard
+          comparisonDomainId: usd-worst-case
+          priorityRank: 0
+          ceiling:
+            kind: finite
+            amount: { atoms: "25", scale: 0, unit: request, scheme: { kind: currency, currency: USD } }
+          worstCaseReservation:
+            kind: exact
+            amount: { atoms: "25", scale: 0, unit: request, scheme: { kind: currency, currency: USD } }
+
+authorityProfiles:
+  - id: readonly-plan
+    admissionProfile: foundation-readonly-plan
+    workingDirectory: project
+    tools: { allowed: [read], network: false, writes: false }
+    memory: { access: read-only }
+
+targetCatalog:
+  evidenceRevision: sha256:6e3969ffb56729551646a4ea540aa8b6dac4ecf4e6b58e02a6331209b3cd67d0
+  accounts:
+    - id: codex-account
+      providerId: codex-oauth
+      credentialId: codex-credential
+      maxConcurrency: 1
+      reservedAffinitySlots: 0
+      economics: { creditPosture: disabled, overagePosture: disabled }
+  accountPolicies:
+    - id: codex-standard-policy
+      accountIds: [codex-account]
+      strategy: economic-least-pressure
+  targets:
+    - id: codex-standard
+      kind: direct
+      label: Codex Standard
+      providerId: codex-oauth
+      providerModelId: gpt-5.6-codex
+      dataClassification: internal
+      accountSelection: { mode: automatic, accountPolicyId: codex-standard-policy }
+      economics:
+        authBillingChannel: oauth-subscription
+        executionMode: responses-api
+        serviceTier: standard
+        fallbackPosture: disabled
+        overagePosture: disabled
+        executionEnvelope:
+          limits:
+            - atoms: "200000"
+              scale: 0
+              unit: input-token
+              scheme: { kind: unit }
+
+targetRouting:
+  defaultTargetId: codex-standard

@@ -38,7 +38,7 @@ import {
   type ProviderId,
 } from "../wrapper/session-registry.js";
 import { resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
-import { projectDirectExecutionCatalog, readGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionCatalog } from "../config/global-config.js";
 import { loadKilnConfig } from "../config/config-merger.js";
 import { readKilnYaml } from "../kiln-yaml.js";
 import { withContextCandidates } from "./agent-skill-context.js";
@@ -149,12 +149,17 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       : input;
     const mode: SessionMode = "cli-wrapper";
     const globalConfig = readGlobalConfig();
+    const directExecutionCatalog = readGlobalExecutionCatalog(globalConfig);
+    const managedRouteConfig = globalConfig
+      ? { ...globalConfig, executionCatalog: directExecutionCatalog ?? undefined }
+      : undefined;
     const projectConfig = benchmarkWorkspace.kind === "repository"
       ? readKilnYaml(join(repositoryRoot, ".kiln"))
       : undefined;
     const resolvedKilnConfig = await loadKilnConfig(repositoryRoot);
     const configuredRouteCandidates = resolveExecutionRouteCandidates({
       globalConfig,
+      executionCatalog: directExecutionCatalog,
       routeId: options.flags?.targetId,
     });
     if (writeMode && configuredRouteCandidates.length === 0) {
@@ -278,7 +283,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
         }
       : withProgressiveRuntimeToolProjection(baseBuiltinToolOptions, "read-only"));
     const benchmarkManagedAccountComposition = benchmarkWorkspace.kind === "synthetic-fixture" && globalConfig
-      ? createManagedAccountRuntimeComposition(globalConfig, cwd, {
+      ? createManagedAccountRuntimeComposition(managedRouteConfig!, cwd, {
           compositionKey: authorityStateRoot,
           databasePath: join(authorityStateRoot, "managed-account-leases.sqlite"),
       })
@@ -296,7 +301,7 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
     if (!managedInvocation) {
       const engineAvailability = resolveEngineAvailabilityMap(globalConfig);
       const managedAgentProviderModels = await discoverManagedAgentProviderModels();
-      managedInvocation = (await resolveManagedInvocationToolOptions(globalConfig, {
+      managedInvocation = (await resolveManagedInvocationToolOptions(managedRouteConfig, {
         cwd,
         registry,
         surface: "run",
@@ -323,7 +328,6 @@ export function createBenchmarkSessionExecutor(options: BenchmarkSessionExecutor
       ? createKilnRuntimeManagedInvocationAttachment("benchmark", managedInvocationWithService)
       : undefined;
     const sessionId = randomUUID();
-    const directExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
     builtinToolOptions = withManagedAgentInvocationResourceProvider(
       builtinToolOptions,
       managedInvocationWithService ? {

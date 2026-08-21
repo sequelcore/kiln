@@ -21,18 +21,13 @@ import {
   parseGatewayYaml,
   validateManagedEconomicAmount,
   validateVoiceConfig,
-  defineExecutionCatalog,
   resolveCommunicationIntent,
   isDirectProviderId,
   MANAGED_AGENT_ADMISSION_PROFILES,
   type ManagedEconomicAmount,
   type ModelGatewayConfig,
   type VoiceConfig,
-  type ExecutionAccount,
-  type ExecutionAccountPolicy,
   type ExecutionCatalog,
-  type ExecutionRoute,
-  type ExecutionRouteAccountSelection,
   type CommunicationIntent,
 } from "@kilnai/core";
 import { describeRunningCliBuild } from "../build-identity.js";
@@ -52,8 +47,14 @@ import type {
   KilnYamlSkillsConfig,
   KilnWorkGovernanceConfig,
   KilnAuthorityProfileConfig,
-  KilnTargetCatalogConfig,
+  KilnTargetCatalogIntentConfig,
 } from "../kiln-yaml-types.js";
+import {
+  projectExecutionCatalogFromIntent,
+  readExecutionTargetEvidenceSnapshot,
+  type ExecutionTargetEvidenceRevision,
+  type ExecutionTargetEvidenceSnapshot,
+} from "./execution-target-evidence-store.js";
 
 export interface KilnGlobalIdentity {
   readonly name?: string;
@@ -75,14 +76,6 @@ export interface KilnSessionTurnBudgetConfig {
   readonly tokenLimit: number;
   readonly action: "stop";
 }
-
-/** CLI config names whose structure is owned by Core's execution-routing contract. */
-export type KilnExecutionAccount = ExecutionAccount;
-export type KilnExecutionAccountPolicy = ExecutionAccountPolicy;
-export type KilnExecutionRouteAutomaticSelection = Extract<ExecutionRouteAccountSelection, { readonly mode: "automatic" }>;
-export type KilnExecutionRouteExactSelection = Extract<ExecutionRouteAccountSelection, { readonly mode: "exact" }>;
-export type KilnExecutionRoute = ExecutionRoute;
-export type KilnExecutionCatalog = ExecutionCatalog;
 
 export interface KilnGlobalUiConfig {
   readonly theme?: string;
@@ -124,7 +117,7 @@ export interface KilnGlobalVerificationConfig {
   readonly formal: KilnGlobalFormalVerificationConfig;
 }
 
-export const CANONICAL_GLOBAL_CONFIG_VERSION = "3" as const;
+export const CANONICAL_GLOBAL_CONFIG_VERSION = "4" as const;
 
 export interface KilnGlobalConfig {
   readonly version: typeof CANONICAL_GLOBAL_CONFIG_VERSION;
@@ -132,7 +125,7 @@ export interface KilnGlobalConfig {
   readonly activeInstructionProfiles?: readonly string[];
   readonly workGovernance?: KilnWorkGovernanceConfig;
   readonly engines?: Record<string, KilnGlobalEngineConfig>;
-  readonly targetCatalog?: KilnTargetCatalogConfig;
+  readonly targetCatalog?: KilnTargetCatalogIntentConfig;
   readonly targetRouting?: KilnTargetRoutingConfig;
   readonly authorityProfiles?: readonly KilnAuthorityProfileConfig[];
   readonly sessionTurnBudget?: KilnSessionTurnBudgetConfig;
@@ -829,7 +822,10 @@ function validateEngines(value: unknown): void {
 function validateTargetCatalog(value: unknown): void {
   if (value === undefined) return;
   if (!isRecord(value)) throw new KilnYamlError("targetCatalog must be an object");
-  rejectUnknownFields(value, ["accounts", "accountPolicies", "targets"], "targetCatalog");
+  rejectUnknownFields(value, ["evidenceRevision", "accounts", "accountPolicies", "targets"], "targetCatalog");
+  if (typeof value.evidenceRevision !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value.evidenceRevision)) {
+    throw new KilnYamlError("targetCatalog.evidenceRevision must be a sha256 digest");
+  }
   if (!Array.isArray(value.accounts) || !Array.isArray(value.accountPolicies) || !Array.isArray(value.targets)) {
     throw new KilnYamlError("targetCatalog.accounts, targetCatalog.accountPolicies, and targetCatalog.targets must be arrays");
   }
@@ -849,7 +845,7 @@ function validateTargetCatalog(value: unknown): void {
     if (!Number.isSafeInteger(account.reservedAffinitySlots) || Number(account.reservedAffinitySlots) < 0 || Number(account.reservedAffinitySlots) > account.maxConcurrency) {
       throw new KilnYamlError(`${path}.reservedAffinitySlots must be a non-negative integer no greater than maxConcurrency`);
     }
-    validateExecutionAccountEconomics(account.economics, `${path}.economics`);
+    validateExecutionAccountIntentEconomics(account.economics, `${path}.economics`);
     accounts.set(account.id, account);
   });
 
@@ -877,14 +873,13 @@ function validateTargetCatalog(value: unknown): void {
   });
 
   const targetIds = new Set<string>();
-  const directTargets: Record<string, unknown>[] = [];
   value.targets.forEach((target, index) => {
     const path = `targetCatalog.targets[${index}]`;
     if (!isRecord(target)) throw new KilnYamlError(`${path} must be an object`);
     const common = ["id", "kind", "label", "providerId", "providerModelId"];
     rejectUnknownFields(target, target.kind === "direct"
-      ? [...common, "accountSelection", "dataClassification", "dataPolicyEvidence", "economics"]
-      : [...common, "dataClassification", "dataPolicyEvidence", "remoteHarness", "externalRuntimeAttachment"], path);
+      ? [...common, "accountSelection", "dataClassification", "economics"]
+      : [...common, "dataClassification", "remoteHarness", "externalRuntimeAttachment"], path);
     validateCanonicalId(target.id, `${path}.id`);
     if (targetIds.has(target.id)) throw new KilnYamlError(`${path}.id must be unique`);
     targetIds.add(target.id);
@@ -894,52 +889,69 @@ function validateTargetCatalog(value: unknown): void {
     if (!["public", "internal", "confidential", "restricted"].includes(String(target.dataClassification))) {
       throw new KilnYamlError(`${path}.dataClassification is invalid`);
     }
-    validateExecutionRouteDataPolicyEvidence(target.dataPolicyEvidence, `${path}.dataPolicyEvidence`);
-    const dataPolicyEvidence = target.dataPolicyEvidence as Record<string, unknown>;
-    if (dataPolicyEvidence.providerId !== target.providerId) {
-      throw new KilnYamlError(`${path}.dataPolicyEvidence.providerId must match the target providerId`);
-    }
-    if (dataPolicyEvidence.providerModelId !== target.providerModelId) {
-      throw new KilnYamlError(`${path}.dataPolicyEvidence.providerModelId must match the target providerModelId`);
-    }
-    if (dataPolicyEvidence.trainingPosture === "permitted"
-      && (target.dataClassification !== "public"
-        || dataPolicyEvidence.permittedMaximumClassification !== "public")) {
-      throw new KilnYamlError(`${path} may admit only public data when trainingPosture is permitted`);
-    }
     if (target.kind === "harness") {
       validateManagedAgentRemoteHarness(target.remoteHarness, "harness", `${path}.remoteHarness`);
+      if (isRecord(target.remoteHarness) && target.remoteHarness.limitations !== undefined) {
+        throw new KilnYamlError(`${path}.remoteHarness.limitations is managed evidence and cannot be declared as intent`);
+      }
       validateExternalRuntimeAttachment(target.externalRuntimeAttachment, `${path}.externalRuntimeAttachment`);
       return;
     }
     if (target.kind !== "direct") throw new KilnYamlError(`${path}.kind must be "direct" or "harness"`);
     validateRouteAccountSelection(target.accountSelection, path, target.providerId, accounts, policies);
-    validateExecutionRouteEconomics(target.economics, `${path}.economics`);
-    const { kind: _kind, ...executionRoute } = target;
-    directTargets.push(executionRoute);
+    validateExecutionRouteIntentEconomics(target.economics, `${path}.economics`);
   });
-  try {
-    defineExecutionCatalog({ accounts: value.accounts, accountPolicies: value.accountPolicies, routes: directTargets } as unknown as ExecutionCatalog);
-  } catch (error) {
-    throw new KilnYamlError(`Invalid targetCatalog: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 /** Projects direct targets into Core's account-backed execution boundary. */
 export function projectDirectExecutionCatalog(
   config: KilnGlobalConfig | null | undefined,
+  evidence: ExecutionTargetEvidenceSnapshot | undefined,
+  evidenceRevision: ExecutionTargetEvidenceRevision | undefined,
 ): ExecutionCatalog | undefined {
   const catalog = config?.targetCatalog;
   if (!catalog) return undefined;
-  return defineExecutionCatalog({
-    accounts: catalog.accounts,
-    accountPolicies: catalog.accountPolicies,
-    routes: catalog.targets.flatMap((target) => {
-      if (target.kind !== "direct") return [];
-      const { kind: _kind, ...route } = target;
-      return [route];
-    }),
+  if (!evidence || !evidenceRevision) {
+    throw new KilnYamlError(`Execution target catalog requires managed evidence revision ${catalog.evidenceRevision}.`);
+  }
+  try {
+    const executionCatalog = projectExecutionCatalogFromIntent(catalog, evidence, evidenceRevision);
+    validateManagedTargetReferences(
+      config?.managedAgents,
+      catalog,
+      config?.authorityProfiles,
+      executionCatalog,
+    );
+    return executionCatalog;
+  } catch (error) {
+    throw new KilnYamlError(`Invalid execution target catalog: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** Reads the exact managed-evidence revision referenced by operator intent and resolves Core runtime authority. */
+export function readGlobalExecutionTargetAuthority(
+  config: KilnGlobalConfig | null | undefined,
+  options: { readonly globalConfigPath?: string } = {},
+): {
+  readonly evidence: ExecutionTargetEvidenceSnapshot;
+  readonly executionCatalog: ExecutionCatalog;
+} | undefined {
+  const intent = config?.targetCatalog;
+  if (!intent) return undefined;
+  const evidence = readExecutionTargetEvidenceSnapshot({
+    globalConfigPath: options.globalConfigPath ?? resolveGlobalConfigPath(),
+    revision: intent.evidenceRevision,
   });
+  const executionCatalog = projectDirectExecutionCatalog(config, evidence, intent.evidenceRevision);
+  if (!executionCatalog) return undefined;
+  return { evidence, executionCatalog };
+}
+
+export function readGlobalExecutionCatalog(
+  config: KilnGlobalConfig | null | undefined,
+  options: { readonly globalConfigPath?: string } = {},
+): ExecutionCatalog | undefined {
+  return readGlobalExecutionTargetAuthority(config, options)?.executionCatalog;
 }
 
 /** Atomically reads validated global configuration and its optimistic-write revision. */
@@ -949,90 +961,25 @@ export function readGlobalConfigSnapshot(): { readonly config: KilnGlobalConfig 
   return { config: parseGlobalConfigRaw(raw), revision: globalConfigRevision(raw) };
 }
 
-function validateExecutionRouteDataPolicyEvidence(value: unknown, path: string): void {
+function validateExecutionAccountIntentEconomics(value: unknown, path: string): void {
   if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  rejectUnknownFields(value, [
-    "providerId", "providerModelId", "dataUse", "trainingPosture", "retention",
-    "permittedMaximumClassification", "permittedClassifications", "sourceIdentity", "sourceRevision",
-    "sourceDigest", "observedAt", "expiresAt",
-  ], path);
-  validateCanonicalId(value.providerId, `${path}.providerId`);
-  validateRequiredNonEmptyString(value, "providerModelId", `${path}.providerModelId`);
-  if (value.dataUse !== "not-used" && value.dataUse !== "service-operation") throw new KilnYamlError(`${path}.dataUse is invalid`);
-  if (value.trainingPosture !== "prohibited" && value.trainingPosture !== "permitted") throw new KilnYamlError(`${path}.trainingPosture is invalid`);
-  if (!isRecord(value.retention)) throw new KilnYamlError(`${path}.retention must be an object`);
-  rejectUnknownFields(value.retention, ["posture", "days"], `${path}.retention`);
-  if (value.retention.posture !== "zero" && value.retention.posture !== "bounded") throw new KilnYamlError(`${path}.retention.posture is invalid`);
-  if (!Number.isSafeInteger(value.retention.days) || Number(value.retention.days) < 0) throw new KilnYamlError(`${path}.retention.days is invalid`);
-  if (!["public", "internal", "confidential", "restricted"].includes(String(value.permittedMaximumClassification))) throw new KilnYamlError(`${path}.permittedMaximumClassification is invalid`);
-  if (!Array.isArray(value.permittedClassifications) || value.permittedClassifications.length === 0) throw new KilnYamlError(`${path}.permittedClassifications must be a non-empty array`);
-  validateCanonicalId(value.sourceIdentity, `${path}.sourceIdentity`);
-  validateCanonicalId(value.sourceRevision, `${path}.sourceRevision`);
-  if (typeof value.sourceDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value.sourceDigest)) throw new KilnYamlError(`${path}.sourceDigest must be a sha256 digest`);
-  validateRequiredNonEmptyString(value, "observedAt", `${path}.observedAt`);
-  validateRequiredNonEmptyString(value, "expiresAt", `${path}.expiresAt`);
-}
-
-function validateExecutionAccountEconomics(value: unknown, path: string): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  rejectUnknownFields(value, ["capacityIdentity", "subscriptionClass", "quotaClassId", "creditPosture", "overagePosture"], path);
-  validateRequiredNonEmptyString(value, "capacityIdentity", `${path}.capacityIdentity`);
-  if (!["subscription", "included", "free", "metered", "unknown"].includes(String(value.subscriptionClass))) throw new KilnYamlError(`${path}.subscriptionClass is invalid`);
-  validateRequiredNonEmptyString(value, "quotaClassId", `${path}.quotaClassId`);
+  rejectUnknownFields(value, ["creditPosture", "overagePosture"], path);
   if (value.creditPosture !== "disabled" && value.creditPosture !== "committed") throw new KilnYamlError(`${path}.creditPosture is invalid`);
   if (value.overagePosture !== "disabled" && value.overagePosture !== "committed") throw new KilnYamlError(`${path}.overagePosture is invalid`);
 }
 
-function validateExecutionRouteEconomics(value: unknown, path: string): void {
+function validateExecutionRouteIntentEconomics(value: unknown, path: string): void {
   if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  rejectUnknownFields(value, ["adapterCapabilityId", "adapterCapabilityVersion", "authBillingChannel", "executionMode", "serviceTier", "rateCardBasis", "envelopeSemantics", "fallbackPosture", "overagePosture", "contextClass", "cacheClass", "priceEvidence", "auxiliaryCharges", "executionEnvelope"], path);
-  for (const field of ["adapterCapabilityId", "adapterCapabilityVersion", "authBillingChannel", "executionMode", "serviceTier", "rateCardBasis", "envelopeSemantics", "contextClass", "cacheClass"]) validateRequiredNonEmptyString(value, field, `${path}.${field}`);
+  rejectUnknownFields(value, ["authBillingChannel", "executionMode", "serviceTier", "fallbackPosture", "overagePosture", "executionEnvelope"], path);
+  for (const field of ["authBillingChannel", "executionMode", "serviceTier"]) {
+    validateRequiredNonEmptyString(value, field, `${path}.${field}`);
+  }
   if (value.fallbackPosture !== "disabled" && value.fallbackPosture !== "committed") throw new KilnYamlError(`${path}.fallbackPosture is invalid`);
   if (value.overagePosture !== "disabled" && value.overagePosture !== "committed") throw new KilnYamlError(`${path}.overagePosture is invalid`);
-  validateExecutionPriceEvidence(value.priceEvidence, `${path}.priceEvidence`);
-  if (!Array.isArray(value.auxiliaryCharges)) throw new KilnYamlError(`${path}.auxiliaryCharges must be an array`);
-  value.auxiliaryCharges.forEach((charge, index) => {
-    const chargePath = `${path}.auxiliaryCharges[${index}]`;
-    if (!isRecord(charge)) throw new KilnYamlError(`${chargePath} must be an object`);
-    rejectUnknownFields(charge, ["id", "amount"], chargePath);
-    validateCanonicalId(charge.id, `${chargePath}.id`);
-    validateEconomicAmount(charge.amount, `${chargePath}.amount`);
-  });
   if (!isRecord(value.executionEnvelope)) throw new KilnYamlError(`${path}.executionEnvelope must be an object`);
   rejectUnknownFields(value.executionEnvelope, ["limits"], `${path}.executionEnvelope`);
   if (!Array.isArray(value.executionEnvelope.limits)) throw new KilnYamlError(`${path}.executionEnvelope.limits must be an array`);
   value.executionEnvelope.limits.forEach((limit, index) => validateEconomicAmount(limit, `${path}.executionEnvelope.limits[${index}]`));
-}
-
-function validateExecutionPriceEvidence(value: unknown, path: string): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  const kind = value.kind;
-  if (!["subscription", "included", "free", "metered", "unknown", "estimated"].includes(String(kind))) throw new KilnYamlError(`${path}.kind is invalid`);
-  const fields = kind === "included" ? ["kind", "allowanceId", "rateCardId", "rateCardRevision", "evidence"]
-    : kind === "metered" || kind === "estimated" ? ["kind", ...(kind === "estimated" ? ["estimationMethod"] : []), "rateCardId", "rateCardRevision", "unitPrices", "evidence"]
-      : kind === "unknown" ? ["kind", "reason", "rateCardId", "rateCardRevision", "evidence"]
-        : ["kind", "rateCardId", "rateCardRevision", "evidence"];
-  rejectUnknownFields(value, fields, path);
-  for (const field of fields.filter((field) => !["kind", "evidence", "unitPrices"].includes(field))) validateRequiredNonEmptyString(value, field, `${path}.${field}`);
-  validateExecutionEconomicEvidence(value.evidence, `${path}.evidence`);
-  if (kind === "metered" || kind === "estimated") {
-    if (!Array.isArray(value.unitPrices)) throw new KilnYamlError(`${path}.unitPrices must be an array`);
-    value.unitPrices.forEach((unitPrice, index) => {
-      const unitPath = `${path}.unitPrices[${index}]`;
-      if (!isRecord(unitPrice)) throw new KilnYamlError(`${unitPath} must be an object`);
-      rejectUnknownFields(unitPrice, ["usageUnit", "price"], unitPath);
-      validateRequiredNonEmptyString(unitPrice, "usageUnit", `${unitPath}.usageUnit`);
-      validateEconomicAmount(unitPrice.price, `${unitPath}.price`);
-    });
-  }
-}
-
-function validateExecutionEconomicEvidence(value: unknown, path: string): void {
-  if (!isRecord(value)) throw new KilnYamlError(`${path} must be an object`);
-  rejectUnknownFields(value, ["sourceIdentity", "sourceRevision", "sourceDigest", "observedAt", "validUntil", "confidence", "authority"], path);
-  for (const field of ["sourceIdentity", "sourceRevision", "sourceDigest", "observedAt", "validUntil"]) validateRequiredNonEmptyString(value, field, `${path}.${field}`);
-  if (!["high", "medium", "low"].includes(String(value.confidence))) throw new KilnYamlError(`${path}.confidence is invalid`);
-  if (!["provider-reported", "configured", "calculated-estimate"].includes(String(value.authority))) throw new KilnYamlError(`${path}.authority is invalid`);
 }
 
 function validateRouteAccountSelection(
@@ -1489,6 +1436,7 @@ function validateManagedTargetReferences(
   managedAgents: unknown,
   targetCatalog: unknown,
   authorityProfiles: unknown,
+  executionCatalog?: ExecutionCatalog,
 ): void {
   if (isRecord(managedAgents) && managedAgents.defaultAuthorityProfileId !== undefined) {
     const ids = new Set(Array.isArray(authorityProfiles)
@@ -1531,8 +1479,8 @@ function validateManagedTargetReferences(
       if (!accountPolicy || !Array.isArray(accountPolicy.accountIds)) {
         throw new KilnYamlError(`${path}.targetId must reference a target with a valid account policy`);
       }
-      const economics = isRecord(executionRoute.economics) ? executionRoute.economics : undefined;
-      if (!economics) throw new KilnYamlError(`${path}.targetId must reference target economics`);
+      const intentEconomics = isRecord(executionRoute.economics) ? executionRoute.economics : undefined;
+      if (!intentEconomics) throw new KilnYamlError(`${path}.targetId must reference target economics intent`);
       const domain = Array.isArray(economicPolicy.comparisonDomains)
         ? economicPolicy.comparisonDomains.find((entry) =>
             isRecord(entry) && entry.id === candidate.comparisonDomainId)
@@ -1540,6 +1488,22 @@ function validateManagedTargetReferences(
       if (!isRecord(domain)) {
         throw new KilnYamlError(`${path}.comparisonDomainId must reference a policy comparison domain`);
       }
+      if (intentEconomics.fallbackPosture !== "disabled" || intentEconomics.overagePosture !== "disabled") {
+        throw new KilnYamlError(`${path}.targetId cannot activate uncommitted fallback or overage`);
+      }
+      for (const accountId of accountPolicy.accountIds) {
+        const account = accounts.find((entry) => entry.id === accountId);
+        if (!account || !isRecord(account.economics)) {
+          throw new KilnYamlError(`${path}.targetId requires economics intent for every account candidate`);
+        }
+        if (account.economics.creditPosture !== "disabled" || account.economics.overagePosture !== "disabled") {
+          throw new KilnYamlError(`${path}.targetId cannot activate account credit or overage subcommitments`);
+        }
+      }
+      if (!executionCatalog) continue;
+      const resolvedRoute = executionCatalog.routes.find((entry) => entry.id === candidate.targetId);
+      const economics = resolvedRoute?.economics;
+      if (!economics) throw new KilnYamlError(`${path}.targetId must resolve current target economics evidence`);
       if (domain.rateCardBasis !== economics.rateCardBasis) {
         throw new KilnYamlError(`${path} comparison domain rateCardBasis must match route economics`);
       }
@@ -1551,20 +1515,9 @@ function validateManagedTargetReferences(
         isRecord(economics.priceEvidence) ? economics.priceEvidence.kind : undefined,
         path,
       );
-      validateRouteEconomicSchemes(economics, domain, path);
-      validateDerivedRouteReservation(candidate.worstCaseReservation, economics, domain, path);
-      if (economics.fallbackPosture !== "disabled" || economics.overagePosture !== "disabled") {
-        throw new KilnYamlError(`${path}.targetId cannot activate uncommitted fallback or overage`);
-      }
-      for (const accountId of accountPolicy.accountIds) {
-        const account = accounts.find((entry) => entry.id === accountId);
-        if (!account || !isRecord(account.economics)) {
-          throw new KilnYamlError(`${path}.targetId requires economics for every account candidate`);
-        }
-        if (account.economics.creditPosture !== "disabled" || account.economics.overagePosture !== "disabled") {
-          throw new KilnYamlError(`${path}.targetId cannot activate account credit or overage subcommitments`);
-        }
-      }
+      const economicsRecord = { ...economics };
+      validateRouteEconomicSchemes(economicsRecord, domain, path);
+      validateDerivedRouteReservation(candidate.worstCaseReservation, economicsRecord, domain, path);
     }
   }
 }

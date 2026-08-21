@@ -8,12 +8,13 @@ import {
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
 
 const baseConfig: KilnGlobalConfig = {
-  version: "3",
+  version: "4",
   engines: {
     codex: { enabled: true, billing: "plus-quota" },
     opencode: { enabled: true, billing: "free" },
   },
   targetCatalog: {
+    evidenceRevision: `sha256:${"a".repeat(64)}`,
     accounts: [],
     accountPolicies: [],
     targets: [{

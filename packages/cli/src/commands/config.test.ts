@@ -98,7 +98,7 @@ describe("config command", () => {
 
     await configCommand({} as never, "reset", ["--global"], root);
 
-    expect(readGlobalConfig()).toMatchObject({ version: "3" });
+    expect(readGlobalConfig()).toMatchObject({ version: "4" });
     expect(consoleLog.mock.calls.flat().join("\n")).toContain("backed up");
   });
 });

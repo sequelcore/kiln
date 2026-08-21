@@ -59,18 +59,19 @@ const chmodSyncMock = chmodSync as unknown as ReturnType<typeof vi.fn>;
 const fsyncSyncMock = fsyncSync as unknown as ReturnType<typeof vi.fn>;
 const homedirMock = homedir as unknown as ReturnType<typeof vi.fn>;
 
-const V3_DIRECT_TARGET_YAML = `    - { id: codex-terra, kind: direct, label: Codex Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, dataPolicyEvidence: { providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"f".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }, accountSelection: { mode: automatic, accountPolicyId: codex-policy }, economics: { adapterCapabilityId: codex-oauth, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: configured, envelopeSemantics: bounded, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: codex, rateCardRevision: v1, evidence: { sourceIdentity: global-config.test, sourceRevision: v1, sourceDigest: fixture, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }`;
-const V3_HARNESS_TARGET_YAML = `    - { id: claude-cli, kind: harness, label: Claude CLI, providerId: claude, providerModelId: claude-opus-4-6, dataClassification: internal, dataPolicyEvidence: { providerId: claude, providerModelId: claude-opus-4-6, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"e".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z } }`;
+const V4_DIRECT_TARGET_INTENT_YAML = "    - { id: codex-terra, kind: direct, label: Codex Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: codex-policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }";
+const V4_HARNESS_TARGET_INTENT_YAML = "    - { id: claude-cli, kind: harness, label: Claude CLI, providerId: claude, providerModelId: claude-opus-4-6, dataClassification: internal }";
 
-function canonicalV3GlobalYaml(): string {
+function canonicalV4GlobalYaml(): string {
   return [
-    'version: "3"',
+    'version: "4"',
     "targetCatalog:",
-    "  accounts: [{ id: codex-account, providerId: codex-oauth, credentialId: codex-credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: codex-account, subscriptionClass: subscription, quotaClassId: codex, creditPosture: disabled, overagePosture: disabled } }]",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
+    "  accounts: [{ id: codex-account, providerId: codex-oauth, credentialId: codex-credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
     "  accountPolicies: [{ id: codex-policy, accountIds: [codex-account], strategy: economic-least-pressure }]",
     "  targets:",
-    V3_DIRECT_TARGET_YAML,
-    V3_HARNESS_TARGET_YAML,
+    V4_DIRECT_TARGET_INTENT_YAML,
+    V4_HARNESS_TARGET_INTENT_YAML,
     "authorityProfiles:",
     "  - { id: readonly-scout, admissionProfile: foundation-readonly-plan, workingDirectory: project }",
     "targetRouting: { defaultTargetId: codex-terra }",
@@ -148,10 +149,11 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "targetCatalog:",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts:",
-        "    - { id: codex-primary, providerId: codex-oauth, credentialId: codex-primary, maxConcurrency: 2, reservedAffinitySlots: 1, economics: { capacityIdentity: codex-primary, subscriptionClass: subscription, quotaClassId: codex, creditPosture: disabled, overagePosture: disabled } }",
+        "    - { id: codex-primary, providerId: codex-oauth, credentialId: codex-primary, maxConcurrency: 2, reservedAffinitySlots: 1, economics: { creditPosture: disabled, overagePosture: disabled } }",
         "  accountPolicies:",
         "    - { id: codex-automatic, accountIds: [codex-primary], strategy: economic-least-pressure }",
         "  targets:",
@@ -161,9 +163,8 @@ describe("global-config", () => {
         "      providerId: codex-oauth",
         "      providerModelId: codex/gpt-5.6-terra",
         "      dataClassification: internal",
-        `      dataPolicyEvidence: { providerId: codex-oauth, providerModelId: codex/gpt-5.6-terra, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"b".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }`,
         "      accountSelection: { mode: automatic, accountPolicyId: codex-automatic }",
-        "      economics: { adapterCapabilityId: codex-oauth, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: subscription, envelopeSemantics: request, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: codex, rateCardRevision: v1, evidence: { sourceIdentity: provider, sourceRevision: v1, sourceDigest: digest, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } }",
+        "      economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } }",
         "targetRouting:",
         "  defaultTargetId: terra",
       ].join("\n"),
@@ -172,8 +173,9 @@ describe("global-config", () => {
     const config = readGlobalConfig();
 
     expect(config).toEqual({
-      version: "3",
+      version: "4",
       targetCatalog: {
+        evidenceRevision: `sha256:${"a".repeat(64)}`,
         accounts: [
           {
             id: "codex-primary",
@@ -182,9 +184,6 @@ describe("global-config", () => {
             maxConcurrency: 2,
             reservedAffinitySlots: 1,
             economics: {
-              capacityIdentity: "codex-primary",
-              subscriptionClass: "subscription",
-              quotaClassId: "codex",
               creditPosture: "disabled",
               overagePosture: "disabled",
             },
@@ -205,51 +204,16 @@ describe("global-config", () => {
             providerId: "codex-oauth",
             providerModelId: "codex/gpt-5.6-terra",
             dataClassification: "internal",
-            dataPolicyEvidence: {
-              providerId: "codex-oauth",
-              providerModelId: "codex/gpt-5.6-terra",
-              dataUse: "not-used",
-              trainingPosture: "prohibited",
-              retention: { posture: "zero", days: 0 },
-              permittedMaximumClassification: "internal",
-              permittedClassifications: ["public", "internal"],
-              sourceIdentity: "fixture-privacy",
-              sourceRevision: "rev-1",
-              sourceDigest: `sha256:${"b".repeat(64)}`,
-              observedAt: "2026-01-01T00:00:00Z",
-              expiresAt: "2027-01-01T00:00:00Z",
-            },
             accountSelection: {
               mode: "automatic",
               accountPolicyId: "codex-automatic",
             },
             economics: {
-              adapterCapabilityId: "codex-oauth",
-              adapterCapabilityVersion: "v1",
               authBillingChannel: "subscription",
               executionMode: "direct",
               serviceTier: "default",
-              rateCardBasis: "subscription",
-              envelopeSemantics: "request",
               fallbackPosture: "disabled",
               overagePosture: "disabled",
-              contextClass: "standard",
-              cacheClass: "none",
-              priceEvidence: {
-                kind: "subscription",
-                rateCardId: "codex",
-                rateCardRevision: "v1",
-                evidence: {
-                  sourceIdentity: "provider",
-                  sourceRevision: "v1",
-                  sourceDigest: "digest",
-                  observedAt: "2026-01-01T00:00:00Z",
-                  validUntil: "2027-01-01T00:00:00Z",
-                  confidence: "high",
-                  authority: "configured",
-                },
-              },
-              auxiliaryCharges: [],
               executionEnvelope: { limits: [] },
             },
           },
@@ -264,7 +228,7 @@ describe("global-config", () => {
   it("readGlobalConfig() accepts the operator-owned Dafny verifier declaration", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue([
-      'version: "3"',
+      'version: "4"',
       "verification:",
       "  formal:",
       "    dafny:",
@@ -288,19 +252,19 @@ describe("global-config", () => {
     ["non-canonical version", ["verification:", "  formal:", "    dafny:", "      executable: dafny", "      expectedVersion: 4.11"], "verification.formal.dafny.expectedVersion must be a canonical version"],
   ])("readGlobalConfig() rejects Dafny %s", (_case, lines, message) => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(['version: "3"', ...lines].join("\n"));
+    readFileSyncMock.mockReturnValue(['version: "4"', ...lines].join("\n"));
 
     expect(() => readGlobalConfig()).toThrow(message);
   });
 
-  it("readGlobalConfig() accepts the V3 target catalog and reusable authority profiles", () => {
+  it("readGlobalConfig() accepts the V4 target-intent catalog and reusable authority profiles", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue(canonicalV3GlobalYaml());
+    readFileSyncMock.mockReturnValue(canonicalV4GlobalYaml());
 
     const config = readGlobalConfig();
 
     expect(config).toMatchObject({
-      version: "3",
+      version: "4",
       targetCatalog: {
         accounts: [{ id: "codex-account" }],
         accountPolicies: [{ id: "codex-policy" }],
@@ -366,7 +330,7 @@ describe("global-config", () => {
     (_case, obsoleteYaml, message) => {
       existsSyncMock.mockReturnValue(true);
       readFileSyncMock.mockReturnValue(
-        ['version: "3"', obsoleteYaml].join("\n"),
+        ['version: "4"', obsoleteYaml].join("\n"),
       );
 
       expect(() => readGlobalConfig()).toThrow(message);
@@ -376,12 +340,12 @@ describe("global-config", () => {
   it.each([
     [
       "default operator target",
-      canonicalV3GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: claude-cli"),
+      canonicalV4GlobalYaml().replace("defaultTargetId: codex-terra", "defaultTargetId: claude-cli"),
       "targetRouting.defaultTargetId must reference a direct target",
     ],
     [
       "selected operator target",
-      canonicalV3GlobalYaml().replace("targetSelection: { targetId: codex-terra", "targetSelection: { targetId: claude-cli"),
+      canonicalV4GlobalYaml().replace("targetSelection: { targetId: codex-terra", "targetSelection: { targetId: claude-cli"),
       "ui.targetSelection.targetId must reference a direct target",
     ],
   ])("readGlobalConfig() rejects a harness as the %s", (_case, yaml, message) => {
@@ -393,15 +357,15 @@ describe("global-config", () => {
   it.each([
     [
       "target IDs",
-      canonicalV3GlobalYaml().replace(
-        V3_HARNESS_TARGET_YAML,
-        `${V3_HARNESS_TARGET_YAML}\n${V3_DIRECT_TARGET_YAML}`,
+      canonicalV4GlobalYaml().replace(
+        V4_HARNESS_TARGET_INTENT_YAML,
+        `${V4_HARNESS_TARGET_INTENT_YAML}\n${V4_DIRECT_TARGET_INTENT_YAML}`,
       ),
       "targetCatalog.targets[2].id must be unique",
     ],
     [
       "authority profile IDs",
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "targetRouting: { defaultTargetId: codex-terra }",
         "  - { id: readonly-scout, admissionProfile: foundation-readonly-plan, workingDirectory: sandbox }\ntargetRouting: { defaultTargetId: codex-terra }",
       ),
@@ -417,7 +381,7 @@ describe("global-config", () => {
   it("readGlobalConfig() requires economic candidates to use targetId", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "targetId: codex-terra, comparisonDomainId",
         "routeId: codex-terra, comparisonDomainId",
       ),
@@ -431,7 +395,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects economic candidates that reference harness targets", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "targetId: codex-terra, comparisonDomainId",
         "targetId: claude-cli, comparisonDomainId",
       ),
@@ -445,7 +409,7 @@ describe("global-config", () => {
   it.each([
     [
       "default target",
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "defaultTargetId: codex-terra",
         "defaultTargetId: missing-target",
       ),
@@ -453,7 +417,7 @@ describe("global-config", () => {
     ],
     [
       "selected target",
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "targetSelection: { targetId: codex-terra",
         "targetSelection: { targetId: missing-target",
       ),
@@ -461,7 +425,7 @@ describe("global-config", () => {
     ],
     [
       "default authority profile",
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "defaultAuthorityProfileId: readonly-scout",
         "defaultAuthorityProfileId: missing-profile",
       ),
@@ -469,7 +433,7 @@ describe("global-config", () => {
     ],
     [
       "economic target",
-      canonicalV3GlobalYaml().replace(
+      canonicalV4GlobalYaml().replace(
         "targetId: codex-terra, comparisonDomainId",
         "targetId: missing-target, comparisonDomainId",
       ),
@@ -486,15 +450,15 @@ describe("global-config", () => {
   );
 
   it.each([
-    ["V1", 'version: "1"', 'Global config version must be "3"'],
+    ["V1", 'version: "1"', 'Global config version must be "4"'],
     [
       "legacy direct models",
-      'version: "3"\ndirectModels: []',
+      'version: "4"\ndirectModels: []',
       "Unknown global config field: directModels",
     ],
     [
       "secret",
-      'version: "3"\ntargetCatalog: { accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: account, subscriptionClass: subscription, quotaClassId: quota, creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], targets: [] }',
+      `version: "4"\ntargetCatalog: { evidenceRevision: sha256:${"a".repeat(64)}, accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled }, token: raw-secret }], accountPolicies: [], targets: [] }`,
       "Unknown targetCatalog.accounts[0] field: token",
     ],
   ])("rejects %s", (_case, yaml, message) => {
@@ -507,11 +471,12 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "targetCatalog:",
-        "  accounts: [{ id: work, providerId: codex-oauth, credentialId: work, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: work, subscriptionClass: subscription, quotaClassId: quota, creditPosture: disabled, overagePosture: disabled } }]",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
+        "  accounts: [{ id: work, providerId: codex-oauth, credentialId: work, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
         "  accountPolicies: [{ id: work-policy, accountIds: [work], strategy: economic-least-pressure }]",
-        `  targets: [{ id: terra, kind: direct, label: Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, dataPolicyEvidence: { providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"c".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }, accountSelection: { mode: automatic, accountPolicyId: work-policy }, economics: { adapterCapabilityId: adapter, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: subscription, envelopeSemantics: request, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: card, rateCardRevision: v1, evidence: { sourceIdentity: provider, sourceRevision: v1, sourceDigest: digest, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }]`,
+        "  targets: [{ id: terra, kind: direct, label: Terra, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: work-policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
         "targetRouting: { defaultTargetId: terra }",
         "ui:",
         "  theme: phosphor",
@@ -534,7 +499,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "modelGateway:",
         "  port: 4819",
         "  replay: { ttlMs: 1000, maxEntries: 10, hmacKeyEnv: REPLAY_SECRET }",
@@ -552,7 +517,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "modelGateway:",
         "  port: 4819",
         "  token: raw-secret",
@@ -568,21 +533,21 @@ describe("global-config", () => {
     );
 
     expect(() => readGlobalConfig()).toThrow(
-      'Global config version must be "3". Recreate the canonical config through an explicit adoption flow.',
+      'Global config version must be "4". Recreate the canonical config through an explicit adoption flow.',
     );
   });
 
   it("readGlobalConfig() rejects unknown top-level fields and invalid billing modes", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "provider: codex"].join("\n"),
+      ['version: "4"', "provider: codex"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "Unknown global config field: provider",
     );
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "engines:", "  codex:", "    billing: credits"].join(
+      ['version: "4"', "engines:", "  codex:", "    billing: credits"].join(
         "\n",
       ),
     );
@@ -595,7 +560,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "identity:",
         "  name: Alex",
         "  timezone: America/Tijuana",
@@ -607,21 +572,21 @@ describe("global-config", () => {
     });
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "identity:", "  personality: helpful"].join("\n"),
+      ['version: "4"', "identity:", "  personality: helpful"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "Unknown identity field: personality",
     );
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "identity:", '  timezone: ""'].join("\n"),
+      ['version: "4"', "identity:", '  timezone: ""'].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "identity.timezone must be a non-empty string",
     );
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "identity:", "  timezone: Not/A_Timezone"].join("\n"),
+      ['version: "4"', "identity:", "  timezone: Not/A_Timezone"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "identity.timezone must be a valid IANA time zone",
@@ -632,7 +597,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "activeInstructionProfiles:",
         "  - sequel-engineering",
       ].join("\n"),
@@ -642,7 +607,7 @@ describe("global-config", () => {
     ]);
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "activeInstructionProfiles:", '  - ""'].join("\n"),
+      ['version: "4"', "activeInstructionProfiles:", '  - ""'].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "activeInstructionProfiles must be an array of non-empty strings",
@@ -653,7 +618,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "skills:",
         "  builtin:",
         "    enabled: true",
@@ -677,14 +642,14 @@ describe("global-config", () => {
     });
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "skills:", "  builtin:", "    enabled: yes"].join("\n"),
+      ['version: "4"', "skills:", "  builtin:", "    enabled: yes"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "skills.builtin.enabled must be a boolean",
     );
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "skills:", "  selection:", "    mode: eager"].join("\n"),
+      ['version: "4"', "skills:", "  selection:", "    mode: eager"].join("\n"),
     );
     expect(() => readGlobalConfig()).toThrow(
       "skills.selection.mode must be advisory or auto",
@@ -692,7 +657,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "skills:",
         "  visibility:",
         "    default: implicit",
@@ -708,7 +673,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "skills:",
         "  visibility:",
         "    overrides:",
@@ -721,7 +686,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "skills:",
         "  visibility:",
         "    overrides:",
@@ -747,7 +712,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "workGovernance:",
         "  defaultPosture: orchestrate",
         "  requireDelegationFor:",
@@ -767,7 +732,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "workGovernance:",
         "  requireDelegationFor:",
         "    - vibes",
@@ -779,7 +744,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "workGovernance:",
         "  directExecution:",
         "    maxFiles: 1",
@@ -794,7 +759,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "workGovernance:",
         "  boundedWorkCeiling:",
         "    unexpected: true",
@@ -806,7 +771,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "workGovernance:",
         "  boundedWorkCeiling:",
         "    maximumLimits:",
@@ -822,7 +787,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "web:",
         "  searchProvider:",
         "    type: tavily",
@@ -849,7 +814,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -904,7 +869,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -940,7 +905,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "operatorVoice:",
         "  stt:",
         "    provider: whisper-local",
@@ -967,7 +932,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "operatorVoice:",
         "  stt:",
         "    provider: imaginary-stt",
@@ -985,7 +950,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects global web authority fields", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "web:", "  enabled: true"].join("\n"),
+      ['version: "4"', "web:", "  enabled: true"].join("\n"),
     );
 
     expect(() => readGlobalConfig()).toThrow(
@@ -996,11 +961,12 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects invalid target catalog references and account selection", () => {
     existsSyncMock.mockReturnValue(true);
     const valid = [
-      'version: "3"',
+      'version: "4"',
       "targetCatalog:",
-      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: account, subscriptionClass: subscription, quotaClassId: quota, creditPosture: disabled, overagePosture: disabled } }]",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
+      "  accounts: [{ id: account, providerId: codex-oauth, credentialId: credential, maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: disabled, overagePosture: disabled } }]",
       "  accountPolicies: [{ id: policy, accountIds: [account], strategy: economic-least-pressure }]",
-      `  targets: [{ id: route, kind: direct, label: Route, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, dataPolicyEvidence: { providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"d".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }, accountSelection: { mode: automatic, accountPolicyId: policy }, economics: { adapterCapabilityId: adapter, adapterCapabilityVersion: v1, authBillingChannel: subscription, executionMode: direct, serviceTier: default, rateCardBasis: subscription, envelopeSemantics: request, fallbackPosture: disabled, overagePosture: disabled, contextClass: standard, cacheClass: none, priceEvidence: { kind: subscription, rateCardId: card, rateCardRevision: v1, evidence: { sourceIdentity: provider, sourceRevision: v1, sourceDigest: digest, observedAt: 2026-01-01T00:00:00Z, validUntil: 2027-01-01T00:00:00Z, confidence: high, authority: configured } }, auxiliaryCharges: [], executionEnvelope: { limits: [] } } }]`,
+      "  targets: [{ id: route, kind: direct, label: Route, providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataClassification: internal, accountSelection: { mode: automatic, accountPolicyId: policy }, economics: { authBillingChannel: subscription, executionMode: direct, serviceTier: default, fallbackPosture: disabled, overagePosture: disabled, executionEnvelope: { limits: [] } } }]",
       "targetRouting: { defaultTargetId: route }",
     ].join("\n");
 
@@ -1047,29 +1013,12 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       valid.replace(
-        "expiresAt: 2027-01-01T00:00:00Z",
-        "expiresAt: 2027-01-01T00:00:00Z, rawPolicy: secret",
+        "dataClassification: internal",
+        "dataClassification: internal, dataPolicyEvidence: { rawPolicy: secret }",
       ),
     );
     expect(() => readGlobalConfig()).toThrow(
-      "Unknown targetCatalog.targets[0].dataPolicyEvidence field: rawPolicy",
-    );
-
-    readFileSyncMock.mockReturnValue(
-      valid.replace(
-        "providerId: codex-oauth, providerModelId: gpt-5.6-terra, dataUse",
-        "providerId: other-provider, providerModelId: gpt-5.6-terra, dataUse",
-      ),
-    );
-    expect(() => readGlobalConfig()).toThrow(
-      "dataPolicyEvidence.providerId must match the target providerId",
-    );
-
-    readFileSyncMock.mockReturnValue(
-      valid.replace("trainingPosture: prohibited", "trainingPosture: permitted"),
-    );
-    expect(() => readGlobalConfig()).toThrow(
-      "may admit only public data when trainingPosture is permitted",
+      "Unknown targetCatalog.targets[0] field: dataPolicyEvidence",
     );
   });
 
@@ -1077,7 +1026,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "modelTaskSuitability:",
         "  - provider: codex-oauth",
         "    model: gpt-5.4-mini",
@@ -1099,7 +1048,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "modelTaskSuitability:",
         "  - provider: codex-oauth",
         "    model: gpt-5.4-mini",
@@ -1118,7 +1067,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "deliberationPolicy:",
         "  default:",
         "    mode: adaptive",
@@ -1166,7 +1115,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "deliberationPolicy:",
         "  byTask:",
         "    frontend-design:",
@@ -1179,7 +1128,7 @@ describe("global-config", () => {
     );
 
     readFileSyncMock.mockReturnValue(
-      ['version: "3"', "reasoningPolicy:", "  default: medium"].join("\n"),
+      ['version: "4"', "reasoningPolicy:", "  default: medium"].join("\n"),
     );
 
     expect(() => readGlobalConfig()).toThrow(
@@ -1191,7 +1140,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "authorityProfiles:",
         "  - id: approved-write",
         "    admissionProfile: foundation-apply-approved-writes",
@@ -1219,7 +1168,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "authorityProfiles:",
         "  - id: approved-write",
         "    admissionProfile: foundation-apply-approved-writes",
@@ -1238,7 +1187,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "managedAgents:",
         "  enabled: true",
         "  worktreeLease:",
@@ -1269,7 +1218,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "authorityProfiles:",
         "  - id: sandbox-readonly",
         "    admissionProfile: foundation-readonly-plan",
@@ -1287,8 +1236,9 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "targetCatalog:",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",
@@ -1298,13 +1248,10 @@ describe("global-config", () => {
         "      providerId: codex-cloud",
         "      providerModelId: gpt-5.5",
         "      dataClassification: internal",
-        `      dataPolicyEvidence: { providerId: codex-cloud, providerModelId: gpt-5.5, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"d".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }`,
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
         "        cancelUrl: https://remote.example.test/managed-agent/cancel",
         "        authTokenEnv: KILN_REMOTE_HARNESS_TOKEN",
-        "        limitations:",
-        "          - Remote harness reports aggregate token classes only.",
       ].join("\n"),
     );
 
@@ -1314,13 +1261,13 @@ describe("global-config", () => {
       invokeUrl: "https://remote.example.test/managed-agent/invoke",
       cancelUrl: "https://remote.example.test/managed-agent/cancel",
       authTokenEnv: "KILN_REMOTE_HARNESS_TOKEN",
-      limitations: ["Remote harness reports aggregate token classes only."],
     });
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "targetCatalog:",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",
@@ -1330,7 +1277,30 @@ describe("global-config", () => {
         "      providerId: codex-cloud",
         "      providerModelId: gpt-5.5",
         "      dataClassification: internal",
-        `      dataPolicyEvidence: { providerId: codex-cloud, providerModelId: gpt-5.5, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"d".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }`,
+        "      remoteHarness:",
+        "        invokeUrl: https://remote.example.test/managed-agent/invoke",
+        "        cancelUrl: https://remote.example.test/managed-agent/cancel",
+        "        limitations: [aggregate-only]",
+      ].join("\n"),
+    );
+    expect(() => readGlobalConfig()).toThrow(
+      "targetCatalog.targets[0].remoteHarness.limitations is managed evidence and cannot be declared as intent",
+    );
+
+    readFileSyncMock.mockReturnValue(
+      [
+        'version: "4"',
+        "targetCatalog:",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
+        "  accounts: []",
+        "  accountPolicies: []",
+        "  targets:",
+        "    - id: codex-cloud",
+        "      kind: harness",
+        "      label: Codex Cloud",
+        "      providerId: codex-cloud",
+        "      providerModelId: gpt-5.5",
+        "      dataClassification: internal",
         "      remoteHarness:",
         "        invokeUrl: https://remote.example.test/managed-agent/invoke",
         "        cancelUrl: ''",
@@ -1343,8 +1313,9 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "targetCatalog:",
+        `  evidenceRevision: sha256:${"a".repeat(64)}`,
         "  accounts: []",
         "  accountPolicies: []",
         "  targets:",
@@ -1354,7 +1325,6 @@ describe("global-config", () => {
         "      providerId: codex-cloud",
         "      providerModelId: gpt-5.5",
         "      dataClassification: internal",
-        `      dataPolicyEvidence: { providerId: codex-cloud, providerModelId: gpt-5.5, dataUse: not-used, trainingPosture: prohibited, retention: { posture: zero, days: 0 }, permittedMaximumClassification: internal, permittedClassifications: [public, internal], sourceIdentity: fixture-privacy, sourceRevision: rev-1, sourceDigest: sha256:${"d".repeat(64)}, observedAt: 2026-01-01T00:00:00Z, expiresAt: 2027-01-01T00:00:00Z }`,
         "      remoteHarness:",
         "        invokeUrl: http://remote.example.test/managed-agent/invoke",
         "        cancelUrl: https://remote.example.test/managed-agent/cancel",
@@ -1370,7 +1340,7 @@ describe("global-config", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "managedAgents:",
         "  worktreeLease:",
         "    mode: shell",
@@ -1384,7 +1354,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "managedAgents:",
         "  worktreeLease:",
         "    mode: git",
@@ -1397,7 +1367,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "authorityProfiles:",
         "  - id: invalid-workdir",
         "    admissionProfile: foundation-readonly-plan",
@@ -1411,7 +1381,7 @@ describe("global-config", () => {
 
     readFileSyncMock.mockReturnValue(
       [
-        'version: "3"',
+        'version: "4"',
         "managedAgents:",
         "  worktreeLease:",
         "    mode: git",
@@ -1428,7 +1398,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects unknown authority-profile tool fields", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue([
-      'version: "3"',
+      'version: "4"',
       "authorityProfiles:",
       "  - id: readonly-scout",
       "    admissionProfile: foundation-readonly-plan",
@@ -1443,7 +1413,7 @@ describe("global-config", () => {
   it("readGlobalConfig() rejects unsupported authority-profile memory access", () => {
     existsSyncMock.mockReturnValue(true);
     readFileSyncMock.mockReturnValue([
-      'version: "3"',
+      'version: "4"',
       "authorityProfiles:",
       "  - id: readonly-scout",
       "    admissionProfile: foundation-readonly-plan",
@@ -1467,7 +1437,7 @@ describe("global-config", () => {
     existsSyncMock.mockImplementation((path: string) =>
       String(path).endsWith("config.yaml"),
     );
-    readFileSyncMock.mockReturnValue('version: "3"\nui:\n  theme: phosphor\n');
+    readFileSyncMock.mockReturnValue('version: "4"\nui:\n  theme: phosphor\n');
     statSyncMock.mockReturnValue({ mode: 0o100640 });
 
     const result = mutateGlobalConfig((current) => ({
@@ -1520,7 +1490,7 @@ describe("global-config", () => {
 
   it("mutateGlobalConfig() returns deterministic revision conflict evidence without invoking the mutation", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('version: "3"\n');
+    readFileSyncMock.mockReturnValue('version: "4"\n');
     const mutation = vi.fn((current) => current ?? defaultGlobalConfig());
 
     expect(() =>
@@ -1543,7 +1513,7 @@ describe("global-config", () => {
 
   it("mutateGlobalConfig() preserves revision and avoids replacement for a semantic no-op", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('version: "3"\nui:\n  theme: phosphor\n');
+    readFileSyncMock.mockReturnValue('version: "4"\nui:\n  theme: phosphor\n');
 
     const result = mutateGlobalConfig((current) => ({ ...current! }));
 
@@ -1561,7 +1531,7 @@ describe("global-config", () => {
 
   it("mutateGlobalConfig() cannot delete a successor lock acquired after its atomic release claim", () => {
     existsSyncMock.mockReturnValue(true);
-    readFileSyncMock.mockReturnValue('version: "3"\n');
+    readFileSyncMock.mockReturnValue('version: "4"\n');
     const configPath = join("/home/test-user", ".kiln", "config.yaml");
     const lockPath = `${configPath}.lock`;
     let successorAcquired = false;
@@ -1668,7 +1638,7 @@ describe("global-config", () => {
           acquisitionId: staleAcquisitionId,
         });
       }
-      return 'version: "3"\n';
+      return 'version: "4"\n';
     });
     existsSyncMock.mockReturnValue(false);
     const kill = vi.spyOn(process, "kill").mockImplementation(() => {
@@ -1789,7 +1759,7 @@ describe("global-config", () => {
 
   it("defaultGlobalConfig() returns expected shape", () => {
     expect(defaultGlobalConfig()).toEqual({
-      version: "3",
+      version: "4",
       engines: {
         claude: { enabled: true, billing: "subscription" },
         codex: { enabled: false, billing: "plus-quota" },
@@ -1821,7 +1791,7 @@ describe("global-config", () => {
 
   it("resolves provider, model, and UI theme through projection helpers", () => {
     const config = {
-      version: "3" as const,
+      version: "4" as const,
       targetCatalog: {
         accounts: [
           {

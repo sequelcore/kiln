@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createExecutionRoute } from "../../src/application/execution-route-creation.js";
+import { executionTargetEvidenceRevision } from "../../src/config/execution-target-evidence-store.js";
 
 describe("createExecutionRoute", () => {
   it("commits with expected revision and refreshes only after success", async () => {
@@ -11,14 +12,14 @@ describe("createExecutionRoute", () => {
       return { config, previousRevision: "sha256:expected", revision: "sha256:next" };
     });
     const refresh = vi.fn(async () => { order.push("refresh"); });
-    const result = await createExecutionRoute({ draft: completeDraft(), expectedRevision: "sha256:expected", mutateGlobalConfig: mutate, refreshExecutionRoutes: refresh });
+    const result = await createExecutionRoute({ ...creationInput(), mutateGlobalConfig: mutate, refreshExecutionRoutes: refresh });
     expect(order).toEqual(["mutate", "refresh"]);
     expect(result.status).toBe("created");
   });
 
   it("reports a committed revision when only the post-commit refresh fails", async () => {
     const result = await createExecutionRoute({
-      draft: completeDraft(), expectedRevision: "sha256:expected",
+      ...creationInput(),
       mutateGlobalConfig: (mutation) => ({ config: mutation(emptyTargetConfig()), previousRevision: "sha256:expected", revision: "sha256:committed" }),
       refreshExecutionRoutes: async () => { throw new Error("refresh failed"); },
     });
@@ -28,16 +29,39 @@ describe("createExecutionRoute", () => {
   it.each(["revision drift", "invalid current config"])("does not refresh or partially apply when mutation rejects %s", async (message) => {
     const refresh = vi.fn();
     await expect(createExecutionRoute({
-      draft: completeDraft(),
-      expectedRevision: "sha256:expected",
+      ...creationInput(),
       mutateGlobalConfig: () => { throw new Error(message); },
       refreshExecutionRoutes: refresh,
     })).rejects.toThrow(message);
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("validates the complete intent/evidence pair before publishing either authority", async () => {
+    const input = creationInput();
+    const publishEvidence = vi.fn(input.publishEvidence);
+    const mutateGlobalConfig = vi.fn();
+
+    await expect(createExecutionRoute({
+      ...input,
+      draft: {
+        ...input.draft,
+        evidence: {
+          ...input.draft.evidence,
+          discovery: { ...input.draft.evidence.discovery, providerModelId: "different-model" },
+        },
+      },
+      publishEvidence,
+      mutateGlobalConfig,
+      refreshExecutionRoutes: vi.fn(),
+    })).rejects.toThrow("managed evidence provider model mismatch");
+
+    expect(publishEvidence).not.toHaveBeenCalled();
+    expect(mutateGlobalConfig).not.toHaveBeenCalled();
+  });
 });
 
 function completeDraft() {
+  const economics = routeEconomics();
   return {
     status: "complete" as const,
     discoveryIdentity: { providerId: "provider", providerRouteId: "provider:direct", providerModelId: "model" },
@@ -49,20 +73,91 @@ function completeDraft() {
       accountSelection: { mode: "exact" as const, accountId: "account" },
       dataClassification: "public" as const,
       dataPolicyEvidence: dataPolicyEvidence(),
-      economics: routeEconomics(),
+      economics,
+    },
+    intent: {
+      id: "route",
+      kind: "direct" as const,
+      label: "Route",
+      providerId: "provider",
+      providerModelId: "model",
+      accountSelection: { mode: "exact" as const, accountId: "account" },
+      dataClassification: "public" as const,
+      economics: {
+        authBillingChannel: economics.authBillingChannel,
+        executionMode: economics.executionMode,
+        serviceTier: economics.serviceTier,
+        fallbackPosture: economics.fallbackPosture,
+        overagePosture: economics.overagePosture,
+        executionEnvelope: economics.executionEnvelope,
+      },
+    },
+    evidence: {
+      targetId: "route",
+      kind: "direct" as const,
+      discovery: {
+        providerId: "provider",
+        providerRouteId: "provider:direct",
+        providerModelId: "model",
+        evidenceIdentity: "runtime-provider-catalog:fixture",
+        evidenceRevision: `sha256:${"d".repeat(64)}` as const,
+        observedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2027-01-01T00:00:00.000Z",
+      },
+      dataPolicyEvidence: dataPolicyEvidence(),
+      economics: {
+        adapterCapabilityId: economics.adapterCapabilityId,
+        adapterCapabilityVersion: economics.adapterCapabilityVersion,
+        rateCardBasis: economics.rateCardBasis,
+        envelopeSemantics: economics.envelopeSemantics,
+        contextClass: economics.contextClass,
+        cacheClass: economics.cacheClass,
+        priceEvidence: economics.priceEvidence,
+        auxiliaryCharges: economics.auxiliaryCharges,
+      },
     },
   };
 }
 
-function emptyTargetConfig() {
+function creationInput() {
+  const currentEvidence = emptyEvidence();
+  const currentIntent = emptyIntent(executionTargetEvidenceRevision(currentEvidence));
   return {
-    version: "3" as const,
-    targetCatalog: { accounts: [account()], accountPolicies: [], targets: [] },
+    draft: completeDraft(),
+    expectedRevision: "sha256:expected",
+    currentEvidence,
+    currentIntent,
+    publishEvidence: ({ snapshot }: { readonly snapshot: unknown }) => ({
+      revision: executionTargetEvidenceRevision(snapshot),
+      path: "fixture-evidence.json",
+      created: true,
+    }),
   };
 }
 
-function account() {
-  return { id: "account", providerId: "provider", credentialId: "opaque-ref", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { capacityIdentity: "fixture", subscriptionClass: "subscription" as const, quotaClassId: "fixture", creditPosture: "disabled" as const, overagePosture: "disabled" as const } };
+function emptyTargetConfig() {
+  const currentEvidence = emptyEvidence();
+  return {
+    version: "4" as const,
+    targetCatalog: emptyIntent(executionTargetEvidenceRevision(currentEvidence)),
+  };
+}
+
+function emptyIntent(evidenceRevision: `sha256:${string}`) {
+  return {
+    evidenceRevision,
+    accounts: [{ id: "account", providerId: "provider", credentialId: "opaque-ref", maxConcurrency: 1, reservedAffinitySlots: 0, economics: { creditPosture: "disabled" as const, overagePosture: "disabled" as const } }],
+    accountPolicies: [],
+    targets: [],
+  };
+}
+
+function emptyEvidence() {
+  return {
+    version: 1 as const,
+    accounts: [{ accountId: "account", providerId: "provider", economics: { capacityIdentity: "fixture", subscriptionClass: "subscription" as const, quotaClassId: "fixture" } }],
+    targets: [],
+  };
 }
 
 function routeEconomics() {

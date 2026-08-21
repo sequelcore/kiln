@@ -21,7 +21,7 @@ owned projections before it stops the listener.
 
 ## Requirements
 
-- Global config uses schema V3 and contains `targetCatalog`, `targetRouting`,
+- Global config uses schema V4, references current managed target evidence, and contains `targetCatalog`, `targetRouting`,
   and `modelGateway`.
 - Each virtual model references one configured `targetId`.
 - Every principal and replay `*Env` reference exists in the environment used by

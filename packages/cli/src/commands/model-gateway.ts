@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { userInfo } from "node:os";
-import { parseGatewayYaml, type ModelGatewayConfig } from "@kilnai/core";
+import { parseGatewayYaml, type ExecutionCatalog, type ModelGatewayConfig } from "@kilnai/core";
 import {
   ConfiguredExecutionAccountRuntime,
   ModelGatewaySupervisor,
@@ -26,7 +26,7 @@ import {
   type CodexResponsesNativeClientCompatibility,
 } from "@kilnai/runtime";
 import pkg from "../../package.json" with { type: "json" };
-import { projectDirectExecutionCatalog, readGlobalConfig, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { CANONICAL_GLOBAL_CONFIG_VERSION, readGlobalConfig, readGlobalExecutionCatalog, resolveGlobalConfigPath, resolveGlobalModelGatewayConfig, type KilnGlobalConfig } from "../config/global-config.js";
 import { resolveGlobalEconomicAuthorityDatabasePath } from "../config/global-economic-authority.js";
 import { syncGlobalOpenCodeModelGatewayProjection, type GlobalOpenCodeModelGatewayProjectionResult } from "../config/global-opencode-model-gateway-projection.js";
 import {
@@ -59,6 +59,7 @@ interface ModelGatewayCommandDependencies {
   readonly startModelGatewayListener: (options: StartModelGatewayListenerOptions) => Promise<{ close(): Promise<void>; readonly shutdownRequested: Promise<void> }>;
   readonly inspectModelGatewayListener: typeof inspectModelGatewayListener;
   readonly readGlobalConfig: () => KilnGlobalConfig | null;
+  readonly readExecutionCatalog: (config: KilnGlobalConfig | null) => ExecutionCatalog | undefined;
   readonly resolveGlobalConfigPath: () => string;
   readonly createSupervisor: (input: ConstructorParameters<typeof ModelGatewaySupervisor>[0]) => SupervisorSurface;
   readonly createAutostartAdapter: (input: { readonly runtimeDir: string; readonly userId: string }) => AutostartSurface;
@@ -86,6 +87,7 @@ const defaultDependencies: ModelGatewayCommandDependencies = {
   startModelGatewayListener,
   inspectModelGatewayListener,
   readGlobalConfig,
+  readExecutionCatalog: readGlobalExecutionCatalog,
   resolveGlobalConfigPath,
   createSupervisor: (input) => new ModelGatewaySupervisor(input),
   createAutostartAdapter: (input) => new WindowsModelGatewayAutostartAdapter(input),
@@ -176,7 +178,7 @@ export async function modelGatewayCommand(args: readonly string[], overrides: Pa
     return;
   }
   if (subcommand === "outcome-incidents") {
-    if (globalConfig?.version !== "3") throw new Error("Model gateway outcome inspection requires global V3 target authority.");
+    if (globalConfig?.version !== CANONICAL_GLOBAL_CONFIG_VERSION) throw new Error("Model gateway outcome inspection requires canonical global target authority.");
     const incidents = dependencies.readOutcomeIncidents(resolveGlobalEconomicAuthorityDatabasePath(dependencies.resolveGlobalConfigPath()));
     dependencies.log(flags.json ? JSON.stringify({ incidents }) : formatOutcomeIncidents(incidents));
     return;
@@ -344,7 +346,15 @@ async function startConfiguredModelGatewayListener(
   listener: Pick<StartModelGatewayListenerOptions, "config" | "databasePath" | "identity">,
   dependencies: ModelGatewayCommandDependencies,
 ): Promise<{ close(): Promise<void>; readonly shutdownRequested: Promise<void> }> {
-  const composition = createModelGatewayExecutionComposition(globalConfig, config, listener.databasePath, dependencies.env);
+  if (globalConfig?.version !== CANONICAL_GLOBAL_CONFIG_VERSION || !globalConfig.targetRouting) {
+    throw new Error("Model gateway execution requires canonical global config with targetCatalog and targetRouting.");
+  }
+  const composition = createModelGatewayExecutionComposition(
+    dependencies.readExecutionCatalog(globalConfig),
+    listener.databasePath,
+    dependencies.env,
+    createModelGatewayExecutionConfigurationRevision(globalConfig, config),
+  );
   let runtime: { close(): Promise<void>; readonly shutdownRequested: Promise<void> };
   try {
     runtime = await dependencies.startModelGatewayListener({
@@ -370,14 +380,13 @@ async function startConfiguredModelGatewayListener(
 }
 
 function createModelGatewayExecutionComposition(
-  globalConfig: KilnGlobalConfig | null,
-  config: ModelGatewayConfig,
+  executionCatalog: ExecutionCatalog | undefined,
   databasePath: string,
   env: Readonly<Record<string, string | undefined>>,
+  configurationRevision: string,
 ): { readonly bundle: ModelGatewayExecutionBundle; close(): void } {
-  const executionCatalog = projectDirectExecutionCatalog(globalConfig);
-  if (globalConfig?.version !== "3" || !executionCatalog || !globalConfig.targetRouting) {
-    throw new Error("Model gateway execution requires a global V3 config with targetCatalog and targetRouting.");
+  if (!executionCatalog) {
+    throw new Error("Model gateway execution requires admitted managed evidence for the configured target catalog.");
   }
   mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
   const accountRuntime = new ConfiguredExecutionAccountRuntime({
@@ -388,7 +397,7 @@ function createModelGatewayExecutionComposition(
     path: databasePath,
     participantKind: "model-gateway-ingress",
     recoveryDomain: "model-gateway",
-    configurationRevision: createModelGatewayExecutionConfigurationRevision(globalConfig, config),
+    configurationRevision,
   });
   try {
     accountCapacityAuthority.recoverAccountCapacity();

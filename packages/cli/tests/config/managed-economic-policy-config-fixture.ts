@@ -1,7 +1,12 @@
 import type { KilnGlobalConfig } from "../../src/config/global-config.js";
+import {
+  executionTargetEvidenceRevision,
+  projectExecutionCatalogFromIntent,
+  type ExecutionTargetEvidenceSnapshot,
+} from "../../src/config/execution-target-evidence-store.js";
 
 /**
- * Canonical V3 global config: a runtime-selected `codex-standard` target
+ * Canonical V4 global config: a runtime-selected `codex-standard` target
  * covered by a matching economic policy. Shared by
  * `managed-economic-policy-config.test.ts` (schema/runtime
  * validation of this shape) and `operator-project-agent-tasks-runtime-config.test.ts`
@@ -9,8 +14,9 @@ import type { KilnGlobalConfig } from "../../src/config/global-config.js";
  * same valid fixture rather than two independently drifting copies.
  */
 export function economicConfig(): KilnGlobalConfig {
+  const evidence = economicTargetEvidence();
   return {
-    version: "3",
+    version: "4",
     workGovernance: {
       defaultPosture: "direct",
       requireDelegationFor: ["managed-agents"],
@@ -67,6 +73,7 @@ export function economicConfig(): KilnGlobalConfig {
       memory: { access: "read-only" },
     }],
     targetCatalog: {
+      evidenceRevision: executionTargetEvidenceRevision(evidence),
       accounts: [{
         id: "codex-account",
         providerId: "codex-oauth",
@@ -74,9 +81,6 @@ export function economicConfig(): KilnGlobalConfig {
         maxConcurrency: 1,
         reservedAffinitySlots: 0,
         economics: {
-          capacityIdentity: "codex-capacity",
-          subscriptionClass: "metered",
-          quotaClassId: "codex-standard",
           creditPosture: "disabled",
           overagePosture: "disabled",
         },
@@ -93,57 +97,13 @@ export function economicConfig(): KilnGlobalConfig {
         providerId: "codex-oauth",
         providerModelId: "gpt-5.6-codex",
         dataClassification: "internal",
-        dataPolicyEvidence: {
-          providerId: "codex-oauth",
-          providerModelId: "gpt-5.6-codex",
-          dataUse: "not-used",
-          trainingPosture: "prohibited",
-          retention: { posture: "zero", days: 0 },
-          permittedMaximumClassification: "internal",
-          permittedClassifications: ["public", "internal"],
-          sourceIdentity: "fixture-privacy-policy",
-          sourceRevision: "rev-2026-08",
-          sourceDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          observedAt: "2026-08-01T00:00:00.000Z",
-          expiresAt: "2027-08-31T00:00:00.000Z",
-        },
         accountSelection: { mode: "automatic", accountPolicyId: "codex-standard-policy" },
         economics: {
-          adapterCapabilityId: "codex-direct",
-          adapterCapabilityVersion: "v1",
           authBillingChannel: "oauth-subscription",
           executionMode: "responses-api",
           serviceTier: "standard",
-          rateCardBasis: "public-rate-card",
-          envelopeSemantics: "configured-upper-bound",
           fallbackPosture: "disabled",
           overagePosture: "disabled",
-          contextClass: "standard-context",
-          cacheClass: "provider-cache",
-          priceEvidence: {
-            kind: "metered",
-            rateCardId: "codex-public",
-            rateCardRevision: "rev-2026-07",
-            unitPrices: [{
-              usageUnit: "input-token",
-              price: {
-                atoms: "125",
-                scale: 6,
-                unit: "input-token",
-                scheme: { kind: "currency", currency: "USD" },
-              },
-            }],
-            evidence: {
-              sourceIdentity: "openai-pricing",
-              sourceRevision: "rev-2026-07",
-              sourceDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              observedAt: "2026-07-29T00:00:00.000Z",
-              validUntil: "2026-08-29T00:00:00.000Z",
-              confidence: "high",
-              authority: "provider-reported",
-            },
-          },
-          auxiliaryCharges: [],
           executionEnvelope: {
             limits: [{
               atoms: "200000",
@@ -157,4 +117,88 @@ export function economicConfig(): KilnGlobalConfig {
     },
     targetRouting: { defaultTargetId: "codex-standard" },
   };
+}
+
+export function economicTargetEvidence(): ExecutionTargetEvidenceSnapshot {
+  return {
+    version: 1,
+    accounts: [{
+      accountId: "codex-account",
+      providerId: "codex-oauth",
+      economics: {
+        capacityIdentity: "codex-capacity",
+        subscriptionClass: "metered",
+        quotaClassId: "codex-standard",
+      },
+    }],
+    targets: [{
+      targetId: "codex-standard",
+      kind: "direct",
+      discovery: {
+        providerId: "codex-oauth",
+        providerRouteId: "gpt-5.6-codex",
+        providerModelId: "gpt-5.6-codex",
+        evidenceIdentity: "fixture-model-catalog",
+        evidenceRevision: `sha256:${"c".repeat(64)}`,
+        observedAt: "2026-08-01T00:00:00.000Z",
+        expiresAt: "2099-08-31T00:00:00.000Z",
+      },
+      dataPolicyEvidence: {
+        providerId: "codex-oauth",
+        providerModelId: "gpt-5.6-codex",
+        dataUse: "not-used",
+        trainingPosture: "prohibited",
+        retention: { posture: "zero", days: 0 },
+        permittedMaximumClassification: "internal",
+        permittedClassifications: ["public", "internal"],
+        sourceIdentity: "fixture-privacy-policy",
+        sourceRevision: "rev-2026-08",
+        sourceDigest: `sha256:${"b".repeat(64)}`,
+        observedAt: "2026-08-01T00:00:00.000Z",
+        expiresAt: "2099-08-31T00:00:00.000Z",
+      },
+      economics: {
+        adapterCapabilityId: "codex-direct",
+        adapterCapabilityVersion: "v1",
+        rateCardBasis: "public-rate-card",
+        envelopeSemantics: "configured-upper-bound",
+        contextClass: "standard-context",
+        cacheClass: "provider-cache",
+        priceEvidence: {
+          kind: "metered",
+          rateCardId: "codex-public",
+          rateCardRevision: "rev-2026-07",
+          unitPrices: [{
+            usageUnit: "input-token",
+            price: {
+              atoms: "125",
+              scale: 6,
+              unit: "input-token",
+              scheme: { kind: "currency", currency: "USD" },
+            },
+          }],
+          evidence: {
+            sourceIdentity: "openai-pricing",
+            sourceRevision: "rev-2026-07",
+            sourceDigest: `sha256:${"a".repeat(64)}`,
+            observedAt: "2026-07-29T00:00:00.000Z",
+            validUntil: "2099-08-29T00:00:00.000Z",
+            confidence: "high",
+            authority: "provider-reported",
+          },
+        },
+        auxiliaryCharges: [],
+      },
+    }],
+  };
+}
+
+export function economicExecutionCatalog() {
+  const config = economicConfig();
+  return projectExecutionCatalogFromIntent(
+    config.targetCatalog!,
+    economicTargetEvidence(),
+    config.targetCatalog!.evidenceRevision,
+    { now: new Date("2026-08-20T00:00:00.000Z") },
+  );
 }

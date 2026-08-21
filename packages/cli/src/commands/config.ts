@@ -234,7 +234,7 @@ export async function configCommand(
           () => defaultGlobalConfig(),
           { invalidCurrent: "backup-and-replace" },
         );
-        console.log("Global config reset to V3 defaults.");
+        console.log("Global config reset to V4 defaults.");
         if (result.invalidBackupPath) {
           console.log(`Previous invalid config backed up to ${result.invalidBackupPath}`);
         }
@@ -586,7 +586,7 @@ function printConfigHelp(): void {
   console.log("  setup [--apply|--action <id>] Inspect or execute setup recommendations");
   console.log("  approve <id>      Approve a stored config proposal for kiln_config.apply_change");
   console.log("  set [--global] <key> <value> Update a project or global config value");
-  console.log("  reset [--global]  Reset project config, or explicitly adopt clean global V3 defaults");
+  console.log("  reset [--global]  Reset project config, or explicitly adopt clean global V4 defaults");
   console.log("\nRead views: effective, providers, routes, agents, skills, permissions, memory, projections, setup, health");
   console.log(`\nValid keys: ${[...VALID_KEYS].join(", ")}`);
   console.log("");

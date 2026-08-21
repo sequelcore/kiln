@@ -22,7 +22,7 @@ import {
   readGlobalConfig,
   readGlobalConfigSnapshot,
   resolveGlobalUiTheme,
-  projectDirectExecutionCatalog,
+  readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
 import { withContextCandidates } from "../application/agent-skill-context.js";
@@ -1474,9 +1474,10 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
   );
   const startupTransport = resolveTuiStartupTransport(flags);
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the TUI.");
-  const operatorExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
-  if (!operatorExecutionCatalog) throw new Error("A direct target catalog is required to start the TUI.");
-  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig);
+  const executionTargetAuthority = readGlobalExecutionTargetAuthority(globalConfig);
+  if (!executionTargetAuthority) throw new Error("A direct target catalog is required to start the TUI.");
+  const operatorExecutionCatalog = executionTargetAuthority.executionCatalog;
+  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig, operatorExecutionCatalog);
   const provider = parseProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
   const workItemStore = new WorkItemStore();
@@ -1526,14 +1527,18 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
     ],
   }, "execute"));
   startupProfiler.mark("builtin-tool-options-created");
-  let managedRouteGlobalConfig = globalConfig;
+  let managedRouteGlobalConfig = {
+    ...globalConfig,
+    executionCatalog: operatorExecutionCatalog,
+    executionTargetEvidence: executionTargetAuthority.evidence,
+  };
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const operatorEconomicAuthority = appConfig.managedInvocation
     ? undefined
     : createOperatorSurfaceEconomicAuthority("tui", cwd);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
-    : await createStagedManagedInvocationRouteCatalog(globalConfig, {
+    : await createStagedManagedInvocationRouteCatalog(managedRouteGlobalConfig, {
       cwd,
       registry,
       surface: "tui",
@@ -1548,8 +1553,15 @@ export async function tuiCommand(appConfig: KilnAppConfig, flags: TuiFlags = {})
       managedEconomicAuthority: operatorEconomicAuthority?.authority,
     }, {
       reloadConfig: () => {
-        managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
-        managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+        const refreshedGlobalConfig = readGlobalConfig() ?? globalConfig;
+        const refreshedAuthority = readGlobalExecutionTargetAuthority(refreshedGlobalConfig);
+        if (!refreshedAuthority) throw new Error("A direct target catalog is required to refresh TUI routes.");
+        managedRouteGlobalConfig = {
+          ...refreshedGlobalConfig,
+          executionCatalog: refreshedAuthority.executionCatalog,
+          executionTargetEvidence: refreshedAuthority.evidence,
+        };
+        managedRouteEngineAvailability = resolveEngineAvailabilityMap(refreshedGlobalConfig);
         return managedRouteGlobalConfig;
       },
       onRefreshError: (error) => {

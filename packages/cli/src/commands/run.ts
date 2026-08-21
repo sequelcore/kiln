@@ -71,7 +71,7 @@ import {
 } from "../wrapper/session-store.js";
 import type { PersistedSessionMeta } from "../wrapper/session-store.js";
 import type { ResumeOutcome } from "../wrapper/index.js";
-import { projectDirectExecutionCatalog, readGlobalConfig, type KilnGlobalConfig } from "../config/global-config.js";
+import { readGlobalConfig, readGlobalExecutionCatalog, type KilnGlobalConfig } from "../config/global-config.js";
 import { loadKilnConfig, loadResolvedKilnMcpConfiguration } from "../config/config-merger.js";
 import { inferRouteTask, resolveExecutionRouteCandidates } from "../config/execution-route-resolver.js";
 import { resolveConfiguredDeliberation } from "../config/deliberation-policy.js";
@@ -137,6 +137,7 @@ import {
 } from "../application/operator-transcript-projection.js";
 import { canonicalSessionEventsFromTranscript } from "../application/runtime-session-rehydration.js";
 import type { ContextArtifactCache } from "@kilnai/core";
+import type { ExecutionCatalog } from "@kilnai/core";
 import type {
   ManagedInvocationToolOptions,
   EffectiveTurnAuthoritySnapshot,
@@ -1036,9 +1037,12 @@ export async function runCommand(
   // it asked for: a consumer parsing JSON cannot distinguish a stack trace from
   // a failed run.
   let configuredRouteCandidates: ReturnType<typeof resolveExecutionRouteCandidates>;
+  let executionCatalog: ExecutionCatalog | undefined;
   try {
+    executionCatalog = readGlobalExecutionCatalog(globalConfig);
     configuredRouteCandidates = resolveExecutionRouteCandidates({
       globalConfig,
+      executionCatalog,
       routeId: flags.target,
     });
   } catch (error) {
@@ -1079,10 +1083,12 @@ export async function runCommand(
   // second provider without a separate canonical lifecycle.
   const selectedExecutionRoute = configuredRouteCandidates[0]!;
   const selectedRouteCandidates = [selectedExecutionRoute] as const;
-  const executionCatalog = projectDirectExecutionCatalog(globalConfig);
   if (!executionCatalog) {
     throw new Error("A canonical execution catalog is required for CLI run.");
   }
+  const managedRouteConfig = globalConfig
+    ? { ...globalConfig, executionCatalog }
+    : undefined;
   const preferredProvider = selectedExecutionRoute.provider;
   const mode = resolveMode();
   if (
@@ -1355,7 +1361,7 @@ export async function runCommand(
   const operatorEconomicAuthority = runtimeAppConfig.managedInvocation
     ? undefined
     : createOperatorSurfaceEconomicAuthority("run", cwd);
-  const managedInvocationResolution = await resolveManagedInvocationToolOptions(globalConfig, {
+  const managedInvocationResolution = await resolveManagedInvocationToolOptions(managedRouteConfig, {
     cwd,
     registry,
     surface: "run",

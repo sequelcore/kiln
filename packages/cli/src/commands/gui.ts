@@ -6,7 +6,7 @@ import {
   readGlobalConfig,
   readGlobalConfigSnapshot,
   mutateGlobalConfig,
-  projectDirectExecutionCatalog,
+  readGlobalExecutionTargetAuthority,
 } from "../config/global-config.js";
 import { createCurrentExecutionRoute } from "../application/current-execution-route-creation.js";
 import { withGlobalIdentityContext } from "../config/operator-identity-context.js";
@@ -168,9 +168,10 @@ export async function guiCommand(
   const providerDisplay = getProviderDisplayInfo(registry);
   const providerIds = providerDisplay.map((provider) => provider.id);
   if (!globalConfig) throw new Error("An execution-route global configuration is required to start the GUI.");
-  const operatorExecutionCatalog = projectDirectExecutionCatalog(globalConfig);
-  if (!operatorExecutionCatalog) throw new Error("A direct target catalog is required to start the GUI.");
-  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig);
+  const executionTargetAuthority = readGlobalExecutionTargetAuthority(globalConfig);
+  if (!executionTargetAuthority) throw new Error("A direct target catalog is required to start the GUI.");
+  const operatorExecutionCatalog = executionTargetAuthority.executionCatalog;
+  const startupRoute = resolveOperatorStartupExecutionRoute(globalConfig, operatorExecutionCatalog);
   const provider = parseStartupProvider(startupRoute.providerId, providerIds);
   const startupModel = startupRoute.providerModelId;
   const transcriptStore = new TranscriptStore(cwd);
@@ -224,14 +225,18 @@ export async function guiCommand(
     ],
   }, "execute"));
   startupProfiler.mark("builtin-tool-options-created");
-  let managedRouteGlobalConfig = globalConfig;
+  let managedRouteGlobalConfig = {
+    ...globalConfig,
+    executionCatalog: operatorExecutionCatalog,
+    executionTargetEvidence: executionTargetAuthority.evidence,
+  };
   let managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
   const operatorEconomicAuthority = appConfig.managedInvocation
     ? undefined
     : createOperatorSurfaceEconomicAuthority("gui", cwd);
   const stagedManagedInvocation = appConfig.managedInvocation
     ? undefined
-    : await createStagedManagedInvocationRouteCatalog(globalConfig, {
+    : await createStagedManagedInvocationRouteCatalog(managedRouteGlobalConfig, {
       cwd,
       registry,
       surface: "gui",
@@ -246,8 +251,15 @@ export async function guiCommand(
       managedEconomicAuthority: operatorEconomicAuthority?.authority,
     }, {
       reloadConfig: () => {
-        managedRouteGlobalConfig = readGlobalConfig() ?? globalConfig;
-        managedRouteEngineAvailability = resolveEngineAvailabilityMap(managedRouteGlobalConfig);
+        const refreshedGlobalConfig = readGlobalConfig() ?? globalConfig;
+        const refreshedAuthority = readGlobalExecutionTargetAuthority(refreshedGlobalConfig);
+        if (!refreshedAuthority) throw new Error("A direct target catalog is required to refresh GUI routes.");
+        managedRouteGlobalConfig = {
+          ...refreshedGlobalConfig,
+          executionCatalog: refreshedAuthority.executionCatalog,
+          executionTargetEvidence: refreshedAuthority.evidence,
+        };
+        managedRouteEngineAvailability = resolveEngineAvailabilityMap(refreshedGlobalConfig);
         return managedRouteGlobalConfig;
       },
       onRefreshError: (error) => {
@@ -372,11 +384,18 @@ export async function guiCommand(
         admittedEvidence,
         resolveCurrentEvidence: async () => {
           const snapshot = readGlobalConfigSnapshot();
-          const executionCatalog = projectDirectExecutionCatalog(snapshot.config);
-          if (!executionCatalog) throw new Error("Direct target catalog is unavailable.");
+          const targetAuthority = readGlobalExecutionTargetAuthority(snapshot.config);
+          const targetIntent = snapshot.config?.targetCatalog;
+          if (!targetAuthority || !targetIntent) throw new Error("Direct target catalog is unavailable.");
           const discovery = projectGuiProviderModelDiscovery(await resolveGuiOperatorDiscoveryResults(getRuntimeProviderAvailability(registry)));
           const executionRouteCatalog = await executionRouteSelection.getCatalog();
-          return { catalog: projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog }), executionCatalog, revision: snapshot.revision };
+          return {
+            catalog: projectAvailableModelCatalogForExecutionRoutes({ discovery, executionRouteCatalog }),
+            executionCatalog: targetAuthority.executionCatalog,
+            targetIntent,
+            targetEvidence: targetAuthority.evidence,
+            revision: snapshot.revision,
+          };
         },
         mutateGlobalConfig,
         refreshExecutionRoutes: async () => { await executionRouteSelection.getCatalog(); },
