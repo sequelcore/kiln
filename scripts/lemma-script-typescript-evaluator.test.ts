@@ -1,18 +1,16 @@
 import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { TYPESCRIPT_OBSERVATION_SCHEMA } from "./lemma-script-differential-oracle.js";
 import {
-  CANONICAL_OUTPUT_PREFIX,
-  CANONICAL_OUTPUT_VERSION,
   type LemmaScriptTypescriptEvaluatorInput,
   main,
   runLemmaScriptTypescriptEvaluator,
 } from "./lemma-script-typescript-evaluator.js";
 
 const temporaryRoots: string[] = [];
-const evaluatorScript = resolve(import.meta.dirname, "lemma-script-typescript-evaluator.ts");
-const outputPrefix = `${CANONICAL_OUTPUT_PREFIX}/${CANONICAL_OUTPUT_VERSION}`;
+const outputPrefix = TYPESCRIPT_OBSERVATION_SCHEMA;
 
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -318,8 +316,4 @@ describe("main", () => {
     expect(source).not.toContain(fixture.root);
     expect(manifest).not.toContain(fixture.root);
   });
-});
-
-it("exports a usable evaluator entrypoint for process callers", () => {
-  expect(evaluatorScript.endsWith("lemma-script-typescript-evaluator.ts")).toBe(true);
 });

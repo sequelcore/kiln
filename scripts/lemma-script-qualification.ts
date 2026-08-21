@@ -27,6 +27,7 @@ export interface LemmaScriptProcessRequest {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly timeoutMs?: number;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 export interface LemmaScriptProcessResult {
@@ -197,7 +198,7 @@ const DAFNY_VERSION_OUTPUT_PATTERN =
   /^(?:dafny(?:\s+version)?\s+)?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))(?:\+[0-9A-Za-z.-]+)?$/iu;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const CLI_OPTIONS = new Set(["source", "lsc", "dafny", "lsc-version", "dafny-version", "functions", "timeout-ms"]);
-const DEFAULT_PROCESS_RUNNER: LemmaScriptProcessRunner = runProcess;
+const DEFAULT_PROCESS_RUNNER: LemmaScriptProcessRunner = runLemmaScriptProcess;
 const DEFAULT_CLEANUP: NonNullable<LemmaScriptQualificationOptions["cleanupWorkspace"]> = async (workspacePath) => {
   await rm(workspacePath, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
 };
@@ -742,12 +743,13 @@ function sanitizeMessage(message: string): string {
     .replace(/(^|[\s(])\/(?:[^/\s|;]+\/)+[^/\s|;]*/gu, "$1<path>");
 }
 
-async function runProcess(request: LemmaScriptProcessRequest): Promise<LemmaScriptProcessResult> {
+export async function runLemmaScriptProcess(request: LemmaScriptProcessRequest): Promise<LemmaScriptProcessResult> {
   return await new Promise((resolvePromise) => {
     const child = (() => {
       try {
         return spawn(request.executable, [...request.args], {
           cwd: request.cwd,
+          env: request.env,
           detached: process.platform !== "win32",
           windowsHide: true,
           stdio: ["ignore", "pipe", "pipe"],

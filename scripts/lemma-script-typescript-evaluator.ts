@@ -1,23 +1,20 @@
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  LEMMA_SCRIPT_ACCESS_POLICY_FUNCTION,
+  LEMMA_SCRIPT_CASE_KEYS,
+  type LemmaScriptCaseManifest,
+  parseLemmaScriptCases,
+  TYPESCRIPT_OBSERVATION_SCHEMA,
+} from "./lemma-script-differential-oracle.js";
 
-export const CANONICAL_OUTPUT_PREFIX = "kiln.lemma-script-typescript-evaluator";
-export const CANONICAL_OUTPUT_VERSION = "v1";
-export const CANONICAL_OUTPUT_SCHEMA = `${CANONICAL_OUTPUT_PREFIX}/${CANONICAL_OUTPUT_VERSION}`;
-export const EVALUATOR_FUNCTION_NAME = "accessPolicy";
-export const QUALIFICATION_CASE_MANIFEST_SCHEMA = "kiln.lemma-script-qualification-v1";
+const EVALUATOR_FUNCTION_NAME = LEMMA_SCRIPT_ACCESS_POLICY_FUNCTION;
 const REQUIRED_INPUT_KEYS = new Set(["sourcePath", "functionName", "caseManifestPath"]);
 const REQUIRED_ARGUMENTS = new Set(["source", "function", "manifest"]);
-const DOMAIN_ORDER = [
-  { authenticated: false, canRead: false },
-  { authenticated: false, canRead: true },
-  { authenticated: true, canRead: false },
-  { authenticated: true, canRead: true },
-] as const;
 let importSequence = 0;
 
-export type AccessDecision = "allow" | "deny";
+type AccessDecision = "allow" | "deny";
 
 export interface LemmaScriptTypescriptEvaluatorInput {
   readonly sourcePath: string;
@@ -25,25 +22,14 @@ export interface LemmaScriptTypescriptEvaluatorInput {
   readonly caseManifestPath: string;
 }
 
-export interface LemmaScriptTypescriptCase {
-  readonly authenticated: boolean;
-  readonly canRead: boolean;
-}
-
-export interface LemmaScriptTypescriptCaseManifest {
-  readonly schema: string;
-  readonly functionName: string;
-  readonly cases: readonly LemmaScriptTypescriptCase[];
-}
-
-export interface LemmaScriptTypescriptObservation {
+interface LemmaScriptTypescriptObservation {
   readonly authenticated: boolean;
   readonly canRead: boolean;
   readonly result: AccessDecision;
   readonly line: string;
 }
 
-export type LemmaScriptTypescriptEvaluatorErrorCode =
+type LemmaScriptTypescriptEvaluatorErrorCode =
   | "invalid_input"
   | "invalid_manifest"
   | "export_unavailable"
@@ -52,33 +38,24 @@ export type LemmaScriptTypescriptEvaluatorErrorCode =
   | "promise_result"
   | "invalid_result";
 
-export interface LemmaScriptTypescriptEvaluatorFailure {
+interface LemmaScriptTypescriptEvaluatorFailure {
   readonly ok: false;
-  readonly status: "failed";
   readonly code: LemmaScriptTypescriptEvaluatorErrorCode;
   readonly message: string;
-  readonly lines: readonly [];
   readonly output: "";
 }
 
-export interface LemmaScriptTypescriptEvaluatorSuccess {
+interface LemmaScriptTypescriptEvaluatorSuccess {
   readonly ok: true;
-  readonly status: "passed";
   readonly lines: readonly [string, string, string, string];
   readonly output: string;
-  readonly observations: readonly [
-    LemmaScriptTypescriptObservation,
-    LemmaScriptTypescriptObservation,
-    LemmaScriptTypescriptObservation,
-    LemmaScriptTypescriptObservation,
-  ];
 }
 
-export type LemmaScriptTypescriptEvaluatorResult =
+type LemmaScriptTypescriptEvaluatorResult =
   | LemmaScriptTypescriptEvaluatorSuccess
   | LemmaScriptTypescriptEvaluatorFailure;
 
-export interface ParsedLemmaScriptTypescriptEvaluatorArguments {
+interface ParsedLemmaScriptTypescriptEvaluatorArguments {
   readonly input?: LemmaScriptTypescriptEvaluatorInput;
   readonly error?: string;
 }
@@ -94,69 +71,10 @@ class EvaluatorFailure extends Error {
 }
 
 /**
- * Parse the deliberately small case-manifest contract. `expected` is not part
- * of the returned value: it is evidence for another layer, never an execution
- * input for this evaluator.
- */
-export function parseCaseManifest(
-  value: unknown,
-  functionName = EVALUATOR_FUNCTION_NAME,
-): LemmaScriptTypescriptCaseManifest {
-  if (!isRecord(value)) throw new EvaluatorFailure("invalid_manifest", "manifest is not an object");
-  if (!hasOnlyKeys(value, ["schema", "function", "inputs"])) {
-    throw new EvaluatorFailure("invalid_manifest", "manifest has unexpected fields");
-  }
-  const schema = value.schema;
-  if (schema !== QUALIFICATION_CASE_MANIFEST_SCHEMA) {
-    throw new EvaluatorFailure("invalid_manifest", "manifest schema is unsupported");
-  }
-  if (value.function !== functionName || typeof value.function !== "string") {
-    throw new EvaluatorFailure("invalid_manifest", "manifest function is not accessPolicy");
-  }
-  if (!Array.isArray(value.inputs) || value.inputs.length !== DOMAIN_ORDER.length) {
-    throw new EvaluatorFailure("invalid_manifest", "manifest must contain four cases");
-  }
-
-  const cases: LemmaScriptTypescriptCase[] = [];
-  const domains = new Set<string>();
-  for (const candidate of value.inputs) {
-    if (!isRecord(candidate) || !hasOnlyKeys(candidate, ["authenticated", "canRead", "expected"])) {
-      throw new EvaluatorFailure("invalid_manifest", "manifest case is malformed");
-    }
-    if (
-      typeof candidate.authenticated !== "boolean" ||
-      typeof candidate.canRead !== "boolean" ||
-      !Object.hasOwn(candidate, "expected") ||
-      !isAccessDecision(candidate.expected)
-    ) {
-      throw new EvaluatorFailure("invalid_manifest", "manifest case fields are malformed");
-    }
-    const key = domainKey(candidate.authenticated, candidate.canRead);
-    if (domains.has(key)) throw new EvaluatorFailure("invalid_manifest", "manifest contains a duplicate domain");
-    domains.add(key);
-    cases.push({ authenticated: candidate.authenticated, canRead: candidate.canRead });
-  }
-  for (const domain of DOMAIN_ORDER) {
-    if (!domains.has(domainKey(domain.authenticated, domain.canRead))) {
-      throw new EvaluatorFailure("invalid_manifest", "manifest is missing a domain");
-    }
-  }
-  return { schema, functionName, cases };
-}
-
-/**
- * Format one output observation. The prefix and version are constants so a
- * parent process can compare lines without parsing source-specific text.
- */
-export function formatCanonicalObservation(authenticated: boolean, canRead: boolean, result: AccessDecision): string {
-  return `${CANONICAL_OUTPUT_SCHEMA}|authenticated=${authenticated}|canRead=${canRead}|result=${result}`;
-}
-
-/**
  * Strictly parse `--name=value` arguments. Positional and space-separated
  * forms are rejected because they make process invocation ambiguous.
  */
-export function parseArguments(argv: readonly string[]): ParsedLemmaScriptTypescriptEvaluatorArguments {
+function parseArguments(argv: readonly string[]): ParsedLemmaScriptTypescriptEvaluatorArguments {
   const values = new Map<string, string>();
   for (const argument of argv) {
     if (!argument.startsWith("--")) return { error: "unexpected positional argument" };
@@ -187,7 +105,7 @@ export async function runLemmaScriptTypescriptEvaluator(input: unknown): Promise
     const parsedInput = validateInput(input);
     await assertRegularNonSymlinkSource(parsedInput.sourcePath);
     await assertRegularNonSymlinkManifest(parsedInput.caseManifestPath);
-    const manifest = await readManifest(parsedInput.caseManifestPath, parsedInput.functionName);
+    const manifest = await readManifest(parsedInput.caseManifestPath);
     await assertRegularNonSymlinkSource(parsedInput.sourcePath);
     const observations = await withSuppressedProcessOutput(async () => {
       const namespace = await importSource(parsedInput.sourcePath);
@@ -197,24 +115,13 @@ export async function runLemmaScriptTypescriptEvaluator(input: unknown): Promise
     const lines = observations.map(({ line }) => line) as [string, string, string, string];
     return {
       ok: true,
-      status: "passed",
       lines,
       output: `${lines.join("\n")}\n`,
-      observations,
     };
   } catch (error) {
     return toFailure(error);
   }
 }
-
-/** Compatibility spelling for callers that preserve the TypeScript brand casing. */
-export const runLemmaScriptTypeScriptEvaluator = runLemmaScriptTypescriptEvaluator;
-
-/** A named API alias useful to process-level and differential-oracle tests. */
-export const evaluateLemmaScriptTypescriptSource = runLemmaScriptTypescriptEvaluator;
-
-/** Compatibility spelling for callers that use TypeScript's conventional casing. */
-export const evaluateLemmaScriptTypeScriptSource = runLemmaScriptTypescriptEvaluator;
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const parsed = parseArguments(argv);
@@ -251,7 +158,7 @@ function validateInput(value: unknown): LemmaScriptTypescriptEvaluatorInput {
   };
 }
 
-async function readManifest(path: string, functionName: string): Promise<LemmaScriptTypescriptCaseManifest> {
+async function readManifest(path: string): Promise<LemmaScriptCaseManifest> {
   let text: string;
   try {
     text = await readFile(path, "utf8");
@@ -264,7 +171,11 @@ async function readManifest(path: string, functionName: string): Promise<LemmaSc
   } catch {
     throw new EvaluatorFailure("invalid_manifest", "manifest is not valid JSON");
   }
-  return parseCaseManifest(value, functionName);
+  const parsed = parseLemmaScriptCases(value);
+  if (parsed.status === "invalid") {
+    throw new EvaluatorFailure("invalid_manifest", "manifest is malformed");
+  }
+  return parsed.value;
 }
 
 async function assertRegularNonSymlinkSource(path: string): Promise<void> {
@@ -308,7 +219,7 @@ function getExport(namespace: unknown, functionName: string): (...args: readonly
 
 function evaluateCases(
   accessPolicy: (...args: readonly boolean[]) => unknown,
-  manifest: LemmaScriptTypescriptCaseManifest,
+  manifest: LemmaScriptCaseManifest,
 ): readonly [
   LemmaScriptTypescriptObservation,
   LemmaScriptTypescriptObservation,
@@ -316,15 +227,17 @@ function evaluateCases(
   LemmaScriptTypescriptObservation,
 ] {
   const byDomain = new Map(
-    manifest.cases.map((candidate) => [domainKey(candidate.authenticated, candidate.canRead), candidate]),
+    manifest.inputs.map((candidate) => [`${candidate.authenticated},${candidate.canRead}`, candidate]),
   );
   const observations: LemmaScriptTypescriptObservation[] = [];
-  for (const domain of DOMAIN_ORDER) {
-    const candidate = byDomain.get(domainKey(domain.authenticated, domain.canRead));
+  for (const key of LEMMA_SCRIPT_CASE_KEYS) {
+    const candidate = byDomain.get(key);
     if (candidate === undefined) throw new EvaluatorFailure("invalid_manifest", "manifest is missing a domain");
+    const authenticated = key.startsWith("true,");
+    const canRead = key.endsWith(",true");
     let value: unknown;
     try {
-      value = accessPolicy(candidate.authenticated, candidate.canRead);
+      value = accessPolicy(authenticated, canRead);
     } catch {
       throw new EvaluatorFailure("evaluation_failed", "evaluation failed");
     }
@@ -337,10 +250,10 @@ function evaluateCases(
     }
     const result = value as AccessDecision;
     observations.push({
-      authenticated: candidate.authenticated,
-      canRead: candidate.canRead,
+      authenticated,
+      canRead,
       result,
-      line: formatCanonicalObservation(candidate.authenticated, candidate.canRead, result),
+      line: `${TYPESCRIPT_OBSERVATION_SCHEMA}|authenticated=${authenticated}|canRead=${canRead}|result=${result}`,
     });
   }
   return observations as [
@@ -387,14 +300,12 @@ async function withSuppressedProcessOutput<T>(operation: () => Promise<T>): Prom
 
 function toFailure(error: unknown): LemmaScriptTypescriptEvaluatorFailure {
   if (error instanceof EvaluatorFailure) {
-    return { ok: false, status: "failed", code: error.code, message: error.message, lines: [], output: "" };
+    return { ok: false, code: error.code, message: error.message, output: "" };
   }
   return {
     ok: false,
-    status: "failed",
     code: "evaluation_failed",
     message: "evaluation failed",
-    lines: [],
     output: "",
   };
 }
@@ -409,14 +320,6 @@ function sanitizeMessage(message: string): string {
     .replace(/[\r\n\t]/gu, " ")
     .replace(/[^a-zA-Z0-9 ._-]/gu, "")
     .slice(0, 160);
-}
-
-function domainKey(authenticated: boolean, canRead: boolean): string {
-  return `${authenticated ? "1" : "0"}:${canRead ? "1" : "0"}`;
-}
-
-function isAccessDecision(value: unknown): value is AccessDecision {
-  return value === "allow" || value === "deny";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
