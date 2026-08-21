@@ -77,6 +77,49 @@ intent remains declarative. Managed evidence lives in named durable stores and
 is referenced by exact identity or revision when execution admission needs it.
 Effective state is a projection and never becomes mutation authority.
 
+### Economic And Managed-Agent Product Contract
+
+Kiln retains the internal economic machinery required to distinguish included
+allowance, subscription usage, genuinely free execution, metered spend,
+estimated cost, and unknown or non-comparable economics. Managed execution also
+retains atomic reservation, exact route commitment, dispatch fencing,
+authoritative settlement, recovery, and replay. Those concepts preserve runtime
+invariants; they are not the operator's authoring vocabulary.
+
+The common configuration surface asks only for material operator intent:
+
+- provider connection and preferred or inherited execution target;
+- managed-agent purpose and authority profile;
+- inherited or explicit model choice;
+- work limits such as turns, time, concurrency, or nesting when their owning
+  governance contract admits them;
+- paid-usage posture: included use only, ask before additional spend, an exact
+  enforceable monetary cap, or an explicit advanced uncapped posture.
+
+Kiln derives economic policy identity and revision, evidence requirements,
+comparison domains, candidate ordering, worst-case reservation, commitment, and
+settlement material through their existing owners. None of those derived values
+is required input in onboarding, common settings, managed-agent setup, or route
+creation. An exact monetary cap is offered only when current comparable evidence
+supports conservative reservation; estimated or unknown cost is never presented
+as a hard cap.
+
+Common surfaces use distinct terms instead of one overloaded `budget` label:
+
+- **usage** is observed consumption;
+- **provider allowance or quota** is provider-reported capacity and reset state;
+- **spend guard** is operator intent governing additional monetary spend;
+- **work limit** bounds turns, time, concurrency, nesting, or another admitted
+  unit of work;
+- **context limit** bounds model context or local token consumption;
+- **reservation** is internal economic evidence, never a common setting.
+
+Provider allowance, estimated cost, price freshness, reservation, settlement,
+and per-agent consumption project read-only with their source and confidence.
+A fallback or overage transition that changes billing class, model, provider, or
+price requires a new admitted commitment and any required operator approval; it
+cannot occur as adapter-local hidden fallback.
+
 Every configurable field exposed through a surface must have one descriptor
 that names:
 
@@ -116,6 +159,27 @@ choosing between a settings interface and a declarative file:
   complete JSON surface, source precedence, modified-value filters, reset, and
   profiles:
   <https://code.visualstudio.com/docs/configure/settings>.
+
+Economic and managed-agent surfaces reinforce the same boundary:
+
+- OpenCode exposes agent purpose, model, permissions, and a step limit while
+  inheriting the parent model when no override exists:
+  <https://opencode.ai/docs/agents/>;
+- Gemini CLI exposes interactive agent configuration, model, turn, and time
+  limits, while model fallback remains an internal policy with operator consent
+  on the common path:
+  <https://geminicli.com/docs/core/subagents/> and
+  <https://geminicli.com/docs/cli/model-routing/>;
+- Claude Code exposes model, effort, turn limits, and a simple run-level monetary
+  ceiling rather than asking users to author economic evidence:
+  <https://code.claude.com/docs/en/agent-sdk/agent-loop> and
+  <https://code.claude.com/docs/en/sub-agents>;
+- RouteLLM, FrugalGPT, and AI Agents That Matter support joint cost-quality
+  evaluation and evidence-backed routing, not an unevaluated `auto-cheapest`
+  default:
+  <https://arxiv.org/abs/2406.18665>,
+  <https://arxiv.org/abs/2305.05176>, and
+  <https://arxiv.org/abs/2407.01502>.
 
 Community reports are not contract evidence, but they identify recurring
 failure modes: hand-editing multiple agent configuration files, uncertainty
@@ -192,7 +256,7 @@ deletes the obsolete path in the same bounded slice.
   activation evidence.
 - Guided first-run adoption and common configuration operations.
 - Searchable GUI Settings with Basic, Providers, Models, Permissions, Tools,
-  Budgets, Agents, Health, and Advanced sections.
+  Usage and Limits, Agents, Health, and Advanced sections.
 - A model-target wizard that consumes Available Models and builds admitted target
   material without raw JSON entry.
 - Typed configuration operations shared by CLI, GUI, TUI, SDK, and admitted
@@ -217,6 +281,11 @@ deletes the obsolete path in the same bounded slice.
   stores.
 - No preset that embeds independent permission, route, data, or economic
   policy.
+- No common control that asks an operator to author economic policy identity,
+  revision, evidence requirements, comparison domains, reservation material, or
+  settlement state.
+- No generic `budget` abstraction that conflates provider allowance, monetary
+  spend, local tokens, context, time, turns, concurrency, or application billing.
 - No assumption that every change can apply live.
 - No hidden authority expansion, silent restart, or automatic credential use.
 - No credentials, raw tokens, operator paths, or incident payloads in canonical
@@ -381,9 +450,11 @@ Status: Ready.
 Generalize the existing governed lifecycle without creating a generic patch
 escape hatch. Add typed operations such as preference selection, provider
 connection intent, model-target creation or disablement, permission-profile
-selection, budget changes, and capability enablement. Every proposal binds its
-base revision, normalized operation, affected owners, preview, authority
-impact, activation plan, validation diagnostics, and rollback evidence.
+selection, spend-guard changes, work-limit changes, managed-agent configuration,
+and capability enablement. Public operations accept desired intent and never raw
+economic policy, evidence, reservation, or settlement material. Every proposal
+binds its base revision, normalized operation, affected owners, preview,
+authority impact, activation plan, validation diagnostics, and rollback evidence.
 
 Apply requires the matching durable approval when authority expands, rejects a
 stale base, writes atomically, invokes the single reconciliation owner, reads
@@ -403,9 +474,10 @@ Status: Blocked on Slices 1, 2, and 4.
 
 Implement a minimal first-run CLI flow and the equivalent GUI entry point. Ask
 only for provider connection, default target, safe permission posture,
-scope, and optional capabilities required for the first useful run. Resolve
-defaults and presets through canonical owners and emit only intent that differs
-materially from defaults.
+scope, and optional capabilities required for the first useful run. Ask for a
+paid-usage posture only when a connected route can cross from included use into
+additional spend. Resolve defaults and presets through canonical owners and emit
+only intent that differs materially from defaults.
 
 Acceptance: a new operator can complete a safe first turn without opening YAML;
 cancellation causes no partial state; rerun is idempotent; non-interactive mode
@@ -417,10 +489,13 @@ configuration.
 Status: Blocked on the descriptor and mutation contracts.
 
 Build one cross-surface settings information architecture: General, Providers,
-Models, Permissions, Tools, Budgets, Agents, Health, and Advanced. Common
-settings use curated task controls. Advanced mode provides descriptor-backed
-search, scope and source inspection, open-YAML, import/export, and validation;
-it does not expose an unbounded generated form tree by default.
+Models, Permissions, Tools, Usage and Limits, Agents, Health, and Advanced.
+Usage and Limits separates editable spend guards and work limits from read-only
+provider allowance, reset, observed usage, estimate, reservation, settlement,
+freshness, and confidence. Common settings use curated task controls. Advanced
+mode provides descriptor-backed search, scope and source inspection, open-YAML,
+import/export, and validation; it does not expose an unbounded generated form
+tree by default.
 
 Each control shows whether a value is inherited or overridden, where it will be
 written, what authority changes, and when it takes effect. Modified values can
@@ -445,6 +520,32 @@ typing internal IDs or evidence; stale discovery, changed identity, missing
 policy, revision conflict, or authority widening fails before mutation;
 success, rejection, and committed-but-reconciliation-failed are correlated and
 actionable.
+
+### Slice 7A - Managed-Agent Intent And Economic Visibility
+
+Status: Blocked on Slices 4, 6, and 7.
+
+Replace operator-authored managed economic policy material with minimal
+managed-agent intent. Common setup captures agent purpose, authority profile,
+inherited or explicit target/model choice, admitted work limits, and paid-usage
+posture. The economic authority derives immutable policy identity, comparable
+candidate material, reservation, commitment, and settlement evidence without a
+second policy owner or UI-local defaults.
+
+Project one cross-surface managed-run explanation: selected target and reason,
+billing class, provider allowance when reported, work-limit progress, reserved
+and settled amounts when comparable, per-child consumption, evidence freshness,
+and terminal cause. Reaching a limit returns a bounded partial handoff and
+distinguishes work-limit exhaustion, provider exhaustion, spend denial, and
+technical failure.
+
+Acceptance: a new operator can configure a bounded reviewer agent and prevent
+additional spend without editing YAML or naming an internal policy; unsupported
+hard monetary caps fail closed with an explanation; hidden fallback cannot
+change economics after commitment; fan-out and per-child consumption are
+visible; limit termination preserves available partial evidence. The replaced
+economic intent shape, validator, reader, writer, fixtures, docs, and operations
+are deleted in the same slice with no alias or dual read.
 
 ### Slice 8 - Live Activation And Reconciliation
 
@@ -499,6 +600,10 @@ named legacy residues are removed or classified as durable migration evidence.
   and dependency direction.
 - Common setup and model-route tasks require no manual YAML or raw material
   JSON.
+- Common managed-agent setup requires no economic policy ID, revision,
+  comparison-domain, reservation, or settlement input.
+- Usage, provider allowance, spend guards, work limits, context limits, and
+  reservations retain distinct names and owners across every surface.
 - YAML remains complete, schema-assisted, reviewable, exportable, and usable by
   automation.
 - Every exposed value reports scope, source, override, and activation behavior.
@@ -534,7 +639,9 @@ The track-level evidence set must include:
   behavior;
 - cross-surface semantic fixtures for the same operation and revision;
 - representative operator usability tasks measuring successful completion,
-  configuration errors, time to recover, and need to open advanced YAML.
+  configuration errors, time to recover, and need to open advanced YAML;
+- managed-agent fan-out, per-child usage, economic-transition approval,
+  enforceable-cap negatives, limit termination, and partial-handoff evidence.
 
 Live validation requires explicit operator authority when it touches real
 credentials, subscriptions, native harness configuration, network access,
@@ -549,6 +656,11 @@ existing operator can discover, explain, change, preview, apply, reconcile, and
 rollback common settings from any supported surface; and an advanced operator
 retains the complete declarative configuration surface with schema validation
 and exact authority semantics.
+
+A new operator must also be able to configure a bounded managed agent, prevent
+unapproved additional spend, inspect allowance and per-agent consumption, and
+understand why work stopped without learning Kiln's internal economic evidence
+model.
 
 Completion also requires that configuration no longer mixes human intent with
 duplicated managed evidence, that every effective value identifies its owner
